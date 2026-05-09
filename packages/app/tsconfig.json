@@ -18,7 +18,7 @@
     "outDir": "node_modules/.ts-dist",
     "isolatedModules": true,
     "paths": {
-      "@/*": ["./octoapp/*"]
+      "@/*": ["./octoapp/*", "./src/*"]
     }
   },
   "include": ["src", "octoapp", "package.json"],
