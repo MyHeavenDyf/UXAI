@@ -42,6 +42,8 @@ const it = testEffect(
         Skill.Service,
         Skill.Service.of({
           get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
+          getMany: (names) =>
+            Effect.succeed(names.map((n) => skills.find((s) => s.name === n)).filter((s): s is (typeof skills)[number] => s !== undefined)),
           all: () => Effect.succeed(skills),
           dirs: () => Effect.succeed([]),
           available: () => Effect.succeed(skills),

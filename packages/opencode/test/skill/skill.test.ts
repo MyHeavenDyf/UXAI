@@ -31,14 +31,14 @@ This skill is loaded from the global home directory.
 const withHome = <A, E, R>(home: string, self: Effect.Effect<A, E, R>) =>
   Effect.acquireUseRelease(
     Effect.sync(() => {
-      const prev = process.env.OPENCODE_TEST_HOME
-      process.env.OPENCODE_TEST_HOME = home
+      const prev = process.env.OCTO_TEST_HOME
+      process.env.OCTO_TEST_HOME = home
       return prev
     }),
     () => self,
     (prev) =>
       Effect.sync(() => {
-        process.env.OPENCODE_TEST_HOME = prev
+        process.env.OCTO_TEST_HOME = prev
       }),
   )
 
@@ -64,7 +64,7 @@ Instructions here.
 
           const skill = yield* Skill.Service
           const list = yield* skill.all()
-          expect(list.length).toBe(1)
+          expect(list.length).toBe(5)
           const item = list.find((x) => x.name === "test-skill")
           expect(item).toBeDefined()
           expect(item!.description).toBe("A test skill for verification.")
@@ -96,7 +96,7 @@ description: Skill for dirs test.
             const skill = yield* Skill.Service
             const dirs = yield* skill.dirs()
             expect(dirs).toContain(path.join(dir, ".opencode", "skill", "dir-skill"))
-            expect(dirs.length).toBe(1)
+            expect(dirs.length).toBe(5)
           }),
         ),
       { git: true },
@@ -134,7 +134,7 @@ description: Second test skill.
 
           const skill = yield* Skill.Service
           const list = yield* skill.all()
-          expect(list.length).toBe(2)
+          expect(list.length).toBe(6)
           expect(list.find((x) => x.name === "skill-one")).toBeDefined()
           expect(list.find((x) => x.name === "skill-two")).toBeDefined()
         }),
@@ -157,7 +157,10 @@ Just some content without YAML frontmatter.
           )
 
           const skill = yield* Skill.Service
-          expect(yield* skill.all()).toEqual([])
+          // 4 built-in agent skills remain, invalid skill should be skipped
+          const all = yield* skill.all()
+          expect(all.length).toBe(4)
+          expect(all.find((x) => x.location.includes("no-frontmatter"))).toBeUndefined()
         }),
       { git: true },
     ),
@@ -182,7 +185,7 @@ description: A skill in the .claude/skills directory.
 
           const skill = yield* Skill.Service
           const list = yield* skill.all()
-          expect(list.length).toBe(1)
+          expect(list.length).toBe(5)
           const item = list.find((x) => x.name === "claude-skill")
           expect(item).toBeDefined()
           expect(item!.location).toContain(path.join(".claude", "skills", "claude-skill", "SKILL.md"))
@@ -205,22 +208,26 @@ description: A skill in the .claude/skills directory.
           yield* Effect.gen(function* () {
             const skill = yield* Skill.Service
             const list = yield* skill.all()
-            expect(list.length).toBe(1)
-            expect(list[0].name).toBe("global-test-skill")
-            expect(list[0].description).toBe("A global skill from ~/.claude/skills for testing.")
-            expect(list[0].location).toContain(path.join(".claude", "skills", "global-test-skill", "SKILL.md"))
+            expect(list.length).toBe(5)
+            const globalSkill = list.find((x) => x.name === "global-test-skill")
+            expect(globalSkill).toBeDefined()
+            expect(globalSkill!.description).toBe("A global skill from ~/.claude/skills for testing.")
+            expect(globalSkill!.location).toContain(path.join(".claude", "skills", "global-test-skill", "SKILL.md"))
           }).pipe(provideInstance(tmp.path))
         }),
       )
     }),
   )
 
-  it.live("returns empty array when no skills exist", () =>
+  it.live("returns only built-in skills when no user skills exist", () =>
     provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
           const skill = yield* Skill.Service
-          expect(yield* skill.all()).toEqual([])
+          const all = yield* skill.all()
+          // Only the 4 built-in agent skills should be present
+          expect(all.length).toBe(4)
+          expect(all.every((s) => s.location.includes(path.join("agent", "skills")))).toBe(true)
         }),
       { git: true },
     ),
@@ -245,7 +252,7 @@ description: A skill in the .agents/skills directory.
 
           const skill = yield* Skill.Service
           const list = yield* skill.all()
-          expect(list.length).toBe(1)
+          expect(list.length).toBe(5)
           const item = list.find((x) => x.name === "agent-skill")
           expect(item).toBeDefined()
           expect(item!.location).toContain(path.join(".agents", "skills", "agent-skill", "SKILL.md"))
@@ -284,10 +291,11 @@ This skill is loaded from the global home directory.
           yield* Effect.gen(function* () {
             const skill = yield* Skill.Service
             const list = yield* skill.all()
-            expect(list.length).toBe(1)
-            expect(list[0].name).toBe("global-agent-skill")
-            expect(list[0].description).toBe("A global skill from ~/.agents/skills for testing.")
-            expect(list[0].location).toContain(path.join(".agents", "skills", "global-agent-skill", "SKILL.md"))
+            expect(list.length).toBe(5)
+            const globalAgentSkill = list.find((x) => x.name === "global-agent-skill")
+            expect(globalAgentSkill).toBeDefined()
+            expect(globalAgentSkill!.description).toBe("A global skill from ~/.agents/skills for testing.")
+            expect(globalAgentSkill!.location).toContain(path.join(".agents", "skills", "global-agent-skill", "SKILL.md"))
           }).pipe(provideInstance(tmp.path))
         }),
       )
@@ -325,7 +333,7 @@ description: A skill in the .agents/skills directory.
 
           const skill = yield* Skill.Service
           const list = yield* skill.all()
-          expect(list.length).toBe(2)
+          expect(list.length).toBe(6)
           expect(list.find((x) => x.name === "claude-skill")).toBeDefined()
           expect(list.find((x) => x.name === "agent-skill")).toBeDefined()
         }),
@@ -383,7 +391,7 @@ description: A skill in the .opencode/skills directory.
           )
 
           const skill = yield* Skill.Service
-          expect((yield* skill.dirs()).length).toBe(4)
+          expect((yield* skill.dirs()).length).toBe(8)
         }),
       { git: true },
     ),

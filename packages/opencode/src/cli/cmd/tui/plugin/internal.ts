@@ -26,5 +26,5 @@ export const INTERNAL_TUI_PLUGINS: InternalTuiPlugin[] = [
   SidebarFiles,
   SidebarFooter,
   PluginManager,
-  ...(Flag.OPENCODE_EXPERIMENTAL_EVENT_SYSTEM ? [SessionV2Debug] : []),
+  ...(Flag.OCTO_EXPERIMENTAL_EVENT_SYSTEM ? [SessionV2Debug] : []),
 ]

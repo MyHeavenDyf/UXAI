@@ -55,7 +55,7 @@ export const Info = z
   })
 export type Info = z.infer<typeof Info>
 
-export const USER_AGENT = `opencode/${InstallationChannel}/${InstallationVersion}/${Flag.OPENCODE_CLIENT}`
+export const USER_AGENT = `opencode/${InstallationChannel}/${InstallationVersion}/${Flag.OCTO_CLIENT}`
 
 export function isPreview() {
   return InstallationChannel !== "latest"

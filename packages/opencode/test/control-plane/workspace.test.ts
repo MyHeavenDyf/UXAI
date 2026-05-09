@@ -45,9 +45,9 @@ const testServerLayer = Layer.mergeAll(
 )
 const it = testEffect(testServerLayer)
 
-const originalWorkspacesFlag = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
+const originalWorkspacesFlag = Flag.OCTO_EXPERIMENTAL_WORKSPACES
 const originalEnv = {
-  OPENCODE_AUTH_CONTENT: process.env.OPENCODE_AUTH_CONTENT,
+  OCTO_AUTH_CONTENT: process.env.OCTO_AUTH_CONTENT,
   OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,
   OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
   OTEL_RESOURCE_ATTRIBUTES: process.env.OTEL_RESOURCE_ATTRIBUTES,
@@ -93,14 +93,14 @@ function restoreEnv() {
 
 beforeEach(() => {
   Database.close()
-  Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = true
+  Flag.OCTO_EXPERIMENTAL_WORKSPACES = true
   restoreEnv()
 })
 
 afterEach(async () => {
   mock.restore()
   await disposeAllInstances()
-  Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = originalWorkspacesFlag
+  Flag.OCTO_EXPERIMENTAL_WORKSPACES = originalWorkspacesFlag
   restoreEnv()
   await resetDatabase()
 })
@@ -404,7 +404,7 @@ describe("workspace-old CRUD", () => {
 
   test("create configures, persists, creates, starts local sync, and passes environment", async () => {
     await withInstance(async (dir) => {
-      process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({ test: { type: "api", key: "secret" } })
+      process.env.OCTO_AUTH_CONTENT = JSON.stringify({ test: { type: "api", key: "secret" } })
       process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=otel"
       process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otel.test"
       process.env.OTEL_RESOURCE_ATTRIBUTES = "service.name=opencode-test"
@@ -454,11 +454,11 @@ describe("workspace-old CRUD", () => {
       expect(recorded.calls.configure[0]).toMatchObject({ id: workspaceID, type, directory: null })
       expect(recorded.calls.create).toHaveLength(1)
       expect(recorded.calls.create[0].info).toEqual(info)
-      expect(JSON.parse(recorded.calls.create[0].env.OPENCODE_AUTH_CONTENT ?? "{}")).toEqual({
+      expect(JSON.parse(recorded.calls.create[0].env.OCTO_AUTH_CONTENT ?? "{}")).toEqual({
         test: { type: "api", key: "secret" },
       })
-      expect(recorded.calls.create[0].env.OPENCODE_WORKSPACE_ID).toBe(workspaceID)
-      expect(recorded.calls.create[0].env.OPENCODE_EXPERIMENTAL_WORKSPACES).toBe("true")
+      expect(recorded.calls.create[0].env.OCTO_WORKSPACE_ID).toBe(workspaceID)
+      expect(recorded.calls.create[0].env.OCTO_EXPERIMENTAL_WORKSPACES).toBe("true")
       expect(recorded.calls.create[0].env.OTEL_EXPORTER_OTLP_HEADERS).toBe("authorization=otel")
       expect(recorded.calls.create[0].env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe("https://otel.test")
       expect(recorded.calls.create[0].env.OTEL_RESOURCE_ATTRIBUTES).toBe("service.name=opencode-test")
@@ -808,7 +808,7 @@ describe("workspace-old CRUD", () => {
 describe("workspace-old sync state", () => {
   test("startWorkspaceSyncing is disabled by the experimental workspace flag", async () => {
     await withInstance(async (dir) => {
-      Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = false
+      Flag.OCTO_EXPERIMENTAL_WORKSPACES = false
       const type = unique("flag-disabled")
       const info = workspaceInfo(Instance.project.id, type)
       const session = await AppRuntime.runPromise(SessionNs.Service.use((svc) => svc.create({})))

@@ -61,9 +61,9 @@ export function preferAppEnv(userDataPath: string) {
     process.env,
     mergeShellEnv(shell ? loadShellEnv(shell) : null, {
       ...process.env,
-      OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
-      OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
-      OPENCODE_CLIENT: "desktop",
+      OCTO_EXPERIMENTAL_ICON_DISCOVERY: "true",
+      OCTO_EXPERIMENTAL_FILEWATCHER: "true",
+      OCTO_CLIENT: "desktop",
       XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
     }),
   )

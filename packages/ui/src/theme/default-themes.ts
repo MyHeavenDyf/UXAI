@@ -63,6 +63,7 @@ export const nordTheme = nordThemeJson as DesktopTheme
 export const oneDarkTheme = oneDarkThemeJson as DesktopTheme
 export const oneDarkProTheme = oneDarkProThemeJson as DesktopTheme
 export const opencodeTheme = opencodeThemeJson as DesktopTheme
+export const octoTheme = opencodeTheme
 export const orngTheme = orngThemeJson as DesktopTheme
 export const osakaJadeTheme = osakaJadeThemeJson as DesktopTheme
 export const palenightTheme = palenightThemeJson as DesktopTheme
@@ -101,6 +102,7 @@ export const DEFAULT_THEMES: Record<string, DesktopTheme> = {
   nord: nordTheme,
   "one-dark": oneDarkTheme,
   onedarkpro: oneDarkProTheme,
+  octo: octoTheme,
   opencode: opencodeTheme,
   orng: orngTheme,
   "osaka-jade": osakaJadeTheme,

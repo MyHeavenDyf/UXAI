@@ -6,7 +6,7 @@
  * small scenario that proves the Effect route decodes requests, uses the right instance
  * context, mutates storage when expected, and returns a compatible response shape.
  *
- * The script intentionally isolates `OPENCODE_DB` before importing modules that touch
+ * The script intentionally isolates `OCTO_DB` before importing modules that touch
  * storage. Scenarios may create/delete sessions and reset the database after each run,
  * so this must never point at a developer's real session database.
  *
@@ -31,24 +31,24 @@ import type { Worktree } from "../src/worktree"
 import type { Project } from "../src/project/project"
 import path from "path"
 
-const preserveExerciseGlobalRoot = !!process.env.OPENCODE_HTTPAPI_EXERCISE_GLOBAL
+const preserveExerciseGlobalRoot = !!process.env.OCTO_HTTPAPI_EXERCISE_GLOBAL
 const exerciseGlobalRoot =
-  process.env.OPENCODE_HTTPAPI_EXERCISE_GLOBAL ??
+  process.env.OCTO_HTTPAPI_EXERCISE_GLOBAL ??
   path.join(process.env.TMPDIR ?? "/tmp", `opencode-httpapi-global-${process.pid}`)
 process.env.XDG_DATA_HOME = path.join(exerciseGlobalRoot, "data")
 process.env.XDG_CONFIG_HOME = path.join(exerciseGlobalRoot, "config")
 process.env.XDG_STATE_HOME = path.join(exerciseGlobalRoot, "state")
 process.env.XDG_CACHE_HOME = path.join(exerciseGlobalRoot, "cache")
-process.env.OPENCODE_DISABLE_SHARE = "true"
+process.env.OCTO_DISABLE_SHARE = "true"
 const exerciseConfigDirectory = path.join(exerciseGlobalRoot, "config", "opencode")
 const exerciseDataDirectory = path.join(exerciseGlobalRoot, "data", "opencode")
 
-const preserveExerciseDatabase = !!process.env.OPENCODE_HTTPAPI_EXERCISE_DB
+const preserveExerciseDatabase = !!process.env.OCTO_HTTPAPI_EXERCISE_DB
 const exerciseDatabasePath =
-  process.env.OPENCODE_HTTPAPI_EXERCISE_DB ??
+  process.env.OCTO_HTTPAPI_EXERCISE_DB ??
   path.join(process.env.TMPDIR ?? "/tmp", `opencode-httpapi-exercise-${process.pid}.db`)
-process.env.OPENCODE_DB = exerciseDatabasePath
-Flag.OPENCODE_DB = exerciseDatabasePath
+process.env.OCTO_DB = exerciseDatabasePath
+Flag.OCTO_DB = exerciseDatabasePath
 
 void (await import("@opencode-ai/core/util/log")).init({ print: false })
 
@@ -165,9 +165,9 @@ type TodoInfo = { content: string; status: string; priority: string }
 type MessageSeed = { info: MessageV2.User; part: MessageV2.TextPart }
 
 const original = {
-  OPENCODE_EXPERIMENTAL_HTTPAPI: Flag.OPENCODE_EXPERIMENTAL_HTTPAPI,
-  OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
-  OPENCODE_SERVER_USERNAME: Flag.OPENCODE_SERVER_USERNAME,
+  OCTO_EXPERIMENTAL_HTTPAPI: Flag.OCTO_EXPERIMENTAL_HTTPAPI,
+  OCTO_SERVER_PASSWORD: Flag.OCTO_SERVER_PASSWORD,
+  OCTO_SERVER_USERNAME: Flag.OCTO_SERVER_USERNAME,
 }
 
 type Runtime = {
@@ -1639,9 +1639,9 @@ function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<un
                 sessionID,
                 role: "user",
                 time: { created: Date.now() },
-                agent: "build",
+                agent: "octo_ai",
                 model: {
-                  providerID: ProviderID.opencode,
+                  providerID: ProviderID.octo,
                   modelID: ModelID.make("test"),
                 },
               }
@@ -1748,9 +1748,9 @@ function call(backend: Backend, scenario: ActiveScenario, ctx: SeededContext<unk
 const appCache: Partial<Record<Backend, BackendApp>> = {}
 
 function app(modules: Runtime, backend: Backend) {
-  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = backend === "effect"
-  Flag.OPENCODE_SERVER_PASSWORD = undefined
-  Flag.OPENCODE_SERVER_USERNAME = undefined
+  Flag.OCTO_EXPERIMENTAL_HTTPAPI = backend === "effect"
+  Flag.OCTO_SERVER_PASSWORD = undefined
+  Flag.OCTO_SERVER_USERNAME = undefined
   if (appCache[backend]) return appCache[backend]
   if (backend === "legacy") {
     const legacy = modules.Server.Legacy().app
@@ -1763,7 +1763,7 @@ function app(modules: Runtime, backend: Backend) {
     modules.ExperimentalHttpApiServer.routes.pipe(
       Layer.provide(
         ConfigProvider.layer(
-          ConfigProvider.fromUnknown({ OPENCODE_SERVER_PASSWORD: undefined, OPENCODE_SERVER_USERNAME: undefined }),
+          ConfigProvider.fromUnknown({ OCTO_SERVER_PASSWORD: undefined, OCTO_SERVER_USERNAME: undefined }),
         ),
       ),
     ),
@@ -1841,9 +1841,9 @@ function compare(scenario: ActiveScenario, effect: CallResult, legacy: CallResul
 
 const resetState = Effect.promise(async () => {
   const modules = await runtime()
-  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original.OPENCODE_EXPERIMENTAL_HTTPAPI
-  Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
-  Flag.OPENCODE_SERVER_USERNAME = original.OPENCODE_SERVER_USERNAME
+  Flag.OCTO_EXPERIMENTAL_HTTPAPI = original.OCTO_EXPERIMENTAL_HTTPAPI
+  Flag.OCTO_SERVER_PASSWORD = original.OCTO_SERVER_PASSWORD
+  Flag.OCTO_SERVER_USERNAME = original.OCTO_SERVER_USERNAME
   await modules.disposeAllInstances()
   await modules.resetDatabase()
   await Bun.sleep(25)

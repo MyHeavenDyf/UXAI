@@ -13,16 +13,16 @@ import { testEffect } from "../lib/effect"
 const testStateLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const original = {
-      OPENCODE_EXPERIMENTAL_HTTPAPI: Flag.OPENCODE_EXPERIMENTAL_HTTPAPI,
-      OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
+      OCTO_EXPERIMENTAL_HTTPAPI: Flag.OCTO_EXPERIMENTAL_HTTPAPI,
+      OCTO_SERVER_PASSWORD: Flag.OCTO_SERVER_PASSWORD,
     }
-    Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = true
-    Flag.OPENCODE_SERVER_PASSWORD = "secret"
+    Flag.OCTO_EXPERIMENTAL_HTTPAPI = true
+    Flag.OCTO_SERVER_PASSWORD = "secret"
     yield* Effect.promise(() => resetDatabase())
     yield* Effect.addFinalizer(() =>
       Effect.promise(async () => {
-        Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original.OPENCODE_EXPERIMENTAL_HTTPAPI
-        Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
+        Flag.OCTO_EXPERIMENTAL_HTTPAPI = original.OCTO_EXPERIMENTAL_HTTPAPI
+        Flag.OCTO_SERVER_PASSWORD = original.OCTO_SERVER_PASSWORD
         await resetDatabase()
       }),
     )

@@ -539,17 +539,17 @@ export class Agent implements ACPAgent {
 
     const authMethod: AuthMethod = {
       description: "Run `opencode auth login` in the terminal",
-      name: "Login with opencode",
-      id: "opencode-login",
+      name: "Login with octo",
+      id: "octo-login",
     }
 
     // If client supports terminal-auth capability, use that instead.
     if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
       authMethod._meta = {
         "terminal-auth": {
-          command: "opencode",
+          command: "octo",
           args: ["auth", "login"],
-          label: "OpenCode Login",
+          label: "Octo AI Login",
         },
       }
     }
@@ -1686,7 +1686,7 @@ async function defaultModel(config: ACPConfig, cwd?: string): Promise<{ provider
   const lastUsed = await lastUsedModel(sdk, directory, providers)
   if (lastUsed) return lastUsed
 
-  const opencodeProvider = providers.find((p) => p.id === "opencode")
+  const opencodeProvider = providers.find((p) => p.id === "octo")
   if (opencodeProvider) {
     const [best] = Provider.sort(Object.values(opencodeProvider.models))
     if (best) {

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -i 's/OpenCode Sans Sample/Octo AI Sans Sample/g; s/OpenCode Mono Sample/Octo AI Mono Sample/g' packages/ui/src/components/font.stories.tsx)",
+      "Bash(sed -i 's/OpenCode logo assets/Octo AI logo assets/g' packages/ui/src/components/logo.stories.tsx)",
+      "Bash(sed -i 's/built-in OpenCode icon set/built-in Octo AI icon set/g' packages/ui/src/components/icon.stories.tsx)",
+      "Bash(xargs sed -i 's/provider === \"opencode\"/provider === \"octo\"/g; s/provider\\\\.id === \"opencode\"/provider.id === \"octo\"/g; s/provider\\\\.id !== \"opencode\"/provider.id !== \"octo\"/g; s/\\\\.id !== \"opencode\"/.id !== \"octo\"/g; s/clientInfo: { name: \"opencode\"/clientInfo: { name: \"octo\"/g; s/name: \"opencode-debug\"/name: \"octo-debug\"/g')",
+      "Bash(sed -i 's/\\\\/\\\\.opencode\\\\/command\\\\/, \\\\/\\\\.opencode\\\\/commands\\\\/, \\\\/command\\\\/, \\\\/commands\\\\/]/\\\\/.octo\\\\/command\\\\/, \\\\/.octo\\\\/commands\\\\/, \\\\/.opencode\\\\/command\\\\/, \\\\/.opencode\\\\/commands\\\\/, \\\\/command\\\\/, \\\\/commands\\\\/]/g' packages/opencode/src/config/command.ts)",
+      "Bash(sed -i 's/\\\\/\\\\.opencode\\\\/agent\\\\/, \\\\/\\\\.opencode\\\\/agents\\\\/, \\\\/agent\\\\/, \\\\/agents\\\\/]/\\\\/.octo\\\\/agent\\\\/, \\\\/.octo\\\\/agents\\\\/, \\\\/.opencode\\\\/agent\\\\/, \\\\/.opencode\\\\/agents\\\\/, \\\\/agent\\\\/, \\\\/agents\\\\/]/g' packages/opencode/src/config/agent.ts)"
+    ]
+  }
+}

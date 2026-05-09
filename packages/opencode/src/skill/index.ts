@@ -22,7 +22,7 @@ const log = Log.create({ service: "skill" })
 const CLAUDE_EXTERNAL_DIR = ".claude"
 const AGENTS_EXTERNAL_DIR = ".agents"
 const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
-const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
+const OCTO_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
 const SKILL_PATTERN = "**/SKILL.md"
 
 export const Info = Schema.Struct({
@@ -68,6 +68,7 @@ type ScanState = {
 
 export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
+  readonly getMany: (names: string[]) => Effect.Effect<Info[]>
   readonly all: () => Effect.Effect<Info[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
@@ -154,8 +155,8 @@ const discoverSkills = Effect.fnUntraced(function* (
   const state: ScanState = { matches: new Set(), dirs: new Set() }
 
   const externalDirs: string[] = []
-  if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
-    if (!Flag.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS) externalDirs.push(CLAUDE_EXTERNAL_DIR)
+  if (!Flag.OCTO_DISABLE_EXTERNAL_SKILLS) {
+    if (!Flag.OCTO_DISABLE_CLAUDE_CODE_SKILLS) externalDirs.push(CLAUDE_EXTERNAL_DIR)
     externalDirs.push(AGENTS_EXTERNAL_DIR)
 
     for (const dir of externalDirs) {
@@ -175,7 +176,16 @@ const discoverSkills = Effect.fnUntraced(function* (
 
   const configDirs = yield* config.directories()
   for (const dir of configDirs) {
-    yield* scan(state, dir, OPENCODE_SKILL_PATTERN)
+    yield* scan(state, dir, OCTO_SKILL_PATTERN)
+  }
+
+  // Built-in agent skills bundled with the package
+  const metaDir = import.meta.dir ?? (typeof __dirname !== "undefined" ? __dirname : undefined)
+  if (metaDir) {
+    const builtinSkillsDir = path.join(metaDir, "..", "agent", "skills")
+    if (yield* fsys.isDir(builtinSkillsDir)) {
+      yield* scan(state, builtinSkillsDir, SKILL_PATTERN)
+    }
   }
 
   const cfg = yield* config.get()
@@ -226,18 +236,23 @@ export const layer = Layer.effect(
       Effect.fn("Skill.discovery")(function* (ctx) {
         return yield* discoverSkills(config, discovery, fsys, global, ctx.directory, ctx.worktree)
       }),
-    )
+    ).pipe(Effect.orDie)
     const state = yield* InstanceState.make(
       Effect.fn("Skill.state")(function* () {
         const s: State = { skills: {}, dirs: new Set() }
         yield* loadSkills(s, yield* InstanceState.get(discovered), bus)
         return s
       }),
-    )
+    ).pipe(Effect.orDie)
 
     const get = Effect.fn("Skill.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
       return s.skills[name]
+    })
+
+    const getMany = Effect.fn("Skill.getMany")(function* (names: string[]) {
+      const s = yield* InstanceState.get(state)
+      return names.map((name) => s.skills[name]).filter((skill): skill is Info => skill !== undefined)
     })
 
     const all = Effect.fn("Skill.all")(function* () {
@@ -256,7 +271,7 @@ export const layer = Layer.effect(
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, all, dirs, available })
+    return Service.of({ get, getMany, all, dirs, available })
   }),
 )
 

@@ -12,6 +12,10 @@ import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
+import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
+import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
+import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
+import PROMPT_OCTO_CANVA from "./prompt/octo_canva.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -45,6 +49,7 @@ export const Info = Schema.Struct({
   prompt: Schema.optional(Schema.String),
   options: Schema.Record(Schema.String, Schema.Unknown),
   steps: Schema.optional(Schema.Finite),
+  skills: Schema.optional(Schema.Array(Schema.String)),
 })
   .annotate({ identifier: "Agent" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -109,8 +114,8 @@ export const layer = Layer.effect(
         const user = Permission.fromConfig(cfg.permission ?? {})
 
         const agents: Record<string, Info> = {
-          build: {
-            name: "build",
+          octo_ai: {
+            name: "octo_ai",
             description: "The default agent. Executes tools based on configured permissions.",
             options: {},
             permission: Permission.merge(
@@ -139,13 +144,16 @@ export const layer = Layer.effect(
                 edit: {
                   "*": "deny",
                   [path.join(".opencode", "plans", "*.md")]: "allow",
-                  [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
+                  ...(ctx.worktree
+                    ? { [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow" }
+                    : {}),
                 },
               }),
               user,
             ),
             mode: "primary",
             native: true,
+            hidden: true,
           },
           general: {
             name: "general",
@@ -186,6 +194,46 @@ export const layer = Layer.effect(
             options: {},
             mode: "subagent",
             native: true,
+          },
+          octo_insight: {
+            name: "octo_insight",
+            description: "Expert at analyzing user interview recordings (audio and video). Coordinates with MCP services to process and analyze interview content.",
+            prompt: PROMPT_OCTO_INSIGHT,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
+            skills: ["interview-analysis"],
+          },
+          octo_make: {
+            name: "octo_make",
+            description: "Web design prototyping specialist. Creates high-fidelity interactive HTML prototypes using Tailwind CSS.",
+            prompt: PROMPT_OCTO_MAKE,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
+            skills: ["html-prototype"],
+          },
+          octo_design: {
+            name: "octo_design",
+            description: "UI design specialist. Generates and edits .pix design files using Pixso MCP tools.",
+            prompt: PROMPT_OCTO_DESIGN,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
+            skills: ["design-basics"],
+          },
+          octo_canva: {
+            name: "octo_canva",
+            description: "Creative material generation specialist. Generates images, videos, and other creative assets via MCP services.",
+            prompt: PROMPT_OCTO_CANVA,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
+            skills: ["creative-assets"],
           },
           compaction: {
             name: "compaction",
@@ -236,14 +284,16 @@ export const layer = Layer.effect(
         }
 
         for (const [key, value] of Object.entries(cfg.agent ?? {})) {
+          // Backward compat: map legacy "build" key to "octo_ai"
+          const resolvedKey = key === "build" ? "octo_ai" : key
           if (value.disable) {
-            delete agents[key]
+            delete agents[resolvedKey]
             continue
           }
-          let item = agents[key]
+          let item = agents[resolvedKey]
           if (!item)
-            item = agents[key] = {
-              name: key,
+            item = agents[resolvedKey] = {
+              name: resolvedKey,
               mode: "all",
               permission: Permission.merge(defaults, user),
               options: {},
@@ -260,6 +310,7 @@ export const layer = Layer.effect(
           item.hidden = value.hidden ?? item.hidden
           item.name = value.name ?? item.name
           item.steps = value.steps ?? item.steps
+          item.skills = value.skills ?? item.skills
           item.options = mergeDeep(item.options, value.options ?? {})
           item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
         }
@@ -281,7 +332,9 @@ export const layer = Layer.effect(
         }
 
         const get = Effect.fnUntraced(function* (agent: string) {
-          return agents[agent]
+          // Backward compat: "build" → "octo_ai"
+          const resolved = agent === "build" ? "octo_ai" : agent
+          return agents[resolved]
         })
 
         const list = Effect.fnUntraced(function* () {
@@ -290,7 +343,7 @@ export const layer = Layer.effect(
             agents,
             values(),
             sortBy(
-              [(x) => (cfg.default_agent ? x.name === cfg.default_agent : x.name === "build"), "desc"],
+              [(x) => (cfg.default_agent ? x.name === cfg.default_agent : x.name === "octo_ai"), "desc"],
               [(x) => x.name, "asc"],
             ),
           )
@@ -299,7 +352,9 @@ export const layer = Layer.effect(
         const defaultAgent = Effect.fnUntraced(function* () {
           const c = yield* config.get()
           if (c.default_agent) {
-            const agent = agents[c.default_agent]
+            // Backward compat: "build" → "octo_ai"
+            const resolved = c.default_agent === "build" ? "octo_ai" : c.default_agent
+            const agent = agents[resolved]
             if (!agent) throw new Error(`default agent "${c.default_agent}" not found`)
             if (agent.mode === "subagent") throw new Error(`default agent "${c.default_agent}" is a subagent`)
             if (agent.hidden === true) throw new Error(`default agent "${c.default_agent}" is hidden`)

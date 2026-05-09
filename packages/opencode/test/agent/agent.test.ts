@@ -29,7 +29,7 @@ test("returns default native agents when no config", async () => {
     fn: async () => {
       const agents = await load(tmp.path, (svc) => svc.list())
       const names = agents.map((a) => a.name)
-      expect(names).toContain("build")
+      expect(names).toContain("octo_ai")
       expect(names).toContain("plan")
       expect(names).toContain("general")
       expect(names).toContain("explore")
@@ -40,17 +40,17 @@ test("returns default native agents when no config", async () => {
   })
 })
 
-test("build agent has correct default properties", async () => {
+test("octo_ai agent has correct default properties", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build).toBeDefined()
-      expect(build?.mode).toBe("primary")
-      expect(build?.native).toBe(true)
-      expect(evalPerm(build, "edit")).toBe("allow")
-      expect(evalPerm(build, "bash")).toBe("allow")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai).toBeDefined()
+      expect(octo_ai?.mode).toBe("primary")
+      expect(octo_ai?.native).toBe(true)
+      expect(evalPerm(octo_ai, "edit")).toBe("allow")
+      expect(evalPerm(octo_ai, "bash")).toBe("allow")
     },
   })
 })
@@ -164,9 +164,9 @@ test("custom agent config overrides native agent properties", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: {
+        octo_ai: {
           model: "anthropic/claude-3",
-          description: "Custom build agent",
+          description: "Custom octo_ai agent",
           temperature: 0.7,
           color: "#FF0000",
         },
@@ -176,14 +176,14 @@ test("custom agent config overrides native agent properties", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build).toBeDefined()
-      expect(String(build?.model?.providerID)).toBe("anthropic")
-      expect(String(build?.model?.modelID)).toBe("claude-3")
-      expect(build?.description).toBe("Custom build agent")
-      expect(build?.temperature).toBe(0.7)
-      expect(build?.color).toBe("#FF0000")
-      expect(build?.native).toBe(true)
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai).toBeDefined()
+      expect(String(octo_ai?.model?.providerID)).toBe("anthropic")
+      expect(String(octo_ai?.model?.modelID)).toBe("claude-3")
+      expect(octo_ai?.description).toBe("Custom octo_ai agent")
+      expect(octo_ai?.temperature).toBe(0.7)
+      expect(octo_ai?.color).toBe("#FF0000")
+      expect(octo_ai?.native).toBe(true)
     },
   })
 })
@@ -212,7 +212,7 @@ test("agent permission config merges with defaults", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: {
+        octo_ai: {
           permission: {
             bash: {
               "rm -rf *": "deny",
@@ -225,12 +225,12 @@ test("agent permission config merges with defaults", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build).toBeDefined()
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai).toBeDefined()
       // Specific pattern is denied
-      expect(Permission.evaluate("bash", "rm -rf *", build!.permission).action).toBe("deny")
+      expect(Permission.evaluate("bash", "rm -rf *", octo_ai!.permission).action).toBe("deny")
       // Edit still allowed
-      expect(evalPerm(build, "edit")).toBe("allow")
+      expect(evalPerm(octo_ai, "edit")).toBe("allow")
     },
   })
 })
@@ -246,9 +246,9 @@ test("global permission config applies to all agents", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build).toBeDefined()
-      expect(evalPerm(build, "bash")).toBe("deny")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai).toBeDefined()
+      expect(evalPerm(octo_ai, "bash")).toBe("deny")
     },
   })
 })
@@ -257,7 +257,7 @@ test("agent steps/maxSteps config sets steps property", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: { steps: 50 },
+        octo_ai: { steps: 50 },
         plan: { maxSteps: 100 },
       },
     },
@@ -265,9 +265,9 @@ test("agent steps/maxSteps config sets steps property", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
       const plan = await load(tmp.path, (svc) => svc.get("plan"))
-      expect(build?.steps).toBe(50)
+      expect(octo_ai?.steps).toBe(50)
       expect(plan?.steps).toBe(100)
     },
   })
@@ -294,15 +294,15 @@ test("agent name can be overridden", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: { name: "Builder" },
+        octo_ai: { name: "Builder" },
       },
     },
   })
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build?.name).toBe("Builder")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai?.name).toBe("Builder")
     },
   })
 })
@@ -311,15 +311,15 @@ test("agent prompt can be set from config", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: { prompt: "Custom system prompt" },
+        octo_ai: { prompt: "Custom system prompt" },
       },
     },
   })
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build?.prompt).toBe("Custom system prompt")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai?.prompt).toBe("Custom system prompt")
     },
   })
 })
@@ -328,7 +328,7 @@ test("unknown agent properties are placed into options", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: {
+        octo_ai: {
           random_property: "hello",
           another_random: 123,
         },
@@ -338,9 +338,9 @@ test("unknown agent properties are placed into options", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build?.options.random_property).toBe("hello")
-      expect(build?.options.another_random).toBe(123)
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai?.options.random_property).toBe("hello")
+      expect(octo_ai?.options.another_random).toBe(123)
     },
   })
 })
@@ -349,7 +349,7 @@ test("agent options merge correctly", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: {
+        octo_ai: {
           options: {
             custom_option: true,
             another_option: "value",
@@ -361,9 +361,9 @@ test("agent options merge correctly", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(build?.options.custom_option).toBe(true)
-      expect(build?.options.another_option).toBe("value")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(octo_ai?.options.custom_option).toBe(true)
+      expect(octo_ai?.options.another_option).toBe("value")
     },
   })
 })
@@ -438,9 +438,9 @@ test("default permission includes doom_loop and external_directory as ask", asyn
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(evalPerm(build, "doom_loop")).toBe("ask")
-      expect(evalPerm(build, "external_directory")).toBe("ask")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(evalPerm(octo_ai, "doom_loop")).toBe("ask")
+      expect(evalPerm(octo_ai, "external_directory")).toBe("ask")
     },
   })
 })
@@ -450,8 +450,8 @@ test("webfetch is allowed by default", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(evalPerm(build, "webfetch")).toBe("allow")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(evalPerm(octo_ai, "webfetch")).toBe("allow")
     },
   })
 })
@@ -460,7 +460,7 @@ test("legacy tools config converts to permissions", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: {
+        octo_ai: {
           tools: {
             bash: false,
             read: false,
@@ -472,9 +472,9 @@ test("legacy tools config converts to permissions", async () => {
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(evalPerm(build, "bash")).toBe("deny")
-      expect(evalPerm(build, "read")).toBe("deny")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(evalPerm(octo_ai, "bash")).toBe("deny")
+      expect(evalPerm(octo_ai, "read")).toBe("deny")
     },
   })
 })
@@ -483,7 +483,7 @@ test("legacy tools config maps write/edit/patch to edit permission", async () =>
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: {
+        octo_ai: {
           tools: {
             write: false,
           },
@@ -494,8 +494,8 @@ test("legacy tools config maps write/edit/patch to edit permission", async () =>
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(evalPerm(build, "edit")).toBe("deny")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(evalPerm(octo_ai, "edit")).toBe("deny")
     },
   })
 })
@@ -512,10 +512,10 @@ test("Truncate.GLOB is allowed even when user denies external_directory globally
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(Permission.evaluate("external_directory", Truncate.GLOB, build!.permission).action).toBe("allow")
-      expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
-      expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("deny")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(Permission.evaluate("external_directory", Truncate.GLOB, octo_ai!.permission).action).toBe("allow")
+      expect(Permission.evaluate("external_directory", Truncate.DIR, octo_ai!.permission).action).toBe("deny")
+      expect(Permission.evaluate("external_directory", "/some/other/path", octo_ai!.permission).action).toBe("deny")
     },
   })
 })
@@ -525,11 +525,11 @@ test("global tmp directory children are allowed for external_directory", async (
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
       expect(
-        Permission.evaluate("external_directory", path.join(Global.Path.tmp, "scratch"), build!.permission).action,
+        Permission.evaluate("external_directory", path.join(Global.Path.tmp, "scratch"), octo_ai!.permission).action,
       ).toBe("allow")
-      expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("ask")
+      expect(Permission.evaluate("external_directory", "/some/other/path", octo_ai!.permission).action).toBe("ask")
     },
   })
 })
@@ -539,7 +539,7 @@ test("Truncate.GLOB is allowed even when user denies external_directory per-agen
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: {
+        octo_ai: {
           permission: {
             external_directory: "deny",
           },
@@ -550,10 +550,10 @@ test("Truncate.GLOB is allowed even when user denies external_directory per-agen
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const build = await load(tmp.path, (svc) => svc.get("build"))
-      expect(Permission.evaluate("external_directory", Truncate.GLOB, build!.permission).action).toBe("allow")
-      expect(Permission.evaluate("external_directory", Truncate.DIR, build!.permission).action).toBe("deny")
-      expect(Permission.evaluate("external_directory", "/some/other/path", build!.permission).action).toBe("deny")
+      const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(Permission.evaluate("external_directory", Truncate.GLOB, octo_ai!.permission).action).toBe("allow")
+      expect(Permission.evaluate("external_directory", Truncate.DIR, octo_ai!.permission).action).toBe("deny")
+      expect(Permission.evaluate("external_directory", "/some/other/path", octo_ai!.permission).action).toBe("deny")
     },
   })
 })
@@ -598,46 +598,45 @@ description: Permission skill.
     },
   })
 
-  const home = process.env.OPENCODE_TEST_HOME
-  process.env.OPENCODE_TEST_HOME = tmp.path
+  const home = process.env.OCTO_TEST_HOME
+  process.env.OCTO_TEST_HOME = tmp.path
 
   try {
     await WithInstance.provide({
       directory: tmp.path,
       fn: async () => {
-        const build = await load(tmp.path, (svc) => svc.get("build"))
+        const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
         const skillDir = path.join(tmp.path, ".opencode", "skill", "perm-skill")
         const target = path.join(skillDir, "reference", "notes.md")
-        expect(Permission.evaluate("external_directory", target, build!.permission).action).toBe("allow")
+        expect(Permission.evaluate("external_directory", target, octo_ai!.permission).action).toBe("allow")
       },
     })
   } finally {
-    process.env.OPENCODE_TEST_HOME = home
+    process.env.OCTO_TEST_HOME = home
   }
 })
 
-test("defaultAgent returns build when no default_agent config", async () => {
+test("defaultAgent returns octo_ai when no default_agent config", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
       const agent = await load(tmp.path, (svc) => svc.defaultAgent())
-      expect(agent).toBe("build")
+      expect(agent).toBe("octo_ai")
     },
   })
 })
 
-test("defaultAgent respects default_agent config set to plan", async () => {
+test("defaultAgent rejects hidden agents set as default_agent", async () => {
   await using tmp = await tmpdir({
     config: {
-      default_agent: "plan",
+      default_agent: "plan", // plan is hidden
     },
   })
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const agent = await load(tmp.path, (svc) => svc.defaultAgent())
-      expect(agent).toBe("plan")
+      await expect(load(tmp.path, (svc) => svc.defaultAgent())).rejects.toThrow('default agent "plan" is hidden')
     },
   })
 })
@@ -706,11 +705,11 @@ test("defaultAgent throws when default_agent points to non-existent agent", asyn
   })
 })
 
-test("defaultAgent returns plan when build is disabled and default_agent not set", async () => {
+test("defaultAgent returns octo_ai when plan is disabled and default_agent not set", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: { disable: true },
+        plan: { disable: true },
       },
     },
   })
@@ -718,8 +717,8 @@ test("defaultAgent returns plan when build is disabled and default_agent not set
     directory: tmp.path,
     fn: async () => {
       const agent = await load(tmp.path, (svc) => svc.defaultAgent())
-      // build is disabled, so it should return plan (next primary agent)
-      expect(agent).toBe("plan")
+      // plan is disabled, octo_ai is the default
+      expect(agent).toBe("octo_ai")
     },
   })
 })
@@ -728,16 +727,51 @@ test("defaultAgent throws when all primary agents are disabled", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
-        build: { disable: true },
+        octo_ai: { disable: true },
         plan: { disable: true },
+        octo_design: { disable: true },
+        octo_make: { disable: true },
+        octo_insight: { disable: true },
+        octo_canva: { disable: true },
       },
     },
   })
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      // build and plan are disabled, no primary-capable agents remain
       await expect(load(tmp.path, (svc) => svc.defaultAgent())).rejects.toThrow("no primary visible agent found")
+    },
+  })
+})
+
+test("backward compat: config key 'build' maps to octo_ai", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      agent: {
+        build: {
+          model: "anthropic/claude-3",
+        },
+      },
+    },
+  })
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const agent = await load(tmp.path, (svc) => svc.get("octo_ai"))
+      expect(agent).toBeDefined()
+      expect(String(agent?.model?.providerID)).toBe("anthropic")
+    },
+  })
+})
+
+test("backward compat: get('build') returns octo_ai agent", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const agent = await load(tmp.path, (svc) => svc.get("build"))
+      expect(agent).toBeDefined()
+      expect(agent?.name).toBe("octo_ai")
     },
   })
 })
