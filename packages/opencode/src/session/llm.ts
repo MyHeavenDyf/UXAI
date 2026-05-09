@@ -329,7 +329,7 @@ const live: Layer.Layer<
           })
         : undefined
 
-      const octoProjectID = input.model.providerID.startsWith("octo")
+      const octoProjectID = input.model.providerID.startsWith("opencode")
         ? (yield* InstanceState.context).project.id
         : undefined
 
@@ -370,7 +370,7 @@ const live: Layer.Layer<
         maxOutputTokens: params.maxOutputTokens,
         abortSignal: input.abort,
         headers: {
-          ...(input.model.providerID.startsWith("octo")
+          ...(input.model.providerID.startsWith("opencode")
             ? {
                 "x-octo-project": octoProjectID,
                 "x-octo-session": input.sessionID,

@@ -457,7 +457,7 @@ export const ProvidersLoginCommand = effectCmd({
       )
     }
 
-    if (provider === "octo") {
+    if (provider === "opencode") {
       yield* Prompt.log.info("Create an api key at https://opencode.ai/auth")
     }
 

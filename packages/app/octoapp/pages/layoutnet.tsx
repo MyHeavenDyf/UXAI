@@ -221,6 +221,7 @@ return (
                 </div>
               </Show>
 
+
               <Show when={activeTab() === "studio"}>
                 <div class="flex-1 min-w-0 flex items-center justify-center">
                   <span class="text-14-regular text-text-weak">Studio content placeholder</span>

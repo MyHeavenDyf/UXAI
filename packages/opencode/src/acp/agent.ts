@@ -1686,7 +1686,7 @@ async function defaultModel(config: ACPConfig, cwd?: string): Promise<{ provider
   const lastUsed = await lastUsedModel(sdk, directory, providers)
   if (lastUsed) return lastUsed
 
-  const opencodeProvider = providers.find((p) => p.id === "octo")
+  const opencodeProvider = providers.find((p) => p.id === "opencode")
   if (opencodeProvider) {
     const [best] = Provider.sort(Object.values(opencodeProvider.models))
     if (best) {

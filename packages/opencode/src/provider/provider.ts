@@ -157,16 +157,18 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           },
         },
       }),
-    octo: Effect.fnUntraced(function* (input: Info) {
+    opencode: Effect.fnUntraced(function* (input: Info) {
       const env = yield* dep.env()
       const hasKey = iife(() => {
         if (input.env.some((item) => env[item])) return true
         return false
       })
+      const cfg = yield* dep.config()
       const ok =
         hasKey ||
         Boolean(yield* dep.auth(input.id)) ||
-        Boolean((yield* dep.config()).provider?.["octo"]?.options?.apiKey)
+        Boolean(cfg.provider?.["octo"]?.options?.apiKey) ||
+        Boolean(cfg.provider?.["opencode"]?.options?.apiKey)
 
       if (!ok) {
         for (const [key, value] of Object.entries(input.models)) {
@@ -1641,7 +1643,7 @@ const layer: Layer.Layer<
         "gemini-2.5-flash",
         "gpt-5-nano",
       ]
-      if (providerID.startsWith("octo")) {
+      if (providerID.startsWith("opencode")) {
         priority = ["gpt-5-nano"]
       }
       if (providerID.startsWith("github-copilot")) {

@@ -13026,6 +13026,12 @@
           },
           "steps": {
             "type": "number"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": ["name", "mode", "permission", "options"],

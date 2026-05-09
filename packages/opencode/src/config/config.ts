@@ -420,10 +420,10 @@ export const layer = Layer.effect(
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json")))
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.json")))
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.jsonc")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.json")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.jsonc")))
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {
@@ -568,7 +568,7 @@ export const layer = Layer.effect(
         }
 
         if (!Flag.OCTO_DISABLE_PROJECT_CONFIG) {
-          for (const name of ["octo", "opencode"]) {
+          for (const name of ["opencode", "octo"]) {
             for (const file of yield* ConfigPaths.files(name, ctx.directory, ctx.worktree).pipe(Effect.orDie)) {
               yield* merge(file, yield* loadFile(file), "local")
             }
@@ -589,7 +589,7 @@ export const layer = Layer.effect(
 
         for (const dir of directories) {
           if (dir.endsWith(".octo") || dir.endsWith(".opencode") || dir === Flag.OCTO_CONFIG_DIR) {
-            for (const file of ["octo.json", "octo.jsonc", "opencode.json", "opencode.jsonc"]) {
+            for (const file of ["opencode.json", "opencode.jsonc", "octo.json", "octo.jsonc"]) {
               const source = path.join(dir, file)
               log.debug(`loading config from ${source}`)
               yield* merge(source, yield* loadFile(source))
@@ -684,7 +684,7 @@ export const layer = Layer.effect(
 
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {
-          for (const file of ["octo.json", "octo.jsonc", "opencode.json", "opencode.jsonc"]) {
+          for (const file of ["opencode.json", "opencode.jsonc", "octo.json", "octo.jsonc"]) {
             const source = path.join(managedDir, file)
             yield* merge(source, yield* loadFile(source), "global")
           }

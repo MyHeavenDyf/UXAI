@@ -125,8 +125,12 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     }
 
     const start = () => {
-      if (started) return run
+      if (started) {
+        console.warn("[global-sdk] event.start() called but already started")
+        return run
+      }
       started = true
+      console.log("[global-sdk] event.start() called, url:", currentServer.http.url)
       run = (async () => {
         // oxlint-disable-next-line no-unmodified-loop-condition -- `started` is set to false by stop() which also aborts; both flags are checked to allow graceful exit
         while (!abort.signal.aborted && started) {
@@ -137,6 +141,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           }
           abort.signal.addEventListener("abort", onAbort)
           try {
+            console.log("[global-sdk] connecting SSE to:", currentServer.http.url, "fetch:", eventFetch ? "platform" : "webview")
             const events = await eventSdk.global.event({
               signal: attempt.signal,
               onSseError: (error) => {
@@ -150,6 +155,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
                 })
               },
             })
+            console.log("[global-sdk] SSE connected, iterating stream")
             let yielded = Date.now()
             resetHeartbeat()
             for await (const event of events.stream) {
@@ -191,6 +197,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
                 error,
               })
             }
+            console.error("[global-sdk] event stream catch block:", error)
           } finally {
             abort.signal.removeEventListener("abort", onAbort)
             attempt = undefined
@@ -227,6 +234,8 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       abort.abort()
       flush()
     })
+
+    console.log("[global-sdk] init, server:", server.current?.http?.url, "eventFetch:", eventFetch ? "platform" : "webview/undefined")
 
     const sdk = createSdkForServer({
       server: server.current.http,
