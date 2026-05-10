@@ -153,6 +153,7 @@ export const layer = Layer.effect(
             ),
             mode: "primary",
             native: true,
+            hidden: true,
           },
           general: {
             name: "general",

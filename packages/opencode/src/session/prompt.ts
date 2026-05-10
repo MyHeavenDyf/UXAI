@@ -1566,7 +1566,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
             const [skills, env, instructions, modelMsgs] = yield* Effect.all([
-              sys.skills(agent),
+              sys.skills(agent).pipe(Effect.catch(() => Effect.succeed(undefined))),
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
