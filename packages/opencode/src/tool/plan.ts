@@ -58,7 +58,7 @@ export const PlanExitTool = Tool.define(
             sessionID: ctx.sessionID,
             role: "user",
             time: { created: Date.now() },
-            agent: "build",
+            agent: "octo_ai",
             model,
           }
           yield* session.updateMessage(msg)

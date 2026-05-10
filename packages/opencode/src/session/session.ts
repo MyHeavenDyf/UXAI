@@ -38,6 +38,8 @@ import { Permission } from "@/permission"
 import { Global } from "@opencode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { zod } from "@/util/effect-zod"
+import { SessionCategoryTable } from "./session-category.sql"
+import { agentToCategory } from "./session-category"
 import { NonNegativeInt, optionalOmitUndefined, withStatics } from "@/util/schema"
 
 const log = Log.create({ service: "session" })
@@ -520,6 +522,23 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       log.info("created", result)
 
       yield* sync.run(Event.Created, { sessionID: result.id, info: result })
+
+      if (result.agent) {
+        yield* Effect.sync(() => {
+          const category = agentToCategory(result.agent!)
+          const now = Date.now()
+          Database.use((db) =>
+            db
+              .insert(SessionCategoryTable)
+              .values({ session_id: result.id, category, time_created: now, time_updated: now })
+              .onConflictDoUpdate({
+                target: SessionCategoryTable.session_id,
+                set: { category, time_updated: now },
+              })
+              .run(),
+          )
+        }).pipe(Effect.catch(() => Effect.void))
+      }
 
       if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
         // This only exist for backwards compatibility. We should not be

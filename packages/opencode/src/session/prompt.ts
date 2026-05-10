@@ -248,7 +248,7 @@ export const layer = Layer.effect(
           })
         }
         const wasPlan = input.messages.some((msg) => msg.info.role === "assistant" && msg.info.agent === "plan")
-        if (wasPlan && input.agent.name === "build") {
+        if (wasPlan && input.agent.name === "octo_ai") {
           userMessage.parts.push({
             id: PartID.ascending(),
             messageID: userMessage.info.id,
