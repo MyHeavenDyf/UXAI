@@ -153,7 +153,6 @@ export const layer = Layer.effect(
             ),
             mode: "primary",
             native: true,
-            hidden: true,
           },
           general: {
             name: "general",
@@ -355,9 +354,9 @@ export const layer = Layer.effect(
             // Backward compat: "build" → "octo_ai"
             const resolved = c.default_agent === "build" ? "octo_ai" : c.default_agent
             const agent = agents[resolved]
-            if (!agent) throw new Error(`default agent "${resolved}" not found`)
-            if (agent.mode === "subagent") throw new Error(`default agent "${resolved}" is a subagent`)
-            if (agent.hidden === true) throw new Error(`default agent "${resolved}" is hidden`)
+            if (!agent) throw new Error(`default agent "${c.default_agent}" not found`)
+            if (agent.mode === "subagent") throw new Error(`default agent "${c.default_agent}" is a subagent`)
+            if (agent.hidden === true) throw new Error(`default agent "${c.default_agent}" is hidden`)
             return agent.name
           }
           const visible = Object.values(agents).find((a) => a.mode !== "subagent" && a.hidden !== true)

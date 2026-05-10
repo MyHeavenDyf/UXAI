@@ -58,7 +58,7 @@ const args = hideBin(process.argv)
 
 function show(out: string) {
   const text = out.trimStart()
-  if (!text.startsWith("octo ")) {
+  if (!text.startsWith("opencode ")) {
     process.stderr.write(UI.logo() + EOL + EOL)
     process.stderr.write(text)
     return
@@ -68,7 +68,7 @@ function show(out: string) {
 
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
-  .scriptName("octo")
+  .scriptName("opencode")
   .wrap(100)
   .help("help", "show help")
   .alias("help", "h")
@@ -89,7 +89,7 @@ const cli = yargs(args)
   })
   .middleware(async (opts) => {
     if (opts.pure) {
-      process.env.OCTO_PURE = "1"
+      process.env.OPENCODE_PURE = "1"
     }
 
     await Log.init({
@@ -105,10 +105,10 @@ const cli = yargs(args)
     Heap.start()
 
     process.env.AGENT = "1"
-    process.env.OCTO = "1"
-    process.env.OCTO_PID = String(process.pid)
+    process.env.OPENCODE = "1"
+    process.env.OPENCODE_PID = String(process.pid)
 
-    Log.Default.info("octo", {
+    Log.Default.info("opencode", {
       version: InstallationVersion,
       args: process.argv.slice(2),
       process_role: processMetadata.processRole,

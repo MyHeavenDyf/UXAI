@@ -1034,8 +1034,8 @@ async function load(input: { api: Api; config: TuiConfig.Resolved }) {
     await WithInstance.provide({
       directory: cwd,
       fn: async () => {
-        const records = Flag.OCTO_PURE ? [] : (config.plugin_origins ?? [])
-        if (Flag.OCTO_PURE && config.plugin_origins?.length) {
+        const records = Flag.OPENCODE_PURE ? [] : (config.plugin_origins ?? [])
+        if (Flag.OPENCODE_PURE && config.plugin_origins?.length) {
           log.info("skipping external tui plugins in pure mode", { count: config.plugin_origins.length })
         }
 

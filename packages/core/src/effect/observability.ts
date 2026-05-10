@@ -40,14 +40,14 @@ export function resource(): { serviceName: string; serviceVersion: string; attri
   })()
 
   return {
-    serviceName: "octo",
+    serviceName: "opencode",
     serviceVersion: InstallationVersion,
     attributes: {
       ...attributes,
       "deployment.environment.name": InstallationChannel,
-      "octo.client": Flag.OCTO_CLIENT,
-      "octo.process_role": processMetadata.processRole,
-      "octo.run_id": processMetadata.runID,
+      "opencode.client": Flag.OPENCODE_CLIENT,
+      "opencode.process_role": processMetadata.processRole,
+      "opencode.run_id": processMetadata.runID,
       "service.instance.id": processID,
     },
   }

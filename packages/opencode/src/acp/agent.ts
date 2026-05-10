@@ -539,17 +539,17 @@ export class Agent implements ACPAgent {
 
     const authMethod: AuthMethod = {
       description: "Run `opencode auth login` in the terminal",
-      name: "Login with octo",
-      id: "octo-login",
+      name: "Login with opencode",
+      id: "opencode-login",
     }
 
     // If client supports terminal-auth capability, use that instead.
     if (params.clientCapabilities?._meta?.["terminal-auth"] === true) {
       authMethod._meta = {
         "terminal-auth": {
-          command: "octo",
+          command: "opencode",
           args: ["auth", "login"],
-          label: "Octo AI Login",
+          label: "OpenCode Login",
         },
       }
     }

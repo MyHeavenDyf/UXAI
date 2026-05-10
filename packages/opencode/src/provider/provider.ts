@@ -163,12 +163,10 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         if (input.env.some((item) => env[item])) return true
         return false
       })
-      const cfg = yield* dep.config()
       const ok =
         hasKey ||
         Boolean(yield* dep.auth(input.id)) ||
-        Boolean(cfg.provider?.["octo"]?.options?.apiKey) ||
-        Boolean(cfg.provider?.["opencode"]?.options?.apiKey)
+        Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
 
       if (!ok) {
         for (const [key, value] of Object.entries(input.models)) {
@@ -414,8 +412,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "octo",
-            "X-Source": "octo",
+            "X-Title": "opencode",
+            "X-Source": "opencode",
           },
         },
       }),
@@ -425,7 +423,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "octo",
+            "X-Title": "opencode",
           },
         },
       }),
@@ -435,7 +433,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "octo",
+            "X-Title": "opencode",
           },
         },
       }),
@@ -445,7 +443,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "http-referer": "https://opencode.ai/",
-            "x-title": "octo",
+            "x-title": "opencode",
           },
         },
       }),
@@ -543,7 +541,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "octo",
+            "X-Title": "opencode",
           },
         },
       }),
@@ -568,7 +566,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       const directory = yield* InstanceState.directory
 
       const aiGatewayHeaders = {
-        "User-Agent": `octo/${InstallationVersion} gitlab-ai-provider/${GITLAB_PROVIDER_VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`,
+        "User-Agent": `opencode/${InstallationVersion} gitlab-ai-provider/${GITLAB_PROVIDER_VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`,
         "anthropic-beta": "context-1m-2025-08-07",
         ...providerConfig?.options?.aiGatewayHeaders,
       }
@@ -721,7 +719,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           apiKey,
           headers: {
-            "User-Agent": `octo/${InstallationVersion} cloudflare-workers-ai (${os.platform()} ${os.release()}; ${os.arch()})`,
+            "User-Agent": `opencode/${InstallationVersion} cloudflare-workers-ai (${os.platform()} ${os.release()}; ${os.arch()})`,
           },
         },
         async getModel(sdk: any, modelID: string) {
@@ -792,7 +790,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         skipCache: input.options?.skipCache,
         collectLog: input.options?.collectLog,
         headers: {
-          "User-Agent": `octo/${InstallationVersion} cloudflare-ai-gateway (${os.platform()} ${os.release()}; ${os.arch()})`,
+          "User-Agent": `opencode/${InstallationVersion} cloudflare-ai-gateway (${os.platform()} ${os.release()}; ${os.arch()})`,
         },
       }
 
@@ -828,7 +826,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {
           headers: {
             "HTTP-Referer": "https://opencode.ai/",
-            "X-Title": "octo",
+            "X-Title": "opencode",
           },
         },
       }),
@@ -1370,7 +1368,7 @@ const layer: Layer.Layer<
               (providerID === ProviderID.openrouter && modelID === "openai/gpt-5-chat")
             )
               delete provider.models[modelID]
-            if (model.status === "alpha" && !Flag.OCTO_ENABLE_EXPERIMENTAL_MODELS) delete provider.models[modelID]
+            if (model.status === "alpha" && !Flag.OPENCODE_ENABLE_EXPERIMENTAL_MODELS) delete provider.models[modelID]
             if (model.status === "deprecated") delete provider.models[modelID]
             if (
               (configProvider?.blacklist && configProvider.blacklist.includes(modelID)) ||

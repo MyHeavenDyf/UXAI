@@ -9,10 +9,10 @@ import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
 
-const original = Flag.OCTO_EXPERIMENTAL_HTTPAPI
+const original = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
 
 function app(experimental = true) {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = experimental
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = experimental
   return experimental ? Server.Default().app : Server.Legacy().app
 }
 
@@ -36,7 +36,7 @@ async function readFirstEvent(response: Response) {
 }
 
 afterEach(async () => {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = original
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original
   await disposeAllInstances()
   await resetDatabase()
 })

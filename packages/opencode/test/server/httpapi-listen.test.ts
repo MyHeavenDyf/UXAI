@@ -10,42 +10,42 @@ import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 void Log.init({ print: false })
 
 const original = {
-  OCTO_EXPERIMENTAL_HTTPAPI: Flag.OCTO_EXPERIMENTAL_HTTPAPI,
-  OCTO_SERVER_PASSWORD: Flag.OCTO_SERVER_PASSWORD,
-  OCTO_SERVER_USERNAME: Flag.OCTO_SERVER_USERNAME,
-  envPassword: process.env.OCTO_SERVER_PASSWORD,
-  envUsername: process.env.OCTO_SERVER_USERNAME,
+  OPENCODE_EXPERIMENTAL_HTTPAPI: Flag.OPENCODE_EXPERIMENTAL_HTTPAPI,
+  OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
+  OPENCODE_SERVER_USERNAME: Flag.OPENCODE_SERVER_USERNAME,
+  envPassword: process.env.OPENCODE_SERVER_PASSWORD,
+  envUsername: process.env.OPENCODE_SERVER_USERNAME,
 }
 const auth = { username: "opencode", password: "listen-secret" }
 const testPty = process.platform === "win32" ? test.skip : test
 
 afterEach(async () => {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = original.OCTO_EXPERIMENTAL_HTTPAPI
-  Flag.OCTO_SERVER_PASSWORD = original.OCTO_SERVER_PASSWORD
-  Flag.OCTO_SERVER_USERNAME = original.OCTO_SERVER_USERNAME
-  if (original.envPassword === undefined) delete process.env.OCTO_SERVER_PASSWORD
-  else process.env.OCTO_SERVER_PASSWORD = original.envPassword
-  if (original.envUsername === undefined) delete process.env.OCTO_SERVER_USERNAME
-  else process.env.OCTO_SERVER_USERNAME = original.envUsername
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original.OPENCODE_EXPERIMENTAL_HTTPAPI
+  Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
+  Flag.OPENCODE_SERVER_USERNAME = original.OPENCODE_SERVER_USERNAME
+  if (original.envPassword === undefined) delete process.env.OPENCODE_SERVER_PASSWORD
+  else process.env.OPENCODE_SERVER_PASSWORD = original.envPassword
+  if (original.envUsername === undefined) delete process.env.OPENCODE_SERVER_USERNAME
+  else process.env.OPENCODE_SERVER_USERNAME = original.envUsername
   await disposeAllInstances()
   await resetDatabase()
 })
 
 async function startListener(backend: "effect-httpapi" | "hono" = "effect-httpapi") {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = backend === "effect-httpapi"
-  Flag.OCTO_SERVER_PASSWORD = auth.password
-  Flag.OCTO_SERVER_USERNAME = auth.username
-  process.env.OCTO_SERVER_PASSWORD = auth.password
-  process.env.OCTO_SERVER_USERNAME = auth.username
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = backend === "effect-httpapi"
+  Flag.OPENCODE_SERVER_PASSWORD = auth.password
+  Flag.OPENCODE_SERVER_USERNAME = auth.username
+  process.env.OPENCODE_SERVER_PASSWORD = auth.password
+  process.env.OPENCODE_SERVER_USERNAME = auth.username
   return Server.listen({ hostname: "127.0.0.1", port: 0 })
 }
 
 async function startNoAuthListener(backend: "effect-httpapi" | "hono" = "effect-httpapi") {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = backend === "effect-httpapi"
-  Flag.OCTO_SERVER_PASSWORD = undefined
-  Flag.OCTO_SERVER_USERNAME = auth.username
-  delete process.env.OCTO_SERVER_PASSWORD
-  process.env.OCTO_SERVER_USERNAME = auth.username
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = backend === "effect-httpapi"
+  Flag.OPENCODE_SERVER_PASSWORD = undefined
+  Flag.OPENCODE_SERVER_USERNAME = auth.username
+  delete process.env.OPENCODE_SERVER_PASSWORD
+  process.env.OPENCODE_SERVER_USERNAME = auth.username
   return Server.listen({ hostname: "127.0.0.1", port: 0 })
 }
 

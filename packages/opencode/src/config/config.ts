@@ -178,7 +178,7 @@ export const Info = Schema.Struct({
   }),
   default_agent: Schema.optional(Schema.String).annotate({
     description:
-      "Default agent to use when none is specified. Must be a primary agent. Falls back to 'octo_ai' if not set or if the specified agent is invalid.",
+      "Default agent to use when none is specified. Must be a primary agent. Falls back to 'build' if not set or if the specified agent is invalid.",
   }),
   username: Schema.optional(Schema.String).annotate({
     description: "Custom username to display in conversations instead of system username",
@@ -186,7 +186,7 @@ export const Info = Schema.Struct({
   mode: Schema.optional(
     Schema.StructWithRest(
       Schema.Struct({
-        octo_ai: Schema.optional(ConfigAgent.Info),
+        build: Schema.optional(ConfigAgent.Info),
         plan: Schema.optional(ConfigAgent.Info),
       }),
       [Schema.Record(Schema.String, ConfigAgent.Info)],
@@ -197,7 +197,7 @@ export const Info = Schema.Struct({
       Schema.Struct({
         // primary
         plan: Schema.optional(ConfigAgent.Info),
-        octo_ai: Schema.optional(ConfigAgent.Info),
+        build: Schema.optional(ConfigAgent.Info),
         // subagent
         general: Schema.optional(ConfigAgent.Info),
         explore: Schema.optional(ConfigAgent.Info),
@@ -420,10 +420,10 @@ export const layer = Layer.effect(
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json")))
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json")))
-      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.json")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.jsonc")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc")))
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {
@@ -486,7 +486,7 @@ export const layer = Layer.effect(
 
         const pluginScopeForSource = Effect.fnUntraced(function* (source: string) {
           if (source.startsWith("http://") || source.startsWith("https://")) return "global"
-          if (source === "OCTO_CONFIG_CONTENT") return "local"
+          if (source === "OPENCODE_CONFIG_CONTENT") return "local"
           if (containsPath(source, ctx)) return "local"
           return "global"
         })
@@ -562,12 +562,12 @@ export const layer = Layer.effect(
         const global = yield* getGlobal()
         yield* merge(Global.Path.config, global, "global")
 
-        if (Flag.OCTO_CONFIG) {
-          yield* merge(Flag.OCTO_CONFIG, yield* loadFile(Flag.OCTO_CONFIG))
-          log.debug("loaded custom config", { path: Flag.OCTO_CONFIG })
+        if (Flag.OPENCODE_CONFIG) {
+          yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG))
+          log.debug("loaded custom config", { path: Flag.OPENCODE_CONFIG })
         }
 
-        if (!Flag.OCTO_DISABLE_PROJECT_CONFIG) {
+        if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           for (const name of ["opencode", "octo"]) {
             for (const file of yield* ConfigPaths.files(name, ctx.directory, ctx.worktree).pipe(Effect.orDie)) {
               yield* merge(file, yield* loadFile(file), "local")
@@ -581,14 +581,14 @@ export const layer = Layer.effect(
 
         const directories = yield* ConfigPaths.directories(ctx.directory, ctx.worktree)
 
-        if (Flag.OCTO_CONFIG_DIR) {
-          log.debug("loading config from OCTO_CONFIG_DIR", { path: Flag.OCTO_CONFIG_DIR })
+        if (Flag.OPENCODE_CONFIG_DIR) {
+          log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
         }
 
         const deps: Fiber.Fiber<void, never>[] = []
 
         for (const dir of directories) {
-          if (dir.endsWith(".octo") || dir.endsWith(".opencode") || dir === Flag.OCTO_CONFIG_DIR) {
+          if (dir.endsWith(".octo") || dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
             for (const file of ["opencode.json", "opencode.jsonc", "octo.json", "octo.jsonc"]) {
               const source = path.join(dir, file)
               log.debug(`loading config from ${source}`)
@@ -625,22 +625,22 @@ export const layer = Layer.effect(
           deps.push(dep)
 
           result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => ConfigCommand.load(dir)))
-          result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.load(dir)))
-          result.agent = mergeDeep(result.agent ?? {}, yield* Effect.promise(() => ConfigAgent.loadMode(dir)))
+          result.agent = mergeDeep(result.agent ?? {}, (yield* Effect.promise(() => ConfigAgent.load(dir))) as typeof result.agent)
+          result.agent = mergeDeep(result.agent ?? {}, (yield* Effect.promise(() => ConfigAgent.loadMode(dir))) as typeof result.agent)
           // Auto-discovered plugins under `.opencode/plugin(s)` are already local files, so ConfigPlugin.load
           // returns normalized Specs and we only need to attach origin metadata here.
           const list = yield* Effect.promise(() => ConfigPlugin.load(dir))
           yield* mergePluginOrigins(dir, list)
         }
 
-        if (process.env.OCTO_CONFIG_CONTENT) {
-          const source = "OCTO_CONFIG_CONTENT"
-          const next = yield* loadConfig(process.env.OCTO_CONFIG_CONTENT, {
+        if (process.env.OPENCODE_CONFIG_CONTENT) {
+          const source = "OPENCODE_CONFIG_CONTENT"
+          const next = yield* loadConfig(process.env.OPENCODE_CONFIG_CONTENT, {
             dir: ctx.directory,
             source,
           })
           yield* merge(source, next, "local")
-          log.debug("loaded custom config from OCTO_CONFIG_CONTENT")
+          log.debug("loaded custom config from OPENCODE_CONFIG_CONTENT")
         }
 
         const activeAccount = Option.getOrUndefined(
@@ -656,8 +656,8 @@ export const layer = Layer.effect(
               { concurrency: 2 },
             )
             if (Option.isSome(tokenOpt)) {
-              process.env["OCTO_CONSOLE_TOKEN"] = tokenOpt.value
-              yield* env.set("OCTO_CONSOLE_TOKEN", tokenOpt.value)
+              process.env["OPENCODE_CONSOLE_TOKEN"] = tokenOpt.value
+              yield* env.set("OPENCODE_CONSOLE_TOKEN", tokenOpt.value)
             }
 
             if (Option.isSome(configOpt)) {
@@ -684,7 +684,7 @@ export const layer = Layer.effect(
 
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {
-          for (const file of ["opencode.json", "opencode.jsonc", "octo.json", "octo.jsonc"]) {
+          for (const file of ["opencode.json", "opencode.jsonc"]) {
             const source = path.join(managedDir, file)
             yield* merge(source, yield* loadFile(source), "global")
           }
@@ -711,8 +711,8 @@ export const layer = Layer.effect(
           })
         }
 
-        if (Flag.OCTO_PERMISSION) {
-          result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OCTO_PERMISSION))
+        if (Flag.OPENCODE_PERMISSION) {
+          result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OPENCODE_PERMISSION))
         }
 
         if (result.tools) {
@@ -734,10 +734,10 @@ export const layer = Layer.effect(
           result.share = "auto"
         }
 
-        if (Flag.OCTO_DISABLE_AUTOCOMPACT) {
+        if (Flag.OPENCODE_DISABLE_AUTOCOMPACT) {
           result.compaction = { ...result.compaction, auto: false }
         }
-        if (Flag.OCTO_DISABLE_PRUNE) {
+        if (Flag.OPENCODE_DISABLE_PRUNE) {
           result.compaction = { ...result.compaction, prune: false }
         }
 

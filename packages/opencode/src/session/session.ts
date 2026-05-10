@@ -33,15 +33,12 @@ import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 
-import { type SessionCategory as SessionCategoryType, SessionCategoryTable } from "./session-category.sql"
-
 import type { Provider } from "@/provider/provider"
 import { Permission } from "@/permission"
 import { Global } from "@opencode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { zod } from "@/util/effect-zod"
 import { NonNegativeInt, optionalOmitUndefined, withStatics } from "@/util/schema"
-import { SessionCategoryService } from "./session-category"
 
 const log = Log.create({ service: "session" })
 
@@ -266,7 +263,6 @@ export type ListInput = {
   start?: number
   search?: string
   limit?: number
-  category?: SessionCategoryType
 }
 
 const CreatedEventSchema = Schema.Struct({
@@ -484,13 +480,12 @@ export type Patch = Types.DeepMutable<SyncEvent.Event<typeof Event.Updated>["dat
 const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
   Effect.sync(() => Database.use(fn))
 
-export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | SyncEvent.Service | SessionCategoryService.Service> = Layer.effect(
+export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | SyncEvent.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
     const storage = yield* Storage.Service
     const sync = yield* SyncEvent.Service
-    const categorySvc = yield* SessionCategoryService.Service
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -526,11 +521,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 
       yield* sync.run(Event.Created, { sessionID: result.id, info: result })
 
-      if (result.agent) {
-        yield* categorySvc.categorize(result.id, result.agent)
-      }
-
-      if (!Flag.OCTO_EXPERIMENTAL_WORKSPACES) {
+      if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
         // This only exist for backwards compatibility. We should not be
         // manually publishing this event; it is a sync event now
         yield* bus.publish(Event.Updated, {
@@ -658,7 +649,6 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
         path: sessionPath(ctx.worktree, ctx.directory),
         workspaceID: original.workspaceID,
         title,
-        agent: original.agent,
       })
       const msgs = yield* messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
@@ -818,7 +808,6 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 )
 
 export const defaultLayer = layer.pipe(
-  Layer.provide(SessionCategoryService.defaultLayer),
   Layer.provide(Bus.layer),
   Layer.provide(Storage.defaultLayer),
   Layer.provide(SyncEvent.defaultLayer),
@@ -844,7 +833,7 @@ function* listByProject(
           : or(...conds)!,
       )
     }
-  } else if (input.scope !== "project" && !Flag.OCTO_EXPERIMENTAL_WORKSPACES) {
+  } else if (input.scope !== "project" && !Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
     if (input.directory) {
       conditions.push(eq(SessionTable.directory, input.directory))
     }
@@ -857,17 +846,6 @@ function* listByProject(
   }
   if (input.search) {
     conditions.push(like(SessionTable.title, `%${input.search}%`))
-  }
-  if (input.category) {
-    conditions.push(
-      inArray(
-        SessionTable.id,
-        Database.use((db) =>
-          db.select({ id: SessionCategoryTable.session_id }).from(SessionCategoryTable)
-            .where(eq(SessionCategoryTable.category, input.category!)),
-        ),
-      ),
-    )
   }
 
   const limit = input.limit ?? 100

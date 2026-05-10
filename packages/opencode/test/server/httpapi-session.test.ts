@@ -30,15 +30,15 @@ import { it } from "../lib/effect"
 
 void Log.init({ print: false })
 
-const original = Flag.OCTO_EXPERIMENTAL_HTTPAPI
-const originalWorkspaces = Flag.OCTO_EXPERIMENTAL_WORKSPACES
+const original = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
+const originalWorkspaces = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
 const workspaceLayer = Workspace.defaultLayer.pipe(
   Layer.provide(InstanceStore.defaultLayer),
   Layer.provide(InstanceBootstrap.defaultLayer),
 )
 
 function app(experimental = true) {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = experimental
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = experimental
   return experimental ? Server.Default().app : Server.Legacy().app
 }
 
@@ -149,8 +149,8 @@ function withTmp<A, E, R>(
 }
 
 afterEach(async () => {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = original
-  Flag.OCTO_EXPERIMENTAL_WORKSPACES = originalWorkspaces
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original
+  Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = originalWorkspaces
   await disposeAllInstances()
   await resetDatabase()
 })
@@ -358,7 +358,7 @@ describe("session HttpApi", () => {
     "persists selected workspace id when creating a session",
     withTmp({ git: true, config: { formatter: false, lsp: false, share: "disabled" } }, (tmp) =>
       Effect.gen(function* () {
-        Flag.OCTO_EXPERIMENTAL_WORKSPACES = true
+        Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = true
         const project = yield* Project.use.fromDirectory(tmp.path).pipe(Effect.provide(Project.defaultLayer))
         const workspace = yield* createLocalWorkspace({
           projectID: project.project.id,

@@ -274,12 +274,12 @@ export const RunCommand = effectCmd({
       .option("password", {
         alias: ["p"],
         type: "string",
-        describe: "basic auth password (defaults to OCTO_SERVER_PASSWORD)",
+        describe: "basic auth password (defaults to OPENCODE_SERVER_PASSWORD)",
       })
       .option("username", {
         alias: ["u"],
         type: "string",
-        describe: "basic auth username (defaults to OCTO_SERVER_USERNAME or 'opencode')",
+        describe: "basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')",
       })
       .option("dir", {
         type: "string",
@@ -398,7 +398,7 @@ export const RunCommand = effectCmd({
       async function share(sdk: OpencodeClient, sessionID: string) {
         const cfg = await sdk.config.get()
         if (!cfg.data) return
-        if (cfg.data.share !== "auto" && !Flag.OCTO_AUTO_SHARE && !args.share) return
+        if (cfg.data.share !== "auto" && !Flag.OPENCODE_AUTO_SHARE && !args.share) return
         const res = await sdk.session.share({ sessionID }).catch((error) => {
           if (error instanceof Error && error.message.includes("disabled")) {
             UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)

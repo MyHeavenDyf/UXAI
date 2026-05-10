@@ -102,7 +102,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
     const fs = yield* AppFileSystem.Service
     const http = HttpClient.filterStatusOk(withTransientReadRetry(yield* HttpClient.HttpClient))
 
-    const source = Flag.OCTO_MODELS_URL || "https://models.dev"
+    const source = Flag.OPENCODE_MODELS_URL || "https://models.dev"
     const filepath = path.join(
       Global.Path.cache,
       source === "https://models.dev" ? "models.json" : `models-${Hash.fast(source)}.json`,
@@ -126,7 +126,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
       )
     })
 
-    const loadFromDisk = fs.readJson(Flag.OCTO_MODELS_PATH ?? filepath).pipe(
+    const loadFromDisk = fs.readJson(Flag.OPENCODE_MODELS_PATH ?? filepath).pipe(
       Effect.catch(() => Effect.succeed(undefined)),
       Effect.map((v) => v as Record<string, Provider> | undefined),
     )
@@ -149,7 +149,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
       if (fromDisk) return fromDisk
       const snapshot = yield* loadSnapshot
       if (snapshot) return snapshot
-      if (Flag.OCTO_DISABLE_MODELS_FETCH) return {}
+      if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
       // Flock is cross-process: concurrent opencode CLIs can race on this cache file.
       const text = yield* Effect.scoped(
         Effect.gen(function* () {
@@ -181,7 +181,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
       )
     })
 
-    if (!Flag.OCTO_DISABLE_MODELS_FETCH && !process.argv.includes("--get-yargs-completions")) {
+    if (!Flag.OPENCODE_DISABLE_MODELS_FETCH && !process.argv.includes("--get-yargs-completions")) {
       // Schedule.spaced runs the effect once, then waits between completions.
       yield* Effect.forkScoped(refresh().pipe(Effect.repeat(Schedule.spaced("60 minutes")), Effect.ignore))
     }

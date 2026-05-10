@@ -1534,7 +1534,6 @@ export type Agent = {
     [key: string]: unknown
   }
   steps?: number
-  skills?: Array<string>
 }
 
 export type LspStatus = {

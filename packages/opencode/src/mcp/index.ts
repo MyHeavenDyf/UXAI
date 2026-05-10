@@ -395,7 +395,7 @@ export const layer = Layer.effect(
         cwd,
         env: {
           ...process.env,
-          ...(cmd === "octo" ? { BUN_BE_BUN: "1" } : {}),
+          ...(cmd === "opencode" ? { BUN_BE_BUN: "1" } : {}),
           ...mcp.environment,
         },
       })

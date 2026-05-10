@@ -236,7 +236,7 @@ export const layer = Layer.effect(
       const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
       if (!userMessage) return input.messages
 
-      if (!Flag.OCTO_EXPERIMENTAL_PLAN_MODE) {
+      if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {
         if (input.agent.name === "plan") {
           userMessage.parts.push({
             id: PartID.ascending(),
@@ -248,7 +248,7 @@ export const layer = Layer.effect(
           })
         }
         const wasPlan = input.messages.some((msg) => msg.info.role === "assistant" && msg.info.agent === "plan")
-        if (wasPlan && input.agent.name === "octo_ai") {
+        if (wasPlan && input.agent.name === "build") {
           userMessage.parts.push({
             id: PartID.ascending(),
             messageID: userMessage.info.id,

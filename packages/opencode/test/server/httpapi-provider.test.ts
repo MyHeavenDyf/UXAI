@@ -13,14 +13,14 @@ import { testEffect } from "../lib/effect"
 
 void Log.init({ print: false })
 
-const original = Flag.OCTO_EXPERIMENTAL_HTTPAPI
+const original = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
 const it = testEffect(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer))
 const providerID = "test-oauth-parity"
 const oauthURL = "https://example.com/oauth"
 const oauthInstructions = "Finish OAuth"
 
 function app(experimental: boolean) {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = experimental
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = experimental
   return experimental ? Server.Default().app : Server.Legacy().app
 }
 
@@ -101,7 +101,7 @@ function withProviderProject<A, E, R>(self: (dir: string) => Effect.Effect<A, E,
 }
 
 afterEach(async () => {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = original
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original
   await disposeAllInstances()
   await resetDatabase()
 })
