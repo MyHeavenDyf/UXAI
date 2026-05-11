@@ -62,23 +62,15 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           return agents()
         },
         current() {
-          // Look in full list to support hidden agents (e.g. plan) set programmatically
-          return sync.data.agent.find((x) => x.name === agentStore.current) ?? agents().at(0)
+          return agents().find((x) => x.name === agentStore.current) ?? agents().at(0)
         },
         set(name: string) {
-          if (!agents().some((x) => x.name === name)) {
-            // Allow hidden agents (e.g. plan) for programmatic switching
-            const exists = sync.data.agent.some((x) => x.name === name)
-            if (exists) {
-              setAgentStore("current", name)
-              return
-            }
+          if (!agents().some((x) => x.name === name))
             return toast.show({
               variant: "warning",
               message: `Agent not found: ${name}`,
               duration: 3000,
             })
-          }
           setAgentStore("current", name)
         },
         move(direction: 1 | -1) {

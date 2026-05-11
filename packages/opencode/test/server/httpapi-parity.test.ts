@@ -12,16 +12,16 @@ import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
 
-const original = Flag.OCTO_EXPERIMENTAL_HTTPAPI
+const original = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
 
 afterEach(async () => {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = original
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original
   await disposeAllInstances()
   await resetDatabase()
 })
 
 function app(experimental: boolean) {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = experimental
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = experimental
   return experimental ? Server.Default().app : Server.Legacy().app
 }
 

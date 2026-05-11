@@ -24,19 +24,19 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
   const afs = yield* AppFileSystem.Service
   return unique([
     Global.Path.config,
-    ...(!Flag.OCTO_DISABLE_PROJECT_CONFIG
+    ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
       ? yield* afs.up({
-          targets: [".octo", ".opencode"],
+          targets: [".opencode"],
           start: directory,
           stop: worktree,
         })
       : []),
     ...(yield* afs.up({
-      targets: [".octo", ".opencode"],
+      targets: [".opencode"],
       start: Global.Path.home,
       stop: Global.Path.home,
     })),
-    ...(Flag.OCTO_CONFIG_DIR ? [Flag.OCTO_CONFIG_DIR] : []),
+    ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
   ])
 })
 

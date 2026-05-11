@@ -37,11 +37,11 @@ export const PlanExitTool = Tool.define(
             sessionID: ctx.sessionID,
             questions: [
               {
-                question: `Plan at ${plan} is complete. Would you like to switch to the octo_ai agent and start implementing?`,
-                header: "Implementation Agent",
+                question: `Plan at ${plan} is complete. Would you like to switch to the build agent and start implementing?`,
+                header: "Build Agent",
                 custom: false,
                 options: [
-                  { label: "Yes", description: "Switch to octo_ai agent and start implementing the plan" },
+                  { label: "Yes", description: "Switch to build agent and start implementing the plan" },
                   { label: "No", description: "Stay with plan agent to continue refining the plan" },
                 ],
               },
@@ -72,8 +72,8 @@ export const PlanExitTool = Tool.define(
           } satisfies MessageV2.TextPart)
 
           return {
-            title: "Switching to octo_ai agent",
-            output: "User approved switching to octo_ai agent. Wait for further instructions.",
+            title: "Switching to build agent",
+            output: "User approved switching to build agent. Wait for further instructions.",
             metadata: {},
           }
         }).pipe(Effect.orDie),

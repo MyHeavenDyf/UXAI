@@ -15,11 +15,11 @@ import { waitGlobalBusEventPromise } from "./global-bus"
 
 void Log.init({ print: false })
 
-const original = Flag.OCTO_EXPERIMENTAL_HTTPAPI
+const original = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
 const testWorktreeMutations = process.platform === "win32" ? test.skip : test
 
 function app() {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = true
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = true
   return Server.Default().app
 }
 
@@ -39,7 +39,7 @@ async function waitReady(directory: string) {
 }
 
 afterEach(async () => {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = original
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original
   await disposeAllInstances()
   await resetDatabase()
 })

@@ -47,7 +47,9 @@ const AgentSchema = Schema.StructWithRest(
     }),
     maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
     permission: Schema.optional(ConfigPermission.Info),
-    skills: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+    skills: Schema.optional(Schema.Array(Schema.String)).annotate({
+      description: "List of skill names this agent should have access to",
+    }),
   }),
   [Schema.Record(Schema.String, Schema.Any)],
 )
@@ -128,7 +130,7 @@ export async function load(dir: string) {
     })
     if (!md) continue
 
-    const patterns = ["/.octo/agent/", "/.octo/agents/", "/.opencode/agent/", "/.opencode/agents/", "/agent/", "/agents/"]
+    const patterns = ["/.opencode/agent/", "/.opencode/agents/", "/agent/", "/agents/"]
     const name = configEntryNameFromPath(item, patterns)
 
     const config = {

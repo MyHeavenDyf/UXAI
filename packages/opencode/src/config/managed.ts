@@ -24,16 +24,16 @@ const PLIST_META = new Set([
 function systemManagedConfigDir(): string {
   switch (process.platform) {
     case "darwin":
-      return "/Library/Application Support/octo"
+      return "/Library/Application Support/opencode"
     case "win32":
-      return path.join(process.env.ProgramData || "C:\\ProgramData", "octo")
+      return path.join(process.env.ProgramData || "C:\\ProgramData", "opencode")
     default:
-      return "/etc/octo"
+      return "/etc/opencode"
   }
 }
 
 export function managedConfigDir() {
-  return process.env.OCTO_TEST_MANAGED_CONFIG_DIR || systemManagedConfigDir()
+  return process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || systemManagedConfigDir()
 }
 
 export function parseManagedPlist(json: string): string {

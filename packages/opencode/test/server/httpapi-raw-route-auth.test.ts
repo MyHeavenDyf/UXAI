@@ -13,17 +13,17 @@ import * as Log from "@opencode-ai/core/util/log"
 
 void Log.init({ print: false })
 
-const originalHttpApi = Flag.OCTO_EXPERIMENTAL_HTTPAPI
+const originalHttpApi = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
 
 function app(input: { password?: string; username?: string }) {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = true
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = true
   const handler = HttpRouter.toWebHandler(
     ExperimentalHttpApiServer.routes.pipe(
       Layer.provide(
         ConfigProvider.layer(
           ConfigProvider.fromUnknown({
-            OCTO_SERVER_PASSWORD: input.password,
-            OCTO_SERVER_USERNAME: input.username,
+            OPENCODE_SERVER_PASSWORD: input.password,
+            OPENCODE_SERVER_USERNAME: input.username,
           }),
         ),
       ),
@@ -48,7 +48,7 @@ async function cancelBody(response: Response) {
 }
 
 afterEach(async () => {
-  Flag.OCTO_EXPERIMENTAL_HTTPAPI = originalHttpApi
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = originalHttpApi
   await disposeAllInstances()
   await resetDatabase()
 })

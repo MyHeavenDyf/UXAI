@@ -74,7 +74,6 @@ export const SessionRoutes = lazy(() =>
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
-          category: z.enum(["dev", "design", "prototype", "analysis", "creative", "planning"]).optional().meta({ description: "Filter sessions by category" }),
         }),
       ),
       async (c) => {
@@ -91,7 +90,6 @@ export const SessionRoutes = lazy(() =>
                 start: query.start,
                 search: query.search,
                 limit: query.limit,
-                category: query.category,
               }),
             ),
           ),

@@ -9,7 +9,7 @@ export const ProviderID = Schema.String.pipe(
   Schema.brand("Model.ProviderID"),
   withStatics((schema) => ({
     // Well-known providers
-    octo: schema.make("octo"),
+    opencode: schema.make("opencode"),
     anthropic: schema.make("anthropic"),
     openai: schema.make("openai"),
     google: schema.make("google"),

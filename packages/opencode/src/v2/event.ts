@@ -46,7 +46,7 @@ export function run<Def extends SyncEvent.Definition>(
   data: SyncEvent.Event<Def>["data"],
   options?: { publish?: boolean },
 ) {
-  if (!Flag.OCTO_EXPERIMENTAL_EVENT_SYSTEM) return
+  if (!Flag.OPENCODE_EXPERIMENTAL_EVENT_SYSTEM) return
   SyncEvent.run(def, data, options)
 }
 

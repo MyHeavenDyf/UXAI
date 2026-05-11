@@ -329,7 +329,7 @@ const live: Layer.Layer<
           })
         : undefined
 
-      const octoProjectID = input.model.providerID.startsWith("octo")
+      const opencodeProjectID = input.model.providerID.startsWith("opencode")
         ? (yield* InstanceState.context).project.id
         : undefined
 
@@ -370,18 +370,18 @@ const live: Layer.Layer<
         maxOutputTokens: params.maxOutputTokens,
         abortSignal: input.abort,
         headers: {
-          ...(input.model.providerID.startsWith("octo")
+          ...(input.model.providerID.startsWith("opencode")
             ? {
-                "x-octo-project": octoProjectID,
-                "x-octo-session": input.sessionID,
-                "x-octo-request": input.user.id,
-                "x-octo-client": Flag.OCTO_CLIENT,
-                "User-Agent": `octo/${InstallationVersion}`,
+                "x-opencode-project": opencodeProjectID,
+                "x-opencode-session": input.sessionID,
+                "x-opencode-request": input.user.id,
+                "x-opencode-client": Flag.OPENCODE_CLIENT,
+                "User-Agent": `opencode/${InstallationVersion}`,
               }
             : {
                 "x-session-affinity": input.sessionID,
                 ...(input.parentSessionID ? { "x-parent-session-id": input.parentSessionID } : {}),
-                "User-Agent": `octo/${InstallationVersion}`,
+                "User-Agent": `opencode/${InstallationVersion}`,
               }),
           ...input.model.headers,
           ...headers,

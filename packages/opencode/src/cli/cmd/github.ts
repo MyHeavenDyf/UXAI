@@ -957,7 +957,7 @@ export const GithubRunCommand = effectCmd({
                 providerID,
                 modelID,
               },
-              // agent is omitted - server will use default_agent from config or fall back to "octo_ai"
+              // agent is omitted - server will use default_agent from config or fall back to "build"
               parts: [
                 {
                   id: PartID.ascending(),
