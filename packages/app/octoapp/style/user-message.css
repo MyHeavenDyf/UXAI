@@ -1,0 +1,6 @@
+[data-component="user-message"] [data-slot="user-message-text"] {
+  border-radius: 16px 16px 2px 16px;
+  background-color: rgba(10, 89, 247, 0.08);
+  font-size: 14px;
+  border: none;
+}

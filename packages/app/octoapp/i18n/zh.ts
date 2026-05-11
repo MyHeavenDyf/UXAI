@@ -51,7 +51,7 @@ export const dict = {
   "command.language.cycle": "切换语言",
   "command.language.set": "使用语言：{{language}}",
 
-  "command.session.new": "新建会话",
+  "command.session.new": "新建对话",
 
   "command.file.open": "打开文件",
 
