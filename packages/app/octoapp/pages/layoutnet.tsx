@@ -10,7 +10,6 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useNavigate, useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { getFilename } from "@opencode-ai/core/util/path"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { SessionItem, type SessionItemProps } from "@/pages/layout/sidebar-items"
 import { useSessionKey } from "@/pages/session/session-layout"
@@ -21,6 +20,12 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 
 type TabType = "chat" | "cowork" | "studio"
 
+const TAB_ITEMS: { key: TabType; label: string }[] = [
+  { key: "chat", label: "Chat" },
+  { key: "cowork", label: "Cowork" },
+  { key: "studio", label: "Studio" },
+]
+
 function SimpleSidebar(props: {
   currentDir: () => string | null
   opened: () => boolean
@@ -30,6 +35,7 @@ function SimpleSidebar(props: {
   globalSync: ReturnType<typeof useGlobalSync>
   globalSDK: ReturnType<typeof useGlobalSDK>
   navigate: ReturnType<typeof useNavigate>
+  activeTab: () => TabType
 }) {
   const params = useParams()
   const globalSync = props.globalSync
@@ -73,15 +79,16 @@ function SimpleSidebar(props: {
   return (
     <div class="flex h-full w-full min-w-0 overflow-hidden bg-background-base flex flex-col">
       <Show when={props.currentDir()}>
-        <div class="shrink-0 p-3">
+        <div class="shrink-0">
           <div class="text-14-medium text-text-strong">
-            {getFilename(props.currentDir() ?? "")}
+            {TAB_ITEMS.find((t) => t.key === props.activeTab())?.label ?? ""}
           </div>
-          <div class="shrink-0 py-2">
+          <div class="shrink-0 px-0">
             <Button
-              size="large"
-              icon="new-session"
-              class="w-full"
+              size="normal"
+              icon="plus"
+              variant="ghost"
+              class="w-full justify-start border-0 px-0"
               onClick={() => {
                 const dir = props.currentDir()
                 if (!dir) return
@@ -113,16 +120,16 @@ function SimpleSidebar(props: {
             }}
           </Show>
         </div>
-        <div class="shrink-0 p-3">
-          <Tooltip placement="right" value={props.language.t("sidebar.settings")}>
-            <IconButton
-              icon="settings-gear"
-              variant="ghost"
-              size="large"
-              onClick={props.onOpenSettings}
-              aria-label={props.language.t("sidebar.settings")}
-            />
-          </Tooltip>
+        <div class="shrink-0">
+          <Button
+            icon="settings-gear"
+            variant="ghost"
+            class="w-full justify-start"
+            onClick={props.onOpenSettings}
+            aria-label={props.language.t("sidebar.settings")}
+          >
+            {props.language.t("sidebar.settings")}
+          </Button>
         </div>
       </Show>
     </div>
@@ -189,6 +196,7 @@ export default function LayoutNet(props: ParentProps) {
       globalSync={globalSync}
       globalSDK={globalSDK}
       navigate={navigate}
+      activeTab={activeTab}
     />
   )
 

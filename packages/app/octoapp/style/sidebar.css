@@ -1,0 +1,26 @@
+@layer utilities {
+  .w-\[300px\].shrink-0.border-r {
+    border-right-color: rgba(0,0,0,0.1);
+    padding: 24px 16px;
+    background-color: #fff;
+  }
+
+  .w-\[300px\].shrink-0 .bg-background-base {
+    background-color: #fff;
+  }
+
+  .w-\[300px\].shrink-0 .text-14-medium.text-text-strong {
+    font-size: 20px;
+    padding: 4px 0;
+  }
+
+  .w-\[300px\].shrink-0 [data-component="button"][data-variant="ghost"] {
+    font-size: 14px;
+    padding: 13px 0;
+    margin-top: 20px;
+  }
+}
+
+.relative .bg-background-stronger {
+  background-color: #fff;
+}
