@@ -184,7 +184,7 @@ const discoverSkills = Effect.fnUntraced(function* (
   if (metaDir) {
     const builtinSkillsDir = path.join(metaDir, "..", "agent", "skills")
     if (yield* fsys.isDir(builtinSkillsDir)) {
-      yield* scan(state, builtinSkillsDir, SKILL_PATTERN)
+      yield* scan(state, builtinSkillsDir, SKILL_PATTERN, { scope: "builtin" })
     }
   }
 
