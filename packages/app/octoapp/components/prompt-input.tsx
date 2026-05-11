@@ -1487,7 +1487,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       title={language.t("command.agent.cycle")}
                       keybind={command.keybind("agent.cycle")}
                     >
-                      <Select
+                      {/* <Select
                         size="normal"
                         options={agentNames()}
                         current={local.agent.current()?.name ?? ""}
@@ -1500,7 +1500,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         triggerStyle={control()}
                         triggerProps={{ "data-action": "prompt-agent" }}
                         variant="ghost"
-                      />
+                      /> */}
                     </TooltipKeybind>
                   </div>
                 </Show>

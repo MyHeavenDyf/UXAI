@@ -203,30 +203,24 @@ return (
         <Show when={params.dir && resolvedDirectory()} keyed>
           {(directory) => (
             <>
-              <Show when={activeTab() === "chat" || activeTab() === "cowork"}>
+              <div classList={{
+                "flex flex-1 min-w-0 min-h-0": activeTab() === "chat" || activeTab() === "cowork",
+                "hidden": activeTab() === "studio",
+              }}>
                 <div class="w-[300px] shrink-0 border-r border-border-weak-base">
                   {sidebarContent()}
                 </div>
-              </Show>
-
-              <Show when={activeTab() === "chat"}>
                 <div class="flex-1 min-w-0">
                   {props.children}
                 </div>
-              </Show>
+              </div>
 
-              <Show when={activeTab() === "cowork"}>
-                <div class="flex-1 min-w-0">
-                  {props.children}
-                </div>
-              </Show>
-
-
-              <Show when={activeTab() === "studio"}>
-                <div class="flex-1 min-w-0 flex items-center justify-center">
-                  <span class="text-14-regular text-text-weak">Studio content placeholder</span>
-                </div>
-              </Show>
+              <div classList={{
+                "flex flex-1 min-w-0 items-center justify-center": activeTab() === "studio",
+                "hidden": activeTab() !== "studio",
+              }}>
+                <span class="text-14-regular text-text-weak">Studio content placeholder</span>
+              </div>
             </>
           )}
         </Show>
