@@ -35,9 +35,7 @@ export const SettingsProviders: Component = () => {
   const providers = useProviders()
 
   const connected = createMemo(() => {
-    return providers
-      .connected()
-      .filter((p) => p.id !== "opencode" || Object.values(p.models).find((m) => m.cost?.input))
+    return providers.connected()
   })
 
   const popular = createMemo(() => {
@@ -103,6 +101,27 @@ export const SettingsProviders: Component = () => {
       })
   }
 
+  const hasApiKey = (providerID: string) => {
+    return Boolean(globalSync.data.config.provider?.[providerID]?.options?.apiKey)
+  }
+
+  const disconnectOpencode = async (name: string) => {
+    await globalSDK.client.auth.remove({ providerID: "opencode" }).catch(() => undefined)
+    const provider = globalSync.data.config.provider ?? {}
+    const next = { ...provider }
+    if (next.opencode?.options) {
+      const { apiKey: _, ...rest } = next.opencode.options
+      next.opencode = { ...next.opencode, options: Object.keys(rest).length > 0 ? rest : undefined }
+    }
+    await globalSync.updateConfig({ provider: next })
+    showToast({
+      variant: "success",
+      icon: "circle-check",
+      title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
+      description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+    })
+  }
+
   const disconnect = async (providerID: string, name: string) => {
     if (isConfigCustom(providerID)) {
       await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
@@ -154,6 +173,23 @@ export const SettingsProviders: Component = () => {
                       <span class="text-14-medium text-text-strong truncate">{item.name}</span>
                       <Tag>{type(item)}</Tag>
                     </div>
+                    <Show when={item.id === "opencode"}>
+                      <div class="flex items-center gap-2">
+                        <Button size="large" variant="secondary" onClick={() => {
+                          dialog.show(() => <DialogConnectProvider provider="opencode" />)
+                        }}>
+                          {hasApiKey("opencode")
+                            ? language.t("common.edit")
+                            : language.t("common.connect")}
+                        </Button>
+                        <Show when={hasApiKey("opencode")}>
+                          <Button size="large" variant="ghost" onClick={() => void disconnectOpencode(item.name)}>
+                            {language.t("common.disconnect")}
+                          </Button>
+                        </Show>
+                      </div>
+                    </Show>
+                    <Show when={item.id !== "opencode"}>
                     <Show
                       when={canDisconnect(item)}
                       fallback={
@@ -165,6 +201,7 @@ export const SettingsProviders: Component = () => {
                       <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
                         {language.t("common.disconnect")}
                       </Button>
+                    </Show>
                     </Show>
                   </div>
                 )}

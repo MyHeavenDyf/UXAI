@@ -163,6 +163,7 @@ export const dict = {
   "provider.connect.opencodeZen.visit.prefix": "访问 ",
   "provider.connect.opencodeZen.visit.link": "opencode.ai/zen",
   "provider.connect.opencodeZen.visit.suffix": " 获取你的 API 密钥。",
+  "provider.connect.octoAi.description": "Octo AI 提供自建的高性能 AI 模型服务，输入你的 API 密钥即可开始使用。",
   "provider.connect.oauth.code.visit.prefix": "访问 ",
   "provider.connect.oauth.code.visit.link": "此链接",
   "provider.connect.oauth.code.visit.suffix": " 获取授权码，以连接你的帐户并在 OpenCode 中使用 {{provider}} 模型。",
