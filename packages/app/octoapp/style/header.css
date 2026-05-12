@@ -3,4 +3,29 @@
     background-color: #fff;
     border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   }
+
+  #opencode-titlebar-center {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  header[data-tauri-drag-region] #opencode-titlebar-center [data-component="button"] {
+    width: 248px;
+    height: 32px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background-color: rgba(0, 0, 0, 0.05);
+    border: none;
+    box-shadow: none;
+  }
+
+  .header-avatar-placeholder {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+    margin-left: 16px;
+  }
 }
