@@ -28,6 +28,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
+import { AuthError } from "@/session/message"
 
 const log = Log.create({ service: "provider" })
 
@@ -1484,6 +1485,12 @@ const layer: Layer.Layer<
 
         if (baseURL !== undefined) options["baseURL"] = baseURL
         if (options["apiKey"] === undefined && provider.key) options["apiKey"] = provider.key
+        if (model.providerID === "opencode" && options["apiKey"] === undefined) {
+          throw new AuthError({
+            providerID: "opencode",
+            message: "Octo AI 需要配置 API Key，请在设置中输入您的 API Key 后再使用。",
+          })
+        }
         if (model.headers)
           options["headers"] = {
             ...options["headers"],
