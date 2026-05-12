@@ -1,8 +1,9 @@
 import { app } from "electron"
 import log from "electron-log/main.js"
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { CHANNEL } from "./constants"
 import { getStore } from "./store"
 
@@ -29,6 +30,53 @@ const TAURI_APP_IDS: Record<string, string> = {
 }
 function tauriAppId() {
   return app.isPackaged ? TAURI_APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
+}
+
+// Old appId values before rename to "Octo AI"
+const OLD_APP_IDS: Record<string, string> = {
+  dev: "ai.opencode.desktop.dev",
+  beta: "ai.opencode.desktop.beta",
+  prod: "ai.opencode.desktop",
+}
+
+function oldAppDataDir() {
+  const id = app.isPackaged ? OLD_APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
+  switch (process.platform) {
+    case "darwin":
+      return join(homedir(), "Library", "Application Support", id)
+    case "win32":
+      return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), id)
+    default:
+      return join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), id)
+  }
+}
+
+export function migrateAppId() {
+  const newDir = app.getPath("userData")
+  const migratedFlag = join(newDir, ".octo-migrated")
+
+  // Already migrated
+  if (existsSync(migratedFlag)) return
+
+  // New directory already has content - fresh install
+  if (existsSync(newDir)) {
+    try {
+      if (readdirSync(newDir).length > 0) return
+    } catch {
+      return
+    }
+  }
+
+  const oldDir = oldAppDataDir()
+  if (!existsSync(oldDir)) return
+
+  try {
+    renameSync(oldDir, newDir)
+    writeFileSync(migratedFlag, new Date().toISOString())
+    log.log("appId migration: renamed", oldDir, "to", newDir)
+  } catch (err) {
+    log.warn("appId migration: failed to rename directory", err)
+  }
 }
 
 // Migrate a single Tauri .dat file into the corresponding electron-store.
@@ -88,4 +136,29 @@ export function migrate() {
 
   log.log("tauri migration: complete")
   getStore().set(TAURI_MIGRATED_KEY, true)
+}
+
+export function deploySkillsJson() {
+  const configDir = join(homedir(), ".config", "octo")
+  const targetPath = join(configDir, "skills.json")
+
+  // Only deploy if not already present
+  if (existsSync(targetPath)) return
+
+  const sourcePath = app.isPackaged
+    ? join(process.resourcesPath, "skills.json")
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "skills.json")
+
+  if (!existsSync(sourcePath)) {
+    log.warn("skills.json deployment: source file not found", sourcePath)
+    return
+  }
+
+  try {
+    mkdirSync(configDir, { recursive: true })
+    copyFileSync(sourcePath, targetPath)
+    log.log("skills.json deployment: copied to", targetPath)
+  } catch (err) {
+    log.warn("skills.json deployment: failed", err)
+  }
 }

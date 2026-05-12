@@ -43,6 +43,27 @@ const migrations = await Promise.all(
 )
 console.log(`Loaded ${migrations.length} migrations`)
 
+// Generate skills.json from built-in skills
+const skillsDir = path.join(dir, "src", "agent", "skills")
+const skillEntries: Record<string, { description: string; import: boolean }> = {}
+if (fs.existsSync(skillsDir)) {
+  const skillFiles = fs.globSync("**/SKILL.md", { cwd: skillsDir })
+  for (const relPath of skillFiles) {
+    const fullPath = path.join(skillsDir, relPath)
+    const content = fs.readFileSync(fullPath, "utf-8")
+    const dirName = path.basename(path.dirname(fullPath))
+    const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
+    skillEntries[dirName] = {
+      description: descMatch ? descMatch[1] : "",
+      import: true,
+    }
+  }
+}
+const skillsJsonPath = path.join(dir, "dist", "node", "skills.json")
+fs.mkdirSync(path.dirname(skillsJsonPath), { recursive: true })
+fs.writeFileSync(skillsJsonPath, JSON.stringify(skillEntries, null, 2))
+console.log(`Generated skills.json with ${Object.keys(skillEntries).length} skills`)
+
 await Bun.build({
   target: "node",
   entrypoints: ["./src/node.ts"],

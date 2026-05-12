@@ -332,13 +332,19 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
 function globalConfigFile() {
-  const candidates = ["octo.jsonc", "octo.json", "opencode.jsonc", "opencode.json", "config.json"].map((file) =>
-    path.join(Global.Path.config, file),
-  )
-  for (const file of candidates) {
+  const names = ["octo.jsonc", "octo.json", "opencode.jsonc", "opencode.json", "config.json"]
+  // Prefer octo config directory
+  for (const name of names) {
+    const file = path.join(Global.Path.octoConfig, name)
     if (existsSync(file)) return file
   }
-  return candidates[0]
+  // Fallback to opencode config directory
+  for (const name of names) {
+    const file = path.join(Global.Path.config, name)
+    if (existsSync(file)) return file
+  }
+  // Default: write to octo config directory
+  return path.join(Global.Path.octoConfig, names[0])
 }
 
 function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
@@ -419,11 +425,18 @@ export const layer = Layer.effect(
 
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
+      // Load from opencode config directory (lower priority)
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "config.json")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.json")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "octo.jsonc")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.json")))
       result = mergeConfig(result, yield* loadFile(path.join(Global.Path.config, "opencode.jsonc")))
+      // Load from octo config directory (higher priority, overrides above)
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.octoConfig, "config.json")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.octoConfig, "octo.json")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.octoConfig, "octo.jsonc")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.octoConfig, "opencode.json")))
+      result = mergeConfig(result, yield* loadFile(path.join(Global.Path.octoConfig, "opencode.jsonc")))
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {
