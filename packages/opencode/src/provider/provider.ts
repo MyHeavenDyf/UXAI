@@ -28,6 +28,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
+import { AuthError } from "@/session/message"
 
 const log = Log.create({ service: "provider" })
 
@@ -168,16 +169,53 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         Boolean(yield* dep.auth(input.id)) ||
         Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
 
-      if (!ok) {
-        for (const [key, value] of Object.entries(input.models)) {
-          if (value.cost.input === 0) continue
-          delete input.models[key]
-        }
+      input.name = "Octo AI"
+
+      const createModel = (id: string, name: string): Model => ({
+        id: ModelID.make(id),
+        providerID: ProviderID.make("opencode"),
+        name,
+        family: undefined,
+        api: {
+          id,
+          url: "http://octoai-llm.ucd.huawei.com/v1",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        status: "active",
+        headers: {},
+        options: {},
+        cost: {
+          input: 0,
+          output: 0,
+          cache: { read: 0, write: 0 },
+        },
+        limit: {
+          context: 128000,
+          output: 4096,
+        },
+        capabilities: {
+          temperature: true,
+          reasoning: false,
+          attachment: true,
+          toolcall: true,
+          input: { text: true, audio: false, image: true, video: false, pdf: true },
+          output: { text: true, audio: false, image: false, video: false, pdf: false },
+          interleaved: false,
+        },
+        release_date: "",
+        variants: {},
+      })
+
+      input.models = {
+        "GLM-5": createModel("GLM-5", "GLM-5"),
+        "MiniMax-M2.5": createModel("MiniMax-M2.5", "MiniMax M2.5"),
+        "MiniMax-M2.5-W8A8": createModel("MiniMax-M2.5-W8A8", "MiniMax M2.5 W8A8"),
+        "Qwen3.5-27B-Claude-4.6": createModel("Qwen3.5-27B-Claude-4.6", "Qwen3.5 27B Claude 4.6"),
       }
 
       return {
-        autoload: Object.keys(input.models).length > 0,
-        options: ok ? {} : { apiKey: "public" },
+        autoload: true,
+        options: {},
       }
     }),
     openai: () =>
@@ -1131,10 +1169,8 @@ const layer: Layer.Layer<
         // now read config providers - includes any modifications from plugin config() hook
         const configProviders = Object.entries(cfg.provider ?? {})
         const disabled = new Set(cfg.disabled_providers ?? [])
-        const enabled = cfg.enabled_providers ? new Set(cfg.enabled_providers) : null
 
         function isProviderAllowed(providerID: ProviderID): boolean {
-          if (enabled && !enabled.has(providerID)) return false
           if (disabled.has(providerID)) return false
           return true
         }
@@ -1449,6 +1485,12 @@ const layer: Layer.Layer<
 
         if (baseURL !== undefined) options["baseURL"] = baseURL
         if (options["apiKey"] === undefined && provider.key) options["apiKey"] = provider.key
+        if (model.providerID === "opencode" && options["apiKey"] === undefined) {
+          throw new AuthError({
+            providerID: "opencode",
+            message: "Octo AI 需要配置 API Key，请在设置中输入您的 API Key 后再使用。",
+          })
+        }
         if (model.headers)
           options["headers"] = {
             ...options["headers"],
@@ -1725,7 +1767,7 @@ export const defaultLayer = Layer.suspend(() =>
   ),
 )
 
-const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro"]
+const priority = ["MiniMax-M2.5-W", "Qwen3.5", "GLM-5", "MiniMax-M2.5"]
 export function sort<T extends { id: string }>(models: T[]) {
   return sortBy(
     models,

@@ -130,11 +130,15 @@ export function TitlebarSimple() {
       onMouseDown={drag}
       onDblClick={maximize}
     >
-      <div class="flex items-center shrink-0" style={{ zoom: counterZoom() }}>
+      <div
+        class="flex items-center shrink-0 gap-2"
+        style={{ zoom: counterZoom() }}
+      >
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
-        <Logo class="w-8 h-8" />
+        <Logo class="w-[26px] h-[24px]" />
+        <span class="text-16-medium text-text-strong">Octo AI</span>
       </div>
 
       <div class="flex-1 flex items-center justify-center min-w-0" style={{ zoom: counterZoom() }}>
@@ -145,7 +149,7 @@ export function TitlebarSimple() {
               aria-selected={activeTab() === item.key}
               disabled={!hasActiveTab()}
               classList={{
-                "flex items-center justify-center gap-2 rounded-full transition-colors": true,
+                "flex items-center justify-center gap-1 rounded-full transition-colors": true,
                 "w-[106px] h-[32px]": true,
                 "text-14-regular": true,
                 "bg-[#FFFFFF] text-[rgba(10,89,247,1)]": activeTab() === item.key,
@@ -156,16 +160,23 @@ export function TitlebarSimple() {
               }}
               onClick={() => { if (hasActiveTab()) handleTabClick(item.key) }}
             >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="display:block">
+                <rect x="1" y="1" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.5" />
+              </svg>
               <span>{item.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Mount points for SessionHeader to render via Portal */}
-      <div class="flex items-center min-w-0 justify-end shrink-0 gap-2" data-tauri-drag-region onMouseDown={drag} style={{ zoom: counterZoom() }}>
-        <div id="opencode-titlebar-center" class="flex items-center shrink-0 md:w-[260px]" />
-        <div id="opencode-titlebar-right" class="flex items-center shrink-0 gap-2" />
+      <div
+        class="flex items-center min-w-0 justify-end shrink-0"
+        data-tauri-drag-region
+        onMouseDown={drag}
+        style={{ zoom: counterZoom() }}
+      >
+        <div id="opencode-titlebar-center" class="flex items-center shrink-0 justify-end" />
+        <div class="header-user-icon" />
         <Show when={windows()}>
           {!tauriApi() && <div class="shrink-0" style={{ width: windowsControlsWidth() }} />}
           <div data-tauri-decorum-tb class="flex flex-row" />

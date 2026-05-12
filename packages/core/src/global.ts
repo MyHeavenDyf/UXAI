@@ -12,6 +12,7 @@ const cache = path.join(xdgCache!, app)
 const config = path.join(xdgConfig!, app)
 const state = path.join(xdgState!, app)
 const tmp = path.join(os.tmpdir(), app)
+const octoConfig = path.join(xdgConfig!, "octo")
 
 const paths = {
   get home() {
@@ -22,6 +23,7 @@ const paths = {
   log: path.join(data, "log"),
   cache,
   config,
+  octoConfig,
   state,
   tmp,
 }
@@ -33,6 +35,7 @@ Flock.setGlobal({ state })
 await Promise.all([
   fs.mkdir(Path.data, { recursive: true }),
   fs.mkdir(Path.config, { recursive: true }),
+  fs.mkdir(Path.octoConfig, { recursive: true }),
   fs.mkdir(Path.state, { recursive: true }),
   fs.mkdir(Path.tmp, { recursive: true }),
   fs.mkdir(Path.log, { recursive: true }),
@@ -46,6 +49,7 @@ export interface Interface {
   readonly data: string
   readonly cache: string
   readonly config: string
+  readonly octoConfig: string
   readonly state: string
   readonly tmp: string
   readonly bin: string
@@ -58,6 +62,7 @@ export function make(input: Partial<Interface> = {}): Interface {
     data: Path.data,
     cache: Path.cache,
     config: Flag.OPENCODE_CONFIG_DIR ?? Path.config,
+    octoConfig: Path.octoConfig,
     state: Path.state,
     tmp: Path.tmp,
     bin: Path.bin,

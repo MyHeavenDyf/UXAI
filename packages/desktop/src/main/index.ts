@@ -21,19 +21,19 @@ try {
 process.env.OCTO_DISABLE_EMBEDDED_WEB_UI = "true"
 
 const APP_NAMES: Record<string, string> = {
-  dev: "OpenCode Dev",
-  beta: "OpenCode Beta",
-  prod: "OpenCode",
+  dev: "Octo AI Dev",
+  beta: "Octo AI Beta",
+  prod: "Octo AI",
 }
 const APP_IDS: Record<string, string> = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  dev: "ai.octo.desktop.dev",
+  beta: "ai.octo.desktop.beta",
+  prod: "ai.octo.desktop",
 }
 const TEST_ONBOARDING = process.env.OCTO_TEST_ONBOARDING === "1"
-const appId = app.isPackaged ? APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
+const appId = app.isPackaged ? APP_IDS[CHANNEL] : "ai.octo.desktop.dev"
 const onboardingTestRoot = setupOnboardingTestEnv()
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OpenCode Dev")
+app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Octo AI Dev")
 app.setAppUserModelId(appId)
 app.setPath("userData", onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId))
 if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))
@@ -63,7 +63,7 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -145,7 +145,11 @@ function setupApp() {
   }
 
   void app.whenReady().then(async () => {
-    if (!TEST_ONBOARDING) migrate()
+    if (!TEST_ONBOARDING) {
+      migrateAppId()
+      migrate()
+      deploySkillsJson()
+    }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()
     setDockIcon()

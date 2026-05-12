@@ -1,0 +1,5 @@
+@layer components {
+  [data-component="dialog-content"] {
+    border-radius: var(--radius-xl);
+  }
+}

@@ -184,7 +184,7 @@ const discoverSkills = Effect.fnUntraced(function* (
   if (metaDir) {
     const builtinSkillsDir = path.join(metaDir, "..", "agent", "skills")
     if (yield* fsys.isDir(builtinSkillsDir)) {
-      yield* scan(state, builtinSkillsDir, SKILL_PATTERN)
+      yield* scan(state, builtinSkillsDir, SKILL_PATTERN, { scope: "builtin" })
     }
   }
 
@@ -207,8 +207,27 @@ const discoverSkills = Effect.fnUntraced(function* (
     }
   }
 
+  // Filter skills based on ~/.config/octo/skills.json
+  let matches = Array.from(state.matches)
+  const skillConfigPath = path.join(global.octoConfig, "skills.json")
+  const skillConfig = yield* Effect.tryPromise({
+    try: () =>
+      import("fs/promises").then((fs) =>
+        fs.readFile(skillConfigPath, "utf-8").then((text) => JSON.parse(text) as Record<string, { description?: string; import?: boolean }>),
+      ),
+    catch: () => null,
+  }).pipe(Effect.catch(() => Effect.succeed(null)))
+  if (skillConfig && typeof skillConfig === "object") {
+    matches = matches.filter((match) => {
+      const skillDir = path.basename(path.dirname(match))
+      const entry = skillConfig[skillDir]
+      if (entry && typeof entry === "object") return entry.import !== false
+      return true
+    })
+  }
+
   return {
-    matches: Array.from(state.matches),
+    matches,
     dirs: Array.from(state.dirs),
   }
 })

@@ -1,12 +1,9 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
-import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
-import { ModelsDev } from "@/provider/models"
 import { ProviderAuth } from "@/provider/auth"
 import { ProviderID } from "@/provider/schema"
-import { mapValues } from "remeda"
 import { errors } from "../../error"
 import { lazy } from "@/util/lazy"
 import { Effect } from "effect"
@@ -34,25 +31,10 @@ export const ProviderRoutes = lazy(() =>
       async (c) =>
         jsonRequest("ProviderRoutes.list", c, function* () {
           const svc = yield* Provider.Service
-          const cfg = yield* Config.Service
-          const config = yield* cfg.get()
-          const all = yield* ModelsDev.Service.use((s) => s.get())
-          const disabled = new Set(config.disabled_providers ?? [])
-          const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
-          const filtered: Record<string, (typeof all)[string]> = {}
-          for (const [key, value] of Object.entries(all)) {
-            if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
-              filtered[key] = value
-            }
-          }
           const connected = yield* svc.list()
-          const providers = Object.assign(
-            mapValues(filtered, (x) => Provider.fromModelsDevProvider(x)),
-            connected,
-          )
           return {
-            all: Object.values(providers),
-            default: Provider.defaultModelIDs(providers),
+            all: Object.values(connected),
+            default: Provider.defaultModelIDs(connected),
             connected: Object.keys(connected),
           }
         }),

@@ -59,7 +59,7 @@ export function isDefaultTitle(title: string) {
 
 type SessionRow = typeof SessionTable.$inferSelect
 
-export function fromRow(row: SessionRow): Info {
+export function fromRow(row: SessionRow, category?: string): Info {
   const summary =
     row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
       ? {
@@ -81,6 +81,7 @@ export function fromRow(row: SessionRow): Info {
     parentID: row.parent_id ?? undefined,
     title: row.title,
     agent: row.agent ?? undefined,
+    category: category as Info["category"],
     model: row.model
       ? {
           id: ModelID.make(row.model.id),
@@ -190,6 +191,14 @@ export const Info = Schema.Struct({
   share: optionalOmitUndefined(Share),
   title: Schema.String,
   agent: optionalOmitUndefined(Schema.String),
+  category: optionalOmitUndefined(Schema.Union([
+    Schema.Literal("dev"),
+    Schema.Literal("design"),
+    Schema.Literal("prototype"),
+    Schema.Literal("analysis"),
+    Schema.Literal("creative"),
+    Schema.Literal("planning"),
+  ])),
   model: optionalOmitUndefined(Model),
   version: Schema.String,
   time: Time,
@@ -553,9 +562,16 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     })
 
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
-      const row = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+      const row = yield* db((d) =>
+        d
+          .select({ session: SessionTable, category: SessionCategoryTable.category })
+          .from(SessionTable)
+          .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
+          .where(eq(SessionTable.id, id))
+          .get(),
+      )
       if (!row) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
-      return fromRow(row)
+      return fromRow(row.session as SessionRow, row.category ?? undefined)
     })
 
     const list = Effect.fn("Session.list")(function* (input?: ListInput) {
@@ -571,7 +587,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
           .where(and(eq(SessionTable.parent_id, parentID)))
           .all(),
       )
-      return rows.map(fromRow)
+      return rows.map((row) => fromRow(row))
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -871,15 +887,16 @@ function* listByProject(
 
   const rows = Database.use((db) =>
     db
-      .select()
+      .select({ session: SessionTable, category: SessionCategoryTable.category })
       .from(SessionTable)
+      .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
       .where(and(...conditions))
       .orderBy(desc(SessionTable.time_updated))
       .limit(limit)
       .all(),
   )
   for (const row of rows) {
-    yield fromRow(row)
+    yield fromRow(row.session as SessionRow, row.category ?? undefined)
   }
 }
 
@@ -916,17 +933,18 @@ export function* listGlobal(input?: {
   const limit = input?.limit ?? 100
 
   const rows = Database.use((db) => {
+    const base = db
+      .select({ session: SessionTable, category: SessionCategoryTable.category })
+      .from(SessionTable)
+      .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
     const query =
       conditions.length > 0
-        ? db
-            .select()
-            .from(SessionTable)
-            .where(and(...conditions))
-        : db.select().from(SessionTable)
+        ? base.where(and(...conditions))
+        : base
     return query.orderBy(desc(SessionTable.time_updated), desc(SessionTable.id)).limit(limit).all()
   })
 
-  const ids = [...new Set(rows.map((row) => row.project_id))]
+  const ids = [...new Set(rows.map((row) => row.session.project_id))]
   const projects = new Map<string, ProjectInfo>()
 
   if (ids.length > 0) {
@@ -947,8 +965,8 @@ export function* listGlobal(input?: {
   }
 
   for (const row of rows) {
-    const project = projects.get(row.project_id) ?? null
-    yield { ...fromRow(row), project }
+    const project = projects.get(row.session.project_id) ?? null
+    yield { ...fromRow(row.session as SessionRow, row.category ?? undefined), project }
   }
 }
 

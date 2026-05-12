@@ -409,13 +409,25 @@ export function DialogConnectProvider(props: { provider: string }) {
       }
 
       setFormStore("error", undefined)
-      await globalSDK.client.auth.set({
-        providerID: props.provider,
-        auth: {
-          type: "api",
-          key: apiKey,
-        },
-      })
+      if (props.provider === "opencode") {
+        await globalSync.updateConfig({
+          provider: {
+            opencode: {
+              options: {
+                apiKey,
+              },
+            },
+          },
+        })
+      } else {
+        await globalSDK.client.auth.set({
+          providerID: props.provider,
+          auth: {
+            type: "api",
+            key: apiKey,
+          },
+        })
+      }
       await complete()
     }
 
@@ -424,15 +436,7 @@ export function DialogConnectProvider(props: { provider: string }) {
         <Switch>
           <Match when={provider().id === "opencode"}>
             <div class="flex flex-col gap-4">
-              <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line1")}</div>
-              <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line2")}</div>
-              <div class="text-14-regular text-text-base">
-                {language.t("provider.connect.opencodeZen.visit.prefix")}
-                <Link href="https://opencode.ai/zen" tabIndex={-1}>
-                  {language.t("provider.connect.opencodeZen.visit.link")}
-                </Link>
-                {language.t("provider.connect.opencodeZen.visit.suffix")}
-              </div>
+              <div class="text-14-regular text-text-base">{language.t("provider.connect.octoAi.description")}</div>
             </div>
           </Match>
           <Match when={true}>

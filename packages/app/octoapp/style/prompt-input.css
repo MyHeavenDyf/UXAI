@@ -1,0 +1,38 @@
+[data-dock-surface="shell"] [data-action="prompt-submit"] {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(99deg, rgb(31, 75, 215), rgb(51, 147, 247) 100%);
+  box-shadow: inset -2.28px 0.76px 3.18px 0 rgba(70, 176, 250, 1), inset 1.37px 0 3.79px 0 rgba(255, 255, 255, 0.25);
+  filter: blur(1.36px);
+}
+
+[data-component="session-prompt-dock"] {
+  padding-bottom: 24px;
+}
+
+[data-component="session-prompt-dock"] > .w-full.px-3 {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+[data-dock-surface="shell"] {
+  border: 2px solid transparent;
+  min-height: 120px;
+  padding: 16px 16px 18px 16px;
+  border-radius: 28px;
+  background:
+    linear-gradient(var(--surface-raised-stronger-non-alpha), var(--surface-raised-stronger-non-alpha)) padding-box,
+    linear-gradient(135deg, #f66117, #5f2dff, #3d5dff, #688aff, #1cab6f, #3d5dff, #ce07e8) border-box;
+  box-shadow:
+    0 0 10px rgba(0, 0, 0, 0.15),
+    0 0 15px rgba(74, 81, 255, 0.3),
+    0 0 25px rgba(89, 74, 255, 0.2);
+}
+
+[data-dock-surface="shell"]:focus-within {
+  box-shadow:
+    0 0 12px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(74, 81, 255, 0.45),
+    0 0 35px rgba(89, 74, 255, 0.3);
+}

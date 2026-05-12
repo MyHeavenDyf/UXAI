@@ -294,13 +294,13 @@ export const NewSessionItem = (props: {
     <A
       href={`/${props.slug}/session`}
       end
-      class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none ${props.dense ? "py-0.5" : "py-1"}`}
+      class={`flex items-center gap-3 min-w-0 w-full text-left focus:outline-none ${props.dense ? "py-0.5" : "py-1"}`}
       onClick={() => {
         if (layout.sidebar.opened()) return
         props.clearHoverProjectSoon()
       }}
     >
-      <div class="shrink-0 size-6 flex items-center justify-center">
+      <div class="shrink-0 size-5 flex items-center justify-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
       <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{label}</span>
