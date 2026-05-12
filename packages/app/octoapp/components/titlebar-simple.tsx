@@ -163,7 +163,7 @@ export function TitlebarSimple(props: {
         style={{ zoom: counterZoom() }}
       >
         <div id="opencode-titlebar-center" class="flex items-center shrink-0 justify-end" />
-        <div class="header-avatar-placeholder" />
+        <div class="header-user-icon" />
         <Show when={windows()}>
           {!tauriApi() && <div class="shrink-0" style={{ width: windowsControlsWidth() }} />}
           <div data-tauri-decorum-tb class="flex flex-row" />
