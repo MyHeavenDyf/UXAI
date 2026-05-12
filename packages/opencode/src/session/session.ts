@@ -191,7 +191,14 @@ export const Info = Schema.Struct({
   share: optionalOmitUndefined(Share),
   title: Schema.String,
   agent: optionalOmitUndefined(Schema.String),
-  category: optionalOmitUndefined(Schema.Literal("dev", "design", "prototype", "analysis", "creative", "planning")),
+  category: optionalOmitUndefined(Schema.Union([
+    Schema.Literal("dev"),
+    Schema.Literal("design"),
+    Schema.Literal("prototype"),
+    Schema.Literal("analysis"),
+    Schema.Literal("creative"),
+    Schema.Literal("planning"),
+  ])),
   model: optionalOmitUndefined(Model),
   version: Schema.String,
   time: Time,
@@ -580,7 +587,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
           .where(and(eq(SessionTable.parent_id, parentID)))
           .all(),
       )
-      return rows.map(fromRow)
+      return rows.map((row) => fromRow(row))
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
