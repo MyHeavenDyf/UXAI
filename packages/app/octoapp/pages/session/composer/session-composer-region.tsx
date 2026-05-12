@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, onCleanup } from "solid-js"
+import { Show, createEffect, createMemo, on } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
@@ -70,7 +70,7 @@ export function SessionComposerRegion(props: {
       .trim()
 
   createEffect(() => {
-    if (!prompt.ready()) return
+    if (!prompt.ready()()) return
     setSessionHandoff(route.sessionKey(), { prompt: previewPrompt() })
   })
 
@@ -79,39 +79,15 @@ export function SessionComposerRegion(props: {
     height: 320,
     body: undefined as HTMLDivElement | undefined,
   })
-  let timer: number | undefined
-  let frame: number | undefined
 
-  const clear = () => {
-    if (timer !== undefined) {
-      window.clearTimeout(timer)
-      timer = undefined
-    }
-    if (frame !== undefined) {
-      cancelAnimationFrame(frame)
-      frame = undefined
-    }
-  }
-
-  createEffect(() => {
-    route.sessionKey()
-    const ready = props.ready
-    const delay = 140
-
-    clear()
-    setStore("ready", false)
-    if (!ready) return
-
-    frame = requestAnimationFrame(() => {
-      frame = undefined
-      timer = window.setTimeout(() => {
-        setStore("ready", true)
-        timer = undefined
-      }, delay)
-    })
-  })
-
-  onCleanup(clear)
+  createEffect(
+    on(
+      [route.sessionKey, () => props.ready],
+      ([key, ready]) => {
+        setStore("ready", ready)
+      },
+    ),
+  )
 
   const open = createMemo(() => store.ready && props.state.dock() && !props.state.closing())
   const progress = useSpring(() => (open() ? 1 : 0), { visualDuration: 0.3, bounce: 0 })
@@ -124,7 +100,7 @@ export function SessionComposerRegion(props: {
   const openParent = () => {
     const id = parentID()
     if (!id) return
-    navigate(`/${route.params.dir}/session/${id}`)
+    navigate(`/${route.params.dir}/chat/${id}`)
   }
 
   createEffect(() => {
@@ -172,7 +148,7 @@ export function SessionComposerRegion(props: {
 
         <Show when={showComposer()}>
           <Show
-            when={prompt.ready()}
+            when={prompt.ready()()}
             fallback={
               <>
                 <Show when={rolled()} keyed>

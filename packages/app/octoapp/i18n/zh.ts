@@ -917,4 +917,9 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "创建持久化项目图标失败",
   "error.childStore.storeCreateFailed": "创建存储失败",
   "terminal.connectionLost.abnormalClose": "WebSocket 异常关闭：{{code}}",
+
+  "session.group.today": "今天",
+  "session.group.yesterday": "昨天",
+  "session.group.lastSevenDays": "近七天",
+  "session.group.earlier": "更早",
 } satisfies Partial<Record<Keys, string>>

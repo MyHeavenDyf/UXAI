@@ -957,4 +957,9 @@ export const dict = {
   "workspace.reset.archived.one": "1 session will be archived.",
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
+
+  "session.group.today": "Today",
+  "session.group.yesterday": "Yesterday",
+  "session.group.lastSevenDays": "Last 7 Days",
+  "session.group.earlier": "Earlier",
 }

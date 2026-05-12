@@ -1476,7 +1476,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Button>
               </div>
               <div class="flex items-center gap-1.5 min-w-0 flex-1 h-7">
-                <Show when={!agentsLoading()}>
+                <Show when={!agentsLoading() && local.agent.current()?.name !== "octo_ai"}>
                   <div
                     data-component="prompt-agent-control"
                     style={agentsShouldFadeIn() ? { animation: "fade-in 0.3s" } : undefined}
@@ -1487,7 +1487,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       title={language.t("command.agent.cycle")}
                       keybind={command.keybind("agent.cycle")}
                     >
-                      {/* <Select
+                      <Select
                         size="normal"
                         options={agentNames()}
                         current={local.agent.current()?.name ?? ""}
@@ -1500,7 +1500,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         triggerStyle={control()}
                         triggerProps={{ "data-action": "prompt-agent" }}
                         variant="ghost"
-                      /> */}
+                      />
                     </TooltipKeybind>
                   </div>
                 </Show>

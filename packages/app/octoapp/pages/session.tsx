@@ -336,7 +336,7 @@ export default function Page() {
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
   createEffect(() => {
-    if (!prompt.ready()) return
+    if (!prompt.ready()()) return
     untrack(() => {
       if (params.id) return
       const text = searchParams.prompt

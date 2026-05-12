@@ -7,6 +7,13 @@ type SessionStore = {
   path: { directory: string }
 }
 
+type SessionGroupKey = "today" | "yesterday" | "lastSevenDays" | "earlier"
+
+export type SessionGroup = {
+  key: SessionGroupKey
+  sessions: Session[]
+}
+
 function sortSessions(now: number) {
   const oneMinuteAgo = now - 60 * 1000
   return (a: Session, b: Session) => {
@@ -28,6 +35,35 @@ export const roots = (store: SessionStore) =>
   (store.session ?? []).filter((session) => isRootVisibleSession(session, store.path.directory))
 
 export const sortedRootSessions = (store: SessionStore, now: number) => roots(store).sort(sortSessions(now))
+
+export function groupSessionsByDate(sessions: Session[], now: number): SessionGroup[] {
+  const today = new Date(now)
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000
+  const sevenDaysStart = todayStart - 7 * 24 * 60 * 60 * 1000
+
+  const groups: SessionGroup[] = [
+    { key: "today", sessions: [] },
+    { key: "yesterday", sessions: [] },
+    { key: "lastSevenDays", sessions: [] },
+    { key: "earlier", sessions: [] },
+  ]
+
+  for (const session of sessions) {
+    const created = session.time.created
+    if (created >= todayStart) {
+      groups[0].sessions.push(session)
+    } else if (created >= yesterdayStart) {
+      groups[1].sessions.push(session)
+    } else if (created >= sevenDaysStart) {
+      groups[2].sessions.push(session)
+    } else {
+      groups[3].sessions.push(session)
+    }
+  }
+
+  return groups.filter(g => g.sessions.length > 0)
+}
 
 export const latestRootSession = (stores: SessionStore[], now: number) =>
   stores.flatMap(roots).sort(sortSessions(now))[0]

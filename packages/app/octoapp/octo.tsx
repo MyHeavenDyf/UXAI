@@ -9,7 +9,7 @@ import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
-import { type BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
+import { type BaseRouterProps, Navigate, Route, Router, useParams } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Effect } from "effect"
 import {
@@ -48,6 +48,9 @@ import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
+const ChatPage = lazy(() => import("@/pages/chat"))
+const CoworkPage = lazy(() => import("@/pages/cowork"))
+const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
@@ -62,7 +65,11 @@ const SessionRoute = () => (
   </SessionProviders>
 )
 
-const SessionIndexRoute = () => <Navigate href="session" />
+const ChatIndexRoute = () => <Navigate href="chat" />
+const SessionRedirectRoute = () => {
+  const params = useParams<{ id?: string }>()
+  return <Navigate href={`../chat/${params.id ?? ""}`} />
+}
 
 function UiI18nBridge(props: ParentProps) {
   const language = useLanguage()
@@ -130,10 +137,8 @@ function SessionProviders(props: ParentProps) {
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   return (
     <AppShellProviders>
-      {/*<Suspense fallback={<Loading />}>*/}
       {props.appChildren}
       {props.children}
-      {/*</Suspense>*/}
     </AppShellProviders>
   )
 }
@@ -316,8 +321,11 @@ export function AppInterface(props: {
                 >
                   <Route path="/" component={HomeRoute} />
                   <Route path="/:dir" component={DirectoryLayout}>
-                    <Route path="/" component={SessionIndexRoute} />
-                    <Route path="/session/:id?" component={SessionRoute} />
+                    <Route path="/" component={ChatIndexRoute} />
+                    <Route path="/chat/:id?" component={ChatPage} />
+                    <Route path="/cowork/:id?" component={CoworkPage} />
+                    <Route path="/studio" component={StudioPage} />
+                    <Route path="/session/:id?" component={SessionRedirectRoute} />
                   </Route>
                 </Dynamic>
               </GlobalSyncProvider>

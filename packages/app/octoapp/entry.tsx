@@ -99,6 +99,12 @@ if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
 }
 
+// Redirect /index.html to /
+if (window.location.pathname === "/index.html" || window.location.pathname.endsWith("/index.html")) {
+  const basePath = window.location.pathname.replace(/\/index.html$/, "/")
+  window.location.replace(basePath + window.location.search + window.location.hash)
+}
+
 const getCurrentUrl = () => {
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
   if (import.meta.env.DEV)

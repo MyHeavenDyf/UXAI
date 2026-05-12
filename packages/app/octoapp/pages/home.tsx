@@ -26,7 +26,7 @@ export default function Home() {
   const recent = createMemo(() => {
     return sync.data.project
       .slice()
-      .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
+      .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? b.time.created))
       .slice(0, 5)
   })
 
@@ -40,7 +40,10 @@ export default function Home() {
   function openProject(directory: string) {
     layout.projects.open(directory)
     server.projects.touch(directory)
-    navigate(`/${base64Encode(directory)}`)
+    const slug = base64Encode(directory)
+    const url = `/${slug}/chat`
+    console.log("[Home] navigate to:", url)
+    navigate(url, { replace: true })
   }
 
   async function chooseProject() {
