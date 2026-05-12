@@ -371,3 +371,18 @@ import { Foo } from "@/foo/foo"
 | `plug` | 插件管理 |
 | `db` | 数据库操作 |
 | `generate` | 动态生成 agent 配置 |
+
+## 已知问题（待修复）
+
+### Agent Skills 未按 agent 限定范围
+
+**状态**: 待修复
+**涉及文件**: `src/skill/index.ts`、`src/session/system.ts`、`src/agent/agent.ts`
+
+`agent.skills` 字段（如 `octo_insight: ["interview-analysis"]`）已在 agent 定义中声明，但当前未被使用：
+
+- `Skill.available()` 只按 permission 过滤，不读取 `agent.skills` 过滤可见 skill
+- `SystemPrompt.skills()` 列出所有 skill，未按 agent 限定
+- 结果：所有 agent 能看到并调用全部 4 个 skill（interview-analysis、html-prototype、design-basics、creative-assets），而非仅自己配置的
+
+**预期行为**: 每个 agent 只能看到 `agent.skills` 中配置的 skill（或默认全部可见）。

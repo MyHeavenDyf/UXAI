@@ -142,6 +142,12 @@ export const dict = {
   "provider.connect.opencodeZen.visit.link": "opencode.ai/zen",
   "provider.connect.opencodeZen.visit.suffix": " to collect your API key.",
   "provider.connect.octoAi.description": "Octo AI provides self-hosted high-performance AI model services. Enter your API key to get started.",
+  "category.dev": "Development",
+  "category.design": "Design",
+  "category.prototype": "Prototype",
+  "category.analysis": "Analysis",
+  "category.creative": "Creative",
+  "category.planning": "Planning",
   "provider.connect.oauth.code.visit.prefix": "Visit ",
   "provider.connect.oauth.code.visit.link": "this link",
   "provider.connect.oauth.code.visit.suffix":

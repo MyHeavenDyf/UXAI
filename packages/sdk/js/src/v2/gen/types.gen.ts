@@ -744,6 +744,7 @@ export type Session = {
   }
   title: string
   agent?: string
+  category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning"
   model?: {
     id: string
     providerID: string
