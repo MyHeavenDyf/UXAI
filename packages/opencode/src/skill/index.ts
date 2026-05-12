@@ -180,7 +180,7 @@ const discoverSkills = Effect.fnUntraced(function* (
   }
 
   // Built-in agent skills bundled with the package
-  const metaDir = import.meta.dir ?? (typeof __dirname !== "undefined" ? __dirname : undefined)
+  const metaDir = (typeof import.meta.dirname !== "undefined" ? import.meta.dirname : undefined) ?? import.meta.dir ?? (typeof __dirname !== "undefined" ? __dirname : undefined)
   if (metaDir) {
     const builtinSkillsDir = path.join(metaDir, "..", "agent", "skills")
     if (yield* fsys.isDir(builtinSkillsDir)) {

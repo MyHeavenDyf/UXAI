@@ -1,5 +1,3 @@
-import { type SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
-import { migrate } from "drizzle-orm/bun-sqlite/migrator"
 import { type SQLiteTransaction } from "drizzle-orm/sqlite-core"
 export * from "drizzle-orm"
 import { LocalContext } from "@/util/local-context"
@@ -14,7 +12,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { InstallationChannel } from "@opencode-ai/core/installation/version"
 import { InstanceState } from "@/effect/instance-state"
 import { iife } from "@/util/iife"
-import { init } from "#db"
+import { init, migrate } from "#db"
 
 declare const OCTO_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -44,15 +42,12 @@ export const Path = iife(() => {
 
 export type Transaction = SQLiteTransaction<"sync", void>
 
-type Client = SQLiteBunDatabase
+type Client = ReturnType<typeof init>
 
 type Journal = { sql: string; timestamp: number; name: string }[]
 
-// Drizzle's migrate overloads trigger expensive variance checks here; narrow to the journal overload we actually use.
-const migrateFromJournal = migrate as unknown as (db: SQLiteBunDatabase, entries: Journal) => void
-
-function applyMigrations(db: SQLiteBunDatabase, entries: Journal) {
-  migrateFromJournal(db, entries)
+function applyMigrations(db: Client, entries: Journal) {
+  migrate(db, entries)
 }
 
 function time(tag: string) {
