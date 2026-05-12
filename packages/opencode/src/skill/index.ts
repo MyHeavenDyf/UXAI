@@ -210,9 +210,13 @@ const discoverSkills = Effect.fnUntraced(function* (
   // Filter skills based on ~/.config/octo/skills.json
   let matches = Array.from(state.matches)
   const skillConfigPath = path.join(global.octoConfig, "skills.json")
-  const skillConfig = yield* Effect.promise(() =>
-    Bun.file(skillConfigPath).json().catch(() => null) as Promise<Record<string, { description?: string; import?: boolean }> | null>,
-  )
+  const skillConfig = yield* Effect.tryPromise({
+    try: () =>
+      import("fs/promises").then((fs) =>
+        fs.readFile(skillConfigPath, "utf-8").then((text) => JSON.parse(text) as Record<string, { description?: string; import?: boolean }>),
+      ),
+    catch: () => null,
+  }).pipe(Effect.catch(() => Effect.succeed(null)))
   if (skillConfig && typeof skillConfig === "object") {
     matches = matches.filter((match) => {
       const skillDir = path.basename(path.dirname(match))
