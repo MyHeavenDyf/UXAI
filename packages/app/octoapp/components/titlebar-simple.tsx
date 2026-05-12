@@ -116,13 +116,14 @@ export function TitlebarSimple(props: {
       onDblClick={maximize}
     >
       <div
-        class="flex items-center shrink-0"
+        class="flex items-center shrink-0 gap-2"
         style={{ zoom: counterZoom() }}
       >
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
-        <Logo class="w-8 h-8" />
+        <Logo class="w-[26px] h-[24px]" />
+        <span class="text-16-medium text-text-strong">Octo AI</span>
       </div>
 
       <div
@@ -138,7 +139,7 @@ export function TitlebarSimple(props: {
               role="tab"
               aria-selected={props.activeTab() === item.key}
               classList={{
-                "flex items-center justify-center gap-2 rounded-full transition-colors": true,
+                "flex items-center justify-center gap-1 rounded-full transition-colors": true,
                 "w-[106px] h-[32px]": true,
                 "text-14-regular": true,
                 "bg-[#FFFFFF] text-[rgba(10,89,247,1)]": props.activeTab() === item.key,
@@ -146,6 +147,9 @@ export function TitlebarSimple(props: {
               }}
               onClick={() => props.setActiveTab(item.key)}
             >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="display:block">
+                <rect x="1" y="1" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.5" />
+              </svg>
               <span>{item.label}</span>
             </button>
           ))}
@@ -159,6 +163,7 @@ export function TitlebarSimple(props: {
         style={{ zoom: counterZoom() }}
       >
         <div id="opencode-titlebar-center" class="flex items-center shrink-0 justify-end" />
+        <div class="header-user-icon" />
         <Show when={windows()}>
           {!tauriApi() && <div class="shrink-0" style={{ width: windowsControlsWidth() }} />}
           <div data-tauri-decorum-tb class="flex flex-row" />
