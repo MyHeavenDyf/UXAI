@@ -130,15 +130,7 @@ export function ResultViewer(props: {
 function ResultViewerEmpty(): JSX.Element {
   return (
     <div class="flex flex-col items-center justify-center h-full text-center px-8">
-      <div
-        style={{
-          width: "200px",
-          height: "200px",
-          "border-radius": "50%",
-          background: "rgba(10,89,247,0.06)",
-          "margin-bottom": "48px",
-        }}
-      />
+      <img src="/IllustrationResultEmpty.svg" alt="" style={{ width: "200px", height: "200px", "margin-bottom": "48px" }} />
       <div style={{ "font-size": "20px", "font-weight": "700", color: "rgba(0,0,0,0.9)", "margin-bottom": "12px" }}>
         Octo AI
       </div>

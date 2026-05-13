@@ -3,7 +3,6 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { useLocation, useNavigate } from "@solidjs/router"
-import { Logo } from "@opencode-ai/ui/logo"
 
 type TabType = "chat" | "cowork" | "studio"
 
@@ -12,6 +11,12 @@ const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "cowork", label: "Cowork" },
   { key: "studio", label: "Studio" },
 ]
+
+const TAB_ICON_MAP: Record<TabType, { default: string; selected: string }> = {
+  chat: { default: "/IconChat.svg", selected: "/IconChat1.svg" },
+  cowork: { default: "/IconCowork.svg", selected: "/IconCowork1.svg" },
+  studio: { default: "/IconStudio.svg", selected: "/IconStudio1.svg" },
+}
 
 type TauriDesktopWindow = {
   startDragging?: () => Promise<void>
@@ -137,7 +142,7 @@ export function TitlebarSimple() {
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
-        <Logo class="w-[26px] h-[24px]" />
+        <img src="/OctoLogo.svg" alt="" style={{ width: "26px", height: "24px" }} />
         <span class="text-16-medium text-text-strong">Octo AI</span>
       </div>
 
@@ -160,9 +165,7 @@ export function TitlebarSimple() {
               }}
               onClick={() => { if (hasActiveTab()) handleTabClick(item.key) }}
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style="display:block">
-                <rect x="1" y="1" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.5" />
-              </svg>
+              <img src={activeTab() === item.key ? TAB_ICON_MAP[item.key].selected : TAB_ICON_MAP[item.key].default} alt="" style={{ width: "18px", height: "18px", display: "block" }} />
               <span>{item.label}</span>
             </button>
           ))}
@@ -176,7 +179,7 @@ export function TitlebarSimple() {
         style={{ zoom: counterZoom() }}
       >
         <div id="opencode-titlebar-center" class="flex items-center shrink-0 justify-end" />
-        <div class="header-user-icon" />
+        <img src="/AvatarUser.svg" alt="" class="header-user-icon" />
         <Show when={windows()}>
           {!tauriApi() && <div class="shrink-0" style={{ width: windowsControlsWidth() }} />}
           <div data-tauri-decorum-tb class="flex flex-row" />
