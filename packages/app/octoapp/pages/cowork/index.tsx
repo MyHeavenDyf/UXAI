@@ -351,9 +351,6 @@ export default function CoworkPage() {
         {/* ── 左栏：OctoSidebar ─────────────────────────── */}
         <OctoSidebar
           width={sidebarWidth()}
-          directory={projectDir()}
-          slug={slug()}
-          dataCoworkArea="sidebar"
         />
         {/* sidebar 拖拽句柄 */}
         <div
