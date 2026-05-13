@@ -76,13 +76,14 @@ export function ResultViewer(props: {
   activeId: string | null
   onActivate: (id: string) => void
   onClose: (id: string) => void
+  dataCoworkArea?: string
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
 
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
-      style={{ background: "var(--octo-surface-result)" }}
+      data-cowork-area={props.dataCoworkArea}
     >
       <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
         <TabBar
@@ -127,13 +128,22 @@ export function ResultViewer(props: {
 
 function ResultViewerEmpty(): JSX.Element {
   return (
-    <div class="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" style={{ opacity: "0.2", color: "var(--octo-text-primary)" }}>
-        <rect x="6" y="4" width="20" height="24" rx="2" stroke="currentColor" stroke-width="1.5" />
-        <path d="M11 11H21M11 16H21M11 21H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-      </svg>
-      <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>对话产出将在这里展示</div>
-      <div class="text-[12px]" style={{ color: "var(--octo-text-disabled)" }}>点击左侧输出卡片即可打开</div>
+    <div class="flex flex-col items-center justify-center h-full text-center px-8">
+      <div
+        style={{
+          width: "200px",
+          height: "200px",
+          "border-radius": "50%",
+          background: "rgba(10,89,247,0.06)",
+          "margin-bottom": "48px",
+        }}
+      />
+      <div style={{ "font-size": "20px", "font-weight": "700", color: "rgba(0,0,0,0.9)", "margin-bottom": "12px" }}>
+        Octo AI
+      </div>
+      <div style={{ "font-size": "16px", color: "rgba(0,0,0,0.6)",  "line-height": "1.6" }}>
+        告诉我您的目标，我将为您深度调研并一键生成设计方案。
+      </div>
     </div>
   )
 }
