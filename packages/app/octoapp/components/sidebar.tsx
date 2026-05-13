@@ -25,6 +25,7 @@ const TAB_ITEMS: { key: TabType; label: string }[] = [
 export function Sidebar(props: {
   currentDir: () => string | null
   activeTab: () => TabType
+  newTarget?: string
   onOpenSettings?: () => void
 }) {
   const params = useParams()
@@ -85,7 +86,7 @@ export function Sidebar(props: {
   return (
     <div class="flex h-full w-full min-w-0 overflow-hidden bg-background-base flex-col">
       <Show when={props.currentDir()}>
-        <div class="shrink-0 px-3 pt-3 pb-2">
+        <div class="shrink-0">
           <div class="text-14-medium text-text-strong mb-2">
             {TAB_ITEMS.find((t) => t.key === props.activeTab())?.label ?? ""}
           </div>
@@ -97,7 +98,7 @@ export function Sidebar(props: {
             onClick={() => {
               const dir = props.currentDir()
               if (!dir) return
-              navigate(`/${base64Encode(dir)}/chat`)
+              navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}`)
             }}
           >
             {language.t("command.session.new")}
@@ -117,7 +118,7 @@ export function Sidebar(props: {
             />
           </div>
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto px-3">
+        <div class="flex-1 min-h-0 overflow-y-auto">
           <Show when={props.currentDir()} keyed>
             {(dir) => {
               const [store] = globalSync.child(dir, { bootstrap: true })
@@ -154,7 +155,7 @@ export function Sidebar(props: {
             }}
           </Show>
         </div>
-        <div class="shrink-0 px-3 py-2 border-t border-border-weak-base">
+        <div class="shrink-0">
           <Button
             icon="settings-gear"
             variant="ghost"

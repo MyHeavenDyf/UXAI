@@ -531,16 +531,7 @@ export default function CoworkPage() {
 function CoworkEmptyState(): JSX.Element {
   return (
     <div class="flex flex-col items-center h-full text-center" style={{ padding: "80px 24px 0" }}>
-      <div
-        style={{
-          width: "80px",
-          height: "80px",
-          "border-radius": "50%",
-          background: "rgba(10,89,247,0.08)",
-          "margin-bottom": "20px",
-          "flex-shrink": "0",
-        }}
-      />
+      <img src="/IllustrationInsightEmpty.svg" alt="" style={{ width: "80px", height: "80px", "margin-bottom": "20px", "flex-shrink": "0" }} />
       <div style={{ "font-size": "28px", "font-weight": "700", color: "rgba(0,0,0,0.9)", "margin-bottom": "12px" }}>
         Octo AI
       </div>
@@ -579,7 +570,7 @@ function CoworkEmptyState(): JSX.Element {
 
 function CapabilityItem(props: { title: string; desc: string }): JSX.Element {
   return (
-    <div class="flex items-center gap-[10px] text-left">
+    <div class="flex items-center gap-[20px] text-left">
       <div
         style={{
           width: "24px",

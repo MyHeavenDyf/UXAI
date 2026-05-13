@@ -29,9 +29,53 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
 
 function PlusIcon(): JSX.Element {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M6 2V10M2 6H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
     </svg>
+  )
+}
+
+function InsightIcon(): JSX.Element {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
+      <path d="M10 5v5l3 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="10" cy="10" r="1.5" fill="currentColor" />
+    </svg>
+  )
+}
+
+function MakeIcon(): JSX.Element {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M6.5 17.5L3.5 14.5L13.5 4.5L16.5 7.5L6.5 17.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+      <circle cx="14" cy="6" r="2" stroke="currentColor" stroke-width="1.5" />
+      <circle cx="6" cy="14" r="2" stroke="currentColor" stroke-width="1.5" />
+    </svg>
+  )
+}
+
+function SkillIcon(): JSX.Element {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M10 2L12.09 6.64L17 6.64L13.35 9.82L14.63 14.47L10 11.6L5.37 14.47L6.65 9.82L3 6.64L7.91 6.64L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+    </svg>
+  )
+}
+
+function AssetIcon(): JSX.Element {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M2 6.5L10 2L18 6.5V13.5L10 18L2 13.5V6.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+      <path d="M2 6.5L10 10.5L18 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      <path d="M10 10.5V18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+    </svg>
+  )
+}
+
+function SettingsIcon(): JSX.Element {
+  return (
+    <img src="/IconSettings.svg" alt="" style={{ width: "16px", height: "16px" }} />
   )
 }
 

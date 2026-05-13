@@ -24,6 +24,12 @@ const TABS: TabDef[] = [
 // macOS traffic lights end at x≈80px (x:12 origin + 3 buttons + spacing ≈ 68px)
 const TRAFFIC_LIGHT_INSET = 80
 
+const TAB_ICON_MAP: Record<string, { default: string; selected: string }> = {
+  "/chat": { default: "/IconChat.svg", selected: "/IconChat1.svg" },
+  "/insight": { default: "/IconCowork.svg", selected: "/IconCowork1.svg" },
+  "/studio": { default: "/IconStudio.svg", selected: "/IconStudio1.svg" },
+}
+
 export function OctoTopbar(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
@@ -55,7 +61,7 @@ export function OctoTopbar(): JSX.Element {
         class="flex items-center gap-[8px] shrink-0"
         style={{ "min-width": "160px", "-webkit-app-region": "no-drag" }}
       >
-        <OctoLogo size={24} />
+        <img src="/OctoLogo.svg" alt="" style={{ width: "24px", height: "24px" }} />
         <span class="font-semibold text-[17px] text-[#191919] leading-none select-none">Octo AI</span>
       </div>
 
@@ -83,18 +89,15 @@ export function OctoTopbar(): JSX.Element {
           <For each={TABS}>
             {(tab) => {
               const isActive = () => activeHref() === tab.href
+              const icons = TAB_ICON_MAP[tab.href]
               return (
                 <button
                   type="button"
                   onClick={() => navigate(tab.href)}
-                  class="relative z-10 flex-1 px-[18px] py-[5px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors flex items-center justify-center gap-[5px]"
-                  style={{ color: isActive() ? "var(--octo-brand)" : "rgba(0,0,0,0.42)" }}
-                  onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.color = "var(--octo-text-primary)" }}
-                  onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.color = "rgba(0,0,0,0.42)" }}
+                  class="relative z-10 flex-1 px-[22px] py-[5px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors flex items-center justify-center gap-[6px]"
+                  style={{ color: isActive() ? "#191919" : "rgba(0,0,0,0.42)" }}
                 >
-                  <Show when={isActive()} fallback={<tab.Icon size={14} />}>
-                    <tab.IconActive size={14} />
-                  </Show>
+                  <img src={isActive() ? icons.selected : icons.default} alt="" style={{ width: "16px", height: "16px" }} />
                   {tab.label}
                 </button>
               )
@@ -118,15 +121,10 @@ export function OctoTopbar(): JSX.Element {
             border: "1px solid rgba(0,0,0,0.09)",
           }}
         >
-          <IconSearch size={13} />
+          <img src="/IconSearch.svg" alt="" style={{ width: "13px", height: "13px" }} />
           <span>搜索对话和文件</span>
         </button>
-        <div
-          class="w-[28px] h-[28px] rounded-full shrink-0 flex items-center justify-center text-white text-[11px] font-semibold select-none"
-          style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}
-        >
-          U
-        </div>
+        <img src="/AvatarUser.svg" alt="" style={{ width: "28px", height: "28px", "border-radius": "50%" }} />
       </div>
     </div>
   )
