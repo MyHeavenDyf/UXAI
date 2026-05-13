@@ -73,10 +73,7 @@ export const layer = Layer.effect(
             db
               .insert(SessionCategoryTable)
               .values({ session_id: sessionID, category, time_created: now, time_updated: now })
-              .onConflictDoUpdate({
-                target: SessionCategoryTable.session_id,
-                set: { category, time_updated: now },
-              })
+              .onConflictDoNothing({ target: SessionCategoryTable.session_id })
               .run(),
           )
         }),

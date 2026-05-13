@@ -1,13 +1,24 @@
-import { For } from "solid-js"
-import type { JSX } from "solid-js"
+import { For, Show } from "solid-js"
+import type { Component, JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
+import {
+  OctoLogo, IconSearch,
+  IconChat, IconChat1,
+  IconCowork, IconCowork1,
+  IconStudio, IconStudio1,
+} from "./icons"
 
-type TabDef = { label: string; href: string }
+type TabDef = {
+  label: string
+  href: string
+  Icon: Component<{ size?: number }>
+  IconActive: Component<{ size?: number }>
+}
 
 const TABS: TabDef[] = [
-  { label: "Chat", href: "/chat" },
-  { label: "Cowork", href: "/insight" },
-  { label: "Studio", href: "/studio" },
+  { label: "Chat", href: "/chat", Icon: IconChat, IconActive: IconChat1 },
+  { label: "Cowork", href: "/insight", Icon: IconCowork, IconActive: IconCowork1 },
+  { label: "Studio", href: "/studio", Icon: IconStudio, IconActive: IconStudio1 },
 ]
 
 // macOS traffic lights end at x≈80px (x:12 origin + 3 buttons + spacing ≈ 68px)
@@ -65,13 +76,14 @@ export function OctoTopbar(): JSX.Element {
         >
           {/* Sliding pill */}
           <div
-            class="absolute top-[3px] bottom-[3px] rounded-[7px] bg-white"
+            class="absolute top-[3px] bottom-[3px] rounded-[7px]"
             style={{
+              background: "#ffffff",
               left: "3px",
               width: "calc((100% - 6px) / 3)",
-              transform: `translateX(calc(${tabIndex()} * 100%))`,
+              transform: `translateX(${tabIndex() * 100}%)`,
               "box-shadow": "0 1px 4px rgba(0,0,0,0.14)",
-              transition: "transform 200ms cubic-bezier(0.34, 1.2, 0.64, 1)",
+              transition: "transform 250ms cubic-bezier(0.34, 1.2, 0.64, 1)",
             }}
           />
           <For each={TABS}>

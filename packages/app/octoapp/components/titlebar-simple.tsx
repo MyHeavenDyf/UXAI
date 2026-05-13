@@ -3,6 +3,9 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { useLocation, useNavigate } from "@solidjs/router"
+import { Logo } from "@opencode-ai/ui/logo"
+import { base64Encode } from "@opencode-ai/core/util/encode"
+import { useGlobalSync } from "@/context/global-sync"
 
 type TabType = "chat" | "cowork" | "studio"
 
@@ -49,6 +52,7 @@ export function TitlebarSimple() {
   const language = useLanguage()
   const location = useLocation()
   const navigate = useNavigate()
+  const globalSync = useGlobalSync()
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
@@ -69,21 +73,34 @@ export function TitlebarSimple() {
 
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
+    if (path.startsWith("/insight")) return "cowork"
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
-    
+
     const tabMatch = path.match(/^\/[^/]+\/(chat|cowork|studio)/)
     if (tabMatch) return tabMatch[1] as TabType
-    
+
     return "chat"
   })
 
   const handleTabClick = (tab: TabType) => {
     const path = location.pathname
-    const match = path.match(/^\/([^/]+)/)
-    if (!match) return
-    const dir = match[1]
-    const idMatch = path.match(/\/(chat|cowork)\/([^/]+)/)
+    // For Cowork tab, navigate to /insight
+    if (tab === "cowork") {
+      const idMatch = path.match(/\/insight\/([^/]+)/)
+      const id = idMatch ? idMatch[1] : ""
+      navigate(`/insight${id ? `/${id}` : ""}`)
+      return
+    }
+    // Get dir slug: from URL path or from globalSync directory
+    const dirMatch = path.match(/^\/([^/]+)/)
+    let dir = dirMatch ? dirMatch[1] : ""
+    if (!dir || dir === "insight") {
+      const directory = globalSync.data.path.directory
+      dir = directory ? base64Encode(directory) : ""
+    }
+    if (!dir) return
+    const idMatch = path.match(/\/(chat)\/([^/]+)/)
     const id = idMatch ? idMatch[2] : ""
 
     const targetUrl = `/${dir}/${tab}${id ? `/${id}` : ""}`

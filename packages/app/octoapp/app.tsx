@@ -9,7 +9,7 @@ import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
-import { type BaseRouterProps, Navigate, Route, Router, useParams } from "@solidjs/router"
+import { type BaseRouterProps, Navigate, Route, Router, useLocation, useParams } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Effect } from "effect"
 import {
@@ -45,11 +45,12 @@ import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
+import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const ChatPage = lazy(() => import("@/pages/chat"))
-const CoworkPage = lazy(() => import("@/pages/cowork"))
+const InsightPage = lazy(() => import("@/pages/insight"))
 const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
@@ -73,6 +74,11 @@ const ChatIndexRoute = () => <Navigate href="chat" />
 const SessionRedirectRoute = () => {
   const params = useParams<{ id?: string }>()
   return <Navigate href={`../chat/${params.id ?? ""}`} />
+}
+const CoworkRedirectRoute = () => {
+  const params = useParams<{ id?: string }>()
+  const href = params.id ? `/insight/${params.id}` : "/insight"
+  return <Navigate href={href} />
 }
 
 function UiI18nBridge(props: ParentProps) {
@@ -104,6 +110,63 @@ function QueryProvider(props: ParentProps) {
     },
   })
   return <QueryClientProvider client={client}>{props.children}</QueryClientProvider>
+}
+
+function OctoSidebarLayout(props: ParentProps) {
+  const [sidebarWidth, setSidebarWidth] = createSignal(200)
+
+  function handleSidebarResize(e: MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth()
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onUp = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  return (
+    <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <OctoSidebar width={sidebarWidth()} />
+      <div
+        class="absolute top-0 bottom-0 flex items-center justify-center group"
+        style={{
+          left: `${sidebarWidth() - 10}px`,
+          width: "20px",
+          cursor: "col-resize",
+          "z-index": "10",
+        }}
+        onMouseDown={handleSidebarResize}
+      >
+        <div
+          class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+          style={{
+            width: "12px",
+            height: "36px",
+            "border-radius": "0 10px 10px 0",
+            "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
+            border: "1px solid var(--octo-border-divider)",
+            "border-left": "none",
+          }}
+        >
+          <div
+            class="w-[2px] h-[14px] rounded-full ml-[2px]"
+            style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+          />
+        </div>
+      </div>
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {props.children}
+      </div>
+    </div>
+  )
 }
 
 function AppShellProviders(props: ParentProps) {
@@ -292,6 +355,43 @@ function ServerKey(props: ParentProps) {
   )
 }
 
+function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
+  const location = useLocation()
+  const isInsight = () => {
+    const p = location.pathname
+    return p === "/insight" || p.startsWith("/insight/")
+  }
+  return (
+    <Show
+      when={isInsight()}
+      fallback={
+        <AppShellProviders>
+          {props.appChildren}
+          {props.children}
+        </AppShellProviders>
+      }
+    >
+      <SettingsProvider>
+        <PermissionProvider>
+          <LayoutProvider>
+            <NotificationProvider>
+              <ModelsProvider>
+                <CommandProvider>
+                  <HighlightsProvider>
+                    <Layout>
+                      <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+                    </Layout>
+                  </HighlightsProvider>
+                </CommandProvider>
+              </ModelsProvider>
+            </NotificationProvider>
+          </LayoutProvider>
+        </PermissionProvider>
+      </SettingsProvider>
+    </Show>
+  )
+}
+
 export function AppInterface(props: {
   children?: JSX.Element
   defaultServer: ServerConnection.Key
@@ -312,14 +412,15 @@ export function AppInterface(props: {
               <GlobalSyncProvider>
                 <Dynamic
                   component={props.router ?? Router}
-                  root={(routerProps) => <AppShellProviders>{props.children}{routerProps.children}</AppShellProviders>}
+                  root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
                   <Route path="/" component={HomeRoute} />
+                  <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={ChatIndexRoute} />
                     <Route path="/chat/:id?" component={ChatPage} />
-                    <Route path="/cowork/:id?" component={CoworkPage} />
-                    <Route path="/studio/:id?" component={StudioPage} />
+                    <Route path="/cowork/:id?" component={CoworkRedirectRoute} />
+                    <Route path="/studio" component={StudioPage} />
                     <Route path="/session/:id?" component={SessionRedirectRoute} />
                   </Route>
                 </Dynamic>

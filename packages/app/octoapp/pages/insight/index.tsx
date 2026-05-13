@@ -25,7 +25,8 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
-import { OctoSidebar } from "@/pages/_shell/sidebar"
+import { IconAttach, IconSend } from "./icons"
+import { IllustrationInsightEmpty } from "./icons/illustrations"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -37,44 +38,13 @@ type DataStore = {
   part: { [messageID: string]: Part[] }
 }
 
-export default function CoworkPage() {
-  const params = useParams<{ id?: string; dir?: string }>()
+export default function InsightPage() {
+  const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
 
-  const projectDir = () => {
-    if (params.dir) {
-      const decoded = decode64(params.dir)
-      if (decoded) return decoded
-    }
-    return globalSync.data.path.home
-  }
-
-  const slug = createMemo(() => {
-    const dir = projectDir()
-    if (!dir) return ""
-    return base64Encode(dir)
-  })
-
-  const [sidebarWidth, setSidebarWidth] = createSignal(300)
-
-  function handleSidebarResize(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = sidebarWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
-    const onUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-  }
+  const homeDir = () => globalSync.data.path.home
 
   const [dataStore, setDataStore] = createStore<DataStore>({
     session: [],
@@ -87,28 +57,27 @@ export default function CoworkPage() {
   createEffect(
     on(
       () => params.id,
-      (id) => {
+      async (id) => {
         if (!id) return
-        globalSDK.client.session.messages({ sessionID: id })
-          .then((result) => {
-            const items = result.data ?? []
-            const msgs: Message[] = []
-            const partMap: { [msgId: string]: Part[] } = {}
-            for (const { info, parts } of items as { info: Message; parts: Part[] }[]) {
-              msgs.push(info)
-              const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
-              if (visible.length > 0) partMap[info.id] = visible
+        try {
+          const result = await globalSDK.client.session.messages({ sessionID: id })
+          const items = result.data ?? []
+          const msgs: Message[] = []
+          const partMap: { [msgId: string]: Part[] } = {}
+          for (const { info, parts } of items as { info: Message; parts: Part[] }[]) {
+            msgs.push(info)
+            const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
+            if (visible.length > 0) partMap[info.id] = visible
+          }
+          batch(() => {
+            setDataStore("message", id, reconcile(msgs, { key: "id" }))
+            for (const [msgId, ps] of Object.entries(partMap)) {
+              setDataStore("part", msgId, reconcile(ps, { key: "id" }))
             }
-            batch(() => {
-              setDataStore("message", id, reconcile(msgs, { key: "id" }))
-              for (const [msgId, ps] of Object.entries(partMap)) {
-                setDataStore("part", msgId, reconcile(ps, { key: "id" }))
-              }
-            })
           })
-          .catch((err) => {
-            console.error("[CoworkPage] messages load failed", err)
-          })
+        } catch (err) {
+          console.error("[InsightPage] messages load failed", err)
+        }
       },
     ),
   )
@@ -123,7 +92,7 @@ export default function CoworkPage() {
       if (info.sessionID !== sessionId) return
       const messages = dataStore.message[sessionId]
       if (!messages) { setDataStore("message", sessionId, [info]); return }
-      const result = Binary.search(messages, info.id, (m: Message) => m.id)
+      const result = Binary.search(messages, info.id, (m) => m.id)
       if (result.found) {
         setDataStore("message", sessionId, result.index, reconcile(info))
       } else {
@@ -138,7 +107,7 @@ export default function CoworkPage() {
       if (SKIP_PART_TYPES.has(part.type)) return
       const parts = dataStore.part[part.messageID]
       if (!parts) { setDataStore("part", part.messageID, [part]); return }
-      const result = Binary.search(parts, part.id, (p: Part) => p.id)
+      const result = Binary.search(parts, part.id, (p) => p.id)
       if (result.found) {
         setDataStore("part", part.messageID, result.index, reconcile(part))
       } else {
@@ -161,7 +130,7 @@ export default function CoworkPage() {
       }
       const parts = dataStore.part[messageID]
       if (!parts) return
-      const result = Binary.search(parts, partID, (p: Part) => p.id)
+      const result = Binary.search(parts, partID, (p) => p.id)
       if (!result.found) return
       setDataStore("part", messageID, produce((d) => {
         const p = d[result.index] as Record<string, unknown>
@@ -190,7 +159,7 @@ export default function CoworkPage() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   // 对话面板宽度，可拖拽，范围 200–520px
-  const [chatWidth, setChatWidth] = createSignal(468)
+  const [chatWidth, setChatWidth] = createSignal(320)
 
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
@@ -224,18 +193,18 @@ export default function CoworkPage() {
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = projectDir()
+    const dir = homeDir()
     if (!dir) return
     setSending(true)
     try {
       const result = await globalSDK.client.session.create({ directory: dir })
       const session = result.data as Session | undefined
       if (session) {
-        navigate(`/${slug()}/cowork/${session.id}`)
+        navigate(`/insight/${session.id}`)
         return session.id
       }
     } catch (err) {
-      console.error("[CoworkPage] session.create failed", err)
+      console.error("[InsightPage] session.create failed", err)
     } finally {
       setSending(false)
     }
@@ -254,11 +223,12 @@ export default function CoworkPage() {
       const textPart: TextPartInput = { type: "text", text }
       await globalSDK.client.session.prompt({
         sessionID: sessionId,
+        agent: "octo_insight",
         parts: [textPart, ...fileParts],
       })
       setAttachments([])
     } catch (err) {
-      console.error("[CoworkPage] prompt failed", err)
+      console.error("[InsightPage] prompt failed", err)
     } finally {
       setSending(false)
     }
@@ -345,24 +315,8 @@ export default function CoworkPage() {
   const maxAttachments = () => attachments().length >= 5
 
   return (
-    <DataProvider data={dataStore} directory={projectDir() || ""}>
-      <div class="size-full flex overflow-hidden min-h-0">
-
-        {/* ── 左栏：OctoSidebar ─────────────────────────── */}
-        <OctoSidebar
-          width={sidebarWidth()}
-        />
-        {/* sidebar 拖拽句柄 */}
-        <div
-          style={{
-            width: "5px",
-            cursor: "col-resize",
-            "flex-shrink": "0",
-            "align-self": "stretch",
-            "z-index": "10",
-          }}
-          onMouseDown={handleSidebarResize}
-        />
+    <DataProvider data={dataStore} directory={homeDir() || ""}>
+      <div class="size-full flex overflow-hidden relative">
 
         {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
         <div
@@ -370,7 +324,7 @@ export default function CoworkPage() {
           style={{
             width: `${chatWidth()}px`,
             flex: "0 0 auto",
-            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
+            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
           onDragOver={handleDragOver}
@@ -386,7 +340,7 @@ export default function CoworkPage() {
             >
               <Show
                 when={params.id && userMessages().length > 0}
-                fallback={<CoworkEmptyState />}
+                fallback={<ChatEmptyState />}
               >
                 <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
                   <For each={userMessages()}>
@@ -405,13 +359,20 @@ export default function CoworkPage() {
             </div>
 
             {/* 输入区 */}
-            <div data-cowork-area="input-wrap" class="shrink-0" style={{ opacity: inputDisabled() ? "0.6" : "1" }}>
+            <div class="shrink-0 p-4">
               <AttachmentBar
                 attachments={attachments()}
                 onRemove={removeAttachment}
               />
 
-              <div data-cowork-area="input">
+              <div
+                class="rounded-[var(--octo-radius-lg)] overflow-hidden"
+                style={{
+                  background: "var(--octo-surface-page)",
+                  "box-shadow": "0 2px 12px rgba(0, 0, 0, 0.08)",
+                  "margin-top": attachments().length > 0 ? "6px" : "0",
+                }}
+              >
                 <textarea
                   value={prompt()}
                   onInput={(e) => setPrompt(e.currentTarget.value)}
@@ -419,97 +380,70 @@ export default function CoworkPage() {
                   placeholder="输入指令，按 Enter 发送…"
                   rows={3}
                   disabled={inputDisabled()}
+                  class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
+                  style={{
+                    color: inputDisabled() ? "var(--octo-text-disabled)" : "var(--octo-text-primary)",
+                    "font-family": "var(--octo-font)",
+                    "max-height": "120px",
+                    "overflow-y": "auto",
+                  }}
                 />
 
-                <input
-                  ref={fileInputRef!}
-                  type="file"
-                  multiple
-                  class="hidden"
-                  accept="*/*"
-                  onChange={handleFileInputChange}
-                />
+                <div class="flex items-center justify-between px-2.5 pb-2.5">
+                  <input
+                    ref={fileInputRef!}
+                    type="file"
+                    multiple
+                    class="hidden"
+                    accept="*/*"
+                    onChange={handleFileInputChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                    disabled={maxAttachments()}
+                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
+                    title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                  >
+                    <IconAttach size={14} />
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                  disabled={maxAttachments()}
-                  title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                  class="absolute flex items-center justify-center"
-                  style={{
-                    left: "16px",
-                    bottom: "16px",
-                    width: "32px",
-                    height: "32px",
-                    "border-radius": "8px",
-                    background: "transparent",
-                    border: "none",
-                    color: maxAttachments() ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.45)",
-                    cursor: maxAttachments() ? "not-allowed" : "pointer",
-                  }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                    <path d="M9 3V15M3 9H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                  </svg>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void handleSubmit()}
-                  disabled={!prompt().trim() || inputDisabled()}
-                  class="absolute flex items-center justify-center"
-                  style={{
-                    right: "16px",
-                    bottom: "16px",
-                    width: "32px",
-                    height: "32px",
-                    "border-radius": "50%",
-                    background: (!prompt().trim() || inputDisabled())
-                      ? "rgba(0,0,0,0.1)"
-                      : "linear-gradient(135deg, rgb(31,75,215), rgb(51,147,247))",
-                    border: "none",
-                    color: "#fff",
-                    cursor: (!prompt().trim() || inputDisabled()) ? "default" : "pointer",
-                    transition: "opacity 0.2s",
-                  }}
-                >
-                  {sending() ? (
-                    <span style={{ "font-size": "14px" }}>…</span>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M8 2L8 14M3 7L8 2L13 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmit()}
+                    disabled={!prompt().trim() || inputDisabled()}
+                    class="octo-btn-send flex-shrink-0"
+                  >
+                    {sending() ? "…" : <IconSend size={14} />}
+                  </button>
+                </div>
               </div>
             </div>
 
         </div>
 
-        {/* ── 聊天/结果 拖拽分隔线（始终渲染，1px 线 + 4px 两侧可拖区） */}
+        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊） */}
         <div
-          class="flex-shrink-0 flex items-stretch"
-          style={{ width: "9px", cursor: "col-resize" }}
+          class="absolute top-0 bottom-0 flex items-center justify-center group"
+          style={{ left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
           onMouseDown={handleDividerMouseDown}
-          onMouseEnter={(e) => {
-            const bar = e.currentTarget.querySelector(".divider-bar") as HTMLElement | null
-            if (bar) bar.style.background = "var(--octo-brand-a40)"
-          }}
-          onMouseLeave={(e) => {
-            const bar = e.currentTarget.querySelector(".divider-bar") as HTMLElement | null
-            if (bar) bar.style.background = "var(--octo-border-divider)"
-          }}
         >
           <div
-            class="divider-bar"
+            class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
             style={{
-              width: "1px",
-              height: "100%",
-              margin: "0 4px",
-              background: "var(--octo-border-divider)",
-              transition: "background var(--octo-dur-fast)",
+              width: "12px",
+              height: "36px",
+              "border-radius": "10px 0 0 10px",
+              "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
+              border: "1px solid var(--octo-border-divider)",
+              "border-right": "none",
             }}
-          />
+          >
+            <div
+              class="w-[2px] h-[14px] rounded-full mr-[2px]"
+              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+            />
+          </div>
         </div>
 
         {/* ── 中栏：ResultViewer（始终渲染，无 tab 时显示空态） */}
@@ -518,7 +452,6 @@ export default function CoworkPage() {
           activeId={tabStore.activeId()}
           onActivate={tabStore.activate}
           onClose={tabStore.closeTab}
-          dataCoworkArea="result"
         />
 
         {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}
@@ -528,69 +461,13 @@ export default function CoworkPage() {
   )
 }
 
-function CoworkEmptyState(): JSX.Element {
+function ChatEmptyState(): JSX.Element {
   return (
-    <div class="flex flex-col items-center h-full text-center" style={{ padding: "80px 24px 0" }}>
-      <img src="/IllustrationInsightEmpty.svg" alt="" style={{ width: "80px", height: "80px", "margin-bottom": "20px", "flex-shrink": "0" }} />
-      <div style={{ "font-size": "28px", "font-weight": "700", color: "rgba(0,0,0,0.9)", "margin-bottom": "12px" }}>
-        Octo AI
-      </div>
-      <div style={{ "font-size": "16px", "line-height": "24px", color: "rgb(110,115,112)", "margin-bottom": "32px" }}>
-        您的全能设计与调研专家
-      </div>
-
-      {/* 专项能力矩阵 */}
-      <div class="flex items-center gap-[12px]" style={{ "margin-bottom": "24px" }}>
-        <div style={{ width: "100px", height: "2px", background: "linear-gradient(90deg, transparent, rgba(10,89,247,0.3))" }} />
-        <span style={{ "font-size": "14px", "font-weight": "600", color: "rgba(0,0,0,0.9)", "white-space": "nowrap" }}>
-          专项能力矩阵
-        </span>
-        <div style={{ width: "100px", height: "2px", background: "linear-gradient(90deg, rgba(10,89,247,0.3), transparent)" }} />
-      </div>
-
-      {/* 能力介绍 */}
-      <div class="flex flex-col gap-[8px]" style={{ "margin-bottom": "32px" }}>
-        <CapabilityItem
-          title="Octo Insight"
-          desc="调研与竞品分析交付"
-        />
-        <CapabilityItem
-          title="Octo Make"
-          desc="设计方案交付"
-        />
-      </div>
-
-      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.45)", "max-width": "300px" }}>
-        有任何问题直接在下方提问<br />
-        我将根据具体需求匹配不同能力进行完成~
-      </div>
-    </div>
-  )
-}
-
-function CapabilityItem(props: { title: string; desc: string }): JSX.Element {
-  return (
-    <div class="flex items-center gap-[20px] text-left">
-      <div
-        style={{
-          width: "24px",
-          height: "24px",
-          "border-radius": "6px",
-          background: "rgba(10,89,247,0.08)",
-          "flex-shrink": "0",
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "center",
-          color: "rgb(10,89,247)",
-        }}
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M11.5 3.5L5.5 10.5L2.5 7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </div>
-      <div class="flex flex-col gap-[2px]">
-        <span style={{ "font-size": "14px", "font-weight": "600", color: "rgba(0,0,0,0.9)" }}>{props.title}</span>
-        <span style={{ "font-size": "12px", color: "rgba(0,0,0,0.45)" }}>{props.desc}</span>
+    <div class="size-full flex flex-col items-center justify-center gap-3 text-center px-8">
+      <IllustrationInsightEmpty width={120} height={120} />
+      <div class="text-[15px] font-semibold" style={{ color: "var(--octo-text-strong)" }}>Octo Insight</div>
+      <div class="text-[13px] max-w-[200px] leading-relaxed" style={{ color: "var(--octo-text-secondary)" }}>
+        上传访谈材料，发送指令开始分析
       </div>
     </div>
   )

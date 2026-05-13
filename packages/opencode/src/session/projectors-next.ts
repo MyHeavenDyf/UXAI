@@ -130,12 +130,12 @@ export default [
       .where(eq(SessionTable.id, data.sessionID))
       .run()
 
-    // Sync category when agent switches
+    // Sync category only on first assignment — do not overwrite existing category
     const category = agentToCategory(data.agent)
     const now = DateTime.toEpochMillis(data.timestamp)
     db.insert(SessionCategoryTable)
       .values({ session_id: data.sessionID, category, time_created: now, time_updated: now })
-      .onConflictDoUpdate({ target: SessionCategoryTable.session_id, set: { category, time_updated: now } })
+      .onConflictDoNothing({ target: SessionCategoryTable.session_id })
       .run()
 
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.agent.switched", data })
