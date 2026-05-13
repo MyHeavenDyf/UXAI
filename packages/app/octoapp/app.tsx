@@ -319,7 +319,7 @@ export function AppInterface(props: {
                     <Route path="/" component={ChatIndexRoute} />
                     <Route path="/chat/:id?" component={ChatPage} />
                     <Route path="/cowork/:id?" component={CoworkPage} />
-                    <Route path="/studio" component={StudioPage} />
+                    <Route path="/studio/:id?" component={StudioPage} />
                     <Route path="/session/:id?" component={SessionRedirectRoute} />
                   </Route>
                 </Dynamic>

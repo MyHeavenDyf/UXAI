@@ -25,6 +25,7 @@ const TAB_ITEMS: { key: TabType; label: string }[] = [
 export function Sidebar(props: {
   currentDir: () => string | null
   activeTab: () => TabType
+  newTarget?: string
   onOpenSettings?: () => void
 }) {
   const params = useParams()
@@ -97,7 +98,7 @@ export function Sidebar(props: {
             onClick={() => {
               const dir = props.currentDir()
               if (!dir) return
-              navigate(`/${base64Encode(dir)}/chat`)
+              navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}`)
             }}
           >
             {language.t("command.session.new")}
@@ -154,7 +155,7 @@ export function Sidebar(props: {
             }}
           </Show>
         </div>
-        <div class="shrink-0 px-3 py-2 border-t border-border-weak-base">
+        <div class="shrink-0 px-3 py-2">
           <Button
             icon="settings-gear"
             variant="ghost"

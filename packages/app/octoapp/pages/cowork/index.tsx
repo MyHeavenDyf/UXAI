@@ -582,7 +582,7 @@ function CoworkEmptyState(): JSX.Element {
 
 function CapabilityItem(props: { title: string; desc: string }): JSX.Element {
   return (
-    <div class="flex items-center gap-[10px] text-left">
+    <div class="flex items-center gap-[20px] text-left">
       <div
         style={{
           width: "24px",

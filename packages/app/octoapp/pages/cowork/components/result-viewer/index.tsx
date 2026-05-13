@@ -77,6 +77,7 @@ export function ResultViewer(props: {
   onActivate: (id: string) => void
   onClose: (id: string) => void
   dataCoworkArea?: string
+  emptyState?: JSX.Element
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
 
@@ -85,7 +86,7 @@ export function ResultViewer(props: {
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       data-cowork-area={props.dataCoworkArea}
     >
-      <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0} fallback={props.emptyState ?? <ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
