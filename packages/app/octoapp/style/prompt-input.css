@@ -36,3 +36,7 @@
     0 0 20px rgba(74, 81, 255, 0.45),
     0 0 35px rgba(89, 74, 255, 0.3);
 }
+
+.relative.bg-background-base.size-full [data-component="session-turn"] [data-component="user-message"] {
+  background: none;
+}
