@@ -231,7 +231,7 @@ export default function CoworkPage() {
       const result = await globalSDK.client.session.create({ directory: dir })
       const session = result.data as Session | undefined
       if (session) {
-        navigate(`/cowork/${session.id}`)
+        navigate(`/${slug()}/cowork/${session.id}`)
         return session.id
       }
     } catch (err) {
