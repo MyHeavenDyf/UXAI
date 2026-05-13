@@ -9,15 +9,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 
 import { Database } from "@/storage/db"
 import { NotFoundError } from "@/storage/storage"
-import { eq } from "drizzle-orm"
-import { and } from "drizzle-orm"
-import { gte } from "drizzle-orm"
-import { isNull } from "drizzle-orm"
-import { desc } from "drizzle-orm"
-import { like } from "drizzle-orm"
-import { inArray } from "drizzle-orm"
-import { lt } from "drizzle-orm"
-import { or } from "drizzle-orm"
+import { eq, and, gte, isNull, desc, like, inArray, lt, or, sql } from "drizzle-orm"
 import { SyncEvent } from "../sync"
 import type { SQL } from "drizzle-orm"
 import { PartTable, SessionTable } from "./session.sql"
@@ -274,6 +266,7 @@ export type ListInput = {
   start?: number
   search?: string
   limit?: number
+  category?: string
 }
 
 const CreatedEventSchema = Schema.Struct({
@@ -546,7 +539,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
               })
               .run(),
           )
-        }).pipe(Effect.catch(() => Effect.void))
+        }).pipe(Effect.catch((err) => {
+          log.error("failed to set session category", { sessionID: result.id, agent: result.agent, err })
+          return Effect.void
+        }))
       }
 
       if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
@@ -582,12 +578,13 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
       const rows = yield* db((d) =>
         d
-          .select()
+          .select({ session: SessionTable, category: SessionCategoryTable.category })
           .from(SessionTable)
+          .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
           .where(and(eq(SessionTable.parent_id, parentID)))
           .all(),
       )
-      return rows.map((row) => fromRow(row))
+      return rows.map((row) => fromRow(row.session as SessionRow, row.category ?? undefined))
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -890,7 +887,11 @@ function* listByProject(
       .select({ session: SessionTable, category: SessionCategoryTable.category })
       .from(SessionTable)
       .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
-      .where(and(...conditions))
+      .where(
+        input.category
+          ? and(...conditions, sql`${SessionCategoryTable.category} = ${input.category}`)
+          : and(...conditions),
+      )
       .orderBy(desc(SessionTable.time_updated))
       .limit(limit)
       .all(),

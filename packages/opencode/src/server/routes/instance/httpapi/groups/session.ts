@@ -33,6 +33,7 @@ export const ListQuery = Schema.Struct({
   start: Schema.optional(Schema.NumberFromString),
   search: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.NumberFromString),
+  category: Schema.optional(Schema.String),
 })
 export const DiffQuery = Schema.Struct(Struct.omit(SessionSummary.DiffInput.fields, ["sessionID"]))
 export const MessagesQuery = Schema.Struct({

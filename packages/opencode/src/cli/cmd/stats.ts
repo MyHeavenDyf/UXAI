@@ -3,8 +3,10 @@ import { effectCmd } from "../effect-cmd"
 import { Session } from "@/session/session"
 import { Database } from "@/storage/db"
 import { SessionTable } from "../../session/session.sql"
+import { SessionCategoryTable } from "../../session/session-category.sql"
 import { Project } from "@/project/project"
 import { InstanceRef } from "@/effect/instance-ref"
+import { eq } from "drizzle-orm"
 
 interface SessionStats {
   totalSessions: number
@@ -80,7 +82,13 @@ export const StatsCommand = effectCmd({
 })
 
 const getAllSessions = Effect.sync(() =>
-  Database.use((db) => db.select().from(SessionTable).all()).map((row) => Session.fromRow(row)),
+  Database.use((db) =>
+    db
+      .select({ session: SessionTable, category: SessionCategoryTable.category })
+      .from(SessionTable)
+      .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
+      .all(),
+  ).map((row) => Session.fromRow(row.session, row.category ?? undefined)),
 )
 
 const aggregateSessionStats = Effect.fn("Cli.stats.aggregate")(function* (
