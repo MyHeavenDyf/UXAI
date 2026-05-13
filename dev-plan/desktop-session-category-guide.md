@@ -2,36 +2,50 @@
 
 ## 概述
 
-后端已完成 Session 分类功能，API 现在在 `Session.Info` 中返回 `category` 字段。桌面端需要基于此字段实现分类分组展示。
+后端已完成 Session 分类功能，API 在 `Session.Info` 中返回 `category` 字段，支持按分类过滤。桌面端可基于此字段实现分类分组展示。
 
 ---
 
 ## 后端已完成的改动
 
-### 1. Session.Info 新增 category 字段
+### 1. Session.Info category 字段
 
 ```typescript
-// packages/opencode/src/session/session.ts:194
+// packages/opencode/src/session/session.ts
+// 使用 Schema.Union（非 Schema.Literal，后者只接受单值）
 category: optionalOmitUndefined(
-  Schema.Literal("dev", "design", "prototype", "analysis", "creative", "planning")
+  Schema.Union([
+    Schema.Literal("dev"), Schema.Literal("design"), Schema.Literal("prototype"),
+    Schema.Literal("analysis"), Schema.Literal("creative"), Schema.Literal("planning"),
+  ])
 )
 ```
 
-所有返回 `Session.Info` 的 API（`GET /session`、`GET /session/:id`、`POST /session`）自动包含 `category` 字段。
+### 2. fromRow 签名变更
 
-### 2. 分类的 6 种类型
+```typescript
+// 旧签名
+function fromRow(row: SessionRow): Info
+
+// 新签名（第二个参数用于 LEFT JOIN 传入的 category）
+function fromRow(row: SessionRow, category?: string): Info
+```
+
+所有调用 fromRow 的位置（get、listByProject、listGlobal、children、projectors、stats）均已适配新签名。
+
+### 3. 分类的 6 种类型
 
 ```typescript
 type SessionCategory = "dev" | "design" | "prototype" | "analysis" | "creative" | "planning"
 ```
 
-### 3. Agent → Category 映射
+### 4. Agent → Category 映射
 
 ```typescript
 // packages/opencode/src/session/session-category.ts:13-21
 const AGENT_TO_CATEGORY = {
   octo_ai:      "dev",
-  build:        "dev",
+  build:        "dev",       // backward compat
   octo_design:  "design",
   octo_make:    "prototype",
   octo_insight: "analysis",
@@ -41,24 +55,37 @@ const AGENT_TO_CATEGORY = {
 }
 ```
 
-### 4. 分类写入时机
+### 5. 分类写入时机
 
 | 时机 | 位置 | 说明 |
 |------|------|------|
-| Session 创建时 | `session.ts:528-543` | 仅当 `result.agent` 有值时写入 |
-| Agent 切换时 | `projectors-next.ts:133-139` | 同步更新 SessionCategoryTable |
+| Session 创建时 | `session.ts:createNext` | 仅当 `result.agent` 有值时写入，失败时记录日志 |
+| Agent 切换时 | `projectors-next.ts:AgentSwitched.Sync` | 自动 upsert 到 SessionCategoryTable |
 
 **注意**：桌面端 `submit.ts:365` 调用 `client.session.create()` 时传空 body（不含 agent），所以创建时不会写入分类。分类在发送第一条消息（触发 AgentSwitched 事件）后才写入。
 
-### 5. 查询自动 JOIN
+### 6. 查询自动 LEFT JOIN
 
-`listByProject`、`get`、`listGlobal` 均已 LEFT JOIN `SessionCategoryTable`：
+所有返回 session 的查询均已 LEFT JOIN `SessionCategoryTable`：
 
 ```typescript
 db.select({ session: SessionTable, category: SessionCategoryTable.category })
   .from(SessionTable)
   .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
 ```
+
+覆盖范围：`get`、`listByProject`、`listGlobal`、`children`、`listByCategory`、`server/projectors.ts`、`stats.ts`。
+
+### 7. API 支持按分类过滤
+
+```
+GET /session?category=dev
+GET /session?category=design&limit=50
+```
+
+两个后端均已支持：
+- **Hono 后端**: `server/routes/instance/session.ts` — query 参数 `category`
+- **HttpApi 后端**: `server/routes/instance/httpapi/groups/session.ts` — `ListQuery` schema
 
 ---
 
@@ -147,6 +174,15 @@ const grouped = createMemo(() => {
 - `<Show when={grouped().get(category)}>` 跳过无 session 的分类，不显示空分组
 - `s.category ?? "dev"` 确保无分类的旧 session 归入"开发"组
 
+### 4. 按分类过滤查询（可选）
+
+桌面端可通过 SDK 调用带 category 参数的 session list：
+
+```typescript
+// 只获取开发类 session
+client.session.list({ directory, category: "dev" })
+```
+
 ---
 
 ## 数据流图
@@ -167,3 +203,4 @@ const grouped = createMemo(() => {
 2. 使用不同 agent 创建多个 session（octo_ai → dev, octo_design → design, octo_make → prototype）
 3. 侧边栏应按分类分组显示，每组带分类标题
 4. 无分类的旧 session 应归入"开发"组
+5. API 过滤：`GET /session?category=dev` 只返回开发类 session

@@ -5,7 +5,7 @@ import { Database } from "@/storage/db"
 import { SessionCategoryTable, type SessionCategory } from "./session-category.sql"
 import { SessionTable } from "./session.sql"
 import type { SessionID } from "./schema"
-import type { Info } from "./session"
+import { fromRow, type Info } from "./session"
 import type { ProjectID } from "../project/schema"
 
 const log = Log.create({ service: "session-category" })
@@ -100,7 +100,7 @@ export const layer = Layer.effect(
               .all(),
           )
 
-          return (rows ?? []).map((r) => r.session as unknown as Info)
+          return (rows ?? []).map((r) => fromRow(r.session, category))
         }),
 
       listCategories: (sessionIDs: SessionID[]) =>

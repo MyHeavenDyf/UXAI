@@ -197,7 +197,7 @@ export const layer = Layer.effect(
           },
           octo_insight: {
             name: "octo_insight",
-            description: "Expert at analyzing user interview recordings (audio and video). Coordinates with MCP services to process and analyze interview content.",
+            description: "用研 Agent，从访谈材料中提取结构化洞察。支持上传文件、多维度分析（关键发现/用户旅程/痛点/机会点）。",
             prompt: PROMPT_OCTO_INSIGHT,
             permission: Permission.merge(defaults, user),
             options: {},
