@@ -57,7 +57,7 @@ export default function CoworkPage() {
     return base64Encode(dir)
   })
 
-  const [sidebarWidth, setSidebarWidth] = createSignal(200)
+  const [sidebarWidth, setSidebarWidth] = createSignal(300)
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
@@ -190,7 +190,7 @@ export default function CoworkPage() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   // 对话面板宽度，可拖拽，范围 200–520px
-  const [chatWidth, setChatWidth] = createSignal(320)
+  const [chatWidth, setChatWidth] = createSignal(468)
 
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
@@ -349,10 +349,11 @@ export default function CoworkPage() {
       <div class="size-full flex overflow-hidden min-h-0">
 
         {/* ── 左栏：OctoSidebar ─────────────────────────── */}
-        <OctoSidebar 
-          width={sidebarWidth()} 
-          directory={projectDir()} 
-          slug={slug()} 
+        <OctoSidebar
+          width={sidebarWidth()}
+          directory={projectDir()}
+          slug={slug()}
+          dataCoworkArea="sidebar"
         />
         {/* sidebar 拖拽句柄 */}
         <div
@@ -407,21 +408,13 @@ export default function CoworkPage() {
             </div>
 
             {/* 输入区 */}
-            <div class="shrink-0 p-3" style={{ "border-top": "1px solid var(--octo-border-divider)" }}>
+            <div data-cowork-area="input-wrap" class="shrink-0" style={{ opacity: inputDisabled() ? "0.6" : "1" }}>
               <AttachmentBar
                 attachments={attachments()}
                 onRemove={removeAttachment}
               />
 
-              <div
-                class="rounded-[var(--octo-radius-lg)] overflow-hidden"
-                style={{
-                  border: "1px solid var(--octo-border-default)",
-                  background: "var(--octo-surface-page)",
-                  opacity: inputDisabled() ? "0.6" : "1",
-                  "margin-top": attachments().length > 0 ? "6px" : "0",
-                }}
-              >
+              <div data-cowork-area="input">
                 <textarea
                   value={prompt()}
                   onInput={(e) => setPrompt(e.currentTarget.value)}
@@ -429,69 +422,68 @@ export default function CoworkPage() {
                   placeholder="输入指令，按 Enter 发送…"
                   rows={3}
                   disabled={inputDisabled()}
-                  class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
-                  style={{
-                    color: "var(--octo-text-primary)",
-                    "font-family": "var(--octo-font)",
-                    "max-height": "120px",
-                    "overflow-y": "auto",
-                  }}
                 />
 
-                <div class="flex items-center justify-between px-2.5 pb-2.5">
-                  <input
-                    ref={fileInputRef!}
-                    type="file"
-                    multiple
-                    class="hidden"
-                    accept="*/*"
-                    onChange={handleFileInputChange}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                    disabled={maxAttachments()}
-                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors"
-                    style={{
-                      "border-radius": "var(--octo-radius-sm)",
-                      background: "rgba(0,0,0,0.04)",
-                      border: "1px solid var(--octo-border-divider)",
-                      color: maxAttachments() ? "var(--octo-text-disabled)" : "var(--octo-text-secondary)",
-                      cursor: maxAttachments() ? "not-allowed" : "pointer",
-                    }}
-                    title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                  >
-                    <span style={{ "font-size": "14px", "line-height": "1" }}>＋</span>
-                    <span>附件</span>
-                  </button>
+                <input
+                  ref={fileInputRef!}
+                  type="file"
+                  multiple
+                  class="hidden"
+                  accept="*/*"
+                  onChange={handleFileInputChange}
+                />
 
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={!prompt().trim() || inputDisabled()}
-                    class="px-3 py-1.5 text-sm font-medium transition-colors text-white"
-                    style={{
-                      "border-radius": "var(--octo-radius-sm)",
-                      background: (!prompt().trim() || inputDisabled())
-                        ? "var(--octo-surface-disabled)"
-                        : "var(--octo-brand)",
-                      color: (!prompt().trim() || inputDisabled())
-                        ? "var(--octo-text-disabled)"
-                        : "#ffffff",
-                      cursor: (!prompt().trim() || inputDisabled()) ? "default" : "pointer",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!inputDisabled() && prompt().trim())
-                        (e.currentTarget as HTMLElement).style.background = "var(--octo-brand-hover)"
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!inputDisabled() && prompt().trim())
-                        (e.currentTarget as HTMLElement).style.background = "var(--octo-brand)"
-                    }}
-                  >
-                    {sending() ? "…" : "发送"}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                  disabled={maxAttachments()}
+                  title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                  class="absolute flex items-center justify-center"
+                  style={{
+                    left: "16px",
+                    bottom: "16px",
+                    width: "32px",
+                    height: "32px",
+                    "border-radius": "8px",
+                    background: "transparent",
+                    border: "none",
+                    color: maxAttachments() ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.45)",
+                    cursor: maxAttachments() ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M9 3V15M3 9H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleSubmit()}
+                  disabled={!prompt().trim() || inputDisabled()}
+                  class="absolute flex items-center justify-center"
+                  style={{
+                    right: "16px",
+                    bottom: "16px",
+                    width: "32px",
+                    height: "32px",
+                    "border-radius": "50%",
+                    background: (!prompt().trim() || inputDisabled())
+                      ? "rgba(0,0,0,0.1)"
+                      : "linear-gradient(135deg, rgb(31,75,215), rgb(51,147,247))",
+                    border: "none",
+                    color: "#fff",
+                    cursor: (!prompt().trim() || inputDisabled()) ? "default" : "pointer",
+                    transition: "opacity 0.2s",
+                  }}
+                >
+                  {sending() ? (
+                    <span style={{ "font-size": "14px" }}>…</span>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 2L8 14M3 7L8 2L13 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -529,6 +521,7 @@ export default function CoworkPage() {
           activeId={tabStore.activeId()}
           onActivate={tabStore.activate}
           onClose={tabStore.closeTab}
+          dataCoworkArea="result"
         />
 
         {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}
@@ -540,10 +533,76 @@ export default function CoworkPage() {
 
 function CoworkEmptyState(): JSX.Element {
   return (
-    <div class="size-full flex flex-col items-center justify-center gap-2 text-center px-8">
-      <div class="text-[15px] font-semibold" style={{ color: "var(--octo-text-strong)" }}>Octo Cowork</div>
-      <div class="text-[13px] max-w-[200px] leading-relaxed" style={{ color: "var(--octo-text-secondary)" }}>
-        上传访谈材料，发送指令开始分析
+    <div class="flex flex-col items-center h-full text-center" style={{ padding: "80px 24px 0" }}>
+      <div
+        style={{
+          width: "80px",
+          height: "80px",
+          "border-radius": "50%",
+          background: "rgba(10,89,247,0.08)",
+          "margin-bottom": "20px",
+          "flex-shrink": "0",
+        }}
+      />
+      <div style={{ "font-size": "28px", "font-weight": "700", color: "rgba(0,0,0,0.9)", "margin-bottom": "12px" }}>
+        Octo AI
+      </div>
+      <div style={{ "font-size": "16px", "line-height": "24px", color: "rgb(110,115,112)", "margin-bottom": "32px" }}>
+        您的全能设计与调研专家
+      </div>
+
+      {/* 专项能力矩阵 */}
+      <div class="flex items-center gap-[12px]" style={{ "margin-bottom": "24px" }}>
+        <div style={{ width: "100px", height: "2px", background: "linear-gradient(90deg, transparent, rgba(10,89,247,0.3))" }} />
+        <span style={{ "font-size": "14px", "font-weight": "600", color: "rgba(0,0,0,0.9)", "white-space": "nowrap" }}>
+          专项能力矩阵
+        </span>
+        <div style={{ width: "100px", height: "2px", background: "linear-gradient(90deg, rgba(10,89,247,0.3), transparent)" }} />
+      </div>
+
+      {/* 能力介绍 */}
+      <div class="flex flex-col gap-[8px]" style={{ "margin-bottom": "32px" }}>
+        <CapabilityItem
+          title="Octo Insight"
+          desc="调研与竞品分析交付"
+        />
+        <CapabilityItem
+          title="Octo Make"
+          desc="设计方案交付"
+        />
+      </div>
+
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.45)", "max-width": "300px" }}>
+        有任何问题直接在下方提问<br />
+        我将根据具体需求匹配不同能力进行完成~
+      </div>
+    </div>
+  )
+}
+
+function CapabilityItem(props: { title: string; desc: string }): JSX.Element {
+  return (
+    <div class="flex items-center gap-[10px] text-left">
+      <div
+        style={{
+          width: "24px",
+          height: "24px",
+          "border-radius": "6px",
+          background: "rgba(10,89,247,0.08)",
+          "flex-shrink": "0",
+          display: "flex",
+          "align-items": "center",
+          "justify-content": "center",
+          color: "rgb(10,89,247)",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M11.5 3.5L5.5 10.5L2.5 7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </div>
+      <div class="flex flex-col gap-[2px]">
+        <span style={{ "font-size": "14px", "font-weight": "600", color: "rgba(0,0,0,0.9)" }}>{props.title}</span>
+        <span style={{ "font-size": "12px", color: "rgba(0,0,0,0.45)" }}>{props.desc}</span>
       </div>
     </div>
   )

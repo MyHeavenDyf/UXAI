@@ -1,0 +1,45 @@
+[data-cowork-area="sidebar"] {
+  background: #fff;
+}
+
+[data-cowork-area="result"] {
+  background: #fff;
+}
+
+[data-cowork-area="input-wrap"] {
+  padding: 0 24px 24px;
+}
+
+[data-cowork-area="input"] {
+  position: relative;
+  border: 2px solid transparent;
+  border-radius: 28px;
+  min-height: 120px;
+  padding: 16px 16px 48px 16px;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(135deg, #f66117, #5f2dff, #3d5dff, #688aff, #1cab6f, #3d5dff, #ce07e8) border-box;
+  box-shadow:
+    0 0 10px rgba(0, 0, 0, 0.15),
+    0 0 15px rgba(74, 81, 255, 0.3),
+    0 0 25px rgba(89, 74, 255, 0.2);
+}
+
+[data-cowork-area="input"]:focus-within {
+  box-shadow:
+    0 0 12px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(74, 81, 255, 0.45),
+    0 0 35px rgba(89, 74, 255, 0.3);
+}
+
+[data-cowork-area="input"] textarea {
+  width: 100%;
+  resize: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--octo-text-primary);
+  font-family: var(--octo-font);
+  max-height: 120px;
+  overflow-y: auto;
+}
