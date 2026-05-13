@@ -1591,6 +1591,7 @@ const layer: Layer.Layer<
         s.sdk.set(key, loaded)
         return loaded as SDK
       } catch (e) {
+        if (e instanceof AuthError) throw e
         throw new InitError({ providerID: model.providerID }, { cause: e })
       }
     }
