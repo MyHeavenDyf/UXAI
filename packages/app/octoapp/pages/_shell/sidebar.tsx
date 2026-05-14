@@ -373,11 +373,20 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       >
         <For each={NAV_ITEMS}>
           {(item) => {
-            const isActive = () => activeNav() === item.key
+            const isActive = () =>
+              item.key === "skill_market"
+                ? location.pathname === "/skills"
+                : activeNav() === item.key
             return (
               <button
                 type="button"
-                onClick={() => setActiveNav((v) => (v === item.key ? null : item.key))}
+                onClick={() => {
+                  if (item.key === "skill_market") {
+                    navigate("/skills")
+                  } else {
+                    setActiveNav((v) => (v === item.key ? null : item.key))
+                  }
+                }}
                 title={item.label}
                 classList={{
                   "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,

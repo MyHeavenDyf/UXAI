@@ -19,6 +19,9 @@ export type WindowConfig = {
   updaterEnabled: boolean
 }
 
+export type SkillConfigEntry = { description?: string; import?: boolean }
+export type SkillsConfig = Record<string, SkillConfigEntry>
+
 export type ElectronAPI = {
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
@@ -76,4 +79,6 @@ export type ElectronAPI = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void>
   setBackgroundColor: (color: string) => Promise<void>
+  getSkillsConfig: () => Promise<SkillsConfig>
+  setSkillsConfig: (config: SkillsConfig) => Promise<void>
 }

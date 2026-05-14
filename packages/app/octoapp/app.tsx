@@ -52,6 +52,7 @@ const HomeRoute = lazy(() => import("@/pages/home"))
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
+const SkillsPage = lazy(() => import("@/pages/skills"))
 const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
@@ -360,7 +361,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/")
+    return p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
   }
   return (
     <Show
@@ -418,6 +419,7 @@ export function AppInterface(props: {
                   <Route path="/" component={HomeRoute} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
+                  <Route path="/skills" component={SkillsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={ChatIndexRoute} />
                     <Route path="/chat/:id?" component={ChatPage} />

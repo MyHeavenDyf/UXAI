@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { homedir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -197,6 +200,26 @@ export function registerIpcHandlers(deps: Deps) {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     setTitlebar(win, theme)
+  })
+
+  const skillsConfigPath = join(homedir(), ".config", "octo", "skills.json")
+
+  ipcMain.handle("get-skills-config", () => {
+    try {
+      if (!existsSync(skillsConfigPath)) return {}
+      return JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
+    } catch {
+      return {}
+    }
+  })
+
+  ipcMain.handle("set-skills-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillsConfigPath), { recursive: true })
+      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.warn("set-skills-config failed", err)
+    }
   })
 }
 
