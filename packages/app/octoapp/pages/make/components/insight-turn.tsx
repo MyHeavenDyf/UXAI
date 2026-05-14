@@ -127,11 +127,13 @@ export function InsightTurn(props: {
     if (showGenerating()) return null
     const parts = assistantParts()
 
-    // 1) 先扫描 tool parts 中已完成的 write 工具的 HTML 附件
+    // 扫描已完成的 tool parts，从 input/output/attachments 中提取 HTML
     for (const p of [...parts].reverse()) {
       if (p.type !== "tool") continue
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
       if (state?.status !== "completed") continue
+
+      // A) 检查 attachments（text/html mime）
       const attachments = state.attachments as Array<{ mime?: string; url?: string; filename?: string }> | undefined
       if (attachments) {
         for (const att of attachments) {
@@ -149,13 +151,28 @@ export function InsightTurn(props: {
           }
         }
       }
-    }
 
-    // 2) 再扫描 tool parts 的 output 字段中的 HTML
-    for (const p of [...parts].reverse()) {
-      if (p.type !== "tool") continue
-      const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
-      if (state?.status !== "completed") continue
+      // B) 检查 input（write tool 的输入包含文件内容）
+      const input = state.input as Record<string, unknown> | undefined
+      if (input) {
+        const content = (input.content ?? input.text ?? input.data) as string | undefined
+        const filePath = (input.path ?? input.filepath ?? input.filePath ?? "") as string
+        if (content && content.length > 20) {
+          const isHtml = /```html/i.test(content) || /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content) || /\.html?$/i.test(filePath)
+          if (isHtml) {
+            const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
+            return {
+              id: `card-${props.messageID}-html`,
+              title: heading(content) ?? filePath.split("/").pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
+              type: "html",
+              content,
+              createdAt: new Date(),
+            }
+          }
+        }
+      }
+
+      // C) 检查 output
       const output = state.output as string | undefined
       if (output && output.length > 20) {
         const info = detectCard(output)
@@ -170,7 +187,7 @@ export function InsightTurn(props: {
       }
     }
 
-    // 3) 最后扫描 text parts
+    // 最后扫描 text parts
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
@@ -211,34 +228,38 @@ export function InsightTurn(props: {
       </Show>
 
       <Show when={outputCard()}>
-        {(card) => (
-          <button
-            type="button"
-            onClick={() => { const c = card(); window.alert('[DEBUG] card type=' + c?.type + ' contentLen=' + (c?.content?.length ?? 0)); props.onOpenResult(c); }}
-            class="mx-3 mb-3 p-3 text-left transition-all"
-            style={{
-              "border-radius": "var(--octo-radius-md)",
-              border: "1px solid var(--octo-border-default)",
-              background: "var(--octo-surface-page)",
-              width: "calc(100% - 1.5rem)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--octo-border-default)"
-            }}
-          >
+        {(card) => {
+          // 在渲染时捕获 card 数据，避免点击时 getter 可能已变化
+          const capturedCard = card()
+          return (
+            <button
+              type="button"
+              onClick={() => props.onOpenResult(capturedCard)}
+              class="mx-3 mb-3 p-3 text-left transition-all"
+              style={{
+                "border-radius": "var(--octo-radius-md)",
+                border: "1px solid var(--octo-border-default)",
+                background: "var(--octo-surface-page)",
+                width: "calc(100% - 1.5rem)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--octo-border-default)"
+              }}
+            >
             <div class="flex items-center gap-2">
-              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={card().type} /></span>
+              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
               <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{card().title}</span>
-                <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(card().createdAt)}</span>
+                <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
+                <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
               </div>
               <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
             </div>
           </button>
-        )}
+          )
+        }}
       </Show>
     </div>
   )

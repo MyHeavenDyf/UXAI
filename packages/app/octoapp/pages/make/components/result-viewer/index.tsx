@@ -92,10 +92,6 @@ export function ResultViewer(props: {
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      {/* DEBUG: 始终可见的状态栏 */}
-      <div style={{ background: "#ff9800", color: "white", padding: "4px 8px", "font-size": "11px", "font-family": "monospace", "flex-shrink": 0 }}>
-        tabs={props.tabs.length} activeId={props.activeId ?? "null"} activeType={activeTab()?.type ?? "null"} activeContentLen={activeTab()?.content?.length ?? 0}
-      </div>
       <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
@@ -104,38 +100,40 @@ export function ResultViewer(props: {
           onClose={props.onClose}
         />
         <Show when={activeTab()}>
-          {(tab) => {
-            const t = tab()
-            const mode = t.type === "html" ? getHtmlMode(t.id) : undefined
-            const onModeChange = t.type === "html" ? () => toggleHtmlMode(t.id) : undefined
-            return (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <ActionBar tab={t} mode={mode} onModeChange={onModeChange} />
-                <div class="flex-1 overflow-hidden">
-                  <Show when={t.type === "table"}>
-                    <TableRenderer content={t.content} />
-                  </Show>
-                  <Show when={t.type === "markdown"}>
-                    <MarkdownRenderer content={t.content} />
-                  </Show>
-                  <Show when={t.type === "mindmap"}>
-                    <MermaidPlaceholder content={t.content} />
-                  </Show>
-                  <Show when={t.type === "json"}>
-                    <JsonRenderer content={t.content} />
-                  </Show>
-                  <Show when={t.type === "html"}>
-                    <HtmlRenderer content={t.content} mode={mode ?? "preview"} />
-                  </Show>
-                  <Show when={t.type !== "table" && t.type !== "markdown" && t.type !== "mindmap" && t.type !== "json" && t.type !== "html"}>
+          {(tab) => (
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <ActionBar
+                tab={tab()}
+                mode={tab().type === "html" ? getHtmlMode(tab().id) : undefined}
+                onModeChange={tab().type === "html" ? () => toggleHtmlMode(tab().id) : undefined}
+              />
+              <div class="flex-1 overflow-hidden">
+                <Switch
+                  fallback={
                     <div class="p-4 overflow-auto h-full">
-                      <pre class="text-sm text-[var(--octo-text-primary)] whitespace-pre-wrap font-mono">{t.content}</pre>
+                      <pre class="text-sm text-[var(--octo-text-primary)] whitespace-pre-wrap font-mono">{tab().content}</pre>
                     </div>
-                  </Show>
-                </div>
+                  }
+                >
+                  <Match when={tab().type === "table"}>
+                    <TableRenderer content={tab().content} />
+                  </Match>
+                  <Match when={tab().type === "markdown"}>
+                    <MarkdownRenderer content={tab().content} />
+                  </Match>
+                  <Match when={tab().type === "mindmap"}>
+                    <MermaidPlaceholder content={tab().content} />
+                  </Match>
+                  <Match when={tab().type === "json"}>
+                    <JsonRenderer content={tab().content} />
+                  </Match>
+                  <Match when={tab().type === "html"}>
+                    <HtmlRenderer content={tab().content} mode={getHtmlMode(tab().id)} />
+                  </Match>
+                </Switch>
               </div>
-            )
-          }}
+            </div>
+          )}
         </Show>
       </Show>
     </div>
