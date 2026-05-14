@@ -42,7 +42,7 @@ export default function ChatPage() {
   return (
     <div class="flex flex-1 min-w-0 min-h-0 h-full">
       <Show when={resolvedDirectory()}>
-        <div class="w-[300px] h-full shrink-0 border-r border-border-weak-base flex flex-col">
+        <div class="sidebar-wrap h-full shrink-0 border-r border-border-weak-base flex flex-col">
           <ErrorBoundary fallback={(err) => {
             console.error("Sidebar error:", err)
             return <div class="p-3 text-14-regular text-text-weak">Sidebar loading...</div>

@@ -1,39 +1,41 @@
 @layer utilities {
-  .w-\[300px\].shrink-0.border-r {
+  .sidebar-wrap.shrink-0.border-r {
     border-right-color: rgba(0,0,0,0.1);
     padding: 24px 36px 24px 16px;
     background-color: #fff;
   }
 
-  .w-\[300px\].shrink-0 .bg-background-base {
+  .sidebar-wrap.shrink-0 .bg-background-base {
     background-color: #fff;
   }
 
-  .w-\[300px\].shrink-0 .text-14-medium.text-text-strong {
+  .sidebar-wrap.shrink-0 .text-14-medium.text-text-strong {
     font-size: 20px;
     padding: 4px 0;
     line-height: 24px;
     margin-bottom: 20px;
   }
 
-  .w-\[300px\].shrink-0 [data-component="button"][data-variant="ghost"] {
+  .sidebar-wrap.shrink-0 [data-component="button"][data-variant="ghost"] {
     font-size: 14px;
+    line-height: 22px;
     height: 48px;
     gap: 12px;
     padding: 0;
   }
 
-  .w-\[300px\].shrink-0 [data-component="button"][data-variant="ghost"]:hover {
+  .sidebar-wrap.shrink-0 [data-component="button"][data-variant="ghost"]:hover {
     background-color: transparent;
   }
 
-   .w-\[300px\].shrink-0 .shrink-0.px-0 {
+   .sidebar-wrap.shrink-0 .shrink-0.px-0 {
     font-size: 14px;
+    line-height: 22px;
     margin-top: 20px;
     margin-bottom: 16px;
   }
 
-  .w-\[300px\].shrink-0 .text-12-medium.text-text-weak.pb-1{
+  .sidebar-wrap.shrink-0 .text-12-medium.text-text-weak.pb-1{
     height: 40px;
     padding: 9px 12px;
     font-size: 14px;
@@ -53,6 +55,7 @@
     align-items: center;
     font-size: 14px;
     color: rgb(25, 25, 25);
+    line-height: 22px;
   }
 
   .sidebar-history-title {
@@ -62,6 +65,7 @@
   align-items: center;
   padding: 8px;
   margin-top: 16px;
+  line-height: 20px;
 }
 
 .sidebar-history-search-wrap {
@@ -95,15 +99,16 @@
   color: rgba(0, 0, 0, 0.35);
 }
 
-.w-\[300px\].shrink-0 [data-component="button"][aria-label="设置"] {
+.sidebar-wrap.shrink-0 [data-component="button"][aria-label="设置"] {
   padding: 20px 16px 0 16px;
   height: inherit;
 }
-.w-\[300px\].shrink-0 [data-component="button"][aria-label="设置"]:hover {
+.sidebar-wrap.shrink-0 [data-component="button"][aria-label="设置"]:hover {
   background-color: none;
 }
 
-.w-\[300px\].shrink-0 [data-component="button"][aria-label="设置"] [data-component="icon"] {
+.sidebar-wrap.shrink-0 [data-component="button"][aria-label="设置"] [data-component="icon"],
+.sidebar-wrap.shrink-0 [data-component="button"][data-icon="plus"] [data-component="icon"]{
   width: 20px;
   height: 20px;
 }
