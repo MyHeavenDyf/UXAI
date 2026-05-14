@@ -164,7 +164,7 @@ export function TitlebarSimple() {
       </div>
 
       <div class="flex-1 flex items-center justify-center min-w-0" style={{ zoom: counterZoom() }}>
-        <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] p-1" role="tablist">
+        <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] gap-1 p-[2px]" role="tablist">
           {TAB_ITEMS.map((item) => (
             <button
               role="tab"
@@ -172,7 +172,7 @@ export function TitlebarSimple() {
               disabled={!hasActiveTab()}
               classList={{
                 "flex items-center justify-center gap-1 rounded-full transition-colors": true,
-                "w-[106px] h-[32px]": true,
+                "w-[106px] h-[28px]": true,
                 "text-14-regular": true,
                 "bg-[#FFFFFF] text-[rgba(10,89,247,1)]": activeTab() === item.key,
                 "text-text-weak hover:text-text-base": activeTab() !== item.key && hasActiveTab(),
