@@ -1,10 +1,17 @@
 [data-dock-surface="shell"] [data-action="prompt-submit"] {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(99deg, rgb(31, 75, 215), rgb(51, 147, 247) 100%);
-  box-shadow: inset -2.28px 0.76px 3.18px 0 rgba(70, 176, 250, 1), inset 1.37px 0 3.79px 0 rgba(255, 255, 255, 0.25);
-  filter: blur(1.36px);
+    width: 36px;
+    height: 44px;
+    border-radius: 50%;
+    background-image: url(/IconSend-blue.svg);
+    background-size: 51.5px auto;
+    background-position: -9px 0px;
+    background-repeat: no-repeat;
+    background-color: transparent;
+    transform: translateY(8px);
+}
+
+[data-dock-surface="shell"] [data-action="prompt-submit"] [data-slot="icon-svg"] {
+  display: none;
 }
 
 [data-component="session-prompt-dock"] {
