@@ -37,8 +37,6 @@ export function Sidebar(props: {
   const dialog = useDialog()
   const sortNow = createMemo(() => Date.now())
 
-  console.log("[Sidebar] currentDir:", props.currentDir())
-
   async function archiveSession(session: Session) {
     const [store, setStore] = globalSync.child(session.directory)
     const sessions = store.session ?? []
@@ -123,7 +121,8 @@ export function Sidebar(props: {
             {(dir) => {
               const [store] = globalSync.child(dir, { bootstrap: true })
               const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
-              const groupedSessions = createMemo(() => groupSessionsByDate(sessions(), sortNow()))
+              const octoAiSessions = createMemo(() => sessions().filter(s => s.agent === "octo_ai"))
+              const groupedSessions = createMemo(() => groupSessionsByDate(octoAiSessions(), sortNow()))
               return (
                 <Show when={groupedSessions().length > 0} fallback={
                   <div class="text-12-regular text-text-weak py-4 text-center">
@@ -141,7 +140,7 @@ export function Sidebar(props: {
                             <SessionItem
                               {...sessionProps}
                               session={session}
-                              list={sessions()}
+                              list={octoAiSessions()}
                               slug={base64Encode(dir)}
                               dense
                             />

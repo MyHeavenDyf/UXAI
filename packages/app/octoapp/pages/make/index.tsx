@@ -46,7 +46,12 @@ export default function InsightPage() {
   const globalSync = useGlobalSync()
   const server = useServer()
 
-  const homeDir = () => server.projects.last() ?? globalSync.data.path.home
+  const homeDir = () => {
+    const last = server.projects.last()
+    // 检查是否是根目录：Unix "/" 或 Windows 驱动器根目录 (如 "C:\")
+    if (last && last !== "/" && !/^[A-Z]:\\?$/.test(last)) return last
+    return globalSync.data.path.home
+  }
 
   const [dataStore, setDataStore] = createStore<DataStore>({
     session: [],
@@ -196,17 +201,19 @@ export default function InsightPage() {
 
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = homeDir()
+    console.log("[MakePage] createAndNavigate dir:", dir)
     if (!dir) return
     setSending(true)
     try {
-      const result = await globalSDK.client.session.create({ directory: dir })
+      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_make" })
       const session = result.data as Session | undefined
+      console.log("[MakePage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
         navigate(`/make/${session.id}`)
         return session.id
       }
     } catch (err) {
-      console.error("[InsightPage] session.create failed", err)
+      console.error("[MakePage] session.create failed", err)
     } finally {
       setSending(false)
     }

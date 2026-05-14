@@ -205,33 +205,29 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/")
   }
   return (
-    <Show
-      when={isOctoPage()}
-      fallback={
-        <AppShellProviders>
-          {props.appChildren}
-          {props.children}
-        </AppShellProviders>
-      }
-    >
-      <SettingsProvider>
-        <PermissionProvider>
-          <LayoutProvider>
-            <NotificationProvider>
-              <ModelsProvider>
-                <CommandProvider>
-                  <HighlightsProvider>
-                    <Layout>
+    <SettingsProvider>
+      <PermissionProvider>
+        <LayoutProvider>
+          <NotificationProvider>
+            <ModelsProvider>
+              <CommandProvider>
+                <HighlightsProvider>
+                  <Layout>
+                    <Show when={isOctoPage()}>
                       <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
-                    </Layout>
-                  </HighlightsProvider>
-                </CommandProvider>
-              </ModelsProvider>
-            </NotificationProvider>
-          </LayoutProvider>
-        </PermissionProvider>
-      </SettingsProvider>
-    </Show>
+                    </Show>
+                    <Show when={!isOctoPage()}>
+                      {props.appChildren}
+                      {props.children}
+                    </Show>
+                  </Layout>
+                </HighlightsProvider>
+              </CommandProvider>
+            </ModelsProvider>
+          </NotificationProvider>
+        </LayoutProvider>
+      </PermissionProvider>
+    </SettingsProvider>
   )
 }
 

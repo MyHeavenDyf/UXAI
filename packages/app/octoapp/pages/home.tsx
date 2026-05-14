@@ -41,9 +41,7 @@ export default function Home() {
     layout.projects.open(directory)
     server.projects.touch(directory)
     const slug = base64Encode(directory)
-    const url = `/${slug}/chat`
-    console.log("[Home] navigate to:", url)
-    navigate(url, { replace: true })
+    navigate(`/${slug}/chat`, { replace: true })
   }
 
   async function chooseProject() {

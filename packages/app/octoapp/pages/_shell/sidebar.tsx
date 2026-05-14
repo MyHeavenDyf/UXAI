@@ -99,18 +99,25 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const server = useServer()
 
   const insightDir = () => globalSync.data.path.home
-  const makeDir = () => server.projects.last() ?? globalSync.data.path.home
+  const makeDir = () => {
+    const last = server.projects.last()
+    // 检查是否是根目录：Unix "/" 或 Windows 驱动器根目录 (如 "C:\")
+    if (last && last !== "/" && !/^[A-Z]:\\?$/.test(last)) return last
+    return globalSync.data.path.home
+  }
 
   const [sessions, { refetch }] = createResource(insightDir, async (dir) => {
     if (!dir) return [] as Session[]
     const result = await globalSDK.client.session.list({ directory: dir })
-    return ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    return data.filter(s => s.agent === "octo_insight")
   })
 
   const [makeSessions, { refetch: refetchMake }] = createResource(makeDir, async (dir) => {
     if (!dir) return [] as Session[]
     const result = await globalSDK.client.session.list({ directory: dir })
-    return ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    return data.filter(s => s.agent === "octo_make")
   })
 
   const unsub = globalSDK.event.listen((e) => {
