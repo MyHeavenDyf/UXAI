@@ -1,7 +1,7 @@
 @layer utilities {
   .w-\[300px\].shrink-0.border-r {
     border-right-color: rgba(0,0,0,0.1);
-    padding: 24px 16px;
+    padding: 24px 36px 24px 16px;
     background-color: #fff;
   }
 
@@ -74,7 +74,6 @@
   background-color: rgba(196, 196, 196, 0.1);
   gap: 4px;
   margin-bottom: 8px;
-  margin-right: 20px;
 }
 
 .sidebar-history-search-icon {
