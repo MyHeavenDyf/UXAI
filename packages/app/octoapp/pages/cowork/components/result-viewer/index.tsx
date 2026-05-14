@@ -5,6 +5,7 @@ import type { ResultTab } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
+import resultEmptyUrl from "../../../insight/icons/IllustrationResultEmpty.svg?url"
 
 // ── 从 markdown 字符串里提取第一个特定语言代码块的内容 ──────────
 function extractCodeBlock(text: string, lang: string): string {
@@ -130,7 +131,7 @@ export function ResultViewer(props: {
 function ResultViewerEmpty(): JSX.Element {
   return (
     <div class="flex flex-col items-center justify-center h-full text-center px-8">
-      <img src="/IllustrationResultEmpty.svg" alt="" style={{ width: "200px", height: "200px", "margin-bottom": "48px" }} />
+      <img src={resultEmptyUrl} alt="" style={{ width: "200px", height: "200px", "margin-bottom": "48px" }} />
       <div style={{ "font-size": "20px", "font-weight": "700", color: "rgba(0,0,0,0.9)", "margin-bottom": "12px" }}>
         Octo AI
       </div>
