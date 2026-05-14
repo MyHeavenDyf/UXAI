@@ -51,6 +51,7 @@ import { useCheckServerHealth } from "./utils/server-health"
 const HomeRoute = lazy(() => import("@/pages/home"))
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
+const MakePage = lazy(() => import("@/pages/make"))
 const StudioPage = lazy(() => import("@/pages/studio"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
@@ -199,13 +200,13 @@ function SessionProviders(props: ParentProps) {
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
-  const isInsight = () => {
+  const isOctoPage = () => {
     const p = location.pathname
-    return p === "/insight" || p.startsWith("/insight/")
+    return p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/")
   }
   return (
     <Show
-      when={isInsight()}
+      when={isOctoPage()}
       fallback={
         <AppShellProviders>
           {props.appChildren}
@@ -412,6 +413,7 @@ export function AppInterface(props: {
                 >
                   <Route path="/" component={HomeRoute} />
                   <Route path="/insight/:id?" component={InsightPage} />
+                  <Route path="/make/:id?" component={MakePage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={ChatIndexRoute} />
                     <Route path="/chat/:id?" component={ChatPage} />
