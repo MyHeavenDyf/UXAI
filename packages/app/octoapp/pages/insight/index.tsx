@@ -194,11 +194,13 @@ export default function InsightPage() {
 
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = homeDir()
+    console.log("[InsightPage] createAndNavigate dir:", dir)
     if (!dir) return
     setSending(true)
     try {
-      const result = await globalSDK.client.session.create({ directory: dir })
+      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
+      console.log("[InsightPage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
         navigate(`/insight/${session.id}`)
         return session.id

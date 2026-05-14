@@ -363,7 +363,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     let session = input.info()
     if (!session && isNewSession) {
       const created = await client.session
-        .create()
+        .create({ directory: sessionDirectory, agent: currentAgent.name })
         .then((x) => x.data ?? undefined)
         .catch((err) => {
           showToast({

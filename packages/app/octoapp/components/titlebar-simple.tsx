@@ -93,9 +93,10 @@ export function TitlebarSimple() {
       return
     }
     // Get dir slug: from URL path or from globalSync directory
+    // Skip "insight" and "make" which are standalone routes, not directory slugs
     const dirMatch = path.match(/^\/([^/]+)/)
     let dir = dirMatch ? dirMatch[1] : ""
-    if (!dir || dir === "insight") {
+    if (!dir || dir === "insight" || dir === "make") {
       const directory = globalSync.data.path.directory
       dir = directory ? base64Encode(directory) : ""
     }
