@@ -3,7 +3,7 @@
     height: 44px;
     border-radius: 50%;
     background-image: url(/IconSend-blue.svg);
-    background-size: 51.5px auto;
+    background-size: 54.5px auto;
     background-position: -9px 0px;
     background-repeat: no-repeat;
     background-color: transparent;
@@ -28,13 +28,11 @@
   min-height: 120px;
   padding: 16px 16px 18px 16px;
   border-radius: 28px;
-  background:
-    linear-gradient(var(--surface-raised-stronger-non-alpha), var(--surface-raised-stronger-non-alpha)) padding-box,
-    linear-gradient(135deg, #f66117, #5f2dff, #3d5dff, #688aff, #1cab6f, #3d5dff, #ce07e8) border-box;
+  background: linear-gradient(var(--surface-raised-stronger-non-alpha), var(--surface-raised-stronger-non-alpha)) padding-box, linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%) border-box;
   box-shadow:
     0 0 5px rgba(0, 0, 0, 0.15),
     0 0 10px rgba(74, 81, 255, 0.3),
-    0 0 15px rgba(89, 74, 255, 0.2);
+    0 0 20px rgba(89, 74, 255, 0.2);
 }
 
 .relative.bg-background-base.size-full [data-component="session-turn"] [data-component="user-message"] {
