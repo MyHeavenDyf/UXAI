@@ -9,6 +9,8 @@ const REGION = "cn-north-1"
 const ENDPOINT = "https://visual.volcengineapi.com"
 const SERVICE = "cv"
 const DEFAULT_REQ_KEY = "jimeng_t2i_v40"
+const DEFAULT_ACCESS_KEY = "AKLTZTZmZTRmOGJlN2EwNDRiZWI4NGY3OWIyMmMxYzgyMmU"
+const DEFAULT_SECRET_KEY = "TmpabU1qZzNOVFprT0RReE5HSXhNMkpoTlRNMU1XRXdZbVJqTmpJeE16SQ=="
 const DEFAULT_TIMEOUT_MS = 120_000
 
 type JsonRecord = Record<string, unknown>
@@ -278,8 +280,8 @@ function buildPrompt(input: ImageGenerateInput) {
 }
 
 export async function executeJimengImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
-  const accessKey = env("JIMENG_ACCESS_KEY") ?? ""
-  const secretKey = env("JIMENG_SECRET_KEY") ?? ""
+  const accessKey = env("JIMENG_ACCESS_KEY") ?? DEFAULT_ACCESS_KEY
+  const secretKey = env("JIMENG_SECRET_KEY") ?? DEFAULT_SECRET_KEY
   const referenceImages = [...(input.referenceImages ?? []), ...(input.sourceImage ? [input.sourceImage] : [])].filter(
     (item, index, list) => item && list.indexOf(item) === index,
   )
