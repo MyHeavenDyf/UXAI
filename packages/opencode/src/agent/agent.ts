@@ -16,6 +16,7 @@ import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_CANVA from "./prompt/octo_canva.txt"
+import PROMPT_STUDIO from "./prompt/studio.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -234,6 +235,15 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["creative-assets"],
+          },
+          studio: {
+            name: "studio",
+            description: "Studio image creation specialist. Rewrites requests into strong prompts and calls the built-in Jimeng image generation tool.",
+            prompt: PROMPT_STUDIO,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
           },
           compaction: {
             name: "compaction",

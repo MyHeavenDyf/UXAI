@@ -50,7 +50,7 @@ import { useCheckServerHealth } from "./utils/server-health"
 const HomeRoute = lazy(() => import("@/pages/home"))
 const ChatPage = lazy(() => import("@/pages/chat"))
 const CoworkPage = lazy(() => import("@/pages/cowork"))
-const StudioPage = lazy(() => import("@/pages/studio"))
+const StudioPage = lazy(() => import("@/pages/studio/index"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
