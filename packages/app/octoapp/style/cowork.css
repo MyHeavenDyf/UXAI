@@ -1,45 +1,124 @@
+/* ── OctoSidebar CSS 变量覆盖（选中色替换为 #0a59f7） ── */
 [data-cowork-area="sidebar"] {
-  background: #fff;
+  --octo-brand: #0a59f7;
+  --octo-brand-a8: rgba(10, 89, 247, 0.08);
+  --octo-brand-a20: rgba(10, 89, 247, 0.2);
+  --octo-surface-selected: rgba(10, 89, 247, 0.08);
+  --octo-text-primary: rgba(0, 0, 0, 0.9);
 }
 
-[data-cowork-area="result"] {
-  background: #fff;
+/* ① 侧栏容器：白色背景 */
+[data-cowork-area="sidebar"] > .shrink-0.flex.flex-col.h-full.overflow-hidden {
+  background: #fff !important;
 }
 
-[data-cowork-area="input-wrap"] {
-  padding: 0 24px 24px;
+/* ② 滚动区域：顶部留白 24px，左右 16px */
+[data-cowork-area="sidebar"] .flex-1.min-h-0.overflow-y-auto {
+  padding: 24px 16px 0;
 }
 
-[data-cowork-area="input"] {
+/* ③ 分组标题行：高度 48px，相对定位作为 chevron 定位容器 */
+[data-cowork-area="sidebar"] .h-\[32px\].px-\[4px\] {
+  height: 48px;
+  padding: 12px 16px 12px 48px;
   position: relative;
-  border: 2px solid transparent;
-  border-radius: 28px;
-  min-height: 120px;
-  padding: 16px 16px 48px 16px;
-  background:
-    linear-gradient(#fff, #fff) padding-box,
-    linear-gradient(135deg, #f66117, #5f2dff, #3d5dff, #688aff, #1cab6f, #3d5dff, #ce07e8) border-box;
-  box-shadow:
-    0 0 10px rgba(0, 0, 0, 0.15),
-    0 0 15px rgba(74, 81, 255, 0.3),
-    0 0 25px rgba(89, 74, 255, 0.2);
 }
 
-[data-cowork-area="input"]:focus-within {
-  box-shadow:
-    0 0 12px rgba(0, 0, 0, 0.2),
-    0 0 20px rgba(74, 81, 255, 0.45),
-    0 0 35px rgba(89, 74, 255, 0.3);
+[data-cowork-area="sidebar"] .flex.flex-col.gap-\[1px\] {
+  gap: 0;
 }
 
-[data-cowork-area="input"] textarea {
-  width: 100%;
-  resize: none;
-  background: transparent;
-  outline: none;
+/* ④ 折叠按钮（左侧）：图标与文字间距 12px */
+[data-cowork-area="sidebar"] .h-\[32px\].px-\[4px\] > button.flex-1 {
+  gap: 12px;
+  color: rgba(0, 0, 0, 0.6) !important;
+}
+
+/* ⑤ chevron 图标：绝对定位移至右侧，16px 距右 */
+[data-cowork-area="sidebar"] .h-\[32px\].px-\[4px\] > button.flex-1 > svg {
+  position: absolute;
+  right: 30px;
+  width: 20px;
+  height: 20px;
+}
+
+/* ⑥ 分组标题文字：14px 加粗 */
+[data-cowork-area="sidebar"] .text-\[12px\].font-medium.select-none {
   font-size: 14px;
-  color: var(--octo-text-primary);
-  font-family: var(--octo-font);
-  max-height: 120px;
-  overflow-y: auto;
+  line-height: 22px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.9) !important;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
+
+/* ⑦ 分组右侧 + 按钮：20px × 20px，增加右边距腾出 chevron 空间 */
+[data-cowork-area="sidebar"] .w-\[24px\].h-\[24px\] {
+  width: 20px;
+  height: 20px;
+  margin-right: 42px;
+  color: rgba(0, 0, 0, 0.6) !important;
+}
+
+[data-cowork-area="sidebar"] .w-\[24px\].h-\[24px\]:hover {
+  color: #0a59f7 !important;
+}
+
+/* ⑧ + 按钮内的 SVG 图标：20px */
+[data-cowork-area="sidebar"] .w-\[24px\].h-\[24px\] > svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ⑨ 会话条目按钮：高度 48px，padding 12px 16px，圆角 8px，14px */
+[data-cowork-area="sidebar"] .text-left.px-\[8px\] {
+  height: 48px !important;
+  padding: 12px 16px 12px 48px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400 !important;
+}
+
+[data-cowork-area="sidebar"] .text-left.px-\[8px\]:hover {
+  background-color: rgba(10, 89, 247, 0.08) !important;
+}
+
+/* Octo Insight 标题图标：16px 距左，20px 大小 */
+[data-cowork-area="sidebar"] .flex-1.min-h-0.overflow-y-auto > div:nth-child(1) .h-\[32px\].px-\[4px\]::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  background-image: url("/insightIcon.svg");
+  background-size: 20px 20px;
+  background-repeat: no-repeat;
+}
+
+/* Octo Make 标题图标：16px 距左，20px 大小 */
+[data-cowork-area="sidebar"] .flex-1.min-h-0.overflow-y-auto > div:nth-child(2) .h-\[32px\].px-\[4px\]::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  background-image: url("/makeIcon.svg");
+  background-size: 20px 20px;
+  background-repeat: no-repeat;
+}
+
+/* ⑩ 激活指示线：移至右侧，宽 4px 高 32px，左侧圆角 */
+[data-cowork-area="sidebar"] .absolute.left-0.top-1\/2 {
+  left: auto;
+  right: 8px;
+  width: 4px !important;
+  height: 32px !important;
+  border-radius: 4px;
+}
+
