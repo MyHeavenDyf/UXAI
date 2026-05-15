@@ -8,7 +8,7 @@ const AGENT_GROUPS = [
   { agent: "octo_insight", label: "Octo Insight", subtitle: "用户研究", skills: ["interview-analysis"] },
   { agent: "octo_make", label: "Octo Make", subtitle: "原型生成", skills: ["html-prototype"] },
   { agent: "octo_design", label: "Octo Design", subtitle: "UI 设计", skills: ["design-basics"] },
-  { agent: "octo_canva", label: "Octo Canva", subtitle: "创意生成", skills: ["creative-assets"] },
+  { agent: "octo_studio", label: "Octo Studio", subtitle: "图片创作", skills: ["creative-assets"] },
 ]
 
 function Toggle(props: { checked: boolean; onChange: (v: boolean) => void }): JSX.Element {

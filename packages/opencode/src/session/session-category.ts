@@ -16,7 +16,7 @@ const AGENT_TO_CATEGORY: Record<string, SessionCategory> = {
   octo_design: "design",
   octo_make: "prototype",
   octo_insight: "analysis",
-  octo_canva: "creative",
+  octo_studio: "creative",
   plan: "planning",
 }
 

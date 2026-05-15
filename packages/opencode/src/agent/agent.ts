@@ -15,7 +15,7 @@ import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
-import PROMPT_OCTO_CANVA from "./prompt/octo_canva.txt"
+import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -225,10 +225,10 @@ export const layer = Layer.effect(
             native: false,
             skills: ["design-basics"],
           },
-          octo_canva: {
-            name: "octo_canva",
-            description: "Creative material generation specialist. Generates images, videos, and other creative assets via MCP services.",
-            prompt: PROMPT_OCTO_CANVA,
+          octo_studio: {
+            name: "octo_studio",
+            description: "Studio image creation specialist. Generates images via Jimeng/Internal tools and creative assets.",
+            prompt: PROMPT_OCTO_STUDIO,
             permission: Permission.merge(defaults, user),
             options: {},
             mode: "primary",

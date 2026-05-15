@@ -1,0 +1,129 @@
+.studio-page {
+  --studio-bg: #f8fbff;
+  --studio-panel: rgba(255, 255, 255, 0.86);
+  --studio-sidebar: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(221, 239, 255, 0.88));
+  --studio-line: rgba(15, 23, 42, 0.1);
+  --studio-text: #17181c;
+  --studio-muted: rgba(23, 24, 28, 0.55);
+  --studio-blue: #1267ff;
+  --studio-cyan: #09b7e8;
+  --studio-violet: #7457ff;
+  --studio-magenta: #d100d8;
+  --studio-glow: 0 24px 80px rgba(98, 88, 255, 0.22), 0 10px 34px rgba(224, 0, 218, 0.16);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  background: var(--studio-bg);
+  color: var(--studio-text);
+}
+
+.studio-left {
+  width: 300px;
+  flex: 0 0 300px;
+  min-height: 0;
+  border-right: 1px solid var(--studio-line);
+  background: var(--studio-sidebar);
+}
+
+.studio-center {
+  width: 468px;
+  flex: 0 0 468px;
+  min-width: 420px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--studio-line);
+  background: rgba(249, 250, 253, 0.9);
+}
+
+.studio-workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: #fff;
+}
+
+.studio-canvas {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-details {
+  width: 320px;
+  flex: 0 0 320px;
+  border-left: 1px solid var(--studio-line);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.studio-composer {
+  margin: 0 24px 24px;
+  padding: 16px;
+  border: 1.5px solid rgba(87, 95, 255, 0.72);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--studio-glow);
+}
+
+.studio-gradient-button {
+  color: #fff;
+  background: linear-gradient(135deg, var(--studio-violet), var(--studio-magenta));
+  box-shadow: 0 12px 30px rgba(209, 0, 216, 0.26);
+}
+
+.studio-menu {
+  position: absolute;
+  z-index: 30;
+  bottom: 78px;
+  left: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 22px 64px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(18px);
+  border-radius: 12px;
+}
+
+.studio-result-card {
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(252, 232, 255, 0.9), rgba(246, 236, 255, 0.88));
+}
+
+.studio-loader-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  animation: studio-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes studio-pulse {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(-10px) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1200px) {
+  .studio-left {
+    width: 260px;
+    flex-basis: 260px;
+  }
+
+  .studio-center {
+    width: 420px;
+    flex-basis: 420px;
+    min-width: 380px;
+  }
+
+  .studio-details {
+    display: none;
+  }
+}

@@ -68,6 +68,7 @@ import { syncHandlers } from "./handlers/sync"
 import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
 import { workspaceHandlers } from "./handlers/workspace"
+import { studioHandlers } from "./handlers/studio"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
@@ -122,6 +123,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     v2Handlers,
     tuiHandlers,
     workspaceHandlers,
+    studioHandlers,
   ]),
 )
 

@@ -12,6 +12,8 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { JimengImageGenerateTool } from "./jimeng_image_generate"
+import { InternelImageGenerateTool } from "./internel_image_generate"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -113,6 +115,8 @@ export const layer: Layer.Layer<
     const greptool = yield* GrepTool
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
+    const jimengtool = yield* JimengImageGenerateTool
+    const interneltool = yield* InternelImageGenerateTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -210,6 +214,8 @@ export const layer: Layer.Layer<
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          jimeng: Tool.init(jimengtool),
+          internel: Tool.init(interneltool),
         })
 
         return {
@@ -229,6 +235,8 @@ export const layer: Layer.Layer<
             tool.search,
             tool.skill,
             tool.patch,
+            tool.jimeng,
+            tool.internel,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
           ],

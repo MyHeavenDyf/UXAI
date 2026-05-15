@@ -53,7 +53,7 @@ const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
-const StudioPage = lazy(() => import("@/pages/studio"))
+const StudioPage = lazy(() => import("@/pages/studio/index"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
 const Loading = () => (

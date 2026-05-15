@@ -732,7 +732,7 @@ test("defaultAgent throws when all primary agents are disabled", async () => {
         octo_design: { disable: true },
         octo_make: { disable: true },
         octo_insight: { disable: true },
-        octo_canva: { disable: true },
+        octo_studio: { disable: true },
       },
     },
   })
