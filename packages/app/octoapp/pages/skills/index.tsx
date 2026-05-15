@@ -92,7 +92,10 @@ export default function SkillsPage(): JSX.Element {
     const updated = { ...config(), [skillName]: { ...config()[skillName], import: value } }
     setConfig(updated)
     const api = (window as unknown as { api?: { setSkillsConfig?: (c: SkillsConfig) => Promise<void> } }).api
-    api?.setSkillsConfig?.(updated)
+    api?.setSkillsConfig?.(updated)?.catch?.((err: unknown) => {
+      console.error("[SkillsPage] setSkillsConfig failed", err)
+      setConfig(config()) // revert optimistic update
+    })
   }
 
   function toggleGroup(agent: string) {

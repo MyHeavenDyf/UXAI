@@ -237,7 +237,7 @@ export default function InsightPage() {
       })
       setAttachments([])
     } catch (err) {
-      console.error("[InsightPage] prompt failed", err)
+      console.error("[MakePage] prompt failed", err)
     } finally {
       setSending(false)
     }
