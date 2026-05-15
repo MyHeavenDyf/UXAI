@@ -108,14 +108,16 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
   const [sessions, { refetch }] = createResource(insightDir, async (dir) => {
     if (!dir) return [] as Session[]
-    const result = await globalSDK.client.session.list({ directory: dir })
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
     return data.filter(s => s.agent === "octo_insight")
   })
 
   const [makeSessions, { refetch: refetchMake }] = createResource(makeDir, async (dir) => {
     if (!dir) return [] as Session[]
-    const result = await globalSDK.client.session.list({ directory: dir })
+    const client = globalSDK.createClient({ directory: dir })
+    const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
     return data.filter(s => s.agent === "octo_make")
   })

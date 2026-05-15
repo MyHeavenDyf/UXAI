@@ -3,6 +3,7 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { Button } from "@opencode-ai/ui/button"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
+import { useServer } from "@/context/server"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { Logo } from "@opencode-ai/ui/logo"
 import { base64Encode } from "@opencode-ai/core/util/encode"
@@ -54,6 +55,7 @@ export function TitlebarSimple() {
   const location = useLocation()
   const navigate = useNavigate()
   const globalSync = useGlobalSync()
+  const server = useServer()
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
@@ -98,7 +100,10 @@ export function TitlebarSimple() {
     const dirMatch = path.match(/^\/([^/]+)/)
     let dir = dirMatch ? dirMatch[1] : ""
     if (!dir || dir === "insight" || dir === "make") {
-      const directory = globalSync.data.path.directory
+      const last = server.projects.last()
+      const directory = last && last !== "/" && !/^[A-Z]:\\?$/.test(last) 
+        ? last 
+        : globalSync.data.path.home
       dir = directory ? base64Encode(directory) : ""
     }
     if (!dir) return
