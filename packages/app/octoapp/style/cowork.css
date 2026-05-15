@@ -37,7 +37,7 @@
 /* ⑤ chevron 图标：绝对定位移至右侧，16px 距右 */
 [data-cowork-area="sidebar"] .h-\[32px\].px-\[4px\] > button.flex-1 > svg {
   position: absolute;
-  right: 30px;
+  right: 16px;
   width: 20px;
   height: 20px;
 }
@@ -57,7 +57,7 @@
 [data-cowork-area="sidebar"] .w-\[24px\].h-\[24px\] {
   width: 20px;
   height: 20px;
-  margin-right: 42px;
+  margin-right: 26px;
   color: rgba(0, 0, 0, 0.6) !important;
 }
 
