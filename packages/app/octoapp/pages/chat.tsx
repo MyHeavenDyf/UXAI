@@ -1,4 +1,4 @@
-import { createMemo, createEffect, Show, ErrorBoundary, Suspense } from "solid-js"
+import { createMemo, createEffect, Show, ErrorBoundary, Suspense, createSignal } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
@@ -39,10 +39,32 @@ export default function ChatPage() {
     local.agent.set("octo_ai")
   })
 
+  const [sidebarWidth, setSidebarWidth] = createSignal(300)
+
+  function handleSidebarResize(e: MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth()
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onUp = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
   return (
     <div class="flex flex-1 min-w-0 min-h-0 h-full">
       <Show when={resolvedDirectory()}>
-        <div class="sidebar-wrap h-full shrink-0 border-r border-border-weak-base flex flex-col">
+        <div
+          class="sidebar-wrap h-full shrink-0 border-r border-border-weak-base flex flex-col"
+          style={{ width: `${sidebarWidth()}px` }}
+        >
           <ErrorBoundary fallback={(err) => {
             console.error("Sidebar error:", err)
             return <div class="p-3 text-14-regular text-text-weak">Sidebar loading...</div>
@@ -50,6 +72,16 @@ export default function ChatPage() {
             <Sidebar currentDir={resolvedDirectory} activeTab={() => "chat"} />
           </ErrorBoundary>
         </div>
+        <div
+          style={{
+            width: "5px",
+            cursor: "col-resize",
+            "flex-shrink": "0",
+            "align-self": "stretch",
+            "z-index": "10",
+          }}
+          onMouseDown={handleSidebarResize}
+        />
       </Show>
       <div class="flex-1 min-w-0 min-h-0">
         <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
