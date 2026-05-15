@@ -83,6 +83,7 @@
 
 [data-cowork-area="sidebar"] .text-left.px-\[8px\]:hover {
   background-color: rgba(10, 89, 247, 0.08) !important;
+  color: rgba(10, 89, 247, 1) !important;
 }
 
 /* Octo Insight 标题图标：16px 距左，20px 大小 */

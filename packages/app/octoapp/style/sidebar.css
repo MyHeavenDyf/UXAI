@@ -59,6 +59,17 @@
     line-height: 22px;
   }
 
+  [data-session-id]:hover,
+  [data-session-id]:has(*:is(.active)) {
+    background-color: rgba(10, 89, 247, 0.08);
+    color: rgba(10, 89, 247, 1)
+  }
+
+  [data-session-id]:hover .text-14-regular,
+  [data-session-id]:has(*:is(.active)) .text-14-regular{
+    color: rgba(10, 89, 247, 1)
+  }
+
   .sidebar-history-title {
   font-size: 16px;
   height: 40px;
