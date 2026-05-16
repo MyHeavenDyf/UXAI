@@ -49,7 +49,7 @@ const AGENT_TO_CATEGORY = {
   octo_design:  "design",
   octo_make:    "prototype",
   octo_insight: "analysis",
-  octo_canva:   "creative",
+  octo_studio:  "creative",
   plan:         "planning",
   // 其他所有 agent 默认 "dev"
 }

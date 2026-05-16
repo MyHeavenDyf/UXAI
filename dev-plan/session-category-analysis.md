@@ -26,7 +26,7 @@ SessionCategoryTable:
 | `octo_design` | `"design"` |
 | `octo_make` | `"prototype"` |
 | `octo_insight` | `"analysis"` |
-| `octo_canva` | `"creative"` |
+| `octo_studio` | `"creative"` |
 | `plan` | `"planning"` |
 | 其他 | `"dev"` (默认) |
 
