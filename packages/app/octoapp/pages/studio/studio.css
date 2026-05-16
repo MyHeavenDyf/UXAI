@@ -98,7 +98,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  height: 40px;
+  height: 48px;
   padding: 0 12px;
   border-radius: 4px;
   font-size: 14px;
@@ -122,6 +122,9 @@
 
 .studio-left .bg-\[\#1267ff\] {
   background-color: rgba(10, 89, 247, 1);
+  top: 8px;
+  bottom: 8px;
+  right: 10px;
 }
 
 .studio-left > div > button:last-of-type {
