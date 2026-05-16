@@ -127,6 +127,16 @@ function parseJson(text: string): JsonRecord {
   }
 }
 
+function isSupportedImageInput(value: string) {
+  return /^(https?:\/\/\S+|data:image\/[a-z0-9.+-]+;base64,\S+)$/i.test(value)
+}
+
+export function resolveReferenceImages(input: Pick<ImageGenerateInput, "referenceImages" | "sourceImage">) {
+  return [...(input.referenceImages ?? []), ...(input.sourceImage ? [input.sourceImage] : [])].filter(
+    (item, index, list): item is string => !!item && isSupportedImageInput(item) && list.indexOf(item) === index,
+  )
+}
+
 function collectImageUrls(value: unknown): string[] {
   if (!value) return []
 
@@ -240,7 +250,7 @@ function isRenderableImageUrl(url: string) {
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
 }
 
-function summarizeInternalOutput(raw: unknown, bodyText = "") {
+export function summarizeInternalOutput(raw: unknown, bodyText = "") {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { bodyBytes: bodyText.length }
   }
@@ -446,14 +456,12 @@ function getTaskType(input: { generationMode: InternalTaskType; taskType?: strin
   return input.taskType ?? (input.generationMode === "img2img" ? img2img : txt2img)
 }
 
-async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
+export async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
   const queryTaskBaseUrl = env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
-  const generationMode: InternalTaskType = input.sourceImage || (input.referenceImages?.length ?? 0) > 0 ? "img2img" : "txt2img"
-  const referenceImages = [...(input.referenceImages ?? []), ...(input.sourceImage ? [input.sourceImage] : [])].filter(
-    (item, index, list) => item && list.indexOf(item) === index,
-  )
+  const referenceImages = resolveReferenceImages(input)
+  const generationMode: InternalTaskType = referenceImages.length > 0 ? "img2img" : "txt2img"
 
   if (generationMode === "txt2img" && referenceImages.length > 0) {
     throw new Error(

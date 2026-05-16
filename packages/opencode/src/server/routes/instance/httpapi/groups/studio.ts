@@ -22,6 +22,7 @@ export const StudioPaths = {
 } as const
 
 export const StudioGenerationPayload = Schema.Struct({
+  sessionID: Schema.optional(Schema.String),
   capability: Schema.Literals([
     "image.generate",
     "video.generate",
@@ -35,6 +36,7 @@ export const StudioGenerationPayload = Schema.Struct({
   styleModel: Schema.optional(Schema.String),
   aspectRatio: Schema.optional(Schema.String),
   count: Schema.optional(Schema.Int),
+  imageTool: Schema.optional(Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")])),
   referenceImages: Schema.optional(Schema.Array(Schema.String)),
   sourceImage: Schema.optional(Schema.String),
   extra: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),

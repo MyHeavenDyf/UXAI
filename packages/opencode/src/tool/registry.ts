@@ -50,6 +50,7 @@ import { Skill } from "../skill"
 import { Permission } from "@/permission"
 
 const log = Log.create({ service: "tool.registry" })
+const builtinToolNamespaces = new Set(["jimeng_image_generate", "internel_image_generate"])
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
@@ -178,6 +179,9 @@ export const layer: Layer.Layer<
         if (matches.length) yield* config.waitForDependencies()
         for (const match of matches) {
           const namespace = path.basename(match, path.extname(match))
+          if (builtinToolNamespaces.has(namespace)) {
+            continue
+          }
           // `match` is an absolute filesystem path from `Glob.scanSync(..., { absolute: true })`.
           // Import it as `file://` so Node on Windows accepts the dynamic import.
           const mod = yield* Effect.promise(() => import(pathToFileURL(match).href))
@@ -210,12 +214,12 @@ export const layer: Layer.Layer<
           todo: Tool.init(todo),
           search: Tool.init(websearch),
           skill: Tool.init(skilltool),
+          jimeng: Tool.init(jimengtool),
+          internel: Tool.init(interneltool),
           patch: Tool.init(patchtool),
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
-          jimeng: Tool.init(jimengtool),
-          internel: Tool.init(interneltool),
         })
 
         return {
@@ -234,9 +238,9 @@ export const layer: Layer.Layer<
             tool.todo,
             tool.search,
             tool.skill,
-            tool.patch,
             tool.jimeng,
             tool.internel,
+            tool.patch,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
           ],
