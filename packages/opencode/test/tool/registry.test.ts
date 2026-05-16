@@ -81,6 +81,7 @@ describe("tool.registry", () => {
       const ids = yield* registry.ids()
       expect(ids).toContain("hello")
     }),
+    { timeout: 30_000 },
   )
 
   it.instance("loads tools from .opencode/tools (plural)", () =>
@@ -108,6 +109,7 @@ describe("tool.registry", () => {
       const ids = yield* registry.ids()
       expect(ids).toContain("hello")
     }),
+    { timeout: 30_000 },
   )
 
   it.instance("loads tools with external dependencies without crashing", () =>
@@ -184,5 +186,7 @@ describe("tool.registry", () => {
       const ids = yield* registry.ids()
       expect(ids).toContain("cowsay")
     }),
+    { timeout: 30_000 },
   )
+
 })

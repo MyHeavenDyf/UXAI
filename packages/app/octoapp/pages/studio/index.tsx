@@ -1,5 +1,5 @@
 import "./studio.css"
-import type { FilePartInput, Message, Part, Session, SessionStatus, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
@@ -8,7 +8,9 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useServer } from "@/context/server"
 import { groupSessionsByDate, sortedRootSessions } from "@/pages/layout/helpers"
+import { authTokenFromCredentials } from "@/utils/server"
 import { sessionTitle } from "@/utils/session-title"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -33,7 +35,6 @@ import {
   buildStudioConversationContext,
   buildStudioDisplayPrompt,
   buildStudioTurns,
-  latestStudioTurn,
   type StudioTurnData,
 } from "./turns"
 
@@ -46,11 +47,24 @@ type DataStore = {
   part: { [messageID: string]: Part[] }
 }
 
+function createBlobUrlFromDataUrl(url: string) {
+  const match = url.match(/^data:([^;,]+);base64,(.+)$/)
+  if (!match) return url
+  const mime = match[1]
+  const binary = atob(match[2])
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: mime }))
+}
+
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const server = useServer()
 
   const projectDir = () => {
     if (params.dir) return decode64(params.dir) ?? globalSync.data.path.home
@@ -82,28 +96,88 @@ export default function StudioPage() {
   let fileInputRef!: HTMLInputElement
   let conversationScrollRef!: HTMLDivElement
   let scrollFrame = 0
+  const blobUrlCache = new Map<string, string>()
+
+  function displayUrl(url: string) {
+    if (!url.startsWith("data:image/")) return url
+    const cached = blobUrlCache.get(url)
+    if (cached) return cached
+    const next = createBlobUrlFromDataUrl(url)
+    blobUrlCache.set(url, next)
+    return next
+  }
+
+  function normalizeImage(image: StudioImage): StudioImage {
+    const remoteUrl = image.remoteUrl ?? image.url
+    const thumbnailSource = image.thumbnailUrl ?? image.url
+    return {
+      ...image,
+      url: displayUrl(image.url),
+      thumbnailUrl: displayUrl(thumbnailSource),
+      remoteUrl,
+    }
+  }
+
+  function normalizeResultValue(value?: StudioGenerationResult): StudioGenerationResult | undefined {
+    if (!value) return
+    return {
+      ...value,
+      images: value.images.map(normalizeImage),
+    }
+  }
+
+  createEffect(() => {
+    const active = new Set<string>()
+    for (const turn of turns()) {
+      for (const image of turn.result?.images ?? []) {
+        if (image.url.startsWith("data:image/")) active.add(image.url)
+        if (image.thumbnailUrl?.startsWith("data:image/")) active.add(image.thumbnailUrl)
+      }
+    }
+    for (const image of pendingResult()?.images ?? []) {
+      if (image.url.startsWith("data:image/")) active.add(image.url)
+      if (image.thumbnailUrl?.startsWith("data:image/")) active.add(image.thumbnailUrl)
+    }
+    for (const [source, objectUrl] of blobUrlCache) {
+      if (active.has(source)) continue
+      URL.revokeObjectURL(objectUrl)
+      blobUrlCache.delete(source)
+    }
+  })
+
+  onCleanup(() => {
+    cancelAnimationFrame(scrollFrame)
+    for (const objectUrl of blobUrlCache.values()) {
+      URL.revokeObjectURL(objectUrl)
+    }
+    blobUrlCache.clear()
+  })
+
+  function loadSessionMessages(sessionID: string) {
+    return globalSDK.client.session.messages({ sessionID })
+      .then((result) => {
+        const items = result.data ?? []
+        const messages: Message[] = []
+        const partMap: { [messageID: string]: Part[] } = {}
+        for (const item of items as { info: Message; parts: Part[] }[]) {
+          messages.push(item.info)
+          partMap[item.info.id] = item.parts.filter((part) => !SKIP_PART_TYPES.has(part.type))
+        }
+        batch(() => {
+          setDataStore("message", sessionID, reconcile(messages, { key: "id" }))
+          for (const [messageID, parts] of Object.entries(partMap)) {
+            setDataStore("part", messageID, reconcile(parts, { key: "id" }))
+          }
+        })
+      })
+  }
 
   createEffect(
     on(
       () => params.id,
       (id) => {
         if (!id) return
-        globalSDK.client.session.messages({ sessionID: id })
-          .then((result) => {
-            const items = result.data ?? []
-            const messages: Message[] = []
-            const partMap: { [messageID: string]: Part[] } = {}
-            for (const item of items as { info: Message; parts: Part[] }[]) {
-              messages.push(item.info)
-              partMap[item.info.id] = item.parts.filter((part) => !SKIP_PART_TYPES.has(part.type))
-            }
-            batch(() => {
-              setDataStore("message", id, reconcile(messages, { key: "id" }))
-              for (const [messageID, parts] of Object.entries(partMap)) {
-                setDataStore("part", messageID, reconcile(parts, { key: "id" }))
-              }
-            })
-          })
+        loadSessionMessages(id)
           .catch((error) => console.error("[StudioPage] messages load failed", error))
       },
     ),
@@ -184,14 +258,30 @@ export default function StudioPage() {
       fallback: pendingResult(),
     }),
   )
-  const studioTurn = createMemo(() => latestStudioTurn({
-    messages: params.id ? dataStore.message[params.id] ?? [] : [],
-    parts: dataStore.part,
-    fallback: pendingResult(),
-  }))
-
+  const displayTurns = createMemo(() =>
+    (() => {
+      const next = turns().map((turn) => (turn.result ? { ...turn, result: normalizeResultValue(turn.result) } : turn))
+      const pending = pendingResult()
+      if (!pending || !sending()) return next
+      if (next.at(-1)?.id === pending.id) return next
+      return [
+        ...next,
+        {
+          id: pending.id,
+          userText: pending.prompt,
+          assistantText: `我先整理一下构图、主体和风格，正在调用${imageToolLabel(imageTool())}生成。`,
+          toolTitle: "图片生成",
+          toolName: `${imageToolLabel(imageTool())} · 生成中`,
+          result: normalizeResultValue(pending),
+          createdAt: pending.createdAt,
+          isLatest: true,
+        } satisfies StudioTurnData,
+      ]
+    })(),
+  )
+  const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
-  const result = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
+  const result = createMemo(() => normalizeResultValue(studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult()))
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     if (result()?.images.length) return "succeeded"
     if (isBusy()) return "running"
@@ -252,7 +342,7 @@ export default function StudioPage() {
 
   createEffect(
     on(
-      () => `${params.id ?? ""}:${turns().map((turn) => turn.id).join("|")}:${pendingResult()?.id ?? ""}`,
+      () => `${params.id ?? ""}:${displayTurns().map((turn) => turn.id).join("|")}:${pendingResult()?.id ?? ""}`,
       () => {
         if (!params.id || !conversationScrollRef) return
         cancelAnimationFrame(scrollFrame)
@@ -304,63 +394,46 @@ export default function StudioPage() {
     return session.id
   }
 
-  function buildPromptInput(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
-    return [
-      `能力：${capabilityLabel(input.capability)}`,
-      `首选生图工具：${imageToolLabel(imageTool())} (${imageTool() === "jimeng" ? "jimeng_image_generate" : "internel_image_generate"})`,
-      `风格模型：${styleModelLabel(styleModel())}`,
-      `画幅比例：${aspectRatio()}`,
-      `生成数量：${count()}`,
-      input.sourceImage ? "当前任务：基于上一轮选中的图片继续编辑。" : undefined,
-      buildStudioConversationContext({
-        messages: params.id ? dataStore.message[params.id] ?? [] : [],
-        parts: dataStore.part,
-        fallback: pendingResult(),
-      }),
-      `用户需求：${input.text}`,
-      "输出时先简短说明创作方向，再调用生图工具。",
-    ]
-      .filter((item): item is string => Boolean(item))
-      .join("\n")
-  }
-
-  async function sendStudioMessage(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
-    let sessionID = params.id
-    if (!sessionID) {
-      sessionID = await createAndNavigate(input.text)
-      if (!sessionID) return
-    }
-
-    const textPart: TextPartInput = {
-      type: "text",
-      text: buildPromptInput(input),
-    }
-    const selectedTool = imageTool()
-    const fileParts: FilePartInput[] = [
-      ...assets().map((item) => ({
-        type: "file" as const,
-        mime: item.mime,
-        filename: item.name,
-        url: item.dataUrl,
-      })),
-      ...(input.sourceImage
-        ? [{
-            type: "file" as const,
-            mime: "image/png",
-            filename: currentImageLabel(),
-            url: input.sourceImage,
-          }]
-        : []),
-    ]
-    await globalSDK.client.session.prompt({
-      sessionID,
-      parts: [textPart, ...fileParts],
-      tools: {
-        jimeng_image_generate: selectedTool === "jimeng",
-        internel_image_generate: selectedTool === "internel",
+  async function createStudioGeneration(input: { sessionID: string; text: string; capability: StudioCapability; sourceImage?: string }) {
+    const current = server.current
+    if (!current) throw new Error("No Studio server connection is available.")
+    const url = new URL("/studio/generations", current.http.url)
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(current.http.password
+          ? {
+              Authorization: `Basic ${authTokenFromCredentials({
+                username: current.http.username,
+                password: current.http.password,
+              })}`,
+            }
+          : {}),
       },
+      body: JSON.stringify({
+        sessionID: input.sessionID,
+        capability: input.capability,
+        prompt: input.text,
+        styleModel: styleModel(),
+        aspectRatio: aspectRatio(),
+        count: count(),
+        imageTool: imageTool(),
+        referenceImages: assets().map((item) => item.dataUrl),
+        sourceImage: input.sourceImage,
+        extra: {
+          imageTool: imageTool(),
+          conversationContext: buildStudioConversationContext({
+            messages: params.id ? dataStore.message[params.id] ?? [] : [],
+            parts: dataStore.part,
+            fallback: pendingResult(),
+          }),
+        },
+      }),
     })
-    if (!params.id && sessionID) navigate(`/${slug()}/studio/${sessionID}`)
+    if (response.ok) return response.json() as Promise<StudioGenerationResult>
+    const body = await response.text()
+    throw new Error(body || `Studio generation failed with status ${response.status}`)
   }
 
   async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string }) {
@@ -384,13 +457,18 @@ export default function StudioPage() {
     setSending(true)
     setPrompt("")
     try {
-      await sendStudioMessage({
+      const sessionID = params.id ?? await createAndNavigate(text)
+      if (!sessionID) throw new Error("Unable to create Studio session.")
+      await createStudioGeneration({
+        sessionID,
         text,
         capability: overrides?.capability ?? capability(),
         sourceImage: overrides?.sourceImage,
       })
+      await loadSessionMessages(sessionID)
+      setPendingResult(undefined)
+      setStatus("succeeded")
       setAssets([])
-      setStatus("running")
     } catch (error) {
       console.error("[StudioPage] studio prompt failed", error)
       setPrompt(previousPrompt)
@@ -421,7 +499,7 @@ export default function StudioPage() {
     if (!image) return
     void runGeneration({
       capability: "image.outpaint",
-      sourceImage: image.url,
+      sourceImage: image.remoteUrl ?? image.url,
       prompt: prompt().trim() || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
     })
   }
@@ -444,7 +522,7 @@ export default function StudioPage() {
           <Show when={turns().length > 0 || pendingResult()} fallback={<StudioIntro />}>
             <StudioConversation
               result={result() ?? pendingResult()!}
-              turns={turns()}
+              turns={displayTurns()}
               busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
               onSelectImage={setSelectedImageId}
             />

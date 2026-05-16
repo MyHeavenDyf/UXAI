@@ -50,6 +50,7 @@ import { Skill } from "../skill"
 import { Permission } from "@/permission"
 
 const log = Log.create({ service: "tool.registry" })
+const builtinToolNamespaces = new Set(["jimeng_image_generate", "internel_image_generate"])
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
@@ -178,6 +179,9 @@ export const layer: Layer.Layer<
         if (matches.length) yield* config.waitForDependencies()
         for (const match of matches) {
           const namespace = path.basename(match, path.extname(match))
+          if (builtinToolNamespaces.has(namespace)) {
+            continue
+          }
           // `match` is an absolute filesystem path from `Glob.scanSync(..., { absolute: true })`.
           // Import it as `file://` so Node on Windows accepts the dynamic import.
           const mod = yield* Effect.promise(() => import(pathToFileURL(match).href))

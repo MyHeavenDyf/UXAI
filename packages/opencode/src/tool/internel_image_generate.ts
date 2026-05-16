@@ -240,7 +240,7 @@ function isRenderableImageUrl(url: string) {
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
 }
 
-function summarizeInternalOutput(raw: unknown, bodyText = "") {
+export function summarizeInternalOutput(raw: unknown, bodyText = "") {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { bodyBytes: bodyText.length }
   }
@@ -446,7 +446,7 @@ function getTaskType(input: { generationMode: InternalTaskType; taskType?: strin
   return input.taskType ?? (input.generationMode === "img2img" ? img2img : txt2img)
 }
 
-async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
+export async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
   const queryTaskBaseUrl = env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX

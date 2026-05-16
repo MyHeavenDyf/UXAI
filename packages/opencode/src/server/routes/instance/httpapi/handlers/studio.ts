@@ -10,22 +10,26 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       payload: typeof StudioGenerationPayload.Type
     }) {
       console.log("[studio.httpapi] POST /studio/generations", {
+        sessionID: ctx.payload.sessionID,
         capability: ctx.payload.capability,
         prompt: ctx.payload.prompt,
         styleModel: ctx.payload.styleModel,
         aspectRatio: ctx.payload.aspectRatio,
         count: ctx.payload.count,
+        imageTool: ctx.payload.imageTool,
         referenceImageCount: ctx.payload.referenceImages?.length ?? 0,
         hasSourceImage: Boolean(ctx.payload.sourceImage),
       })
       return yield* Effect.tryPromise({
         try: () =>
           createGeneration({
+            sessionID: ctx.payload.sessionID,
             capability: ctx.payload.capability,
             prompt: ctx.payload.prompt,
             styleModel: ctx.payload.styleModel,
             aspectRatio: ctx.payload.aspectRatio,
             count: ctx.payload.count,
+            imageTool: ctx.payload.imageTool,
             referenceImages: ctx.payload.referenceImages ? [...ctx.payload.referenceImages] : undefined,
             sourceImage: ctx.payload.sourceImage,
             extra: ctx.payload.extra ? { ...ctx.payload.extra } : undefined,
