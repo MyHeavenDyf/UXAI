@@ -226,7 +226,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       }
     }
 
-    const target = Persist.global("layout.v7", [])
+    const target = Persist.global("layout.v8", [])
     const [store, setStore, _, ready] = persisted(
       { ...target, migrate },
       createStore({

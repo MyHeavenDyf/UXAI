@@ -815,7 +815,9 @@ export function MessageTimeline(props: {
                   <Show when={sessionID()} keyed>
                     {(id) => (
                       <div class="shrink-0 flex items-center gap-3">
-                        <SessionContextUsage placement="bottom" />
+                        <div class="hidden">
+                          <SessionContextUsage placement="bottom" />
+                        </div>
                         <Show when={!parentID()}>
                           <DropdownMenu
                             gutter={4}
