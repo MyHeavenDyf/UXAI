@@ -256,8 +256,18 @@ function timeoutMsFor(name: string, fallback: number) {
   return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
-function reqKeyFor(input: ImageGenerateInput) {
-  if (input.sourceImage || (input.referenceImages?.length ?? 0) > 0) {
+function isSupportedImageInput(value: string) {
+  return /^(https?:\/\/\S+|data:image\/[a-z0-9.+-]+;base64,\S+)$/i.test(value)
+}
+
+export function resolveReferenceImages(input: Pick<ImageGenerateInput, "referenceImages" | "sourceImage">) {
+  return [...(input.referenceImages ?? []), ...(input.sourceImage ? [input.sourceImage] : [])].filter(
+    (item, index, list): item is string => !!item && isSupportedImageInput(item) && list.indexOf(item) === index,
+  )
+}
+
+function reqKeyFor(input: { referenceImages: string[] }) {
+  if (input.referenceImages.length > 0) {
     return env("JIMENG_EDIT_REQ_KEY") ?? env("JIMENG_REQ_KEY") ?? DEFAULT_REQ_KEY
   }
   return env("JIMENG_REQ_KEY") ?? DEFAULT_REQ_KEY
@@ -282,11 +292,9 @@ function buildPrompt(input: ImageGenerateInput) {
 export async function executeJimengImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
   const accessKey = env("JIMENG_ACCESS_KEY") ?? DEFAULT_ACCESS_KEY
   const secretKey = env("JIMENG_SECRET_KEY") ?? DEFAULT_SECRET_KEY
-  const referenceImages = [...(input.referenceImages ?? []), ...(input.sourceImage ? [input.sourceImage] : [])].filter(
-    (item, index, list) => item && list.indexOf(item) === index,
-  )
+  const referenceImages = resolveReferenceImages(input)
   const requestBody = {
-    req_key: reqKeyFor(input),
+    req_key: reqKeyFor({ referenceImages }),
     prompt: buildPrompt(input),
     scale: 0.5,
     ...(referenceImages.length > 0 ? { image_urls: referenceImages } : {}),
@@ -322,7 +330,7 @@ export async function executeJimengImageGenerate(input: ImageGenerateInput): Pro
       const images = Array.from(new Set([...imageUrls, ...binaryImages]))
       return {
         provider: "jimeng",
-        model: reqKeyFor(input),
+        model: reqKeyFor({ referenceImages }),
         images: images.map((url) => ({ url })),
         request: debugRequest,
         statusCode: response.status,

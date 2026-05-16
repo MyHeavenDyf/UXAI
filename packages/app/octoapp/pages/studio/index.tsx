@@ -1,5 +1,6 @@
 import "./studio.css"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
@@ -8,9 +9,7 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { useServer } from "@/context/server"
 import { groupSessionsByDate, sortedRootSessions } from "@/pages/layout/helpers"
-import { authTokenFromCredentials } from "@/utils/server"
 import { sessionTitle } from "@/utils/session-title"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -47,6 +46,10 @@ type DataStore = {
   part: { [messageID: string]: Part[] }
 }
 
+type StudioPendingResult = StudioGenerationResult & {
+  sourceImage?: string
+}
+
 function createBlobUrlFromDataUrl(url: string) {
   const match = url.match(/^data:([^;,]+);base64,(.+)$/)
   if (!match) return url
@@ -64,7 +67,6 @@ export default function StudioPage() {
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
-  const server = useServer()
 
   const projectDir = () => {
     if (params.dir) return decode64(params.dir) ?? globalSync.data.path.home
@@ -81,7 +83,7 @@ export default function StudioPage() {
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("jimeng")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
-  const [pendingResult, setPendingResult] = createSignal<StudioGenerationResult>()
+  const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [openMenu, setOpenMenu] = createSignal<"capability" | "imageTool" | "style" | "settings" | null>(null)
   const [mode, setMode] = createSignal<StudioMode>("preview")
@@ -92,7 +94,6 @@ export default function StudioPage() {
     message: {},
     part: {},
   })
-
   let fileInputRef!: HTMLInputElement
   let conversationScrollRef!: HTMLDivElement
   let scrollFrame = 0
@@ -269,7 +270,11 @@ export default function StudioPage() {
         {
           id: pending.id,
           userText: pending.prompt,
-          assistantText: `我先整理一下构图、主体和风格，正在调用${imageToolLabel(imageTool())}生成。`,
+          assistantText: buildStudioThinkingText({
+            text: pending.prompt,
+            capability: pending.capability,
+            sourceImage: pending.sourceImage,
+          }),
           toolTitle: "图片生成",
           toolName: `${imageToolLabel(imageTool())} · 生成中`,
           result: normalizeResultValue(pending),
@@ -307,6 +312,21 @@ export default function StudioPage() {
     if (!studioTurn()?.result && !studioTurn()?.toolError) return
     setPendingResult(undefined)
     setStatus(studioTurn()?.toolError ? "failed" : "succeeded")
+  })
+
+  createEffect(() => {
+    const pending = pendingResult()
+    if (!pending || sending()) return
+    if (sessionStatus().type !== "idle") return
+    if (studioTurn()?.userText !== pending.prompt) return
+    if (studioTurn()?.result?.images.length) {
+      setPendingResult(undefined)
+      setStatus("succeeded")
+      return
+    }
+    if (!studioTurn()?.toolError && !studioTurn()?.assistantText) return
+    setPendingResult(undefined)
+    setStatus("failed")
   })
 
   createEffect(
@@ -394,55 +414,87 @@ export default function StudioPage() {
     return session.id
   }
 
-  async function createStudioGeneration(input: { sessionID: string; text: string; capability: StudioCapability; sourceImage?: string }) {
-    const current = server.current
-    if (!current) throw new Error("No Studio server connection is available.")
-    const url = new URL("/studio/generations", current.http.url)
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(current.http.password
-          ? {
-              Authorization: `Basic ${authTokenFromCredentials({
-                username: current.http.username,
-                password: current.http.password,
-              })}`,
-            }
-          : {}),
-      },
-      body: JSON.stringify({
-        sessionID: input.sessionID,
-        capability: input.capability,
-        prompt: input.text,
-        styleModel: styleModel(),
-        aspectRatio: aspectRatio(),
-        count: count(),
-        imageTool: imageTool(),
-        referenceImages: assets().map((item) => item.dataUrl),
-        sourceImage: input.sourceImage,
-        extra: {
-          imageTool: imageTool(),
-          conversationContext: buildStudioConversationContext({
-            messages: params.id ? dataStore.message[params.id] ?? [] : [],
-            parts: dataStore.part,
-            fallback: pendingResult(),
-          }),
-        },
-      }),
+  function buildStudioPromptText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
+    const context = buildStudioConversationContext({
+      messages: params.id ? dataStore.message[params.id] ?? [] : [],
+      parts: dataStore.part,
+      fallback: pendingResult(),
     })
-    if (response.ok) return response.json() as Promise<StudioGenerationResult>
-    const body = await response.text()
-    throw new Error(body || `Studio generation failed with status ${response.status}`)
+    return [
+      `用户需求：${input.text}`,
+      `能力：${input.capability}`,
+      `风格模型：${styleModelLabel(styleModel())}`,
+      `画幅比例：${aspectRatio()}`,
+      `生成数量：${count()}`,
+      `当前选中的生图工具：${imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate"}`,
+      input.sourceImage ? "这是基于上一张图继续编辑。" : undefined,
+      context ? `上一轮摘要：\n${context}` : undefined,
+      "输出时先简短说明，再调用对应工具。",
+    ]
+      .filter((item): item is string => Boolean(item))
+      .join("\n")
+  }
+
+  function buildStudioThinkingText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
+    return [
+      `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`,
+      `风格模型：${styleModelLabel(styleModel())}`,
+      `画幅比例：${aspectRatio()}`,
+      `生成数量：${count()}`,
+      `当前选中的生图工具：${imageToolLabel(imageTool())}`,
+      input.sourceImage ? "这是基于上一张图片继续编辑。" : undefined,
+      `用户需求：${input.text}`,
+    ]
+      .filter((item): item is string => Boolean(item))
+      .join("\n")
+  }
+
+  function buildStudioPromptParts(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
+    const textPart: TextPartInput = {
+      type: "text",
+      text: buildStudioPromptText({
+        text: input.text,
+        capability: input.capability,
+        sourceImage: input.sourceImage,
+      }),
+    }
+    const fileParts: FilePartInput[] = assets().map((item) => ({
+      type: "file",
+      mime: item.mime,
+      filename: item.name,
+      url: item.dataUrl,
+    }))
+    if (!input.sourceImage) return [textPart, ...fileParts]
+    return [
+      textPart,
+      ...fileParts,
+      {
+        type: "file",
+        mime: "image/png",
+        filename: "source-image.png",
+        url: input.sourceImage,
+      },
+    ] satisfies Array<TextPartInput | FilePartInput>
+  }
+
+  async function sendStudioPrompt(input: { sessionID: string; text: string; capability: StudioCapability; sourceImage?: string }) {
+    await globalSDK.client.session.promptAsync({
+      sessionID: input.sessionID,
+      tools: {
+        jimeng_image_generate: imageTool() !== "internel",
+        internel_image_generate: imageTool() === "internel",
+      },
+      parts: buildStudioPromptParts({ text: input.text, capability: input.capability, sourceImage: input.sourceImage }),
+    })
   }
 
   async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string }) {
     const text = (overrides?.prompt ?? prompt()).trim()
     if (!text || isBusy()) return
     const previousPrompt = prompt()
-    setStatus("submitting")
     setOpenMenu(null)
     setMode("preview")
+    setStatus("submitting")
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
       status: "running",
@@ -453,21 +505,21 @@ export default function StudioPage() {
       aspectRatio: aspectRatio(),
       images: [],
       createdAt: Date.now(),
+      sourceImage: overrides?.sourceImage,
     })
     setSending(true)
     setPrompt("")
     try {
       const sessionID = params.id ?? await createAndNavigate(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
-      await createStudioGeneration({
+      await sendStudioPrompt({
         sessionID,
         text,
         capability: overrides?.capability ?? capability(),
         sourceImage: overrides?.sourceImage,
       })
       await loadSessionMessages(sessionID)
-      setPendingResult(undefined)
-      setStatus("succeeded")
+      setStatus("running")
       setAssets([])
     } catch (error) {
       console.error("[StudioPage] studio prompt failed", error)
@@ -519,9 +571,9 @@ export default function StudioPage() {
         </div>
 
         <div ref={conversationScrollRef!} class="flex-1 min-h-0 overflow-y-auto px-6 py-6">
-          <Show when={turns().length > 0 || pendingResult()} fallback={<StudioIntro />}>
+          <Show when={turns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
             <StudioConversation
-              result={result() ?? pendingResult()!}
+              result={result()}
               turns={displayTurns()}
               busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
               onSelectImage={setSelectedImageId}
