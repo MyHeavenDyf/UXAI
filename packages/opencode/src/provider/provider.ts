@@ -1158,9 +1158,16 @@ const layer: Layer.Layer<
             return
           }
           const match = database[providerID]
-          if (!match) return
+          // Special case: allow opencode to merge even without database entry
+          // (custom loader self-constructs model data)
+          if (!match && providerID !== "opencode") return
           // @ts-expect-error
-          providers[providerID] = mergeDeep(match, provider)
+          providers[providerID] = mergeDeep(match ?? {
+            id: "opencode",
+            name: "Octo AI",
+            env: ["OPENCODE_API_KEY"],
+            models: {},
+          }, provider)
         }
 
         // load plugins first so config() hook runs before reading cfg.provider
@@ -1347,11 +1354,23 @@ const layer: Layer.Layer<
           const providerID = ProviderID.make(id)
           if (disabled.has(providerID)) continue
           const data = database[providerID]
-          if (!data) {
+
+          // Special case: opencode custom loader can run without database entry
+          // because it self-constructs all model data
+          if (!data && providerID !== "opencode") {
             log.error("Provider does not exist in model list " + providerID)
             continue
           }
-          const result = yield* fn(data)
+
+          // For opencode, create minimal placeholder if missing from database
+          const providerData = data ?? {
+            id: "opencode",
+            name: "Octo AI",
+            env: ["OPENCODE_API_KEY"],
+            models: {},
+          }
+
+          const result = yield* fn(providerData as Info)
           if (result && (result.autoload || providers[providerID])) {
             if (result.getModel) modelLoaders[providerID] = result.getModel
             if (result.vars) varsLoaders[providerID] = result.vars

@@ -89,6 +89,24 @@ export const Provider = Schema.Struct({
 
 export type Provider = Schema.Schema.Type<typeof Provider>
 
+export const OPENCODE_FALLBACK: Record<string, Provider> = {
+  opencode: {
+    id: "opencode",
+    name: "Octo AI",
+    env: ["OPENCODE_API_KEY"],
+    npm: "@ai-sdk/openai-compatible",
+    api: "http://octoai-llm.ucd.huawei.com/v1",
+    models: {},
+  },
+}
+
+const ensureOpencode = (data: Record<string, Provider>): Record<string, Provider> => {
+  if (!data.opencode) {
+    data = { ...data, ...OPENCODE_FALLBACK }
+  }
+  return data
+}
+
 export interface Interface {
   readonly get: () => Effect.Effect<Record<string, Provider>>
   readonly refresh: (force?: boolean) => Effect.Effect<void>
@@ -146,18 +164,20 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | HttpClie
 
     const populate = Effect.gen(function* () {
       const fromDisk = yield* loadFromDisk
-      if (fromDisk) return fromDisk
+      if (fromDisk) return ensureOpencode(fromDisk)
       const snapshot = yield* loadSnapshot
-      if (snapshot) return snapshot
-      if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
+      if (snapshot) return ensureOpencode(snapshot)
+      if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return ensureOpencode({})
       // Flock is cross-process: concurrent opencode CLIs can race on this cache file.
       const text = yield* Effect.scoped(
         Effect.gen(function* () {
           yield* Flock.effect(lockKey)
           return yield* fetchAndWrite()
         }),
+      ).pipe(
+        Effect.catch(() => Effect.succeed(JSON.stringify(OPENCODE_FALLBACK))),
       )
-      return JSON.parse(text) as Record<string, Provider>
+      return ensureOpencode(JSON.parse(text) as Record<string, Provider>)
     }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie)
 
     const [cachedGet, invalidate] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity)

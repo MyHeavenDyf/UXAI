@@ -5,9 +5,13 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@opencode-ai/core/global"
 import { ModelsDev } from "../../src/provider/models"
+import { OPENCODE_FALLBACK } from "../../src/provider/models"
 import { it } from "../lib/effect"
 import { rm, writeFile, utimes, mkdir } from "fs/promises"
 import path from "path"
+
+// Helper to add opencode fallback to expected fixture data
+const withOpencode = <T extends Record<string, any>>(data: T) => ({ ...data, ...OPENCODE_FALLBACK }) as T & typeof OPENCODE_FALLBACK
 
 // test/preload.ts pins OPENCODE_MODELS_PATH to a fixture so other tests can
 // resolve providers without network. These tests need to drive the on-disk
@@ -127,20 +131,23 @@ describe("ModelsDev Service", () => {
         state,
         ModelsDev.Service.use((s) => s.get()),
       )
-      expect(result).toEqual(fixture)
+      expect(result).toEqual(withOpencode(fixture))
       const final = yield* Ref.get(state)
       expect(final.calls).toEqual([])
     }),
   )
 
-  it.live("get() returns {} when disk empty and fetch disabled", () =>
+  it.live("get() returns fallback data when disk empty and fetch disabled", () =>
     Effect.gen(function* () {
       const state = yield* Ref.make(initialState)
       const result = yield* provided(
         state,
         ModelsDev.Service.use((s) => s.get()),
       )
-      expect(result).toEqual({})
+      // ensureOpencode guarantees opencode always exists
+      expect(result.opencode).toBeDefined()
+      expect(result.opencode.id).toBe("opencode")
+      expect(result.opencode.name).toBe("Octo AI")
       const final = yield* Ref.get(state)
       expect(final.calls).toEqual([])
     }),
@@ -159,7 +166,7 @@ describe("ModelsDev Service", () => {
           })
         }),
       )
-      for (const result of results) expect(result).toEqual(fixture)
+      for (const result of results) expect(result).toEqual(withOpencode(fixture))
     }),
   )
 
@@ -178,8 +185,8 @@ describe("ModelsDev Service", () => {
           return { a, b }
         }),
       )
-      expect(first.a).toEqual(fixture)
-      expect(first.b).toEqual(fixture)
+      expect(first.a).toEqual(withOpencode(fixture))
+      expect(first.b).toEqual(withOpencode(fixture))
     }),
   )
 
@@ -197,8 +204,8 @@ describe("ModelsDev Service", () => {
           return { before, after }
         }),
       )
-      expect(result.before).toEqual(fixture)
-      expect(result.after).toEqual(fixture2)
+      expect(result.before).toEqual(withOpencode(fixture))
+      expect(result.after).toEqual(withOpencode(fixture2))
       const final = yield* Ref.get(state)
       expect(final.calls.length).toBe(1)
       expect(final.calls[0].url).toContain("/api.json")
@@ -234,7 +241,7 @@ describe("ModelsDev Service", () => {
       )
       const final = yield* Ref.get(state)
       expect(final.calls.length).toBe(1)
-      expect(after).toEqual(fixture2)
+      expect(after).toEqual(withOpencode(fixture2))
     }),
   )
 
@@ -250,7 +257,7 @@ describe("ModelsDev Service", () => {
           return yield* svc.get()
         }),
       )
-      expect(result).toEqual(fixture)
+      expect(result).toEqual(withOpencode(fixture))
       // withTransientReadRetry retries 5xx, so calls may be > 1.
       const final = yield* Ref.get(state)
       expect(final.calls.length).toBeGreaterThanOrEqual(1)
