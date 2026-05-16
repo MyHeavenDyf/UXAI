@@ -528,7 +528,9 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
   const language = useLanguage()
   const sessions = createMemo(() => {
     const [store] = globalSync.child(props.directory, { bootstrap: true })
-    return groupSessionsByDate(sortedRootSessions(store, Date.now()), Date.now())
+    const allSessions = sortedRootSessions(store, Date.now())
+    const studioSessions = allSessions.filter(s => s.agent === "octo_studio")
+    return groupSessionsByDate(studioSessions, Date.now())
   })
 
   return (
