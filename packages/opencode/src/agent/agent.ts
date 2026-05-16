@@ -50,6 +50,7 @@ export const Info = Schema.Struct({
   options: Schema.Record(Schema.String, Schema.Unknown),
   steps: Schema.optional(Schema.Finite),
   skills: Schema.optional(Schema.Array(Schema.String)),
+  mcp: Schema.optional(Schema.Array(Schema.String)),
 })
   .annotate({ identifier: "Agent" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -204,6 +205,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["interview-analysis"],
+            mcp: ["uxr-tool"],
           },
           octo_make: {
             name: "octo_make",
@@ -214,6 +216,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["html-prototype"],
+            mcp: ["prototype-dev"],
           },
           octo_design: {
             name: "octo_design",
@@ -224,6 +227,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["design-basics"],
+            mcp: ["pixso-design"],
           },
           octo_studio: {
             name: "octo_studio",

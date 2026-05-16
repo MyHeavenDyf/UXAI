@@ -31,6 +31,7 @@ import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
+import * as BuiltinMCP from "@/config/builtin-mcp"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -455,7 +456,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         })
       }
 
-      for (const [key, item] of Object.entries(yield* mcp.tools())) {
+      // Filter MCP tools by agent.mcp binding
+      const cfg = yield* config.get()
+      const userMcpKeys = Object.keys(cfg.mcp ?? {}).filter((k) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(k))
+      const mcpTools = yield* mcp.toolsForAgent(input.agent.mcp, userMcpKeys)
+
+      for (const [key, item] of Object.entries(mcpTools)) {
         const execute = item.execute
         if (!execute) continue
 

@@ -212,6 +212,10 @@ export interface Interface {
   readonly status: () => Effect.Effect<Record<string, Status>>
   readonly clients: () => Effect.Effect<Record<string, MCPClient>>
   readonly tools: () => Effect.Effect<Record<string, Tool>>
+  readonly toolsForAgent: (
+    agentMcp: string[] | undefined,
+    customServerNames: string[],
+  ) => Effect.Effect<Record<string, Tool>>
   readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
   readonly resources: () => Effect.Effect<Record<string, ResourceInfo & { client: string }>>
   readonly add: (name: string, mcp: ConfigMCP.Info) => Effect.Effect<{ status: Record<string, Status> | Status }>
@@ -675,6 +679,28 @@ export const layer = Layer.effect(
       ).pipe(Effect.map((results) => Object.fromEntries<T & { client: string }>(results.flat())))
     }
 
+    const toolsForAgent = Effect.fn("MCP.toolsForAgent")(
+      function* (agentMcp: string[] | undefined, customServerNames: string[]) {
+        const allTools = yield* tools()
+        // Only agents with explicit mcp field see builtin MCP tools
+        if (!agentMcp || agentMcp.length === 0) {
+          if (customServerNames.length === 0) return {}
+          const customPrefixes = customServerNames.map(sanitize)
+          return Object.fromEntries(
+            Object.entries(allTools).filter(([key]) =>
+              customPrefixes.some((p) => key.startsWith(p + "_")),
+            ),
+          )
+        }
+        const prefixes = [...agentMcp.map(sanitize), ...customServerNames.map(sanitize)]
+        return Object.fromEntries(
+          Object.entries(allTools).filter(([key]) =>
+            prefixes.some((p) => key.startsWith(p + "_")),
+          ),
+        )
+      },
+    )
+
     const prompts = Effect.fn("MCP.prompts")(function* () {
       const s = yield* InstanceState.get(state)
       return yield* collectFromConnected(s, (c) => c.listPrompts().then((r) => r.prompts), "prompts")
@@ -898,6 +924,7 @@ export const layer = Layer.effect(
       status,
       clients,
       tools,
+      toolsForAgent,
       prompts,
       resources,
       add,

@@ -31,6 +31,7 @@ import { ConfigLayout } from "./layout"
 import { ConfigLSP } from "./lsp"
 import { ConfigManaged } from "./managed"
 import { ConfigMCP } from "./mcp"
+import * as BuiltinMCP from "./builtin-mcp"
 import { ConfigModelID } from "./model-id"
 import { ConfigParse } from "./parse"
 import { ConfigPaths } from "./paths"
@@ -453,6 +454,11 @@ export const layer = Layer.effect(
             .catch(() => {}),
         )
       }
+
+      // Merge built-in MCP servers as lowest-priority defaults
+      const builtinMcp = BuiltinMCP.BUILTIN_MCP_SERVERS as unknown as Record<string, ConfigMCP.Info>
+      const userMcp = result.mcp ?? {}
+      result.mcp = { ...builtinMcp, ...userMcp } as any
 
       return result
     })

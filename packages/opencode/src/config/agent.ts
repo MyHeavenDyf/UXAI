@@ -50,6 +50,9 @@ const AgentSchema = Schema.StructWithRest(
     skills: Schema.optional(Schema.Array(Schema.String)).annotate({
       description: "List of skill names this agent should have access to",
     }),
+    mcp: Schema.optional(Schema.Array(Schema.String)).annotate({
+      description: "List of MCP server names this agent should have access to",
+    }),
   }),
   [Schema.Record(Schema.String, Schema.Any)],
 )
@@ -72,6 +75,7 @@ const KNOWN_KEYS = new Set([
   "disable",
   "tools",
   "skills",
+  "mcp",
 ])
 
 // Post-parse normalisation:
