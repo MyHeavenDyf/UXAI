@@ -22,7 +22,7 @@ export function serverName(conn?: ServerConnection.Any, ignoreDisplayName = fals
 }
 
 function projectsKey(key: ServerConnection.Key) {
-  if (!key) return ""
+  if (!key) return "local"
   if (key === "sidecar") return "local"
   if (isLocalHost(key)) return "local"
   return key
@@ -297,14 +297,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           setStore("projects", key, result)
         },
         last() {
-          const key = origin()
-          if (!key) return
-          return store.lastProject[key]
+          return store.lastProject[origin()]
         },
         touch(directory: string) {
-          const key = origin()
-          if (!key) return
-          setStore("lastProject", key, directory)
+          setStore("lastProject", origin(), directory)
         },
       },
     }

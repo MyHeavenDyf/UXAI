@@ -43,8 +43,8 @@ export function Sidebar(props: {
     const index = sessions.findIndex((s) => s.id === session.id)
     const nextSession = sessions[index + 1] ?? sessions[index - 1]
 
-    await globalSDK.client.session.update({
-      directory: session.directory,
+    const client = globalSDK.createClient({ directory: session.directory })
+    await client.session.update({
       sessionID: session.id,
       time: { archived: Date.now() },
     })

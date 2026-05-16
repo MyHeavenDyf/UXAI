@@ -20,6 +20,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useServer } from "@/context/server"
 import { decode64 } from "@/utils/base64"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -42,12 +43,15 @@ export default function CoworkPage() {
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const server = useServer()
 
   const projectDir = () => {
     if (params.dir) {
       const decoded = decode64(params.dir)
       if (decoded) return decoded
     }
+    const last = server.projects.last()
+    if (last && last !== "/" && !/^[A-Z]:\\?$/.test(last)) return last
     return globalSync.data.path.home
   }
 
