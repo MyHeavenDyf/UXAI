@@ -1,0 +1,13 @@
+<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="20.000000" height="20.000000" fill="none">
+	<defs>
+		<clipPath id="clipPath_9">
+			<rect width="14.000000" height="14.000000" x="3.000000" y="3.000000" fill="rgb(255,255,255)" />
+		</clipPath>
+	</defs>
+	<rect id="容器 2496" width="20.000000" height="20.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0" />
+	<g id="svg 7" clip-path="url(#clipPath_9)" customFrame="url(#clipPath_9)">
+		<rect id="svg 7" width="14.000000" height="14.000000" x="3.000000" y="3.000000" />
+		<circle id="椭圆 2" cx="11.6514359" cy="10.0000687" r="4.76374054" stroke="rgb(25,25,25)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.000000" />
+		<path id="椭圆 3" d="M8.33405 14.7638C5.70311 14.7638 3.57031 12.631 3.57031 10.0001C3.57031 7.36913 5.70311 5.23633 8.33405 5.23633" stroke="rgb(25,25,25)" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.8 1.5 " stroke-width="1.000000" />
+	</g>
+</svg>

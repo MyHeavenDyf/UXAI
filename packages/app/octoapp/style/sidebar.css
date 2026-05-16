@@ -114,6 +114,9 @@
 .sidebar-wrap.shrink-0 [data-component="button"][aria-label="设置"] {
   padding: 20px 16px 0 16px;
   height: inherit;
+  border: none;
+  display: flex;
+  align-items: center;
 }
 .sidebar-wrap.shrink-0 [data-component="button"][aria-label="设置"]:hover {
   background-color: none;

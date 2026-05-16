@@ -1,0 +1,103 @@
+/* 1. Logo -- StudioMark in empty state -> logo.svg (80x80) */
+.studio-center .min-h-full.pb-28 > :first-child {
+  width: 80px !important;
+  height: 80px !important;
+  background: url('/studio/logo.svg') center/contain no-repeat !important;
+  border-radius: 0 !important;
+  filter: none !important;
+}
+
+/* 2. StudioIntro capability list -- first 4 items -> IconXxx.svg (26x26) */
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(1) > :first-child,
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(2) > :first-child,
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(3) > :first-child,
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(4) > :first-child {
+  font-size: 0;
+  width: 42px;
+  height: 42px;
+}
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(1) > :first-child { background: url('/studio/IconImg.svg')    center/26px 26px no-repeat; }
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(2) > :first-child { background: url('/studio/IconVideo.svg')  center/26px 26px no-repeat; }
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(3) > :first-child { background: url('/studio/IconHD.svg')     center/26px 26px no-repeat; }
+.studio-center .min-h-full.pb-28 > :nth-child(4) > :nth-child(4) > :first-child { background: url('/studio/IconRedraw.svg') center/26px 26px no-repeat; }
+
+/* 3. CapabilityMenu dropdown -- 7 items -> imgCreate1~7.svg (20x20) */
+.studio-menu > button > span:first-child {
+  font-size: 0;
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+}
+.studio-menu > button:nth-of-type(1) > span:first-child { background: url('/studio/imgCreate1.svg') center/contain no-repeat; }
+.studio-menu > button:nth-of-type(2) > span:first-child { background: url('/studio/imgCreate2.svg') center/contain no-repeat; }
+.studio-menu > button:nth-of-type(3) > span:first-child { background: url('/studio/imgCreate3.svg') center/contain no-repeat; }
+.studio-menu > button:nth-of-type(4) > span:first-child { background: url('/studio/imgCreate4.svg') center/contain no-repeat; }
+.studio-menu > button:nth-of-type(5) > span:first-child { background: url('/studio/imgCreate5.svg') center/contain no-repeat; }
+.studio-menu > button:nth-of-type(6) > span:first-child { background: url('/studio/imgCreate6.svg') center/contain no-repeat; }
+.studio-menu > button:nth-of-type(7) > span:first-child { background: url('/studio/imgCreate7.svg') center/contain no-repeat; }
+
+/* 4. Composer upload button (+ -> IconAdd.svg, 52x64) */
+.studio-composer .flex.gap-4 > :first-child {
+  font-size: 0;
+  background: url('/studio/IconAdd.svg') center/contain no-repeat, transparent !important;
+  border: none;
+}
+
+/* 5. Composer send button (>/... -> IconSend-pink.svg, 57x58) */
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(6) {
+  font-size: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(6)::before {
+  content: '';
+  display: inline-block;
+  width: 57px;
+  height: 58px;
+  background: url(/studio/IconSend-pink.svg) center 5px / 57px 58px no-repeat !important;
+}
+
+/* 6. ToolButton dropdown arrows (\2316 -> IconDown.svg, 16x16) */
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(1) > span:last-child,
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(2) > span:last-child,
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(3) > span:last-child {
+  font-size: 0;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background: url('/studio/IconDown.svg') center/contain no-repeat;
+}
+
+/* 7. IconTool buttons (\231B/\25A3 -> IconParameter/IconMaterial, 16x16) */
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(4) {
+  font-size: 0;
+  background: url('/studio/IconParameter.svg') center/ 16px 16px no-repeat, #f2f3f5 !important;
+}
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(5) {
+  font-size: 0;
+  background: url('/studio/IconMaterial.svg') center/ 16px 16px no-repeat, #f2f3f5 !important;
+}
+
+/* 8. Canvas idle state (GlassSphere -> IllustrationInsightEmpty.svg, 414x433) */
+.studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center {
+  position: absolute;
+  height: 433px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center .mt-8.font-bold {
+  position: absolute;
+  bottom: 72px;
+}
+.studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center .mt-2 {
+  position: absolute;
+  bottom: 40px;
+}
+.studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center .rounded-full {
+  width: 414px;
+  height: 433px;
+  border-radius: 0;
+  background: url('/IllustrationInsightEmpty.svg') center/contain no-repeat !important;
+  box-shadow: none !important;
+}
