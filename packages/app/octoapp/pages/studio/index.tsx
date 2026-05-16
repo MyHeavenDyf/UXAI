@@ -6,10 +6,12 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { DialogSettings } from "@/components/dialog-settings"
 import { groupSessionsByDate } from "@/pages/layout/helpers"
 import { sessionTitle } from "@/utils/session-title"
 import {
@@ -653,6 +655,7 @@ export default function StudioPage() {
 function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
+  const dialog = useDialog()
   const [studioSessions, setStudioSessions] = createSignal<Session[]>([])
   const sessions = createMemo(() => groupSessionsByDate(studioSessions(), Date.now()))
 
@@ -703,7 +706,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
           <div class="text-[13px] text-[var(--studio-muted)]">{language.t("sidebar.history.empty")}</div>
         </Show>
       </div>
-      <button type="button" class="flex items-center gap-2 text-[13px] py-2">
+      <button type="button" class="flex items-center gap-2 text-[13px] py-2" onClick={() => dialog.show(() => <DialogSettings />)}>
         <span class="text-[16px]">⚙</span>
         <span>设置</span>
       </button>
