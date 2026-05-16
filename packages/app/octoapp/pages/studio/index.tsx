@@ -7,7 +7,10 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogSettings } from "@/components/dialog-settings"
 import { useGlobalSync } from "@/context/global-sync"
+import { useLanguage } from "@/context/language"
 import { groupSessionsByDate, sortedRootSessions } from "@/pages/layout/helpers"
 import { sessionTitle } from "@/utils/session-title"
 import {
@@ -51,6 +54,7 @@ export default function StudioPage() {
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const dialog = useDialog()
 
   const projectDir = () => {
     if (params.dir) return decode64(params.dir) ?? globalSync.data.path.home
@@ -429,7 +433,7 @@ export default function StudioPage() {
   return (
     <div class="studio-page">
       <aside class="studio-left">
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio`)} />
+        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio`)} onOpenSettings={() => dialog.show(() => <DialogSettings />)} />
       </aside>
 
       <section class="studio-center">
@@ -519,8 +523,9 @@ export default function StudioPage() {
   )
 }
 
-function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
+function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void; onOpenSettings?: () => void }): JSX.Element {
   const globalSync = useGlobalSync()
+  const language = useLanguage()
   const sessions = createMemo(() => {
     const [store] = globalSync.child(props.directory, { bootstrap: true })
     return groupSessionsByDate(sortedRootSessions(store, Date.now()), Date.now())
@@ -528,17 +533,17 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 
   return (
     <div class="h-full flex flex-col px-5 py-7">
-      <h1 class="text-[20px] font-bold mb-9">Studio</h1>
+      <h1 class="text-[20px] font-bold mb-9">{language.t("studio.title")}</h1>
       <button type="button" onClick={props.onNewConversation} class="flex items-center gap-3 text-[14px] mb-9">
         <span class="text-[25px] leading-none text-[rgba(17,24,39,0.65)]">+</span>
-        <span>新建对话</span>
+        <span>{language.t("command.session.new")}</span>
       </button>
-      <div class="text-[15px] font-semibold mb-6">历史记录</div>
+      <div class="text-[15px] font-semibold mb-6">{language.t("sidebar.history.title")}</div>
       <div class="flex-1 min-h-0 overflow-y-auto pr-1">
         <For each={sessions()}>
           {(group) => (
             <div class="mb-7">
-              <div class="text-[13px] text-[var(--studio-muted)] mb-3">{sessionGroupLabel(group.key)}</div>
+              <div class="text-[13px] text-[var(--studio-muted)] mb-3">{language.t(`session.group.${group.key}`)}</div>
               <div class="flex flex-col gap-1">
                 <For each={group.sessions}>
                   {(session) => (
@@ -547,7 +552,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                       class="relative text-left text-[13px] leading-[18px] px-3 py-2 rounded-[8px] transition-colors truncate"
                       classList={{ "bg-[#dfe9ff] text-[#1267ff] font-semibold": props.activeSessionID === session.id }}
                     >
-                      {sessionTitle(session.title) ?? "新建对话"}
+                      {sessionTitle(session.title) ?? language.t("command.session.new")}
                       <Show when={props.activeSessionID === session.id}>
                         <span class="absolute right-1 top-1 bottom-1 w-[4px] rounded-full bg-[#1267ff]" />
                       </Show>
@@ -559,22 +564,15 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
           )}
         </For>
         <Show when={sessions().length === 0}>
-          <div class="text-[13px] text-[var(--studio-muted)]">暂无历史记录</div>
+          <div class="text-[13px] text-[var(--studio-muted)]">{language.t("sidebar.history.empty")}</div>
         </Show>
       </div>
-      <button type="button" class="flex items-center gap-2 text-[13px] py-2">
+      <button type="button" class="flex items-center gap-2 text-[13px] py-2" onClick={props.onOpenSettings}>
         <span class="text-[16px]">⚙</span>
-        <span>设置</span>
+        <span>{language.t("sidebar.settings")}</span>
       </button>
     </div>
   )
-}
-
-function sessionGroupLabel(key: "today" | "yesterday" | "lastSevenDays" | "earlier") {
-  if (key === "today") return "今天"
-  if (key === "yesterday") return "昨天"
-  if (key === "lastSevenDays") return "近七天"
-  return "更早"
 }
 
 function StudioIntro(): JSX.Element {

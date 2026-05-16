@@ -681,6 +681,8 @@ export const dict = {
   "sidebar.menu.toggle": "Toggle menu",
   "sidebar.nav.projectsAndSessions": "Projects and sessions",
   "sidebar.settings": "Settings",
+  "sidebar.history.title": "History",
+  "sidebar.history.empty": "No history yet",
   "sidebar.help": "Help",
   "sidebar.workspaces.enable": "Enable workspaces",
   "sidebar.workspaces.disable": "Disable workspaces",
@@ -969,4 +971,6 @@ export const dict = {
   "session.group.yesterday": "Yesterday",
   "session.group.lastSevenDays": "Last 7 Days",
   "session.group.earlier": "Earlier",
+
+  "studio.title": "Studio",
 }

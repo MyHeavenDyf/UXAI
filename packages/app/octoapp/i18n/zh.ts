@@ -603,6 +603,8 @@ export const dict = {
   "sidebar.menu.toggle": "切换菜单",
   "sidebar.nav.projectsAndSessions": "项目和会话",
   "sidebar.settings": "设置",
+  "sidebar.history.title": "历史记录",
+  "sidebar.history.empty": "暂无历史记录",
   "sidebar.help": "帮助",
   "sidebar.workspaces.enable": "启用工作区",
   "sidebar.workspaces.disable": "禁用工作区",
@@ -929,4 +931,6 @@ export const dict = {
   "session.group.yesterday": "昨天",
   "session.group.lastSevenDays": "近七天",
   "session.group.earlier": "更早",
+
+  "studio.title": "Studio",
 } satisfies Partial<Record<Keys, string>>
