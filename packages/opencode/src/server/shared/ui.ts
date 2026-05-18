@@ -10,7 +10,8 @@ const embeddedUIPromise = Flag.OPENCODE_DISABLE_EMBEDDED_WEB_UI
   : // @ts-expect-error - generated file at build time
     import("opencode-web-ui.gen.ts").then((module) => module.default as Record<string, string>).catch(() => null)
 
-export const UI_UPSTREAM = new URL("https://app.opencode.ai")
+// 禁用 Cloudflare 回退 — 不再代理到 app.opencode.ai
+// export const UI_UPSTREAM = new URL("https://app.opencode.ai")
 
 export const csp = (hash = "") =>
   `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src * data:`
@@ -41,9 +42,10 @@ function proxyResponseHeaders(headers: Record<string, string>) {
   return result
 }
 
-export function upstreamURL(path: string) {
-  return new URL(path, UI_UPSTREAM).toString()
-}
+// 禁用 Cloudflare 回退
+// export function upstreamURL(path: string) {
+//   return new URL(path, UI_UPSTREAM).toString()
+// }
 
 export function embeddedUI() {
   if (Flag.OPENCODE_DISABLE_EMBEDDED_WEB_UI) return Promise.resolve(null)
@@ -87,24 +89,27 @@ export function serveUIEffect(
 
     if (embeddedWebUI) return yield* serveEmbeddedUIEffect(path, services.fs, embeddedWebUI)
 
-    const response = yield* services.client.execute(
-      HttpClientRequest.make(request.method)(upstreamURL(path), {
-        headers: ProxyUtil.headers(request.headers, { host: UI_UPSTREAM.host }),
-        body: requestBody(request),
-      }),
-    )
-    const headers = proxyResponseHeaders(response.headers)
-
-    if (response.headers["content-type"]?.includes("text/html")) {
-      const body = yield* response.text
-      headers.set("Content-Security-Policy", cspForHtml(body))
-      return HttpServerResponse.text(body, { status: response.status, headers })
-    }
-
-    headers.set("Content-Security-Policy", csp())
-    return HttpServerResponse.stream(response.stream.pipe(Stream.catchCause(() => Stream.empty)), {
-      status: response.status,
-      headers,
-    })
+    // 禁用 Cloudflare 回退 - 嵌入式 UI 不可用时直接返回 503
+    return HttpServerResponse.text("Web UI not available", { status: 503 })
+    // 以下为原始代理代码（已禁用）
+    // const response = yield* services.client.execute(
+    //   HttpClientRequest.make(request.method)(upstreamURL(path), {
+    //     headers: ProxyUtil.headers(request.headers, { host: UI_UPSTREAM.host }),
+    //     body: requestBody(request),
+    //   }),
+    // )
+    // const headers = proxyResponseHeaders(response.headers)
+    //
+    // if (response.headers["content-type"]?.includes("text/html")) {
+    //   const body = yield* response.text
+    //   headers.set("Content-Security-Policy", cspForHtml(body))
+    //   return HttpServerResponse.text(body, { status: response.status, headers })
+    // }
+    //
+    // headers.set("Content-Security-Policy", csp())
+    // return HttpServerResponse.stream(response.stream.pipe(Stream.catchCause(() => Stream.empty)), {
+    //   status: response.status,
+    //   headers,
+    // })
   })
 }

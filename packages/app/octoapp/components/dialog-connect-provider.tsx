@@ -333,6 +333,7 @@ export function DialogConnectProvider(props: { provider: string }) {
 
   async function complete() {
     await globalSDK.client.global.dispose()
+    globalSync.invalidateProviders()
     dialog.close()
     showToast({
       variant: "success",

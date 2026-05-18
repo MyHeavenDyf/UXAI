@@ -82,7 +82,6 @@ export const SettingsProviders: Component = () => {
   const disableProvider = async (providerID: string, name: string) => {
     const before = globalSync.data.config.disabled_providers ?? []
     const next = before.includes(providerID) ? before : [...before, providerID]
-    globalSync.set("config", "disabled_providers", next)
 
     await globalSync
       .updateConfig({ disabled_providers: next })
@@ -95,7 +94,6 @@ export const SettingsProviders: Component = () => {
         })
       })
       .catch((err: unknown) => {
-        globalSync.set("config", "disabled_providers", before)
         const message = err instanceof Error ? err.message : String(err)
         showToast({ title: language.t("common.requestFailed"), description: message })
       })
@@ -132,6 +130,7 @@ export const SettingsProviders: Component = () => {
       .remove({ providerID })
       .then(async () => {
         await globalSDK.client.global.dispose()
+        globalSync.invalidateProviders()
         showToast({
           variant: "success",
           icon: "circle-check",

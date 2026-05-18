@@ -171,46 +171,62 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
 
       input.name = "Octo AI"
 
-      const createModel = (id: string, name: string): Model => ({
-        id: ModelID.make(id),
-        providerID: ProviderID.make("opencode"),
-        name,
-        family: undefined,
-        api: {
-          id,
-          url: "http://octoai-llm.ucd.huawei.com/v1",
-          npm: "@ai-sdk/openai-compatible",
-        },
-        status: "active",
-        headers: {},
-        options: {},
-        cost: {
-          input: 0,
-          output: 0,
-          cache: { read: 0, write: 0 },
-        },
-        limit: {
-          context: 128000,
-          output: 4096,
-        },
-        capabilities: {
-          temperature: true,
-          reasoning: false,
-          attachment: true,
-          toolcall: true,
-          input: { text: true, audio: false, image: true, video: false, pdf: true },
-          output: { text: true, audio: false, image: false, video: false, pdf: false },
-          interleaved: false,
-        },
-        release_date: "",
-        variants: {},
-      })
+      // ===== 原硬编码方式（已注释，保留供参考） =====
+      // const createModel = (id: string, name: string): Model => ({
+      //   id: ModelID.make(id),
+      //   providerID: ProviderID.make("opencode"),
+      //   name,
+      //   family: undefined,
+      //   api: {
+      //     id,
+      //     url: "http://octoai-llm.ucd.huawei.com/v1",
+      //     npm: "@ai-sdk/openai-compatible",
+      //   },
+      //   status: "active",
+      //   headers: {},
+      //   options: {},
+      //   cost: {
+      //     input: 0,
+      //     output: 0,
+      //     cache: { read: 0, write: 0 },
+      //   },
+      //   limit: {
+      //     context: 128000,
+      //     output: 4096,
+      //   },
+      //   capabilities: {
+      //     temperature: true,
+      //     reasoning: false,
+      //     attachment: true,
+      //     toolcall: true,
+      //     input: { text: true, audio: false, image: true, video: false, pdf: true },
+      //     output: { text: true, audio: false, image: false, video: false, pdf: false },
+      //     interleaved: false,
+      //   },
+      //   release_date: "",
+      //   variants: {},
+      // })
+      // input.models = {
+      //   "GLM-5": createModel("GLM-5", "GLM-5"),
+      //   "MiniMax-M2.5": createModel("MiniMax-M2.5", "MiniMax M2.5"),
+      //   "MiniMax-M2.5-W8A8": createModel("MiniMax-M2.5-W8A8", "MiniMax M2.5 W8A8"),
+      //   "Qwen3.5-27B-Claude-4.6": createModel("Qwen3.5-27B-Claude-4.6", "Qwen3.5 27B Claude 4.6"),
+      // }
+      // =====
 
-      input.models = {
-        "GLM-5": createModel("GLM-5", "GLM-5"),
-        "MiniMax-M2.5": createModel("MiniMax-M2.5", "MiniMax M2.5"),
-        "MiniMax-M2.5-W8A8": createModel("MiniMax-M2.5-W8A8", "MiniMax M2.5 W8A8"),
-        "Qwen3.5-27B-Claude-4.6": createModel("Qwen3.5-27B-Claude-4.6", "Qwen3.5 27B Claude 4.6"),
+      // 新方式：从构建时快照（源自 api.json）读取模型定义
+      const snapshot = yield* Effect.tryPromise({
+        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
+        catch: () => undefined,
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+
+      const opencodeProvider = snapshot?.["opencode"]
+      if (opencodeProvider) {
+        const models: Record<string, Model> = {}
+        for (const [key, model] of Object.entries(opencodeProvider.models)) {
+          models[key] = fromModelsDevModel(opencodeProvider, model)
+        }
+        input.models = models
       }
 
       return {

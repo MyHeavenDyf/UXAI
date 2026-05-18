@@ -412,7 +412,11 @@ function createGlobalSync() {
 
   const updateConfigMutation = useMutation(() => ({
     mutationFn: (config: Config) => globalSDK.client.global.config.update({ config }),
-    onSuccess: () => bootstrap.refetch(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["config"] })
+      queryClient.invalidateQueries({ queryKey: [null, "providers"] })
+      bootstrap.refetch()
+    },
   }))
 
   return {
@@ -428,6 +432,10 @@ function createGlobalSync() {
     peek: children.peek,
     // bootstrap,
     updateConfig: updateConfigMutation.mutateAsync,
+    invalidateProviders: () => {
+      queryClient.invalidateQueries({ queryKey: ["config"] })
+      queryClient.invalidateQueries({ queryKey: [null, "providers"] })
+    },
     project: projectApi,
     todo: {
       set: setSessionTodo,
