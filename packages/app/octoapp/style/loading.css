@@ -1,0 +1,21 @@
+[data-component="logo-splash"] path {
+  display: none;
+}
+
+[data-component="logo-splash"] {
+  background-image: url("/OctoLogo.svg");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+svg[viewBox="0 0 234 42"] > * {
+  display: none;
+}
+
+svg[viewBox="0 0 234 42"] {
+  background-image: url("/OctoAI.svg");
+  background-size: auto 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+}
