@@ -1,12 +1,17 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js"
+import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useServer } from "@/context/server"
 import { DialogSettings } from "@/components/dialog-settings"
+import { sessionTitle } from "@/utils/session-title"
+import { useNotification } from "@/context/notification"
+import { usePermission } from "@/context/permission"
+import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
@@ -85,11 +90,6 @@ const NAV_ITEMS = [
   { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
 ] as const
 
-// 判断 session 标题是否还在生成中（仍是默认占位标题）
-function isTitlePending(title: string): boolean {
-  return /^New session/.test(title)
-}
-
 export function OctoSidebar(props: { width: number }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
@@ -97,6 +97,8 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const location = useLocation()
   const dialog = useDialog()
   const server = useServer()
+  const notification = useNotification()
+  const permission = usePermission()
 
   const insightDir = () => globalSync.data.path.home
   const makeDir = () => {
@@ -214,22 +216,31 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                   <For each={sessions() ?? []}>
                     {(session) => {
                       const isActive = () => activeSessionId() === session.id
-                      const pending = () => isTitlePending(session.title)
+                      const [sessionStore] = globalSync.child(session.directory)
+                      const isWorking = createMemo(() => {
+                        const status = sessionStore.session_status[session.id]
+                        return status !== undefined && status.type !== "idle"
+                      })
+                      const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
+                      const hasError = createMemo(() => notification.session.unseenHasError(session.id))
+                      const hasPermissions = createMemo(() =>
+                        !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
+                          !permission.autoResponds(item, session.directory),
+                        ),
+                      )
                       return (
                         <button
                           type="button"
                           onClick={() => navigate(`/insight/${session.id}`)}
-                          classList={{
-                            "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative": true,
-                          }}
+                          class="w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center gap-2 relative"
                           style={{
-                            height: "32px",
-                            background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
-                            color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
+                            height: "48px",
+                            background: isActive() ? "var(--octo-brand-a8, rgba(10,89,247,0.08))" : "transparent",
+                            color: isActive() ? "var(--octo-brand, rgba(10,89,247,1))" : "var(--octo-text-primary, #191919)",
                             "font-weight": isActive() ? "500" : "400",
                           }}
-                          onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
-                          onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
+                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(10,89,247,0.08))"; e.currentTarget.style.color = "var(--octo-brand, rgba(10,89,247,1))" } }}
+                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--octo-text-primary, #191919)" } }}
                         >
                           <Show when={isActive()}>
                             <span
@@ -242,20 +253,25 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               }}
                             />
                           </Show>
-                          <Show
-                            when={pending()}
-                            fallback={<span class="truncate block w-full">{session.title || "无标题"}</span>}
-                          >
-                            {/* 标题生成中：骨架动效 */}
-                            <span
-                              class="inline-block rounded-[3px] animate-pulse"
-                              style={{
-                                width: "72px",
-                                height: "10px",
-                                background: isActive() ? "var(--octo-brand-a20, rgba(0,103,209,0.2))" : "rgba(0,0,0,0.1)",
-                              }}
-                            />
+                          <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
+                            <div class="shrink-0 size-6 flex items-center justify-center">
+                              <Switch>
+                                <Match when={isWorking()}>
+                                  <Spinner class="size-[15px]" />
+                                </Match>
+                                <Match when={hasPermissions()}>
+                                  <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+                                </Match>
+                                <Match when={hasError()}>
+                                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                                </Match>
+                                <Match when={unseenCount() > 0}>
+                                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                                </Match>
+                              </Switch>
+                            </div>
                           </Show>
+                          <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
                         </button>
                       )
                     }}
@@ -316,22 +332,31 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                   <For each={makeSessions() ?? []}>
                     {(session) => {
                       const isActive = () => activeSessionId() === session.id
-                      const pending = () => isTitlePending(session.title)
+                      const [sessionStore] = globalSync.child(session.directory)
+                      const isWorking = createMemo(() => {
+                        const status = sessionStore.session_status[session.id]
+                        return status !== undefined && status.type !== "idle"
+                      })
+                      const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
+                      const hasError = createMemo(() => notification.session.unseenHasError(session.id))
+                      const hasPermissions = createMemo(() =>
+                        !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
+                          !permission.autoResponds(item, session.directory),
+                        ),
+                      )
                       return (
                         <button
                           type="button"
                           onClick={() => navigate(`/make/${session.id}`)}
-                          classList={{
-                            "w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative": true,
-                          }}
+                          class="w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative"
                           style={{
-                            height: "32px",
-                            background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
-                            color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
+                            height: "48px",
+                            background: isActive() ? "var(--octo-brand-a8, rgba(10,89,247,0.08))" : "transparent",
+                            color: isActive() ? "var(--octo-brand, rgba(10,89,247,1))" : "var(--octo-text-primary, #191919)",
                             "font-weight": isActive() ? "500" : "400",
                           }}
-                          onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
-                          onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
+                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(10,89,247,0.08))"; e.currentTarget.style.color = "var(--octo-brand, rgba(10,89,247,1))" } }}
+                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--octo-text-primary, #191919)" } }}
                         >
                           <Show when={isActive()}>
                             <span
@@ -344,19 +369,25 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               }}
                             />
                           </Show>
-                          <Show
-                            when={pending()}
-                            fallback={<span class="truncate block w-full">{session.title || "无标题"}</span>}
-                          >
-                            <span
-                              class="inline-block rounded-[3px] animate-pulse"
-                              style={{
-                                width: "72px",
-                                height: "10px",
-                                background: isActive() ? "var(--octo-brand-a20, rgba(0,103,209,0.2))" : "rgba(0,0,0,0.1)",
-                              }}
-                            />
+                          <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
+                            <div class="shrink-0 size-6 flex items-center justify-center">
+                              <Switch>
+                                <Match when={isWorking()}>
+                                  <Spinner class="size-[15px]" />
+                                </Match>
+                                <Match when={hasPermissions()}>
+                                  <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+                                </Match>
+                                <Match when={hasError()}>
+                                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                                </Match>
+                                <Match when={unseenCount() > 0}>
+                                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                                </Match>
+                              </Switch>
+                            </div>
                           </Show>
+                          <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
                         </button>
                       )
                     }}
