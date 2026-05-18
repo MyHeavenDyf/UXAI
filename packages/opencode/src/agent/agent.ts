@@ -16,6 +16,7 @@ import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
+import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -117,6 +118,7 @@ export const layer = Layer.effect(
         const agents: Record<string, Info> = {
           octo_ai: {
             name: "octo_ai",
+            prompt: PROMPT_OCTO_AI,
             description: "The default agent. Executes tools based on configured permissions.",
             options: {},
             permission: Permission.merge(
@@ -198,7 +200,7 @@ export const layer = Layer.effect(
           },
           octo_insight: {
             name: "octo_insight",
-            description: "用研 Agent，从访谈材料中提取结构化洞察。支持上传文件、多维度分析（关键发现/用户旅程/痛点/机会点）。",
+            description: "用研 Agent，从访谈材料中提取结构化洞察。支持多维度分析（关键发现/按提纲聚类/用户画像/评估/思维导图/知识问答）。",
             prompt: PROMPT_OCTO_INSIGHT,
             permission: Permission.merge(defaults, user),
             options: {},
