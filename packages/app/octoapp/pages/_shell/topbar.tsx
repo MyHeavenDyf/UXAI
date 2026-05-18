@@ -93,7 +93,17 @@ export function OctoTopbar(): JSX.Element {
               return (
                 <button
                   type="button"
-                  onClick={() => navigate(tab.href)}
+                  onClick={() => {
+                    const p = location.pathname
+                    const dir = p.split("/")[1]
+                    if (tab.href === "/insight") {
+                      navigate(tab.href)
+                    } else if (dir) {
+                      navigate(`/${dir}${tab.href}`)
+                    } else {
+                      navigate(tab.href)
+                    }
+                  }}
                   class="relative z-10 flex-1 px-[22px] py-[5px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors flex items-center justify-center gap-[6px]"
                   style={{ color: isActive() ? "#191919" : "rgba(0,0,0,0.42)" }}
                 >

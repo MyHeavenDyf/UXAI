@@ -4,7 +4,6 @@ import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Binary } from "@opencode-ai/core/util/binary"
-import { base64Encode } from "@opencode-ai/core/util/encode"
 import {
   batch,
   createEffect,
@@ -20,11 +19,12 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { decode64 } from "@/utils/base64"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { PromptTemplateSelector } from "./components/prompt-template-selector"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { PROMPT_TEMPLATES, DEFAULT_TEMPLATE_ID, type PromptTemplateId } from "./store/prompt-template"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
 
@@ -105,12 +105,18 @@ export default function InsightPage() {
       const part = event.properties.part
       if (part.sessionID !== sessionId) return
       if (SKIP_PART_TYPES.has(part.type)) return
+      // log tool_call parts (critical for MCP debugging)
+      if ((part as { type: string }).type === "tool-invocation" || (part as { type: string }).type === "tool_call") {
+        console.log("[octo:sse] tool part", { type: part.type, part })
+      }
       const parts = dataStore.part[part.messageID]
       if (!parts) { setDataStore("part", part.messageID, [part]); return }
       const result = Binary.search(parts, part.id, (p) => p.id)
       if (result.found) {
         setDataStore("part", part.messageID, result.index, reconcile(part))
       } else {
+        // new part first arrival
+        console.log("[octo:sse] new part", { type: part.type, partID: part.id, msgID: part.messageID })
         setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
       }
       return
@@ -119,6 +125,7 @@ export default function InsightPage() {
     if (event.type === "session.status") {
       const { sessionID, status } = event.properties
       if (sessionID !== sessionId) return
+      console.log("[octo:sse] session.status", sessionID, status)
       setDataStore("session_status", sessionID, reconcile(status))
       return
     }
@@ -154,6 +161,7 @@ export default function InsightPage() {
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
+  const [templateId, setTemplateId] = createSignal<PromptTemplateId>(DEFAULT_TEMPLATE_ID)
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
@@ -187,20 +195,21 @@ export default function InsightPage() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
-  createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
+  // 切换 session 时重置 ResultViewer tabs 和提示词模板
+  createEffect(on(() => params.id, () => {
+    tabStore.reset()
+    setTemplateId(DEFAULT_TEMPLATE_ID)
+  }, { defer: true }))
 
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = homeDir()
-    console.log("[InsightPage] createAndNavigate dir:", dir)
     if (!dir) return
     setSending(true)
     try {
       const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
-      console.log("[InsightPage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
         navigate(`/insight/${session.id}`)
         return session.id
@@ -216,6 +225,7 @@ export default function InsightPage() {
   async function sendMessage(sessionId: string, text: string) {
     setSending(true)
     try {
+      const template = PROMPT_TEMPLATES.find((t) => t.id === templateId())!
       const fileParts: FilePartInput[] = attachments().map((a) => ({
         type: "file",
         mime: a.mime,
@@ -223,11 +233,21 @@ export default function InsightPage() {
         url: a.dataUrl,
       }))
       const textPart: TextPartInput = { type: "text", text }
-      await globalSDK.client.session.prompt({
+      const promptPayload = {
         sessionID: sessionId,
         agent: "octo_insight",
+        system: template.systemHint,
         parts: [textPart, ...fileParts],
+      }
+      console.log("[octo:prompt] send", {
+        sessionID: sessionId,
+        agent: promptPayload.agent,
+        template: templateId(),
+        systemHint: template.systemHint?.slice(0, 80),
+        partsCount: promptPayload.parts.length,
+        filenames: fileParts.map((f) => f.filename),
       })
+      await globalSDK.client.session.prompt(promptPayload)
       setAttachments([])
     } catch (err) {
       console.error("[InsightPage] prompt failed", err)
@@ -391,7 +411,7 @@ export default function InsightPage() {
                   }}
                 />
 
-                <div class="flex items-center justify-between px-2.5 pb-2.5">
+                <div class="flex items-center gap-2 px-2.5 pb-2.5">
                   <input
                     ref={fileInputRef!}
                     type="file"
@@ -404,17 +424,22 @@ export default function InsightPage() {
                     type="button"
                     onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
                     disabled={maxAttachments()}
-                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
+                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment flex-shrink-0"
                     title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
                   >
                     <IconAttach size={14} />
                   </button>
 
+                  <PromptTemplateSelector
+                    value={templateId()}
+                    onChange={setTemplateId}
+                  />
+
                   <button
                     type="button"
                     onClick={() => void handleSubmit()}
                     disabled={!prompt().trim() || inputDisabled()}
-                    class="octo-btn-send flex-shrink-0"
+                    class="octo-btn-send flex-shrink-0 ml-auto"
                   >
                     {sending() ? "…" : <IconSend size={14} />}
                   </button>

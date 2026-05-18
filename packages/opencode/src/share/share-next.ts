@@ -16,7 +16,8 @@ import * as Log from "@opencode-ai/core/util/log"
 import { SessionShareTable } from "./share.sql"
 
 const log = Log.create({ service: "share-next" })
-const disabled = process.env["OPENCODE_DISABLE_SHARE"] === "true" || process.env["OPENCODE_DISABLE_SHARE"] === "1"
+const disabled = true // 禁用分享功能
+// const disabled = process.env["OPENCODE_DISABLE_SHARE"] === "true" || process.env["OPENCODE_DISABLE_SHARE"] === "1"
 
 export type Api = {
   create: string
@@ -211,7 +212,8 @@ export const layer = Layer.effect(
       const headers: Record<string, string> = {}
       const active = yield* account.active()
       if (Option.isNone(active) || !active.value.active_org_id) {
-        const baseUrl = (yield* cfg.get()).enterprise?.url ?? "https://opncd.ai"
+        // 原始值: "https://opncd.ai" — 禁用 Cloudflare 连接
+        const baseUrl = (yield* cfg.get()).enterprise?.url ?? ""
         return { headers, api: legacyApi, baseUrl } satisfies Req
       }
 

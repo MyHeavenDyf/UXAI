@@ -333,7 +333,7 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
 function globalConfigFile() {
-  const names = ["octo.jsonc", "octo.json", "opencode.jsonc", "opencode.json", "config.json"]
+  const names = ["octo.json", "octo.jsonc", "opencode.json", "opencode.jsonc", "config.json"]
   // Prefer octo config directory
   for (const name of names) {
     const file = path.join(Global.Path.octoConfig, name)
@@ -536,47 +536,48 @@ export const layer = Layer.effect(
           return mergePluginOrigins(source, next.plugin, kind)
         }
 
-        for (const [key, value] of Object.entries(auth)) {
-          if (value.type === "wellknown") {
-            const url = key.replace(/\/+$/, "")
-            process.env[value.key] = value.token
-            log.debug("fetching remote config", { url: `${url}/.well-known/opencode` })
-            const response = yield* Effect.promise(() => fetch(`${url}/.well-known/opencode`))
-            if (!response.ok) {
-              throw new Error(`failed to fetch remote config from ${url}: ${response.status}`)
-            }
-            const wellknown = (yield* Effect.promise(() => response.json())) as {
-              config?: Record<string, unknown>
-              remote_config?: unknown
-            }
-            const remote = yield* Effect.promise(() =>
-              substituteWellKnownRemoteConfig({
-                value: wellknown.remote_config,
-                dir: url,
-                source: `${url}/.well-known/opencode`,
-              }),
-            )
-            const fetchedConfig = remote
-              ? ((yield* Effect.promise(async () => {
-                  log.debug("fetching remote config", { url: remote.url })
-                  const response = await fetch(remote.url, { headers: remote.headers })
-                  if (!response.ok)
-                    throw new Error(`failed to fetch remote config from ${remote.url}: ${response.status}`)
-                  const data = await response.json()
-                  return isRecord(data) && isRecord(data.config) ? data.config : data
-                })) as Record<string, unknown>)
-              : {}
-            const remoteConfig = mergeConfig(wellknown.config ?? {}, fetchedConfig as Info)
-            if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
-            const source = `${url}/.well-known/opencode`
-            const next = yield* loadConfig(JSON.stringify(remoteConfig), {
-              dir: path.dirname(source),
-              source,
-            })
-            yield* merge(source, next, "global")
-            log.debug("loaded remote config from well-known", { url })
-          }
-        }
+        // 禁用 well-known 远程配置获取（避免 Cloudflare 连接）
+        // for (const [key, value] of Object.entries(auth)) {
+        // if (value.type === "wellknown") {
+        // const url = key.replace(/\/+$/, "")
+        // process.env[value.key] = value.token
+        // log.debug("fetching remote config", { url: `${url}/.well-known/opencode` })
+        // const response = yield* Effect.promise(() => fetch(`${url}/.well-known/opencode`))
+        // if (!response.ok) {
+        // throw new Error(`failed to fetch remote config from ${url}: ${response.status}`)
+        // }
+        // const wellknown = (yield* Effect.promise(() => response.json())) as {
+        // config?: Record<string, unknown>
+        // remote_config?: unknown
+        // }
+        // const remote = yield* Effect.promise(() =>
+        // substituteWellKnownRemoteConfig({
+        // value: wellknown.remote_config,
+        // dir: url,
+        // source: `${url}/.well-known/opencode`,
+        // }),
+        // )
+        // const fetchedConfig = remote
+        // ? ((yield* Effect.promise(async () => {
+        // log.debug("fetching remote config", { url: remote.url })
+        // const response = await fetch(remote.url, { headers: remote.headers })
+        // if (!response.ok)
+        // throw new Error(`failed to fetch remote config from ${remote.url}: ${response.status}`)
+        // const data = await response.json()
+        // return isRecord(data) && isRecord(data.config) ? data.config : data
+        // })) as Record<string, unknown>)
+        // : {}
+        // const remoteConfig = mergeConfig(wellknown.config ?? {}, fetchedConfig as Info)
+        // if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
+        // const source = `${url}/.well-known/opencode`
+        // const next = yield* loadConfig(JSON.stringify(remoteConfig), {
+        // dir: path.dirname(source),
+        // source,
+        // })
+        // yield* merge(source, next, "global")
+        // log.debug("loaded remote config from well-known", { url })
+        //   }
+        // }
 
         const global = yield* getGlobal()
         yield* merge(Global.Path.config, global, "global")
@@ -662,44 +663,46 @@ export const layer = Layer.effect(
           log.debug("loaded custom config from OPENCODE_CONFIG_CONTENT")
         }
 
-        const activeAccount = Option.getOrUndefined(
-          yield* accountSvc.active().pipe(Effect.catch(() => Effect.succeed(Option.none()))),
-        )
-        if (activeAccount?.active_org_id) {
-          const accountID = activeAccount.id
-          const orgID = activeAccount.active_org_id
-          const url = activeAccount.url
-          yield* Effect.gen(function* () {
-            const [configOpt, tokenOpt] = yield* Effect.all(
-              [accountSvc.config(accountID, orgID), accountSvc.token(accountID)],
-              { concurrency: 2 },
-            )
-            if (Option.isSome(tokenOpt)) {
-              process.env["OPENCODE_CONSOLE_TOKEN"] = tokenOpt.value
-              yield* env.set("OPENCODE_CONSOLE_TOKEN", tokenOpt.value)
-            }
+        // 禁用远程账户配置获取（避免 Cloudflare 连接）
+        // const activeAccount = Option.getOrUndefined(
+        // yield* accountSvc.active().pipe(Effect.catch(() => Effect.succeed(Option.none()))),
+        // )
+        // if (activeAccount?.active_org_id) {
+        // const accountID = activeAccount.id
+        // const orgID = activeAccount.active_org_id
+        // const url = activeAccount.url
+        // yield* Effect.gen(function* () {
+        // const [configOpt, tokenOpt] = yield* Effect.all(
+        // [accountSvc.config(accountID, orgID), accountSvc.token(accountID)],
+        // { concurrency: 2 },
+        // )
+        // if (Option.isSome(tokenOpt)) {
+        // process.env["OPENCODE_CONSOLE_TOKEN"] = tokenOpt.value
+        // yield* env.set("OPENCODE_CONSOLE_TOKEN", tokenOpt.value)
+        // }
+        // }
 
-            if (Option.isSome(configOpt)) {
-              const source = `${url}/api/config`
-              const next = yield* loadConfig(JSON.stringify(configOpt.value), {
-                dir: path.dirname(source),
-                source,
-              })
-              for (const providerID of Object.keys(next.provider ?? {})) {
-                consoleManagedProviders.add(providerID)
-              }
-              yield* merge(source, next, "global")
-            }
-          }).pipe(
-            Effect.withSpan("Config.loadActiveOrgConfig"),
-            Effect.catch((err) => {
-              log.debug("failed to fetch remote account config", {
-                error: err instanceof Error ? err.message : String(err),
-              })
-              return Effect.void
-            }),
-          )
-        }
+        // if (Option.isSome(configOpt)) {
+        //   const source = `${url}/api/config`
+        //   const next = yield* loadConfig(JSON.stringify(configOpt.value), {
+        //     dir: path.dirname(source),
+        //     source,
+        //   })
+        //   for (const providerID of Object.keys(next.provider ?? {})) {
+        //     consoleManagedProviders.add(providerID)
+        //   }
+        //   yield* merge(source, next, "global")
+        // }
+        // }).pipe(
+        //   Effect.withSpan("Config.loadActiveOrgConfig"),
+        //   Effect.catch((err) => {
+        //     log.debug("failed to fetch remote account config", {
+        //       error: err instanceof Error ? err.message : String(err),
+        //     })
+        //     return Effect.void
+        //   }),
+        // )
+        // }
 
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {

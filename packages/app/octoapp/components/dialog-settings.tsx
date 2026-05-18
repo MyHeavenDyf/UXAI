@@ -8,6 +8,7 @@ import { SettingsGeneral } from "./settings-general"
 import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
+import { SettingsDefaultModel } from "./settings-default-model"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -44,11 +45,15 @@ export const DialogSettings: Component = () => {
                     <Tabs.Trigger value="models">
                       <Icon name="models" />
                       {language.t("settings.models.title")}
-                    </Tabs.Trigger>
-                  </div>
-                </div>
-              </div>
-            </div>
+                    </Tabs.Trigger>
+                    <Tabs.Trigger value="default-model">
+                      <Icon name="models" />
+                      {language.t("settings.defaultModel.title")}
+                    </Tabs.Trigger>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
               <span>{language.t("app.name.desktop")}</span>
               <span class="text-11-regular">v{platform.version}</span>
@@ -66,6 +71,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
+        </Tabs.Content>
+        <Tabs.Content value="default-model" class="no-scrollbar">
+          <SettingsDefaultModel />
         </Tabs.Content>
       </Tabs>
     </Dialog>

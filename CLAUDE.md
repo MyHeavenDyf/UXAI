@@ -25,8 +25,10 @@ packages/
   opencode/        # 核心 CLI/TUI/服务器 — 主要产品
   core/            # 共享工具库（日志、OpenTelemetry、文件匹配、Flag 系统等）
   app/             # Web 前端 SPA（SolidJS + Vite + TanStack Query）
+                   #   octoapp/ 子目录包含 Octo 专用页面（insight、make、skills）
   ui/              # 共享 UI 组件库（SolidJS + TailwindCSS + Shiki，100+ 组件）
   desktop/         # Electron 桌面应用（electron-vite + electron-builder，16 种语言）
+                   #   IPC handlers: skills.json 读写、store 操作、文件选择器、剪贴板等
   sdk/js/          # JavaScript SDK（@hey-api/openapi-ts 自动生成 OpenAPI 客户端）
   plugin/          # 插件开发 SDK（工具注册、TUI 扩展、事件钩子）
   web/             # 文档网站（Astro + Starlight）
@@ -346,6 +348,68 @@ import { Foo } from "@/foo/foo"
 | `monitoring.ts` | Honeycomb 告警（模型/提供商 HTTP 错误、免费层请求激增、Discord webhook） |
 | `secret.ts` | 共享密钥（R2 访问密钥、Honeycomb webhook secret） |
 
+## Octo App 前端 (`packages/app/octoapp/`)
+
+桌面端和 Web 端共用的 SolidJS 前端应用，双入口文件架构。
+
+### 双入口文件
+
+| 文件 | 用途 |
+|------|------|
+| `app.tsx` | Web 端入口 |
+| `octo.tsx` | **桌面端入口**（Electron） |
+
+**重要**: 路由、lazy import、`isOctoPage()` 判断必须**同时在两个文件中更新**。
+
+### 页面路由
+
+| 路由 | 组件 | 说明 |
+|------|------|------|
+| `/` | `HomeRoute` | 首页 |
+| `/insight/:id?` | `InsightPage` | Octo Insight 对话页（`octo_insight` agent） |
+| `/make/:id?` | `MakePage` | Octo Make 原型页（`octo_make` agent） |
+| `/skills` | `SkillsPage` | 技能库管理页 |
+| `/:dir/chat/:id?` | `ChatPage` | 目录级聊天页 |
+| `/:dir/studio` | `StudioPage` | 目录级 Studio 页 |
+
+### 关键页面结构
+
+#### Insight/Make 页面（双栏布局）
+
+- **左栏**: 对话面板（可拖拽宽度 240px~45%），显示 `InsightTurn` 组件
+- **右栏**: `ResultViewer` — 根据 tab 类型渲染不同内容
+- **`isOctoPage()`**: `/insight`、`/make`、`/skills` 页面使用 Octo 侧边栏布局
+
+#### ResultViewer 类型渲染
+
+| Tab 类型 | 渲染器 | 说明 |
+|----------|--------|------|
+| `table` | `TableRenderer` | Markdown 表格解析为 HTML 表格 |
+| `markdown` | `MarkdownRenderer` | 复用 `<Markdown>` 组件 |
+| `mindmap` | `MermaidPlaceholder` | 显示源码（Phase 2 将实现 SVG） |
+| `json` | `JsonRenderer` | JSON 格式化显示 |
+| `html` | `HtmlRenderer` | iframe 预览 + textarea 编辑模式切换 |
+
+#### 输出卡片检测（`insight-turn.tsx`）
+
+对 assistant parts 按优先级扫描：
+1. `state.attachments` — HTML 附件（mime `text/html`）
+2. `state.input` — **write tool 的输入**（包含实际 HTML 内容，`input.content`/`input.text`/`input.data`）
+3. `state.output` — 工具输出文本
+4. 兜底：text parts
+
+#### 技能库页面（`/skills`）
+
+- 按 4 个 agent 分组（`AGENT_GROUPS` 硬编码映射）
+- 手风琴折叠，Toggle 开关控制 `~/.config/octo/skills.json` 的 `import` 字段
+- 数据流：`window.api.getSkillsConfig()` IPC → 渲染 → toggle → `window.api.setSkillsConfig()` 写入
+
+### 侧边栏（`pages/_shell/sidebar.tsx`）
+
+- **Octo Insight**: session 列表，使用 `globalSync.data.path.home`，按 `agent === "octo_insight"` 过滤
+- **Octo Make**: session 列表，使用 `server.projects.last()`，按 `agent === "octo_make"` 过滤
+- **技能库/资产库**: 底部固定导航，技能库跳转 `/skills`
+
 ## CLI 命令
 
 `octo` CLI 入口（`packages/opencode/bin/octo`、`packages/opencode/bin/opencode`）暴露以下命令：
@@ -386,3 +450,16 @@ import { Foo } from "@/foo/foo"
 - 结果：所有 agent 能看到并调用全部 4 个 skill（interview-analysis、html-prototype、design-basics、creative-assets），而非仅自己配置的
 
 **预期行为**: 每个 agent 只能看到 `agent.skills` 中配置的 skill（或默认全部可见）。
+
+### CLI dev 模式下预置 provider 无模型
+
+**状态**: 待修复
+**涉及文件**: `packages/opencode/package.json`、`src/provider/models.ts`、`src/provider/provider.ts`
+
+**问题**: `bun dev`（CLI 模式）不运行 `generate.ts`，导致 `models-snapshot.js` 不存在。此时 `models.ts` 的 `populate()` 和 `provider.ts` 的 opencode custom loader 都无法加载快照，opencode provider 有 0 个模型。只有 `bun dev:desktop` 会通过 `packages/desktop/scripts/predev.ts` → `build-node.ts` → `generate.ts` 生成快照。
+
+**修复计划**:
+1. 在 `packages/opencode/package.json` 添加 `"predev": "bun script/generate.ts"`，确保 CLI dev 也先生成快照
+2. 在 `models.ts` `populate()` 和 `provider.ts` opencode custom loader 中添加 `api.json` 兜底：当快照不可用时直接 `import("../../api.json")` 读取模型定义
+
+**数据源**: `packages/opencode/api.json` 是 Octo AI provider 的唯一模型数据源（4 个模型），不再从网络获取。
