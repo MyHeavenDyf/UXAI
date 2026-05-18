@@ -158,20 +158,31 @@ export default function StudioPage() {
   })
 
   function loadSessionMessages(sessionID: string) {
-    return globalSDK.client.session.messages({ sessionID })
+    return globalSDK.client.session
+      .get({ sessionID })
       .then((result) => {
-        const items = result.data ?? []
-        const messages: Message[] = []
-        const partMap: { [messageID: string]: Part[] } = {}
-        for (const item of items as { info: Message; parts: Part[] }[]) {
-          messages.push(item.info)
-          partMap[item.info.id] = item.parts.filter((part) => !SKIP_PART_TYPES.has(part.type))
+        const session = result.data
+        if (!session || session.agent !== "octo_studio") {
+          batch(() => {
+            setDataStore("message", {})
+            setDataStore("part", {})
+          })
+          return
         }
-        batch(() => {
-          setDataStore("message", sessionID, reconcile(messages, { key: "id" }))
-          for (const [messageID, parts] of Object.entries(partMap)) {
-            setDataStore("part", messageID, reconcile(parts, { key: "id" }))
+        return globalSDK.client.session.messages({ sessionID }).then((msgResult) => {
+          const items = msgResult.data ?? []
+          const messages: Message[] = []
+          const partMap: { [messageID: string]: Part[] } = {}
+          for (const item of items as { info: Message; parts: Part[] }[]) {
+            messages.push(item.info)
+            partMap[item.info.id] = item.parts.filter((part) => !SKIP_PART_TYPES.has(part.type))
           }
+          batch(() => {
+            setDataStore("message", sessionID, reconcile(messages, { key: "id" }))
+            for (const [messageID, parts] of Object.entries(partMap)) {
+              setDataStore("part", messageID, reconcile(parts, { key: "id" }))
+            }
+          })
         })
       })
   }
@@ -180,7 +191,13 @@ export default function StudioPage() {
     on(
       () => params.id,
       (id) => {
-        if (!id) return
+        if (!id) {
+          batch(() => {
+            setDataStore("message", {})
+            setDataStore("part", {})
+          })
+          return
+        }
         loadSessionMessages(id)
           .catch((error) => console.error("[StudioPage] messages load failed", error))
       },
