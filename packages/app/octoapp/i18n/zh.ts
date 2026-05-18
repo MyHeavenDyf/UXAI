@@ -762,6 +762,16 @@ export const dict = {
   "settings.providers.tag.other": "其他",
 
   "settings.models.title": "模型",
+  "settings.defaultModel.title": "默认模型",
+  "settings.defaultModel.description": "设置 Chat、Insight 和 Studio 页面使用的默认 LLM 模型。",
+  "settings.defaultModel.section.current": "当前默认",
+  "settings.defaultModel.change": "更换",
+  "settings.defaultModel.select": "选择",
+  "settings.defaultModel.clear": "清除",
+  "settings.defaultModel.notSet": "未配置 — 将使用第一个可用模型",
+  "settings.defaultModel.hint": "未设置时，各页面将自动选择可用模型。Chat 页面仍可手动切换模型。",
+  "settings.defaultModel.cleared": "已清除默认模型",
+  "settings.defaultModel.select.title": "选择默认模型",
   "settings.models.description": "模型设置将在此处可配置。",
 
   "settings.agents.title": "智能体",
