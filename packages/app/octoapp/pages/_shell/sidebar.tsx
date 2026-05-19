@@ -130,6 +130,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     }
   })
   onCleanup(unsub)
+  onCleanup(() => { clearTimeout(refetchTimer); clearTimeout(refetchMakeTimer) })
 
   const activeSessionId = () => {
     const m = location.pathname.match(/^\/(?:insight|make)\/(.+)$/)
