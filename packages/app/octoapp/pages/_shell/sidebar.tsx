@@ -5,7 +5,7 @@ import type { JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { useServer } from "@/context/server"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
@@ -96,19 +96,12 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const dialog = useDialog()
-  const server = useServer()
   const notification = useNotification()
   const permission = usePermission()
 
-  const insightDir = () => globalSync.data.path.home
-  const makeDir = () => {
-    const last = server.projects.last()
-    // 检查是否是根目录：Unix "/" 或 Windows 驱动器根目录 (如 "C:\")
-    if (last && last !== "/" && !/^[A-Z]:\\?$/.test(last)) return last
-    return globalSync.data.path.home
-  }
+  const projectDir = useProjectDir()
 
-  const [sessions, { refetch }] = createResource(insightDir, async (dir) => {
+  const [sessions, { refetch }] = createResource(projectDir, async (dir) => {
     if (!dir) return [] as Session[]
     const client = globalSDK.createClient({ directory: dir })
     const result = await client.session.list()
@@ -116,7 +109,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     return data.filter(s => s.agent === "octo_insight")
   })
 
-  const [makeSessions, { refetch: refetchMake }] = createResource(makeDir, async (dir) => {
+  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (dir) => {
     if (!dir) return [] as Session[]
     const client = globalSDK.createClient({ directory: dir })
     const result = await client.session.list()
