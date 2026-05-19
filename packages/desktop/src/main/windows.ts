@@ -131,6 +131,16 @@ export function createMainWindow() {
     win.show()
   })
 
+  win.webContents.on("before-input-event", (_event, input) => {
+    if (input.key === "F12") {
+      if (win.webContents.isDevToolsOpened()) {
+        win.webContents.closeDevTools()
+      } else {
+        win.webContents.openDevTools()
+      }
+    }
+  })
+
   return win
 }
 
