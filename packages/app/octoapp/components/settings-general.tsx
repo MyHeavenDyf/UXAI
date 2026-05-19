@@ -295,6 +295,7 @@ export const SettingsGeneral: Component = () => {
     const currentProjectDir = () => server.projects.last()
 
     const handlechangeProjectDir = async () => {
+      if (!platform.openDirectoryPickerDialog) return
       const result = await platform.openDirectoryPickerDialog()
       if (result && typeof result === "string") {
         server.projects.touch(result)
@@ -421,6 +422,7 @@ export const SettingsGeneral: Component = () => {
       </SettingsList>
     </div>
   )
+  }
 
   const AdvancedSection = () => (
     <div class="flex flex-col gap-1">
@@ -489,7 +491,6 @@ export const SettingsGeneral: Component = () => {
       </SettingsList>
     </div>
     )
-  }
 
   const AppearanceSection = () => (
     <div class="flex flex-col gap-1">
