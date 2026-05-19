@@ -132,7 +132,7 @@ export function createMainWindow() {
   })
 
   win.webContents.on("before-input-event", (_event, input) => {
-    if (input.key === "F12") {
+    if (input.key === "F12" && input.type === "keyDown") {
       if (win.webContents.isDevToolsOpened()) {
         win.webContents.closeDevTools()
       } else {

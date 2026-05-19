@@ -7,7 +7,6 @@ import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -421,8 +420,10 @@ export default function StudioPage() {
   }
 
   async function createAndNavigate(title?: string) {
+    const dir = projectDir()
+    if (!dir) return
     const result = await globalSDK.client.session.create({
-      directory: projectDir(),
+      directory: dir,
       agent: "octo_studio",
       title: title ? buildStudioDisplayPrompt(title) : undefined,
     })
