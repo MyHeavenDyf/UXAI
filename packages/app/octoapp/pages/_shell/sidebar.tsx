@@ -117,11 +117,16 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     return data.filter(s => s.agent === "octo_make")
   })
 
+  let refetchTimer: ReturnType<typeof setTimeout> | undefined
+  let refetchMakeTimer: ReturnType<typeof setTimeout> | undefined
+
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
-      void refetch()
-      void refetchMake()
+      clearTimeout(refetchTimer)
+      refetchTimer = setTimeout(() => void refetch(), 300)
+      clearTimeout(refetchMakeTimer)
+      refetchMakeTimer = setTimeout(() => void refetchMake(), 300)
     }
   })
   onCleanup(unsub)
@@ -191,7 +196,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           <Show when={!insightCollapsed()}>
             <div class="flex flex-col gap-[1px]">
               <Show
-                when={!sessions.loading}
+                when={!sessions.loading || sessions() !== undefined}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
@@ -307,7 +312,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           <Show when={!makeCollapsed()}>
             <div class="flex flex-col gap-[1px]">
               <Show
-                when={!makeSessions.loading}
+                when={!makeSessions.loading || makeSessions() !== undefined}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
