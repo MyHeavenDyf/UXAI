@@ -99,7 +99,7 @@ export function TitlebarSimple() {
     // Skip "insight" and "make" which are standalone routes, not directory slugs
     const dirMatch = path.match(/^\/([^/]+)/)
     let dir = dirMatch ? dirMatch[1] : ""
-    if (!dir || dir === "insight" || dir === "make") {
+    if (!dir || dir === "insight" || dir === "make" || dir === "skills") {
       const last = server.projects.last()
       const directory = last && last !== "/" && !/^[A-Z]:\\?$/.test(last) 
         ? last 
