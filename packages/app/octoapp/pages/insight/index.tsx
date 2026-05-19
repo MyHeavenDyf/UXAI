@@ -19,6 +19,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PromptTemplateSelector } from "./components/prompt-template-selector"
@@ -44,7 +45,7 @@ export default function InsightPage() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
 
-  const homeDir = () => globalSync.data.path.home
+  const homeDir = useProjectDir()
 
   const [dataStore, setDataStore] = createStore<DataStore>({
     session: [],

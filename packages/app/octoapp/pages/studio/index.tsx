@@ -11,6 +11,7 @@ import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { groupSessionsByDate } from "@/pages/layout/helpers"
 import { sessionTitle } from "@/utils/session-title"
@@ -71,10 +72,7 @@ export default function StudioPage() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
 
-  const projectDir = () => {
-    if (params.dir) return decode64(params.dir) ?? globalSync.data.path.home
-    return globalSync.data.path.home
-  }
+  const projectDir = useProjectDir()
 
   const slug = createMemo(() => base64Encode(projectDir()))
 

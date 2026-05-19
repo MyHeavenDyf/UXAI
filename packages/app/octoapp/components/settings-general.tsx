@@ -14,6 +14,7 @@ import { usePermission } from "@/context/permission"
 import { usePlatform, type DisplayBackend } from "@/context/platform"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useServer } from "@/context/server"
 import {
   monoDefault,
   monoFontFamily,
@@ -288,10 +289,41 @@ export const SettingsGeneral: Component = () => {
     triggerVariant: "settings" as const,
   })
 
-  const GeneralSection = () => (
-    <div class="flex flex-col gap-1">
-      <SettingsList>
-        <SettingsRow
+  const GeneralSection = () => {
+    const server = useServer()
+    const platform = usePlatform()
+    const currentProjectDir = () => server.projects.last()
+
+    const handlechangeProjectDir = async () => {
+      const result = await platform.openDirectoryPickerDialog()
+      if (result && typeof result === "string") {
+        server.projects.touch(result)
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("settings.general.projectDir.changed"),
+        })
+      }
+    }
+
+    return (
+      <div class="flex flex-col gap-1">
+        <SettingsList>
+          <SettingsRow
+            title={language.t("settings.general.projectDir")}
+            description={language.t("settings.general.projectDir.description")}
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-13-regular text-text-weak truncate max-w-[200px]" title={currentProjectDir()}>
+                {currentProjectDir() || language.t("settings.general.projectDir.notSet")}
+              </span>
+              <Button size="small" variant="secondary" onClick={handlechangeProjectDir}>
+                {language.t("settings.general.projectDir.change")}
+              </Button>
+            </div>
+          </SettingsRow>
+
+          <SettingsRow
           title={language.t("settings.general.row.language.title")}
           description={language.t("settings.general.row.language.description")}
         >
@@ -456,7 +488,8 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
       </SettingsList>
     </div>
-  )
+    )
+  }
 
   const AppearanceSection = () => (
     <div class="flex flex-col gap-1">

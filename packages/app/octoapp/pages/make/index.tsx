@@ -20,7 +20,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { useServer } from "@/context/server"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { decode64 } from "@/utils/base64"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -44,14 +44,8 @@ export default function InsightPage() {
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
-  const server = useServer()
 
-  const homeDir = () => {
-    const last = server.projects.last()
-    // 检查是否是根目录：Unix "/" 或 Windows 驱动器根目录 (如 "C:\")
-    if (last && last !== "/" && !/^[A-Z]:\\?$/.test(last)) return last
-    return globalSync.data.path.home
-  }
+  const homeDir = useProjectDir()
 
   const [dataStore, setDataStore] = createStore<DataStore>({
     session: [],
