@@ -81,7 +81,7 @@ export default function StudioPage() {
   const [styleModel, setStyleModel] = createSignal("qwen")
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
-  const [imageTool, setImageTool] = createSignal<StudioImageTool>("jimeng")
+  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()

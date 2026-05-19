@@ -526,7 +526,8 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     const progress = getTaskProgress(queryJson)
 
     if (isSuccessResponse(queryJson)) {
-      const imageUrls = collectImageUrls(queryJson).filter(isRenderableImageUrl)
+      // const imageUrls = collectImageUrls(queryJson).filter(isRenderableImageUrl)
+      const imageUrls = queryJson.result?.results || [];
       const binaryImages = collectBase64Images(queryJson).map(base64ToDataUrl).filter(isRenderableImageUrl)
       const images = Array.from(new Set([...imageUrls, ...binaryImages]))
       return {

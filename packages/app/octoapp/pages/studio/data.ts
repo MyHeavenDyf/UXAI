@@ -27,8 +27,8 @@ export const STUDIO_STYLE_MODELS = [
 export const STUDIO_ASPECT_RATIOS: StudioAspectRatio[] = ["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"]
 
 export const STUDIO_IMAGE_TOOLS: { id: StudioImageTool; label: string; description: string }[] = [
-  { id: "jimeng", label: "即梦", description: "默认的即梦生图工具" },
   { id: "internel", label: "内部", description: "内部门户生图工具" },
+  { id: "jimeng", label: "即梦", description: "默认的即梦生图工具" },
 ]
 
 export function capabilityLabel(id: StudioCapability) {
@@ -40,5 +40,5 @@ export function styleModelLabel(id: string) {
 }
 
 export function imageToolLabel(id: StudioImageTool) {
-  return STUDIO_IMAGE_TOOLS.find((item) => item.id === id)?.label ?? "即梦"
+  return STUDIO_IMAGE_TOOLS.find((item) => item.id === id)?.label ?? "内部"
 }
