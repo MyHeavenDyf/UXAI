@@ -93,11 +93,17 @@ function parseToolImages(output: string) {
 function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
   const state = part.state as Record<string, unknown>
   const attachments = Array.isArray(state.attachments) ? state.attachments : []
-  return attachments
+  const content = Array.isArray(state.content) ? state.content : []
+  return [...attachments, ...content]
     .flatMap((item) => {
       if (!item || typeof item !== "object") return []
       const record = item as Record<string, unknown>
-      const url = typeof record.url === "string" ? record.url : undefined
+      const url =
+        typeof record.url === "string"
+          ? record.url
+          : typeof record.uri === "string"
+            ? record.uri
+            : undefined
       return url ? [url] : []
     })
     .filter(isRenderableImageUrl)

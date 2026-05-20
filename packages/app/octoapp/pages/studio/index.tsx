@@ -134,11 +134,13 @@ export default function StudioPage() {
       for (const image of turn.result?.images ?? []) {
         if (image.url.startsWith("data:image/")) active.add(image.url)
         if (image.thumbnailUrl?.startsWith("data:image/")) active.add(image.thumbnailUrl)
+        if (image.remoteUrl?.startsWith("data:image/")) active.add(image.remoteUrl)
       }
     }
     for (const image of pendingResult()?.images ?? []) {
       if (image.url.startsWith("data:image/")) active.add(image.url)
       if (image.thumbnailUrl?.startsWith("data:image/")) active.add(image.thumbnailUrl)
+      if (image.remoteUrl?.startsWith("data:image/")) active.add(image.remoteUrl)
     }
     for (const [source, objectUrl] of blobUrlCache) {
       if (active.has(source)) continue

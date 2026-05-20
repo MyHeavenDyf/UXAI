@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { resolveReferenceImages as resolveJimengReferenceImages } from "@/tool/jimeng_image_generate"
-import { resolveReferenceImages as resolveInternelReferenceImages } from "@/tool/internel_image_generate"
+import {
+  extractInternalImages,
+  resolveReferenceImages as resolveInternelReferenceImages,
+} from "@/tool/internel_image_generate"
 
 describe("image generate input filtering", () => {
   test("drops filename-only references for jimeng", () => {
@@ -19,5 +22,24 @@ describe("image generate input filtering", () => {
         referenceImages: ["https://example.com/dog.png", "cover.png", "data:image/png;base64,BBBB"],
       }),
     ).toEqual(["https://example.com/dog.png", "data:image/png;base64,BBBB"])
+  })
+
+  test("extracts internal results_v2 output images", () => {
+    expect(
+      extractInternalImages({
+        resp_code: 200,
+        result: {
+          status: 2,
+          progress: 100,
+          results_v2: [
+            {
+              output: {
+                image: "https://example.com/internal.png",
+              },
+            },
+          ],
+        },
+      }),
+    ).toEqual(["https://example.com/internal.png"])
   })
 })

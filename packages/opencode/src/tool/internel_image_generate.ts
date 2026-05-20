@@ -250,6 +250,20 @@ function isRenderableImageUrl(url: string) {
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
 }
 
+export function extractInternalImages(response: QueryTaskResponse) {
+  const directResults = Array.isArray(response.result?.results)
+    ? response.result.results.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : []
+  const versionedResults = Array.isArray(response.result?.results_v2)
+    ? response.result.results_v2
+        .map((item) => item.output?.image)
+        .filter((item): item is string => typeof item === "string" && item.length > 0)
+    : []
+  const imageUrls = [...directResults, ...versionedResults, ...collectImageUrls(response)].filter(isRenderableImageUrl)
+  const binaryImages = collectBase64Images(response).map(base64ToDataUrl).filter(isRenderableImageUrl)
+  return Array.from(new Set([...imageUrls, ...binaryImages]))
+}
+
 export function summarizeInternalOutput(raw: unknown, bodyText = "") {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { bodyBytes: bodyText.length }
@@ -526,10 +540,7 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     const progress = getTaskProgress(queryJson)
 
     if (isSuccessResponse(queryJson)) {
-      // const imageUrls = collectImageUrls(queryJson).filter(isRenderableImageUrl)
-      const imageUrls = queryJson.result?.results || [];
-      const binaryImages = collectBase64Images(queryJson).map(base64ToDataUrl).filter(isRenderableImageUrl)
-      const images = Array.from(new Set([...imageUrls, ...binaryImages]))
+      const images = extractInternalImages(queryJson)
       return {
         provider: "internel",
         model: taskType,
@@ -597,6 +608,7 @@ export const InternelImageGenerateTool = Tool.define<
         url: image.url,
         filename: `internel-${index + 1}.png`,
       }))
+      const outputImages = attachments.map((item) => item.url).filter((url) => !url.startsWith("data:image/"))
       return {
         title: "Internal image generation",
         metadata: {
@@ -614,7 +626,8 @@ export const InternelImageGenerateTool = Tool.define<
             provider: result.provider,
             model: result.model,
             imageCount: result.images.length,
-            primaryImage: attachments[0]?.filename ?? null,
+            images: outputImages,
+            primaryImage: outputImages[0] ?? null,
           },
           null,
           2,
