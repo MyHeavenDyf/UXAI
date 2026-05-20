@@ -21,7 +21,6 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
-import { decode64 } from "@/utils/base64"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -39,7 +38,7 @@ type DataStore = {
   part: { [messageID: string]: Part[] }
 }
 
-export default function InsightPage() {
+export default function MakePage() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()

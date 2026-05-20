@@ -187,7 +187,7 @@ function createPromptSession(dir: string, id: string | undefined) {
     ready,
     current: () => store.prompt,
     cursor: createMemo(() => store.cursor),
-    dirty: () => !isPromptEqual(store.prompt, DEFAULT_PROMPT),
+    dirty: createMemo(() => !isPromptEqual(store.prompt, DEFAULT_PROMPT)),
     context: {
       items: createMemo(() => store.context.items),
       add(item: ContextItem) {
@@ -280,7 +280,7 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
       ready: () => session().ready,
       current: () => session().current(),
       cursor: () => session().cursor(),
-      dirty: () => session().dirty(),
+      dirty: createMemo(() => session().dirty()),
       context: {
         items: () => session().context.items(),
         add: (item: ContextItem) => session().context.add(item),

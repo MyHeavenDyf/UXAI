@@ -18,8 +18,10 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const server = useServer()
   const slug = createMemo(() => base64Encode(props.directory))
 
-  createEffect(() => {
-    server.projects.touch(props.directory)
+createEffect(() => {
+    if (props.directory) {
+      server.projects.touch(props.directory)
+    }
   })
 
   createResource(

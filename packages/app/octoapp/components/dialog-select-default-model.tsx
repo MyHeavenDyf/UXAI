@@ -4,6 +4,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { Tag } from "@opencode-ai/ui/tag"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useModels } from "@/context/models"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -41,6 +42,9 @@ export const DialogSelectDefaultModel: Component<{
     globalSync.updateConfig({ model: modelStr }).then(() => {
       props.onSelect?.({ providerID: model.provider.id, modelID: model.id })
       dialog.close()
+    }).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: language.t("common.requestFailed"), description: message })
     })
   }
 
