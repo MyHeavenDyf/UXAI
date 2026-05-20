@@ -61,14 +61,14 @@ script/            # 顶层构建/发布/变更日志脚本
 ### Agent 系统
 - **agent/** — Agent 定义与动态生成
   - 内置 Agent：`octo_ai`（默认主 agent）、`plan`（规划模式，隐藏）、`general`（通用子 agent）、`explore`（快速代码探索子 agent）
-  - 专业 Agent：`octo_insight`（访谈分析）、`octo_make`（HTML 原型）、`octo_design`（UI 设计）、`octo_canva`（创意素材）
+  - 专业 Agent：`octo_insight`（访谈分析）、`octo_make`（HTML 原型）、`octo_design`（UI 设计）、`octo_studio`（图片创作）
   - 隐藏 Agent：`compaction`（上下文压缩）、`title`（标题生成）、`summary`（摘要生成）
-  - `agent/prompt/` — 各 agent 的系统提示（compaction、explore、octo_insight、octo_make、octo_design、octo_canva、summary、title）
+  - `agent/prompt/` — 各 agent 的系统提示（compaction、explore、octo_insight、octo_make、octo_design、octo_studio、octo_ai、summary、title）
   - `agent/skills/` — 按 agent 组织的内置 Skill 定义（每个包含 SKILL.md）
     - `octo_insight/interview-analysis/SKILL.md`
     - `octo_make/html-prototype/SKILL.md`
     - `octo_design/design-basics/SKILL.md`
-    - `octo_canva/creative-assets/SKILL.md`
+    - `octo_studio/creative-assets/SKILL.md`
 - **acp/** — Agent Client Protocol 支持（外部 agent 管理）
 
 ### Session 系统
@@ -130,13 +130,15 @@ script/            # 顶层构建/发布/变更日志脚本
   - `skill` — Skill 调用
   - `invalid` / `external-directory` — 无效工具处理/外部目录访问
   - `media_transcribe` — 音视频转录
+  - `jimeng_image_generate` — 即梦 AI 图片生成（HMAC-SHA256 V4 签名）
+  - `internel_image_generate` — 内部图片生成 API（创建任务/轮询模式）
   - `registry.ts` — 工具注册中心
 
 ### 服务器
 - **server/** — HTTP/WebSocket 服务器（双 Bun/Node 适配器，mdns 发现）
   - 旧 Hono 后端：`server/routes/instance/`（17 个路由文件）
   - 新 Effect-HttpApi 后端：`server/routes/instance/httpapi/`（18 个路由组 + 中间件）
-  - 路由涵盖：session、config、mcp、provider、file、pty、tui、sync、permission、project、question、trace、experimental、event、workspace、v2
+  - 路由涵盖：session、config、mcp、provider、file、pty、tui、sync、permission、project、question、trace、experimental、event、workspace、studio、v2
   - `server/shared/` — 共享工具（fence、pty-ticket、ui、workspace-routing）
 
 ### 其他核心模块
@@ -159,7 +161,7 @@ script/            # 顶层构建/发布/变更日志脚本
 - **pty/** — 伪终端（双 Bun/Node 适配器）
 - **share/** — 会话分享
 - **shell/** — Shell 执行
-- **skill/** — Skill 发现与管理（支持 .opencode/skill/、.claude/skills/、.agents/skills/、内置 agent skills、远程 URL）
+- **skill/** — Skill 发现与管理（支持 .opencode/skill/、.octo/skill/、.claude/skills/、.agents/skills/、内置 agent skills、远程 URL）
 - **snapshot/** — 状态快照
 - **storage/** — SQLite 数据库层（Drizzle ORM、JSON 迁移、双 Bun/Node 适配器）
 - **sync/** — 事件同步系统
@@ -370,7 +372,7 @@ import { Foo } from "@/foo/foo"
 | `/make/:id?` | `MakePage` | Octo Make 原型页（`octo_make` agent） |
 | `/skills` | `SkillsPage` | 技能库管理页 |
 | `/:dir/chat/:id?` | `ChatPage` | 目录级聊天页 |
-| `/:dir/studio` | `StudioPage` | 目录级 Studio 页 |
+| `/:dir/studio` | `StudioPage` | Studio 图片创作页（`octo_studio` agent，四区布局） |
 
 ### 关键页面结构
 
@@ -386,7 +388,7 @@ import { Foo } from "@/foo/foo"
 |----------|--------|------|
 | `table` | `TableRenderer` | Markdown 表格解析为 HTML 表格 |
 | `markdown` | `MarkdownRenderer` | 复用 `<Markdown>` 组件 |
-| `mindmap` | `MermaidPlaceholder` | 显示源码（Phase 2 将实现 SVG） |
+| `mindmap` | `MindmapRenderer` | markmap-lib/markmap-view 交互式 SVG 渲染 |
 | `json` | `JsonRenderer` | JSON 格式化显示 |
 | `html` | `HtmlRenderer` | iframe 预览 + textarea 编辑模式切换 |
 
@@ -401,7 +403,7 @@ import { Foo } from "@/foo/foo"
 #### 技能库页面（`/skills`）
 
 - 按 4 个 agent 分组（`AGENT_GROUPS` 硬编码映射）
-- 手风琴折叠，Toggle 开关控制 `~/.config/octo/skills.json` 的 `import` 字段
+- 手风琴折叠，Toggle 开关控制 `app.getPath("userData")/skills.json` 的 `import` 字段
 - 数据流：`window.api.getSkillsConfig()` IPC → 渲染 → toggle → `window.api.setSkillsConfig()` 写入
 
 ### 侧边栏（`pages/_shell/sidebar.tsx`）
@@ -450,6 +452,13 @@ import { Foo } from "@/foo/foo"
 - 结果：所有 agent 能看到并调用全部 4 个 skill（interview-analysis、html-prototype、design-basics、creative-assets），而非仅自己配置的
 
 **预期行为**: 每个 agent 只能看到 `agent.skills` 中配置的 skill（或默认全部可见）。
+
+### Agent MCP 工具未按 agent 限定范围
+
+**状态**: 待修复
+**涉及文件**: `src/mcp/index.ts`、`src/session/prompt.ts`、`src/config/builtin-mcp.ts`
+
+`agent.mcp` 字段已在 agent 定义中声明，`mcp.toolsForAgent()` 已在 `session/prompt.ts:462` 实现 agent 级过滤。但内置 MCP 服务器绑定（`builtin-mcp.ts`）尚未作为默认值注入全局配置，需用户手动配置 MCP 才能生效。
 
 ### CLI dev 模式下预置 provider 无模型
 

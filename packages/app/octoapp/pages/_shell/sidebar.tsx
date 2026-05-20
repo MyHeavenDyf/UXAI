@@ -1,6 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
@@ -103,9 +103,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const projectDir = useProjectDir()
 
   // Insight sessions: use createResource for fetching + reconciled store for stable references
-  const [sessions, { refetch }] = createResource(projectDir, async (dir) => {
-    if (!dir) return [] as Session[]
-    const client = globalSDK.createClient({ directory: dir })
+  const [sessions, { refetch }] = createResource(projectDir, async (d) => {
+    if (!d) return [] as Session[]
+    const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
     return data.filter(s => s.agent === "octo_insight")
@@ -118,9 +118,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   }, { defer: true }))
 
   // Make sessions: same pattern
-  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (dir) => {
-    if (!dir) return [] as Session[]
-    const client = globalSDK.createClient({ directory: dir })
+  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (d) => {
+    if (!d) return [] as Session[]
+    const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
     return data.filter(s => s.agent === "octo_make")
@@ -145,6 +145,14 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   })
   onCleanup(unsub)
   onCleanup(() => { clearTimeout(refetchTimer); clearTimeout(refetchMakeTimer) })
+
+  // Refetch on mount to handle initial load timing (persisted store may not be ready yet)
+  onMount(() => {
+    setTimeout(() => {
+      void refetch()
+      void refetchMake()
+    }, 300)
+  })
 
   const activeSessionId = () => {
     const m = location.pathname.match(/^\/(?:insight|make)\/(.+)$/)
