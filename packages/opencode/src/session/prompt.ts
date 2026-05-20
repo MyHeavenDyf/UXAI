@@ -1538,12 +1538,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               bypassAgentCheck,
               messages: msgs,
             })
-            const studioImageTool =
-              lastUser.tools?.internel_image_generate === true && tools.internel_image_generate
-                ? "internel_image_generate"
-                : lastUser.tools?.jimeng_image_generate === true && tools.jimeng_image_generate
-                  ? "jimeng_image_generate"
-                  : undefined
 
             if (lastUser.format?.type === "json_schema") {
               tools["StructuredOutput"] = createStructuredOutputTool({
@@ -1552,11 +1546,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   structured = output
                 },
               })
-            }
-            if (studioImageTool) {
-              for (const key of Object.keys(tools)) {
-                if (key !== studioImageTool) delete tools[key]
-              }
             }
 
             if (step === 1)
@@ -1601,14 +1590,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
               tools,
               model,
-              toolChoice:
-                format.type === "json_schema"
-                  ? "required"
-                  : studioImageTool
-                    ? step === 1
-                      ? "required"
-                      : "none"
-                    : undefined,
+              toolChoice: format.type === "json_schema" ? "required" : undefined,
             })
 
             if (structured !== undefined) {
