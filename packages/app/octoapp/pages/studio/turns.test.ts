@@ -67,6 +67,21 @@ const attachmentToolPart = (id: string, messageID: string, url: string, tool = "
     },
   }) as Part
 
+const runningToolPart = (id: string, messageID: string, tool = "internel_image_generate") =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
+    type: "tool",
+    tool,
+    state: {
+      status: "running",
+      title: "图片生成",
+      time: { start: 1 },
+      input: {},
+    },
+  }) as Part
+
 const contentFileToolPart = (id: string, messageID: string, url: string, tool = "internel_image_generate") =>
   ({
     id,
@@ -241,6 +256,7 @@ describe("buildStudioTurns", () => {
     })
 
     expect(turns[0].result?.images[0]?.url).toBe("data:image/png;base64,QUJDREVGRw==")
+    expect(turns[0].toolTitle).toBe("图片生成完成")
   })
 
   test("uses file content urls when attachments are omitted from tool state", () => {
@@ -257,5 +273,22 @@ describe("buildStudioTurns", () => {
 
     expect(turns[0].result?.provider).toBe("internel")
     expect(turns[0].result?.images[0]?.url).toBe("data:image/png;base64,QUJDREVGRw==")
+  })
+
+  test("marks the latest running image tool turn", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "继续生成一张卡通小狗的图")],
+        [a1.id]: [runningToolPart("p_2", a1.id)],
+      },
+    })
+
+    expect(turns[0].toolRunning).toBe(true)
+    expect(turns[0].toolTitle).toBe("图片生成中")
+    expect(turns[0].isLatest).toBe(true)
   })
 })

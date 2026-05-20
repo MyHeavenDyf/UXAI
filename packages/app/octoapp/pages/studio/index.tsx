@@ -294,7 +294,7 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: "图片生成",
+          toolTitle: "图片生成中",
           toolName: `${imageToolLabel(imageTool())} · 生成中`,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
@@ -1014,7 +1014,7 @@ function StudioConversation(props: {
               <div class="inline-flex items-center gap-1 rounded-full bg-white/70 text-[#c100d8] px-2 py-1 text-[12px]">
                 ✦ {capabilityLabel(props.result?.capability ?? "image.generate")}
               </div>
-              <div class="mt-4 text-[16px] font-semibold">{turn.toolTitle ?? "图片生成"}</div>
+              <div class="mt-4 text-[16px] font-semibold">{turn.toolTitle ?? "图片生成中"}</div>
               <div class="mt-1 text-[13px] text-[var(--studio-muted)]">
                 {turn.toolName ? `Tool：${turn.toolName} · ` : ""}
                 创建时间：{formatTime(turn.createdAt)}
@@ -1029,7 +1029,7 @@ function StudioConversation(props: {
                   {turn.result?.error}
                 </div>
               </Show>
-              <Show when={props.busy && turn.isLatest} fallback={
+              <Show when={(props.busy || turn.toolRunning) && turn.isLatest && !turn.result} fallback={
                 <div class="grid grid-cols-4 gap-2 mt-5">
                   <For each={turn.result?.images ?? []}>
                     {(image) => (

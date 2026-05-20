@@ -10,6 +10,7 @@ export type StudioTurnData = {
   toolTitle?: string
   toolError?: string
   toolName?: string
+  toolRunning?: boolean
   result?: StudioGenerationResult
   createdAt: number
   isLatest: boolean
@@ -143,9 +144,10 @@ function buildResult(input: {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
     assistantText: input.assistantText,
-    toolTitle: completed?.state.title ?? running?.state.title,
+    toolTitle: images.length > 0 ? "图片生成完成" : running ? "图片生成中" : completed ? "图片生成完成" : running?.state.title,
     toolError: errored?.state.error,
     toolName: completed?.tool ?? input.tools[0]?.tool,
+    toolRunning: Boolean(running),
     result: images.length
       ? {
           id: `studio_${completed?.id ?? input.messageID}`,
@@ -212,7 +214,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       id: `studio_${input.fallback.id}`,
       userText: extractUserDemand(input.fallback.prompt),
       assistantText: "",
-      toolTitle: "图片生成",
+      toolTitle: "图片生成完成",
       toolName: input.fallback.provider,
       result: input.fallback,
       createdAt: input.fallback.createdAt,

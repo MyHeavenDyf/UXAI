@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { resolveReferenceImages as resolveJimengReferenceImages } from "@/tool/jimeng_image_generate"
 import {
   extractInternalImages,
+  getTaskType,
   resolveReferenceImages as resolveInternelReferenceImages,
 } from "@/tool/internel_image_generate"
 
@@ -41,5 +42,9 @@ describe("image generate input filtering", () => {
         },
       }),
     ).toEqual(["https://example.com/internal.png"])
+  })
+
+  test("uses backend-supported internal img2img task type by default", () => {
+    expect(getTaskType({ generationMode: "img2img" })).toBe("i2i_qwen")
   })
 })

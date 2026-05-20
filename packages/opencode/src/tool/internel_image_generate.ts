@@ -464,9 +464,10 @@ function buildPrompt(input: ImageGenerateInput) {
     .join("\n")
 }
 
-function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
+export function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
   const txt2img = env("IMAGE_TXT2IMG_TASK_TYPE") ?? "txt2img_qwen"
-  const img2img = env("IMAGE_IMG2IMG_TASK_TYPE") ?? "img2img_qwen"
+  // const img2img = env("IMAGE_IMG2IMG_TASK_TYPE") ?? "i2i_qwen"
+  const img2img = env("IMAGE_IMG2IMG_TASK_TYPE") ?? "txt2img_qwen"
   return input.taskType ?? (input.generationMode === "img2img" ? img2img : txt2img)
 }
 
