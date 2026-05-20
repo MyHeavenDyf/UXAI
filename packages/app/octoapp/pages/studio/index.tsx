@@ -448,7 +448,11 @@ export default function StudioPage() {
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
       `当前选中的生图工具：${imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate"}`,
-      input.sourceImage ? "这是基于上一张图继续编辑。" : undefined,
+      input.sourceImage && imageTool() === "internel"
+        ? "内部生图不传参考图，请根据上一轮摘要保持主体、风格、构图和色调一致，并按用户新需求重新生成。"
+        : input.sourceImage
+          ? "这是基于上一张图继续编辑。"
+          : undefined,
       context ? `上一轮摘要：\n${context}` : undefined,
       "输出时先简短说明，再调用对应工具。",
     ]
@@ -463,7 +467,11 @@ export default function StudioPage() {
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
       `当前选中的生图工具：${imageToolLabel(imageTool())}`,
-      input.sourceImage ? "这是基于上一张图片继续编辑。" : undefined,
+      input.sourceImage && imageTool() === "internel"
+        ? "将延续上一轮画面设定重新生成。"
+        : input.sourceImage
+          ? "这是基于上一张图片继续编辑。"
+          : undefined,
       `用户需求：${input.text}`,
     ]
       .filter((item): item is string => Boolean(item))
@@ -485,7 +493,7 @@ export default function StudioPage() {
       filename: item.name,
       url: item.dataUrl,
     }))
-    if (!input.sourceImage) return [textPart, ...fileParts]
+    if (!input.sourceImage || imageTool() === "internel") return [textPart, ...fileParts]
     return [
       textPart,
       ...fileParts,

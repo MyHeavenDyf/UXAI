@@ -144,7 +144,7 @@ function buildResult(input: {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
     assistantText: input.assistantText,
-    toolTitle: images.length > 0 ? "图片生成完成" : running ? "图片生成中" : completed ? "图片生成完成" : running?.state.title,
+    toolTitle: images.length > 0 ? "图片生成完成" : running ? "图片生成中" : completed ? "图片生成完成" : undefined,
     toolError: errored?.state.error,
     toolName: completed?.tool ?? input.tools[0]?.tool,
     toolRunning: Boolean(running),

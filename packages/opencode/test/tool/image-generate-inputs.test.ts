@@ -44,7 +44,7 @@ describe("image generate input filtering", () => {
     ).toEqual(["https://example.com/internal.png"])
   })
 
-  test("uses backend-supported internal img2img task type by default", () => {
-    expect(getTaskType({ generationMode: "img2img" })).toBe("i2i_qwen")
+  test("keeps internal image generation on txt2img task type by default", () => {
+    expect(getTaskType({ generationMode: "img2img" })).toBe("txt2img_qwen")
   })
 })
