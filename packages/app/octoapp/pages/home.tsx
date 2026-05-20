@@ -12,10 +12,12 @@ import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { DialogSelectServer } from "@/components/dialog-select-server"
 import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 
 export default function Home() {
   const sync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
   const layout = useLayout()
   const platform = usePlatform()
   const dialog = useDialog()
@@ -42,6 +44,9 @@ export default function Home() {
     server.projects.touch(directory)
     const slug = base64Encode(directory)
     navigate(`/${slug}/chat`, { replace: true })
+    // Ensure project is registered on the server by making an API call
+    // InstanceMiddleware -> InstanceStore.load -> Project.fromDirectory() -> upsert to SQLite
+    void globalSDK.createClient({ directory }).session.list().catch(() => {})
   }
 
   async function chooseProject() {

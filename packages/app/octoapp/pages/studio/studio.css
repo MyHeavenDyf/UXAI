@@ -201,6 +201,7 @@
   color: #fff;
   background: linear-gradient(135deg, var(--studio-violet), var(--studio-magenta));
   box-shadow: 0 12px 30px rgba(209, 0, 216, 0.26);
+  
 }
 
 .studio-menu {
@@ -208,15 +209,14 @@
   z-index: 30;
   bottom: 78px;
   left: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 22px 64px rgba(15, 23, 42, 0.14);
+  background: rgba(255, 255, 255, 1);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px);
   border-radius: 12px;
 }
 
 .studio-result-card {
-  border-radius: 14px;
+  border-radius: 10px;
   background: linear-gradient(180deg, rgba(252, 232, 255, 0.9), rgba(246, 236, 255, 0.88));
 }
 

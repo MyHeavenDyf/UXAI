@@ -375,6 +375,7 @@ export const JimengImageGenerateTool = Tool.define<typeof Parameters, Metadata, 
           url: image.url,
           filename: `jimeng-${index + 1}.png`,
         }))
+        const outputImages = attachments.map((item) => item.url).filter((url) => !url.startsWith("data:image/"))
         return {
           title: "Jimeng image generation",
           metadata: {
@@ -388,7 +389,8 @@ export const JimengImageGenerateTool = Tool.define<typeof Parameters, Metadata, 
               provider: result.provider,
               model: result.model,
               imageCount: result.images.length,
-              primaryImage: attachments[0]?.filename ?? null,
+              images: outputImages,
+              primaryImage: outputImages[0] ?? null,
             },
             null,
             2,

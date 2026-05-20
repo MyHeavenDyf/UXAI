@@ -250,6 +250,20 @@ function isRenderableImageUrl(url: string) {
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
 }
 
+export function extractInternalImages(response: QueryTaskResponse) {
+  const directResults = Array.isArray(response.result?.results)
+    ? response.result.results.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : []
+  const versionedResults = Array.isArray(response.result?.results_v2)
+    ? response.result.results_v2
+        .map((item) => item.output?.image)
+        .filter((item): item is string => typeof item === "string" && item.length > 0)
+    : []
+  const imageUrls = [...directResults, ...versionedResults, ...collectImageUrls(response)].filter(isRenderableImageUrl)
+  const binaryImages = collectBase64Images(response).map(base64ToDataUrl).filter(isRenderableImageUrl)
+  return Array.from(new Set([...imageUrls, ...binaryImages]))
+}
+
 export function summarizeInternalOutput(raw: unknown, bodyText = "") {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { bodyBytes: bodyText.length }
@@ -450,28 +464,17 @@ function buildPrompt(input: ImageGenerateInput) {
     .join("\n")
 }
 
-function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
+export function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
   const txt2img = env("IMAGE_TXT2IMG_TASK_TYPE") ?? "txt2img_qwen"
-  const img2img = env("IMAGE_IMG2IMG_TASK_TYPE") ?? "img2img_qwen"
-  return input.taskType ?? (input.generationMode === "img2img" ? img2img : txt2img)
+  return input.taskType ?? txt2img
 }
 
 export async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
   const queryTaskBaseUrl = env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
-  const referenceImages = resolveReferenceImages(input)
-  const generationMode: InternalTaskType = referenceImages.length > 0 ? "img2img" : "txt2img"
-
-  if (generationMode === "txt2img" && referenceImages.length > 0) {
-    throw new Error(
-      [
-        "Invalid internal image generation arguments.",
-        "generationMode is txt2img, but referenceImages is not empty.",
-        `referenceImages=${JSON.stringify(referenceImages)}`,
-      ].join("\n"),
-    )
-  }
+  const ignoredReferenceImages = resolveReferenceImages(input)
+  const generationMode: InternalTaskType = "txt2img"
 
   const targetSize = {
     width: Number(input.extra && typeof input.extra.width === "number" ? input.extra.width : 1024),
@@ -492,7 +495,7 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
       target_size: targetSize,
       loras: Array.isArray(input.extra?.loras) ? input.extra.loras : [],
       mode: input.extra && typeof input.extra.mode === "string" ? input.extra.mode : "performance",
-      ref_img_list: referenceImages,
+      ref_img_list: [],
       customer_prompt: input.prompt,
       prompt: buildPrompt(input),
     },
@@ -500,6 +503,7 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
   const debugRequest = {
     url: createTaskUrl,
     method: METHOD,
+    ignoredReferenceImageCount: ignoredReferenceImages.length,
     body: requestBody,
   }
 
@@ -526,9 +530,7 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     const progress = getTaskProgress(queryJson)
 
     if (isSuccessResponse(queryJson)) {
-      const imageUrls = collectImageUrls(queryJson).filter(isRenderableImageUrl)
-      const binaryImages = collectBase64Images(queryJson).map(base64ToDataUrl).filter(isRenderableImageUrl)
-      const images = Array.from(new Set([...imageUrls, ...binaryImages]))
+      const images = extractInternalImages(queryJson)
       return {
         provider: "internel",
         model: taskType,
@@ -596,6 +598,7 @@ export const InternelImageGenerateTool = Tool.define<
         url: image.url,
         filename: `internel-${index + 1}.png`,
       }))
+      const outputImages = attachments.map((item) => item.url).filter((url) => !url.startsWith("data:image/"))
       return {
         title: "Internal image generation",
         metadata: {
@@ -603,6 +606,7 @@ export const InternelImageGenerateTool = Tool.define<
             createTaskUrl: env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL,
             queryTaskBaseUrl: env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL,
             userIdx: params.extra && typeof params.extra.userIdx === "string" ? params.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
+            ignoredReferenceImageCount: resolveReferenceImages(params).length,
           },
           response: summarizeInternalOutput(result.raw),
           statusCode: 200,
@@ -613,7 +617,8 @@ export const InternelImageGenerateTool = Tool.define<
             provider: result.provider,
             model: result.model,
             imageCount: result.images.length,
-            primaryImage: attachments[0]?.filename ?? null,
+            images: outputImages,
+            primaryImage: outputImages[0] ?? null,
           },
           null,
           2,

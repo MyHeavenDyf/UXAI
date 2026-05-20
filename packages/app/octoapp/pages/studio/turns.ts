@@ -10,6 +10,7 @@ export type StudioTurnData = {
   toolTitle?: string
   toolError?: string
   toolName?: string
+  toolRunning?: boolean
   result?: StudioGenerationResult
   createdAt: number
   isLatest: boolean
@@ -93,11 +94,17 @@ function parseToolImages(output: string) {
 function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
   const state = part.state as Record<string, unknown>
   const attachments = Array.isArray(state.attachments) ? state.attachments : []
-  return attachments
+  const content = Array.isArray(state.content) ? state.content : []
+  return [...attachments, ...content]
     .flatMap((item) => {
       if (!item || typeof item !== "object") return []
       const record = item as Record<string, unknown>
-      const url = typeof record.url === "string" ? record.url : undefined
+      const url =
+        typeof record.url === "string"
+          ? record.url
+          : typeof record.uri === "string"
+            ? record.uri
+            : undefined
       return url ? [url] : []
     })
     .filter(isRenderableImageUrl)
@@ -137,9 +144,10 @@ function buildResult(input: {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
     assistantText: input.assistantText,
-    toolTitle: completed?.state.title ?? running?.state.title,
+    toolTitle: images.length > 0 ? "图片生成完成" : running ? "图片生成中" : completed ? "图片生成完成" : undefined,
     toolError: errored?.state.error,
     toolName: completed?.tool ?? input.tools[0]?.tool,
+    toolRunning: Boolean(running),
     result: images.length
       ? {
           id: `studio_${completed?.id ?? input.messageID}`,
@@ -206,7 +214,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       id: `studio_${input.fallback.id}`,
       userText: extractUserDemand(input.fallback.prompt),
       assistantText: "",
-      toolTitle: "图片生成",
+      toolTitle: "图片生成完成",
       toolName: input.fallback.provider,
       result: input.fallback,
       createdAt: input.fallback.createdAt,

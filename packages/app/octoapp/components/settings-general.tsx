@@ -8,13 +8,15 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useParams } from "@solidjs/router"
+import { useNavigate, useParams } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
 import { usePlatform, type DisplayBackend } from "@/context/platform"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useServer } from "@/context/server"
+import { useLayout } from "@/context/layout"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import {
   monoDefault,
   monoFontFamily,
@@ -292,6 +294,8 @@ export const SettingsGeneral: Component = () => {
   const GeneralSection = () => {
     const server = useServer()
     const platform = usePlatform()
+    const layout = useLayout()
+    const navigate = useNavigate()
     const currentProjectDir = () => server.projects.last()
 
     const handlechangeProjectDir = async () => {
@@ -299,11 +303,14 @@ export const SettingsGeneral: Component = () => {
       const result = await platform.openDirectoryPickerDialog()
       if (result && typeof result === "string") {
         server.projects.touch(result)
+        layout.projects.open(result)
         showToast({
           variant: "success",
           icon: "circle-check",
           title: language.t("settings.general.projectDir.changed"),
         })
+        const slug = base64Encode(result)
+        navigate(`/${slug}/chat`, { replace: true })
       }
     }
 

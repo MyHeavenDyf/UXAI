@@ -28,6 +28,18 @@
   width: 20px;
   height: 20px;
 }
+.studio-menu > button {
+  height: auto;
+  padding: 7px 8px;
+  font-size: 14px;
+  line-height: 22px;
+  gap: 4px;
+}
+.studio-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .studio-menu > button:nth-of-type(1) > span:first-child { background: url('/studio/imgCreate1.svg') center/contain no-repeat; }
 .studio-menu > button:nth-of-type(2) > span:first-child { background: url('/studio/imgCreate2.svg') center/contain no-repeat; }
 .studio-menu > button:nth-of-type(3) > span:first-child { background: url('/studio/imgCreate3.svg') center/contain no-repeat; }
@@ -100,4 +112,75 @@
   border-radius: 0;
   background: url('/IllustrationInsightEmpty.svg') center/contain no-repeat !important;
   box-shadow: none !important;
+}
+
+/* 9. StyleMenu icons -- 渐变色块 → studioModel1~11.png */
+.studio-menu .grid > button > span:first-child {
+  font-size: 0;
+  width: 42px;
+  height: 42px;
+  background: transparent !important;
+}
+.studio-menu .grid > button:nth-of-type(1)  > span:first-child { background: url('/studio/studioModel1.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(2)  > span:first-child { background: url('/studio/studioModel2.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(3)  > span:first-child { background: url('/studio/studioModel3.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(4)  > span:first-child { background: url('/studio/studioModel4.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(5)  > span:first-child { background: url('/studio/studioModel5.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(6)  > span:first-child { background: url('/studio/studioModel6.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(7)  > span:first-child { background: url('/studio/studioModel7.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(8)  > span:first-child { background: url('/studio/studioModel8.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(9)  > span:first-child { background: url('/studio/studioModel9.png')  center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(10) > span:first-child { background: url('/studio/studioModel10.png') center/contain no-repeat !important; }
+.studio-menu .grid > button:nth-of-type(11) > span:first-child { background: url('/studio/studioModel11.png') center/contain no-repeat !important; }
+
+/* 10. StyleMenu 弹框样式覆盖 */
+.studio-menu > div:first-child {
+  font-size: 14px;
+  line-height: 22px;
+  color: #191919;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.studio-menu .grid {
+  gap: 8px;
+}
+
+.studio-menu .grid > button {
+  padding: 9px 8px;
+  height: auto;
+}
+
+.studio-menu .grid > button > span:nth-child(2) {
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.studio-menu .grid > button > span.ml-auto {
+  font-size: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  background: url('/studio/checkmark.svg') center/contain no-repeat;
+}
+
+/* 11. 工具栏下拉按钮文字不换行，超出省略 */
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(1),
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(2),
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(3) {
+  max-width: 96px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(4),
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(5),
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(6) {
+  flex-shrink: 0;
+}
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(1) > span:first-child,
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(2) > span:first-child,
+.studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(3) > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

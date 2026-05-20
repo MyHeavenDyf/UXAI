@@ -1,7 +1,8 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -101,21 +102,46 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
   const projectDir = useProjectDir()
 
-  const [sessions, { refetch }] = createResource(projectDir, async (dir) => {
-    if (!dir) return [] as Session[]
-    const client = globalSDK.createClient({ directory: dir })
+  // Track which directory the fetched data came from, so we only show content
+  // when the data matches the current directory (prevents flicker when dir changes from home → project)
+  const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
+  const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
+
+  // Insight sessions
+  const [sessions, { refetch }] = createResource(projectDir, async (d) => {
+    if (!d) return [] as Session[]
+    const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    setInsightFetchedDir(d)
     return data.filter(s => s.agent === "octo_insight")
   })
 
-  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (dir) => {
-    if (!dir) return [] as Session[]
-    const client = globalSDK.createClient({ directory: dir })
+  // Reconciled store with key="id" so <For> items keep stable references
+  const [sessionList, setSessionList] = createStore<Session[]>([])
+  createEffect(on(sessions, (data) => {
+    if (data) setSessionList(reconcile(data, { key: "id" }))
+  }, { defer: true }))
+
+  // Insight data is "stable" when fetched dir matches current dir
+  const insightStable = createMemo(() => insightFetchedDir() === projectDir())
+
+  // Make sessions
+  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (d) => {
+    if (!d) return [] as Session[]
+    const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    setMakeFetchedDir(d)
     return data.filter(s => s.agent === "octo_make")
   })
+
+  const [makeSessionList, setMakeSessionList] = createStore<Session[]>([])
+  createEffect(on(makeSessions, (data) => {
+    if (data) setMakeSessionList(reconcile(data, { key: "id" }))
+  }, { defer: true }))
+
+  const makeStable = createMemo(() => makeFetchedDir() === projectDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   let refetchMakeTimer: ReturnType<typeof setTimeout> | undefined
@@ -124,9 +150,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
       clearTimeout(refetchTimer)
-      refetchTimer = setTimeout(() => void refetch(), 300)
+      refetchTimer = setTimeout(() => void refetch(), 1000)
       clearTimeout(refetchMakeTimer)
-      refetchMakeTimer = setTimeout(() => void refetchMake(), 300)
+      refetchMakeTimer = setTimeout(() => void refetchMake(), 1000)
     }
   })
   onCleanup(unsub)
@@ -197,7 +223,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           <Show when={!insightCollapsed()}>
             <div class="flex flex-col gap-[1px]">
               <Show
-                when={!sessions.loading || sessions() !== undefined}
+                when={insightStable()}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
@@ -205,14 +231,14 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 }
               >
                 <Show
-                  when={(sessions() ?? []).length > 0}
+                  when={sessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
                       暂无对话
                     </div>
                   }
                 >
-                  <For each={sessions() ?? []}>
+                  <For each={sessionList}>
                     {(session) => {
                       const isActive = () => activeSessionId() === session.id
                       const [sessionStore] = globalSync.child(session.directory)
@@ -313,7 +339,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           <Show when={!makeCollapsed()}>
             <div class="flex flex-col gap-[1px]">
               <Show
-                when={!makeSessions.loading || makeSessions() !== undefined}
+                when={makeStable()}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
@@ -321,14 +347,14 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 }
               >
                 <Show
-                  when={(makeSessions() ?? []).length > 0}
+                  when={makeSessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
                       暂无对话
                     </div>
                   }
                 >
-                  <For each={makeSessions() ?? []}>
+                  <For each={makeSessionList}>
                     {(session) => {
                       const isActive = () => activeSessionId() === session.id
                       const [sessionStore] = globalSync.child(session.directory)
