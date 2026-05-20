@@ -882,18 +882,23 @@ function IconTool(props: { label: string; onClick: () => void }): JSX.Element {
 
 function CapabilityMenu(props: { value: StudioCapability; onSelect: (value: StudioCapability) => void }): JSX.Element {
   return (
-    <div class="studio-menu w-[178px] p-1">
+    <div class="studio-menu w-[175px] p-1">
       <For each={STUDIO_CAPABILITIES}>
-        {(item) => (
-          <button
-            type="button"
-            onClick={() => props.onSelect(item.id)}
-            class="w-full h-10 rounded-[8px] px-3 flex items-center gap-2 text-left text-[13px] hover:bg-[#f4f5f7]"
-            classList={{ "bg-[#f0f1f3]": item.id === props.value }}
-          >
-            <span style={{ color: item.tone }}>✦</span>
-            <span>{item.label}</span>
-          </button>
+        {(item, index) => (
+          <>
+            <button
+              type="button"
+              onClick={() => props.onSelect(item.id)}
+              class="w-full h-10 rounded-[8px] px-3 flex items-center gap-2 text-left text-[13px] hover:bg-[#f4f5f7]"
+              classList={{ "bg-[#f0f1f3]": item.id === props.value }}
+            >
+              <span style={{ color: item.tone }}>✦</span>
+              <span>{item.label}</span>
+            </button>
+            <Show when={index() === 1 || index() === 5}>
+              <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 12px" }} />
+            </Show>
+          </>
         )}
       </For>
     </div>
@@ -1010,9 +1015,10 @@ function StudioConversation(props: {
             <Show when={turn.assistantText}>
               <div class="mt-6 text-[13px] leading-[22px] whitespace-pre-wrap">{turn.assistantText}</div>
             </Show>
-            <div class="studio-result-card mt-6 p-4">
-              <div class="inline-flex items-center gap-1 rounded-full bg-white/70 text-[#c100d8] px-2 py-1 text-[12px]">
-                ✦ {capabilityLabel(props.result?.capability ?? "image.generate")}
+            <div class="studio-result-card mt-5 p-3">
+              <div class="inline-flex items-center gap-1 rounded-[14px] bg-white" style={{ "font-size": "12px", "line-height": "20px", color: "#BC03D4", padding: "4px 12px", background: "#fff" }}>
+                <div style={{ width: "12px", height: "12px", "background-image": "url(/studio/picture_star_fill.svg)", "background-size": "contain", "background-repeat": "no-repeat" }} />
+                {capabilityLabel(props.result?.capability ?? "image.generate")}
               </div>
               <div class="mt-4 text-[16px] font-semibold">{turn.toolTitle ?? "图片生成中"}</div>
               <div class="mt-1 text-[13px] text-[var(--studio-muted)]">
@@ -1033,7 +1039,7 @@ function StudioConversation(props: {
                 <div class="grid grid-cols-4 gap-2 mt-5">
                   <For each={turn.result?.images ?? []}>
                     {(image) => (
-                      <button type="button" onClick={() => props.onSelectImage(image.id)} class="aspect-[3/4] overflow-hidden rounded-[8px] bg-white">
+                      <button type="button" onClick={() => props.onSelectImage(image.id)} class="aspect-[3/4] overflow-hidden rounded-[14px] bg-white">
                         <img src={image.thumbnailUrl ?? image.url} class="w-full h-full object-cover" alt="" />
                       </button>
                     )}
