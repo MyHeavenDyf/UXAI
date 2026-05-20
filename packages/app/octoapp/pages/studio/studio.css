@@ -201,6 +201,7 @@
   color: #fff;
   background: linear-gradient(135deg, var(--studio-violet), var(--studio-magenta));
   box-shadow: 0 12px 30px rgba(209, 0, 216, 0.26);
+  
 }
 
 .studio-menu {
