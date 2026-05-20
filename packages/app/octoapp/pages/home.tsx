@@ -25,10 +25,32 @@ export default function Home() {
   const server = useServer()
   const language = useLanguage()
   const homedir = createMemo(() => sync.data.path.home)
+
+  // Merge server-side projects (from API) with client-side persisted projects
+  // This ensures projects show even if server registration failed
   const recent = createMemo(() => {
-    return sync.data.project
+    const serverProjects = sync.data.project
+    const clientProjects = server.projects.list()
+
+    // Create map of server projects by worktree
+    const serverByWorktree = new Map(serverProjects.map((p) => [p.worktree, p]))
+
+    // Merge: start with server projects, add client projects not in server list
+    const merged = [...serverProjects]
+    for (const cp of clientProjects) {
+      if (!serverByWorktree.has(cp.worktree)) {
+        // Client-only project: create minimal entry
+        merged.push({
+          id: cp.worktree,
+          worktree: cp.worktree,
+          time: { created: 0, updated: 0 },
+        } as typeof serverProjects[0])
+      }
+    }
+
+    return merged
       .slice()
-      .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? b.time.created))
+      .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
       .slice(0, 5)
   })
 
@@ -92,7 +114,7 @@ export default function Home() {
         {server.name}
       </Button>
       <Switch>
-        <Match when={sync.data.project.length > 0}>
+        <Match when={recent().length > 0}>
           <div class="mt-20 w-full flex flex-col gap-4">
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-14-medium text-text-strong">{language.t("home.recentProjects")}</div>
@@ -111,7 +133,9 @@ export default function Home() {
                   >
                     {project.worktree.replace(homedir(), "~")}
                     <div class="text-14-regular text-text-weak">
-                      {DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()}
+                      {(project.time.updated ?? project.time.created) > 0
+                        ? DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()
+                        : ""}
                     </div>
                   </Button>
                 )}
