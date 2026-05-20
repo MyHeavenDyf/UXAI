@@ -25,7 +25,7 @@ import { BusEvent } from "../bus/bus-event"
 import { Bus } from "@/bus"
 import { TuiEvent } from "@/cli/cmd/tui/event"
 import open from "open"
-import { Effect, Exit, Layer, Option, Context, Schema, Stream } from "effect"
+import { Effect, Exit, Layer, Option, Context, Schema, Stream, Cause } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -71,6 +71,9 @@ export const Failed = NamedError.create(
 
 type MCPClient = Client
 
+const StatusConnecting = Schema.Struct({ status: Schema.Literal("connecting") }).annotate({
+  identifier: "MCPStatusConnecting",
+})
 const StatusConnected = Schema.Struct({ status: Schema.Literal("connected") }).annotate({
   identifier: "MCPStatusConnected",
 })
@@ -89,6 +92,7 @@ const StatusNeedsClientRegistration = Schema.Struct({
 }).annotate({ identifier: "MCPStatusNeedsClientRegistration" })
 
 export const Status = Schema.Union([
+  StatusConnecting,
   StatusConnected,
   StatusDisabled,
   StatusFailed,
@@ -512,17 +516,33 @@ export const layer = Layer.effect(
                 return
               }
 
-              const result = yield* create(key, mcp).pipe(Effect.catch(() => Effect.void))
-              if (!result) return
+              s.status[key] = { status: "connecting" }
 
-              s.status[key] = result.status
-              if (result.mcpClient) {
-                s.clients[key] = result.mcpClient
-                s.defs[key] = result.defs!
-                watch(s, key, result.mcpClient, bridge, mcp.timeout)
-              }
+              yield* Effect.forkScoped(
+                Effect.gen(function* () {
+                  const result = yield* create(key, mcp).pipe(
+                    Effect.catchCause((cause) => {
+                      const error = Cause.squash(cause)
+                      const msg = error instanceof Error ? error.message : String(error)
+                      return Effect.succeed<CreateResult>({
+                        status: {
+                          status: "failed" as const,
+                          error: msg,
+                        },
+                      })
+                    }),
+                  )
+
+                  s.status[key] = result.status
+                  if (result.mcpClient) {
+                    s.clients[key] = result.mcpClient
+                    s.defs[key] = result.defs!
+                    watch(s, key, result.mcpClient, bridge, mcp.timeout)
+                  }
+                }),
+              )
             }),
-          { concurrency: "unbounded" },
+          { concurrency: "unbounded", discard: true },
         )
 
         yield* Effect.addFinalizer(() =>

@@ -303,7 +303,6 @@ export async function bootstrapDirectory(input: {
             )
           }),
         ),
-      () => Promise.resolve(input.loadSessions(input.directory)),
       () => input.queryClient.fetchQuery(loadMcpQuery(input.directory, input.sdk)),
       () =>
         input.queryClient.fetchQuery(loadProvidersQuery(input.directory, input.sdk)).catch((err) => {

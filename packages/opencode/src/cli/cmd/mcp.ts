@@ -141,6 +141,9 @@ export const McpListCommand = effectCmd({
         if (hasOAuth && hasStoredTokens) {
           hint = " (OAuth)"
         }
+      } else if (status.status === "connecting") {
+        statusIcon = "○"
+        statusText = "connecting"
       } else if (status.status === "disabled") {
         statusIcon = "○"
         statusText = "disabled"
@@ -154,7 +157,7 @@ export const McpListCommand = effectCmd({
       } else {
         statusIcon = "✗"
         statusText = "failed"
-        hint = "\n    " + status.error
+        hint = "\n    " + (status as { status: "failed"; error: string }).error
       }
 
       const typeHint = serverConfig.type === "remote" ? serverConfig.url : serverConfig.command.join(" ")
