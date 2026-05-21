@@ -52,11 +52,11 @@ export function NewSessionView(props: NewSessionViewProps) {
     <div class={ROOT_CLASS}>
       <div class="h-12 shrink-0" aria-hidden />
       <div class="flex-1 px-6 pb-30 flex items-center justify-center text-center">
-        <div class="w-full max-w-200 flex flex-col items-center text-center relative">
-          <img src={resultEmptyUrl} alt="" class="w-[414px] h-[417px] shrink-0" />
-          <div class="absolute bottom-[40px]">
-            <div class="text-20-medium text-text-strong" style={{ "margin-top": "48px" }}>Octo AI</div>
-          <div class="text-14-regular text-text-weak">告诉我您的目标，我将为您深度调研并一键生成设计方案。</div>
+        <div class="w-full max-w-200 flex flex-col items-center text-center">
+          <img src={resultEmptyUrl} alt="" class="w-[270px] h-[240px] shrink-0" />
+          <div class="flex flex-col items-center gap-2">
+            <div class="text-20-medium text-text-strong">Octo AI</div>
+            <div class="text-14-regular text-text-weak">告诉我您的目标，我将为您深度调研并一键生成设计方案。</div>
           </div>
         </div>
       </div>

@@ -36,7 +36,7 @@ export function OctoTopbar(): JSX.Element {
 
   const activeHref = () => {
     const p = location.pathname
-    if (p.startsWith("/chat")) return "/chat"
+    if (p === "/" || p.startsWith("/chat")) return "/chat"
     if (p.startsWith("/studio")) return "/studio"
     return "/insight"
   }
@@ -45,15 +45,15 @@ export function OctoTopbar(): JSX.Element {
 
   return (
     <div
-      class="h-[56px] shrink-0 flex items-center gap-[16px]"
+      class="h-[64px] shrink-0 flex items-center gap-[16px]"
       style={{
         background: "rgba(255, 255, 255, 0.72)",
         "backdrop-filter": "blur(20px)",
         "-webkit-backdrop-filter": "blur(20px)",
-        "border-bottom": "1px solid rgba(0, 0, 0, 0.07)",
+        "border-bottom": "1px solid var(--border-weak-base)",
         "-webkit-app-region": "drag",
         "padding-left": `${TRAFFIC_LIGHT_INSET}px`,
-        "padding-right": "16px",
+        "padding-right": "24px",
       }}
     >
       {/* Left: Logo + Brand — starts after traffic lights */}

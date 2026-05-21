@@ -1,6 +1,7 @@
 import { createEffect, createMemo, Show } from "solid-js"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { Button } from "@opencode-ai/ui/button"
+import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { useServer } from "@/context/server"
@@ -77,6 +78,7 @@ export function TitlebarSimple() {
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
     if (path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
+    if (path === "/") return "chat"
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
 
@@ -167,7 +169,7 @@ export function TitlebarSimple() {
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
         <img src="/OctoLogo.svg" alt="" style={{ width: "26px", height: "24px" }} />
-        <span class="text-16-medium text-text-strong">Octo AI</span>
+        <span class="text-16-medium text-text-strong">Octo Agent</span>
       </div>
 
       <div class="flex-1 flex items-center justify-center min-w-0" style={{ zoom: counterZoom() }}>
@@ -211,9 +213,10 @@ export function TitlebarSimple() {
               class="hidden md:flex w-[240px] max-w-full min-w-0 items-center gap-2 justify-between rounded-md border border-border-weak-base bg-surface-panel shadow-none cursor-default"
               aria-label={language.t("session.header.searchFiles")}
             >
-              <div class="flex min-w-0 flex-1 items-center overflow-visible">
+              <div class="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
+                <Icon name="magnifying-glass" size="small" class="text-text-weak shrink-0" />
                 <span class="flex-1 min-w-0 text-12-regular text-text-weak truncate text-left">
-                  {language.t("session.header.searchFiles")}
+                  搜索Assets Hub
                 </span>
               </div>
             </Button>

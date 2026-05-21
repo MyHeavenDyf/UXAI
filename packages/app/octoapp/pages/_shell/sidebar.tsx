@@ -180,8 +180,8 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       class="shrink-0 flex flex-col h-full overflow-hidden"
       style={{
         width: `${props.width}px`,
-        background: "transparent",
-        "border-right": "1px solid var(--octo-border-default, #E5E7EB)",
+        background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+        "border-right": "1px solid var(--border-weak-base)",
       }}
     >
       {/* Scrollable: Insight + Make sessions */}
@@ -197,12 +197,12 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               type="button"
               onClick={() => setInsightCollapsed((v) => !v)}
               class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-              style={{ color: "var(--octo-text-secondary, #777777)" }}
+              style={{ color: "var(--text-weak)" }}
             >
               <ChevronRightIcon collapsed={insightCollapsed()} />
               <span
                 class="text-[12px] font-medium select-none leading-[20px]"
-                style={{ color: "var(--octo-text-tertiary, #364153)" }}
+                style={{ color: "var(--text-weak)" }}
               >
                 Octo Insight
               </span>
@@ -212,9 +212,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               onClick={newSession}
               title="新建 Insight 对话"
               class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
-              style={{ color: "var(--octo-text-secondary, #777777)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(0,103,209,0.08))"; e.currentTarget.style.color = "var(--octo-brand, #0067D1)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--octo-text-secondary, #777777)" }}
+              style={{ color: "var(--text-weak)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--text-weak)" }}
             >
               <PlusIcon />
             </button>
@@ -257,15 +257,15 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                         <button
                           type="button"
                           onClick={() => navigate(`/insight/${session.id}`)}
-                          class="w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center gap-2 relative"
+                          class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2 relative"
                           style={{
-                            height: "48px",
-                            background: isActive() ? "var(--octo-brand-a8, rgba(10,89,247,0.08))" : "transparent",
-                            color: isActive() ? "var(--octo-brand, rgba(10,89,247,1))" : "var(--octo-text-primary, #191919)",
+                            height: "36px",
+                            background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
+                            color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
                             "font-weight": isActive() ? "500" : "400",
                           }}
-                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(10,89,247,0.08))"; e.currentTarget.style.color = "var(--octo-brand, rgba(10,89,247,1))" } }}
-                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--octo-text-primary, #191919)" } }}
+                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" } }}
+                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-strong)" } }}
                         >
                           <Show when={isActive()}>
                             <span
@@ -273,7 +273,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               style={{
                                 height: "16px",
                                 width: "3px",
-                                background: "var(--octo-brand, #0067D1)",
+                                background: "var(--text-interactive-base)",
                                 transform: "translateY(-50%)",
                               }}
                             />
@@ -314,12 +314,12 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               type="button"
               onClick={() => setMakeCollapsed((v) => !v)}
               class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-              style={{ color: "var(--octo-text-secondary, #777777)" }}
+              style={{ color: "var(--text-weak)" }}
             >
               <ChevronRightIcon collapsed={makeCollapsed()} />
               <span
                 class="text-[12px] font-medium select-none leading-[20px]"
-                style={{ color: "var(--octo-text-tertiary, #364153)" }}
+                style={{ color: "var(--text-weak)" }}
               >
                 Octo Make
               </span>
@@ -329,9 +329,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               onClick={newMakeSession}
               title="新建 Make 对话"
               class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
-              style={{ color: "var(--octo-text-secondary, #777777)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(0,103,209,0.08))"; e.currentTarget.style.color = "var(--octo-brand, #0067D1)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--octo-text-secondary, #777777)" }}
+              style={{ color: "var(--text-weak)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--text-weak)" }}
             >
               <PlusIcon />
             </button>
@@ -373,15 +373,15 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                         <button
                           type="button"
                           onClick={() => navigate(`/make/${session.id}`)}
-                          class="w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                          class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center relative"
                           style={{
-                            height: "48px",
-                            background: isActive() ? "var(--octo-brand-a8, rgba(10,89,247,0.08))" : "transparent",
-                            color: isActive() ? "var(--octo-brand, rgba(10,89,247,1))" : "var(--octo-text-primary, #191919)",
+                            height: "36px",
+                            background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
+                            color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
                             "font-weight": isActive() ? "500" : "400",
                           }}
-                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--octo-brand-a8, rgba(10,89,247,0.08))"; e.currentTarget.style.color = "var(--octo-brand, rgba(10,89,247,1))" } }}
-                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--octo-text-primary, #191919)" } }}
+                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" } }}
+                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-strong)" } }}
                         >
                           <Show when={isActive()}>
                             <span
@@ -389,7 +389,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               style={{
                                 height: "16px",
                                 width: "3px",
-                                background: "var(--octo-brand, #0067D1)",
+                                background: "var(--text-interactive-base)",
                                 transform: "translateY(-50%)",
                               }}
                             />
@@ -451,11 +451,11 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 }}
                 style={{
                   height: "36px",
-                  background: isActive() ? "var(--octo-surface-selected, #EFF6FF)" : "transparent",
-                  color: isActive() ? "var(--octo-brand, #0067D1)" : "var(--octo-text-primary, #191919)",
+                  background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
+                  color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
                   "font-weight": isActive() ? "500" : "400",
                 }}
-                onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+                onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
                 onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
               >
                 <span class="flex items-center justify-center shrink-0">
@@ -470,7 +470,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                     style={{
                       height: "20px",
                       width: "3px",
-                      background: "var(--octo-brand, #0067D1)",
+                      background: "var(--text-interactive-base)",
                       transform: "translateY(-50%)",
                     }}
                   />
@@ -487,8 +487,8 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           type="button"
           title="设置"
           class="w-full flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "var(--octo-text-primary, #191919)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+          style={{ height: "36px", color: "var(--text-strong)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
           onClick={() => dialog.show(() => <DialogSettings />)}
         >

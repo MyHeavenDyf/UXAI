@@ -39,7 +39,7 @@ export default function ChatPage() {
     local.agent.set("octo_ai")
   })
 
-  const [sidebarWidth, setSidebarWidth] = createSignal(300)
+  const [sidebarWidth, setSidebarWidth] = createSignal(296)
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
