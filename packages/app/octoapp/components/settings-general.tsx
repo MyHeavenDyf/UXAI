@@ -505,59 +505,6 @@ export const SettingsGeneral: Component = () => {
 
       <SettingsList>
         <SettingsRow
-          title={language.t("settings.general.row.colorScheme.title")}
-          description={language.t("settings.general.row.colorScheme.description")}
-        >
-          <Select
-            data-action="settings-color-scheme"
-            options={colorSchemeOptions()}
-            current={colorSchemeOptions().find((o) => o.value === theme.colorScheme())}
-            value={(o) => o.value}
-            label={(o) => o.label}
-            onSelect={(option) => option && theme.setColorScheme(option.value)}
-            onHighlight={(option) => {
-              if (!option) return
-              theme.previewColorScheme(option.value)
-              return () => theme.cancelPreview()
-            }}
-            variant="secondary"
-            size="small"
-            triggerVariant="settings"
-            triggerStyle={{ "min-width": "220px" }}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.general.row.theme.title")}
-          description={
-            <>
-              {language.t("settings.general.row.theme.description")}{" "}
-              <Link href="https://opencode.ai/docs/themes/">{language.t("common.learnMore")}</Link>
-            </>
-          }
-        >
-          <Select
-            data-action="settings-theme"
-            options={themeOptions()}
-            current={themeOptions().find((o) => o.id === theme.themeId())}
-            value={(o) => o.id}
-            label={(o) => o.name}
-            onSelect={(option) => {
-              if (!option) return
-              theme.setTheme(option.id)
-            }}
-            onHighlight={(option) => {
-              if (!option) return
-              theme.previewTheme(option.id)
-              return () => theme.cancelPreview()
-            }}
-            variant="secondary"
-            size="small"
-            triggerVariant="settings"
-          />
-        </SettingsRow>
-
-        <SettingsRow
           title={language.t("settings.general.row.uiFont.title")}
           description={language.t("settings.general.row.uiFont.description")}
         >
