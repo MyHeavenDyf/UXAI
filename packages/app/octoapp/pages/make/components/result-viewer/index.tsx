@@ -73,6 +73,7 @@ export function ResultViewer(props: {
   activeId: string | null
   onActivate: (id: string) => void
   onClose: (id: string) => void
+  onContentChange?: (id: string, content: string) => void
 }): JSX.Element {
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
@@ -128,7 +129,11 @@ export function ResultViewer(props: {
                     <JsonRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "html"}>
-                    <HtmlRenderer content={tab().content} mode={getHtmlMode(tab().id)} />
+                    <HtmlRenderer
+                      content={tab().content}
+                      mode={getHtmlMode(tab().id)}
+                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                    />
                   </Match>
                 </Switch>
               </div>
