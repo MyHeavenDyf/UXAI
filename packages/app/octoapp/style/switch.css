@@ -1,0 +1,14 @@
+[data-component="switch"]:hover:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
+  border-color: var(--border-weak-base);
+  background: var(--surface-base);
+}
+
+[data-component="switch"][data-checked] [data-slot="switch-control"] {
+  border-color: #0A59F7;
+  background-color: #0A59F7;
+}
+
+[data-component="switch"][data-checked]:hover:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
+  border-color: #0A59F7;
+  background-color: #0A59F7;
+}

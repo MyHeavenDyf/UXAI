@@ -1,6 +1,7 @@
 import { Show, createMemo, For } from "solid-js"
 import { produce } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -96,7 +97,7 @@ export function Sidebar(props: {
             onClick={() => {
               const dir = props.currentDir()
               if (!dir) return
-              navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}`)
+              navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}?hint=${Date.now()}`)
             }}
           >
             {language.t("command.session.new")}
@@ -124,12 +125,19 @@ export function Sidebar(props: {
               const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
               const octoAiSessions = createMemo(() => sessions().filter(s => s.agent === "octo_ai"))
               const groupedSessions = createMemo(() => groupSessionsByDate(octoAiSessions(), sortNow()))
+              const isLoading = createMemo(() => store.status === "loading")
               return (
-                <Show when={groupedSessions().length > 0} fallback={
+                <Show when={!isLoading()} fallback={
                   <div class="text-12-regular text-text-weak py-4 text-center">
-                    {language.t("session.review.empty")}
+                    <Spinner class="size-4 mx-auto mb-1" />
+                    {language.t("common.loading")}
                   </div>
                 }>
+                  <Show when={groupedSessions().length > 0} fallback={
+                    <div class="text-12-regular text-text-weak py-4 text-center">
+                      {language.t("session.review.empty")}
+                    </div>
+                  }>
                   <For each={groupedSessions()}>
                     {(group) => (
                       <div class="mb-2">
@@ -151,6 +159,7 @@ export function Sidebar(props: {
                       </div>
                     )}
                   </For>
+                  </Show>
                 </Show>
               )
             }}

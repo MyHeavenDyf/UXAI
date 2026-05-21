@@ -28,10 +28,6 @@ export const DialogSettings: Component = () => {
                       <Icon name="sliders" />
                       {language.t("settings.tab.general")}
                     </Tabs.Trigger>
-                    <Tabs.Trigger value="shortcuts">
-                      <Icon name="keyboard" />
-                      {language.t("settings.tab.shortcuts")}
-                    </Tabs.Trigger>
                   </div>
                 </div>
 
@@ -62,9 +58,6 @@ export const DialogSettings: Component = () => {
         </Tabs.List>
         <Tabs.Content value="general" class="no-scrollbar">
           <SettingsGeneral />
-        </Tabs.Content>
-        <Tabs.Content value="shortcuts" class="no-scrollbar">
-          <SettingsKeybinds />
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">
           <SettingsProviders />
