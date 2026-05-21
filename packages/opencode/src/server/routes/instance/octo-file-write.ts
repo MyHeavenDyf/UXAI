@@ -40,7 +40,10 @@ export const OctoFileWriteRoute = lazy(() =>
       const { path, content } = c.req.valid("json")
       try {
         await AppRuntime.runPromise(
-          AppFileSystem.writeWithDirs(path, content),
+          Effect.gen(function* () {
+            const fs = yield* AppFileSystem.Service
+            yield* fs.writeWithDirs(path, content)
+          }),
         )
         return c.json({ ok: true })
       } catch (err) {
