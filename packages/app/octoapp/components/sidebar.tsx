@@ -1,6 +1,7 @@
 import { Show, createMemo, For } from "solid-js"
 import { produce } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -96,7 +97,7 @@ export function Sidebar(props: {
             onClick={() => {
               const dir = props.currentDir()
               if (!dir) return
-              navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}`)
+              navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}?hint=${Date.now()}`)
             }}
           >
             {language.t("command.session.new")}
@@ -104,7 +105,8 @@ export function Sidebar(props: {
         </div>
         <div class="shrink-0">
           <div class="sidebar-history-title">历史记录</div>
-          <div class="sidebar-history-search-wrap">
+          {/* 搜索栏已移至 titlebar，保留此代码以备后续使用 */}
+          {/* <div class="sidebar-history-search-wrap">
             <svg class="sidebar-history-search-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
               <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" />
               <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -114,7 +116,7 @@ export function Sidebar(props: {
               class="sidebar-history-search-input"
               placeholder="搜索历史记录"
             />
-          </div>
+          </div> */}
         </div>
         <div class="flex-1 min-h-0 overflow-y-auto">
           <Show when={props.currentDir()} keyed>
@@ -123,12 +125,19 @@ export function Sidebar(props: {
               const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
               const octoAiSessions = createMemo(() => sessions().filter(s => s.agent === "octo_ai"))
               const groupedSessions = createMemo(() => groupSessionsByDate(octoAiSessions(), sortNow()))
+              const isLoading = createMemo(() => store.status === "loading")
               return (
-                <Show when={groupedSessions().length > 0} fallback={
+                <Show when={!isLoading()} fallback={
                   <div class="text-12-regular text-text-weak py-4 text-center">
-                    {language.t("session.review.empty")}
+                    <Spinner class="size-4 mx-auto mb-1" />
+                    {language.t("common.loading")}
                   </div>
                 }>
+                  <Show when={groupedSessions().length > 0} fallback={
+                    <div class="text-12-regular text-text-weak py-4 text-center">
+                      {language.t("session.review.empty")}
+                    </div>
+                  }>
                   <For each={groupedSessions()}>
                     {(group) => (
                       <div class="mb-2">
@@ -143,12 +152,14 @@ export function Sidebar(props: {
                               list={octoAiSessions()}
                               slug={base64Encode(dir)}
                               dense
+                              showArchive={false}
                             />
                           )}
                         </For>
                       </div>
                     )}
                   </For>
+                  </Show>
                 </Show>
               )
             }}

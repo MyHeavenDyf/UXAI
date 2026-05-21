@@ -163,6 +163,37 @@ describe("buildStudioTurns", () => {
     expect(turns[1].userText).toBe("第二轮")
   })
 
+  test("hides internal tool settings from studio center user text", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [
+          textPart(
+            "p_1",
+            m1.id,
+            [
+              "用户需求：生成一张卡通小猫的图",
+              "能力：image.generate",
+              "风格模型：千问",
+              "画幅比例：3:4",
+              "生成数量：1",
+              "当前选中的生图工具：internel_image_generate",
+              '工具参数JSON：{"styleModel":"千问","aspectRatio":"3:4","count":1}',
+              "调用生图工具时必须使用工具参数JSON中的 styleModel、aspectRatio、count。",
+              "输出时先简短说明，再调用对应工具。",
+            ].join("\n"),
+          ),
+        ],
+        [a1.id]: [textPart("p_2", a1.id, "好的")],
+      },
+    })
+
+    expect(turns[0].userText).toBe("生成一张卡通小猫的图")
+  })
+
   test("falls back to the pending generation when messages are still empty", () => {
     const turns = buildStudioTurns({
       messages: [],

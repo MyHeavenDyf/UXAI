@@ -12,6 +12,21 @@ const DEFAULT_TIMEOUT_MS = 120_000
 
 type JsonRecord = Record<string, unknown>
 type InternalTaskType = "txt2img" | "img2img"
+type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
+type InternalStyleConfig = {
+  taskType: string
+  tagName: string
+  target: string
+  targetSize: {
+    width: number
+    height: number
+  }
+  loras: Array<{
+    name: string
+    weight: number | string
+  }>
+  mode: string
+}
 
 type CreateTaskResponse = {
   resp_code?: number
@@ -447,6 +462,203 @@ function timeoutMsFor(name: string, fallback: number) {
   return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
+const defaultInternalStyleConfig = {
+  taskType: "txt2img_qwen",
+  tagName: "Qwen-Image",
+  target: "flux1-dev",
+  targetSize: { width: 1024, height: 1024 },
+  loras: [],
+  mode: "performance",
+} satisfies InternalStyleConfig
+
+const internalStyleConfigs = [
+  { aliases: ["千问", "qwen", "Qwen-Image"], config: defaultInternalStyleConfig },
+  {
+    aliases: ["BDIcon", "bd-icon", "DBID"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "BDIcon",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_BDicon", weight: 0.8 }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["质感人像", "质感人物", "portrait"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "质感人像",
+      target: "flux1-krea-dev-fp8",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_textured_portrait", weight: 0.8 }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["开发者人物形象", "developer"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "开发者人物形象",
+      target: "flux1-dev",
+      targetSize: { width: 1280, height: 1280 },
+      loras: [{ name: "F.1_hwc3dcharacter_latest", weight: "0.8" }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["小艺agent", "xiaoyi"],
+    config: {
+      taskType: "txt2img_qwen",
+      tagName: "小艺agent",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_xiaoyi_agent", weight: 0.85 }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["智慧3D", "smart-3d"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "智慧3D",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_intelligent3d", weight: 1 }],
+      mode: "hd",
+    },
+  },
+  {
+    aliases: ["抽象几何背景", "abstract"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "抽象几何背景",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_abstract_wallpaper", weight: 1 }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["云宝", "yunbao"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "云宝",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "yunbao", weight: 1 }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["H Design 3D", "HDesign", "hdesign"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "H Design 3D",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_hdesign_3d", weight: 1 }],
+      mode: "hd",
+    },
+  },
+  {
+    aliases: ["鸿蒙插画", "hongmeng"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "鸿蒙插画",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_harmonyOSIllustration", weight: 1 }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["H Design插画", "hdesign-illustration"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "H Design插画",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_hdesign", weight: 1 }],
+      mode: "performance",
+    },
+  },
+  {
+    aliases: ["3D抽象元素", "3d-abstract"],
+    config: {
+      taskType: "txt2img_v2_performance",
+      tagName: "3D抽象元素",
+      target: "flux1-dev",
+      targetSize: { width: 1024, height: 1024 },
+      loras: [{ name: "F.1_hwcbanner", weight: 0.8 }],
+      mode: "performance",
+    },
+  },
+] satisfies Array<{ aliases: string[]; config: InternalStyleConfig }>
+
+export function getInternalStyleConfig(styleModel?: string) {
+  return (
+    internalStyleConfigs.find((item) => item.aliases.some((alias) => alias.toLowerCase() === styleModel?.trim().toLowerCase()))
+      ?.config ?? defaultInternalStyleConfig
+  )
+}
+
+function extractStudioToolSettings(prompt: string): JsonRecord {
+  const match = prompt.match(/工具参数JSON：(\{[^\n]+\})/)
+  if (!match) return {}
+
+  try {
+    return JSON.parse(match[1]!) as JsonRecord
+  } catch {
+    return {}
+  }
+}
+
+function getStudioAspectRatio(input: ImageGenerateInput): StudioAspectRatio | undefined {
+  const settings = extractStudioToolSettings(input.prompt)
+  const value =
+    input.aspectRatio ??
+    (typeof settings.aspectRatio === "string" ? settings.aspectRatio : undefined) ??
+    input.prompt.match(/画幅比例：([0-9]+:[0-9]+)/)?.[1]
+  if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"].includes(value ?? "")) return value as StudioAspectRatio
+  return undefined
+}
+
+function getStudioStyleModel(input: ImageGenerateInput) {
+  const settings = extractStudioToolSettings(input.prompt)
+  return (
+    input.styleModel ??
+    (typeof settings.styleModel === "string" ? settings.styleModel : undefined) ??
+    input.prompt.match(/风格模型：([^\n]+)/)?.[1]?.trim()
+  )
+}
+
+function getStudioCount(input: ImageGenerateInput) {
+  const settings = extractStudioToolSettings(input.prompt)
+  const value =
+    input.count ??
+    (typeof settings.count === "number" ? settings.count : undefined) ??
+    Number(input.prompt.match(/生成数量：([1-4])/)?.[1])
+  if (value === 1 || value === 2 || value === 3 || value === 4) return value
+  return 1
+}
+
+function roundToMultiple(value: number, multiple: number) {
+  return Math.max(multiple, Math.round(value / multiple) * multiple)
+}
+
+export function getTargetSizeForAspectRatio(base: { width: number; height: number }, aspectRatio?: string) {
+  const longSide = Math.max(base.width, base.height)
+  if (aspectRatio === "1:1") return { width: longSide, height: longSide }
+  if (aspectRatio === "2:3") return { width: roundToMultiple(longSide * 2 / 3, 64), height: longSide }
+  if (aspectRatio === "3:4") return { width: roundToMultiple(longSide * 3 / 4, 64), height: longSide }
+  if (aspectRatio === "9:16") return { width: roundToMultiple(longSide * 9 / 16, 64), height: longSide }
+  if (aspectRatio === "3:2") return { width: longSide, height: roundToMultiple(longSide * 2 / 3, 64) }
+  if (aspectRatio === "4:3") return { width: longSide, height: roundToMultiple(longSide * 3 / 4, 64) }
+  if (aspectRatio === "16:9") return { width: longSide, height: roundToMultiple(longSide * 9 / 16, 64) }
+  return base
+}
+
 function buildPrompt(input: ImageGenerateInput) {
   const conversationContext =
     input.extra && typeof input.extra.conversationContext === "string" && input.extra.conversationContext.trim().length > 0
@@ -475,26 +687,31 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const ignoredReferenceImages = resolveReferenceImages(input)
   const generationMode: InternalTaskType = "txt2img"
+  const styleConfig = getInternalStyleConfig(getStudioStyleModel(input))
+  const configuredTargetSize = getTargetSizeForAspectRatio(styleConfig.targetSize, getStudioAspectRatio(input))
 
   const targetSize = {
-    width: Number(input.extra && typeof input.extra.width === "number" ? input.extra.width : 1024),
-    height: Number(input.extra && typeof input.extra.height === "number" ? input.extra.height : 1024),
+    width: Number(input.extra && typeof input.extra.width === "number" ? input.extra.width : configuredTargetSize.width),
+    height: Number(input.extra && typeof input.extra.height === "number" ? input.extra.height : configuredTargetSize.height),
   }
   const taskType = getTaskType({
     generationMode,
-    taskType: input.extra && typeof input.extra.taskType === "string" ? input.extra.taskType : undefined,
+    taskType: input.extra && typeof input.extra.taskType === "string" ? input.extra.taskType : styleConfig.taskType,
   })
 
   const requestBody = {
     user: { idx: userIdx },
     task_type: taskType,
     args: {
-      tag_name: input.styleModel ?? "Qwen-Image",
-      num_image: input.count ?? 2,
-      target: input.extra && typeof input.extra.target === "string" ? input.extra.target : "flux1-dev",
+      tag_name:
+        input.extra && typeof input.extra.tagName === "string"
+          ? input.extra.tagName
+          : styleConfig.tagName,
+      num_image: getStudioCount(input),
+      target: input.extra && typeof input.extra.target === "string" ? input.extra.target : styleConfig.target,
       target_size: targetSize,
-      loras: Array.isArray(input.extra?.loras) ? input.extra.loras : [],
-      mode: input.extra && typeof input.extra.mode === "string" ? input.extra.mode : "performance",
+      loras: styleConfig.loras,
+      mode: input.extra && typeof input.extra.mode === "string" ? input.extra.mode : styleConfig.mode,
       ref_img_list: [],
       customer_prompt: input.prompt,
       prompt: buildPrompt(input),

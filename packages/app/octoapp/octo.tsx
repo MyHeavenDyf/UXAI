@@ -9,7 +9,7 @@ import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
-import { type BaseRouterProps, Navigate, Route, Router, useLocation, useParams } from "@solidjs/router"
+import { type BaseRouterProps, Navigate, Route, Router, useLocation, useNavigate, useParams } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Effect } from "effect"
 import {
@@ -30,11 +30,11 @@ import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
-import { GlobalSDKProvider } from "@/context/global-sdk"
+import { GlobalSDKProvider, useGlobalSDK } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
-import { LayoutProvider } from "@/context/layout"
+import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
@@ -46,11 +46,11 @@ import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
+import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { useCheckServerHealth } from "./utils/server-health"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
-const HomeRoute = lazy(() => import("@/pages/home"))
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
@@ -201,12 +201,37 @@ function SessionProviders(props: ParentProps) {
   )
 }
 
+function OnboardingLayer() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const server = useServer()
+  const globalSDK = useGlobalSDK()
+  const layout = useLayout()
+
+  const showOnboarding = createMemo(() => location.pathname === "/")
+
+  function handleOnboardingSelect(directory: string) {
+    layout.projects.open(directory)
+    server.projects.touch(directory)
+    void globalSDK.createClient({ directory }).session.list().catch(() => {})
+    navigate("/insight")
+  }
+
+  return (
+    <Show when={showOnboarding()}>
+      <DialogProjectOnboarding onSelect={handleOnboardingSelect} />
+    </Show>
+  )
+}
+
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
+
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
+    return p === "/" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
   }
+
   return (
     <SettingsProvider>
       <PermissionProvider>
@@ -216,6 +241,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
               <CommandProvider>
                 <HighlightsProvider>
                   <Layout>
+                    <OnboardingLayer />
                     <Show when={isOctoPage()}>
                       <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
                     </Show>
@@ -416,7 +442,7 @@ export function AppInterface(props: {
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
-                  <Route path="/" component={HomeRoute} />
+                  <Route path="/" component={InsightPage} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />

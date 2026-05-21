@@ -1,8 +1,10 @@
-import { createMemo, createEffect, Show, ErrorBoundary, Suspense, createSignal } from "solid-js"
+import { createMemo, createEffect, Show, ErrorBoundary, Suspense } from "solid-js"
+import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
 import { decode64 } from "@/utils/base64"
+import { persisted, Persist } from "@/utils/persist"
 import { lazy } from "solid-js"
 import { TerminalProvider } from "@/context/terminal"
 import { FileProvider } from "@/context/file"
@@ -39,7 +41,12 @@ export default function ChatPage() {
     local.agent.set("octo_ai")
   })
 
-  const [sidebarWidth, setSidebarWidth] = createSignal(300)
+  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
+    Persist.global("chat.sidebar.width"),
+    createStore({ width: 300 }),
+  )
+  const sidebarWidth = () => sidebarWidthStore.width
+  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()

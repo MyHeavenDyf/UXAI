@@ -2,4 +2,20 @@
   [data-component="dialog-content"] {
     border-radius: var(--radius-xl);
   }
+
+  .settings-dialog [data-slot="tabs-trigger-wrapper"][data-value="shortcuts"] {
+    display: none;
+  }
+
+  .settings-dialog [data-slot="tabs-content"][data-value="shortcuts"] {
+    display: none;
+  }
+
+  .settings-dialog div:has(> div > [data-action="settings-color-scheme"]) {
+    display: none;
+  }
+
+  .settings-dialog div:has(> div > [data-action="settings-theme"]) {
+    display: none;
+  }
 }

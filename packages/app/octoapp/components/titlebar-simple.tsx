@@ -77,6 +77,7 @@ export function TitlebarSimple() {
 
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
+    if (path === "/") return "cowork"
     if (path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
@@ -207,7 +208,7 @@ export function TitlebarSimple() {
         style={{ zoom: counterZoom() }}
       >
         <div id="opencode-titlebar-center" class="flex items-center shrink-0 justify-end">
-          <Show when={activeTab() === "cowork" || activeTab() === "studio"}>
+          <Show when={hasActiveTab()}>
             <Button
               type="button"
               variant="ghost"

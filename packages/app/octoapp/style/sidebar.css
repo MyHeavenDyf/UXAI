@@ -81,7 +81,7 @@
 }
 
 .sidebar-history-search-wrap {
-  display: flex;
+  display: none;
   align-items: center;
   height: 32px;
   margin-top: 8px;
@@ -135,4 +135,8 @@
 
 .relative .bg-background-stronger {
   background-color: #fff;
+}
+
+[data-session-id] [data-component="icon-button"][data-icon="archive"] {
+  display: none;
 }
