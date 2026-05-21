@@ -18,17 +18,17 @@ function Toggle(props: { checked: boolean; onChange: (v: boolean) => void }): JS
       role="switch"
       aria-checked={props.checked}
       onClick={() => props.onChange(!props.checked)}
-      class="relative inline-flex h-[20px] w-[36px] shrink-0 cursor-pointer rounded-full transition-colors"
+      class="relative inline-flex h-[24px] w-[44px] shrink-0 cursor-pointer rounded-full transition-colors"
       style={{
-        background: props.checked ? "var(--octo-brand, #0067D1)" : "rgba(0,0,0,0.15)",
+        background: props.checked ? "#0A59F7" : "rgba(0,0,0,0.05)",
       }}
     >
       <span
-        class="inline-block h-[16px] w-[16px] rounded-full bg-white transition-transform"
+        class="absolute top-[2px] left-0 inline-block h-[20px] w-[20px] rounded-full bg-white transition-transform duration-200"
         style={{
-          transform: props.checked ? "translateX(18px)" : "translateX(2px)",
-          "margin-top": "2px",
-          "box-shadow": "0 1px 3px rgba(0,0,0,0.2)",
+          transform: props.checked ? "translateX(22px)" : "translateX(1px)",
+          "background": "#fff",
+          "box-shadow": "0 2px 4px rgba(0,0,0,0.2)",
         }}
       />
     </button>
@@ -44,7 +44,7 @@ function SkillRow(props: {
   return (
     <div
       class="flex items-center justify-between gap-3 px-4 py-3 rounded-lg transition-colors"
-      style={{ background: "var(--octo-surface-page)" }}
+      style={{ background: "#fff" }}
     >
       <div class="flex flex-col gap-0.5 min-w-0 flex-1">
         <span class="text-sm font-medium" style={{ color: "var(--octo-text-primary)" }}>{props.name}</span>
