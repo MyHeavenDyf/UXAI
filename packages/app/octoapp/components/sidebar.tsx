@@ -104,7 +104,8 @@ export function Sidebar(props: {
         </div>
         <div class="shrink-0">
           <div class="sidebar-history-title">历史记录</div>
-          <div class="sidebar-history-search-wrap">
+          {/* 搜索栏已移至 titlebar，保留此代码以备后续使用 */}
+          {/* <div class="sidebar-history-search-wrap">
             <svg class="sidebar-history-search-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
               <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" />
               <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -114,7 +115,7 @@ export function Sidebar(props: {
               class="sidebar-history-search-input"
               placeholder="搜索历史记录"
             />
-          </div>
+          </div> */}
         </div>
         <div class="flex-1 min-h-0 overflow-y-auto">
           <Show when={props.currentDir()} keyed>
