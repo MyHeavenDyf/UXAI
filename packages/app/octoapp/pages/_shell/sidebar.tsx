@@ -101,21 +101,25 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const permission = usePermission()
 
   const projectDir = useProjectDir()
+  const isOnboarding = createMemo(() => location.pathname === "/")
 
   // Track which directory the fetched data came from, so we only show content
   // when the data matches the current directory (prevents flicker when dir changes from home → project)
   const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
   const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
 
-  // Insight sessions
-  const [sessions, { refetch }] = createResource(projectDir, async (d) => {
-    if (!d) return [] as Session[]
-    const client = globalSDK.createClient({ directory: d })
-    const result = await client.session.list()
-    const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-    setInsightFetchedDir(d)
-    return data.filter(s => s.agent === "octo_insight")
-  })
+  // Insight sessions - skip fetching during onboarding
+  const [sessions, { refetch }] = createResource(
+    () => isOnboarding() ? "" : projectDir(),
+    async (d) => {
+      if (!d) return [] as Session[]
+      const client = globalSDK.createClient({ directory: d })
+      const result = await client.session.list()
+      const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+      setInsightFetchedDir(d)
+      return data.filter(s => s.agent === "octo_insight")
+    },
+  )
 
   // Reconciled store with key="id" so <For> items keep stable references
   const [sessionList, setSessionList] = createStore<Session[]>([])
@@ -126,15 +130,18 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   // Insight data is "stable" when fetched dir matches current dir
   const insightStable = createMemo(() => insightFetchedDir() === projectDir())
 
-  // Make sessions
-  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (d) => {
-    if (!d) return [] as Session[]
-    const client = globalSDK.createClient({ directory: d })
-    const result = await client.session.list()
-    const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-    setMakeFetchedDir(d)
-    return data.filter(s => s.agent === "octo_make")
-  })
+  // Make sessions - skip fetching during onboarding
+  const [makeSessions, { refetch: refetchMake }] = createResource(
+    () => isOnboarding() ? "" : projectDir(),
+    async (d) => {
+      if (!d) return [] as Session[]
+      const client = globalSDK.createClient({ directory: d })
+      const result = await client.session.list()
+      const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+      setMakeFetchedDir(d)
+      return data.filter(s => s.agent === "octo_make")
+    },
+  )
 
   const [makeSessionList, setMakeSessionList] = createStore<Session[]>([])
   createEffect(on(makeSessions, (data) => {
@@ -234,7 +241,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                   when={sessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      暂无对话
+                      {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                     </div>
                   }
                 >
@@ -350,7 +357,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                   when={makeSessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      暂无对话
+                      {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                     </div>
                   }
                 >
