@@ -19,8 +19,9 @@ export const STUDIO_STYLE_MODELS = [
   { id: "smart-3d", label: "智慧3D", color: "linear-gradient(135deg, #a7f3d0, #bfdbfe)" },
   { id: "abstract", label: "抽象几何背景", color: "linear-gradient(135deg, #60a5fa, #dbeafe)" },
   { id: "yunbao", label: "云宝", color: "linear-gradient(135deg, #fef3c7, #f0abfc)" },
-  { id: "hdesign", label: "HDesign", color: "linear-gradient(135deg, #bae6fd, #ffffff)" },
+  { id: "hdesign", label: "H Design 3D", color: "linear-gradient(135deg, #bae6fd, #ffffff)" },
   { id: "hongmeng", label: "鸿蒙插画", color: "linear-gradient(135deg, #fed7aa, #fecaca)" },
+  { id: "hdesign-illustration", label: "H Design插画", color: "linear-gradient(135deg, #93c5fd, #f5f3ff)" },
   { id: "3d-abstract", label: "3D抽象元素", color: "linear-gradient(135deg, #cffafe, #ddd6fe)" },
 ]
 

@@ -441,6 +441,12 @@ export default function StudioPage() {
       parts: dataStore.part,
       fallback: pendingResult(),
     })
+    const toolSettings = JSON.stringify({
+      styleModel: styleModelLabel(styleModel()),
+      aspectRatio: aspectRatio(),
+      count: count(),
+      imageTool: imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate",
+    })
     return [
       `用户需求：${input.text}`,
       `能力：${input.capability}`,
@@ -448,6 +454,8 @@ export default function StudioPage() {
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
       `当前选中的生图工具：${imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate"}`,
+      `工具参数JSON：${toolSettings}`,
+      "调用生图工具时必须使用工具参数JSON中的 styleModel、aspectRatio、count。",
       input.sourceImage && imageTool() === "internel"
         ? "内部生图不传参考图，请根据上一轮摘要保持主体、风格、构图和色调一致，并按用户新需求重新生成。"
         : input.sourceImage
@@ -792,8 +800,18 @@ function StudioComposer(props: {
   onPickFile: () => void
   onRemoveAsset: (id: string) => void
 }): JSX.Element {
+  let composerRef!: HTMLDivElement
+
+  const handleDocumentPointerDown = (event: PointerEvent) => {
+    if (!props.openMenu || composerRef.contains(event.target as Node)) return
+    props.onOpenMenu(null)
+  }
+
+  document.addEventListener("pointerdown", handleDocumentPointerDown)
+  onCleanup(() => document.removeEventListener("pointerdown", handleDocumentPointerDown))
+
   return (
-    <div class="relative shrink-0">
+    <div ref={composerRef!} class="relative shrink-0">
       <Show when={props.openMenu === "capability"}>
         <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
       </Show>
@@ -969,7 +987,7 @@ function ImageSettings(props: {
   onCount: (value: 1 | 2 | 3 | 4) => void
 }): JSX.Element {
   return (
-    <div class="studio-menu w-[532px] p-4 left-[214px]">
+    <div class="studio-menu w-[420px] p-4 left-[16px]">
       <div class="text-[13px] font-semibold mb-5">图片设置</div>
       <div class="text-[12px] text-[var(--studio-muted)] mb-2">选择比例</div>
       <div class="grid grid-cols-7 gap-1 bg-[#f1f1f2] rounded-[8px] p-1 mb-5">
@@ -978,8 +996,12 @@ function ImageSettings(props: {
             <button
               type="button"
               onClick={() => props.onAspectRatio(item)}
-              class="h-[54px] rounded-[7px] text-[12px] flex flex-col items-center justify-center gap-1"
-              classList={{ "bg-white shadow-sm font-semibold": item === props.aspectRatio }}
+              class="h-[54px] rounded-[7px] text-[12px] flex flex-col items-center justify-center gap-1 border transition-colors"
+              classList={{
+                "border-[#1267ff] bg-[#eef5ff] text-[#1267ff] shadow-sm font-semibold": item === props.aspectRatio,
+                "border-transparent hover:bg-white/70": item !== props.aspectRatio,
+              }}
+              aria-pressed={item === props.aspectRatio}
             >
               <span class="w-4 h-5 border border-current rounded-[2px]" />
               <span>{item}</span>
@@ -994,8 +1016,12 @@ function ImageSettings(props: {
             <button
               type="button"
               onClick={() => props.onCount(item)}
-              class="h-8 rounded-[7px] text-[13px]"
-              classList={{ "bg-white shadow-sm font-semibold": item === props.count }}
+              class="h-8 rounded-[7px] text-[13px] border transition-colors"
+              classList={{
+                "border-[#1267ff] bg-[#eef5ff] text-[#1267ff] shadow-sm font-semibold": item === props.count,
+                "border-transparent hover:bg-white/70": item !== props.count,
+              }}
+              aria-pressed={item === props.count}
             >
               {item}张
             </button>
