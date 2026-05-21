@@ -1,6 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
@@ -102,12 +102,18 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
   const projectDir = useProjectDir()
 
-  // Insight sessions: use createResource for fetching + reconciled store for stable references
+  // Track which directory the fetched data came from, so we only show content
+  // when the data matches the current directory (prevents flicker when dir changes from home → project)
+  const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
+  const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
+
+  // Insight sessions
   const [sessions, { refetch }] = createResource(projectDir, async (d) => {
     if (!d) return [] as Session[]
     const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    setInsightFetchedDir(d)
     return data.filter(s => s.agent === "octo_insight")
   })
 
@@ -117,12 +123,16 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     if (data) setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
-  // Make sessions: same pattern
+  // Insight data is "stable" when fetched dir matches current dir
+  const insightStable = createMemo(() => insightFetchedDir() === projectDir())
+
+  // Make sessions
   const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (d) => {
     if (!d) return [] as Session[]
     const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    setMakeFetchedDir(d)
     return data.filter(s => s.agent === "octo_make")
   })
 
@@ -130,6 +140,8 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   createEffect(on(makeSessions, (data) => {
     if (data) setMakeSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
+
+  const makeStable = createMemo(() => makeFetchedDir() === projectDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   let refetchMakeTimer: ReturnType<typeof setTimeout> | undefined
@@ -145,14 +157,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   })
   onCleanup(unsub)
   onCleanup(() => { clearTimeout(refetchTimer); clearTimeout(refetchMakeTimer) })
-
-  // Refetch on mount to handle initial load timing (persisted store may not be ready yet)
-  onMount(() => {
-    setTimeout(() => {
-      void refetch()
-      void refetchMake()
-    }, 300)
-  })
 
   const activeSessionId = () => {
     const m = location.pathname.match(/^\/(?:insight|make)\/(.+)$/)
@@ -219,7 +223,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           <Show when={!insightCollapsed()}>
             <div class="flex flex-col gap-[1px]">
               <Show
-                when={!sessions.loading || sessions() !== undefined}
+                when={insightStable()}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
@@ -335,7 +339,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
           <Show when={!makeCollapsed()}>
             <div class="flex flex-col gap-[1px]">
               <Show
-                when={!makeSessions.loading || makeSessions() !== undefined}
+                when={makeStable()}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
