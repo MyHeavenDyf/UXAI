@@ -144,6 +144,7 @@ export function Sidebar(props: {
                               list={octoAiSessions()}
                               slug={base64Encode(dir)}
                               dense
+                              showArchive={false}
                             />
                           )}
                         </For>

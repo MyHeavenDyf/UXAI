@@ -806,7 +806,7 @@ export function MessageTimeline(props: {
                                 closeTitleEditor()
                               }
                             }}
-                            onBlur={closeTitleEditor}
+                            onBlur={() => void saveTitleEditor()}
                           />
                         </Show>
                       </Show>
@@ -869,7 +869,8 @@ export function MessageTimeline(props: {
                                 >
                                   <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
-                                <Show when={shareEnabled()}>
+                                {/* Chat 页隐藏分享和归档选项 */}
+                                {/* <Show when={shareEnabled()}>
                                   <DropdownMenu.Item
                                     onSelect={() => {
                                       setTitle({ pendingShare: true, menuOpen: false })
@@ -882,7 +883,7 @@ export function MessageTimeline(props: {
                                 </Show>
                                 <DropdownMenu.Item onSelect={() => void archiveSession(id)}>
                                   <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
-                                </DropdownMenu.Item>
+                                </DropdownMenu.Item> */}
                                 <DropdownMenu.Separator />
                                 <DropdownMenu.Item
                                   onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
