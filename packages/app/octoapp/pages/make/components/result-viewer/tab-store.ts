@@ -6,6 +6,7 @@ export type ResultTab = {
   title: string
   type: "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   content: string
+  filePath?: string
   createdAt: Date
 }
 
@@ -24,6 +25,7 @@ export function createTabStore() {
       title: card.title,
       type: card.type,
       content: card.content,
+      filePath: card.filePath,
       createdAt: card.createdAt,
     }
     setTabs((prev) => [...prev, tab])
@@ -46,12 +48,16 @@ export function createTabStore() {
     setActiveId(id)
   }
 
+  function updateTabContent(id: string, content: string) {
+    setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content } : t)))
+  }
+
   function reset() {
     setTabs([])
     setActiveId(null)
   }
 
-  return { tabs, activeId, activate, openTab, closeTab, reset }
+  return { tabs, activeId, activate, openTab, closeTab, updateTabContent, reset }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>
