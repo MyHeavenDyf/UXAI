@@ -8,7 +8,8 @@ import { useLocation, useNavigate } from "@solidjs/router"
 import { Logo } from "@opencode-ai/ui/logo"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useGlobalSync } from "@/context/global-sync"
-
+// jk-j60099994-replace-with-titlebar-simple-1-start
+// jk-j60099994-replace-with-titlebar-simple-1-end
 type TabType = "chat" | "cowork" | "studio"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
@@ -159,10 +160,7 @@ export function TitlebarSimple() {
       onMouseDown={drag}
       onDblClick={maximize}
     >
-      <div
-        class="flex items-center shrink-0 gap-2"
-        style={{ zoom: counterZoom() }}
-      >
+      <div class="flex items-center shrink-0 gap-2" style={{ zoom: counterZoom() }}>
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
@@ -187,9 +185,15 @@ export function TitlebarSimple() {
                 "cursor-pointer": hasActiveTab(),
                 "cursor-not-allowed": !hasActiveTab(),
               }}
-              onClick={() => { if (hasActiveTab()) handleTabClick(item.key) }}
+              onClick={() => {
+                if (hasActiveTab()) handleTabClick(item.key)
+              }}
             >
-              <img src={activeTab() === item.key ? TAB_ICON_MAP[item.key].selected : TAB_ICON_MAP[item.key].default} alt="" style={{ width: "18px", height: "18px", display: "block" }} />
+              <img
+                src={activeTab() === item.key ? TAB_ICON_MAP[item.key].selected : TAB_ICON_MAP[item.key].default}
+                alt=""
+                style={{ width: "18px", height: "18px", display: "block" }}
+              />
               <span>{item.label}</span>
             </button>
           ))}
@@ -219,7 +223,9 @@ export function TitlebarSimple() {
             </Button>
           </Show>
         </div>
+        {/* jk// jk-j60099994-replace-with-titlebar-simple-2-start */}
         <img src="/AvatarUser.svg" alt="" class="header-user-icon" />
+        {/* jk-j60099994-replace-with-titlebar-simple-2-end */}
         <Show when={windows()}>
           {!tauriApi() && <div class="shrink-0" style={{ width: windowsControlsWidth() }} />}
           <div data-tauri-decorum-tb class="flex flex-row" />
