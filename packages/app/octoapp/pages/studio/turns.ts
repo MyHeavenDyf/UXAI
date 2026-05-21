@@ -113,8 +113,26 @@ function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
 function extractUserDemand(text: string) {
   const marker = "用户需求："
   const index = text.lastIndexOf(marker)
-  if (index === -1) return text
-  return text.slice(index + marker.length).split("\n输出时先简短说明")[0]?.trim() ?? text
+  const content = index === -1 ? text : text.slice(index + marker.length)
+  const stopIndex = [
+    "\n能力：",
+    "\n风格模型：",
+    "\n画幅比例：",
+    "\n生成数量：",
+    "\n当前选中的生图工具：",
+    "\n工具参数JSON：",
+    "\n调用生图工具",
+    "\n输出时先简短说明",
+  ]
+    .map((item) => content.indexOf(item))
+    .filter((item) => item >= 0)
+    .sort((left, right) => left - right)[0]
+  return content
+    .slice(0, stopIndex ?? content.length)
+    .split("\n")
+    .filter((line) => !line.startsWith("工具参数JSON：") && !line.startsWith("调用生图工具"))
+    .join("\n")
+    .trim()
 }
 
 function buildResult(input: {
