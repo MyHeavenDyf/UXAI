@@ -725,7 +725,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                       class="relative text-left text-[13px] leading-[18px] px-3 py-2 rounded-[8px] transition-colors truncate"
                       classList={{ "bg-[#dfe9ff] text-[#1267ff] font-semibold": props.activeSessionID === session.id }}
                     >
-                      {sessionTitle(session.title) ?? language.t("command.session.new")}
+                      <span>{sessionTitle(session.title) ?? language.t("command.session.new")}</span>
                       <Show when={props.activeSessionID === session.id}>
                         <span class="absolute right-1 top-1 bottom-1 w-[4px] rounded-full bg-[#1267ff]" />
                       </Show>
