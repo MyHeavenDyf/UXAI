@@ -102,14 +102,38 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
   const projectDir = useProjectDir()
 
+  // Resolved directory signal — the single source of truth for session loading.
+  // Populated by two effects from different reliable reactive sources.
+  const [resolvedDir, setResolvedDir] = createSignal<string>()
+
   // Track which directory the fetched data came from, so we only show content
   // when the data matches the current directory (prevents flicker when dir changes from home → project)
   const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
   const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
 
+  // Effect 1: read projectDir() which tracks server.projects.last() (persisted store, reactive).
+  // For returning users this fires immediately on mount with the persisted directory.
+  createEffect(() => {
+    const d = projectDir()
+    if (d) setResolvedDir(d)
+  })
+
+  // Effect 2: track globalSync.data.ready (= bootstrap.isPending from useQuery, reliable).
+  // When bootstrap completes, explicitly read projectDir() — by then pathQuery.data is cached
+  // and the getter returns the real path even though the reactivity chain is broken.
+  createEffect(() => {
+    if (!globalSync.data.ready) {
+      const d = projectDir()
+      if (d) setResolvedDir(d)
+    }
+  })
+
   // Insight sessions
-  const [sessions, { refetch }] = createResource(projectDir, async (d) => {
-    if (!d) return [] as Session[]
+  const [sessions, { refetch }] = createResource(() => resolvedDir() ?? "", async (d) => {
+    if (!d) {
+      setInsightFetchedDir(d)
+      return [] as Session[]
+    }
     const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
@@ -124,11 +148,14 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   }, { defer: true }))
 
   // Insight data is "stable" when fetched dir matches current dir
-  const insightStable = createMemo(() => insightFetchedDir() === projectDir())
+  const insightStable = createMemo(() => insightFetchedDir() === resolvedDir())
 
   // Make sessions
-  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (d) => {
-    if (!d) return [] as Session[]
+  const [makeSessions, { refetch: refetchMake }] = createResource(() => resolvedDir() ?? "", async (d) => {
+    if (!d) {
+      setMakeFetchedDir(d)
+      return [] as Session[]
+    }
     const client = globalSDK.createClient({ directory: d })
     const result = await client.session.list()
     const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
@@ -141,7 +168,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     if (data) setMakeSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
-  const makeStable = createMemo(() => makeFetchedDir() === projectDir())
+  const makeStable = createMemo(() => makeFetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   let refetchMakeTimer: ReturnType<typeof setTimeout> | undefined
