@@ -290,7 +290,10 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                       return (
                         <button
                           type="button"
-                          onClick={() => navigate(`/insight/${session.id}`)}
+                          onClick={() => {
+                            notification.session.markViewed(session.id)
+                            navigate(`/insight/${session.id}`)
+                          }}
                           class="w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center gap-2 relative"
                           style={{
                             height: "48px",
@@ -406,7 +409,10 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                       return (
                         <button
                           type="button"
-                          onClick={() => navigate(`/make/${session.id}`)}
+                          onClick={() => {
+                            notification.session.markViewed(session.id)
+                            navigate(`/make/${session.id}`)
+                          }}
                           class="w-full text-left px-[8px] rounded-[4px] text-[12px] leading-[20px] transition-colors flex items-center relative"
                           style={{
                             height: "48px",
