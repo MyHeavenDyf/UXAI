@@ -1,6 +1,6 @@
-import { Show, createEffect, createMemo, on } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, onCleanup, on } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
+import { useNavigate, useSearchParams } from "@solidjs/router"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
@@ -49,6 +49,7 @@ export function SessionComposerRegion(props: {
   const prompt = usePrompt()
   const language = useLanguage()
   const route = useSessionKey()
+  const [searchParams, setSearchParams] = useSearchParams<{ hint?: string }>()
   const sync = useSync()
 
   const handoffPrompt = createMemo(() => getSessionHandoff(route.sessionKey())?.prompt)
@@ -109,6 +110,22 @@ export function SessionComposerRegion(props: {
     const update = () => setStore("height", el.getBoundingClientRect().height)
     createResizeObserver(store.body, update)
     update()
+  })
+
+  const [bubbleVisible, setBubbleVisible] = createSignal(false)
+
+  createEffect(() => {
+    if (route.params.id || prompt.dirty() || !searchParams.hint) {
+      setBubbleVisible(false)
+      if (searchParams.hint) setSearchParams({ hint: undefined })
+      return
+    }
+    setBubbleVisible(true)
+    const timer = setTimeout(() => {
+      setBubbleVisible(false)
+      setSearchParams({ hint: undefined })
+    }, 3000)
+    onCleanup(() => clearTimeout(timer))
   })
 
   return (
@@ -228,6 +245,11 @@ export function SessionComposerRegion(props: {
                   onSend={props.followup!.onSend}
                   onEdit={props.followup!.onEdit}
                 />
+              </Show>
+              <Show when={bubbleVisible()}>
+                <div class="absolute -top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-none" data-component="tooltip">
+                  {language.t("prompt.hint.newSession")}
+                </div>
               </Show>
               <Show
                 when={child()}

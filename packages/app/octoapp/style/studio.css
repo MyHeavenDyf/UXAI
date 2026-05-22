@@ -184,3 +184,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.studio-page .studio-left a[href] {
+  padding-right: 26px;
+}
+
+.studio-page .studio-left a[href] span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

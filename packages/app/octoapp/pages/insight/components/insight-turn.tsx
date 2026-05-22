@@ -2,10 +2,13 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData } from "@opencode-ai/ui/context"
-import { createMemo, Show } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml } from "../icons"
 import { isMarkdownTable, isMindmapJSON, isHTML, isPlainJSON } from "../utils/detect"
+import { findResourceLinks, mimeToOutputType } from "../utils/resource-link"
+import { type TaskCardEntry } from "../utils/task-detect"
+import { TaskCardView } from "./task-card"
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
 
@@ -13,7 +16,12 @@ export type OutputCard = {
   id: string
   title: string
   type: OutputCardType
-  content: string
+  source: "inline" | "uri"
+  content?: string          // inline 必填;uri 模式下可空(fetch 后填到 tab cache)
+  uri?: string              // uri 模式必填(MCP resource_link.uri)
+  mimeType?: string         // uri 模式必填(影响渲染路由)
+  fileName?: string         // uri 模式来自 resource_link.name
+  description?: string      // uri 模式来自 resource_link.description,卡片副标题
   createdAt: Date
 }
 
@@ -69,6 +77,13 @@ export function InsightTurn(props: {
   status: SessionStatus
   active: boolean
   onOpenResult: (card: OutputCard) => void
+  /** 锚点 = 本 turn 的 user message 下挂着的长任务卡片(每个 task_id 一张)。spec: task-card.md §3.3 */
+  taskCards: TaskCardEntry[]
+  /** 任务卡片操作(由 InsightPage 接线 LLM 触发) */
+  onTaskRefresh: (taskId: string) => void
+  onTaskStop: (taskId: string) => void
+  onTaskOpenResult: (taskId: string) => void
+  onTaskFollowup: (taskId: string) => void
 }): JSX.Element {
   const data = useData()
 
@@ -101,33 +116,61 @@ export function InsightTurn(props: {
   // session busy 且是最新轮次，才显示生成中
   const showGenerating = createMemo(() => props.active && isLatestTurn())
 
-  // 只要有 text 内容就生成卡片（不依赖 time.completed 避免字段缺失时卡住）
-  // 注意：parts 必须在 showGenerating 判断之前读，确保 SolidJS 始终追踪该依赖；
-  // 若先 return null 则 assistantParts() 从未被追踪，session idle 后 memo 不会因 parts 变化重新触发。
-  const outputCard = createMemo((): OutputCard | null => {
+  // 同 turn 的 OutputCard 列表(支持 0~N 张,对应 MCP completed 返回的 1~N 个 resource_link)
+  // 注意:parts 必须在 showGenerating 判断之前读,确保 SolidJS 始终追踪该依赖;
+  // 若先 return [] 则 assistantParts() 从未被追踪,session idle 后 memo 不会因 parts 变化重新触发。
+  const outputCards = createMemo((): OutputCard[] => {
     const parts = assistantParts()
-    if (showGenerating()) return null
+    if (showGenerating()) return []
+
+    // 同 turn 有任务卡片就抑制 OutputCard:completed 由 TaskCardView 内的"查看完整结果"按钮触发 openTab
+    // (spec: docs/specs/ui/task-card.md §3.4 优先级)
+    if (props.taskCards.length > 0) return []
+
+    // 路径 1:resource_link part(无 task_id 的场景,比如未来直接同步返回 resource_link 的工具)
+    //         N 个 resource_link → N 张 OutputCard(spec: output-renderers.md §2.5.1)
+    const links = findResourceLinks(parts)
+    if (links.length > 0) {
+      console.log("[octo:card] resource_links (no task)", {
+        count: links.length,
+        links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri })),
+        msgID: props.messageID,
+      })
+      return links.map((link, idx) => ({
+        id: `card-${props.messageID}-${idx}`,
+        title: link.name || `分析结果 ${idx + 1}`,
+        type: mimeToOutputType(link.mimeType),
+        source: "uri" as const,
+        uri: link.uri,
+        mimeType: link.mimeType,
+        fileName: link.name,
+        description: link.description,
+        createdAt: new Date(),
+      }))
+    }
+
+    // 路径 2:text-detect inline(原有路径,保持向后兼容)
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (!textPart || typeof textPart.text !== "string") return null
+    if (!textPart || typeof textPart.text !== "string") return []
     const text = textPart.text.trim()
-    if (text.length < 10) return null
+    if (text.length < 10) return []
     const info = detectCard(text)
-    console.log("[octo:card] detectCard", { type: info?.type ?? null, textLen: text.length, msgID: props.messageID })
-    if (!info) return null
-    return {
+    if (!info) return []
+    return [{
       id: `card-${props.messageID}`,
       ...info,
+      source: "inline" as const,
       content: textPart.text,
       createdAt: new Date(),
-    }
+    }]
   })
 
-  // mindmap / html / json 的原始文字对用户无价值，有卡片时隐藏 assistant 文字区
+  // mindmap / html / json 的原始文字对用户无价值,任一卡片是机器可读类型则隐藏 assistant 文字区
   const suppressRawOutput = createMemo(() => {
-    const card = outputCard()
-    return card && (card.type === "mindmap" || card.type === "html" || card.type === "json")
+    const cards = outputCards()
+    return cards.some((c) => c.type === "mindmap" || c.type === "html" || c.type === "json")
   })
 
   return (
@@ -153,11 +196,11 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
-      <Show when={outputCard()}>
+      <For each={outputCards()}>
         {(card) => (
           <button
             type="button"
-            onClick={() => props.onOpenResult(card())}
+            onClick={() => props.onOpenResult(card)}
             class="mx-3 mb-3 p-3 text-left transition-all"
             style={{
               "border-radius": "var(--octo-radius-md)",
@@ -173,15 +216,34 @@ export function InsightTurn(props: {
             }}
           >
             <div class="flex items-center gap-2">
-              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={card().type} /></span>
+              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={card.type} /></span>
               <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{card().title}</span>
-                <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(card().createdAt)}</span>
+                <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{card.title}</span>
+                <Show when={card.description}>
+                  <span class="text-xs truncate" style={{ color: "var(--octo-text-secondary)" }}>{card.description}</span>
+                </Show>
+                <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(card.createdAt)}</span>
               </div>
               <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
             </div>
           </button>
         )}
+      </For>
+
+      {/* 长任务卡片(spec: docs/specs/ui/task-card.md §5) */}
+      <Show when={props.taskCards.length > 0}>
+        <For each={props.taskCards}>
+          {(task) => (
+            <TaskCardView
+              card={task}
+              busy={props.active}
+              onRefresh={props.onTaskRefresh}
+              onStop={props.onTaskStop}
+              onOpenResult={props.onTaskOpenResult}
+              onFollowup={props.onTaskFollowup}
+            />
+          )}
+        </For>
       </Show>
     </div>
   )

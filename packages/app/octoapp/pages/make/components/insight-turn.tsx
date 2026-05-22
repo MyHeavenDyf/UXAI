@@ -13,6 +13,7 @@ export type OutputCard = {
   title: string
   type: OutputCardType
   content: string
+  filePath?: string
   createdAt: Date
 }
 
@@ -166,6 +167,7 @@ export function InsightTurn(props: {
               title: heading(content) ?? filePath.split("/").pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
               type: "html",
               content,
+              filePath: filePath || undefined,
               createdAt: new Date(),
             }
           }

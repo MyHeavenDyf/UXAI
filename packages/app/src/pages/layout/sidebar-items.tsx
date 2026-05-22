@@ -99,6 +99,7 @@ const SessionRow = (props: {
   sidebarOpened: Accessor<boolean>
   warmPress: () => void
   warmFocus: () => void
+  onMarkViewed?: () => void
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
 
@@ -109,6 +110,7 @@ const SessionRow = (props: {
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
       onClick={() => {
+        props.onMarkViewed?.()
         if (props.sidebarOpened()) return
         props.clearHoverProjectSoon()
       }}
@@ -212,6 +214,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       sidebarOpened={layout.sidebar.opened}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
+      onMarkViewed={() => notification.session.markViewed(props.session.id)}
     />
   )
 

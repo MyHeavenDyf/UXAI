@@ -8,38 +8,17 @@
 
 ### Bug 1: AuthError 被 InitError 包装，错误类型丢失
 
-**文件**: `src/provider/provider.ts:1488-1595`
+**文件**: `src/provider/provider.ts:1628-1631`
 
-`resolveSDK` 的 try/catch 将 `AuthError` 统一包装为 `InitError`，UI 无法直接捕获 `AuthError` 触发 API Key 配置流程。
-
-```typescript
-// catch 块统一包装，AuthError 类型身份丢失
-catch (e) { throw new InitError({ providerID: model.providerID }, { cause: e }) }
-```
-
-**修复**: catch 块中对 `AuthError` 做透传：
-```typescript
-if (e instanceof AuthError) throw e
-```
+**状态**: ✅ 已修复 — catch 块中已添加 `if (e instanceof AuthError) throw e` 透传（2026-05-13）
 
 ---
 
 ### Bug 2: `session-category.ts` 的 `listByCategory` 绕过 `fromRow` 转换
 
-**文件**: `src/session/session-category.ts:102-103`
+**文件**: `src/session/session-category.ts:100`
 
-```typescript
-return (rows ?? []).map((r) => r.session as unknown as Info)
-```
-
-双重类型断言导致：
-- `summary`、`share`、`revert` 等字段转换逻辑被跳过，始终为 `undefined`
-- `category` 字段丢失（SessionRow 不含此列）
-
-**修复**: 使用 `fromRow` 转换：
-```typescript
-return (rows ?? []).map((r) => fromRow(r.session as SessionRow, category))
-```
+**状态**: ✅ 已修复 — 已改为 `fromRow(r.session, category)` 替代双重类型断言（2026-05-13）
 
 ---
 
@@ -53,6 +32,8 @@ sidebar 导航到 `/insight` 和 `/insight/:id`，但路由表中只有 `/:dir/c
 
 **修复**: 将 `/insight` 改为正确的 `/${slug}/cowork` 路径，或添加路由。
 
+**状态**: ✅ 已修复 — 已添加 `/insight/:id?` 和 `/make/:id?` 路由（2026-05-13）
+
 ---
 
 ### Bug 4: `CoworkPage.createAndNavigate()` 导航路径缺少 `:dir` 前缀
@@ -64,6 +45,8 @@ navigate(`/cowork/${session.id}`)  // 缺少 :dir 前缀
 ```
 
 **修复**: `navigate(`/${slug()}/cowork/${session.id}`)`
+
+**状态**: ✅ 已修复 — Cowork 页面已移除，改用 `/insight` 和 `/make` 独立路由（2026-05-13）
 
 ---
 

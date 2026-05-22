@@ -7,9 +7,13 @@ import { LSP } from "@/lsp/lsp"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
 import { jsonRequest } from "./trace"
+// Octo: HTML 编辑器文件写入支持
+import { OctoFileWriteRoute } from "./octo-file-write"
 
 export const FileRoutes = lazy(() =>
   new Hono()
+    // Octo: HTML 编辑器文件写入支持
+    .route("/", OctoFileWriteRoute())
     .get(
       "/find",
       describeRoute({

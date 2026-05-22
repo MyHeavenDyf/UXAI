@@ -4,6 +4,10 @@ import { dirname, join } from "node:path"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
+// jk-j60099994-replace-with-ipc-1-start
+// jk-j60099994-replace-with-ipc-1-end
+
+
 import type {
   InitStep,
   ServerReadyData,
@@ -40,6 +44,8 @@ type Deps = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
+  // jk-j60099994-replace-with-ipc-2-start
+  // jk-j60099994-replace-with-ipc-2-end
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -71,6 +77,8 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("check-update", () => deps.checkUpdate())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
+  // jk-j60099994-replace-with-ipc-3-start
+  // jk-j60099994-replace-with-ipc-3-end
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
     try {
       const store = getStore(name)

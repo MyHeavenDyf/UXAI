@@ -101,21 +101,49 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const permission = usePermission()
 
   const projectDir = useProjectDir()
+  const isOnboarding = createMemo(() => location.pathname === "/")
+
+  // Resolved directory signal — the single source of truth for session loading.
+  // Populated by two effects from different reliable reactive sources.
+  const [resolvedDir, setResolvedDir] = createSignal<string>()
 
   // Track which directory the fetched data came from, so we only show content
   // when the data matches the current directory (prevents flicker when dir changes from home → project)
   const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
   const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
 
-  // Insight sessions
-  const [sessions, { refetch }] = createResource(projectDir, async (d) => {
-    if (!d) return [] as Session[]
-    const client = globalSDK.createClient({ directory: d })
-    const result = await client.session.list()
-    const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-    setInsightFetchedDir(d)
-    return data.filter(s => s.agent === "octo_insight")
+  // Effect 1: read projectDir() which tracks server.projects.last() (persisted store, reactive).
+  // For returning users this fires immediately on mount with the persisted directory.
+  createEffect(() => {
+    const d = projectDir()
+    if (d) setResolvedDir(d)
   })
+
+  // Effect 2: track globalSync.data.ready (= bootstrap.isPending from useQuery, reliable).
+  // When bootstrap completes, explicitly read projectDir() — by then pathQuery.data is cached
+  // and the getter returns the real path even though the reactivity chain is broken.
+  createEffect(() => {
+    if (!globalSync.data.ready) {
+      const d = projectDir()
+      if (d) setResolvedDir(d)
+    }
+  })
+
+  // Insight sessions
+  const [sessions, { refetch }] = createResource(
+    () => isOnboarding() ? "" : (resolvedDir() ?? ""),
+    async (d) => {
+      if (!d) {
+        setInsightFetchedDir(d)
+        return [] as Session[]
+      }
+      const client = globalSDK.createClient({ directory: d })
+      const result = await client.session.list()
+      const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+      setInsightFetchedDir(d)
+      return data.filter(s => s.agent === "octo_insight")
+    },
+  )
 
   // Reconciled store with key="id" so <For> items keep stable references
   const [sessionList, setSessionList] = createStore<Session[]>([])
@@ -124,24 +152,30 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   }, { defer: true }))
 
   // Insight data is "stable" when fetched dir matches current dir
-  const insightStable = createMemo(() => insightFetchedDir() === projectDir())
+  const insightStable = createMemo(() => insightFetchedDir() === resolvedDir())
 
   // Make sessions
-  const [makeSessions, { refetch: refetchMake }] = createResource(projectDir, async (d) => {
-    if (!d) return [] as Session[]
-    const client = globalSDK.createClient({ directory: d })
-    const result = await client.session.list()
-    const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-    setMakeFetchedDir(d)
-    return data.filter(s => s.agent === "octo_make")
-  })
+  const [makeSessions, { refetch: refetchMake }] = createResource(
+    () => isOnboarding() ? "" : (resolvedDir() ?? ""),
+    async (d) => {
+      if (!d) {
+        setMakeFetchedDir(d)
+        return [] as Session[]
+      }
+      const client = globalSDK.createClient({ directory: d })
+      const result = await client.session.list()
+      const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+      setMakeFetchedDir(d)
+      return data.filter(s => s.agent === "octo_make")
+    },
+  )
 
   const [makeSessionList, setMakeSessionList] = createStore<Session[]>([])
   createEffect(on(makeSessions, (data) => {
     if (data) setMakeSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
-  const makeStable = createMemo(() => makeFetchedDir() === projectDir())
+  const makeStable = createMemo(() => makeFetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   let refetchMakeTimer: ReturnType<typeof setTimeout> | undefined
@@ -234,7 +268,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                   when={sessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      暂无对话
+                      {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                     </div>
                   }
                 >
@@ -256,7 +290,10 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                       return (
                         <button
                           type="button"
-                          onClick={() => navigate(`/insight/${session.id}`)}
+                          onClick={() => {
+                            notification.session.markViewed(session.id)
+                            navigate(`/insight/${session.id}`)
+                          }}
                           class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2 relative"
                           style={{
                             height: "36px",
@@ -350,7 +387,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                   when={makeSessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      暂无对话
+                      {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                     </div>
                   }
                 >
@@ -372,7 +409,10 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                       return (
                         <button
                           type="button"
-                          onClick={() => navigate(`/make/${session.id}`)}
+                          onClick={() => {
+                            notification.session.markViewed(session.id)
+                            navigate(`/make/${session.id}`)
+                          }}
                           class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center relative"
                           style={{
                             height: "36px",

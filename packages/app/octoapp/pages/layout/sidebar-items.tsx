@@ -79,6 +79,7 @@ export type SessionItemProps = {
   showTooltip?: boolean
   showChild?: boolean
   level?: number
+  showArchive?: boolean
   sidebarExpanded: Accessor<boolean>
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
@@ -99,6 +100,7 @@ const SessionRow = (props: {
   sidebarOpened: Accessor<boolean>
   warmPress: () => void
   warmFocus: () => void
+  onMarkViewed?: () => void
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
 
@@ -109,6 +111,7 @@ const SessionRow = (props: {
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
       onClick={() => {
+        props.onMarkViewed?.()
         if (props.sidebarOpened()) return
         props.clearHoverProjectSoon()
       }}
@@ -212,6 +215,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       sidebarOpened={layout.sidebar.opened}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
+      onMarkViewed={() => notification.session.markViewed(props.session.id)}
     />
   )
 
@@ -240,7 +244,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
             </Show>
           </div>
 
-          <Show when={!props.level}>
+          <Show when={!props.level && (props.showArchive ?? true)}>
             <div
               class="shrink-0 overflow-hidden transition-[width,opacity]"
               classList={{

@@ -281,7 +281,8 @@ export function SessionHeader() {
 
   return (
     <>
-      <Show when={search() && centerMount()}>
+      {/* Chat 页原搜索栏，已移至 titlebar-simple.tsx，保留代码以备后续使用 */}
+      {/* <Show when={search() && centerMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <button
@@ -297,7 +298,7 @@ export function SessionHeader() {
             </button>
           </Portal>
         )}
-      </Show>
+      </Show> */}
       <Show when={rightMount()}>
         {(mount) => (
           <Portal mount={mount()}>

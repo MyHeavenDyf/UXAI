@@ -190,6 +190,28 @@ export default function MakePage() {
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
 
+  async function handleContentChange(tabId: string, content: string) {
+    tabStore.updateTabContent(tabId, content)
+    const tab = tabStore.tabs().find((t) => t.id === tabId)
+    if (tab?.filePath) {
+      try {
+        const dir = homeDir()
+        if (dir) {
+          await fetch(`${globalSDK.url}/content`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "x-opencode-directory": dir,
+            },
+            body: JSON.stringify({ path: tab.filePath, content }),
+          })
+        }
+      } catch (err) {
+        console.error("[MakePage] failed to save file:", err)
+      }
+    }
+  }
+
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
@@ -454,6 +476,7 @@ export default function MakePage() {
           activeId={tabStore.activeId()}
           onActivate={tabStore.activate}
           onClose={tabStore.closeTab}
+          onContentChange={handleContentChange}
         />
 
         {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}
