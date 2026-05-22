@@ -5,7 +5,7 @@ import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -69,6 +69,7 @@ function createBlobUrlFromDataUrl(url: string) {
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
 
@@ -86,7 +87,12 @@ export default function StudioPage() {
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
-  const [studioLeftWidth, setStudioLeftWidth] = createSignal(296)
+  const [studioLeftWidth, setStudioLeftWidth] = createSignal(240)
+
+  createEffect(() => {
+    const path = location.pathname
+    if (path.includes("/studio")) setStudioLeftWidth(240)
+  })
 
   function handleStudioLeftResize(e: MouseEvent) {
     e.preventDefault()

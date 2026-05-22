@@ -1795,7 +1795,7 @@ export default function Page() {
   return (
     <div
       class="relative bg-background-base size-full overflow-hidden flex flex-col"
-      style={{ background: params.id ? "var(--background-base)" : "#fff" }}
+      style={{ background: "#fff" }}
     >
       {sessionSync() ?? ""}
       <SessionHeader />
@@ -1834,7 +1834,7 @@ export default function Page() {
           }}
           style={{
             width: sessionPanelWidth(),
-            background: params.id ? "var(--background-stronger)" : "#fff",
+            background: "#fff",
           }}
         >
           <Show when={params.id} fallback={

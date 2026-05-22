@@ -212,7 +212,7 @@ export function TitlebarSimple() {
         style={{ zoom: counterZoom() }}
       >
         <div id="opencode-titlebar-center" class="flex items-center shrink-0 justify-end">
-          <Show when={activeTab() === "cowork" || activeTab() === "studio"}>
+          <Show when={hasActiveTab()}>
             <button
               type="button"
               aria-label={language.t("session.header.searchFiles")}

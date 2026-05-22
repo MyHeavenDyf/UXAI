@@ -20,8 +20,8 @@
 }
 
 .studio-left {
-  width: 296px;
-  flex: 0 0 296px;
+  width: 240px;
+  flex: 0 0 240px;
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid rgba(0, 0, 0, 0.08);

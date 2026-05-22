@@ -52,4 +52,13 @@
   padding: 4px 8px !important;
   height: auto !important;
   color: #191919 !important;
+  transition: background-color 0.15s ease !important;
+}
+
+[data-dock-surface="shell"] [data-component="prompt-model-control"] [data-action="prompt-model"]:hover {
+  background-color: #e8e8e8 !important;
+}
+
+[data-dock-surface="shell"] [data-component="prompt-model-control"] [data-action="prompt-model"]:active {
+  background-color: #dedede !important;
 }

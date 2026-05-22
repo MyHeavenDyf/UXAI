@@ -57,7 +57,44 @@
 
 ---
 
-## 2026-05-22（第三十二轮）— Studio 工具栏贴底对齐
+## 2026-05-22（第三十五轮）— Chat 搜索恒显、模型按钮反馈、会话区白底
+
+### 目标
+
+修复三个交互与视觉细节：搜索图标随 Tab 切换消失、Chat 输入区模型按钮缺少 hover/active 反馈、Chat 会话内容区存在主题背景色。
+
+### 改动文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/titlebar-simple.tsx` | 修改 | 将搜索按钮的 `<Show>` 条件从 `cowork\|studio` 改为 `hasActiveTab()`，三个 Tab 均显示搜索图标 |
+| `packages/app/octoapp/style/prompt-input.css` | 修改 | 为模型选择按钮新增 `:hover`（`#e8e8e8`）和 `:active`（`#dedede`）状态，并补充 `transition` |
+| `packages/app/octoapp/pages/session.tsx` | 修改 | 将外层容器和会话面板的 `background` 统一改为 `#fff`，去除 `params.id` 条件下应用的主题背景色 |
+
+### 具体改动
+
+#### titlebar-simple.tsx
+- `<Show when={activeTab() === "cowork" || activeTab() === "studio"}>` → `<Show when={hasActiveTab()}>`
+- 搜索图标在有效 Tab 下始终显示，不随 Tab 切换隐藏
+
+#### prompt-input.css
+```css
+/* 新增 */
+[data-dock-surface="shell"] [data-component="prompt-model-control"] [data-action="prompt-model"]:hover {
+  background-color: #e8e8e8 !important;
+}
+[data-dock-surface="shell"] [data-component="prompt-model-control"] [data-action="prompt-model"]:active {
+  background-color: #dedede !important;
+}
+```
+
+#### session.tsx
+- 外层 `<div>` style：`background: params.id ? "var(--background-base)" : "#fff"` → `background: "#fff"`
+- 会话面板 style：`background: params.id ? "var(--background-stronger)" : "#fff"` → `background: "#fff"`
+
+---
+
+## 2026-05-22（第三十四轮）— Studio 工具栏贴底对齐
 
 ### 目标
 
@@ -132,6 +169,50 @@
 | 文件 | 改动 |
 |------|------|
 | `packages/app/octoapp/pages/session.tsx` | Chat 空态父面板与空态层改为明确白底 |
+
+---
+
+## 2026-05-22（第三十二轮）— Chat/Studio 左栏默认宽度统一为 240px
+
+### 目标
+
+Chat 默认 300px、Studio 默认 296px（CSS + 信号双重来源），两者不一致。统一为 240px（标准侧栏宽度，给主内容区留更多空间）。
+
+### 本轮实际改动
+
+- **A** — `packages/app/octoapp/pages/chat.tsx`：`createSignal(300)` → `createSignal(240)`
+- **B** — `packages/app/octoapp/pages/studio/index.tsx`：`createSignal(296)` → `createSignal(240)`；pathname 重置 effect 同步改为 240
+- **C** — `packages/app/octoapp/pages/studio/studio.css`：`.studio-left { width: 296px; flex: 0 0 296px }` → 240px
+
+### 涉及文件
+
+| 文件 | 改动 |
+|------|------|
+| `packages/app/octoapp/pages/chat.tsx` | 侧栏默认宽度改为 240px |
+| `packages/app/octoapp/pages/studio/index.tsx` | 左栏默认宽度改为 240px |
+| `packages/app/octoapp/pages/studio/studio.css` | `.studio-left` CSS 默认宽度改为 240px |
+
+---
+
+## 2026-05-22（第三十一轮）— Chat/Studio 面板宽度切换后重置默认值
+
+### 目标
+
+修复 Chat 和 Studio 左侧面板在 tab 切换后不恢复默认宽度的问题。
+Chat 根本原因：`persisted(Persist.global("chat.sidebar.width"))` 写入 localStorage，组件重建时从存储恢复上次宽度。
+Studio 根本原因：SolidJS Router 0.15 在同父路由下切换子路由时可能复用组件实例，导致 `createSignal(296)` 没有重新初始化。
+
+### 本轮实际改动
+
+- **A** — `packages/app/octoapp/pages/chat.tsx`：移除 `persisted(Persist.global("chat.sidebar.width"), createStore(...))` 及相关 import（`createStore`、`persisted`、`Persist`），改为 `createSignal(300)`；每次路由挂载都从默认 300px 开始
+- **B** — `packages/app/octoapp/pages/studio/index.tsx`：引入 `useLocation`，添加 `createEffect` 监听 `location.pathname`：每当路径包含 `/studio` 时主动将 `studioLeftWidth` 重置为 296px，兜底 Router 不卸载组件的情况
+
+### 涉及文件
+
+| 文件 | 改动 |
+|------|------|
+| `packages/app/octoapp/pages/chat.tsx` | 侧栏宽度改为非持久化 createSignal(300) |
+| `packages/app/octoapp/pages/studio/index.tsx` | 添加 pathname effect 主动重置面板宽度 |
 
 ---
 
