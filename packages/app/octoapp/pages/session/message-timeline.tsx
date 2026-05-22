@@ -713,7 +713,7 @@ export function MessageTimeline(props: {
                 }}
                 data-session-title
                 classList={{
-                  "sticky top-0 z-30 bg-[linear-gradient(to_bottom,var(--background-stronger)_48px,transparent)]": true,
+                  "sticky top-0 z-30": true,
                   relative: true,
                   "w-full": true,
                   "pb-4": true,

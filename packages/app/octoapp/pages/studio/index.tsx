@@ -14,6 +14,7 @@ import { useLanguage } from "@/context/language"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import {
   STUDIO_ASPECT_RATIOS,
   STUDIO_CAPABILITIES,
@@ -626,30 +627,32 @@ export default function StudioPage() {
       <Show when={hasStudioConversation()} fallback={
         <main class="studio-empty-workspace">
           <div class="studio-empty-stack">
-            <StudioIntro />
-            <StudioComposer
-              prompt={prompt()}
-              capability={capability()}
-              imageTool={imageTool()}
-              styleModel={styleModel()}
-              aspectRatio={aspectRatio()}
-              count={count()}
-              assets={assets()}
-              status={effectiveStatus()}
-              openMenu={openMenu()}
-              canSubmit={canSubmit()}
-              onPrompt={setPrompt}
-              onCapability={setCapability}
-              onImageTool={setImageTool}
-              onStyleModel={setStyleModel}
-              onAspectRatio={setAspectRatio}
-              onCount={setCount}
-              onOpenMenu={setOpenMenu}
-              onSubmit={handleSubmit}
-              onKeyDown={handleKeyDown}
-              onPickFile={() => fileInputRef.click()}
-              onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
-            />
+            <div class="studio-empty-group">
+              <StudioIntro />
+              <StudioComposer
+                prompt={prompt()}
+                capability={capability()}
+                imageTool={imageTool()}
+                styleModel={styleModel()}
+                aspectRatio={aspectRatio()}
+                count={count()}
+                assets={assets()}
+                status={effectiveStatus()}
+                openMenu={openMenu()}
+                canSubmit={canSubmit()}
+                onPrompt={setPrompt}
+                onCapability={setCapability}
+                onImageTool={setImageTool}
+                onStyleModel={setStyleModel}
+                onAspectRatio={setAspectRatio}
+                onCount={setCount}
+                onOpenMenu={setOpenMenu}
+                onSubmit={handleSubmit}
+                onKeyDown={handleKeyDown}
+                onPickFile={() => fileInputRef.click()}
+                onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
+              />
+            </div>
           </div>
         </main>
       }>
@@ -764,28 +767,26 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
       }}
     >
       <div class="flex-1 min-h-0 flex flex-col gap-3">
-        <div class="flex flex-col gap-1 shrink-0">
-          <div class="flex items-center gap-3 px-3 py-2">
-            <img src="/IconStudio1.svg" alt="" style={{ width: "16px", height: "16px" }} />
-            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}>
-              Studio
-            </span>
-          </div>
+        <div class="flex flex-col gap-2 shrink-0">
           <button
             type="button"
-            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors bg-[rgba(25,25,25,0.04)] hover:bg-[rgba(25,25,25,0.08)]"
+            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
             style={{ height: "44px", color: "#191919" }}
             onClick={props.onNewConversation}
           >
             <Icon name="plus" size="small" class="shrink-0" />
             <span>{language.t("command.session.new")}</span>
           </button>
+          <div style={{ height: "1px", background: "rgba(0,0,0,0.08)" }} />
+          <div class="flex items-center gap-3 px-3 py-2">
+            <img src="/IconStudio1.svg" alt="" style={{ width: "16px", height: "16px" }} />
+            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}>
+              Studio
+            </span>
+          </div>
         </div>
 
         <div class="flex flex-col gap-1 flex-1 min-h-0">
-          <div class="shrink-0 px-3 py-2 text-14-regular" style={{ color: "#6e737a" }}>
-            历史记录
-          </div>
           <div class="flex-1 min-h-0 overflow-y-auto">
             <Show
               when={studioSessions().length > 0}
@@ -821,8 +822,8 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                               right: "8px",
                               top: "50%",
                               transform: "translateY(-50%)",
-                              width: "3px",
-                              height: "24px",
+                              width: "4px",
+                              height: "32px",
                               background: "var(--text-interactive-base)",
                             }}
                           />
@@ -843,7 +844,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
         onClick={() => dialog.show(() => <DialogSettings />)}
       >
         <Icon name="settings-gear" size="small" class="shrink-0" />
-        <span>设置</span>
+        <span>{language.t("sidebar.settings")}</span>
       </button>
     </div>
   )
@@ -852,11 +853,11 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <div class="studio-intro-visual">
-        <StudioGlassSphere />
+      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <div class="studio-intro-copy">
+        <div class="studio-intro-title">Octo Studio</div>
+        <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
       </div>
-      <div class="studio-intro-title">Octo Studio</div>
-      <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
     </div>
   )
 }
@@ -965,7 +966,7 @@ function StudioComposer(props: {
 
 function ToolButton(props: { label: string; onClick: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="h-8 px-3 rounded-full bg-[#f2f3f5] text-[13px] flex items-center gap-1">
+    <button type="button" onClick={props.onClick} class="h-8 px-3 rounded-full bg-[#f2f3f5] hover:bg-[#e8e9ec] transition-colors text-[13px] flex items-center gap-1">
       <span>{props.label}</span>
       <span class="text-[10px] text-[var(--studio-muted)]">⌄</span>
     </button>
@@ -974,7 +975,7 @@ function ToolButton(props: { label: string; onClick: () => void }): JSX.Element 
 
 function IconTool(props: { label: string; onClick: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="w-8 h-8 rounded-full bg-[#f2f3f5] text-[13px]" title={props.label}>
+    <button type="button" onClick={props.onClick} class="w-8 h-8 rounded-full bg-[#f2f3f5] hover:bg-[#e8e9ec] transition-colors text-[13px]" title={props.label}>
       {props.label === "参数" ? "≛" : "▣"}
     </button>
   )

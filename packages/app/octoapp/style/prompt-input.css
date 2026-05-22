@@ -17,6 +17,10 @@
   padding-bottom: 24px;
 }
 
+[data-state="empty-session"] [data-component="session-prompt-dock"] {
+  padding-bottom: 0;
+}
+
 [data-component="session-prompt-dock"] > .w-full.px-3 {
   padding-left: 24px;
   padding-right: 24px;
@@ -24,7 +28,7 @@
 
 [data-dock-surface="shell"] {
   border: 1px solid transparent;
-  min-height: 120px;
+  min-height: 140px;
   padding: 12px 16px;
   border-radius: 16px;
   display: flex;

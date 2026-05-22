@@ -80,21 +80,12 @@ export function Sidebar(props: {
     >
       <Show when={props.currentDir()}>
         <div class="flex-1 min-h-0 flex flex-col gap-3">
-          {/* Section header: tab icon + label */}
-          <div class="flex flex-col gap-1 shrink-0">
-            <div class="flex items-center gap-3 px-3 py-2">
-              <img src={tabMeta().icon} alt="" style={{ width: "16px", height: "16px" }} />
-              <span
-                class="flex-1 min-w-0 leading-6"
-                style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}
-              >
-                {tabMeta().label}
-              </span>
-            </div>
-            {/* New session button */}
+          {/* Top controls: new button + divider + section header */}
+          <div class="flex flex-col gap-2 shrink-0">
+            {/* New session button — no default background */}
             <button
               type="button"
-              class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors bg-[rgba(25,25,25,0.04)] hover:bg-[rgba(25,25,25,0.08)]"
+              class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
               style={{ height: "44px", color: "#191919" }}
               onClick={() => {
                 const dir = props.currentDir()
@@ -105,13 +96,22 @@ export function Sidebar(props: {
               <Icon name="plus" size="small" class="shrink-0" />
               <span>{language.t("command.session.new")}</span>
             </button>
+            {/* Divider */}
+            <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "0 0" }} />
+            {/* Section header: tab icon + label */}
+            <div class="flex items-center gap-3 px-3 py-2">
+              <img src={tabMeta().icon} alt="" style={{ width: "16px", height: "16px" }} />
+              <span
+                class="flex-1 min-w-0 leading-6"
+                style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}
+              >
+                {tabMeta().label}
+              </span>
+            </div>
           </div>
 
-          {/* History list */}
+          {/* Session list — no label */}
           <div class="flex flex-col gap-1 flex-1 min-h-0">
-            <div class="shrink-0 px-3 py-2 text-14-regular" style={{ color: "#6e737a" }}>
-              历史记录
-            </div>
             <div class="flex-1 min-h-0 overflow-y-auto">
               <Show when={props.currentDir()} keyed>
                 {(dir) => {
@@ -155,8 +155,8 @@ export function Sidebar(props: {
                                       right: "8px",
                                       top: "50%",
                                       transform: "translateY(-50%)",
-                                      width: "3px",
-                                      height: "24px",
+                                      width: "4px",
+                                      height: "32px",
                                       background: "var(--text-interactive-base)",
                                     }}
                                   />
@@ -195,10 +195,11 @@ export function Sidebar(props: {
         <button
           type="button"
           class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-text-strong shrink-0 hover:bg-surface-base-hover transition-colors"
+          style={{ "font-size": "14px", "line-height": "20px", padding: "8px 12px" }}
           onClick={openSettings}
         >
           <Icon name="settings-gear" size="small" class="shrink-0" />
-          <span>{language.t("sidebar.settings")}</span>
+          <span style={{ "line-height": "20px" }}>{language.t("sidebar.settings")}</span>
         </button>
       </Show>
     </div>

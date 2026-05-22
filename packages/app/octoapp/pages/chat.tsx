@@ -1,17 +1,15 @@
-import { createMemo, createEffect, Show, ErrorBoundary, Suspense, createSignal } from "solid-js"
+import { createMemo, createEffect, Show, ErrorBoundary, createSignal, type JSX } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
 import { decode64 } from "@/utils/base64"
-import { lazy } from "solid-js"
 import { TerminalProvider } from "@/context/terminal"
 import { FileProvider } from "@/context/file"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
+import SessionPage from "@/pages/session"
 
-const SessionPage = lazy(() => import("@/pages/session"))
-
-function SessionProviders(props: { children: any }) {
+function SessionProviders(props: { children: JSX.Element }) {
   return (
     <TerminalProvider>
       <FileProvider>
@@ -47,7 +45,7 @@ export default function ChatPage() {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(480, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -59,7 +57,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div class="flex flex-1 min-w-0 min-h-0 h-full">
+    <div class="relative flex flex-1 min-w-0 min-h-0 h-full">
       <Show when={resolvedDirectory()}>
         <div
           class="sidebar-wrap h-full shrink-0 border-r border-border-weak-base flex flex-col"
@@ -74,21 +72,21 @@ export default function ChatPage() {
         </div>
         <div
           style={{
-            width: "5px",
+            position: "absolute",
+            top: "0",
+            bottom: "0",
+            left: `${sidebarWidth() - 4}px`,
+            width: "8px",
             cursor: "col-resize",
-            "flex-shrink": "0",
-            "align-self": "stretch",
             "z-index": "10",
           }}
           onMouseDown={handleSidebarResize}
         />
       </Show>
       <div class="flex-1 min-w-0 min-h-0">
-        <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
-          <SessionProviders>
-            <SessionPage />
-          </SessionProviders>
-        </Suspense>
+        <SessionProviders>
+          <SessionPage />
+        </SessionProviders>
       </div>
     </div>
   )

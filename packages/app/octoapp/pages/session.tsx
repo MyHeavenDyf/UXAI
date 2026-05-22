@@ -1793,7 +1793,10 @@ export default function Page() {
   })
 
   return (
-    <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
+    <div
+      class="relative bg-background-base size-full overflow-hidden flex flex-col"
+      style={{ background: params.id ? "var(--background-base)" : "#fff" }}
+    >
       {sessionSync() ?? ""}
       <SessionHeader />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
@@ -1825,17 +1828,42 @@ export default function Page() {
         {/* Session panel */}
         <div
           classList={{
-            "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
+            "@container relative shrink-0 flex flex-col min-h-0 h-full flex-1 md:flex-none": true,
             "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
               !size.active() && !ui.reviewSnap,
           }}
           style={{
             width: sessionPanelWidth(),
+            background: params.id ? "var(--background-stronger)" : "#fff",
           }}
         >
-          <div class="flex-1 min-h-0 overflow-hidden">
-            <Switch>
-              <Match when={params.id}>
+          <Show when={params.id} fallback={
+            /* No session: logo + text + composer centered as one group */
+            <div
+              data-state="empty-session"
+              class="flex-1 min-h-0 flex flex-col items-center justify-center"
+              style={{ background: "#fff" }}
+            >
+              <div classList={{ "w-full": true, "md:max-w-[848px]": centered() }}>
+                <NewSessionView worktree={newSessionWorktree()} />
+                <SessionComposerRegion
+                  state={composer}
+                  ready={!store.deferRender && messagesReady()}
+                  centered={centered()}
+                  inputRef={(el) => { inputRef = el }}
+                  newSessionWorktree={newSessionWorktree()}
+                  onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+                  onSubmit={() => { comments.clear(); resumeScroll() }}
+                  onResponseSubmit={resumeScroll}
+                  followup={undefined}
+                  revert={undefined}
+                  setPromptDockRef={(el) => { promptDock = el }}
+                />
+              </div>
+            </div>
+          }>
+            <>
+              <div class="flex-1 min-h-0 overflow-hidden">
                 <Show when={messagesReady()}>
                   <MessageTimeline
                     mobileChanges={mobileChanges()}
@@ -1864,76 +1892,60 @@ export default function Page() {
                     setContentRef={(el) => {
                       content = el
                       autoScroll.contentRef(el)
-
                       const root = scroller
                       if (root) scheduleScrollState(root)
                     }}
                     turnStart={historyWindow.turnStart()}
                     historyMore={historyMore()}
                     historyLoading={historyLoading()}
-                    onLoadEarlier={() => {
-                      void historyWindow.loadAndReveal()
-                    }}
+                    onLoadEarlier={() => { void historyWindow.loadAndReveal() }}
                     renderedUserMessages={historyWindow.renderedUserMessages()}
                     anchor={anchor}
                   />
                 </Show>
-              </Match>
-              <Match when={true}>
-                <NewSessionView worktree={newSessionWorktree()} />
-              </Match>
-            </Switch>
-          </div>
-
-          <SessionComposerRegion
-            state={composer}
-            ready={!store.deferRender && messagesReady()}
-            centered={centered()}
-            inputRef={(el) => {
-              inputRef = el
-            }}
-            newSessionWorktree={newSessionWorktree()}
-            onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
-            onSubmit={() => {
-              comments.clear()
-              resumeScroll()
-            }}
-            onResponseSubmit={resumeScroll}
-            followup={
-              params.id && !isChildSession()
-                ? {
-                    queue: queueEnabled,
-                    items: followupDock(),
-                    sending: sendingFollowup(),
-                    edit: editingFollowup(),
-                    onQueue: queueFollowup,
-                    onAbort: () => {
-                      const id = params.id
-                      if (!id) return
-                      setFollowup("paused", id, true)
-                    },
-                    onSend: (id) => {
-                      void sendFollowup(params.id!, id, { manual: true })
-                    },
-                    onEdit: editFollowup,
-                    onEditLoaded: clearFollowupEdit,
-                  }
-                : undefined
-            }
-            revert={
-              rolled().length > 0
-                ? {
-                    items: rolled(),
-                    restoring: restoring(),
-                    disabled: reverting(),
-                    onRestore: restore,
-                  }
-                : undefined
-            }
-            setPromptDockRef={(el) => {
-              promptDock = el
-            }}
-          />
+              </div>
+              <SessionComposerRegion
+                state={composer}
+                ready={!store.deferRender && messagesReady()}
+                centered={centered()}
+                inputRef={(el) => { inputRef = el }}
+                newSessionWorktree={newSessionWorktree()}
+                onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+                onSubmit={() => { comments.clear(); resumeScroll() }}
+                onResponseSubmit={resumeScroll}
+                followup={
+                  params.id && !isChildSession()
+                    ? {
+                        queue: queueEnabled,
+                        items: followupDock(),
+                        sending: sendingFollowup(),
+                        edit: editingFollowup(),
+                        onQueue: queueFollowup,
+                        onAbort: () => {
+                          const id = params.id
+                          if (!id) return
+                          setFollowup("paused", id, true)
+                        },
+                        onSend: (id) => { void sendFollowup(params.id!, id, { manual: true }) },
+                        onEdit: editFollowup,
+                        onEditLoaded: clearFollowupEdit,
+                      }
+                    : undefined
+                }
+                revert={
+                  rolled().length > 0
+                    ? {
+                        items: rolled(),
+                        restoring: restoring(),
+                        disabled: reverting(),
+                        onRestore: restore,
+                      }
+                    : undefined
+                }
+                setPromptDockRef={(el) => { promptDock = el }}
+              />
+            </>
+          </Show>
 
           <Show when={desktopReviewOpen()}>
             <div onPointerDown={() => size.start()}>

@@ -1509,12 +1509,40 @@ PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
     () => props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
   )
   const text = () => part().text.trim()
+  const [open, setOpen] = createSignal(false)
+
+  const duration = createMemo(() => {
+    if (props.message.role !== "assistant") return ""
+    const msg = props.message as AssistantMessage
+    const completed = msg.time.completed
+    if (typeof completed !== "number") return ""
+    const secs = Math.round((completed - msg.time.created) / 1000)
+    if (secs <= 0) return ""
+    if (secs < 60) return `${secs}s`
+    const m = Math.floor(secs / 60)
+    const s = secs % 60
+    return s > 0 ? `${m}m ${s}s` : `${m}m`
+  })
 
   return (
     <Show when={text()}>
-      <div data-component="reasoning-part">
-        <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
-          <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
+      <div data-component="reasoning-part" data-streaming={streaming() || undefined}>
+        <Show
+          when={!streaming()}
+          fallback={<PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />}
+        >
+          <button data-slot="reasoning-part-header" onClick={() => setOpen((v) => !v)}>
+            <span data-slot="reasoning-part-title">已深度思考</span>
+            <Show when={duration()}>
+              <span data-slot="reasoning-part-duration">（用时{duration()}）</span>
+            </Show>
+            <span data-slot="reasoning-part-chevron" data-open={open() || undefined}>
+              <Icon name="chevron-down" size="small" />
+            </span>
+          </button>
+          <Show when={open()}>
+            <Markdown text={text()} cacheKey={part().id} streaming={false} />
+          </Show>
         </Show>
       </div>
     </Show>

@@ -115,12 +115,12 @@ export function SessionComposerRegion(props: {
     <div
       ref={props.setPromptDockRef}
       data-component="session-prompt-dock"
-      class="shrink-0 w-full pb-3 flex flex-col justify-center items-center bg-background-stronger pointer-events-none"
+      class="shrink-0 w-full pb-3 flex flex-col justify-center items-center pointer-events-none"
     >
       <div
         classList={{
           "w-full px-3 pointer-events-auto": true,
-          "md:max-w-200 md:mx-auto 2xl:max-w-[848px]": props.centered,
+          "md:max-w-[848px] md:mx-auto 2xl:max-w-[848px]": props.centered,
         }}
       >
         <Show when={props.state.questionRequest()} keyed>
@@ -163,7 +163,14 @@ export function SessionComposerRegion(props: {
                     </div>
                   )}
                 </Show>
-                <div class="w-full min-h-32 md:min-h-40 rounded-md border border-border-weak-base bg-background-base/50 px-4 py-3 text-text-weak whitespace-pre-wrap pointer-events-none">
+                <div
+                  classList={{
+                    "w-full rounded-md border border-border-weak-base bg-background-base/50 px-4 py-3 text-text-weak whitespace-pre-wrap pointer-events-none":
+                      true,
+                    "min-h-[140px]": !route.params.id,
+                    "min-h-32 md:min-h-40": !!route.params.id,
+                  }}
+                >
                   {handoffPrompt() || language.t("prompt.loading")}
                 </div>
               </>

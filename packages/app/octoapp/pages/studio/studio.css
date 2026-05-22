@@ -208,7 +208,6 @@
 }
 
 .studio-left > div > button:last-of-type {
-  height: 36px;
   padding: 8px 12px;
   gap: 12px;
   font-size: 14px;
@@ -238,33 +237,34 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
 }
 
-.studio-intro {
-  flex: 1;
-  min-height: 0;
+.studio-empty-group {
+  width: min(800px, calc(100% - 48px));
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 48px 24px 36px;
 }
 
-.studio-intro-visual {
-  height: 240px;
+.studio-intro {
+  flex: none;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  text-align: center;
+  gap: 16px;
+  padding: 0 24px 32px;
 }
 
-.studio-intro-visual > div {
-  width: 148px !important;
-  height: 148px !important;
+.studio-intro-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .studio-intro-title {
-  margin-top: 12px;
   color: #191919;
   font-size: 24px;
   line-height: 36px;
@@ -272,22 +272,22 @@
 }
 
 .studio-intro-subtitle {
-  margin-top: 8px;
   color: #6e737a;
   font-size: 14px;
   line-height: 20px;
 }
 
 .studio-empty-stack .studio-composer-wrap {
-  width: min(800px, calc(100% - 48px));
+  width: 100%;
   margin: 0 auto;
-  padding-bottom: 24px;
 }
 
 .studio-empty-stack .studio-composer {
-  min-height: 130px;
+  min-height: 140px;
   margin: 0;
   padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid transparent;
   border-radius: 16px;
   background:
@@ -322,13 +322,13 @@
   font-size: 20px;
   transform: none;
   rotate: none;
+  transition: background-color 0.15s ease;
 }
 
-.studio-empty-stack .studio-composer .flex.gap-4 > :first-child::before {
-  content: "+";
-  font-size: 20px;
-  line-height: 1;
+.studio-empty-stack .studio-composer .flex.gap-4 > :first-child:hover {
+  background: #e8e9ec !important;
 }
+
 
 .studio-empty-stack .studio-composer textarea {
   min-height: 58px;
@@ -343,7 +343,7 @@
 }
 
 .studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 {
-  margin-top: 12px;
+  margin-top: auto;
 }
 
 .studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(1),
@@ -364,6 +364,17 @@
   background-color: #f3f3f3 !important;
 }
 
+.studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(1):hover,
+.studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(2):hover,
+.studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(3):hover {
+  background: #e8e9ec;
+}
+
+.studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(4):hover,
+.studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(5):hover {
+  background-color: #e8e9ec !important;
+}
+
 .studio-empty-stack .studio-composer .flex.items-center.gap-2.mt-5 > :nth-child(6) {
   width: 36px;
   height: 36px;
@@ -371,4 +382,8 @@
 
 .studio-empty-stack .studio-menu {
   bottom: 56px;
+}
+
+.studio-composer .flex.items-center.gap-2.mt-5 > button {
+  transition: background-color 0.15s ease;
 }

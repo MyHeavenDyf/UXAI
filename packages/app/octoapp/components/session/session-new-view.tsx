@@ -1,64 +1,12 @@
-import { Show, createMemo } from "solid-js"
-import { DateTime } from "luxon"
-import { useSync } from "@/context/sync"
-import { useSDK } from "@/context/sdk"
-import { useLanguage } from "@/context/language"
-import { Icon } from "@opencode-ai/ui/icon"
-import { Mark } from "@opencode-ai/ui/logo"
-import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
-import resultEmptyUrl from "@/pages/insight/icons/IllustrationResultEmpty.svg?url"
+import IconHost from "@/pages/_shell/icons/IconHost.svg"
 
-const MAIN_WORKTREE = "main"
-const CREATE_WORKTREE = "create"
-const ROOT_CLASS = "size-full flex flex-col"
-
-interface NewSessionViewProps {
-  worktree: string
-}
-
-export function NewSessionView(props: NewSessionViewProps) {
-  const sync = useSync()
-  const sdk = useSDK()
-  const language = useLanguage()
-
-  const sandboxes = createMemo(() => sync.project?.sandboxes ?? [])
-  const options = createMemo(() => [MAIN_WORKTREE, ...sandboxes(), CREATE_WORKTREE])
-  const current = createMemo(() => {
-    const selection = props.worktree
-    if (options().includes(selection)) return selection
-    return MAIN_WORKTREE
-  })
-  const projectRoot = createMemo(() => sync.project?.worktree ?? sdk.directory)
-  const isWorktree = createMemo(() => {
-    const project = sync.project
-    if (!project) return false
-    return sdk.directory !== project.worktree
-  })
-
-  const label = (value: string) => {
-    if (value === MAIN_WORKTREE) {
-      if (isWorktree()) return language.t("session.new.worktree.main")
-      const branch = sync.data.vcs?.branch
-      if (branch) return language.t("session.new.worktree.mainWithBranch", { branch })
-      return language.t("session.new.worktree.main")
-    }
-
-    if (value === CREATE_WORKTREE) return language.t("session.new.worktree.create")
-
-    return getFilename(value)
-  }
-
+export function NewSessionView(_props: { worktree: string }) {
   return (
-    <div class={ROOT_CLASS}>
-      <div class="h-12 shrink-0" aria-hidden />
-      <div class="flex-1 px-6 pb-30 flex items-center justify-center text-center">
-        <div class="w-full max-w-200 flex flex-col items-center text-center">
-          <img src={resultEmptyUrl} alt="" class="w-[270px] h-[240px] shrink-0" />
-          <div class="flex flex-col items-center gap-2">
-            <div class="text-20-medium text-text-strong">Octo AI</div>
-            <div class="text-14-regular text-text-weak">告诉我您的目标，我将为您深度调研并一键生成设计方案。</div>
-          </div>
-        </div>
+    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
+      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <div class="flex flex-col items-center gap-2">
+        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Chat</div>
+        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>有任何想法您都可以通过下方输入框输入</div>
       </div>
     </div>
   )

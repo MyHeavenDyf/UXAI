@@ -1391,7 +1391,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
         </div>
         <Show when={store.mode === "normal" || store.mode === "shell"}>
-          <div class="flex items-end gap-2 min-w-0 mt-auto">
+          <div class="flex items-center gap-2 min-w-0 mt-auto">
           <input
             ref={fileInputRef}
             type="file"
