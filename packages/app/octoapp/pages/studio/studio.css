@@ -25,11 +25,15 @@
   min-height: 0;
   border-right: 1px solid var(--studio-line);
   background: #fff;
-  padding: 24px 36px 24px 16px;
+  padding: 24px 0 24px 16px;
 }
 
 .studio-left > div {
   padding: 0;
+}
+
+.studio-left .flex-1.min-h-0 {
+  padding-right: 36px;
 }
 
 .studio-left h1 {

@@ -118,7 +118,7 @@ export function Sidebar(props: {
             />
           </div> */}
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto">
+        <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto">
           <Show when={props.currentDir()} keyed>
             {(dir) => {
               const [store] = globalSync.child(dir, { bootstrap: true })

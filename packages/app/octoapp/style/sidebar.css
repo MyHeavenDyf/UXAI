@@ -2,7 +2,7 @@
   .sidebar-wrap.shrink-0.border-r {
     width: 296px;
     border-right-color: rgba(0,0,0,0.1);
-    padding: 24px 36px 24px 16px;
+    padding: 24px 0 24px 16px;
     background-color: #fff;
   }
 
@@ -43,6 +43,11 @@
     line-height: 22px;
     color: rgba(25, 25, 25, 0.5);
   }
+
+  .sidebar-wrap.shrink-0 .flex-1 > .mb-2 {
+    padding-right: 36px;
+  }
+
 
   [data-session-id] {
     height: 48px;

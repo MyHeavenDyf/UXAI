@@ -712,7 +712,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
         <span>{language.t("command.session.new")}</span>
       </button>
       <div class="text-[15px] font-semibold mb-6">{language.t("sidebar.history.title")}</div>
-      <div class="flex-1 min-h-0 overflow-y-auto pr-1">
+      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto pr-1">
         <For each={sessions()}>
           {(group) => (
             <div class="mb-7">

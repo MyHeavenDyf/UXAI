@@ -220,8 +220,8 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     >
       {/* Scrollable: Insight + Make sessions */}
       <div
+        data-slot="list-scroll"
         class="flex-1 min-h-0 overflow-y-auto px-[12px] py-[6px]"
-        style={{ "scrollbar-width": "none" }}
       >
         {/* ─── Octo Insight ─── */}
         <div class="mb-[2px]">
