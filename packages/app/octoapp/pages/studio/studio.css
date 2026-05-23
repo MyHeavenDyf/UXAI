@@ -1,4 +1,5 @@
 .studio-page {
+  position: relative;
   --studio-bg: #f8fbff;
   --studio-panel: rgba(255, 255, 255, 0.86);
   --studio-sidebar: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(221, 239, 255, 0.88));
@@ -20,8 +21,6 @@
 }
 
 .studio-left {
-  width: 296px;
-  flex: 0 0 296px;
   min-height: 0;
   border-right: 1px solid var(--studio-line);
   background: #fff;
@@ -159,9 +158,7 @@
 }
 
 .studio-center {
-  width: 468px;
-  flex: 0 0 468px;
-  min-width: 420px;
+  min-width: 360px;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--studio-line);
