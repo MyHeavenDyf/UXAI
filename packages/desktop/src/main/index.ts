@@ -65,7 +65,7 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -151,6 +151,7 @@ function setupApp() {
       migrateAppId()
       migrate()
       deploySkillsJson()
+      deployBuiltinSkills()
     }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()
