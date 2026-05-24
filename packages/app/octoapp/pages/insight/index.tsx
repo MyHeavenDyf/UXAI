@@ -16,7 +16,7 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
-import { SDKProvider } from "@/context/sdk"
+import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -64,11 +64,8 @@ export default function InsightPage() {
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const globalSDK = useGlobalSDK()
-  const globalSync = useGlobalSync()
   const sync = useSync()
-
-  const homeDir = () => globalSync.data.path.home
+  const sdk = useSDK()
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
@@ -211,11 +208,11 @@ function InsightContent() {
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = homeDir()
+    const dir = sdk.directory
     if (!dir) return
     setSending(true)
     try {
-      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
+      const result = await sdk.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
         navigate(`/insight/${session.id}`)
@@ -263,7 +260,7 @@ function InsightContent() {
         attachmentsCount: doneAttachments.length,
         uploads: doneAttachments.map((a) => ({ name: a.filename, url: a.url })),
       })
-      await globalSDK.client.session.prompt(promptPayload)
+      await sdk.client.session.prompt(promptPayload)
       if (opts.consumeAttachments) {
         filesById.clear()
         setAttachments([])
@@ -553,7 +550,7 @@ function InsightContent() {
   return (
     <DataProvider
       data={sync.data}
-      directory={homeDir() || ""}
+      directory={sdk.directory || ""}
       onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
