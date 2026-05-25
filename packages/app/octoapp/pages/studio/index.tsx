@@ -89,6 +89,13 @@ export default function StudioPage() {
   const language = useLanguage()
 
   const projectDir = useProjectDir()
+  const [syncStore] = globalSync.child(projectDir(), { bootstrap: true })
+
+  const isValidStudioSession = (sessionId: string | undefined): boolean => {
+    if (!sessionId) return false
+    const session = syncStore.session.find(s => s.id === sessionId)
+    return session?.agent === "octo_studio"
+  }
 
   const slug = createMemo(() => base64Encode(projectDir()))
 
@@ -629,7 +636,7 @@ export default function StudioPage() {
     setSending(true)
     setPrompt("")
     try {
-      const sessionID = params.id ?? await createAndNavigate(text)
+      const sessionID = isValidStudioSession(params.id) ? params.id! : await createAndNavigate(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       await sendStudioPrompt({
         sessionID,
