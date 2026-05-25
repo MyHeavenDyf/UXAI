@@ -10,6 +10,8 @@ import { Logo } from "@opencode-ai/ui/logo"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useGlobalSync } from "@/context/global-sync"
 import { useCommand } from "@/context/command"
+// jk-j60099994-replace-with-titlebar-simple-1-start
+// jk-j60099994-replace-with-titlebar-simple-1-end
 
 
 type TabType = "chat" | "cowork" | "studio"
