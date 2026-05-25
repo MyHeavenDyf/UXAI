@@ -158,8 +158,17 @@ export default function MakePage() {
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
-  // 对话面板宽度，可拖拽，范围 200–520px
-  const [chatWidth, setChatWidth] = createSignal(320)
+  // 对话面板宽度：从 localStorage 恢复，无存储值时取约 45% 可用宽
+  const CHAT_WIDTH_KEY = "octo:make:chat-width"
+  function getInitialChatWidth(): number {
+    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
+    if (stored) {
+      const n = parseInt(stored, 10)
+      if (!isNaN(n) && n >= 240) return n
+    }
+    return Math.max(360, Math.floor((window.innerWidth - 240) * 0.45))
+  }
+  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
 
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
@@ -175,6 +184,7 @@ export default function MakePage() {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
       document.body.style.overflow = ""
+      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }

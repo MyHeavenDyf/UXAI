@@ -35,7 +35,7 @@ const sdk = useSDK()
 
 **涉及替换（3 处）：**
 - `createAndNavigate()`: `homeDir()` → `sdk.directory`，`globalSDK.client.session.create()` → `sdk.client.session.create()`
-- `doSendPrompt()`: `globalSDK.client.session.prompt()` → `sdk.client.session.prompt()`
+- `doSendPrompt()`: `globalSDK.client.session.promptAsync()` → `sdk.client.session.promptAsync()`（上游 SPEC-INS-007 已从 `prompt()` 改为 `promptAsync()` + optimistic）
 - `DataProvider`: `directory={homeDir() || ""}` → `directory={sdk.directory || ""}`
 
 ---
@@ -46,13 +46,13 @@ const sdk = useSDK()
 // octo-agent 上游:
 // session.create:
 const result = await globalSDK.client.session.create({ directory: dir })
-// prompt:
+// promptAsync:
 agent: "insight",
 
 // octoAI（保留）:
 // session.create:
 const result = await sdk.client.session.create({ directory: sdk.directory, agent: "octo_insight" })
-// prompt:
+// promptAsync:
 agent: "octo_insight",
 ```
 
@@ -92,3 +92,18 @@ agent: "octo_insight",
 | 保留适配 B | `index.tsx` | agent 名称 `octo_insight`（2 处） |
 | 保留适配 C | `octo-tokens.css` | `--octo-brand-a5` token |
 | 直接替换 | 其余所有 insight 文件 | octoAI 无独有修改，直接用上游覆盖 |
+
+---
+
+## 合入记录
+
+### 2026-05-25: commit `4077179` (提示词改预置按钮 + promptAsync/optimistic + 简化 queue)
+
+**上游变更**：
+- 删除 `components/prompt-template-selector.tsx` + `store/prompt-template.ts`（模板下拉选择器）
+- 新增 `components/preset-prompts.tsx` + `store/preset-prompts.ts`（预置提示词横向滚动按钮组）
+- `index.tsx`：移除 `sending` signal + `templateId`，改用 `promptAsync` + optimistic message + queue 排队机制
+- `octo-tokens.css`：模板选择器 CSS 替换为预置按钮 + 队列提示条 CSS
+- 分隔线拖拽从 `mousedown/mousemove/mouseup` 改为 `pointer events`（修复 Electron webview 中 pointer capture）
+
+**Octo 适配已保留**：适配 A/B/C 全部正确应用，无遗漏。
