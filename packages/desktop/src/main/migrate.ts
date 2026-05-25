@@ -1,6 +1,6 @@
 import { app } from "electron"
 import log from "electron-log/main.js"
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -142,9 +142,6 @@ export function deploySkillsJson() {
   const configDir = join(homedir(), ".config", "octo")
   const targetPath = join(configDir, "skills.json")
 
-  // Only deploy if not already present
-  if (existsSync(targetPath)) return
-
   const sourcePath = app.isPackaged
     ? join(process.resourcesPath, "skills.json")
     : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "skills.json")
@@ -154,11 +151,59 @@ export function deploySkillsJson() {
     return
   }
 
+  const sourceContent = JSON.parse(readFileSync(sourcePath, "utf-8")) as Record<string, { description?: string; import?: boolean; type?: string }>
+
   try {
     mkdirSync(configDir, { recursive: true })
-    copyFileSync(sourcePath, targetPath)
-    log.log("skills.json deployment: copied to", targetPath)
+
+    if (!existsSync(targetPath)) {
+      copyFileSync(sourcePath, targetPath)
+      log.log("skills.json deployment: copied to", targetPath)
+      return
+    }
+
+    // Merge type field into existing config
+    const existing = JSON.parse(readFileSync(targetPath, "utf-8")) as Record<string, { description?: string; import?: boolean; type?: string }>
+    let updated = false
+    for (const [name, entry] of Object.entries(sourceContent)) {
+      if (existing[name] && !existing[name].type && entry.type) {
+        existing[name].type = entry.type
+        updated = true
+      }
+    }
+    if (updated) {
+      writeFileSync(targetPath, JSON.stringify(existing, null, 2), "utf-8")
+      log.log("skills.json deployment: merged type fields into", targetPath)
+    }
   } catch (err) {
     log.warn("skills.json deployment: failed", err)
+  }
+}
+
+export function deployBuiltinSkills() {
+  const octoSkillDir = join(homedir(), ".config", "octo", "skill")
+
+  // Skills are now flattened in dist/node/skill/ during build
+  const builtinSource = app.isPackaged
+    ? join(process.resourcesPath, "skills")
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "skill")
+
+  if (!existsSync(builtinSource)) {
+    log.warn("builtin skills deployment: source directory not found", builtinSource)
+    return
+  }
+
+  try {
+    mkdirSync(octoSkillDir, { recursive: true })
+    for (const skillDir of readdirSync(builtinSource, { withFileTypes: true })) {
+      if (!skillDir.isDirectory()) continue
+      const dest = join(octoSkillDir, skillDir.name)
+      if (!existsSync(dest)) {
+        cpSync(join(builtinSource, skillDir.name), dest, { recursive: true })
+        log.log("builtin skills deployment: copied", skillDir.name, "to", dest)
+      }
+    }
+  } catch (err) {
+    log.warn("builtin skills deployment: failed", err)
   }
 }

@@ -81,6 +81,11 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* skill.all()
     })
 
+    const refreshSkill = Effect.fn("InstanceHttpApi.skillRefresh")(function* () {
+      yield* skill.refresh()
+      return { success: true }
+    })
+
     const getLsp = Effect.fn("InstanceHttpApi.lsp")(function* () {
       return yield* lsp.status()
     })
@@ -100,6 +105,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("command", getCommand)
       .handle("agent", getAgent)
       .handle("skill", getSkill)
+      .handle("skillRefresh", refreshSkill)
       .handle("lsp", getLsp)
       .handle("formatter", getFormatter)
   }),
