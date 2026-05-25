@@ -1772,6 +1772,7 @@ export default function Page() {
       () => params.id,
       (id) => {
         if (!id) requestAnimationFrame(() => inputRef?.focus())
+        if (id) requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
