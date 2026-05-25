@@ -1,169 +1,87 @@
 import "./octo-tokens.css"
-import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { Binary } from "@opencode-ai/core/util/binary"
 import {
-  batch,
   createEffect,
   createMemo,
   createSignal,
   For,
   on,
-  onCleanup,
   Show,
   type JSX,
 } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSDK } from "@/context/global-sdk"
-import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { SDKProvider, useSDK } from "@/context/sdk"
+import { SyncProvider, useSync } from "@/context/sync"
+import { Identifier } from "@/utils/id"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
-import { PromptTemplateSelector } from "./components/prompt-template-selector"
+import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
-import { PROMPT_TEMPLATES, DEFAULT_TEMPLATE_ID, type PromptTemplateId } from "./store/prompt-template"
+import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { mimeToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
+import { showToast, Toast } from "@opencode-ai/ui/toast"
 
-const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
-
-type DataStore = {
-  session: Session[]
-  session_status: { [sessionID: string]: SessionStatus }
-  session_diff: { [sessionID: string]: SnapshotFileDiff[] }
-  message: { [sessionID: string]: Message[] }
-  part: { [messageID: string]: Part[] }
-}
-
+/**
+ * InsightPage —— 用研 agent 页面
+ *
+ * 数据层完全复用 opencode 原生 globalSync / sync.session.sync / event-reducer，
+ * 不再自建本地 dataStore + SSE listener。详见 SPEC-INS-005
+ * (docs/specs/ui/insight-data-layer-reuse.md)。
+ *
+ * 外层 InsightPage：负责拼装 SDKProvider + SyncProvider（依赖 homeDir 就绪）。
+ * 内层 InsightContent：所有业务逻辑，可读写 useSync() / useSDK()。
+ */
 export default function InsightPage() {
-  const params = useParams<{ id?: string }>()
-  const navigate = useNavigate()
-  const globalSDK = useGlobalSDK()
-  const globalSync = useGlobalSync()
-
   const homeDir = useProjectDir()
 
-  const [dataStore, setDataStore] = createStore<DataStore>({
-    session: [],
-    session_status: {},
-    session_diff: {},
-    message: {},
-    part: {},
-  })
+  // homeDir 异步就绪。等就绪再挂 SDK/Sync providers，否则 useSDK 拿到空字符串 directory 会异常。
+  // keyed: dir 变化时整体重挂，确保 SyncProvider 内部状态干净。
+  return (
+    <Show when={homeDir()} keyed>
+      {(dir) => (
+        <SDKProvider directory={() => dir}>
+          <SyncProvider>
+            <InsightContent />
+          </SyncProvider>
+        </SDKProvider>
+      )}
+    </Show>
+  )
+}
 
+function InsightContent() {
+  const params = useParams<{ id?: string }>()
+  const navigate = useNavigate()
+  const sync = useSync()
+  const sdk = useSDK()
+
+  // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
+  // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   createEffect(
     on(
       () => params.id,
-      async (id) => {
+      (id) => {
         if (!id) return
-        try {
-          const result = await globalSDK.client.session.messages({ sessionID: id })
-          const items = result.data ?? []
-          const msgs: Message[] = []
-          const partMap: { [msgId: string]: Part[] } = {}
-          for (const { info, parts } of items as { info: Message; parts: Part[] }[]) {
-            msgs.push(info)
-            const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
-            if (visible.length > 0) partMap[info.id] = visible
-          }
-          batch(() => {
-            setDataStore("message", id, reconcile(msgs, { key: "id" }))
-            for (const [msgId, ps] of Object.entries(partMap)) {
-              setDataStore("part", msgId, reconcile(ps, { key: "id" }))
-            }
-          })
-        } catch (err) {
-          console.error("[InsightPage] messages load failed", err)
-        }
+        console.log("[octo:sync] session.sync", { sessionID: id })
+        void sync.session.sync(id)
       },
     ),
   )
 
-  const unsub = globalSDK.event.listen((e) => {
-    const sessionId = params.id
-    if (!sessionId) return
-    const event = e.details
-
-    if (event.type === "message.updated") {
-      const info = event.properties.info
-      if (info.sessionID !== sessionId) return
-      const messages = dataStore.message[sessionId]
-      if (!messages) { setDataStore("message", sessionId, [info]); return }
-      const result = Binary.search(messages, info.id, (m) => m.id)
-      if (result.found) {
-        setDataStore("message", sessionId, result.index, reconcile(info))
-      } else {
-        setDataStore("message", sessionId, produce((d) => { d.splice(result.index, 0, info) }))
-      }
-      return
-    }
-
-    if (event.type === "message.part.updated") {
-      const part = event.properties.part
-      if (part.sessionID !== sessionId) return
-      if (SKIP_PART_TYPES.has(part.type)) return
-      // 全量 tool part 形态(联调时定位 structuredContent / resource_link 字段路径关键)
-      const ptype = (part as { type: string }).type
-      const isTool = ptype === "tool" || ptype === "tool-invocation" || ptype === "tool_call"
-      if (isTool) {
-        const tp = part as { type: string; tool?: string; state?: { status?: string } }
-        console.log("[octo:sse] tool part", {
-          type: ptype,
-          tool: tp.tool,
-          status: tp.state?.status,
-          fullPart: part,  // 完整对象,联调时展开看 state.output / state.metadata 形态
-        })
-      }
-      const parts = dataStore.part[part.messageID]
-      if (!parts) { setDataStore("part", part.messageID, [part]); return }
-      const result = Binary.search(parts, part.id, (p) => p.id)
-      if (result.found) {
-        setDataStore("part", part.messageID, result.index, reconcile(part))
-      } else {
-        // new part first arrival
-        console.log("[octo:sse] new part", { type: part.type, partID: part.id, msgID: part.messageID })
-        setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
-      }
-      return
-    }
-
-    if (event.type === "session.status") {
-      const { sessionID, status } = event.properties
-      if (sessionID !== sessionId) return
-      console.log("[octo:sse] session.status", sessionID, status)
-      setDataStore("session_status", sessionID, reconcile(status))
-      return
-    }
-
-    const raw = event as unknown as { type: string; properties: Record<string, unknown> }
-    if (raw.type === "message.part.delta") {
-      const { messageID, partID, field, delta } = raw.properties as {
-        messageID: string; partID: string; field: string; delta: string
-      }
-      const parts = dataStore.part[messageID]
-      if (!parts) return
-      const result = Binary.search(parts, partID, (p) => p.id)
-      if (!result.found) return
-      setDataStore("part", messageID, produce((d) => {
-        const p = d[result.index] as Record<string, unknown>
-        p[field] = ((p[field] as string) ?? "") + delta
-      }))
-    }
-  })
-  onCleanup(unsub)
-
   const userMessages = createMemo((): Message[] => {
     const id = params.id
     if (!id) return []
-    return (dataStore.message[id] ?? []).filter((m) => m.role === "user")
+    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
@@ -171,7 +89,7 @@ export default function InsightPage() {
   const taskCards = createMemo((): Map<string, TaskCardEntry> => {
     const id = params.id
     if (!id) return new Map()
-    const messages = dataStore.message[id] ?? []
+    const messages = (sync.data.message[id] ?? []) as Message[]
     const items: Parameters<typeof aggregateTaskCards>[0] = []
     let lastUserMsgID = ""
     for (const msg of messages) {
@@ -180,7 +98,7 @@ export default function InsightPage() {
         continue
       }
       if (msg.role !== "assistant" || !lastUserMsgID) continue
-      const parts = dataStore.part[msg.id] ?? []
+      const parts = sync.data.part[msg.id] ?? []
       const msgTime = (msg as { time?: { created?: number } }).time?.created ?? Date.now()
       for (const part of parts) {
         const info = readTaskInfo(part)
@@ -214,38 +132,72 @@ export default function InsightPage() {
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
-    return dataStore.session_status[id] ?? { type: "idle" }
+    return sync.data.session_status[id] ?? { type: "idle" }
   })
+
+  // 状态变化日志：busy ↔ idle 切换观测点
+  createEffect(
+    on(
+      sessionStatus,
+      (status) => {
+        console.log("[octo:sync] status", { sessionID: params.id, type: status.type })
+      },
+      { defer: true },
+    ),
+  )
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
-  const [templateId, setTemplateId] = createSignal<PromptTemplateId>(DEFAULT_TEMPLATE_ID)
   const [prompt, setPrompt] = createSignal("")
-  const [sending, setSending] = createSignal(false)
+  // queue:busy 期间用户继续发送,先入队,idle 后自动 flush(SPEC-INS-007 §3.3.3)
+  // 单容量:第二次入队会覆盖上一次;切 session 时清空
+  const [queuedText, setQueuedText] = createSignal<string | null>(null)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
-  // 对话面板宽度，可拖拽，范围 200–520px
-  const [chatWidth, setChatWidth] = createSignal(320)
+  let textareaRef!: HTMLTextAreaElement
 
-  function handleDividerMouseDown(e: MouseEvent) {
+  // 聊天区宽度：从 localStorage 恢复，无存储值时取约 50% 可用宽（扣除侧边栏约 240px）
+  const CHAT_WIDTH_KEY = "octo:insight:chat-width"
+  function getInitialChatWidth(): number {
+    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
+    if (stored) {
+      const n = parseInt(stored, 10)
+      if (!isNaN(n) && n >= 240) return n
+    }
+    return Math.max(360, Math.floor((window.innerWidth - 240) / 2))
+  }
+  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
+
+  function handleDividerPointerDown(e: PointerEvent) {
     e.preventDefault()
     const startX = e.clientX
     const startWidth = chatWidth()
+    const target = e.currentTarget as HTMLElement
+    // pointer capture:确保 pointermove / pointerup 即使光标移出 webview 也照常派发到本元素,
+    // 避免 mouseup 丢失导致 body 样式(userSelect/cursor/overflow) stuck → 输入框看似不可 focus
+    target.setPointerCapture(e.pointerId)
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
-    const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.45), startWidth + ev.clientX - startX)))
-    }
-    const onUp = () => {
+    const restore = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
       document.body.style.overflow = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+    const onMove = (ev: PointerEvent) => {
+      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.65), startWidth + ev.clientX - startX)))
+    }
+    const cleanup = () => {
+      restore()
+      target.removeEventListener("pointermove", onMove)
+      target.removeEventListener("pointerup", cleanup)
+      target.removeEventListener("pointercancel", cleanup)
+      try { target.releasePointerCapture(e.pointerId) } catch { /* noop */ }
+    }
+    target.addEventListener("pointermove", onMove)
+    target.addEventListener("pointerup", cleanup)
+    target.addEventListener("pointercancel", cleanup)
   }
 
   const tabStore = createTabStore()
@@ -253,24 +205,25 @@ export default function InsightPage() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 模板 / 任务卡片防抖 / 自动 openTab 记录
+  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue
+  // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
   createEffect(on(() => params.id, () => {
     tabStore.reset()
-    setTemplateId(DEFAULT_TEMPLATE_ID)
+    setQueuedText(null)
     clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
+    requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
 
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = homeDir()
+    const dir = sdk.directory
     if (!dir) return
-    setSending(true)
     try {
-      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
+      const result = await sdk.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
         navigate(`/insight/${session.id}`)
@@ -278,55 +231,98 @@ export default function InsightPage() {
       }
     } catch (err) {
       console.error("[InsightPage] session.create failed", err)
-    } finally {
-      setSending(false)
+      showToast({
+        title: "新建会话失败",
+        description: errorDescription(err),
+      })
     }
     return undefined
   }
 
   /**
-   * 共享的 prompt 调用底层。
+   * 错误信息提取(参考 packages/app/src/components/prompt-input/submit.ts errorMessage)
+   * SDK 错误通常带 data.message,其次取 err.message,最后回落到通用提示
+   */
+  function errorDescription(err: unknown): string {
+    if (err && typeof err === "object" && "data" in err) {
+      const data = (err as { data?: { message?: string } }).data
+      if (data?.message) return data.message
+    }
+    if (err instanceof Error) return err.message
+    return "请稍后重试"
+  }
+
+  /**
+   * 共享的 prompt 调用底层(SPEC-INS-007 §3.2 改用 promptAsync + optimistic)
    *   - consumeAttachments=true(用户手动发送):附件随消息发送,发送后清空附件状态
    *   - consumeAttachments=false(刷新/终止/follow-up 按钮 inject):不消费附件,保留用户正在选的附件状态
-   * spec: docs/specs/ui/task-card.md §6.1
+   * spec: docs/specs/ui/task-card.md §6.1 + docs/specs/ui/insight-prompt-redesign.md §3.2
    */
   async function doSendPrompt(sessionId: string, text: string, opts: { consumeAttachments: boolean; source: string }) {
-    setSending(true)
+    const doneAttachments = opts.consumeAttachments
+      ? attachments().filter((a) => a.status === "done" && a.url)
+      : []
+    const fullText = text + formatUploadsForPrompt(
+      doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
+    )
+    const textPart: TextPartInput = { type: "text", text: fullText }
+    const messageID = Identifier.ascending("message")
+    const agent = "octo_insight"
+
+    // optimistic user message —— 立即写入 sync.data,UI 瞬时反馈
+    // directory 不传 → 默认走 SDKProvider 注入的 homeDir;model 不传 → 服务端按 agent 默认配置
+    const optimisticMessage: Message = {
+      id: messageID,
+      sessionID: sessionId,
+      role: "user",
+      time: { created: Date.now() },
+    } as Message
+    const optimisticPart: Part = {
+      id: Identifier.ascending("part"),
+      sessionID: sessionId,
+      messageID,
+      type: "text",
+      text: fullText,
+    } as Part
+
+    console.log("[octo:prompt] send", {
+      source: opts.source,
+      sessionID: sessionId,
+      messageID,
+      agent,
+      text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
+      textLen: text.length,
+      attachmentsCount: doneAttachments.length,
+      uploads: doneAttachments.map((a) => ({ name: a.filename, url: a.url })),
+    })
+
+    sync.session.optimistic.add({
+      sessionID: sessionId,
+      message: optimisticMessage,
+      parts: [optimisticPart],
+    })
+    console.log("[octo:prompt] optimistic added", { messageID, partsCount: 1 })
+
+    if (opts.consumeAttachments) {
+      filesById.clear()
+      setAttachments([])
+    }
+
     try {
-      const template = PROMPT_TEMPLATES.find((t) => t.id === templateId())!
-      const doneAttachments = opts.consumeAttachments
-        ? attachments().filter((a) => a.status === "done" && a.url)
-        : []
-      const fullText = text + formatUploadsForPrompt(
-        doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
-      )
-      const textPart: TextPartInput = { type: "text", text: fullText }
-      const promptPayload = {
+      await sdk.client.session.promptAsync({
         sessionID: sessionId,
-        agent: "octo_insight",
-        system: template.systemHint,
+        agent,
         parts: [textPart],
-      }
-      console.log("[octo:prompt] send", {
-        source: opts.source,
-        sessionID: sessionId,
-        agent: promptPayload.agent,
-        template: templateId(),
-        systemHint: template.systemHint?.slice(0, 80),
-        text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
-        textLen: text.length,
-        attachmentsCount: doneAttachments.length,
-        uploads: doneAttachments.map((a) => ({ name: a.filename, url: a.url })),
+        messageID,
       })
-      await globalSDK.client.session.prompt(promptPayload)
-      if (opts.consumeAttachments) {
-        filesById.clear()
-        setAttachments([])
-      }
+      console.log("[octo:prompt] sent (async)", { messageID, sessionID: sessionId })
     } catch (err) {
-      console.error("[InsightPage] prompt failed", { source: opts.source, err })
-    } finally {
-      setSending(false)
+      console.error("[octo:prompt] failed", { source: opts.source, messageID, err })
+      sync.session.optimistic.remove({ sessionID: sessionId, messageID })
+      showToast({
+        title: "发送失败",
+        description: errorDescription(err),
+      })
     }
   }
 
@@ -341,14 +337,52 @@ export default function InsightPage() {
 
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending()) return
+    if (!text || hasUploadingAttachments()) return
     setPrompt("")
+
+    // busy 时入队(SPEC-INS-007 §3.3.3):单容量,第二次会覆盖上一次
+    if (isBusy()) {
+      setQueuedText(text)
+      console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length })
+      return
+    }
+
     let sid = params.id
     if (!sid) {
       sid = await createAndNavigate()
       if (!sid) return
     }
     await sendMessage(sid, text)
+  }
+
+  // busy → idle 自动 flush 队列(SPEC-INS-007 §3.3.3)
+  createEffect(on(isBusy, (busy, prev) => {
+    if (!prev || busy) return
+    const text = queuedText()
+    const sid = params.id
+    if (!text || !sid) return
+    setQueuedText(null)
+    console.log("[octo:queue] flushing", { sessionID: sid, len: text.length })
+    void sendMessage(sid, text)
+  }, { defer: true }))
+
+  function cancelQueued() {
+    const text = queuedText()
+    if (!text) return
+    setQueuedText(null)
+    setPrompt((cur) => cur ? cur : text)
+    console.log("[octo:queue] canceled, restored to input")
+  }
+
+  function handlePresetClick(preset: PresetPrompt) {
+    setPrompt(preset.text)
+    console.log("[octo:preset] click", { id: preset.id, expectedTool: preset.expectedTool })
+    requestAnimationFrame(() => {
+      textareaRef?.focus()
+      // 光标移到文末,便于用户继续编辑
+      const len = preset.text.length
+      try { textareaRef?.setSelectionRange(len, len) } catch { /* noop */ }
+    })
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -456,7 +490,7 @@ export default function InsightPage() {
   function handleTaskRefresh(taskId: string) {
     const sid = params.id
     if (!sid) return
-    if (isBusy() || sending()) {
+    if (isBusy()) {
       console.log("[octo:task] refresh blocked: busy", { taskId })
       return
     }
@@ -471,7 +505,7 @@ export default function InsightPage() {
   function handleTaskStop(taskId: string) {
     const sid = params.id
     if (!sid) return
-    if (isBusy() || sending()) {
+    if (isBusy()) {
       console.log("[octo:task] stop blocked: busy", { taskId })
       return
     }
@@ -601,12 +635,19 @@ export default function InsightPage() {
     lastTaskSnapshot = currentSnap
   })
 
-  const inputDisabled = () => sending() || isBusy()
   const maxAttachments = () => attachments().length >= 5
-  const hasUploadingAttachments = () => attachments().some((a) => a.status === "uploading")
+  function hasUploadingAttachments() {
+    return attachments().some((a) => a.status === "uploading")
+  }
 
   return (
-    <DataProvider data={dataStore} directory={homeDir() || ""}>
+    <DataProvider
+      data={sync.data}
+      directory={sdk.directory || ""}
+      onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
+      onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
+    >
+      <Toast.Region />
       <div class="size-full flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
@@ -662,6 +703,30 @@ export default function InsightPage() {
                 onRetry={retryUpload}
               />
 
+              {/* 队列提示条:busy 时点了发送会先入队,这里给反馈 (SPEC-INS-007 §3.3.4) */}
+              <Show when={queuedText()}>
+                <div class="octo-queue-banner">
+                  <span class="octo-queue-banner-label">排队中</span>
+                  <span class="octo-queue-banner-text">{queuedText()}</span>
+                  <button
+                    type="button"
+                    onClick={cancelQueued}
+                    class="octo-queue-banner-cancel"
+                    title="取消并恢复到输入框"
+                    aria-label="取消排队"
+                  >
+                    ×
+                  </button>
+                </div>
+              </Show>
+
+              {/* 预置提示词按钮 (SPEC-INS-007 §3.1.3):放在输入框白卡片之外,
+                  视觉层级:辅助操作浮在输入框上方,与卡片解耦 */}
+              <PresetPrompts
+                prompts={PRESET_PROMPTS}
+                onClick={handlePresetClick}
+              />
+
               <div
                 class="rounded-[var(--octo-radius-lg)] overflow-hidden"
                 style={{
@@ -671,15 +736,15 @@ export default function InsightPage() {
                 }}
               >
                 <textarea
+                  ref={textareaRef!}
                   value={prompt()}
                   onInput={(e) => setPrompt(e.currentTarget.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="输入指令，按 Enter 发送…"
                   rows={3}
-                  disabled={inputDisabled()}
                   class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
                   style={{
-                    color: inputDisabled() ? "var(--octo-text-disabled)" : "var(--octo-text-primary)",
+                    color: "var(--octo-text-primary)",
                     "font-family": "var(--octo-font)",
                     "max-height": "120px",
                     "overflow-y": "auto",
@@ -705,19 +770,14 @@ export default function InsightPage() {
                     <IconAttach size={14} />
                   </button>
 
-                  <PromptTemplateSelector
-                    value={templateId()}
-                    onChange={setTemplateId}
-                  />
-
                   <button
                     type="button"
                     onClick={() => void handleSubmit()}
-                    disabled={!prompt().trim() || inputDisabled() || hasUploadingAttachments()}
-                    title={hasUploadingAttachments() ? "等待附件上传完成" : undefined}
+                    disabled={!prompt().trim() || hasUploadingAttachments()}
+                    title={hasUploadingAttachments() ? "等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
                     class="octo-btn-send flex-shrink-0 ml-auto"
                   >
-                    {sending() ? "…" : <IconSend size={14} />}
+                    <IconSend size={14} />
                   </button>
                 </div>
               </div>
@@ -725,11 +785,12 @@ export default function InsightPage() {
 
         </div>
 
-        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊） */}
+        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊）
+             top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
         <div
-          class="absolute top-0 bottom-0 flex items-center justify-center group"
-          style={{ left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
-          onMouseDown={handleDividerMouseDown}
+          class="absolute flex items-center justify-center group"
+          style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
+          onPointerDown={handleDividerPointerDown}
         >
           <div
             class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"

@@ -115,7 +115,7 @@ function QueryProvider(props: ParentProps) {
 }
 
 function OctoSidebarLayout(props: ParentProps) {
-  const [sidebarWidth, setSidebarWidth] = createSignal(200)
+  const [sidebarWidth, setSidebarWidth] = createSignal(296)
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()

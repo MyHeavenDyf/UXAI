@@ -68,6 +68,10 @@ const api: ElectronAPI = {
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
+  addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
+  openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
+  // jk-j60099994-replace-with-index-1-start
+  // jk-j60099994-replace-with-index-1-end
 }
 
 contextBridge.exposeInMainWorld("api", api)

@@ -332,6 +332,12 @@ export function DialogConnectProvider(props: { provider: string }) {
   })
 
   async function complete() {
+    const disabled = globalSync.data.config.disabled_providers ?? []
+    if (disabled.includes(props.provider)) {
+      await globalSync.updateConfig({
+        disabled_providers: disabled.filter((id) => id !== props.provider),
+      })
+    }
     await globalSDK.client.global.dispose()
     globalSync.invalidateProviders()
     dialog.close()

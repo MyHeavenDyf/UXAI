@@ -1,6 +1,6 @@
-import { Show, createEffect, createMemo, on } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, onCleanup, on } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
+import { useNavigate, useSearchParams } from "@solidjs/router"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
@@ -49,6 +49,7 @@ export function SessionComposerRegion(props: {
   const prompt = usePrompt()
   const language = useLanguage()
   const route = useSessionKey()
+  const [searchParams, setSearchParams] = useSearchParams<{ hint?: string }>()
   const sync = useSync()
 
   const handoffPrompt = createMemo(() => getSessionHandoff(route.sessionKey())?.prompt)
@@ -111,16 +112,32 @@ export function SessionComposerRegion(props: {
     update()
   })
 
+  const [bubbleVisible, setBubbleVisible] = createSignal(false)
+
+  createEffect(() => {
+    if (route.params.id || prompt.dirty() || !searchParams.hint) {
+      setBubbleVisible(false)
+      if (searchParams.hint) setSearchParams({ hint: undefined })
+      return
+    }
+    setBubbleVisible(true)
+    const timer = setTimeout(() => {
+      setBubbleVisible(false)
+      setSearchParams({ hint: undefined })
+    }, 3000)
+    onCleanup(() => clearTimeout(timer))
+  })
+
   return (
     <div
       ref={props.setPromptDockRef}
       data-component="session-prompt-dock"
-      class="shrink-0 w-full pb-3 flex flex-col justify-center items-center bg-background-stronger pointer-events-none"
+      class="shrink-0 w-full pb-3 flex flex-col justify-center items-center pointer-events-none"
     >
       <div
         classList={{
           "w-full px-3 pointer-events-auto": true,
-          "md:max-w-200 md:mx-auto 2xl:max-w-[848px]": props.centered,
+          "md:max-w-[848px] md:mx-auto 2xl:max-w-[848px]": props.centered,
         }}
       >
         <Show when={props.state.questionRequest()} keyed>
@@ -163,7 +180,14 @@ export function SessionComposerRegion(props: {
                     </div>
                   )}
                 </Show>
-                <div class="w-full min-h-32 md:min-h-40 rounded-md border border-border-weak-base bg-background-base/50 px-4 py-3 text-text-weak whitespace-pre-wrap pointer-events-none">
+                <div
+                  classList={{
+                    "w-full rounded-md border border-border-weak-base bg-background-base/50 px-4 py-3 text-text-weak whitespace-pre-wrap pointer-events-none":
+                      true,
+                    "min-h-[140px]": !route.params.id,
+                    "min-h-32 md:min-h-40": !!route.params.id,
+                  }}
+                >
                   {handoffPrompt() || language.t("prompt.loading")}
                 </div>
               </>
@@ -221,6 +245,11 @@ export function SessionComposerRegion(props: {
                   onSend={props.followup!.onSend}
                   onEdit={props.followup!.onEdit}
                 />
+              </Show>
+              <Show when={bubbleVisible()}>
+                <div class="absolute -top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-none" data-component="tooltip">
+                  {language.t("prompt.hint.newSession")}
+                </div>
               </Show>
               <Show
                 when={child()}

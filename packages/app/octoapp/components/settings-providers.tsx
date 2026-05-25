@@ -44,6 +44,12 @@ export const SettingsProviders: Component = () => {
       .popular()
       .filter((p) => !connectedIDs.has(p.id))
       .slice()
+    // When opencode is disabled it disappears from the backend provider list,
+    // so it won't appear in popular(). Add a synthetic entry so the user can reconnect.
+    const ids = new Set(items.map((p) => p.id))
+    if (!connectedIDs.has("opencode") && !ids.has("opencode")) {
+      items.push({ id: "opencode", name: "Octo AI" } as ProviderItem)
+    }
     items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
     return items
   })
@@ -112,36 +118,16 @@ export const SettingsProviders: Component = () => {
       next.opencode = { ...next.opencode, options: Object.keys(rest).length > 0 ? rest : undefined }
     }
     await globalSync.updateConfig({ provider: next })
-    showToast({
-      variant: "success",
-      icon: "circle-check",
-      title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-      description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-    })
+    await globalSDK.client.global.dispose()
+    await disableProvider("opencode", name)
+    globalSync.invalidateProviders()
   }
 
   const disconnect = async (providerID: string, name: string) => {
-    if (isConfigCustom(providerID)) {
-      await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
-      await disableProvider(providerID, name)
-      return
-    }
-    await globalSDK.client.auth
-      .remove({ providerID })
-      .then(async () => {
-        await globalSDK.client.global.dispose()
-        globalSync.invalidateProviders()
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
+    await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
+    await globalSDK.client.global.dispose()
+    await disableProvider(providerID, name)
+    globalSync.invalidateProviders()
   }
 
   return (

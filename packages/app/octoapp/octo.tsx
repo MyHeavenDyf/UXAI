@@ -48,6 +48,8 @@ import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { useCheckServerHealth } from "./utils/server-health"
+// jk-j60099994-replace-with-octo-1-start
+// jk-j60099994-replace-with-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
@@ -277,9 +279,13 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
             >
               <QueryProvider>
                 <DialogProvider>
+                  {/* jk-j60099994-replace-with-octo-2-start */}
+                  {/* jk-j60099994-replace-with-octo-2-end */}
                   <MarkedProvider>
                     <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
                   </MarkedProvider>
+                  {/* jk-j60099994-replace-with-octo-3-start */}
+                  {/* jk-j60099994-replace-with-octo-3-end */}
                 </DialogProvider>
               </QueryProvider>
             </ErrorBoundary>
@@ -430,6 +436,8 @@ export function AppInterface(props: {
           <QueryProvider>
             <GlobalSDKProvider>
               <GlobalSyncProvider>
+                {/* jk-j60099994-replace-with-octo-4-start */}
+                {/* jk-j60099994-replace-with-octo-4-end */}
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}

@@ -1,8 +1,13 @@
 import { execFile } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from "node:fs"
+import { dirname, join, basename } from "node:path"
+import { homedir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
+
+// jk-j60099994-replace-with-ipc-1-start
+// jk-j60099994-replace-with-ipc-1-end
+
 
 import type {
   InitStep,
@@ -40,6 +45,8 @@ type Deps = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
+  // jk-j60099994-replace-with-ipc-2-start
+  // jk-j60099994-replace-with-ipc-2-end
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -71,6 +78,8 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("check-update", () => deps.checkUpdate())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
+  // jk-j60099994-replace-with-ipc-3-start
+  // jk-j60099994-replace-with-ipc-3-end
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
     try {
       const store = getStore(name)
@@ -201,7 +210,12 @@ export function registerIpcHandlers(deps: Deps) {
     setTitlebar(win, theme)
   })
 
-  const skillsConfigPath = join(app.getPath("userData"), "skills.json")
+  // Use ~/.config/octo/ (xdg-basedir convention) instead of Electron userData
+  const getOctoConfigPath = () => {
+    const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
+    return join(xdgConfig, "octo")
+  }
+  const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
 
   ipcMain.handle("get-skills-config", () => {
     try {
@@ -219,6 +233,53 @@ export function registerIpcHandlers(deps: Deps) {
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
+    try {
+      const octoSkillDir = join(getOctoConfigPath(), "skill")
+      mkdirSync(octoSkillDir, { recursive: true })
+
+      const skillName = basename(sourcePath)
+      const destDir = join(octoSkillDir, skillName)
+
+      if (existsSync(destDir)) {
+        return { success: false, error: "同名 skill 已存在" }
+      }
+
+      cpSync(sourcePath, destDir, { recursive: true })
+
+      // Update skills.json with type: "common"
+      const config = existsSync(skillsConfigPath)
+        ? JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
+        : {}
+      const skillMdPath = join(destDir, "SKILL.md")
+      if (existsSync(skillMdPath)) {
+        const content = readFileSync(skillMdPath, "utf-8")
+        const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
+        config[skillName] = {
+          description: descMatch ? descMatch[1] : "",
+          import: true,
+          type: "common",
+        }
+        writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      }
+
+      return { success: true, skillName }
+    } catch (err) {
+      console.error("add-skill failed", err)
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle("open-skill-folder", async () => {
+    const octoSkillDir = join(getOctoConfigPath(), "skill")
+    if (existsSync(octoSkillDir)) {
+      await shell.openPath(octoSkillDir)
+    } else {
+      mkdirSync(octoSkillDir, { recursive: true })
+      await shell.openPath(octoSkillDir)
     }
   })
 }

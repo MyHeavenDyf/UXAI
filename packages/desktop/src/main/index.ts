@@ -43,6 +43,8 @@ const { autoUpdater } = pkg
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
+// jk-j60099994-replace-with-index-1-start
+// jk-j60099994-replace-with-index-1-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
@@ -63,7 +65,7 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -149,6 +151,7 @@ function setupApp() {
       migrateAppId()
       migrate()
       deploySkillsJson()
+      deployBuiltinSkills()
     }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()
@@ -256,11 +259,30 @@ async function initialize() {
     }
   }
 
-  await loadingTask
+  try {
+    await loadingTask
+  } catch (error) {
+    logger.error("initialize failed", error)
+    overlay?.close()
+    overlay = null
+    await dialog.showMessageBox({
+      type: "error",
+      title: "Startup Error",
+      message: `Failed to start the application: ${error instanceof Error ? error.message : String(error)}`,
+    })
+    app.exit(1)
+    return
+  }
   setInitStep({ phase: "done" })
 
   if (overlay) {
-    await loadingComplete.promise
+    // Safety timeout: if loading window never calls loadingWindowComplete, force-continue after 15s
+    await Promise.race([
+      loadingComplete.promise,
+      delay(15_000).then(() => {
+        logger.warn("loading window did not complete in time, forcing continue")
+      }),
+    ])
   }
 
   mainWindow = createMainWindow()
@@ -318,6 +340,8 @@ registerIpcHandlers({
   checkUpdate: async () => checkUpdate(),
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
+  // jk-j60099994-replace-with-index-2-start
+  // jk-j60099994-replace-with-index-2-end
 })
 
 async function killSidecar() {

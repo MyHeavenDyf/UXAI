@@ -151,6 +151,15 @@ export const InstanceApi = HttpApi.make("instance")
             description: "Get a list of all available skills in the OpenCode system.",
           }),
         ),
+        HttpApiEndpoint.post("skillRefresh", "/skill/refresh", {
+          success: described(Schema.Struct({ success: Schema.Boolean }), "Refresh result"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "app.skills.refresh",
+            summary: "Refresh skills",
+            description: "Invalidate skill cache and re-discover skills from disk.",
+          }),
+        ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {
           success: described(Schema.Array(LSP.Status), "LSP server status"),
         }).annotateMerge(

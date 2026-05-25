@@ -1,15 +1,17 @@
-import { createSignal, For, onMount, Show } from "solid-js"
+import { createSignal, createMemo, For, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import { useServer } from "@/context/server"
 
-type SkillConfigEntry = { description?: string; import?: boolean }
+type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 type SkillsConfig = Record<string, SkillConfigEntry>
 
-const AGENT_GROUPS = [
-  { agent: "octo_insight", label: "Octo Insight", subtitle: "用户研究", skills: ["interview-analysis"] },
-  { agent: "octo_make", label: "Octo Make", subtitle: "原型生成", skills: ["html-prototype"] },
-  { agent: "octo_design", label: "Octo Design", subtitle: "UI 设计", skills: ["design-basics"] },
-  { agent: "octo_studio", label: "Octo Studio", subtitle: "图片创作", skills: ["creative-assets"] },
-]
+const AGENT_INFO: Record<string, { label: string; subtitle: string }> = {
+  octo_insight: { label: "Octo Insight", subtitle: "用户研究" },
+  octo_make: { label: "Octo Make", subtitle: "原型生成" },
+  octo_design: { label: "Octo Design", subtitle: "UI 设计" },
+  octo_studio: { label: "Octo Studio", subtitle: "图片创作" },
+  common: { label: "公共技能", subtitle: "适用于所有 Agent" },
+}
 
 function Toggle(props: { checked: boolean; onChange: (v: boolean) => void }): JSX.Element {
   return (
@@ -18,17 +20,17 @@ function Toggle(props: { checked: boolean; onChange: (v: boolean) => void }): JS
       role="switch"
       aria-checked={props.checked}
       onClick={() => props.onChange(!props.checked)}
-      class="relative inline-flex h-[20px] w-[36px] shrink-0 cursor-pointer rounded-full transition-colors"
+      class="relative inline-flex h-[24px] w-[44px] shrink-0 cursor-pointer rounded-full transition-colors"
       style={{
-        background: props.checked ? "var(--octo-brand, #0067D1)" : "rgba(0,0,0,0.15)",
+        background: props.checked ? "#0A59F7" : "rgba(0,0,0,0.05)",
       }}
     >
       <span
-        class="inline-block h-[16px] w-[16px] rounded-full bg-white transition-transform"
+        class="absolute top-[2px] left-0 inline-block h-[20px] w-[20px] rounded-full bg-white transition-transform duration-200"
         style={{
-          transform: props.checked ? "translateX(18px)" : "translateX(2px)",
-          "margin-top": "2px",
-          "box-shadow": "0 1px 3px rgba(0,0,0,0.2)",
+          transform: props.checked ? "translateX(22px)" : "translateX(1px)",
+          "background": "#fff",
+          "box-shadow": "0 2px 4px rgba(0,0,0,0.2)",
         }}
       />
     </button>
@@ -44,7 +46,7 @@ function SkillRow(props: {
   return (
     <div
       class="flex items-center justify-between gap-3 px-4 py-3 rounded-lg transition-colors"
-      style={{ background: "var(--octo-surface-page)" }}
+      style={{ background: "#fff" }}
     >
       <div class="flex flex-col gap-0.5 min-w-0 flex-1">
         <span class="text-sm font-medium" style={{ color: "var(--octo-text-primary)" }}>{props.name}</span>
@@ -71,11 +73,31 @@ function ChevronIcon(props: { collapsed: boolean }): JSX.Element {
 }
 
 export default function SkillsPage(): JSX.Element {
+  const server = useServer()
   const [config, setConfig] = createSignal<SkillsConfig>({})
   const [collapsed, setCollapsed] = createSignal<Record<string, boolean>>({})
   const [loaded, setLoaded] = createSignal(false)
 
-  onMount(async () => {
+  const groupedSkills = createMemo(() => {
+    const cfg = config()
+    const groups: Record<string, { skills: string[]; label: string; subtitle: string }> = {}
+
+    for (const [name, entry] of Object.entries(cfg)) {
+      const type = entry.type || "common"
+      if (!groups[type]) {
+        groups[type] = {
+          skills: [],
+          label: AGENT_INFO[type]?.label || type,
+          subtitle: AGENT_INFO[type]?.subtitle || "",
+        }
+      }
+      groups[type].skills.push(name)
+    }
+
+    return groups
+  })
+
+  async function loadConfig() {
     const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
     if (api?.getSkillsConfig) {
       try {
@@ -86,49 +108,91 @@ export default function SkillsPage(): JSX.Element {
       }
     }
     setLoaded(true)
+  }
+
+  // Reload config when page becomes visible (user returns from file explorer)
+  function handleVisibilityChange() {
+    if (document.visibilityState === "visible") {
+      loadConfig()
+    }
+  }
+
+  onMount(() => {
+    loadConfig()
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+  })
+
+  onCleanup(() => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange)
   })
 
   function toggleSkill(skillName: string, value: boolean) {
     const updated = { ...config(), [skillName]: { ...config()[skillName], import: value } }
     setConfig(updated)
     const api = (window as unknown as { api?: { setSkillsConfig?: (c: SkillsConfig) => Promise<void> } }).api
-    api?.setSkillsConfig?.(updated)?.catch?.((err: unknown) => {
+    api?.setSkillsConfig?.(updated)?.then?.(() => {
+      // Invalidate opencode skill cache so next session picks up the change
+      const url = server.current?.http?.url
+      if (url) fetch(`${url}/skill/refresh`, { method: "POST" }).catch(() => {})
+    })?.catch?.((err: unknown) => {
       console.error("[SkillsPage] setSkillsConfig failed", err)
-      setConfig(config()) // revert optimistic update
+      setConfig(config())
     })
   }
 
-  function toggleGroup(agent: string) {
-    setCollapsed((prev) => ({ ...prev, [agent]: !prev[agent] }))
+  function toggleGroup(type: string) {
+    setCollapsed((prev) => ({ ...prev, [type]: !prev[type] }))
+  }
+
+  function handleOpenFolder() {
+    const api = (window as unknown as { api?: { openSkillFolder?: () => Promise<void> } }).api
+    api?.openSkillFolder?.()
   }
 
   return (
     <div class="h-full overflow-y-auto" style={{ background: "var(--octo-shell-bg)" }}>
       <div class="max-w-[640px] mx-auto px-6 py-6 flex flex-col gap-4">
-        <div class="flex flex-col gap-1">
-          <h1 class="text-lg font-semibold" style={{ color: "var(--octo-text-primary)" }}>技能库</h1>
-          <p class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>管理各 Agent 的内置技能</p>
+        <div class="flex items-center justify-between">
+          <div class="flex flex-col gap-1">
+            <h1 class="text-lg font-semibold" style={{ color: "var(--octo-text-primary)" }}>技能库</h1>
+            <p class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>管理各 Agent 的技能</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleOpenFolder}
+            class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors hover:bg-blue-600"
+            style={{ background: "#0A59F7", color: "#fff" }}
+          >
+            + 添加技能
+          </button>
         </div>
 
         <Show when={!loaded()}>
           <div class="flex flex-col gap-3">
-            <For each={AGENT_GROUPS}>
-              {() => (
-                <div class="h-[60px] rounded-lg animate-pulse" style={{ background: "rgba(0,0,0,0.06)" }} />
-              )}
-            </For>
+            <div class="h-[60px] rounded-lg animate-pulse" style={{ background: "rgba(0,0,0,0.06)" }} />
+            <div class="h-[60px] rounded-lg animate-pulse" style={{ background: "rgba(0,0,0,0.06)" }} />
+            <div class="h-[60px] rounded-lg animate-pulse" style={{ background: "rgba(0,0,0,0.06)" }} />
+            <div class="h-[60px] rounded-lg animate-pulse" style={{ background: "rgba(0,0,0,0.06)" }} />
           </div>
         </Show>
 
         <Show when={loaded()}>
-          <For each={AGENT_GROUPS}>
-            {(group) => {
-              const isCollapsed = () => collapsed()[group.agent] ?? false
+          <Show when={Object.keys(groupedSkills()).length === 0}>
+            <div class="flex flex-col items-center justify-center py-12 text-center">
+              <p class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>暂无已启用的技能</p>
+              <p class="text-xs mt-2" style={{ color: "var(--octo-text-tertiary)" }}>点击"添加技能"打开技能文件夹，将包含 SKILL.md 的文件夹放入即可</p>
+            </div>
+          </Show>
+          <For each={Object.entries(groupedSkills())}>
+            {(entry) => {
+              const type = entry[0]
+              const group = entry[1]
+              const isCollapsed = () => collapsed()[type] ?? false
               return (
                 <div class="flex flex-col gap-2">
                   <button
                     type="button"
-                    onClick={() => toggleGroup(group.agent)}
+                    onClick={() => toggleGroup(type)}
                     class="flex items-center gap-2 px-2 py-1.5 text-left transition-colors rounded-md hover:bg-black/5"
                     style={{ color: "var(--octo-text-tertiary, #364153)" }}
                   >
