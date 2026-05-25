@@ -70,6 +70,16 @@ function createBlobUrlFromDataUrl(url: string) {
   return URL.createObjectURL(new Blob([bytes], { type: mime }))
 }
 
+function triggerBrowserDownload(url: string, filename: string) {
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.rel = "noopener"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
@@ -434,6 +444,22 @@ export default function StudioPage() {
     return `${prefix}-${Math.max(index, 1)}.png`
   })
 
+  async function downloadCurrentImage() {
+    const image = selectedImage()
+    if (!image) return
+    const source = image.remoteUrl ?? image.url
+    try {
+      const response = await fetch(source)
+      if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
+      const objectUrl = URL.createObjectURL(await response.blob())
+      triggerBrowserDownload(objectUrl, currentImageLabel())
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    } catch (error) {
+      console.warn("[studio] image download fallback", error)
+      triggerBrowserDownload(source, currentImageLabel())
+    }
+  }
+
   createEffect(
     on(
       () => `${params.id ?? ""}:${displayTurns().map((turn) => turn.id).join("|")}:${pendingResult()?.id ?? ""}`,
@@ -772,28 +798,29 @@ export default function StudioPage() {
           onMouseDown={handleStudioCenterResize}
         />
 
-        <main class="studio-workspace">
-          <section class="studio-canvas">
-            <Show when={mode() === "outpaint" && selectedImage()} fallback={
-              <StudioResultCanvas
-                status={effectiveStatus()}
-                image={selectedImage()}
-                result={result()}
-                imageLabel={currentImageLabel()}
-                onRegenerate={() => void runGeneration()}
+      <main class="studio-workspace">
+        <section class="studio-canvas">
+          <Show when={mode() === "outpaint" && selectedImage()} fallback={
+            <StudioResultCanvas
+              status={effectiveStatus()}
+              image={selectedImage()}
+              result={result()}
+              imageLabel={currentImageLabel()}
+              onRegenerate={() => void runGeneration()}
+              onDownload={() => void downloadCurrentImage()}
+            />
+          }>
+            {(image) => (
+              <StudioOutpaintEditor
+                image={image()}
+                aspectRatio={aspectRatio()}
+                onAspectRatio={setAspectRatio}
+                onClose={() => setMode("preview")}
+                onSubmit={submitOutpaint}
               />
-            }>
-              {(image) => (
-                <StudioOutpaintEditor
-                  image={image()}
-                  aspectRatio={aspectRatio()}
-                  onAspectRatio={setAspectRatio}
-                  onClose={() => setMode("preview")}
-                  onSubmit={submitOutpaint}
-                />
-              )}
-            </Show>
-          </section>
+            )}
+          </Show>
+        </section>
 
           <Show when={result()?.images.length}>
             <aside class="studio-details">
@@ -1256,6 +1283,7 @@ function StudioResultCanvas(props: {
   result?: StudioGenerationResult
   imageLabel: string
   onRegenerate: () => void
+  onDownload: () => void
 }): JSX.Element {
   return (
     <Show when={props.image} fallback={
@@ -1297,7 +1325,7 @@ function StudioResultCanvas(props: {
           <div class="absolute bottom-12 left-1/2 -translate-x-1/2 h-12 rounded-full bg-white shadow-[0_18px_52px_rgba(15,23,42,0.16)] flex items-center gap-2 px-4">
             <button type="button" class="w-8 h-8 rounded-full hover:bg-[#f3f4f6]" title="收藏">♡</button>
             <button type="button" class="w-8 h-8 rounded-full hover:bg-[#f3f4f6]" onClick={props.onRegenerate} title="再次生成">↻</button>
-            <button type="button" class="studio-gradient-button h-8 px-7 rounded-full text-[13px]" title="下载">下载</button>
+            <button type="button" onClick={props.onDownload} class="studio-gradient-button h-8 min-w-[76px] px-6 rounded-full text-[13px] whitespace-nowrap leading-none flex items-center justify-center" title="下载">下载</button>
           </div>
         </>
       )}
