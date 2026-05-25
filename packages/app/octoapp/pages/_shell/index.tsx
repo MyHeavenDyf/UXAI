@@ -4,7 +4,7 @@ import { OctoSidebar } from "./sidebar"
 import { OctoTopbar } from "./topbar"
 
 export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
-  const [sidebarWidth, setSidebarWidth] = createSignal(200)
+  const [sidebarWidth, setSidebarWidth] = createSignal(296)
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
@@ -60,7 +60,7 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
               />
             </div>
           </div>
-          <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+          <div class="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ background: "var(--surface-strong)" }}>
             {props.children}
           </div>
         </Show>

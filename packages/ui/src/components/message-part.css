@@ -209,10 +209,45 @@
 
 [data-component="text-part"] {
   width: 100%;
-  margin-top: 24px;
+  margin-top: 4px;
 
   [data-slot="text-part-body"] {
     margin-top: 0;
+  }
+
+  [data-component="markdown"] {
+    font-size: 14px;
+    line-height: var(--line-height-large);
+
+    h1 {
+      font-size: 20px;
+      line-height: 28px;
+      margin-bottom: 12px;
+    }
+
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      font-size: 16px;
+      line-height: 24px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin-bottom: 10px;
+    }
+
+    ul,
+    ol {
+      margin-top: 4px;
+      margin-bottom: 10px;
+    }
+
+    li {
+      margin-bottom: 0;
+    }
   }
 
   [data-slot="text-part-copy-wrapper"] {
@@ -282,11 +317,67 @@
   color: var(--text-base);
   line-height: var(--line-height-normal);
 
+  /* streaming state: show left border + indent */
+  &[data-streaming] {
+    border-left: 1px solid rgba(0, 0, 0, 0.08);
+    padding-left: 12px;
+  }
+
+  [data-slot="reasoning-part-header"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-base);
+    font-family: var(--font-family-sans);
+    font-size: 12px;
+    font-weight: var(--font-weight-regular);
+    line-height: 18px;
+    user-select: none;
+    text-align: left;
+
+    &:hover {
+      color: var(--text-strong);
+    }
+  }
+
+  [data-slot="reasoning-part-title"] {
+    flex-shrink: 0;
+  }
+
+  [data-slot="reasoning-part-duration"] {
+    flex-shrink: 0;
+    color: var(--text-base);
+  }
+
+  [data-slot="reasoning-part-chevron"] {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    color: var(--icon-base);
+    transition: transform 0.2s ease;
+
+    &[data-open] {
+      transform: rotate(180deg);
+    }
+  }
+
+  /* expanded content area */
   [data-component="markdown"] {
-    margin-top: 16px;
+    margin-top: 8px;
+    padding-left: 12px;
+    border-left: 1px solid rgba(0, 0, 0, 0.08);
     font-style: normal;
-    font-size: 13px;
+    font-size: 12px;
+    line-height: 18px;
     color: var(--text-weak);
+
+    p {
+      margin-bottom: 10px;
+    }
 
     strong,
     b {
@@ -294,12 +385,16 @@
     }
 
     p:has(strong) {
-      margin-top: 24px;
+      margin-top: 10px;
       margin-bottom: 0;
 
       &:first-child {
         margin-top: 0;
       }
+    }
+
+    li {
+      margin-bottom: 2px;
     }
   }
 }

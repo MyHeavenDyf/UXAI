@@ -6,16 +6,17 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
-import { groupSessionsByDate } from "@/pages/layout/helpers"
 import { sessionTitle } from "@/utils/session-title"
+import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import {
   STUDIO_ASPECT_RATIOS,
   STUDIO_CAPABILITIES,
@@ -70,8 +71,10 @@ function createBlobUrlFromDataUrl(url: string) {
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const language = useLanguage()
 
   const projectDir = useProjectDir()
 
@@ -643,38 +646,98 @@ export default function StudioPage() {
     })
   }
 
+  const hasStudioConversation = createMemo(() => turns().length > 0 || Boolean(pendingResult()) || sending())
+
+  const [hintVisible, setHintVisible] = createSignal(false)
+
+  createEffect(() => {
+    if (params.id || prompt().trim() || !new URLSearchParams(location.search).has("hint")) {
+      setHintVisible(false)
+      return
+    }
+    setHintVisible(true)
+    const timer = setTimeout(() => setHintVisible(false), 3000)
+    onCleanup(() => clearTimeout(timer))
+  })
+
   return (
-    <div class="studio-page">
-      <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, flex: `0 0 ${studioLeftWidth()}px` }}>
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio`)} />
+    <div class="studio-page" style={{ position: "relative" }}>
+      <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
+        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio?hint=${Date.now()}`)} />
       </aside>
       <div
-        class="absolute top-0 bottom-0 cursor-col-resize z-10"
-        style={{ left: `${studioLeftWidth() - 4}px`, width: "8px" }}
+        style={{
+          position: "absolute",
+          top: "0",
+          bottom: "0",
+          left: `${studioLeftWidth() - 4}px`,
+          width: "8px",
+          cursor: "col-resize",
+          "z-index": "10",
+        }}
         onMouseDown={handleStudioLeftResize}
       />
 
-      <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
-        <div class="h-[56px] shrink-0 flex items-center px-6 border-b border-[rgba(15,23,42,0.08)]">
-          <div class="text-[15px] font-semibold truncate">{currentTitle()}</div>
-          <div class="ml-auto text-[11px] text-[var(--studio-muted)] truncate max-w-[180px]" title={projectDir()}>
-            {projectDir()}
+      <Show when={hasStudioConversation()} fallback={
+        <main class="studio-empty-workspace">
+          <div class="studio-empty-stack">
+            <div class="studio-empty-group">
+              <StudioIntro />
+              <div class="relative size-full">
+                <Show when={hintVisible()}>
+                  <div class="absolute -top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-none whitespace-nowrap" data-component="tooltip">
+                    {language.t("prompt.hint.newSession")}
+                  </div>
+                </Show>
+                <StudioComposer
+                  prompt={prompt()}
+                capability={capability()}
+                imageTool={imageTool()}
+                styleModel={styleModel()}
+                aspectRatio={aspectRatio()}
+                count={count()}
+                assets={assets()}
+                status={effectiveStatus()}
+                openMenu={openMenu()}
+                canSubmit={canSubmit()}
+                onPrompt={setPrompt}
+                onCapability={setCapability}
+                onImageTool={setImageTool}
+                onStyleModel={setStyleModel}
+                onAspectRatio={setAspectRatio}
+                onCount={setCount}
+                onOpenMenu={setOpenMenu}
+                onSubmit={handleSubmit}
+                onKeyDown={handleKeyDown}
+                onPickFile={() => fileInputRef.click()}
+                onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
+              />
+            </div>
           </div>
         </div>
+        </main>
+      }>
+        <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
+          <div class="h-[56px] shrink-0 flex items-center px-6 border-b border-[rgba(15,23,42,0.08)]">
+            <div class="text-[15px] font-semibold truncate">{currentTitle()}</div>
+            <div class="ml-auto text-[11px] text-[var(--studio-muted)] truncate max-w-[180px]" title={projectDir()}>
+              {projectDir()}
+            </div>
+          </div>
 
-        <ScrollView
-          viewportRef={(el) => { conversationScrollRef = el }}
-          class="flex-1 min-h-0 px-6 py-6"
-        >
-          <Show when={turns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
-            <StudioConversation
-              result={result()}
-              turns={displayTurns()}
-              busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
-              onSelectImage={setSelectedImageId}
-            />
-          </Show>
-        </ScrollView>
+          <ScrollView
+            viewportRef={(el) => { conversationScrollRef = el }}
+            class="flex-1 min-h-0 px-6 py-6"
+          >
+            <Show when={turns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
+              <StudioConversation
+                result={result()}
+                turns={displayTurns()}
+                busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                onSelectImage={setSelectedImageId}
+              />
+            </Show>
+          </ScrollView>
 
           <StudioComposer
             prompt={prompt()}
@@ -683,68 +746,68 @@ export default function StudioPage() {
             styleModel={styleModel()}
             aspectRatio={aspectRatio()}
             count={count()}
-          assets={assets()}
-          status={effectiveStatus()}
-          openMenu={openMenu()}
-          canSubmit={canSubmit()}
+            assets={assets()}
+            status={effectiveStatus()}
+            openMenu={openMenu()}
+            canSubmit={canSubmit()}
             onPrompt={setPrompt}
             onCapability={setCapability}
             onImageTool={setImageTool}
             onStyleModel={setStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
-          onOpenMenu={setOpenMenu}
-          onSubmit={handleSubmit}
-          onKeyDown={handleKeyDown}
-          onPickFile={() => fileInputRef.click()}
-          onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
+            onOpenMenu={setOpenMenu}
+            onSubmit={handleSubmit}
+            onKeyDown={handleKeyDown}
+            onPickFile={() => fileInputRef.click()}
+            onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
+          />
+        </section>
+        <div
+          class="absolute top-0 bottom-0 cursor-col-resize z-10"
+          style={{ left: `${studioLeftWidth() + studioCenterWidth() - 4}px`, width: "8px" }}
+          onMouseDown={handleStudioCenterResize}
         />
 
-        <input ref={fileInputRef!} type="file" multiple accept="image/*" class="hidden" onChange={handleFileChange} />
-      </section>
-      <div
-        class="absolute top-0 bottom-0 cursor-col-resize z-10"
-        style={{ left: `${studioLeftWidth() + studioCenterWidth() - 4}px`, width: "8px" }}
-        onMouseDown={handleStudioCenterResize}
-      />
-
-      <main class="studio-workspace">
-        <section class="studio-canvas">
-          <Show when={mode() === "outpaint" && selectedImage()} fallback={
-            <StudioResultCanvas
-              status={effectiveStatus()}
-              image={selectedImage()}
-              result={result()}
-              imageLabel={currentImageLabel()}
-              onRegenerate={() => void runGeneration()}
-            />
-          }>
-            {(image) => (
-              <StudioOutpaintEditor
-                image={image()}
-                aspectRatio={aspectRatio()}
-                onAspectRatio={setAspectRatio}
-                onClose={() => setMode("preview")}
-                onSubmit={submitOutpaint}
+        <main class="studio-workspace">
+          <section class="studio-canvas">
+            <Show when={mode() === "outpaint" && selectedImage()} fallback={
+              <StudioResultCanvas
+                status={effectiveStatus()}
+                image={selectedImage()}
+                result={result()}
+                imageLabel={currentImageLabel()}
+                onRegenerate={() => void runGeneration()}
               />
-            )}
-          </Show>
-        </section>
+            }>
+              {(image) => (
+                <StudioOutpaintEditor
+                  image={image()}
+                  aspectRatio={aspectRatio()}
+                  onAspectRatio={setAspectRatio}
+                  onClose={() => setMode("preview")}
+                  onSubmit={submitOutpaint}
+                />
+              )}
+            </Show>
+          </section>
 
-        <Show when={result()?.images.length}>
-          <aside class="studio-details">
-            <StudioDetails
-              result={result()!}
-              image={selectedImage()}
-              selectedImageId={selectedImageId()}
-              imageLabel={currentImageLabel()}
-              onSelectImage={setSelectedImageId}
-              onRegenerate={() => void runGeneration()}
-              onOutpaint={openOutpaint}
-            />
-          </aside>
-        </Show>
-      </main>
+          <Show when={result()?.images.length}>
+            <aside class="studio-details">
+              <StudioDetails
+                result={result()!}
+                image={selectedImage()}
+                selectedImageId={selectedImageId()}
+                imageLabel={currentImageLabel()}
+                onSelectImage={setSelectedImageId}
+                onRegenerate={() => void runGeneration()}
+                onOutpaint={openOutpaint}
+              />
+            </aside>
+          </Show>
+        </main>
+      </Show>
+      <input ref={fileInputRef!} type="file" multiple accept="image/*" class="hidden" onChange={handleFileChange} />
     </div>
   )
 }
@@ -754,7 +817,6 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
   const language = useLanguage()
   const dialog = useDialog()
   const [studioSessions, setStudioSessions] = createSignal<Session[]>([])
-  const sessions = createMemo(() => groupSessionsByDate(studioSessions(), Date.now()))
 
   createEffect(() => {
     globalSDK.client.session.list({ directory: props.directory, roots: true, category: "creative" })
@@ -768,44 +830,92 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
   })
 
   return (
-    <div class="h-full flex flex-col px-5 py-7">
-      <h1 class="text-[20px] font-bold mb-9">{language.t("studio.title")}</h1>
-      <button type="button" onClick={props.onNewConversation} class="flex items-center gap-3 text-[14px] mb-9">
-        <span class="text-[25px] leading-none text-[rgba(17,24,39,0.65)]">+</span>
-        <span>{language.t("command.session.new")}</span>
-      </button>
-      <div class="text-[15px] font-semibold mb-6">{language.t("sidebar.history.title")}</div>
-      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto pr-1">
-        <For each={sessions()}>
-          {(group) => (
-            <div class="mb-7">
-              <div class="text-[13px] text-[var(--studio-muted)] mb-3">{language.t(`session.group.${group.key}`)}</div>
+    <div
+      class="h-full flex flex-col gap-6"
+      style={{
+        background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+        padding: "12px",
+      }}
+    >
+      <div class="flex-1 min-h-0 flex flex-col gap-3">
+        <div class="flex flex-col gap-2 shrink-0">
+          <button
+            type="button"
+            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+            style={{ height: "44px", color: "#191919" }}
+            onClick={props.onNewConversation}
+          >
+            <Icon name="plus" size="small" class="shrink-0" />
+            <span>{language.t("command.session.new")}</span>
+          </button>
+          <div style={{ height: "1px", background: "rgba(0,0,0,0.08)" }} />
+          <div class="flex items-center gap-3 px-3 py-2">
+            <img src="/IconStudio1.svg" alt="" style={{ width: "16px", height: "16px" }} />
+            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}>
+              Studio
+            </span>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1 flex-1 min-h-0" >
+          <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
+            <Show
+              when={studioSessions().length > 0}
+              fallback={
+                <div class="text-12-regular text-text-weak py-4 text-center">
+                  {language.t("sidebar.history.empty")}
+                </div>
+              }
+            >
               <div class="flex flex-col gap-1">
-                <For each={group.sessions}>
-                  {(session) => (
-                    <a
-                      href={`/${base64Encode(props.directory)}/studio/${session.id}`}
-                      class="relative text-left text-[13px] leading-[18px] px-3 py-2 rounded-[8px] transition-colors truncate"
-                      classList={{ "bg-[#dfe9ff] text-[#1267ff] font-semibold": props.activeSessionID === session.id }}
-                    >
-                      <span>{sessionTitle(session.title) ?? language.t("command.session.new")}</span>
-                      <Show when={props.activeSessionID === session.id}>
-                        <span class="absolute right-1 top-1 bottom-1 w-[4px] rounded-full bg-[#1267ff]" />
-                      </Show>
-                    </a>
-                  )}
+                <For each={studioSessions()}>
+                  {(session) => {
+                    const isActive = () => props.activeSessionID === session.id
+                    return (
+                      <div class="group/item relative">
+                        <a
+                          href={`/${base64Encode(props.directory)}/studio/${session.id}`}
+                          class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
+                          style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                          classList={{
+                            "bg-[rgba(10,89,247,0.08)]": isActive(),
+                            "hover:bg-surface-base-hover": !isActive(),
+                          }}
+                        >
+                          <span class="flex-1 min-w-0 truncate">
+                            {sessionTitle(session.title) ?? language.t("command.session.new")}
+                          </span>
+                        </a>
+                        <Show when={isActive()}>
+                          <span
+                            class="absolute rounded-full pointer-events-none"
+                            style={{
+                              right: "8px",
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              width: "4px",
+                              height: "32px",
+                              background: "var(--text-interactive-base)",
+                            }}
+                          />
+                        </Show>
+                      </div>
+                    )
+                  }}
                 </For>
               </div>
-            </div>
-          )}
-        </For>
-        <Show when={sessions().length === 0}>
-          <div class="text-[13px] text-[var(--studio-muted)]">{language.t("sidebar.history.empty")}</div>
-        </Show>
+            </Show>
+          </div>
+        </div>
       </div>
-      <button type="button" class="flex items-center gap-2 text-[13px] py-2" onClick={() => dialog.show(() => <DialogSettings />)}>
-        <span class="text-[16px]">⚙</span>
-        <span>设置</span>
+
+      <button
+        type="button"
+        class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-text-strong shrink-0 hover:bg-surface-base-hover transition-colors"
+        onClick={() => dialog.show(() => <DialogSettings />)}
+      >
+        <Icon name="settings-gear" size="small" class="shrink-0" />
+        <span>{language.t("sidebar.settings")}</span>
       </button>
     </div>
   )
@@ -813,28 +923,11 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 
 function StudioIntro(): JSX.Element {
   return (
-    <div class="min-h-full flex flex-col items-center justify-center text-center pb-28">
-      <StudioMark size="large" />
-      <div class="mt-6 text-[28px] font-bold">Octo Studio</div>
-      <div class="flex items-center gap-3 mt-3 mb-10 text-[13px] text-[var(--studio-muted)]">
-        <span class="w-[84px] h-px bg-gradient-to-r from-transparent to-[#bdd0ff]" />
-        <span>专项能力矩阵</span>
-        <span class="w-[84px] h-px bg-gradient-to-r from-[#bdd0ff] to-transparent" />
-      </div>
-      <div class="flex flex-col gap-8 text-left">
-        <For each={STUDIO_CAPABILITIES.slice(0, 4)}>
-          {(item) => (
-            <div class="flex items-center gap-5">
-              <span class="w-5 h-5 rounded-[6px] flex items-center justify-center" style={{ color: item.tone }}>
-                ✦
-              </span>
-              <div>
-                <div class="text-[15px] font-semibold">{item.label}</div>
-                <div class="text-[13px] text-[var(--studio-muted)] mt-1">{item.description}</div>
-              </div>
-            </div>
-          )}
-        </For>
+    <div class="studio-intro">
+      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <div class="studio-intro-copy">
+        <div class="studio-intro-title">Octo Studio</div>
+        <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
       </div>
     </div>
   )
@@ -874,7 +967,7 @@ function StudioComposer(props: {
   onCleanup(() => document.removeEventListener("pointerdown", handleDocumentPointerDown))
 
   return (
-    <div ref={composerRef!} class="relative shrink-0">
+    <div ref={composerRef!} class="studio-composer-wrap relative shrink-0">
       <Show when={props.openMenu === "capability"}>
         <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
       </Show>
@@ -954,7 +1047,7 @@ function StudioComposer(props: {
 
 function ToolButton(props: { label: string; onClick: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="h-8 px-3 rounded-full bg-[#f2f3f5] text-[13px] flex items-center gap-1">
+    <button type="button" onClick={props.onClick} class="h-8 px-3 rounded-full bg-[#f2f3f5] hover:bg-[#e8e9ec] transition-colors text-[13px] flex items-center gap-1">
       <span>{props.label}</span>
       <span class="text-[10px] text-[var(--studio-muted)]">⌄</span>
     </button>
@@ -963,7 +1056,7 @@ function ToolButton(props: { label: string; onClick: () => void }): JSX.Element 
 
 function IconTool(props: { label: string; onClick: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="w-8 h-8 rounded-full bg-[#f2f3f5] text-[13px]" title={props.label}>
+    <button type="button" onClick={props.onClick} class="w-8 h-8 rounded-full bg-[#f2f3f5] hover:bg-[#e8e9ec] transition-colors text-[13px]" title={props.label}>
       {props.label === "参数" ? "≛" : "▣"}
     </button>
   )
@@ -1323,21 +1416,6 @@ function InfoRow(props: { label: string; value: string }): JSX.Element {
       <span class="text-[var(--studio-muted)]">{props.label}</span>
       <span>{props.value}</span>
     </div>
-  )
-}
-
-function StudioMark(props: { size: "large" | "small" }): JSX.Element {
-  const size = props.size === "large" ? "70px" : "36px"
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        "border-radius": "999px",
-        background: "conic-gradient(from 20deg, #7c5cff, #78d6e7, #d5f2ff, #a979ff, #7c5cff)",
-        filter: "drop-shadow(0 14px 24px rgba(116,87,255,0.18))",
-      }}
-    />
   )
 }
 
