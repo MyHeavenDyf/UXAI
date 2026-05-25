@@ -20,7 +20,7 @@ export type WindowConfig = {
   updaterEnabled: boolean
 }
 
-export type SkillConfigEntry = { description?: string; import?: boolean }
+export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
 export type ElectronAPI = {
@@ -84,4 +84,6 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
+  addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
+  openSkillFolder: () => Promise<void>
 }

@@ -72,6 +72,7 @@ export interface Interface {
   readonly all: () => Effect.Effect<Info[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  readonly refresh: () => Effect.Effect<void>
 }
 
 const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface) {
@@ -179,13 +180,10 @@ const discoverSkills = Effect.fnUntraced(function* (
     yield* scan(state, dir, OPENCODE_SKILL_PATTERN)
   }
 
-  // Built-in agent skills bundled with the package
-  const metaDir = (typeof import.meta.dirname !== "undefined" ? import.meta.dirname : undefined) ?? import.meta.dir ?? (typeof __dirname !== "undefined" ? __dirname : undefined)
-  if (metaDir) {
-    const builtinSkillsDir = path.join(metaDir, "..", "agent", "skills")
-    if (yield* fsys.isDir(builtinSkillsDir)) {
-      yield* scan(state, builtinSkillsDir, SKILL_PATTERN, { scope: "builtin" })
-    }
+  // Unified skill directory at octoConfig/skill/ (all skills including built-in)
+  const octoSkillDir = path.join(global.octoConfig, "skill")
+  if (yield* fsys.isDir(octoSkillDir)) {
+    yield* scan(state, octoSkillDir, SKILL_PATTERN)
   }
 
   const cfg = yield* config.get()
@@ -290,7 +288,12 @@ export const layer = Layer.effect(
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, getMany, all, dirs, available })
+    const refresh = Effect.fn("Skill.refresh")(function* () {
+      yield* InstanceState.invalidate(discovered)
+      yield* InstanceState.invalidate(state)
+    })
+
+    return Service.of({ get, getMany, all, dirs, available, refresh })
   }),
 )
 

@@ -455,6 +455,30 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
           return yield* skill.all()
         }),
     )
+    .post(
+      "/skill/refresh",
+      describeRoute({
+        summary: "Refresh skills",
+        description: "Invalidate skill cache and re-discover skills from disk.",
+        operationId: "app.skills.refresh",
+        responses: {
+          200: {
+            description: "Skills refreshed",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ success: z.boolean() })),
+              },
+            },
+          },
+        },
+      }),
+      async (c) =>
+        jsonRequest("InstanceRoutes.skill.refresh", c, function* () {
+          const skill = yield* Skill.Service
+          yield* skill.refresh()
+          return { success: true }
+        }),
+    )
     .get(
       "/lsp",
       describeRoute({

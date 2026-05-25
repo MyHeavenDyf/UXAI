@@ -5,7 +5,9 @@ import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
+import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -72,6 +74,7 @@ export default function StudioPage() {
   const location = useLocation()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const language = useLanguage()
 
   const projectDir = useProjectDir()
 
@@ -113,6 +116,18 @@ export default function StudioPage() {
   const [openMenu, setOpenMenu] = createSignal<"capability" | "imageTool" | "style" | "settings" | null>(null)
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
+  const [studioLeftStore, setStudioLeftStore] = persisted(
+    Persist.global("studio.left.width"),
+    createStore({ width: 296 }),
+  )
+  const [studioCenterStore, setStudioCenterStore] = persisted(
+    Persist.global("studio.center.width"),
+    createStore({ width: 468 }),
+  )
+  const studioLeftWidth = () => studioLeftStore.width
+  const setStudioLeftWidth = (w: number) => setStudioLeftStore({ width: w })
+  const studioCenterWidth = () => studioCenterStore.width
+  const setStudioCenterWidth = (w: number) => setStudioCenterStore({ width: w })
   const [dataStore, setDataStore] = createStore<DataStore>({
     session: [],
     session_status: {},
@@ -180,6 +195,42 @@ export default function StudioPage() {
     }
     blobUrlCache.clear()
   })
+
+  function handleStudioLeftResize(event: MouseEvent) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = studioLeftWidth()
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    function onMove(e: MouseEvent) {
+      const delta = e.clientX - startX
+      setStudioLeftWidth(Math.max(160, Math.min(360, startWidth + delta)))
+    }
+    function onUp() {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  function handleStudioCenterResize(event: MouseEvent) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = studioCenterWidth()
+    function onMove(e: MouseEvent) {
+      const delta = e.clientX - startX
+      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
 
   function loadSessionMessages(sessionID: string) {
     return globalSDK.client.session
@@ -620,10 +671,23 @@ export default function StudioPage() {
 
   const hasStudioConversation = createMemo(() => turns().length > 0 || Boolean(pendingResult()) || sending())
 
+
+  const [hintVisible, setHintVisible] = createSignal(false)
+
+  createEffect(() => {
+    if (params.id || prompt().trim() || !new URLSearchParams(location.search).has("hint")) {
+      setHintVisible(false)
+      return
+    }
+    setHintVisible(true)
+    const timer = setTimeout(() => setHintVisible(false), 3000)
+    onCleanup(() => clearTimeout(timer))
+  })
+
   return (
     <div class="studio-page" style={{ position: "relative" }}>
       <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio`)} />
+        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio?hint=${Date.now()}`)} />
       </aside>
       <div
         style={{
@@ -643,8 +707,14 @@ export default function StudioPage() {
           <div class="studio-empty-stack">
             <div class="studio-empty-group">
               <StudioIntro />
-              <StudioComposer
-                prompt={prompt()}
+              <div class="relative size-full">
+                <Show when={hintVisible()}>
+                  <div class="absolute -top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-none whitespace-nowrap" data-component="tooltip">
+                    {language.t("prompt.hint.newSession")}
+                  </div>
+                </Show>
+                <StudioComposer
+                  prompt={prompt()}
                 capability={capability()}
                 imageTool={imageTool()}
                 styleModel={styleModel()}
@@ -668,9 +738,10 @@ export default function StudioPage() {
               />
             </div>
           </div>
+        </div>
         </main>
       }>
-        <section class="studio-center">
+        <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
           <div class="h-[56px] shrink-0 flex items-center px-6 border-b border-[rgba(15,23,42,0.08)]">
             <div class="text-[15px] font-semibold truncate">{currentTitle()}</div>
             <div class="ml-auto text-[11px] text-[var(--studio-muted)] truncate max-w-[180px]" title={projectDir()}>
@@ -678,14 +749,19 @@ export default function StudioPage() {
             </div>
           </div>
 
-          <div ref={conversationScrollRef!} class="flex-1 min-h-0 overflow-y-auto px-6 py-6">
-            <StudioConversation
-              result={result()}
-              turns={displayTurns()}
-              busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
-              onSelectImage={setSelectedImageId}
-            />
-          </div>
+          <ScrollView
+            viewportRef={(el) => { conversationScrollRef = el }}
+            class="flex-1 min-h-0 px-6 py-6"
+          >
+            <Show when={turns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
+              <StudioConversation
+                result={result()}
+                turns={displayTurns()}
+                busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                onSelectImage={setSelectedImageId}
+              />
+            </Show>
+          </ScrollView>
 
           <StudioComposer
             prompt={prompt()}
@@ -711,6 +787,11 @@ export default function StudioPage() {
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
           />
         </section>
+        <div
+          class="absolute top-0 bottom-0 cursor-col-resize z-10"
+          style={{ left: `${studioLeftWidth() + studioCenterWidth() - 4}px`, width: "8px" }}
+          onMouseDown={handleStudioCenterResize}
+        />
 
         <main class="studio-workspace">
           <section class="studio-canvas">
@@ -1254,7 +1335,7 @@ function StudioDetails(props: {
   onOutpaint: () => void
 }): JSX.Element {
   return (
-    <div class="h-full overflow-y-auto px-7 py-7">
+    <ScrollView class="h-full px-7 py-7">
       <div class="grid grid-cols-4 gap-2 pb-4 border-b border-[rgba(15,23,42,0.08)]">
         <For each={props.result.images}>
           {(image) => (
@@ -1304,7 +1385,7 @@ function StudioDetails(props: {
           </For>
         </div>
       </div>
-    </div>
+    </ScrollView>
   )
 }
 

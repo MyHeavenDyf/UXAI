@@ -12,6 +12,7 @@ import { sortedRootSessions } from "@/pages/layout/helpers"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import { Spinner } from "@opencode-ai/ui/spinner"
 
 type TabType = "chat" | "cowork" | "studio"
 
@@ -90,7 +91,7 @@ export function Sidebar(props: {
               onClick={() => {
                 const dir = props.currentDir()
                 if (!dir) return
-                navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}`)
+                navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}?hint=${Date.now()}`)
               }}
             >
               <Icon name="plus" size="small" class="shrink-0" />
@@ -118,15 +119,22 @@ export function Sidebar(props: {
                   const [store] = globalSync.child(dir, { bootstrap: true })
                   const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
                   const octoAiSessions = createMemo(() => sessions().filter((s) => s.agent === "octo_ai"))
+                  const isLoading = createMemo(() => store.status === "loading")
                   return (
-                    <Show
-                      when={octoAiSessions().length > 0}
-                      fallback={
-                        <div class="text-12-regular text-text-weak py-4 text-center">
-                          {language.t("session.review.empty")}
-                        </div>
-                      }
-                    >
+                    <Show when={!isLoading()} fallback={
+                      <div class="text-12-regular text-text-weak py-4 text-center">
+                        <Spinner class="size-4 mx-auto mb-1" />
+                        {language.t("common.loading")}
+                      </div>
+                    }>
+                      <Show
+                        when={octoAiSessions().length > 0}
+                        fallback={
+                          <div class="text-12-regular text-text-weak py-4 text-center">
+                            {language.t("session.review.empty")}
+                          </div>
+                        }
+                      >
                       <div class="flex flex-col gap-1">
                         <For each={octoAiSessions()}>
                           {(session) => {
@@ -183,6 +191,7 @@ export function Sidebar(props: {
                           }}
                         </For>
                       </div>
+                    </Show>
                     </Show>
                   )
                 }}

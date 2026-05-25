@@ -1864,6 +1864,8 @@ export default function Page() {
           }>
             <>
               <div class="flex-1 min-h-0 overflow-hidden">
+            <Switch>
+              <Match when={params.id}>
                 <Show when={messagesReady()}>
                   <MessageTimeline
                     mobileChanges={mobileChanges()}
@@ -1903,7 +1905,13 @@ export default function Page() {
                     anchor={anchor}
                   />
                 </Show>
+              </Match>
+              <Match when={true}>
+                <NewSessionView worktree={newSessionWorktree()} />
+              </Match>
+            </Switch>
               </div>
+
               <SessionComposerRegion
                 state={composer}
                 ready={!store.deferRender && messagesReady()}
