@@ -10,12 +10,14 @@ import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import { sortedRootSessions } from "@/pages/layout/helpers"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -570,6 +572,7 @@ export default function StudioPage() {
   async function sendStudioPrompt(input: { sessionID: string; text: string; capability: StudioCapability; sourceImage?: string }) {
     await globalSDK.client.session.promptAsync({
       sessionID: input.sessionID,
+      agent: "octo_studio",
       tools: {
         jimeng_image_generate: imageTool() !== "internel",
         internel_image_generate: imageTool() === "internel",
@@ -813,21 +816,15 @@ export default function StudioPage() {
 }
 
 function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
-  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const language = useLanguage()
   const dialog = useDialog()
-  const [studioSessions, setStudioSessions] = createSignal<Session[]>([])
+  const sortNow = createMemo(() => Date.now())
 
-  createEffect(() => {
-    globalSDK.client.session.list({ directory: props.directory, roots: true, category: "creative" })
-      .then((result) => {
-        const data = ((result.data ?? []) as Session[])
-          .filter((s) => !s.time?.archived)
-          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-        setStudioSessions(data)
-      })
-      .catch((err) => console.error("[StudioHistory] session list failed", err))
-  })
+  const [store] = globalSync.child(props.directory, { bootstrap: true })
+  const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
+  const studioSessions = createMemo(() => sessions().filter(s => s.agent === "octo_studio" && !s.time?.archived))
+  const isLoading = createMemo(() => store.status === "loading")
 
   return (
     <div
@@ -859,51 +856,58 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 
         <div class="flex flex-col gap-1 flex-1 min-h-0" >
           <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
-            <Show
-              when={studioSessions().length > 0}
-              fallback={
-                <div class="text-12-regular text-text-weak py-4 text-center">
-                  {language.t("sidebar.history.empty")}
-                </div>
-              }
-            >
-              <div class="flex flex-col gap-1">
-                <For each={studioSessions()}>
-                  {(session) => {
-                    const isActive = () => props.activeSessionID === session.id
-                    return (
-                      <div class="group/item relative">
-                        <a
-                          href={`/${base64Encode(props.directory)}/studio/${session.id}`}
-                          class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
-                          style={{ "padding-right": isActive() ? "20px" : "12px" }}
-                          classList={{
-                            "bg-[rgba(10,89,247,0.08)]": isActive(),
-                            "hover:bg-surface-base-hover": !isActive(),
-                          }}
-                        >
-                          <span class="flex-1 min-w-0 truncate">
-                            {sessionTitle(session.title) ?? language.t("command.session.new")}
-                          </span>
-                        </a>
-                        <Show when={isActive()}>
-                          <span
-                            class="absolute rounded-full pointer-events-none"
-                            style={{
-                              right: "8px",
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              width: "4px",
-                              height: "32px",
-                              background: "var(--text-interactive-base)",
-                            }}
-                          />
-                        </Show>
-                      </div>
-                    )
-                  }}
-                </For>
+            <Show when={!isLoading()} fallback={
+              <div class="text-12-regular text-text-weak py-4 text-center">
+                <Spinner class="size-4 mx-auto mb-1" />
+                {language.t("common.loading")}
               </div>
+            }>
+              <Show
+                when={studioSessions().length > 0}
+                fallback={
+                  <div class="text-12-regular text-text-weak py-4 text-center">
+                    {language.t("sidebar.history.empty")}
+                  </div>
+                }
+              >
+                <div class="flex flex-col gap-1">
+                  <For each={studioSessions()}>
+                    {(session) => {
+                      const isActive = () => props.activeSessionID === session.id
+                      return (
+                        <div class="group/item relative">
+                          <a
+                            href={`/${base64Encode(props.directory)}/studio/${session.id}`}
+                            class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
+                            style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                            classList={{
+                              "bg-[rgba(10,89,247,0.08)]": isActive(),
+                              "hover:bg-surface-base-hover": !isActive(),
+                            }}
+                          >
+                            <span class="flex-1 min-w-0 truncate">
+                              {sessionTitle(session.title) ?? language.t("command.session.new")}
+                            </span>
+                          </a>
+                          <Show when={isActive()}>
+                            <span
+                              class="absolute rounded-full pointer-events-none"
+                              style={{
+                                right: "8px",
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                width: "4px",
+                                height: "32px",
+                                background: "var(--text-interactive-base)",
+                              }}
+                            />
+                          </Show>
+                        </div>
+                      )
+                    }}
+                  </For>
+                </div>
+              </Show>
             </Show>
           </div>
         </div>
