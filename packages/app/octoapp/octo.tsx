@@ -26,6 +26,7 @@ import {
   Show,
   Suspense,
 } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
@@ -48,6 +49,7 @@ import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { useCheckServerHealth } from "./utils/server-health"
+import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
@@ -112,7 +114,12 @@ function QueryProvider(props: ParentProps) {
 }
 
 function OctoSidebarLayout(props: ParentProps) {
-  const [sidebarWidth, setSidebarWidth] = createSignal(296)
+  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
+    Persist.global("cowork.sidebar.width"),
+    createStore({ width: 296 }),
+  )
+  const sidebarWidth = () => sidebarWidthStore.width
+  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
