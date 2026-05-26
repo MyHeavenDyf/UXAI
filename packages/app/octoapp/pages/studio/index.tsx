@@ -109,29 +109,6 @@ export default function StudioPage() {
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
-  const [studioLeftWidth, setStudioLeftWidth] = createSignal(240)
-
-  createEffect(() => {
-    const path = location.pathname
-    if (path.includes("/studio")) setStudioLeftWidth(240)
-  })
-
-  function handleStudioLeftResize(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = studioLeftWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setStudioLeftWidth(Math.max(200, Math.min(480, startW + ev.clientX - startX)))
-    const onUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-  }
   const [openMenu, setOpenMenu] = createSignal<"capability" | "imageTool" | "style" | "settings" | null>(null)
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
@@ -889,15 +866,15 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
       class="h-full flex flex-col gap-6"
       style={{
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
-        padding: "12px",
+        padding: "8px",
       }}
     >
-      <div class="flex-1 min-h-0 flex flex-col gap-3">
+      <div class="flex-1 min-h-0 flex flex-col">
         <div class="flex flex-col gap-2 shrink-0">
           <button
             type="button"
-            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "44px", color: "#191919" }}
+            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+            style={{ height: "44px", color: "#191919", "font-size": "12px", "line-height": "20px", "font-weight": "500" }}
             onClick={props.onNewConversation}
           >
             <Icon name="plus" size="small" class="shrink-0" />
@@ -905,14 +882,14 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
           </button>
           <div style={{ height: "1px", background: "rgba(0,0,0,0.08)" }} />
           <div class="flex items-center gap-3 px-3 py-2">
-            <img src="/IconStudio1.svg" alt="" style={{ width: "16px", height: "16px" }} />
-            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}>
+            <img src="/IconStudio1.svg" alt="" style={{ width: "20px", height: "20px" }} />
+            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "14px", "font-weight": "600" }}>
               Studio
             </span>
           </div>
         </div>
 
-        <div class="flex flex-col gap-1 flex-1 min-h-0">
+        <div class="flex flex-col flex-1 min-h-0">
           <div class="flex-1 min-h-0 overflow-y-auto">
             <Show when={!isLoading()} fallback={
               <div class="text-12-regular text-text-weak py-4 text-center">
@@ -928,7 +905,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                   </div>
                 }
               >
-                <div class="flex flex-col gap-1">
+                <div class="flex flex-col">
                   <For each={studioSessions()}>
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
@@ -936,8 +913,8 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                         <div class="group/item relative">
                           <a
                             href={`/${base64Encode(props.directory)}/studio/${session.id}`}
-                            class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
-                            style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                            class="flex items-center w-full px-3 py-[8px] rounded-lg transition-colors"
+                            style={{ color: isActive() ? "#0A59F7" : "#191919", "font-size": "12px", "line-height": "20px", "padding-right": isActive() ? "20px" : "12px" }}
                             classList={{
                               "bg-[rgba(10,89,247,0.08)]": isActive(),
                               "hover:bg-surface-base-hover": !isActive(),
@@ -949,13 +926,12 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                           </a>
                           <Show when={isActive()}>
                             <span
-                              class="absolute rounded-full pointer-events-none"
+                              class="absolute rounded-sm pointer-events-none"
                               style={{
                                 right: "8px",
-                                top: "50%",
-                                transform: "translateY(-50%)",
+                                top: "4px",
                                 width: "4px",
-                                height: "32px",
+                                height: "28px",
                                 background: "var(--text-interactive-base)",
                               }}
                             />
@@ -973,7 +949,8 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 
       <button
         type="button"
-        class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-text-strong shrink-0 hover:bg-surface-base-hover transition-colors"
+        class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-text-strong shrink-0 hover:bg-surface-base-hover transition-colors"
+        style={{ "font-size": "12px", "line-height": "20px" }}
         onClick={() => dialog.show(() => <DialogSettings />)}
       >
         <Icon name="settings-gear" size="small" class="shrink-0" />
@@ -1019,6 +996,7 @@ function StudioComposer(props: {
   onRemoveAsset: (id: string) => void
 }): JSX.Element {
   let composerRef!: HTMLDivElement
+  let textareaRef!: HTMLTextAreaElement
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
     if (!props.openMenu || composerRef.contains(event.target as Node)) return
@@ -1027,6 +1005,13 @@ function StudioComposer(props: {
 
   document.addEventListener("pointerdown", handleDocumentPointerDown)
   onCleanup(() => document.removeEventListener("pointerdown", handleDocumentPointerDown))
+
+  createEffect(() => {
+    const _ = props.prompt
+    if (!textareaRef) return
+    textareaRef.style.height = "auto"
+    textareaRef.style.height = `${textareaRef.scrollHeight}px`
+  })
 
   return (
     <div ref={composerRef!} class="studio-composer-wrap relative shrink-0">
@@ -1059,11 +1044,12 @@ function StudioComposer(props: {
             +
           </button>
           <textarea
+            ref={textareaRef!}
             value={props.prompt}
             onInput={(event) => props.onPrompt(event.currentTarget.value)}
             onKeyDown={props.onKeyDown}
             placeholder="上传参考图、输入文字，描述你想生成的图片。"
-            class="flex-1 min-h-[76px] resize-none border-0 outline-none bg-transparent text-[13px] leading-[22px] placeholder:text-[rgba(15,23,42,0.45)]"
+            class="flex-1 min-h-[76px] overflow-hidden resize-none border-0 outline-none bg-transparent text-[13px] leading-[22px] placeholder:text-[rgba(15,23,42,0.45)]"
             disabled={props.status === "running" || props.status === "submitting"}
           />
         </div>
@@ -1261,7 +1247,7 @@ function StudioConversation(props: {
       <For each={props.turns}>
         {(turn, index) => (
           <div classList={{ "pt-8 border-t border-[rgba(15,23,42,0.08)]": index() > 0 }}>
-            <div class="ml-auto max-w-[374px] rounded-[14px] bg-[#fdeeff] px-4 py-3 text-[13px] leading-[21px] whitespace-pre-wrap">
+            <div class="ml-auto w-fit max-w-[374px] px-3 py-2 text-[12px] leading-[20px] whitespace-pre-wrap" style={{ background: "rgba(10,89,247,0.08)", "border-radius": "16px 16px 2px 16px" }}>
               {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
             </div>
             <Show when={turn.assistantText}>
@@ -1272,8 +1258,8 @@ function StudioConversation(props: {
                 <div style={{ width: "12px", height: "12px", "background-image": "url(/studio/picture_star_fill.svg)", "background-size": "contain", "background-repeat": "no-repeat" }} />
                 {capabilityLabel(props.result?.capability ?? "image.generate")}
               </div>
-              <div class="mt-4 text-[16px] font-semibold">{turn.toolTitle ?? "图片生成中"}</div>
-              <div class="mt-1 text-[13px] text-[var(--studio-muted)]">
+              <div class="mt-4 text-[14px] font-semibold">{turn.toolTitle ?? "图片生成中"}</div>
+              <div class="mt-1 text-[12px] text-[var(--studio-muted)]">
                 {turn.toolName ? `Tool：${turn.toolName} · ` : ""}
                 创建时间：{formatTime(turn.createdAt)}
               </div>

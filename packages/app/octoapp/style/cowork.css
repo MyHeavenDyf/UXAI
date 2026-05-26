@@ -7,14 +7,13 @@
   --octo-text-primary: rgba(0, 0, 0, 0.9);
 }
 
-/* ① 侧栏容器：白色背景 */
-[data-cowork-area="sidebar"] > .shrink-0.flex.flex-col.h-full.overflow-hidden {
-  background: #fff !important;
-}
 
-/* ② 滚动区域：顶部留白 24px，左右 16px */
+/* ② 滚动区域：padding 由 TSX 控制，CSS 不额外添加；隐藏滚动条 */
 [data-cowork-area="sidebar"] .flex-1.min-h-0.overflow-y-auto {
-  padding: 8px 16px;
+  padding: 0;
+}
+[data-cowork-area="sidebar"] [data-slot="list-scroll"]::-webkit-scrollbar {
+  display: none;
 }
 
 /* ③ 分组标题行：高度 48px，相对定位作为 chevron 定位容器 */

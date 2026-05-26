@@ -46,13 +46,13 @@
 
   &[data-trigger-style="settings"] {
     [data-slot="select-select-trigger"] {
-      padding: 6px 6px 6px 12px;
+      padding: 4px 0;
       box-shadow: none;
-      border-radius: 6px;
-      min-width: 160px;
-      height: 32px;
+      border-radius: 4px;
+      min-width: 0;
+      height: auto;
       justify-content: flex-end;
-      gap: 12px;
+      gap: 4px;
       background-color: transparent;
 
       [data-slot="select-select-trigger-value"] {
@@ -61,25 +61,26 @@
         white-space: nowrap;
         font-size: var(--font-size-base);
         font-weight: var(--font-weight-regular);
+        color: var(--text-base);
       }
       [data-slot="select-select-trigger-icon"] {
         width: 16px;
-        height: 20px;
+        height: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
         color: var(--text-weak);
-        background-color: var(--surface-raised-base);
-        border-radius: 4px;
+        background-color: transparent;
+        border-radius: 0;
         transition: transform 0.1s ease-in-out;
       }
 
       &[data-slot="select-select-trigger"]:hover:not(:disabled),
       &[data-slot="select-select-trigger"][data-expanded],
       &[data-slot="select-select-trigger"][data-expanded]:hover:not(:disabled) {
-        background-color: var(--input-base);
-        box-shadow: var(--shadow-xs-border-base);
+        background-color: transparent;
+        box-shadow: none;
       }
 
       &:not([data-expanded]):not(:focus-visible):focus {

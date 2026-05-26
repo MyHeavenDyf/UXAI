@@ -144,22 +144,6 @@ function OctoSidebarLayout(props: ParentProps) {
         }}
         onMouseDown={handleSidebarResize}
       >
-        <div
-          class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-          style={{
-            width: "12px",
-            height: "36px",
-            "border-radius": "0 10px 10px 0",
-            "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
-            border: "1px solid var(--octo-border-divider)",
-            "border-left": "none",
-          }}
-        >
-          <div
-            class="w-[2px] h-[14px] rounded-full ml-[2px]"
-            style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-          />
-        </div>
       </div>
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
         {props.children}

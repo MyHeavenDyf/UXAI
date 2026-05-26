@@ -45,7 +45,7 @@ export function OctoTopbar(): JSX.Element {
 
   return (
     <div
-      class="h-[64px] shrink-0 flex items-center gap-[16px]"
+      class="h-[64px] shrink-0 relative flex items-center gap-[16px]"
       style={{
         background: "rgba(255, 255, 255, 0.72)",
         "backdrop-filter": "blur(20px)",
@@ -62,12 +62,15 @@ export function OctoTopbar(): JSX.Element {
         style={{ "min-width": "160px", "-webkit-app-region": "no-drag" }}
       >
         <img src="/OctoLogo.svg" alt="" style={{ width: "24px", height: "24px" }} />
-        <span class="font-semibold text-[17px] text-[#191919] leading-none select-none">Octo AI</span>
+        <span class="font-bold text-[17px] text-[#191919] leading-none select-none">Octo AI</span>
       </div>
 
-      {/* Center: Segmented control */}
+      {/* Flex spacer — keeps right section pushed to the edge */}
+      <div class="flex-1 pointer-events-none" />
+
+      {/* Center: Segmented control — absolutely centered in the bar */}
       <div
-        class="flex-1 flex justify-center"
+        class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         style={{ "-webkit-app-region": "no-drag" }}
       >
         <div

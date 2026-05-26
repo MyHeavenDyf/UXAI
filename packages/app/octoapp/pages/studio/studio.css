@@ -70,7 +70,7 @@
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--studio-line);
-  background: rgba(249, 250, 253, 0.9);
+  background: #ffffff;
 }
 
 .studio-workspace {
@@ -126,7 +126,7 @@
 
 .studio-result-card {
   border-radius: 10px;
-  background: linear-gradient(180deg, rgba(252, 232, 255, 0.9), rgba(246, 236, 255, 0.88));
+  background: rgba(10, 89, 247, 0.08);
 }
 
 .studio-center .flex.items-center.gap-3.mb-10 {

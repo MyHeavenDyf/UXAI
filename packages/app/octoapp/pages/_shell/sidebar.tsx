@@ -14,6 +14,7 @@ import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Icon } from "@opencode-ai/ui/icon"
 import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
@@ -250,90 +251,83 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       style={{
         width: `${props.width}px`,
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+        padding: "8px",
         "border-right": "1px solid var(--border-weak-base)",
       }}
     >
-      <div class="shrink-0">
-        <div style={{ margin: "12px 12px 8px 12px" }} class="relative">
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "44px", color: "#191919" }}
-            onClick={toggleDropdown}
+      <div class="flex flex-col gap-2 shrink-0">
+        <button
+          type="button"
+          class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+          style={{ height: "44px", color: "#191919", "font-size": "12px", "line-height": "20px", "font-weight": "500" }}
+          onClick={toggleDropdown}
+        >
+          <Icon name="plus" size="small" class="shrink-0" />
+          <span>新建交付件</span>
+        </button>
+        <Show when={showDropdown()}>
+          <div
+            class="z-50 flex flex-col"
+            style={`position:fixed; top:${dropdownPos().top}px; left:${dropdownPos().left}px; background:#ffffff; border-radius:12px; box-shadow:0px 4px 12px 0px rgba(0,0,0,0.16); padding:8px; min-width:232px;`}
+            onClick={(e) => e.stopPropagation()}
           >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
-              <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-            </svg>
-            <span style="font-size:14px;">新建交付件</span>
-          </button>
-          <Show when={showDropdown()}>
-            <div
-              class="z-50 flex flex-col"
-              style={`position:fixed; top:${dropdownPos().top}px; left:${dropdownPos().left}px; background:#ffffff; border-radius:12px; box-shadow:0px 4px 12px 0px rgba(0,0,0,0.16); padding:8px; min-width:232px;`}
-              onClick={(e) => e.stopPropagation()}
+            <button
+              type="button"
+              class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style="color: #0a59f7;"
+              onClick={() => { newSession(); closeDropdown() }}
             >
-              <button
-                type="button"
-                class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-                style="color: #0a59f7;"
-                onClick={() => { newSession(); closeDropdown() }}
+              <div
+                style="width:24px;height:24px;border-radius:3px;background:rgba(10,89,247,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
               >
-                <div
-                  style="width:24px;height:24px;border-radius:3px;background:rgba(10,89,247,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
-                >
-                  <div style="width:20px;height:20px;background-image:url('/insightIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
-                </div>
-                <span style="font-weight:600">Octo Insight</span>
-              </button>
-              <button
-                type="button"
-                class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-                style="color: #6c00ff;"
-                onClick={() => { newMakeSession(); closeDropdown() }}
+                <div style="width:20px;height:20px;background-image:url('/insightIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
+              </div>
+              <span style="font-weight:600">Octo Insight</span>
+            </button>
+            <button
+              type="button"
+              class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style="color: #6c00ff;"
+              onClick={() => { newMakeSession(); closeDropdown() }}
+            >
+              <div
+                style="width:24px;height:24px;border-radius:3px;background:rgba(108,0,255,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
               >
-                <div
-                  style="width:24px;height:24px;border-radius:3px;background:rgba(108,0,255,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
-                >
-                  <div style="width:20px;height:20px;background-image:url('/makeIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
-                </div>
-                <span style="font-weight:600">Octo Make</span>
-              </button>
-            </div>
-          </Show>
-        </div>
-        <div style={{ margin: "0 12px", height: "1px", background: "rgba(0,0,0,0.08)" }} />
+                <div style="width:20px;height:20px;background-image:url('/makeIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
+              </div>
+              <span style="font-weight:600">Octo Make</span>
+            </button>
+          </div>
+        </Show>
+        <div style={{ height: "1px", background: "rgba(0,0,0,0.08)" }} />
       </div>
       {/* Scrollable: Insight + Make sessions */}
       <div
         data-slot="list-scroll"
-        class="flex-1 min-h-0 overflow-y-auto px-[12px]"
+        class="flex-1 min-h-0 overflow-y-auto mt-2"
+        style={{ "scrollbar-width": "none" }}
       >
         {/* ─── Octo Insight ─── */}
         <div class="mb-[2px]">
           {/* 分组标题行 */}
-          <div class="flex items-center h-[32px] px-[4px]">
-            <button
-              type="button"
-              onClick={() => setInsightCollapsed((v) => !v)}
-              class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-              style={{ color: "var(--text-weak)" }}
-            >
-              <ChevronRightIcon collapsed={insightCollapsed()} />
-              <span
-                class="text-[12px] font-medium select-none leading-[20px]"
-                style={{ color: "var(--text-weak)" }}
-              >
-                Octo Insight
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setInsightCollapsed((v) => !v)}
+            class="flex items-center gap-3 w-full px-3 py-2 text-left"
+          >
+            <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px", "flex-shrink": "0" }} />
+            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "14px", "font-weight": "600" }}>
+              Octo Insight
+            </span>
+            <ChevronRightIcon collapsed={insightCollapsed()} />
+          </button>
 
           <Show when={!insightCollapsed()}>
-            <div class="flex flex-col gap-[1px]">
+            <div class="flex flex-col">
               <Show
                 when={insightStable()}
                 fallback={
-                  <div class="px-[8px] py-[6px]">
+                  <div class="px-3 py-[8px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
                   </div>
                 }
@@ -341,7 +335,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 <Show
                   when={sessionList.length > 0}
                   fallback={
-                    <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+                    <div class="px-3 py-[8px] text-[12px] leading-[20px]" style={{ color: "#6e737a" }}>
                       {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                     </div>
                   }
@@ -362,53 +356,54 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                         ),
                       )
                       return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            notification.session.markViewed(session.id)
-                            navigate(`/insight/${session.id}`)
-                          }}
-                          class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2 relative"
-                          style={{
-                            height: "36px",
-                            background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
-                            color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
-                            "font-weight": isActive() ? "500" : "400",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" } }}
-                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-strong)" } }}
-                        >
+                        <div class="group/item relative">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              notification.session.markViewed(session.id)
+                              navigate(`/insight/${session.id}`)
+                            }}
+                            class="w-full text-left px-3 py-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2"
+                            style={{
+                              background: isActive() ? "rgba(10,89,247,0.08)" : "transparent",
+                              color: isActive() ? "#0A59F7" : "#191919",
+                              "padding-right": isActive() ? "20px" : "12px",
+                            }}
+                            classList={{ "hover:bg-surface-base-hover": !isActive() }}
+                          >
+                            <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
+                              <div class="shrink-0 size-6 flex items-center justify-center">
+                                <Switch>
+                                  <Match when={isWorking()}>
+                                    <Spinner class="size-[15px]" />
+                                  </Match>
+                                  <Match when={hasPermissions()}>
+                                    <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+                                  </Match>
+                                  <Match when={hasError()}>
+                                    <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                                  </Match>
+                                  <Match when={unseenCount() > 0}>
+                                    <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                                  </Match>
+                                </Switch>
+                              </div>
+                            </Show>
+                            <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
+                          </button>
                           <Show when={isActive()}>
                             <span
-                              class="absolute left-0 top-1/2 rounded-r-[3px]"
+                              class="absolute rounded-sm pointer-events-none"
                               style={{
-                                height: "16px",
-                                width: "3px",
+                                right: "8px",
+                                top: "4px",
+                                width: "4px",
+                                height: "28px",
                                 background: "var(--text-interactive-base)",
-                                transform: "translateY(-50%)",
                               }}
                             />
                           </Show>
-                          <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                            <div class="shrink-0 size-6 flex items-center justify-center">
-                              <Switch>
-                                <Match when={isWorking()}>
-                                  <Spinner class="size-[15px]" />
-                                </Match>
-                                <Match when={hasPermissions()}>
-                                  <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-                                </Match>
-                                <Match when={hasError()}>
-                                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-                                </Match>
-                                <Match when={unseenCount() > 0}>
-                                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
-                                </Match>
-                              </Switch>
-                            </div>
-                          </Show>
-                          <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
-                        </button>
+                        </div>
                       )
                     }}
                   </For>
@@ -420,28 +415,23 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
         {/* ─── Octo Make ─── */}
         <div class="mb-[2px]">
-          <div class="flex items-center h-[32px] px-[4px]">
-            <button
-              type="button"
-              onClick={() => setMakeCollapsed((v) => !v)}
-              class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-              style={{ color: "var(--text-weak)" }}
-            >
-              <ChevronRightIcon collapsed={makeCollapsed()} />
-              <span
-                class="text-[12px] font-medium select-none leading-[20px]"
-                style={{ color: "var(--text-weak)" }}
-              >
-                Octo Make
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setMakeCollapsed((v) => !v)}
+            class="flex items-center gap-3 w-full px-3 py-2 text-left"
+          >
+            <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px", "flex-shrink": "0" }} />
+            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "14px", "font-weight": "600" }}>
+              Octo Make
+            </span>
+            <ChevronRightIcon collapsed={makeCollapsed()} />
+          </button>
           <Show when={!makeCollapsed()}>
-            <div class="flex flex-col gap-[1px]">
+            <div class="flex flex-col">
               <Show
                 when={makeStable()}
                 fallback={
-                  <div class="px-[8px] py-[6px]">
+                  <div class="px-3 py-[8px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
                   </div>
                 }
@@ -449,7 +439,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 <Show
                   when={makeSessionList.length > 0}
                   fallback={
-                    <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+                    <div class="px-3 py-[8px] text-[12px] leading-[20px]" style={{ color: "#6e737a" }}>
                       {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                     </div>
                   }
@@ -470,53 +460,54 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                         ),
                       )
                       return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            notification.session.markViewed(session.id)
-                            navigate(`/make/${session.id}`)
-                          }}
-                          class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center relative"
-                          style={{
-                            height: "36px",
-                            background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
-                            color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
-                            "font-weight": isActive() ? "500" : "400",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" } }}
-                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-strong)" } }}
-                        >
+                        <div class="group/item relative">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              notification.session.markViewed(session.id)
+                              navigate(`/make/${session.id}`)
+                            }}
+                            class="w-full text-left px-3 py-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2"
+                            style={{
+                              background: isActive() ? "rgba(10,89,247,0.08)" : "transparent",
+                              color: isActive() ? "#0A59F7" : "#191919",
+                              "padding-right": isActive() ? "20px" : "12px",
+                            }}
+                            classList={{ "hover:bg-surface-base-hover": !isActive() }}
+                          >
+                            <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
+                              <div class="shrink-0 size-6 flex items-center justify-center">
+                                <Switch>
+                                  <Match when={isWorking()}>
+                                    <Spinner class="size-[15px]" />
+                                  </Match>
+                                  <Match when={hasPermissions()}>
+                                    <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+                                  </Match>
+                                  <Match when={hasError()}>
+                                    <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                                  </Match>
+                                  <Match when={unseenCount() > 0}>
+                                    <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                                  </Match>
+                                </Switch>
+                              </div>
+                            </Show>
+                            <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
+                          </button>
                           <Show when={isActive()}>
                             <span
-                              class="absolute left-0 top-1/2 rounded-r-[3px]"
+                              class="absolute rounded-sm pointer-events-none"
                               style={{
-                                height: "16px",
-                                width: "3px",
+                                right: "8px",
+                                top: "4px",
+                                width: "4px",
+                                height: "28px",
                                 background: "var(--text-interactive-base)",
-                                transform: "translateY(-50%)",
                               }}
                             />
                           </Show>
-                          <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                            <div class="shrink-0 size-6 flex items-center justify-center">
-                              <Switch>
-                                <Match when={isWorking()}>
-                                  <Spinner class="size-[15px]" />
-                                </Match>
-                                <Match when={hasPermissions()}>
-                                  <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-                                </Match>
-                                <Match when={hasError()}>
-                                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-                                </Match>
-                                <Match when={unseenCount() > 0}>
-                                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
-                                </Match>
-                              </Switch>
-                            </div>
-                          </Show>
-                          <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
-                        </button>
+                        </div>
                       )
                     }}
                   </For>
@@ -529,8 +520,8 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
       {/* Fixed bottom: 技能库 / 资产库 */}
       <div
-        class="shrink-0 flex flex-col gap-[2px] px-[8px] pt-[6px]"
-        style={{ "border-top": "1px solid var(--octo-border-default, #E5E7EB)" }}
+        class="shrink-0 flex flex-col"
+        style={{ "border-top": "1px solid rgba(0,0,0,0.08)", "padding-top": "6px" }}
       >
         <For each={NAV_ITEMS}>
           {(item) => {
@@ -539,64 +530,62 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 ? location.pathname === "/skills"
                 : activeNav() === item.key
             return (
-              <button
-                type="button"
-                onClick={() => {
-                  if (item.key === "skill_market") {
-                    navigate("/skills")
-                  } else {
-                    setActiveNav((v) => (v === item.key ? null : item.key))
-                  }
-                }}
-                title={item.label}
-                classList={{
-                  "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,
-                }}
-                style={{
-                  height: "36px",
-                  background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
-                  color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
-                  "font-weight": isActive() ? "500" : "400",
-                }}
-                onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
-                onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
-              >
-                <span class="flex items-center justify-center shrink-0">
-                  <Show when={isActive()} fallback={<item.Icon size={16} />}>
-                    <item.IconActive size={16} />
-                  </Show>
-                </span>
-                <span class="whitespace-nowrap">{item.label}</span>
+              <div class="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (item.key === "skill_market") {
+                      navigate("/skills")
+                    } else {
+                      setActiveNav((v) => (v === item.key ? null : item.key))
+                    }
+                  }}
+                  title={item.label}
+                  class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+                  style={{
+                    "font-size": "12px",
+                    "line-height": "20px",
+                    background: isActive() ? "rgba(10,89,247,0.08)" : "transparent",
+                    color: isActive() ? "#0A59F7" : "#191919",
+                    "padding-right": isActive() ? "20px" : "12px",
+                  }}
+                  classList={{ "hover:bg-surface-base-hover": !isActive() }}
+                >
+                  <span class="flex items-center justify-center shrink-0">
+                    <Show when={isActive()} fallback={<item.Icon size={16} />}>
+                      <item.IconActive size={16} />
+                    </Show>
+                  </span>
+                  <span class="whitespace-nowrap">{item.label}</span>
+                </button>
                 <Show when={isActive()}>
                   <span
-                    class="absolute right-0 top-1/2 rounded-l-[3px]"
+                    class="absolute rounded-sm pointer-events-none"
                     style={{
-                      height: "20px",
-                      width: "3px",
+                      right: "8px",
+                      top: "4px",
+                      width: "4px",
+                      height: "28px",
                       background: "var(--text-interactive-base)",
-                      transform: "translateY(-50%)",
                     }}
                   />
                 </Show>
-              </button>
+              </div>
             )
           }}
         </For>
       </div>
 
       {/* Settings */}
-      <div class="shrink-0 px-[8px] py-[8px]">
+      <div class="shrink-0">
         <button
           type="button"
-          title="设置"
-          class="w-full flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "var(--text-strong)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+          class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-text-strong hover:bg-surface-base-hover transition-colors"
+          style={{ "font-size": "12px", "line-height": "20px" }}
           onClick={() => dialog.show(() => <DialogSettings />)}
         >
           <IconSettings size={16} />
-          <span class="text-[14px] leading-[22px]">设置</span>
+          <span>设置</span>
         </button>
       </div>
     </div>

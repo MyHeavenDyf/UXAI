@@ -50,10 +50,729 @@
 
 ---
 
+## 2026-05-26（第六十九轮）— 移除 Chat 侧边栏"历史记录"标签
+
+### 目标
+Chat 侧边栏 session 列表上方的"历史记录"灰色标签视觉上多余，删除。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/components/sidebar.tsx` — 删除 `div.px-3.py-[8px]`（内含 `sidebar.history.title` 文案）
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/components/sidebar.tsx` | 删除"历史记录"标签 div |
+
+---
+
+## 2026-05-26（第六十八轮）— 移除 cowork.css 规则 ① 的白色背景覆盖
+
+### 目标
+cowork.css 规则 ① 用 `background: #fff !important` 覆盖了侧边栏容器的渐变背景，导致视觉上呈纯白色。删除该规则，让 TSX 的 `linear-gradient` 背景正常显示。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/style/cowork.css` — 删除规则 ① `[data-cowork-area="sidebar"] > .shrink-0.flex.flex-col.h-full.overflow-hidden { background: #fff !important }`
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/style/cowork.css` | 删除规则 ① 白色背景覆盖 |
+
+---
+
+## 2026-05-26（第六十七轮）— 移除 Cowork 侧边栏 resize 手柄视觉元素
+
+### 目标
+侧边栏右侧边缘的白色胶囊形拖拽手柄视觉上干扰布局，用户不需要。移除视觉元素，保留透明拖拽区域功能。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/octo.tsx` — 删除 resize 手柄内部的白色胶囊 div 及其竖线子元素，透明拖拽容器保留
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/octo.tsx` | 移除白色胶囊 resize 手柄视觉元素 |
+
+---
+
+## 2026-05-26（第六十六轮）— 隐藏 Cowork 侧边栏滚动条
+
+### 目标
+Cowork 侧边栏滚动区域出现可见滚动条，与 Chat/Studio 不一致，需隐藏。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/pages/_shell/sidebar.tsx` — 滚动区加 `style={{ "scrollbar-width": "none" }}`
+
+B. `packages/app/octoapp/style/cowork.css` — 新增 `[data-slot="list-scroll"]::-webkit-scrollbar { display: none }` 兜底
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | scrollbar-width: none |
+| `packages/app/octoapp/style/cowork.css` | webkit-scrollbar display: none |
+
+---
+
+## 2026-05-26（第六十五轮）— Chat / Studio / Cowork 新建按钮文案字重统一为 500
+
+### 目标
+三处侧边栏的"新建"按钮文案字重缺失默认值，视觉偏细。统一设置 `font-weight: 500`。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/components/sidebar.tsx` — Chat 新建按钮 style 加 `"font-weight": "500"`
+
+B. `packages/app/octoapp/pages/studio/index.tsx` — Studio `StudioHistory` 新建按钮 style 加 `"font-weight": "500"`
+
+C. `packages/app/octoapp/pages/_shell/sidebar.tsx` — Cowork 新建交付件按钮 style 加 `"font-weight": "500"`
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/components/sidebar.tsx` | 新建按钮 font-weight: 500 |
+| `packages/app/octoapp/pages/studio/index.tsx` | 新建按钮 font-weight: 500 |
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | 新建按钮 font-weight: 500 |
+
+---
+
+## 2026-05-26（第六十四轮）— 移除"历史记录"标签，保留 divider 到内容区的 pt-2 间距
+
+### 目标
+移除上一轮新增的"历史记录"文字标签，恢复滚动区 `pt-2`，保持 divider 与 Octo Insight 之间 8px 视觉间距。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/pages/_shell/sidebar.tsx`
+- 移除"历史记录"标签 div
+- 恢复滚动区 `pt-2`
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | 移除历史记录标签；恢复 pt-2 |
+
+---
+
+## 2026-05-26（第六十三轮）— Cowork 侧边栏 padding 根因修复 + 新建按钮图标统一
+
+### 目标
+修复两处残余视觉问题：cowork.css 旧规则给滚动区强加 padding 导致 Insight/Make 多缩进 16px；新建按钮 + 图标换成与 Chat 一致的 Icon 组件。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/style/cowork.css` — 规则 ②
+- 将 `.flex-1.min-h-0.overflow-y-auto { padding: 8px 16px }` 改为 `padding: 0`
+- 该规则优先级高于 Tailwind `pt-2`，旧值 `16px` 左右 padding 导致 Insight/Make 与新建按钮横向错位
+
+B. `packages/app/octoapp/pages/_shell/sidebar.tsx`
+- 新增 `import { Icon } from "@opencode-ai/ui/icon"`
+- 新建交付件按钮的内联 SVG `+` 替换为 `<Icon name="plus" size="small" class="shrink-0" />`（与 Chat 完全一致）
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/style/cowork.css` | 移除强加的 padding: 8px 16px |
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | + 图标换为 Icon 组件 |
+
+---
+
+## 2026-05-26（第六十二轮）— Cowork 侧边栏 padding 对齐与 gap 修正
+
+### 目标
+消除第六十一轮后仍残留的两处可见差异：新建按钮的 `div.relative` 包裹层与 Chat 结构不一致；divider 到 section header 的间距（8px）少于 Chat（16px）。
+
+### 本轮实际改动
+
+A. **移除 `div.relative` 包裹层**：新建交付件按钮改为 gap-2 容器的直接 flex child（与 Chat 一致），下拉弹窗是 `position:fixed` 不需要 relative 父级
+
+B. **滚动区加 `pt-2`（8px）**：使 divider → Insight header 的视觉间距从 8px 变为 16px，精确匹配 Chat 的 `gap-2(8px) + section-header-py-2-top(8px) = 16px`
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | 移除 div.relative 包裹；滚动区加 pt-2 |
+
+---
+
+## 2026-05-26（第六十一轮）— Cowork 左侧导航全面对齐 Chat/Studio 视觉规范
+
+### 目标
+将 Cowork 侧边栏（`pages/_shell/sidebar.tsx`）的字号、颜色、间距、padding、active 态、hover 态、激活指示条全部与 Chat/Studio 统一，不改任何功能逻辑。
+
+### 本轮实际改动
+
+A. **外层容器**：新增 `padding: "8px"`，对齐 Chat 容器
+
+B. **新建交付件按钮**：`font-size 14px → 12px`，`line-height: 20px`，移除 `text-14-regular`，对齐 Chat 新建按钮
+
+C. **分割线**：移除多余 `margin: "0 12px"`，容器 padding 已提供边距
+
+D. **滚动列表容器**：移除 `px-[12px]`，由各 item 自身 `px-3` 控制
+
+E. **分组标题（Octo Insight / Octo Make）**：
+   - 结构改为 button + 图标（20×20）+ 粗体 14px #191919 文本 + 折叠箭头
+   - `px-3 py-2`，对齐 Chat section header
+
+F. **Session 列表项**：
+   - 移除固定 `height: 36px`，改为 `py-[8px]`（与 Chat 一致）
+   - `px-[8px] → px-3`
+   - 激活态：`rgba(10,89,247,0.08)` 背景 + `#0A59F7` 文字
+   - 非激活态：`#191919` 文字
+   - 移除 JS `onMouseEnter/Leave`，改为 `hover:bg-surface-base-hover` CSS class
+   - 激活指示条：从左侧 `3×16px rounded-r` 改为右侧 `4×28px rounded-sm top:4px`（与 Chat 一致）
+   - 移除 `font-weight` 差异
+
+G. **空状态文案**：`px-3 py-[8px]`，颜色 `#6e737a`，对齐 Chat 历史记录标签
+
+H. **底部导航（技能库/资产库）**：
+   - 容器 `border-top: rgba(0,0,0,0.08)`（统一色值）
+   - 按钮：`height:36 → py-2`，`px-12 → px-3`，`rounded-[4px] → rounded-lg`，`font-size 14 → 12px`，`gap-[8px] → gap-3`
+   - 移除 JS hover，改为 CSS class
+   - 激活指示条统一为右侧 `4×28px rounded-sm`
+
+I. **设置按钮**：同上，`font-size 12px`，`py-2 px-3`，`rounded-lg`，`gap-3`，CSS hover
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | Cowork 侧边栏全面 UI 对齐 Chat/Studio |
+
+---
+
+## 2026-05-26（第六十轮）— Studio 活动竖条尺寸对齐 Chat + 用户气泡宽度自适应
+
+### 目标
+修正两处与截图不符的视觉问题：活动状态竖条尺寸与 Chat 一致；用户消息气泡宽度跟随内容收缩。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/pages/studio/index.tsx` — `StudioHistory` 活动竖条
+- `rounded-full` → `rounded-sm`
+- 定位从垂直居中（`top: 50% + translateY(-50%)`）改为 `top: 4px`
+- 高度从 `32px` 改为 `28px`（与 Chat 一致）
+
+B. `packages/app/octoapp/pages/studio/index.tsx` — `StudioConversation` 用户气泡
+- 新增 `w-fit`，使气泡宽度跟随文本内容自适应，不再撑满列宽
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/studio/index.tsx` | 活动竖条尺寸对齐 Chat；用户气泡改为 w-fit |
+
+---
+
+## 2026-05-26（第五十九轮）— Studio 历史列表字号/行高/字重对齐 Chat
+
+### 目标
+Studio 左侧历史对话记录的字号、行高和颜色与 Chat 模块严格保持一致。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/pages/studio/index.tsx` — `StudioHistory` 组件
+- 会话列表容器：移除 `gap-1`，改为与 Chat 一致的无间距 `flex flex-col`
+- 会话链接项：移除 `text-14-regular text-text-strong`，改为 `style={{ "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : "#191919" }}`
+- padding 统一为 `py-[8px]`（与 Chat 保持一致，原 `py-2` 值相同，显式指定以语义对齐）
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/studio/index.tsx` | StudioHistory 历史列表样式对齐 Chat |
+
+---
+
+## 2026-05-26（第五十八轮）— Studio 输入框背景随内容高度自适应
+
+### 目标
+Studio 页面底部输入框的背景底色（`.studio-composer`）应随 textarea 内容增多而自动撑高，不再固定高度裁剪文字区域。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/pages/studio/index.tsx`
+- 在 `Composer` 组件内增加 `textareaRef` 引用
+- 新增 `createEffect`：监听 `props.prompt` 变化，先将 textarea 高度重置为 `auto`，再设置为 `scrollHeight`，实现内容驱动的高度自适应
+- textarea 增加 `overflow-hidden` 防止调整过程中出现滚动条
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/studio/index.tsx` | Composer 组件 textarea 自动高度，背景容器跟随撑高 |
+
+---
+
 ## 归档索引
 
 | 周次 | 日期范围 | 轮次范围 | 文件 |
 |------|----------|----------|------|
+
+---
+
+## 2026-05-25（第五十七轮）— Studio 中栏与结果卡片背景色更新
+
+### 目标
+
+按截图 DevTools 色值修正两处背景色。
+
+### 本轮实际改动
+
+- **A** — `studio.css` `.studio-center`：背景从 `rgba(249,250,253,0.9)` 改为 `#ffffff`
+- **B** — `studio.css` `.studio-result-card`：背景从 `linear-gradient(180deg,rgba(252,232,255,0.9),rgba(246,236,255,0.88))` 改为 `rgba(10,89,247,0.08)`
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/pages/studio/studio.css` | 色值修正 | 中栏背景 + 结果卡片背景 |
+
+---
+
+## 2026-05-25（第五十六轮）— Studio 用户气泡背景对齐 Chat 风格
+
+### 目标
+
+Studio 对话区用户输入气泡背景改为与 Chat 一致（`var(--surface-base)` + `border-weak-base` 边框）。
+
+### 本轮实际改动
+
+- **A** — `studio/index.tsx` StudioConversation：用户气泡改为 `background: rgba(10,89,247,0.08)`、`border-radius: 16px 16px 2px 16px`、无边框，与 Chat 实际 CSS 一致
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/pages/studio/index.tsx` | 样式调整 | 用户气泡背景对齐 Chat |
+
+---
+
+## 2026-05-25（第五十五轮）— Chat & Studio 侧边栏模块标题字号/字重调整
+
+### 目标
+
+将侧边栏"Chat"和"Studio"标题从 16px/700 改为 14px/600。
+
+### 本轮实际改动
+
+- **A** — `components/sidebar.tsx`：Tab 标题 `font-size: 16px; font-weight: 700` → `14px / 600`
+- **B** — `studio/index.tsx` StudioHistory：Studio 标题同上
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 字号调整 | Chat/Cowork/Studio 标题 |
+| `packages/app/octoapp/pages/studio/index.tsx` | 字号调整 | Studio 标题 |
+
+---
+
+## 2026-05-25（第五十四轮）— Studio 对话区字号对齐截图标注
+
+### 目标
+
+按截图标注调整 StudioConversation 组件内各元素字号，使其与设计一致。
+
+### 本轮实际改动
+
+- **A** — `studio/index.tsx` StudioConversation：用户气泡字号 `text-[13px] leading-[21px]` → `text-[12px] leading-[20px]`
+- **B** — `studio/index.tsx` StudioConversation：结果卡片标题"图片生成中" `text-[16px]` → `text-[14px]`
+- **C** — `studio/index.tsx` StudioConversation：结果卡片副标题"创建时间" `text-[13px]` → `text-[12px]`
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/pages/studio/index.tsx` | 字号调整 | 对话区三处字号 |
+
+---
+
+## 2026-05-25（第五十三轮）— Chat & Studio 侧边栏补充「历史记录」分组标签
+
+### 目标
+
+Figma 设计稿中 session 列表上方有"历史记录"分组标签，当前代码缺失，补充上。
+
+### 本轮实际改动
+
+- **A** — `components/sidebar.tsx`：在 session 列表 `<For>` 前插入 `sidebar.history.title` 标签（12px / #6e737a）
+- **B** — `studio/index.tsx`：同上，在 StudioHistory 的 session 列表前插入相同标签
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 补充 | 历史记录分组标签 |
+| `packages/app/octoapp/pages/studio/index.tsx` | 补充 | 历史记录分组标签 |
+
+---
+
+## 2026-05-25（第五十二轮）— 对齐 Figma 设计稿：历史列表行高/字号/指示条/容器内边距
+
+### 目标
+
+严格按 Figma 设计稿（node 387:1757）调整 Chat Sidebar 和 Studio 侧边栏历史会话区的视觉规格，保持两者完全一致。
+
+### 本轮实际改动
+
+- **A** — `components/sidebar.tsx`：外层容器 `padding: 12px` → `8px`
+- **B** — `components/sidebar.tsx`：新建对话按钮 `text-14-regular` 移除，改用 `font-size: 12px / line-height: 20px`
+- **C** — `components/sidebar.tsx`：session 列表行 `h-[48px] text-14-regular` → `py-[8px] font--size: 12px / line-height: 20px`
+- **D** — `components/sidebar.tsx`：active 指示条 `3×36px top-6 rounded-full` → `4×28px top-4 rounded-sm`
+- **E** — `components/sidebar.tsx`：设置按钮 `text-14-regular` 移除，改用 `font-size: 12px`
+- **F** — `studio/index.tsx (StudioHistory)`：同步 A–E 所有变更
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 样式调整 | 字号、行高、行高度、指示条、容器内边距 |
+| `packages/app/octoapp/pages/studio/index.tsx` | 样式调整 | StudioHistory 同步相同变更 |
+
+---
+
+## 2026-05-25（第五十一轮）— Chat & Studio section header 恢复 py-2
+
+### 目标
+
+第四十九轮未经要求地把 Chat section header 从 py-2 改为 pt-2 pb-0，用户在第四十三轮已明确恢复过 py-2。本轮将 Chat 和 Studio 的 section header 统一还原为 py-2，保持两者一致。
+
+### 本轮实际改动
+
+- **A** — `components/sidebar.tsx`：section header `pt-2 pb-0` → `py-2`
+- **B** — `studio/index.tsx`：section header `pt-2 pb-0` → `py-2`
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 样式还原 | section header 恢复 py-2 |
+| `packages/app/octoapp/pages/studio/index.tsx` | 样式还原 | section header 恢复 py-2 |
+
+---
+
+## 2026-05-25（第五十轮）— Studio sidebar (StudioHistory) 对齐设计稿
+
+### 目标
+
+Studio 侧边栏用的是独立的 StudioHistory 组件，此前改动只影响了 Chat sidebar，本轮同步修正。
+
+### 本轮实际改动
+
+- **A** — `studio/index.tsx`：外层容器 `gap-3` → 移除
+- **B** — `studio/index.tsx`：section header `py-2` → `pt-2 pb-0`（去掉底部 padding）
+- **C** — `studio/index.tsx`：图标尺寸 `16px` → `20px`
+- **D** — `studio/index.tsx`：session list 容器 `gap-1` → 移除
+- **E** — `studio/index.tsx`：条目高度 `py-2` → `h-[48px]`，移除动态 padding-right
+- **F** — `studio/index.tsx`：active 文字色 `#0A59F7`，非 active `#191919`
+- **G** — `studio/index.tsx`：右侧指示条 宽 4px→3px、高 32px→36px、定位 top-50%→top-6px
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/pages/studio/index.tsx` | 样式修改 | StudioHistory 全面对齐设计稿 |
+
+---
+
+## 2026-05-25（第四十九轮）— 移除 section header 底部 padding
+
+### 目标
+
+section header 行的 py-2 底部 padding 仍留有 8px 间距，改为 pt-2 pb-0 彻底消除。
+
+### 本轮实际改动
+
+- **A** — `sidebar.tsx`：section header `py-2` → `pt-2 pb-0`
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 样式修改 | section header 底部 padding 清零 |
+
+---
+
+## 2026-05-25（第四十八轮）— sidebar 修正：移除 section header 下间距 & active 文字色还原
+
+### 目标
+
+去除 section header 与 session list 之间的 gap；active 条目文字色改回 #0A59F7。
+
+### 本轮实际改动
+
+- **A** — `sidebar.tsx` 第 82 行：外层容器 `gap-3` → 移除（无间距）
+- **B** — `sidebar.tsx` 第 140 行：active 条目文字色还原为 `#0A59F7`，非 active 保持 `#191919`
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 样式修改 | gap 移除 + active 文字色修正 |
+
+---
+
+## 2026-05-25（第四十七轮）— sidebar session 列表严格对齐设计稿
+
+### 目标
+
+按 Figma 设计稿（node 387:1757）还原 Chat/Studio sidebar session 条目样式。
+
+### 本轮实际改动
+
+- **A** — 条目高度：`py-1` → `h-[48px]`（显式高度，对齐设计稿 48px）
+- **B** — active 文字色：`#0A59F7`（蓝色）→ `#191919`（与非 active 一致，设计稿要求）
+- **C** — 移除动态 `padding-right`，统一 `px-3`（12px）
+- **D** — 右侧指示条：宽 `4px→3px`、高 `32px→36px`、定位 `top-50%/translateY(-50%) → top-[6px]`（绝对坐标）
+- **E** — 列表容器：移除 `gap-0` 显式类（无 gap 为默认 flex-col 行为）
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 样式修改 | session 条目全面对齐设计稿 |
+
+---
+
+## 2026-05-25（第四十六轮）— 去除 sidebar session 列表条目间距
+
+### 目标
+
+移除 Studio（及 Chat/Cowork）侧边栏 session 列表条目之间的视觉间距。
+
+### 本轮实际改动
+
+- **A** — `sidebar.tsx` 第 130 行：items 容器添加 `gap-0` 显式覆盖潜在 gap
+- **B** — `sidebar.tsx` 第 139 行：条目 `<A>` 垂直 padding 由 `py-2` 改为 `py-1`，减少条目间视觉距离
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 样式修改 | gap-0 + py-2→py-1 |
+
+---
+
+## 2026-05-25（第四十五轮）— Octo Agent 字重强制设为 700
+
+### 目标
+
+项目中不存在 text-16-bold 类，改用内联样式 font-weight: 700 强制生效。
+
+### 本轮实际改动
+
+- **A** — `titlebar-simple.tsx` 第 173 行：`text-16-bold` → `text-16-medium` + `style={{ "font-weight": "700" }}`
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/titlebar-simple.tsx` | 样式修改 | 内联 font-weight:700 覆盖 |
+
+---
+
+## 2026-05-25（第四十四轮）— 品牌字重真正生效 & 撤销 sidebar gap 改动
+
+### 目标
+
+修正品牌名字重（改错了文件，本次改正确文件）；撤销第四十三轮 B/C 的 sidebar gap 改动。
+
+### 本轮实际改动
+
+- **A** — `titlebar-simple.tsx` 第 173 行：`text-16-medium` → `text-16-bold`（真正渲染 "Octo Agent" 的文件）
+- **B** — `sidebar.tsx`：还原 `gap-3`（撤销第四十三轮 B）
+- **C** — `sidebar.tsx`：还原 section header `pt-2` → `py-2`（撤销第四十三轮 C）
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/titlebar-simple.tsx` | 样式修改 | 品牌名字重 medium → bold |
+| `packages/app/octoapp/components/sidebar.tsx` | 样式还原 | 撤销 gap-3 移除和 py-2 移除 |
+
+---
+
+## 2026-05-25（第四十三轮）— 顶栏品牌字重修正 & 侧边栏 section header 下 gap 移除
+
+### 目标
+
+品牌名字重调整为 700（font-bold）；移除侧边栏 section header 与 session 列表之间的间距。
+
+### 本轮实际改动
+
+- **A** — `topbar.tsx`：品牌名字重由 `font-medium` 修正为 `font-bold`（700）
+- **B** — `sidebar.tsx`：外层 flex 容器移除 `gap-3`（12px gap）
+- **C** — `sidebar.tsx`：section header 行由 `py-2` 改为 `pt-2`，去除底部 8px padding
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/pages/_shell/topbar.tsx` | 样式修改 | 品牌名字重 medium → bold（700） |
+| `packages/app/octoapp/components/sidebar.tsx` | 样式修改 | 移除 gap-3 + section header pb |
+
+---
+
+## 2026-05-25（第四十二轮）— 顶栏品牌字重 & 侧边栏图标尺寸调整
+
+### 目标
+
+顶栏品牌名字重与 Tab 标签保持一致；侧边栏 Chat/Studio 区块标题图标统一为 20px。
+
+### 本轮实际改动
+
+- **A** — `topbar.tsx` 第 65 行：品牌名 "Octo AI" 字重由 `font-semibold` 改为 `font-medium`，与 Tab 标签一致
+- **B** — `sidebar.tsx` 第 103 行：区块标题左侧图标尺寸由 `16px` 改为 `20px`
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/pages/_shell/topbar.tsx` | 样式修改 | 品牌名字重 semibold → medium |
+| `packages/app/octoapp/components/sidebar.tsx` | 样式修改 | 区块标题图标 16px → 20px |
+
+---
+
+## 2026-05-25（第四十一轮）— Switch 未开启状态视觉修正
+
+### 目标
+
+修正 Switch 组件 off 状态：使用灰色实心轨道 + 白色圆形 thumb，与设计稿一致。
+
+### 本轮实际改动
+
+- **A** — `[data-slot="switch-control"]` off 状态（`packages/ui/src/components/switch.css`）：去除 `border: 1px solid`，背景由 `var(--surface-base)` 改为 `rgba(0, 0, 0, 0.18)` 灰色实心轨道
+- **B** — `[data-slot="switch-thumb"]` off 状态：去除 `border: 1px solid`，尺寸由 14px 改为 12px，位移由 `translateX(-1px)` 改为 `translateX(2px)`，背景固定为 `#ffffff`
+- **C** — checked 状态 thumb：位移由 `translateX(12px)` 改为 `translateX(14px)` 以适配新尺寸
+- **D** — hover 状态更新为不带 border 的灰度加深效果
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/ui/src/components/switch.css` | 样式修改 | Switch off 状态改为灰色轨道 + 白色圆形 thumb |
+
+---
+
+## 2026-05-25（第四十轮）— 顶部 Tab 居中与 Studio 选中色补丁
+
+### 目标
+
+补丁修复：顶部 Tab 居中未生效（实际使用的是 TitlebarSimple 而非 OctoTopbar），Studio 侧边栏选中色漏改。
+
+### 本轮实际改动
+
+- **A** — 顶部 Tab 居中（`packages/app/octoapp/components/titlebar-simple.tsx`）：中间分段控制由 `flex-1 justify-center` 改为 `absolute left-1/2 -translate-x-1/2 -translate-y-1/2` 绝对居中；在左侧 Logo 和右侧按钮之间加入 `flex-1` 占位 div
+- **B** — Studio 侧边栏选中色（`packages/app/octoapp/pages/studio/index.tsx`）：`StudioHistory` 中的历史条目链接去掉 `text-text-strong`，改为 `color: isActive() ? "#0A59F7" : "var(--text-strong)"` inline style
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/titlebar-simple.tsx` | 布局修改 | 顶部 Tab 绝对居中（真正生效的 titlebar 组件） |
+| `packages/app/octoapp/pages/studio/index.tsx` | 样式修改 | Studio 历史条目选中色改为 #0A59F7 |
+
+---
+
+## 2026-05-25（第三十九轮）— Chat/Studio 侧边栏与顶部 Tab 三处修正
+
+### 目标
+
+修正三个与设计稿不符的细节：历史记录间距过大、选中项颜色不对、顶部 Tab 水平居中偏移。
+
+### 本轮实际改动
+
+- **A** — 移除侧边栏历史记录列表的 `gap-1` 间距（`packages/app/octoapp/components/sidebar.tsx`）：`flex flex-col gap-1 flex-1 min-h-0` 改为 `flex flex-col flex-1 min-h-0`；内层列表 `flex flex-col gap-1` 改为 `flex flex-col`，历史条目紧密排列
+- **B** — 选中历史条目字体色改为 `#0A59F7`（`sidebar.tsx`）：通过 `style={{ color: isActive() ? "#0A59F7" : "var(--text-strong)" }}` 替换固定 `text-text-strong` 类
+- **C** — 顶部 Tab 真正水平居中（`packages/app/octoapp/pages/_shell/topbar.tsx`）：中间分段控制由 `flex-1 justify-center` 改为 `absolute left-1/2 -translate-x-1/2` 绝对居中；在左侧 Logo 和右侧按钮之间加入 `flex-1` 占位 div，确保右侧 Search+Avatar 仍贴右侧排布
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/app/octoapp/components/sidebar.tsx` | 样式修改 | 历史列表去除间距；选中条目颜色改为蓝色 |
+| `packages/app/octoapp/pages/_shell/topbar.tsx` | 布局修改 | 顶部 Tab 改为绝对居中，修复偏右问题 |
+
+---
+
+## 2026-05-25（第三十八轮）— 设置弹窗三处细节修正
+
+### 目标
+
+修正三个与设计稿不符的细节：开关圆角不足、下拉选择有线框、弹窗高度随内容变化。
+
+### 本轮实际改动
+
+- **A** — 开关改为全圆角药丸形（`packages/ui/src/components/switch.css`）：`[data-slot="switch-control"]` border-radius `3px` → `999px`；`[data-slot="switch-thumb"]` border-radius `2px` → `50%`（全局生效）
+- **B** — 下拉选择器去掉线框（`packages/ui/src/components/select.css`）：settings 触发器 hover/展开态 `background-color` 和 `box-shadow` 全部改为 transparent/none；图标背景色 `var(--surface-raised-base)` 改为 transparent；调整 padding/gap 为紧凑样式
+- **C** — 弹窗固定高度（`packages/ui/src/components/dialog.css`）：在 `[data-size="x-large"]` 规则中为 `[data-slot="dialog-content"]` 添加 `height: 100%`，确保切换标签页时弹窗不会随内容收缩
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/ui/src/components/switch.css` | 样式修改 | 全局开关改为药丸形全圆角 |
+| `packages/ui/src/components/select.css` | 样式修改 | settings 下拉选择去掉边框/背景，仅保留文字+箭头 |
+| `packages/ui/src/components/dialog.css` | 样式修改 | x-large 对话框内容区强制撑满高度 |
+
+---
+
+## 2026-05-25（第三十七轮）— 设置弹窗代码层对齐新设计规范
+
+### 目标
+
+将第三十六轮 Figma 设计稿的样式落地到实际代码，更新侧边栏选中态颜色、节标题样式、内容区行布局。
+
+### 本轮实际改动
+
+- **A** — 侧边栏选中态蓝化（`packages/ui/src/components/tabs.css`）：选中触发器背景 `var(--surface-base-active)` → `rgba(10,89,247,0.08)`，文字/图标颜色 → `#0a59f7`，hover 保持同色；选中项右侧新增 3px×20px 竖条 `#0a59f7`（`::after` 伪元素）
+- **B** — 侧边栏节标题加粗（`tabs.css`）：`font-weight: var(--font-weight-medium)` → `font-weight: 600`，颜色 `var(--text-weak)` → `#191919`；侧边栏宽度从 150/200px 调整为 160/220px
+- **C** — 设置行布局改为卡片式（`packages/app/octoapp/components/settings-list.tsx`）：容器从 `bg-surface-base px-4 rounded-lg` 改为 `flex flex-col gap-3`（行间距 12px，无整体背景色）
+- **D** — 设置行样式（`packages/app/octoapp/components/settings-general.tsx`）：SettingsRow 去掉 `border-b border-border-weak-base last:border-none`，改为 `bg-[rgba(0,0,0,0.03)] rounded-lg px-4`（每行独立卡片背景）
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `packages/ui/src/components/tabs.css` | 样式修改 | settings 变体选中态颜色、节标题、侧边栏宽度、右侧竖条 |
+| `packages/app/octoapp/components/settings-list.tsx` | 布局修改 | 容器改为 flex gap，去掉整体卡片背景 |
+| `packages/app/octoapp/components/settings-general.tsx` | 样式修改 | SettingsRow 改为独立卡片背景，去掉分隔线 |
+
+---
+
+## 2026-05-25（第三十六轮）— 设置弹窗推送 Figma 并对齐新设计规范
+
+### 目标
+
+将桌面端设置弹窗（通用页）还原为可编辑的 Figma 节点，并按设计稿（Octo-Agent-5.20 / node 378-1303）全面更新 UI 规范：白底侧边栏、Noto Sans SC 字体、选中态蓝色高亮、行背景与间距收敛。
+
+### 本轮实际改动
+
+- **A** — 新建 Figma 文件 `OctoAI Desktop - 设置弹窗`（`k0FdTVYco1iKMCq1hO68Es`）：按截图还原弹窗结构（860×560px，左侧导航 220px + 右侧内容 640px）
+- **B** — 侧边栏样式：背景改为白底；分组标题（桌面/服务器）使用 Noto Sans SC Bold 14px `#191919`；导航项 height 46px，圆角 8px，padding 8px 12px，gap 12px
+- **C** — 侧边栏选中态（通用）：背景 `rgba(10,89,247,0.08)`，图标/文字/右侧竖条全部 `#0a59f7`；未选中项图标与文字 `#191919`
+- **D** — 侧边栏新增「快捷键」导航项，图标用 SVG 路径重建（keyboard/server/triangle），颜色 `#191919`
+- **E** — 内容区行规范：每行背景 `rgba(0,0,0,0.03)`，行间距 12px，padding 12px 16px；标题 Inter Medium 13px `#1a1a1a`，描述 Inter Regular 11px `#808080`
+- **F** — 移除「语言」设置行（对齐新设计稿）；自动接受权限 Toggle 改为 ON 蓝色状态
+- **G** — Terminal Shell 下拉改为无边框文字 + Chevron 样式（`Auto (Default) ⌄`）；Change 按钮改为 `#ccc` 描边 + 8px 圆角
+
+### 涉及文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| Figma `k0FdTVYco1iKMCq1hO68Es` | 新建 | 设置弹窗 Figma 文件，含完整侧边栏与内容区节点 |
 
 ---
 

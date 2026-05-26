@@ -76,18 +76,18 @@ export function Sidebar(props: {
       class="flex h-full w-full flex-col gap-6"
       style={{
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
-        padding: "12px",
+        padding: "8px",
       }}
     >
       <Show when={props.currentDir()}>
-        <div class="flex-1 min-h-0 flex flex-col gap-3">
+        <div class="flex-1 min-h-0 flex flex-col">
           {/* Top controls: new button + divider + section header */}
           <div class="flex flex-col gap-2 shrink-0">
             {/* New session button — no default background */}
             <button
               type="button"
-              class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-              style={{ height: "44px", color: "#191919" }}
+              class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "44px", color: "#191919", "font-size": "12px", "line-height": "20px", "font-weight": "500" }}
               onClick={() => {
                 const dir = props.currentDir()
                 if (!dir) return
@@ -101,10 +101,10 @@ export function Sidebar(props: {
             <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "0 0" }} />
             {/* Section header: tab icon + label */}
             <div class="flex items-center gap-3 px-3 py-2">
-              <img src={tabMeta().icon} alt="" style={{ width: "16px", height: "16px" }} />
+              <img src={tabMeta().icon} alt="" style={{ width: "20px", height: "20px" }} />
               <span
                 class="flex-1 min-w-0 leading-6"
-                style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}
+                style={{ color: "#191919", "font-size": "14px", "font-weight": "600" }}
               >
                 {tabMeta().label}
               </span>
@@ -112,7 +112,7 @@ export function Sidebar(props: {
           </div>
 
           {/* Session list — no label */}
-          <div class="flex flex-col gap-1 flex-1 min-h-0">
+          <div class="flex flex-col flex-1 min-h-0">
             <div class="flex-1 min-h-0 overflow-y-auto">
               <Show when={props.currentDir()} keyed>
                 {(dir) => {
@@ -135,7 +135,7 @@ export function Sidebar(props: {
                           </div>
                         }
                       >
-                      <div class="flex flex-col gap-1">
+                      <div class="flex flex-col">
                         <For each={octoAiSessions()}>
                           {(session) => {
                             const isActive = () => params.id === session.id
@@ -144,8 +144,8 @@ export function Sidebar(props: {
                                 <A
                                   href={`/${base64Encode(dir)}/chat/${session.id}`}
                                   activeClass=""
-                                  class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
-                                  style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                                  class="flex items-center w-full px-3 py-[8px] rounded-lg transition-colors"
+                                  style={{ color: isActive() ? "#0A59F7" : "#191919", "font-size": "12px", "line-height": "20px" }}
                                   classList={{
                                     "bg-[rgba(10,89,247,0.08)]": isActive(),
                                     "hover:bg-surface-base-hover": !isActive(),
@@ -158,13 +158,12 @@ export function Sidebar(props: {
                                 {/* Active right indicator bar */}
                                 <Show when={isActive()}>
                                   <span
-                                    class="absolute rounded-full pointer-events-none"
+                                    class="absolute rounded-sm pointer-events-none"
                                     style={{
                                       right: "8px",
-                                      top: "50%",
-                                      transform: "translateY(-50%)",
+                                      top: "4px",
                                       width: "4px",
-                                      height: "32px",
+                                      height: "28px",
                                       background: "var(--text-interactive-base)",
                                     }}
                                   />
@@ -203,8 +202,8 @@ export function Sidebar(props: {
         {/* Settings button */}
         <button
           type="button"
-          class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-text-strong shrink-0 hover:bg-surface-base-hover transition-colors"
-          style={{ "font-size": "14px", "line-height": "20px", padding: "8px 12px" }}
+          class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-text-strong shrink-0 hover:bg-surface-base-hover transition-colors"
+          style={{ "font-size": "12px", "line-height": "20px", padding: "8px 12px" }}
           onClick={openSettings}
         >
           <Icon name="settings-gear" size="small" class="shrink-0" />

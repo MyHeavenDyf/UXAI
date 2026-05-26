@@ -169,10 +169,14 @@ export function TitlebarSimple() {
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
         <img src="/OctoLogo.svg" alt="" style={{ width: "26px", height: "24px" }} />
-        <span class="text-16-medium text-text-strong">Octo Agent</span>
+        <span class="text-16-medium text-text-strong" style={{ "font-weight": "700" }}>Octo Agent</span>
       </div>
 
-      <div class="flex-1 flex items-center justify-center min-w-0" style={{ zoom: counterZoom() }}>
+      {/* Spacer — pushes right section to the edge */}
+      <div class="flex-1 pointer-events-none" />
+
+      {/* Center tabs — absolutely centered in the header */}
+      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
         <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] gap-1 p-[2px]" role="tablist">
           {TAB_ITEMS.map((item) => (
             <button
