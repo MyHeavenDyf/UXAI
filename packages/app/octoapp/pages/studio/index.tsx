@@ -892,7 +892,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
             style={{ height: "44px", color: "#191919", "font-size": "12px", "line-height": "20px", "font-weight": "500" }}
             onClick={props.onNewConversation}
           >
-            <Icon name="plus" size="small" class="shrink-0" />
+            <Icon name="plus" size="normal" class="shrink-0" />
             <span>{language.t("command.session.new")}</span>
           </button>
           <div style={{ height: "1px", background: "rgba(0,0,0,0.08)" }} />
@@ -928,7 +928,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                         <div class="group/item relative">
                           <a
                             href={`/${base64Encode(props.directory)}/studio/${session.id}`}
-                            class="flex items-center w-full px-3 py-[8px] rounded-lg transition-colors"
+                            class="flex items-center w-full pl-[44px] py-[8px] rounded-lg transition-colors"
                             style={{ color: isActive() ? "#0A59F7" : "#191919", "font-size": "12px", "line-height": "20px", "padding-right": isActive() ? "20px" : "12px" }}
                             classList={{
                               "bg-[rgba(10,89,247,0.08)]": isActive(),

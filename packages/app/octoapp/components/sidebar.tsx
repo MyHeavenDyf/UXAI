@@ -94,7 +94,7 @@ export function Sidebar(props: {
                 navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}?hint=${Date.now()}`)
               }}
             >
-              <Icon name="plus" size="small" class="shrink-0" />
+              <Icon name="plus" size="normal" class="shrink-0" />
               <span>{language.t("command.session.new")}</span>
             </button>
             {/* Divider */}
@@ -144,7 +144,7 @@ export function Sidebar(props: {
                                 <A
                                   href={`/${base64Encode(dir)}/chat/${session.id}`}
                                   activeClass=""
-                                  class="flex items-center w-full px-3 py-[8px] rounded-lg transition-colors"
+                                  class="flex items-center w-full pl-[44px] pr-3 py-[8px] rounded-lg transition-colors"
                                   style={{ color: isActive() ? "#0A59F7" : "#191919", "font-size": "12px", "line-height": "20px" }}
                                   classList={{
                                     "bg-[rgba(10,89,247,0.08)]": isActive(),

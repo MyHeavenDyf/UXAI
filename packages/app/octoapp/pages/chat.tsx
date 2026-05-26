@@ -1,14 +1,17 @@
-import { createMemo, createEffect, on, createSignal, Show, ErrorBoundary, type JSX } from "solid-js"
+import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, type JSX, lazy } from "solid-js"
+import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
+import { persisted, Persist } from "@/utils/persist"
 import { TerminalProvider } from "@/context/terminal"
 import { FileProvider } from "@/context/file"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
-import SessionPage from "@/pages/session"
+
+const SessionPage = lazy(() => import("@/pages/session"))
 
 function SessionProviders(props: { children: JSX.Element }) {
   return (
@@ -51,7 +54,12 @@ export default function ChatPage() {
     ),
   )
 
-  const [sidebarWidth, setSidebarWidth] = createSignal(240)
+  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
+    Persist.global("chat.sidebar.width"),
+    createStore({ width: 300 }),
+  )
+  const sidebarWidth = () => sidebarWidthStore.width
+  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
@@ -59,7 +67,7 @@ export default function ChatPage() {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(480, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(360, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -98,9 +106,11 @@ export default function ChatPage() {
         />
       </Show>
       <div class="flex-1 min-w-0 min-h-0">
-        <SessionProviders>
-          <SessionPage />
-        </SessionProviders>
+        <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
+          <SessionProviders>
+            <SessionPage />
+          </SessionProviders>
+        </Suspense>
       </div>
     </div>
   )

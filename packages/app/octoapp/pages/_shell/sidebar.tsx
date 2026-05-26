@@ -20,6 +20,7 @@ import {
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
 } from "./icons"
+import { ProjectInfo } from "@/pages/cowork/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -255,14 +256,16 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         "border-right": "1px solid var(--border-weak-base)",
       }}
     >
+      {/* 顶部：ProjectInfo + 新建交付件 */}
       <div class="flex flex-col gap-2 shrink-0">
+        <ProjectInfo />
         <button
           type="button"
           class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
           style={{ height: "44px", color: "#191919", "font-size": "12px", "line-height": "20px", "font-weight": "500" }}
           onClick={toggleDropdown}
         >
-          <Icon name="plus" size="small" class="shrink-0" />
+          <Icon name="plus" size="normal" class="shrink-0" />
           <span>新建交付件</span>
         </button>
         <Show when={showDropdown()}>
@@ -277,9 +280,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               style="color: #0a59f7;"
               onClick={() => { newSession(); closeDropdown() }}
             >
-              <div
-                style="width:24px;height:24px;border-radius:3px;background:rgba(10,89,247,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
-              >
+              <div style="width:24px;height:24px;border-radius:3px;background:rgba(10,89,247,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
                 <div style="width:20px;height:20px;background-image:url('/insightIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
               </div>
               <span style="font-weight:600">Octo Insight</span>
@@ -290,9 +291,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               style="color: #6c00ff;"
               onClick={() => { newMakeSession(); closeDropdown() }}
             >
-              <div
-                style="width:24px;height:24px;border-radius:3px;background:rgba(108,0,255,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
-              >
+              <div style="width:24px;height:24px;border-radius:3px;background:rgba(108,0,255,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;">
                 <div style="width:20px;height:20px;background-image:url('/makeIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
               </div>
               <span style="font-weight:600">Octo Make</span>
@@ -301,6 +300,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         </Show>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.08)" }} />
       </div>
+
       {/* Scrollable: Insight + Make sessions */}
       <div
         data-slot="list-scroll"
@@ -309,7 +309,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       >
         {/* ─── Octo Insight ─── */}
         <div class="mb-[2px]">
-          {/* 分组标题行 */}
           <button
             type="button"
             onClick={() => setInsightCollapsed((v) => !v)}
@@ -363,7 +362,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               notification.session.markViewed(session.id)
                               navigate(`/insight/${session.id}`)
                             }}
-                            class="w-full text-left px-3 py-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2"
+                            class="w-full text-left pl-[44px] py-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center relative"
                             style={{
                               background: isActive() ? "rgba(10,89,247,0.08)" : "transparent",
                               color: isActive() ? "#0A59F7" : "#191919",
@@ -372,7 +371,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                             classList={{ "hover:bg-surface-base-hover": !isActive() }}
                           >
                             <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                              <div class="shrink-0 size-6 flex items-center justify-center">
+                              <div class="absolute left-3 top-1/2 -translate-y-1/2 size-6 flex items-center justify-center">
                                 <Switch>
                                   <Match when={isWorking()}>
                                     <Spinner class="size-[15px]" />
@@ -467,7 +466,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               notification.session.markViewed(session.id)
                               navigate(`/make/${session.id}`)
                             }}
-                            class="w-full text-left px-3 py-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2"
+                            class="w-full text-left pl-[44px] py-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center relative"
                             style={{
                               background: isActive() ? "rgba(10,89,247,0.08)" : "transparent",
                               color: isActive() ? "#0A59F7" : "#191919",
@@ -476,7 +475,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                             classList={{ "hover:bg-surface-base-hover": !isActive() }}
                           >
                             <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                              <div class="shrink-0 size-6 flex items-center justify-center">
+                              <div class="absolute left-3 top-1/2 -translate-y-1/2 size-6 flex items-center justify-center">
                                 <Switch>
                                   <Match when={isWorking()}>
                                     <Spinner class="size-[15px]" />

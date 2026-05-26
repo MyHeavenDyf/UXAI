@@ -50,6 +50,94 @@
 
 ---
 
+## 2026-05-26（第七十四轮）— Octo Insight/Make session 条目与标题左对齐
+
+### 目标
+`_shell/sidebar.tsx` 的 Octo Insight 和 Octo Make section 中，session 条目文字（如「测试消息」）起始位置为 12px，而标题（Octo Insight/Make）文字起始位置为 44px，造成错位。第七十三轮未覆盖该文件。
+
+### 本轮实际改动
+
+A. Insight session button（`_shell/sidebar.tsx` ~line 365）— `px-3 gap-2` → `pl-[44px] relative`；状态图标从 flex 流改为 `absolute left-3 top-1/2 -translate-y-1/2`，不再占据横向空间，文字始终从 44px 开始。
+
+B. Make session button（`_shell/sidebar.tsx` ~line 469）— 同上。
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | Insight/Make session 条目左对齐，状态图标绝对定位 |
+
+---
+
+## 2026-05-26（第七十三轮）— Chat/Studio/Cowork 对话记录与标题左对齐
+
+### 目标
+Chat、Studio、Cowork 侧边栏的 session 条目文字（如「测试消息」）起始位置为 12px（`px-3`），而标题文字（Chat/Studio/Cowork）起始位置为 44px（`px-3` 12px + 图标 20px + `gap-3` 12px）。需将 session 条目左内边距改为 44px 以实现文字对齐。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/components/sidebar.tsx:147` — session `<A>` 元素 `px-3` → `pl-[44px] pr-3`（Chat/Cowork，同一组件）
+
+B. `packages/app/octoapp/pages/studio/index.tsx:931` — session `<a>` 元素 `px-3` → `pl-[44px]`（Studio，右内边距已由 inline style 控制）
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/components/sidebar.tsx` | session 条目 padding-left 12px→44px，与标题文字对齐 |
+| `packages/app/octoapp/pages/studio/index.tsx` | session 条目 padding-left 12px→44px，与标题文字对齐 |
+
+---
+
+## 2026-05-26（第七十二轮）— 统一 Chat/Studio/Octo 侧边栏加号图标为 20px
+
+### 目标
+Chat、Studio、Octo（新建交付件）侧边栏的「新建对话/交付件」按钮加号图标大小不一致，均为 `size="small"`（16px）。统一改为 `size="normal"`（20px）以对齐视觉规范。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/components/sidebar.tsx:97` — `size="small"` → `size="normal"`（Chat/Cowork 新建对话加号）
+
+B. `packages/app/octoapp/pages/_shell/sidebar.tsx:268` — `size="small"` → `size="normal"`（Octo 新建交付件加号）
+
+C. `packages/app/octoapp/pages/studio/index.tsx:895` — `size="small"` → `size="normal"`（Studio 新建对话加号）
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/components/sidebar.tsx` | 新建对话按钮加号 size small→normal（16px→20px） |
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | 新建交付件按钮加号 size small→normal（16px→20px） |
+| `packages/app/octoapp/pages/studio/index.tsx` | Studio 新建对话按钮加号 size small→normal（16px→20px） |
+
+---
+
+## 2026-05-26（第七十一轮）— 重写 Octo 侧边栏视觉风格（基于 dev 功能底座）
+
+### 目标
+`_shell/sidebar.tsx` 在长期 UI 迭代后与 dev 分支形成结构性分歧，每次同步 dev 功能都会产生大量冲突。本轮以 dev 最新版为功能底座重写该文件，将 UI_ox 的视觉风格叠加上去，同时引入 dev 新增的 `<ProjectInfo />` 组件，彻底解决后续合并冲突问题。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/pages/_shell/sidebar.tsx` — 完整重写：
+  - **布局**：外层容器改为 `padding: "8px"` 紧凑内边距，去掉多余 margin 嵌套
+  - **新建交付件按钮**：使用 `<Icon name="plus" size="small">` 替换内联 SVG，字号 12px
+  - **分组标题**（Insight/Make）：图标从 `<img src="/insightIcon.svg">` 渲染，文字加粗 14px，右侧 `ChevronRightIcon` 折叠指示
+  - **Session 条目**：`group/item relative` 容器包裹，右侧悬浮激活指示条（`width:4px`、`height:28px`、`rounded-sm`），激活色 `rgba(10,89,247,0.08)` 背景 + `#0A59F7` 文字，hover 用 Tailwind classList 替代 onMouseEnter/Leave
+  - **滚动区**：`scrollbar-width: none` 隐藏滚动条，`mt-2` 间距
+  - **底部导航**：`relative` 包裹，激活指示条在按钮外部右侧，Tailwind classList hover
+  - **Settings 按钮**：`py-2`、`gap-3`，`hover:bg-surface-base-hover`
+  - **分割线颜色**：`rgba(0,0,0,0.08)`（原为 CSS 变量 `--octo-border-default`）
+  - **保留 dev 功能**：`<ProjectInfo />` 组件、下拉新建菜单、session 资源拉取、事件监听清理、newSession/newMakeSession 逻辑全部保留
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/pages/_shell/sidebar.tsx` | 完整重写：dev 功能底座 + UI_ox 视觉风格 + ProjectInfo 组件 |
+
+---
+
 ## 2026-05-26（第七十轮）— 修复设置页 Switch 组件 hover 白色闪烁
 
 ### 目标
