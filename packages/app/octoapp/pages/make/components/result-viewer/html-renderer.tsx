@@ -1,5 +1,6 @@
 import { createMemo } from "solid-js"
 import type { JSX } from "solid-js"
+import { buildSrcdoc } from "../../utils/srcdoc-builder"
 
 function extractHtmlContent(text: string): string {
   const re = /```html\s*\n([\s\S]*?)\n?```/i
@@ -14,19 +15,20 @@ export function HtmlRenderer(props: {
   mode: "preview" | "edit"
   onContentChange?: (content: string) => void
 }): JSX.Element {
-  const html = createMemo(() => extractHtmlContent(props.content))
+  const srcdoc = createMemo(() => buildSrcdoc(extractHtmlContent(props.content), { focusGuard: true }))
 
   return (
     <div class="h-full w-full overflow-hidden" style={{ background: "white" }}>
       {props.mode === "preview" ? (
         <iframe
-          srcdoc={html()}
-          sandbox="allow-scripts"
+          srcdoc={srcdoc()}
+          sandbox="allow-scripts allow-popups"
           class="w-full h-full border-0"
+          style={{ "min-height": "200px" }}
         />
       ) : (
         <textarea
-          value={html()}
+          value={extractHtmlContent(props.content)}
           onInput={(e) => props.onContentChange?.(e.currentTarget.value)}
           class="w-full h-full resize-none p-4 text-sm font-mono outline-none"
           style={{

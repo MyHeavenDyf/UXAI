@@ -34,18 +34,38 @@ function markdownTableToCSV(md: string): string {
     .join("\n")
 }
 
+function getDownloadInfo(tab: ResultTab): { filename: string; mime: string } {
+  switch (tab.type) {
+    case "html":
+    case "deck":
+      return { filename: `${tab.title}.html`, mime: "text/html;charset=utf-8" }
+    case "svg":
+      return { filename: `${tab.title}.svg`, mime: "image/svg+xml;charset=utf-8" }
+    case "json":
+      return { filename: `${tab.title}.json`, mime: "application/json;charset=utf-8" }
+    case "table":
+      return { filename: `${tab.title}.csv`, mime: "text/csv;charset=utf-8" }
+    case "code-snippet":
+      return { filename: `${tab.title}.txt`, mime: "text/plain;charset=utf-8" }
+    default:
+      return { filename: `${tab.title}.md`, mime: "text/markdown;charset=utf-8" }
+  }
+}
+
 export function ActionBar(props: {
   tab: ResultTab
   mode?: "preview" | "edit"
   onModeChange?: () => void
 }): JSX.Element {
   function handleDownload() {
-    if (props.tab.type === "table") {
-      downloadBlob(markdownTableToCSV(props.tab.content), `${props.tab.title}.csv`, "text/csv;charset=utf-8")
-    } else {
-      downloadBlob(props.tab.content, `${props.tab.title}.md`, "text/markdown;charset=utf-8")
-    }
+    const info = getDownloadInfo(props.tab)
+    const content = props.tab.type === "table"
+      ? markdownTableToCSV(props.tab.content)
+      : props.tab.content
+    downloadBlob(content, info.filename, info.mime)
   }
+
+  const canToggleMode = props.tab.type === "html" || props.tab.type === "svg"
 
   return (
     <div
@@ -58,7 +78,7 @@ export function ActionBar(props: {
     >
       <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
-        {props.tab.type === "html" && props.onModeChange && (
+        {canToggleMode && props.onModeChange && (
           <ActionBtn
             icon={props.mode === "edit" ? <IconActionPreview size={14} /> : <IconActionEdit size={14} />}
             label={props.mode === "edit" ? "预览" : "编辑"}

@@ -26,8 +26,10 @@ import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { DesignSystemPicker } from "./components/design-system-picker"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
+import { loadDesignSystem } from "./utils/design-system-loader"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -169,6 +171,7 @@ export default function MakePage() {
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
   // 对话面板宽度：从 localStorage 恢复，无存储值时取约 45% 可用宽
   const CHAT_WIDTH_KEY = "octo:make:chat-width"
   function getInitialChatWidth(): number {
@@ -181,6 +184,8 @@ export default function MakePage() {
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
 
+  let dragCleanup: (() => void) | null = null
+
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
     const startX = e.clientX
@@ -188,20 +193,31 @@ export default function MakePage() {
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
+    const resetBody = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.body.style.overflow = ""
+      dragCleanup = null
+    }
     const onMove = (ev: MouseEvent) => {
       setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.45), startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
+      resetBody()
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
+    dragCleanup = () => {
+      resetBody()
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
   }
+
+  onCleanup(() => { dragCleanup?.() })
 
   const tabStore = createTabStore()
 
@@ -265,7 +281,39 @@ export default function MakePage() {
         filename: a.filename,
         url: a.dataUrl,
       }))
-      const textPart: TextPartInput = { type: "text", text }
+      let promptText = text
+
+      // Design system prompt injection
+      const dsId = selectedDesignSystem()
+      if (dsId) {
+        try {
+          const ds = await loadDesignSystem(dsId)
+          promptText = [
+            `[Design System: ${dsId}]`,
+            `The active design system is "${dsId}". Its full specification follows.`,
+            `You MUST:`,
+            `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
+            `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
+            `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
+            `4. Do NOT invent CSS variables that don't exist in the :root block below`,
+            ``,
+            `## DESIGN.md (authoritative visual rules)`,
+            ds.design,
+            ``,
+            `## :root tokens (paste verbatim into <style>)`,
+            "```css",
+            ds.tokens,
+            "```",
+            "",
+            `---`,
+            text,
+          ].join("\n")
+        } catch (err) {
+          console.error("[MakePage] design system load failed", err)
+        }
+      }
+
+      const textPart: TextPartInput = { type: "text", text: promptText }
       await globalSDK.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
@@ -435,23 +483,29 @@ export default function MakePage() {
                 />
 
                 <div class="flex items-center justify-between px-2.5 pb-2.5">
-                  <input
-                    ref={fileInputRef!}
-                    type="file"
-                    multiple
-                    class="hidden"
-                    accept="*/*"
-                    onChange={handleFileInputChange}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                    disabled={maxAttachments()}
-                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
-                    title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                  >
-                    <IconAttach size={14} />
-                  </button>
+                  <div class="flex items-center gap-1">
+                    <DesignSystemPicker
+                      selected={selectedDesignSystem()}
+                      onSelect={setSelectedDesignSystem}
+                    />
+                    <input
+                      ref={fileInputRef!}
+                      type="file"
+                      multiple
+                      class="hidden"
+                      accept="*/*"
+                      onChange={handleFileInputChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                      disabled={maxAttachments()}
+                      class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
+                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                    >
+                      <IconAttach size={14} />
+                    </button>
+                  </div>
 
                   <button
                     type="button"
