@@ -114,7 +114,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
   const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
 
-  // Effect 1: read projectDir() which tracks server.projects.last() (persisted store, reactive).
+  // Effect 1: read projectDir() which tracks server.projects.last (memo, reactive).
   // For returning users this fires immediately on mount with the persisted directory.
   createEffect(() => {
     const d = projectDir()

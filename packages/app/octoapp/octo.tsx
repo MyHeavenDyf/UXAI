@@ -213,7 +213,7 @@ function OnboardingLayer() {
     layout.projects.open(directory)
     server.projects.touch(directory)
     void globalSDK.createClient({ directory }).session.list().catch(() => {})
-    navigate("/insight")
+    navigate("/cowork")
   }
 
   return (
@@ -441,7 +441,7 @@ export function AppInterface(props: {
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
-                  <Route path="/" component={InsightPage} />
+                  <Route path="/" component={CoworkPage} />
                   <Route path="/cowork" component={CoworkPage} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
