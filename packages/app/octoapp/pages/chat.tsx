@@ -1,8 +1,9 @@
-import { createMemo, createEffect, Show, ErrorBoundary, Suspense, type JSX } from "solid-js"
+import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
+import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
 import { persisted, Persist } from "@/utils/persist"
 import { lazy } from "solid-js"
@@ -28,6 +29,7 @@ function SessionProviders(props: { children: JSX.Element }) {
 export default function ChatPage() {
   const params = useParams<{ dir?: string; id?: string }>()
   const local = useLocal()
+  const layout = useLayout()
 
   const resolvedDirectory = createMemo(() => {
     if (params.dir) {
@@ -40,6 +42,18 @@ export default function ChatPage() {
   createEffect(() => {
     local.agent.set("octo_ai")
   })
+
+  createEffect(
+    on(
+      () => ({ dir: params.dir, id: params.id }),
+      ({ dir, id }) => {
+        if (dir && id) {
+          const decoded = decode64(dir)
+          if (decoded) layout.lastSessionPerTab.setChat(decoded, id)
+        }
+      },
+    ),
+  )
 
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
     Persist.global("chat.sidebar.width"),

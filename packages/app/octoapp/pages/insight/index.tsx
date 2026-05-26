@@ -16,6 +16,7 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
+import { useLayout } from "@/context/layout"
 import { Identifier } from "@/utils/id"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -64,9 +65,8 @@ function InsightContent() {
   const navigate = useNavigate()
   const sync = useSync()
   const sdk = useSDK()
+  const layout = useLayout()
 
-  // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
-  // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   createEffect(
     on(
       () => params.id,
@@ -74,6 +74,7 @@ function InsightContent() {
         if (!id) return
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)
+        layout.lastSessionPerTab.setCowork(id, "insight")
       },
     ),
   )

@@ -20,6 +20,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -43,6 +44,7 @@ export default function MakePage() {
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const layout = useLayout()
 
   const homeDir = useProjectDir()
 
@@ -53,6 +55,15 @@ export default function MakePage() {
     message: {},
     part: {},
   })
+
+  createEffect(
+    on(
+      () => params.id,
+      (id) => {
+        if (id) layout.lastSessionPerTab.setCowork(id, "make")
+      },
+    ),
+  )
 
   createEffect(
     on(
