@@ -10,12 +10,14 @@ import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import { sortedRootSessions } from "@/pages/layout/helpers"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -68,6 +70,16 @@ function createBlobUrlFromDataUrl(url: string) {
   return URL.createObjectURL(new Blob([bytes], { type: mime }))
 }
 
+function triggerBrowserDownload(url: string, filename: string) {
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.rel = "noopener"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
@@ -77,6 +89,13 @@ export default function StudioPage() {
   const language = useLanguage()
 
   const projectDir = useProjectDir()
+  const [syncStore] = globalSync.child(projectDir(), { bootstrap: true })
+
+  const isValidStudioSession = (sessionId: string | undefined): boolean => {
+    if (!sessionId) return false
+    const session = syncStore.session.find(s => s.id === sessionId)
+    return session?.agent === "octo_studio"
+  }
 
   const slug = createMemo(() => base64Encode(projectDir()))
 
@@ -455,6 +474,22 @@ export default function StudioPage() {
     return `${prefix}-${Math.max(index, 1)}.png`
   })
 
+  async function downloadCurrentImage() {
+    const image = selectedImage()
+    if (!image) return
+    const source = image.remoteUrl ?? image.url
+    try {
+      const response = await fetch(source)
+      if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
+      const objectUrl = URL.createObjectURL(await response.blob())
+      triggerBrowserDownload(objectUrl, currentImageLabel())
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    } catch (error) {
+      console.warn("[studio] image download fallback", error)
+      triggerBrowserDownload(source, currentImageLabel())
+    }
+  }
+
   createEffect(
     on(
       () => `${params.id ?? ""}:${displayTurns().map((turn) => turn.id).join("|")}:${pendingResult()?.id ?? ""}`,
@@ -593,6 +628,7 @@ export default function StudioPage() {
   async function sendStudioPrompt(input: { sessionID: string; text: string; capability: StudioCapability; sourceImage?: string }) {
     await globalSDK.client.session.promptAsync({
       sessionID: input.sessionID,
+      agent: "octo_studio",
       tools: {
         jimeng_image_generate: imageTool() !== "internel",
         internel_image_generate: imageTool() === "internel",
@@ -623,7 +659,7 @@ export default function StudioPage() {
     setSending(true)
     setPrompt("")
     try {
-      const sessionID = params.id ?? await createAndNavigate(text)
+      const sessionID = isValidStudioSession(params.id) ? params.id! : await createAndNavigate(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       await sendStudioPrompt({
         sessionID,
@@ -793,28 +829,29 @@ export default function StudioPage() {
           onMouseDown={handleStudioCenterResize}
         />
 
-        <main class="studio-workspace">
-          <section class="studio-canvas">
-            <Show when={mode() === "outpaint" && selectedImage()} fallback={
-              <StudioResultCanvas
-                status={effectiveStatus()}
-                image={selectedImage()}
-                result={result()}
-                imageLabel={currentImageLabel()}
-                onRegenerate={() => void runGeneration()}
+      <main class="studio-workspace">
+        <section class="studio-canvas">
+          <Show when={mode() === "outpaint" && selectedImage()} fallback={
+            <StudioResultCanvas
+              status={effectiveStatus()}
+              image={selectedImage()}
+              result={result()}
+              imageLabel={currentImageLabel()}
+              onRegenerate={() => void runGeneration()}
+              onDownload={() => void downloadCurrentImage()}
+            />
+          }>
+            {(image) => (
+              <StudioOutpaintEditor
+                image={image()}
+                aspectRatio={aspectRatio()}
+                onAspectRatio={setAspectRatio}
+                onClose={() => setMode("preview")}
+                onSubmit={submitOutpaint}
               />
-            }>
-              {(image) => (
-                <StudioOutpaintEditor
-                  image={image()}
-                  aspectRatio={aspectRatio()}
-                  onAspectRatio={setAspectRatio}
-                  onClose={() => setMode("preview")}
-                  onSubmit={submitOutpaint}
-                />
-              )}
-            </Show>
-          </section>
+            )}
+          </Show>
+        </section>
 
           <Show when={result()?.images.length}>
             <aside class="studio-details">
@@ -837,21 +874,15 @@ export default function StudioPage() {
 }
 
 function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
-  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const language = useLanguage()
   const dialog = useDialog()
-  const [studioSessions, setStudioSessions] = createSignal<Session[]>([])
+  const sortNow = createMemo(() => Date.now())
 
-  createEffect(() => {
-    globalSDK.client.session.list({ directory: props.directory, roots: true, category: "creative" })
-      .then((result) => {
-        const data = ((result.data ?? []) as Session[])
-          .filter((s) => !s.time?.archived)
-          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-        setStudioSessions(data)
-      })
-      .catch((err) => console.error("[StudioHistory] session list failed", err))
-  })
+  const [store] = globalSync.child(props.directory, { bootstrap: true })
+  const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
+  const studioSessions = createMemo(() => sessions().filter(s => s.agent === "octo_studio" && !s.time?.archived))
+  const isLoading = createMemo(() => store.status === "loading")
 
   return (
     <div
@@ -883,51 +914,58 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 
         <div class="flex flex-col gap-1 flex-1 min-h-0">
           <div class="flex-1 min-h-0 overflow-y-auto">
-            <Show
-              when={studioSessions().length > 0}
-              fallback={
-                <div class="text-12-regular text-text-weak py-4 text-center">
-                  {language.t("sidebar.history.empty")}
-                </div>
-              }
-            >
-              <div class="flex flex-col gap-1">
-                <For each={studioSessions()}>
-                  {(session) => {
-                    const isActive = () => props.activeSessionID === session.id
-                    return (
-                      <div class="group/item relative">
-                        <a
-                          href={`/${base64Encode(props.directory)}/studio/${session.id}`}
-                          class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
-                          style={{ "padding-right": isActive() ? "20px" : "12px" }}
-                          classList={{
-                            "bg-[rgba(10,89,247,0.08)]": isActive(),
-                            "hover:bg-surface-base-hover": !isActive(),
-                          }}
-                        >
-                          <span class="flex-1 min-w-0 truncate">
-                            {sessionTitle(session.title) ?? language.t("command.session.new")}
-                          </span>
-                        </a>
-                        <Show when={isActive()}>
-                          <span
-                            class="absolute rounded-full pointer-events-none"
-                            style={{
-                              right: "8px",
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              width: "4px",
-                              height: "32px",
-                              background: "var(--text-interactive-base)",
-                            }}
-                          />
-                        </Show>
-                      </div>
-                    )
-                  }}
-                </For>
+            <Show when={!isLoading()} fallback={
+              <div class="text-12-regular text-text-weak py-4 text-center">
+                <Spinner class="size-4 mx-auto mb-1" />
+                {language.t("common.loading")}
               </div>
+            }>
+              <Show
+                when={studioSessions().length > 0}
+                fallback={
+                  <div class="text-12-regular text-text-weak py-4 text-center">
+                    {language.t("sidebar.history.empty")}
+                  </div>
+                }
+              >
+                <div class="flex flex-col gap-1">
+                  <For each={studioSessions()}>
+                    {(session) => {
+                      const isActive = () => props.activeSessionID === session.id
+                      return (
+                        <div class="group/item relative">
+                          <a
+                            href={`/${base64Encode(props.directory)}/studio/${session.id}`}
+                            class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
+                            style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                            classList={{
+                              "bg-[rgba(10,89,247,0.08)]": isActive(),
+                              "hover:bg-surface-base-hover": !isActive(),
+                            }}
+                          >
+                            <span class="flex-1 min-w-0 truncate">
+                              {sessionTitle(session.title) ?? language.t("command.session.new")}
+                            </span>
+                          </a>
+                          <Show when={isActive()}>
+                            <span
+                              class="absolute rounded-full pointer-events-none"
+                              style={{
+                                right: "8px",
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                width: "4px",
+                                height: "32px",
+                                background: "var(--text-interactive-base)",
+                              }}
+                            />
+                          </Show>
+                        </div>
+                      )
+                    }}
+                  </For>
+                </div>
+              </Show>
             </Show>
           </div>
         </div>
@@ -1276,6 +1314,7 @@ function StudioResultCanvas(props: {
   result?: StudioGenerationResult
   imageLabel: string
   onRegenerate: () => void
+  onDownload: () => void
 }): JSX.Element {
   return (
     <Show when={props.image} fallback={
@@ -1317,7 +1356,7 @@ function StudioResultCanvas(props: {
           <div class="absolute bottom-12 left-1/2 -translate-x-1/2 h-12 rounded-full bg-white shadow-[0_18px_52px_rgba(15,23,42,0.16)] flex items-center gap-2 px-4">
             <button type="button" class="w-8 h-8 rounded-full hover:bg-[#f3f4f6]" title="收藏">♡</button>
             <button type="button" class="w-8 h-8 rounded-full hover:bg-[#f3f4f6]" onClick={props.onRegenerate} title="再次生成">↻</button>
-            <button type="button" class="studio-gradient-button h-8 px-7 rounded-full text-[13px]" title="下载">下载</button>
+            <button type="button" onClick={props.onDownload} class="studio-gradient-button h-8 min-w-[76px] px-6 rounded-full text-[13px] whitespace-nowrap leading-none flex items-center justify-center" title="下载">下载</button>
           </div>
         </>
       )}

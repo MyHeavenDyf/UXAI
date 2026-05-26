@@ -5,7 +5,7 @@ import { createMemo, type Component, Show } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useModels } from "@/context/models"
 import { useLanguage } from "@/context/language"
-import { showToast } from "@opencode-ai/ui/toast"
+import { useProviders } from "@/hooks/use-providers"
 import { DialogSelectDefaultModel } from "./dialog-select-default-model"
 import { SettingsList } from "./settings-list"
 
@@ -14,13 +14,38 @@ export const SettingsDefaultModel: Component = () => {
   const language = useLanguage()
   const globalSync = useGlobalSync()
   const models = useModels()
+  const providers = useProviders()
+
+  const validModel = (model: { providerID: string; modelID: string }) => {
+    const provider = providers.all().find((item) => item.id === model.providerID)
+    if (!provider?.models[model.modelID]) return false
+    const connected = new Set(providers.connected().map((item) => item.id))
+    return connected.has(model.providerID)
+  }
 
   const currentModelKey = createMemo(() => {
     const modelStr = globalSync.data.config.model
-    if (!modelStr) return undefined
-    const [providerID, modelID] = modelStr.split("/")
-    if (!providerID || !modelID) return undefined
-    return { providerID, modelID }
+    if (modelStr) {
+      const [providerID, modelID] = modelStr.split("/")
+      if (providerID && modelID && validModel({ providerID, modelID })) return { providerID, modelID }
+    }
+
+    for (const item of models.recent.list()) {
+      if (validModel(item)) return item
+    }
+
+    const defaults = providers.default()
+    for (const provider of providers.connected()) {
+      const configured = defaults[provider.id]
+      if (configured && validModel({ providerID: provider.id, modelID: configured }))
+        return { providerID: provider.id, modelID: configured }
+
+      const first = Object.values(provider.models)[0]
+      if (first && validModel({ providerID: provider.id, modelID: first.id }))
+        return { providerID: provider.id, modelID: first.id }
+    }
+
+    return undefined
   })
 
   const currentModel = createMemo(() => {
@@ -31,20 +56,6 @@ export const SettingsDefaultModel: Component = () => {
 
   const handleSelect = () => {
     dialog.show(() => <DialogSelectDefaultModel />)
-  }
-
-  const handleClear = async () => {
-    try {
-      await globalSync.updateConfig({ model: "" })
-      showToast({
-        variant: "success",
-        icon: "circle-check",
-        title: language.t("settings.defaultModel.cleared"),
-      })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      showToast({ title: language.t("common.requestFailed"), description: message })
-    }
   }
 
   return (
@@ -83,11 +94,6 @@ export const SettingsDefaultModel: Component = () => {
                     ? language.t("settings.defaultModel.change")
                     : language.t("settings.defaultModel.select")}
                 </Button>
-                <Show when={currentModel()}>
-                  <Button size="large" variant="ghost" onClick={() => void handleClear()}>
-                    {language.t("settings.defaultModel.clear")}
-                  </Button>
-                </Show>
               </div>
             </div>
           </SettingsList>

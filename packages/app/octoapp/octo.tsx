@@ -52,6 +52,7 @@ import { useCheckServerHealth } from "./utils/server-health"
 // jk-j60099994-replace-with-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
+const CoworkPage = lazy(() => import("@/pages/cowork"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
@@ -76,9 +77,7 @@ const SessionRedirectRoute = () => {
   return <Navigate href={`../chat/${params.id ?? ""}`} />
 }
 const CoworkRedirectRoute = () => {
-  const params = useParams<{ id?: string }>()
-  const href = params.id ? `/insight/${params.id}` : "/insight"
-  return <Navigate href={href} />
+  return <Navigate href="/cowork" />
 }
 
 function UiI18nBridge(props: ParentProps) {
@@ -229,7 +228,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
 
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
+    return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
   }
 
   return (
@@ -443,6 +442,7 @@ export function AppInterface(props: {
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
                   <Route path="/" component={InsightPage} />
+                  <Route path="/cowork" component={CoworkPage} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />

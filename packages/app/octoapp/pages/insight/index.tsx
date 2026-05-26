@@ -213,6 +213,7 @@ function InsightContent() {
     clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
+    requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
 
