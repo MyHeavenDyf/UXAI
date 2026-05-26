@@ -107,3 +107,17 @@ agent: "octo_insight",
 - 分隔线拖拽从 `mousedown/mousemove/mouseup` 改为 `pointer events`（修复 Electron webview 中 pointer capture）
 
 **Octo 适配已保留**：适配 A/B/C 全部正确应用，无遗漏。
+
+### 2026-05-26: commits `bbf0c13` + `cb84b73` (收紧嗅探 + tab URI 去重 + Office 唤起 + 全链路 console)
+
+**上游变更**：
+- `insight-turn.tsx`：OutputCard 检测拆为双路径（A: MCP resource_link 强契约 / B: 自由文本嗅探），HTML 改用 `scanFencedHtml` 多卡 + 未闭合 fence 支持，删除 length>200 markdown 兜底
+- `detect.ts`：新增 `scanFencedHtml` + `HtmlFenceBlock` 类型，`isPlainJSON` 收紧到 ≥80 字符 + fence 或 ≥3 keys
+- `result-viewer/index.tsx`：FileFallback 新增"用本地应用打开"和"下载到本地"双按钮（依赖 `electron-api.ts`）
+- `result-viewer/tab-store.ts`：openTab 新增 URI 去重（多入口指向同一产物不重复开 tab）
+- `index.tsx`：新增 busy→idle 时完整 dump assistant message 内容到 console（内网调试用）
+- `lib/electron-api.ts`：新增 Electron preload API 类型抽象（downloadResourceToTemp / openPath / saveFilePicker）
+- `store/preset-prompts.ts`：新增 `run_usability_analysis` 预置胶囊
+- `utils/resource-link.ts` / `utils/task-detect.ts`：新增全链路 branch 跟踪 console 日志
+
+**Octo 适配已保留**：适配 A/B/C 全部正确应用。`electron-api.ts` 中的 `downloadResourceToTemp` / `downloadResource` 在本项目中尚未实现 IPC handler，FileFallback 会优雅降级（显示 toast 提示桌面 API 不可用）。

@@ -1,6 +1,9 @@
 import { For, Show } from "solid-js"
 import type { Component, JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/core/util/encode"
+import { useServer } from "@/context/server"
+import { useLayout } from "@/context/layout"
 import {
   OctoLogo, IconSearch,
   IconChat, IconChat1,
@@ -33,12 +36,22 @@ const TAB_ICON_MAP: Record<string, { default: string; selected: string }> = {
 export function OctoTopbar(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
+  const server = useServer()
+  const layout = useLayout()
 
   const activeHref = () => {
     const p = location.pathname
     if (p === "/" || p.startsWith("/chat")) return "/chat"
     if (p.startsWith("/studio")) return "/studio"
     return "/insight"
+  }
+
+  const isGlobalRoute = (p: string) =>
+    p === "/" || p.startsWith("/insight") || p.startsWith("/make") || p.startsWith("/cowork") || p.startsWith("/skills")
+
+  const getLastProjectDir = () => {
+    const dir = server.projects.last()
+    return dir ? base64Encode(dir) : undefined
   }
 
   const tabIndex = () => Math.max(0, TABS.findIndex((t) => t.href === activeHref()))
@@ -96,17 +109,44 @@ export function OctoTopbar(): JSX.Element {
               return (
                 <button
                   type="button"
-                  onClick={() => {
-                    const p = location.pathname
-                    const dir = p.split("/")[1]
-                    if (tab.href === "/insight") {
-                      navigate(tab.href)
-                    } else if (dir) {
-                      navigate(`/${dir}${tab.href}`)
-                    } else {
-                      navigate(tab.href)
-                    }
-                  }}
+onClick={() => {
+                     const p = location.pathname
+                     const segments = p.split("/").filter(Boolean)
+                     const currentDir = isGlobalRoute(p) ? undefined : segments[0]
+
+                     if (tab.href === "/insight") {
+                       const cowork = layout.lastSessionPerTab.cowork()
+                       if (cowork?.id) {
+                         navigate(`/${cowork.type}/${cowork.id}`)
+                       } else {
+                         navigate("/insight")
+                       }
+                     } else if (tab.href === "/chat") {
+                       const dir = currentDir ?? getLastProjectDir()
+                       if (!dir) {
+                         navigate("/chat")
+                         return
+                       }
+                       const sessionId = layout.lastSessionPerTab.chat(dir)
+                       if (sessionId) {
+                         navigate(`/${dir}/chat/${sessionId}`)
+                       } else {
+                         navigate(`/${dir}/chat`)
+                       }
+                     } else if (tab.href === "/studio") {
+                       const dir = currentDir ?? getLastProjectDir()
+                       if (!dir) {
+                         navigate("/studio")
+                         return
+                       }
+                       const sessionId = layout.lastSessionPerTab.studio(dir)
+                       if (sessionId) {
+                         navigate(`/${dir}/studio/${sessionId}`)
+                       } else {
+                         navigate(`/${dir}/studio`)
+                       }
+                     }
+                   }}
                   class="relative z-10 flex-1 px-[22px] py-[5px] text-[13px] font-medium leading-none select-none rounded-[7px] transition-colors flex items-center justify-center gap-[6px]"
                   style={{ color: isActive() ? "#191919" : "rgba(0,0,0,0.42)" }}
                 >

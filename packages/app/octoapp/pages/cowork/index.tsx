@@ -1,6 +1,36 @@
+import { useNavigate } from "@solidjs/router"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useProjectDir } from "@/hooks/use-project-dir"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 
+async function createSession(agent: string, dir: string, sdk: ReturnType<typeof useGlobalSDK>, navigate: ReturnType<typeof useNavigate>) {
+  const client = sdk.createClient({ directory: dir })
+  const result = await client.session.create({ directory: dir, agent })
+  const session = result.data as Session | undefined
+  if (session) {
+    const path = agent === "octo_insight" ? "insight" : "make"
+    navigate(`/${path}/${session.id}`)
+  }
+}
+
 export default function CoworkPage() {
+  const navigate = useNavigate()
+  const globalSDK = useGlobalSDK()
+  const projectDir = useProjectDir()
+
+  function handleInsightClick() {
+    const dir = projectDir()
+    if (!dir) return
+    void createSession("octo_insight", dir, globalSDK, navigate)
+  }
+
+  function handleMakeClick() {
+    const dir = projectDir()
+    if (!dir) return
+    void createSession("octo_make", dir, globalSDK, navigate)
+  }
+
   return (
     <div class="flex-1 min-h-0 flex flex-col items-center justify-center" style="background: #fff">
       <div class="w-full max-w-[848px]">
@@ -17,14 +47,15 @@ export default function CoworkPage() {
         </div>
         <div class="flex gap-[24px] px-6 pb-8 justify-center">
           <div
-            class="flex items-center flex-1"
+            class="flex items-center flex-1 cursor-pointer transition-opacity hover:opacity-80"
             style={{
               padding: "20px 32px",
               "border-radius": "12px",
               background: "rgba(227, 236, 254, 0.4)",
               gap: "12px",
-              "max-width": "300px"
+              "max-width": "300px",
             }}
+            onClick={handleInsightClick}
           >
             <div
               style={{
@@ -45,7 +76,7 @@ export default function CoworkPage() {
             </div>
           </div>
           <div
-            class="flex items-center flex-1"
+            class="flex items-center flex-1 cursor-pointer transition-opacity hover:opacity-80"
             style={{
               padding: "20px 32px",
               "border-radius": "12px",
@@ -53,6 +84,7 @@ export default function CoworkPage() {
               gap: "12px",
               "max-width": "300px",
             }}
+            onClick={handleMakeClick}
           >
             <div
               style={{
@@ -65,7 +97,7 @@ export default function CoworkPage() {
             />
             <div class="flex flex-col" style={{ gap: "2px" }}>
               <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": 600 }}>
-                Octo  Make
+                Octo Make
               </div>
               <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.6)" }}>
                 自然语言生成可交互设计原型

@@ -14,6 +14,8 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
+import { decode64 } from "@/utils/base64"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
@@ -87,6 +89,7 @@ export default function StudioPage() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const language = useLanguage()
+  const layout = useLayout()
 
   const projectDir = useProjectDir()
   const [syncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -98,6 +101,18 @@ export default function StudioPage() {
   }
 
   const slug = createMemo(() => base64Encode(projectDir()))
+
+  createEffect(
+    on(
+      () => ({ dir: params.dir, id: params.id }),
+      ({ dir, id }) => {
+        if (dir && id) {
+          const decoded = decode64(dir)
+          if (decoded) layout.lastSessionPerTab.setStudio(decoded, id)
+        }
+      },
+    ),
+  )
 
   const [prompt, setPrompt] = createSignal("")
   const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
