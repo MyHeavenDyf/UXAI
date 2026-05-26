@@ -50,6 +50,26 @@
 
 ---
 
+## 2026-05-26（第七十轮）— 修复设置页 Switch 组件 hover 白色闪烁
+
+### 目标
+设置页面中所有开关（Switch）在鼠标悬停时会短暂出现白色闪烁。根本原因：`packages/app/octoapp/style/switch.css` 的 unchecked hover 规则中设置了 `background: var(--surface-base)`，浅色主题下该变量为白色，直接把 track 背景改成了白色。删除该行即可恢复正常的 hover 加深效果（由基础 `switch.css` 的 `rgba(0,0,0,0.26)` 规则接管）。
+
+### 本轮实际改动
+
+A. `packages/app/octoapp/style/switch.css` — 删除 unchecked hover 规则中的 `background: var(--surface-base)` 行，保留无实际效果的 `border-color` 行
+
+B. `packages/ui/src/components/switch.css` — 顺带为 `[data-slot="switch-input"]` 补充 `appearance: none; -webkit-appearance: none; pointer-events: none;`（防御性修复）
+
+### 涉及文件
+
+| 文件 | 改动说明 |
+|------|----------|
+| `packages/app/octoapp/style/switch.css` | 删除 hover 规则中导致白色的 background:var(--surface-base) |
+| `packages/ui/src/components/switch.css` | 隐藏 input 添加 appearance:none + pointer-events:none |
+
+---
+
 ## 2026-05-26（第六十九轮）— 移除 Chat 侧边栏"历史记录"标签
 
 ### 目标
