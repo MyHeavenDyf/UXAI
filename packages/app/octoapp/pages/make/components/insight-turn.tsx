@@ -2,7 +2,7 @@ import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk/v2/client
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { createMemo, Show, For, type JSX } from "solid-js"
+import { createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../utils/artifact-parser"
 import { stripArtifact } from "../utils/artifact-strip"
@@ -328,8 +328,25 @@ export function InsightTurn(props: {
       title: startEvent.title || mappedType,
       type: mappedType,
       content: fullContent,
-      createdAt: new Date(),
+      createdAt: props.status.type === "busy" ? new Date(0) : new Date(),
     }
+  })
+
+  // Stable flag: once artifact detected during generation, don't flicker back
+  const hasSeenArtifact = createSignal(false)
+  const stableStreamingCard = createMemo((): OutputCard | null => {
+    if (!showGenerating()) {
+      if (hasSeenArtifact[0]()) hasSeenArtifact[1](false)
+      return null
+    }
+    const card = streamingArtifact()
+    if (card) {
+      if (!hasSeenArtifact[0]()) hasSeenArtifact[1](true)
+      return card
+    }
+    // If we've seen an artifact before, keep showing the last known state
+    // (parser might temporarily return null during streaming)
+    return hasSeenArtifact[0]() ? streamingArtifact() : null
   })
 
   // ── NEW: produced files ──
@@ -452,11 +469,15 @@ export function InsightTurn(props: {
 
   return (
     <div class="flex flex-col">
-      {/* 用户消息气泡 */}
-      <div class="px-3 py-2.5">
+      {/* 用户消息气泡（右侧对齐） */}
+      <div class="flex justify-end px-3 py-2.5">
         <div
-          class="text-sm whitespace-pre-wrap break-words leading-relaxed"
-          style={{ color: "var(--octo-text-primary)" }}
+          class="text-sm whitespace-pre-wrap break-words leading-relaxed max-w-[85%] px-3 py-2"
+          style={{
+            color: "var(--octo-text-primary)",
+            background: "var(--octo-brand-a8)",
+            "border-radius": "var(--octo-radius-md)",
+          }}
         >
           {userText()}
         </div>
@@ -516,7 +537,7 @@ export function InsightTurn(props: {
       </Show>
 
       {/* 生成中的 artifact 卡片（非点击，带进度指示） */}
-      <Show when={showGenerating() && streamingArtifact()}>
+      <Show when={showGenerating() && stableStreamingCard()}>
         {(card) => {
           const genCard = card()
           return (
@@ -533,7 +554,7 @@ export function InsightTurn(props: {
                 <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={genCard.type} /></span>
                 <div class="flex flex-col gap-0.5 min-w-0 flex-1">
                   <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{genCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(genCard.createdAt)}</span>
+                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>正在生成…</span>
                 </div>
                 <span
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium"
