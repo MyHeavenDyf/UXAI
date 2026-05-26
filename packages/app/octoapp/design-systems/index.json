@@ -1,0 +1,602 @@
+[
+  {
+    "id": "agentic",
+    "title": "Design System Inspired by Agentic"
+  },
+  {
+    "id": "airbnb",
+    "title": "Design System Inspired by Airbnb"
+  },
+  {
+    "id": "airtable",
+    "title": "Design System Inspired by Airtable"
+  },
+  {
+    "id": "ant",
+    "title": "Design System Inspired by Ant"
+  },
+  {
+    "id": "apple",
+    "title": "Design System Inspired by Apple"
+  },
+  {
+    "id": "application",
+    "title": "Design System Inspired by Application"
+  },
+  {
+    "id": "arc",
+    "title": "Design System Inspired by Arc Browser"
+  },
+  {
+    "id": "artistic",
+    "title": "Design System Inspired by Artistic"
+  },
+  {
+    "id": "atelier-zero",
+    "title": "Atelier Zero"
+  },
+  {
+    "id": "bento",
+    "title": "Design System Inspired by Bento"
+  },
+  {
+    "id": "binance",
+    "title": "Design System Inspired by Binance.US"
+  },
+  {
+    "id": "bmw",
+    "title": "Design System Inspired by BMW"
+  },
+  {
+    "id": "bmw-m",
+    "title": "Design System Inspired by BMW M"
+  },
+  {
+    "id": "bold",
+    "title": "Design System Inspired by Bold"
+  },
+  {
+    "id": "brutalism",
+    "title": "Design System Inspired by Brutalism"
+  },
+  {
+    "id": "bugatti",
+    "title": "Design System Inspired by Bugatti"
+  },
+  {
+    "id": "cafe",
+    "title": "Design System Inspired by Cafe"
+  },
+  {
+    "id": "cal",
+    "title": "Design System Inspired by Cal.com"
+  },
+  {
+    "id": "canva",
+    "title": "Design System Inspired by Canva"
+  },
+  {
+    "id": "cisco",
+    "title": "Design System Inspired by Cisco"
+  },
+  {
+    "id": "claude",
+    "title": "Design System Inspired by Claude (Anthropic)"
+  },
+  {
+    "id": "clay",
+    "title": "Design System Inspired by Clay"
+  },
+  {
+    "id": "claymorphism",
+    "title": "Design System Inspired by Claymorphism"
+  },
+  {
+    "id": "clean",
+    "title": "Design System Inspired by Clean"
+  },
+  {
+    "id": "clickhouse",
+    "title": "Design System Inspired by ClickHouse"
+  },
+  {
+    "id": "cohere",
+    "title": "Design System Inspired by Cohere"
+  },
+  {
+    "id": "coinbase",
+    "title": "Design System Inspired by Coinbase"
+  },
+  {
+    "id": "colorful",
+    "title": "Design System Inspired by Colorful"
+  },
+  {
+    "id": "composio",
+    "title": "Design System Inspired by Composio"
+  },
+  {
+    "id": "contemporary",
+    "title": "Design System Inspired by Contemporary"
+  },
+  {
+    "id": "corporate",
+    "title": "Design System Inspired by Corporate"
+  },
+  {
+    "id": "cosmic",
+    "title": "Design System Inspired by Cosmic"
+  },
+  {
+    "id": "creative",
+    "title": "Design System Inspired by Creative"
+  },
+  {
+    "id": "cursor",
+    "title": "Design System Inspired by Cursor"
+  },
+  {
+    "id": "dashboard",
+    "title": "Design System Inspired by Dashboard"
+  },
+  {
+    "id": "default",
+    "title": "Neutral Modern"
+  },
+  {
+    "id": "discord",
+    "title": "Design System Inspired by Discord"
+  },
+  {
+    "id": "dithered",
+    "title": "Design System Inspired by Dithered"
+  },
+  {
+    "id": "doodle",
+    "title": "Design System Inspired by Doodle"
+  },
+  {
+    "id": "dramatic",
+    "title": "Design System Inspired by Dramatic"
+  },
+  {
+    "id": "duolingo",
+    "title": "Design System Inspired by Duolingo"
+  },
+  {
+    "id": "editorial",
+    "title": "Design System Inspired by Editorial"
+  },
+  {
+    "id": "elegant",
+    "title": "Design System Inspired by Elegant"
+  },
+  {
+    "id": "elevenlabs",
+    "title": "Design System Inspired by ElevenLabs"
+  },
+  {
+    "id": "energetic",
+    "title": "Design System Inspired by Energetic"
+  },
+  {
+    "id": "enterprise",
+    "title": "Design System Inspired by Enterprise"
+  },
+  {
+    "id": "expo",
+    "title": "Design System Inspired by Expo"
+  },
+  {
+    "id": "expressive",
+    "title": "Design System Inspired by Expressive"
+  },
+  {
+    "id": "fantasy",
+    "title": "Design System Inspired by Fantasy"
+  },
+  {
+    "id": "ferrari",
+    "title": "Design System Inspired by Ferrari"
+  },
+  {
+    "id": "figma",
+    "title": "Design System Inspired by Figma"
+  },
+  {
+    "id": "flat",
+    "title": "Design System Inspired by Flat"
+  },
+  {
+    "id": "framer",
+    "title": "Design System Inspired by Framer"
+  },
+  {
+    "id": "friendly",
+    "title": "Design System Inspired by Friendly"
+  },
+  {
+    "id": "futuristic",
+    "title": "Design System Inspired by Futuristic"
+  },
+  {
+    "id": "github",
+    "title": "Design System Inspired by GitHub"
+  },
+  {
+    "id": "glassmorphism",
+    "title": "Design System Inspired by Glassmorphism"
+  },
+  {
+    "id": "gradient",
+    "title": "Design System Inspired by Gradient"
+  },
+  {
+    "id": "hashicorp",
+    "title": "Design System Inspired by HashiCorp"
+  },
+  {
+    "id": "hud",
+    "title": "HUD Design System"
+  },
+  {
+    "id": "huggingface",
+    "title": "Design System Inspired by Hugging Face"
+  },
+  {
+    "id": "ibm",
+    "title": "Design System Inspired by IBM"
+  },
+  {
+    "id": "intercom",
+    "title": "Design System Inspired by Intercom"
+  },
+  {
+    "id": "kami",
+    "title": "Design System Inspired by kami (紙 / 纸)"
+  },
+  {
+    "id": "kraken",
+    "title": "Design System Inspired by Kraken"
+  },
+  {
+    "id": "lamborghini",
+    "title": "Design System Inspired by Lamborghini"
+  },
+  {
+    "id": "levels",
+    "title": "Design System Inspired by Levels"
+  },
+  {
+    "id": "linear-app",
+    "title": "Design System Inspired by Linear"
+  },
+  {
+    "id": "lingo",
+    "title": "Design System Inspired by Lingo"
+  },
+  {
+    "id": "loom",
+    "title": "Loom Design System"
+  },
+  {
+    "id": "lovable",
+    "title": "Design System Inspired by Lovable"
+  },
+  {
+    "id": "luxury",
+    "title": "Design System Inspired by Luxury"
+  },
+  {
+    "id": "mastercard",
+    "title": "Design System Inspired by Mastercard"
+  },
+  {
+    "id": "material",
+    "title": "Design System Inspired by Material"
+  },
+  {
+    "id": "meta",
+    "title": "Design System Inspired by Meta (Store)"
+  },
+  {
+    "id": "minimal",
+    "title": "Design System Inspired by Minimal"
+  },
+  {
+    "id": "minimax",
+    "title": "Design System Inspired by MiniMax"
+  },
+  {
+    "id": "mintlify",
+    "title": "Design System Inspired by Mintlify"
+  },
+  {
+    "id": "miro",
+    "title": "Design System Inspired by Miro"
+  },
+  {
+    "id": "mission-control",
+    "title": "Mission Control Design System"
+  },
+  {
+    "id": "mistral-ai",
+    "title": "Design System Inspired by Mistral AI"
+  },
+  {
+    "id": "modern",
+    "title": "Design System Inspired by Modern"
+  },
+  {
+    "id": "mongodb",
+    "title": "Design System Inspired by MongoDB"
+  },
+  {
+    "id": "mono",
+    "title": "Design System Inspired by Mono"
+  },
+  {
+    "id": "neobrutalism",
+    "title": "Design System Inspired by Neobrutalism"
+  },
+  {
+    "id": "neon",
+    "title": "Design System Inspired by Neon"
+  },
+  {
+    "id": "neumorphism",
+    "title": "Design System Inspired by Neumorphism"
+  },
+  {
+    "id": "nike",
+    "title": "Design System Inspired by Nike"
+  },
+  {
+    "id": "notion",
+    "title": "Design System Inspired by Notion"
+  },
+  {
+    "id": "nvidia",
+    "title": "Design System Inspired by NVIDIA"
+  },
+  {
+    "id": "ollama",
+    "title": "Design System Inspired by Ollama"
+  },
+  {
+    "id": "openai",
+    "title": "Design System Inspired by OpenAI"
+  },
+  {
+    "id": "opencode-ai",
+    "title": "Design System Inspired by OpenCode"
+  },
+  {
+    "id": "pacman",
+    "title": "Design System Inspired by Pacman"
+  },
+  {
+    "id": "paper",
+    "title": "Design System Inspired by Paper"
+  },
+  {
+    "id": "perplexity",
+    "title": "Design System Inspired by Perplexity AI"
+  },
+  {
+    "id": "perspective",
+    "title": "Design System Inspired by Perspective"
+  },
+  {
+    "id": "pinterest",
+    "title": "Design System Inspired by Pinterest"
+  },
+  {
+    "id": "playstation",
+    "title": "Design System Inspired by PlayStation"
+  },
+  {
+    "id": "posthog",
+    "title": "Design System Inspired by PostHog"
+  },
+  {
+    "id": "premium",
+    "title": "Design System Inspired by Premium"
+  },
+  {
+    "id": "professional",
+    "title": "Design System Inspired by Professional"
+  },
+  {
+    "id": "publication",
+    "title": "Design System Inspired by Publication"
+  },
+  {
+    "id": "raycast",
+    "title": "Design System Inspired by Raycast"
+  },
+  {
+    "id": "refined",
+    "title": "Design System Inspired by Refined"
+  },
+  {
+    "id": "renault",
+    "title": "Design System Inspired by Renault"
+  },
+  {
+    "id": "replicate",
+    "title": "Design System Inspired by Replicate"
+  },
+  {
+    "id": "resend",
+    "title": "Design System Inspired by Resend"
+  },
+  {
+    "id": "retro",
+    "title": "Design System Inspired by Retro"
+  },
+  {
+    "id": "revolut",
+    "title": "Design System Inspired by Revolut"
+  },
+  {
+    "id": "runwayml",
+    "title": "Design System Inspired by Runway"
+  },
+  {
+    "id": "sanity",
+    "title": "Design System Inspired by Sanity"
+  },
+  {
+    "id": "sentry",
+    "title": "Design System Inspired by Sentry"
+  },
+  {
+    "id": "shadcn",
+    "title": "Design System Inspired by Shadcn"
+  },
+  {
+    "id": "shopify",
+    "title": "Design System Inspired by Shopify"
+  },
+  {
+    "id": "simple",
+    "title": "Design System Inspired by Simple"
+  },
+  {
+    "id": "skeumorphism",
+    "title": "Design System Inspired by Skeumorphism"
+  },
+  {
+    "id": "slack",
+    "title": "Design System Inspired by Slack"
+  },
+  {
+    "id": "sleek",
+    "title": "Design System Inspired by Sleek"
+  },
+  {
+    "id": "spacex",
+    "title": "Design System Inspired by SpaceX"
+  },
+  {
+    "id": "spacious",
+    "title": "Design System Inspired by Spacious"
+  },
+  {
+    "id": "spotify",
+    "title": "Design System Inspired by Spotify"
+  },
+  {
+    "id": "starbucks",
+    "title": "Design System Inspired by Starbucks"
+  },
+  {
+    "id": "storytelling",
+    "title": "Design System Inspired by Storytelling"
+  },
+  {
+    "id": "stripe",
+    "title": "Design System Inspired by Stripe"
+  },
+  {
+    "id": "supabase",
+    "title": "Design System Inspired by Supabase"
+  },
+  {
+    "id": "superhuman",
+    "title": "Design System Inspired by Superhuman"
+  },
+  {
+    "id": "tesla",
+    "title": "Design System Inspired by Tesla"
+  },
+  {
+    "id": "tetris",
+    "title": "Design System Inspired by Tetris"
+  },
+  {
+    "id": "theverge",
+    "title": "Design System Inspired by The Verge"
+  },
+  {
+    "id": "together-ai",
+    "title": "Design System Inspired by Together AI"
+  },
+  {
+    "id": "totality-festival",
+    "title": "Design System Inspired by Totality Festival"
+  },
+  {
+    "id": "trading-terminal",
+    "title": "Trading Terminal Design System"
+  },
+  {
+    "id": "uber",
+    "title": "Design System Inspired by Uber"
+  },
+  {
+    "id": "urdu",
+    "title": "Urdu Modern (Indus Script System)"
+  },
+  {
+    "id": "vercel",
+    "title": "Design System Inspired by Vercel"
+  },
+  {
+    "id": "vibrant",
+    "title": "Design System Inspired by Vibrant"
+  },
+  {
+    "id": "vintage",
+    "title": "Design System Inspired by Vintage"
+  },
+  {
+    "id": "vodafone",
+    "title": "Design System Inspired by Vodafone"
+  },
+  {
+    "id": "voltagent",
+    "title": "Design System Inspired by VoltAgent"
+  },
+  {
+    "id": "warm-editorial",
+    "title": "Warm Editorial"
+  },
+  {
+    "id": "warp",
+    "title": "Design System Inspired by Warp"
+  },
+  {
+    "id": "webex",
+    "title": "Design System Inspired by Webex"
+  },
+  {
+    "id": "webflow",
+    "title": "Design System Inspired by Webflow"
+  },
+  {
+    "id": "wechat",
+    "title": "WeChat Design System"
+  },
+  {
+    "id": "wired",
+    "title": "Design System Inspired by WIRED"
+  },
+  {
+    "id": "wise",
+    "title": "Design System Inspired by Wise"
+  },
+  {
+    "id": "x-ai",
+    "title": "Design System Inspired by xAI"
+  },
+  {
+    "id": "xiaohongshu",
+    "title": "Design System Inspired by Xiaohongshu"
+  },
+  {
+    "id": "zapier",
+    "title": "Design System Inspired by Zapier"
+  }
+]
