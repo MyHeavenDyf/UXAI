@@ -19,6 +19,7 @@ import {
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
 } from "./icons"
+import { ProjectInfo } from "@/pages/cowork/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -254,6 +255,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       }}
     >
       <div class="shrink-0">
+         <ProjectInfo />
         <div style={{ margin: "12px 12px 8px 12px" }} class="relative">
           <button
             type="button"
