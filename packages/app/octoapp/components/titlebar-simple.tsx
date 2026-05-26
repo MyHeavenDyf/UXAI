@@ -83,7 +83,7 @@ export function TitlebarSimple() {
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
     if (path === "/") return "cowork"
-    if (path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
+    if (path === "/cowork" || path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
     if (path === "/") return "chat"
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
@@ -96,11 +96,8 @@ export function TitlebarSimple() {
 
   const handleTabClick = (tab: TabType) => {
     const path = location.pathname
-    // For Cowork tab, navigate to /insight
     if (tab === "cowork") {
-      const idMatch = path.match(/\/insight\/([^/]+)/)
-      const id = idMatch ? idMatch[1] : ""
-      navigate(`/insight${id ? `/${id}` : ""}`)
+      navigate("/cowork")
       return
     }
     // Get dir slug: from URL path or from globalSync directory

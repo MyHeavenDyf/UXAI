@@ -14,7 +14,7 @@
 
 /* ② 滚动区域：顶部留白 24px，左右 16px */
 [data-cowork-area="sidebar"] .flex-1.min-h-0.overflow-y-auto {
-  padding: 24px 16px 0;
+  padding: 8px 16px;
 }
 
 /* ③ 分组标题行：高度 48px，相对定位作为 chevron 定位容器 */
