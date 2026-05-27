@@ -515,16 +515,24 @@ export default function StudioPage() {
   }
 
   function buildStudioPromptText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
+    console.log('buildStudioPromptText');
     const context = buildStudioConversationContext({
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
       parts: dataStore.part,
       fallback: pendingResult(),
     })
+    const selectedTool = input.capability === "image.upscale"
+      ? "internel_image_generate"
+      : imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate"
     const toolSettings = JSON.stringify({
+      capability: input.capability,
       styleModel: styleModelLabel(styleModel()),
       aspectRatio: aspectRatio(),
       count: count(),
-      imageTool: imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate",
+      imageTool: selectedTool,
+      ...(input.capability === "image.upscale" && input.sourceImage && !input.sourceImage.startsWith("data:image/")
+        ? { sourceImage: input.sourceImage }
+        : {}),
     })
     return [
       `用户需求：${input.text}`,
@@ -532,10 +540,13 @@ export default function StudioPage() {
       `风格模型：${styleModelLabel(styleModel())}`,
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
-      `当前选中的生图工具：${imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate"}`,
+      `当前选中的生图工具：${selectedTool}`,
       `工具参数JSON：${toolSettings}`,
-      "调用生图工具时必须使用工具参数JSON中的 styleModel、aspectRatio、count。",
-      input.sourceImage && imageTool() === "internel"
+      "本轮必须调用当前选中的生图工具，不要只回复文字。",
+      "调用生图工具时必须使用工具参数JSON中的 capability、styleModel、aspectRatio、count。",
+      input.capability === "image.upscale"
+        ? "这是变清晰任务，当前图片已作为附件提供；必须将当前查看的图片作为 sourceImage 传给生图工具。"
+        : input.sourceImage && imageTool() === "internel"
         ? "内部生图不传参考图，请根据上一轮摘要保持主体、风格、构图和色调一致，并按用户新需求重新生成。"
         : input.sourceImage
           ? "这是基于上一张图继续编辑。"
@@ -548,8 +559,14 @@ export default function StudioPage() {
   }
 
   function buildStudioThinkingText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
+    const opening =
+      input.capability === "image.upscale"
+        ? "好的，我将提升当前图片的清晰度和细节。"
+        : input.capability === "image.outpaint"
+          ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
+          : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
     return [
-      `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`,
+      opening,
       `风格模型：${styleModelLabel(styleModel())}`,
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
@@ -580,7 +597,7 @@ export default function StudioPage() {
       filename: item.name,
       url: item.dataUrl,
     }))
-    if (!input.sourceImage || imageTool() === "internel") return [textPart, ...fileParts]
+    if (!input.sourceImage || (imageTool() === "internel" && input.capability !== "image.upscale")) return [textPart, ...fileParts]
     return [
       textPart,
       ...fileParts,
@@ -594,11 +611,12 @@ export default function StudioPage() {
   }
 
   async function sendStudioPrompt(input: { sessionID: string; text: string; capability: StudioCapability; sourceImage?: string }) {
+    console.log('send promp: ', imageTool());
     await globalSDK.client.session.promptAsync({
       sessionID: input.sessionID,
       tools: {
-        jimeng_image_generate: imageTool() !== "internel",
-        internel_image_generate: imageTool() === "internel",
+        // jimeng_image_generate: imageTool() !== "internel",
+        internel_image_generate: imageTool() === "internel" || input.capability === "image.upscale",
       },
       parts: buildStudioPromptParts({ text: input.text, capability: input.capability, sourceImage: input.sourceImage }),
     })
@@ -669,6 +687,25 @@ export default function StudioPage() {
       capability: "image.outpaint",
       sourceImage: image.remoteUrl ?? image.url,
       prompt: prompt().trim() || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
+    })
+  }
+
+  function upscaleCurrentImage() {
+    const image = selectedImage()
+    if (!image || isBusy()) return
+    void runGeneration({
+      capability: "image.upscale",
+      sourceImage: image.remoteUrl ?? image.url,
+      prompt: "将当前图片变清晰，提升分辨率和细节",
+    })
+  }
+
+  function regenerateCurrentResult() {
+    const current = result()
+    if (!current) return
+    void runGeneration({
+      capability: current.capability,
+      prompt: current.prompt,
     })
   }
 
@@ -803,7 +840,8 @@ export default function StudioPage() {
               image={selectedImage()}
               result={result()}
               imageLabel={currentImageLabel()}
-              onRegenerate={() => void runGeneration()}
+              regenerateDisabled={isBusy()}
+              onRegenerate={regenerateCurrentResult}
               onDownload={() => void downloadCurrentImage()}
             />
           }>
@@ -826,8 +864,10 @@ export default function StudioPage() {
                 image={selectedImage()}
                 selectedImageId={selectedImageId()}
                 imageLabel={currentImageLabel()}
+                regenerateDisabled={isBusy()}
                 onSelectImage={setSelectedImageId}
-                onRegenerate={() => void runGeneration()}
+                onRegenerate={regenerateCurrentResult}
+                onUpscale={upscaleCurrentImage}
                 onOutpaint={openOutpaint}
               />
             </aside>
@@ -1278,6 +1318,7 @@ function StudioResultCanvas(props: {
   image?: StudioImage
   result?: StudioGenerationResult
   imageLabel: string
+  regenerateDisabled: boolean
   onRegenerate: () => void
   onDownload: () => void
 }): JSX.Element {
@@ -1315,13 +1356,19 @@ function StudioResultCanvas(props: {
           <div class="h-[56px] shrink-0 flex items-center border-b border-[rgba(15,23,42,0.08)] px-6">
             <span class="rounded-full bg-[#fde7ff] text-[#c100d8] px-3 py-1 text-[13px]">{props.imageLabel}</span>
           </div>
-          <div class="flex-1 min-h-0 flex items-center justify-center p-10">
+          <div class="flex-1 min-h-0 flex items-center justify-center px-10 pt-10 pb-[106px]">
             <img src={image().url} class="max-h-full max-w-full object-contain" alt="Studio generated result" />
           </div>
           <div class="absolute bottom-12 left-1/2 -translate-x-1/2 h-12 rounded-full bg-white shadow-[0_18px_52px_rgba(15,23,42,0.16)] flex items-center gap-2 px-4">
             <button type="button" class="w-8 h-8 rounded-full hover:bg-[#f3f4f6]" title="收藏">♡</button>
-            <button type="button" class="w-8 h-8 rounded-full hover:bg-[#f3f4f6]" onClick={props.onRegenerate} title="再次生成">↻</button>
-            <button type="button" onClick={props.onDownload} class="studio-gradient-button h-8 min-w-[76px] px-6 rounded-full text-[13px] whitespace-nowrap leading-none flex items-center justify-center" title="下载">下载</button>
+            <button
+              type="button"
+              class="w-8 h-8 rounded-full hover:bg-[#f3f4f6] disabled:opacity-45 disabled:cursor-not-allowed"
+              onClick={props.onRegenerate}
+              disabled={props.regenerateDisabled}
+              title="再次生成"
+            >↻</button>
+            <button type="button" onClick={props.onDownload} class="studio-gradient-button studio-canvas-download-action h-8 min-w-[76px] px-6 rounded-full text-[13px] whitespace-nowrap leading-none flex items-center justify-center" title="下载">下载</button>
           </div>
         </>
       )}
@@ -1334,8 +1381,10 @@ function StudioDetails(props: {
   image?: StudioImage
   selectedImageId?: string
   imageLabel: string
+  regenerateDisabled: boolean
   onSelectImage: (id: string) => void
   onRegenerate: () => void
+  onUpscale: () => void
   onOutpaint: () => void
 }): JSX.Element {
   return (
@@ -1346,10 +1395,12 @@ function StudioDetails(props: {
             <button
               type="button"
               onClick={() => props.onSelectImage(image.id)}
-              class="aspect-[3/4] rounded-[7px] overflow-hidden ring-offset-2"
-              classList={{ "ring-2 ring-[#1267ff]": image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
+              class="relative aspect-[3/4] rounded-[7px] overflow-hidden"
             >
               <img src={image.thumbnailUrl ?? image.url} class="w-full h-full object-cover" alt="" />
+              <Show when={image.id === (props.selectedImageId ?? props.result.images[0]?.id)}>
+                <span class="pointer-events-none absolute inset-0 rounded-[7px] border-2 border-[#1267ff]" />
+              </Show>
             </button>
           )}
         </For>
@@ -1371,14 +1422,36 @@ function StudioDetails(props: {
         <p class="text-[12px] leading-[20px] text-[var(--studio-muted)]">{props.result.prompt.split("\n")[0]}</p>
       </div>
       <div class="py-5 border-b border-[rgba(15,23,42,0.08)]">
-        <button type="button" onClick={props.onRegenerate} class="studio-gradient-button w-full h-8 rounded-full text-[13px] mb-3">
+        <button
+          type="button"
+          onClick={props.onRegenerate}
+          disabled={props.regenerateDisabled}
+          class="studio-gradient-button studio-details-primary-action w-full h-8 rounded-full text-[13px] mb-3 disabled:opacity-45 disabled:cursor-not-allowed"
+        >
           ✦ 再次生成
         </button>
         <div class="grid grid-cols-2 gap-2">
-          <button type="button" class="h-8 rounded-full bg-[#f3f4f6] text-[12px]">变清晰</button>
-          <button type="button" class="h-8 rounded-full bg-[#f3f4f6] text-[12px]">抠图</button>
-          <button type="button" class="h-8 rounded-full bg-[#f3f4f6] text-[12px]">局部重绘</button>
-          <button type="button" onClick={props.onOutpaint} class="h-8 rounded-full bg-[#f3f4f6] text-[12px]">扩图</button>
+          <button
+            type="button"
+            onClick={props.onUpscale}
+            disabled={props.regenerateDisabled}
+            class="studio-details-secondary-action h-8 rounded-full text-[12px] disabled:opacity-45 disabled:cursor-not-allowed"
+          >
+            <img src="/studio/imgCreate3.svg" alt="" aria-hidden="true" />
+            <span>变清晰</span>
+          </button>
+          <button type="button" class="studio-details-secondary-action h-8 rounded-full text-[12px]">
+            <img src="/studio/imgCreate4.svg" alt="" aria-hidden="true" />
+            <span>抠图</span>
+          </button>
+          <button type="button" class="studio-details-secondary-action h-8 rounded-full text-[12px]">
+            <img src="/studio/imgCreate5.svg" alt="" aria-hidden="true" />
+            <span>局部重绘</span>
+          </button>
+          <button type="button" onClick={props.onOutpaint} class="studio-details-secondary-action h-8 rounded-full text-[12px]">
+            <img src="/studio/imgCreate6.svg" alt="" aria-hidden="true" />
+            <span>扩图</span>
+          </button>
         </div>
       </div>
       <div class="py-5">
