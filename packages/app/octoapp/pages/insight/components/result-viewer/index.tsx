@@ -1,34 +1,36 @@
-import { createMemo, createResource, Show, Switch, Match } from "solid-js"
+import { createMemo, createResource, createSignal, Show, Switch, Match } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import type { ResultTab, ResultTabType } from "./tab-store"
+import { showToast } from "@opencode-ai/ui/toast"
+import type { ResultTab } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
-import { isMindmapJSON, stripCodeFence } from "../../utils/detect"
+import { stripCodeFence } from "../../utils/detect"
 import { fetchResourceText } from "../../utils/resource-link"
+import { getDesktopApi } from "../../lib/electron-api"
 
 // ── JSON 渲染器 ────────────────────────────────────────────────
+// 复用上游 <Markdown> 的 shiki 高亮:把 JSON 包成 ```json fence 喂给它,
+// 自动获得 syntax highlight + 复制按钮(跟对话区的代码段视觉完全一致)。
+// 避免之前 <pre> 纯文本无高亮的体验断层。
 function JsonRenderer(props: { content: string }): JSX.Element {
-  const code = createMemo(() => {
+  const fenced = createMemo(() => {
     const raw = stripCodeFence(props.content)
+    let pretty = raw
     try {
-      return JSON.stringify(JSON.parse(raw), null, 2)
+      pretty = JSON.stringify(JSON.parse(raw), null, 2)
     } catch {
-      return raw
+      // 解析失败保持原样,markdown 仍按 json 语法高亮(shiki 容错)
     }
+    return "```json\n" + pretty + "\n```"
   })
   return (
     <div class="p-4 h-full overflow-auto">
-      <pre
-        class="text-sm text-[var(--octo-text-primary)] p-4 rounded-lg overflow-auto"
-        style={{ background: "rgba(243,244,246,1)", "font-family": "monospace" }}
-      >
-        {code()}
-      </pre>
+      <Markdown text={fenced()} />
     </div>
   )
 }
@@ -48,8 +50,8 @@ export function ResultViewer(props: {
   activeId: string | null
   onActivate: (id: string) => void
   onClose: (id: string) => void
-  /** URI 模式 fetch 完成后回写缓存(含可选的 type 修正,如 json → mindmap shape 二次判断) */
-  onCacheContent?: (id: string, content: string, retypeAs?: ResultTabType) => void
+  /** URI 模式 fetch 完成后回写缓存 */
+  onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
 
@@ -83,7 +85,7 @@ export function ResultViewer(props: {
 // ── Tab 内容容器:按 source 分流(inline 直渲染 / uri 走 fetch + Suspense) ──
 function TabBody(props: {
   tab: ResultTab
-  onCacheContent?: (id: string, content: string, retypeAs?: ResultTabType) => void
+  onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   return (
     <Show
@@ -95,19 +97,18 @@ function TabBody(props: {
   )
 }
 
-// URI 模式 + 未缓存:fetch → 回写 cache → 由父层 Show 自动切到 inline 分支渲染
+// URI 模式 + 未缓存:fetch → 回写 cache → 由父层 Show 自动切到 inline 分支渲染。
+// tab.type 在对话流出卡阶段已由 business_type(优先) / mimeType(兜底)确定(spec: output-renderers.md §2.5.2);
+// 此处不再做"application/json 二次判断 retype"——服务端 business_type 显式声明即真理,客户端零嗅探。
 function UriTabBody(props: {
   tab: ResultTab
-  onCacheContent?: (id: string, content: string, retypeAs?: ResultTabType) => void
+  onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   const [resource, { refetch }] = createResource(
     () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri } : null),
     async (src) => {
       const text = await fetchResourceText(src.uri)
-      // application/json 二次判断:命中 mindmap shape 则修正 type
-      let retypeAs: ResultTabType | undefined
-      if (props.tab.type === "json" && isMindmapJSON(text)) retypeAs = "mindmap"
-      props.onCacheContent?.(src.id, text, retypeAs)
+      props.onCacheContent?.(src.id, text)
       return text
     },
   )
@@ -215,8 +216,101 @@ function ResourceErrorFallback(props: {
   )
 }
 
-// 二进制 / 未识别 mimeType:不在内嵌渲染,仅提供下载 / 唤起本地应用入口(详见 ADR-009)
+// 二进制 / 未识别 mimeType:不在内嵌渲染,提供「用本地应用打开 + 下载到本地」双按钮。
+// spec: docs/specs/ui/output-renderers.md §6.A,决策: ADR-009。
 function FileFallback(props: { tab: ResultTab }): JSX.Element {
+  const [openBusy, setOpenBusy] = createSignal(false)
+  const [downloadBusy, setDownloadBusy] = createSignal(false)
+
+  function sanitize(name: string): string {
+    return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
+  }
+
+  function defaultFilename(): string {
+    if (props.tab.fileName) return sanitize(props.tab.fileName)
+    if (props.tab.uri) {
+      try {
+        const u = new URL(props.tab.uri)
+        const last = u.pathname.split("/").filter(Boolean).pop()
+        if (last) return sanitize(decodeURIComponent(last))
+      } catch { /* noop */ }
+    }
+    return sanitize(props.tab.title || "download")
+  }
+
+  async function handleOpenInApp() {
+    if (!props.tab.uri || openBusy()) return
+    const api = getDesktopApi()
+    if (!api || !api.downloadResourceToTemp || !api.openPath || !api.downloadResource || !api.saveFilePicker) {
+      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+      return
+    }
+    setOpenBusy(true)
+    const fname = defaultFilename()
+    console.log("[octo:office] download-start", {
+      uri: props.tab.uri,
+      namespace: props.tab.id,
+      filename: fname,
+      mime: props.tab.mimeType,
+      mode: "to-temp",
+    })
+    try {
+      const localPath = await api.downloadResourceToTemp(props.tab.uri, props.tab.id, fname)
+      console.log("[octo:office] download-ok", { localPath })
+      console.log("[octo:office] open-path", { localPath })
+      // shell.openPath 返回值约定: 空字符串 = 成功,非空 = 错误说明。
+      // preload types 声明为 Promise<void>,但实际透传 string;运行时按 string 处理。
+      const openResult = (await api.openPath(localPath)) as unknown as string | undefined
+      if (typeof openResult === "string" && openResult.length > 0) {
+        console.error("[octo:office] open-failed", { localPath, reason: openResult })
+        showToast({
+          title: "唤起本地应用失败",
+          description: "请安装 Excel / WPS 或在系统设置中关联打开方式",
+          variant: "error",
+        })
+      }
+    } catch (err) {
+      console.error("[octo:office] open-failed", { uri: props.tab.uri, err })
+      showToast({
+        title: "无法打开文件",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      })
+    } finally {
+      setOpenBusy(false)
+    }
+  }
+
+  async function handleDownload() {
+    if (!props.tab.uri || downloadBusy()) return
+    const api = getDesktopApi()
+    if (!api || !api.downloadResourceToTemp || !api.openPath || !api.downloadResource || !api.saveFilePicker) {
+      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+      return
+    }
+    setDownloadBusy(true)
+    try {
+      const chosen = await api.saveFilePicker({ defaultPath: defaultFilename() })
+      if (!chosen) {
+        setDownloadBusy(false)
+        return
+      }
+      console.log("[octo:office] download-start", { uri: props.tab.uri, destPath: chosen, mode: "user-save" })
+      await api.downloadResource(props.tab.uri, chosen)
+      console.log("[octo:office] download-ok", { destPath: chosen })
+      showToast({ description: "已下载", variant: "success", duration: 2000 })
+    } catch (err) {
+      console.error("[octo:office] download-failed", { uri: props.tab.uri, err })
+      showToast({
+        title: "下载失败",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      })
+    } finally {
+      setDownloadBusy(false)
+    }
+  }
+
   return (
     <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
       <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>
@@ -225,16 +319,29 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>
         {props.tab.mimeType || "未知类型"} · 该格式不在应用内预览
       </div>
-      <Show when={props.tab.uri}>
-        <a
-          href={props.tab.uri}
-          target="_blank"
-          rel="noreferrer"
-          class="px-3 py-1 mt-1 text-xs rounded"
-          style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
-        >
-          打开 / 下载
-        </a>
+      <Show when={props.tab.uri} fallback={
+        <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>无远程地址,无法打开 / 下载</div>
+      }>
+        <div class="flex items-center gap-2 mt-1">
+          <button
+            type="button"
+            onClick={() => void handleOpenInApp()}
+            disabled={openBusy()}
+            class="px-3 py-1 text-xs rounded disabled:opacity-50"
+            style={{ border: "1px solid var(--octo-brand)", color: "var(--octo-brand)", background: "var(--octo-surface-page)" }}
+          >
+            {openBusy() ? "打开中…" : "用本地应用打开"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDownload()}
+            disabled={downloadBusy()}
+            class="px-3 py-1 text-xs rounded disabled:opacity-50"
+            style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+          >
+            {downloadBusy() ? "下载中…" : "下载到本地"}
+          </button>
+        </div>
       </Show>
     </div>
   )

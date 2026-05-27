@@ -6,6 +6,8 @@ import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { HtmlRenderer } from "./html-renderer"
+import { DeckRenderer } from "./deck-renderer"
+import { SvgRenderer } from "./svg-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 
 function extractCodeBlock(text: string, lang: string): string {
@@ -26,8 +28,7 @@ function MermaidPlaceholder(props: { content: string }): JSX.Element {
           color: "#92400e",
         }}
       >
-        <span>⚠️</span>
-        <span>Mermaid 图表渲染将在 Phase 2 实现，当前显示源码</span>
+        <span>Mermaid 图表渲染将在后续实现，当前显示源码</span>
       </div>
       <pre
         class="flex-1 text-sm text-[var(--octo-text-primary)] p-4 rounded-lg overflow-auto"
@@ -88,6 +89,8 @@ export function ResultViewer(props: {
     setHtmlModes((prev) => ({ ...prev, [id]: current === "preview" ? "edit" : "preview" }))
   }
 
+  const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
+
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
@@ -105,10 +108,10 @@ export function ResultViewer(props: {
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <ActionBar
                 tab={tab()}
-                mode={tab().type === "html" ? getHtmlMode(tab().id) : undefined}
-                onModeChange={tab().type === "html" ? () => toggleHtmlMode(tab().id) : undefined}
+                mode={canToggleMode(tab()) ? getHtmlMode(tab().id) : undefined}
+                onModeChange={canToggleMode(tab()) ? () => toggleHtmlMode(tab().id) : undefined}
               />
-              <div class="flex-1 overflow-hidden">
+              <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch
                   fallback={
                     <div class="p-4 overflow-auto h-full">
@@ -119,7 +122,7 @@ export function ResultViewer(props: {
                   <Match when={tab().type === "table"}>
                     <TableRenderer content={tab().content} />
                   </Match>
-                  <Match when={tab().type === "markdown"}>
+                  <Match when={tab().type === "markdown" || tab().type === "markdown-document"}>
                     <MarkdownRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "mindmap"}>
@@ -130,6 +133,16 @@ export function ResultViewer(props: {
                   </Match>
                   <Match when={tab().type === "html"}>
                     <HtmlRenderer
+                      content={tab().content}
+                      mode={getHtmlMode(tab().id)}
+                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                    />
+                  </Match>
+                  <Match when={tab().type === "deck"}>
+                    <DeckRenderer content={tab().content} />
+                  </Match>
+                  <Match when={tab().type === "svg"}>
+                    <SvgRenderer
                       content={tab().content}
                       mode={getHtmlMode(tab().id)}
                       onContentChange={(content) => props.onContentChange?.(tab().id, content)}

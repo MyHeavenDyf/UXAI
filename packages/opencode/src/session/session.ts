@@ -9,11 +9,9 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 
 import { Database } from "@/storage/db"
 import { NotFoundError } from "@/storage/storage"
-import { eq, and, gte, isNull, desc, like, inArray, lt, or, sql } from "drizzle-orm"
+import { eq, and, gte, isNull, desc, like, inArray, lt, or } from "drizzle-orm"
 import { SyncEvent } from "../sync"
-import type { SQL } from "drizzle-orm"
 import { PartTable, SessionTable } from "./session.sql"
-import { ProjectTable } from "../project/project.sql"
 import { Storage } from "@/storage/storage"
 import * as Log from "@opencode-ai/core/util/log"
 import { MessageV2 } from "./message-v2"
@@ -30,9 +28,8 @@ import { Permission } from "@/permission"
 import { Global } from "@opencode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { zod } from "@/util/effect-zod"
-import { SessionCategoryTable } from "./session-category.sql"
-import { agentToCategory } from "./session-category"
 import { NonNegativeInt, optionalOmitUndefined, withStatics } from "@/util/schema"
+import * as CategoryQuery from "./session-category-query"
 
 const log = Log.create({ service: "session" })
 
@@ -526,23 +523,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       yield* sync.run(Event.Created, { sessionID: result.id, info: result })
 
       if (result.agent) {
-        yield* Effect.sync(() => {
-          const category = agentToCategory(result.agent!)
-          const now = Date.now()
-          Database.use((db) =>
-            db
-              .insert(SessionCategoryTable)
-              .values({ session_id: result.id, category, time_created: now, time_updated: now })
-              .onConflictDoUpdate({
-                target: SessionCategoryTable.session_id,
-                set: { category, time_updated: now },
-              })
-              .run(),
-          )
-        }).pipe(Effect.catch((err) => {
+        try {
+          CategoryQuery.insertCategory(result.id, result.agent!)
+        } catch (err) {
           log.error("failed to set session category", { sessionID: result.id, agent: result.agent, err })
-          return Effect.void
-        }))
+        }
       }
 
       if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
@@ -558,33 +543,18 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     })
 
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
-      const row = yield* db((d) =>
-        d
-          .select({ session: SessionTable, category: SessionCategoryTable.category })
-          .from(SessionTable)
-          .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
-          .where(eq(SessionTable.id, id))
-          .get(),
-      )
-      if (!row) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
-      return fromRow(row.session as SessionRow, row.category ?? undefined)
+      const info = CategoryQuery.getWithCategory(id)
+      if (!info) return yield* Effect.fail(new NotFoundError({ message: `Session not found: ${id}` }))
+      return info
     })
 
     const list = Effect.fn("Session.list")(function* (input?: ListInput) {
       const ctx = yield* InstanceState.context
-      return Array.from(listByProject({ projectID: ctx.project.id, ...input }))
+      return Array.from(CategoryQuery.listByProjectWithCategory({ projectID: ctx.project.id, ...input }))
     })
 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
-      const rows = yield* db((d) =>
-        d
-          .select({ session: SessionTable, category: SessionCategoryTable.category })
-          .from(SessionTable)
-          .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
-          .where(and(eq(SessionTable.parent_id, parentID)))
-          .all(),
-      )
-      return rows.map((row) => fromRow(row.session as SessionRow, row.category ?? undefined))
+      return CategoryQuery.childrenWithCategory(parentID)
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -884,20 +854,15 @@ function* listByProject(
 
   const rows = Database.use((db) =>
     db
-      .select({ session: SessionTable, category: SessionCategoryTable.category })
+      .select()
       .from(SessionTable)
-      .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
-      .where(
-        input.category
-          ? and(...conditions, sql`${SessionCategoryTable.category} = ${input.category}`)
-          : and(...conditions),
-      )
+      .where(and(...conditions))
       .orderBy(desc(SessionTable.time_updated))
       .limit(limit)
       .all(),
   )
   for (const row of rows) {
-    yield fromRow(row.session as SessionRow, row.category ?? undefined)
+    yield fromRow(row)
   }
 }
 
@@ -910,65 +875,7 @@ export function* listGlobal(input?: {
   limit?: number
   archived?: boolean
 }) {
-  const conditions: SQL[] = []
-
-  if (input?.directory) {
-    conditions.push(eq(SessionTable.directory, input.directory))
-  }
-  if (input?.roots) {
-    conditions.push(isNull(SessionTable.parent_id))
-  }
-  if (input?.start) {
-    conditions.push(gte(SessionTable.time_updated, input.start))
-  }
-  if (input?.cursor) {
-    conditions.push(lt(SessionTable.time_updated, input.cursor))
-  }
-  if (input?.search) {
-    conditions.push(like(SessionTable.title, `%${input.search}%`))
-  }
-  if (!input?.archived) {
-    conditions.push(isNull(SessionTable.time_archived))
-  }
-
-  const limit = input?.limit ?? 100
-
-  const rows = Database.use((db) => {
-    const base = db
-      .select({ session: SessionTable, category: SessionCategoryTable.category })
-      .from(SessionTable)
-      .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
-    const query =
-      conditions.length > 0
-        ? base.where(and(...conditions))
-        : base
-    return query.orderBy(desc(SessionTable.time_updated), desc(SessionTable.id)).limit(limit).all()
-  })
-
-  const ids = [...new Set(rows.map((row) => row.session.project_id))]
-  const projects = new Map<string, ProjectInfo>()
-
-  if (ids.length > 0) {
-    const items = Database.use((db) =>
-      db
-        .select({ id: ProjectTable.id, name: ProjectTable.name, worktree: ProjectTable.worktree })
-        .from(ProjectTable)
-        .where(inArray(ProjectTable.id, ids))
-        .all(),
-    )
-    for (const item of items) {
-      projects.set(item.id, {
-        id: item.id,
-        name: item.name ?? undefined,
-        worktree: item.worktree,
-      })
-    }
-  }
-
-  for (const row of rows) {
-    const project = projects.get(row.session.project_id) ?? null
-    yield { ...fromRow(row.session as SessionRow, row.category ?? undefined), project }
-  }
+  yield* CategoryQuery.listGlobalWithCategory(input)
 }
 
 export * as Session from "./session"

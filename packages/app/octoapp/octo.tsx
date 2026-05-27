@@ -26,6 +26,7 @@ import {
   Show,
   Suspense,
 } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
@@ -48,10 +49,12 @@ import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { useCheckServerHealth } from "./utils/server-health"
+import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
+const CoworkPage = lazy(() => import("@/pages/cowork"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
@@ -76,9 +79,7 @@ const SessionRedirectRoute = () => {
   return <Navigate href={`../chat/${params.id ?? ""}`} />
 }
 const CoworkRedirectRoute = () => {
-  const params = useParams<{ id?: string }>()
-  const href = params.id ? `/insight/${params.id}` : "/insight"
-  return <Navigate href={href} />
+  return <Navigate href="/cowork" />
 }
 
 function UiI18nBridge(props: ParentProps) {
@@ -113,7 +114,12 @@ function QueryProvider(props: ParentProps) {
 }
 
 function OctoSidebarLayout(props: ParentProps) {
-  const [sidebarWidth, setSidebarWidth] = createSignal(296)
+  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
+    Persist.global("cowork.sidebar.width"),
+    createStore({ width: 296 }),
+  )
+  const sidebarWidth = () => sidebarWidthStore.width
+  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
 
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
@@ -214,7 +220,7 @@ function OnboardingLayer() {
     layout.projects.open(directory)
     server.projects.touch(directory)
     void globalSDK.createClient({ directory }).session.list().catch(() => {})
-    navigate("/insight")
+    navigate("/cowork")
   }
 
   return (
@@ -229,7 +235,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
 
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
+    return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
   }
 
   return (
@@ -442,7 +448,8 @@ export function AppInterface(props: {
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
-                  <Route path="/" component={InsightPage} />
+                  <Route path="/" component={CoworkPage} />
+                  <Route path="/cowork" component={CoworkPage} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />

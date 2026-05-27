@@ -5,11 +5,15 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { useServer } from "@/context/server"
+import { useLayout } from "@/context/layout"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { Logo } from "@opencode-ai/ui/logo"
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import { decode64 } from "@/utils/base64"
 import { useGlobalSync } from "@/context/global-sync"
 import { useCommand } from "@/context/command"
+// jk-j60099994-replace-with-titlebar-simple-1-start
+// jk-j60099994-replace-with-titlebar-simple-1-end
 
 
 type TabType = "chat" | "cowork" | "studio"
@@ -60,6 +64,7 @@ export function TitlebarSimple() {
   const globalSync = useGlobalSync()
   const server = useServer()
   const command = useCommand()
+  const layout = useLayout()
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
@@ -81,7 +86,7 @@ export function TitlebarSimple() {
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
     if (path === "/") return "cowork"
-    if (path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
+    if (path === "/cowork" || path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
     if (path === "/") return "chat"
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
@@ -92,32 +97,60 @@ export function TitlebarSimple() {
     return "chat"
   })
 
-  const handleTabClick = (tab: TabType) => {
-    const path = location.pathname
-    // For Cowork tab, navigate to /insight
-    if (tab === "cowork") {
-      const idMatch = path.match(/\/insight\/([^/]+)/)
-      const id = idMatch ? idMatch[1] : ""
-      navigate(`/insight${id ? `/${id}` : ""}`)
-      return
-    }
-    // Get dir slug: from URL path or from globalSync directory
-    // Skip "insight" and "make" which are standalone routes, not directory slugs
+  const isGlobalRoute = (p: string) =>
+    p === "/" || p.startsWith("/cowork") || p.startsWith("/insight") || p.startsWith("/make") || p.startsWith("/skills")
+
+  const getProjectDirSlug = (path: string) => {
     const dirMatch = path.match(/^\/([^/]+)/)
-    let dir = dirMatch ? dirMatch[1] : ""
-    if (!dir || dir === "insight" || dir === "make" || dir === "skills") {
+    const firstSegment = dirMatch ? dirMatch[1] : ""
+    if (!firstSegment || firstSegment === "cowork" || firstSegment === "insight" || firstSegment === "make" || firstSegment === "skills") {
       const last = server.projects.last()
       const directory = last && last !== "/" && !/^[A-Z]:\\?$/.test(last) 
         ? last 
         : globalSync.data.path.home
-      dir = directory ? base64Encode(directory) : ""
+      return directory ? base64Encode(directory) : undefined
     }
-    if (!dir) return
-    const idMatch = path.match(/\/(chat)\/([^/]+)/)
-    const id = idMatch ? idMatch[2] : ""
+    return firstSegment
+  }
 
-    const targetUrl = `/${dir}/${tab}${id ? `/${id}` : ""}`
-    navigate(targetUrl)
+  const handleTabClick = (tab: TabType) => {
+    const path = location.pathname
+    const currentDirSlug = isGlobalRoute(path) ? undefined : getProjectDirSlug(path)
+
+    if (tab === "cowork") {
+      const cowork = layout.lastSessionPerTab.cowork()
+      if (cowork?.id) {
+        navigate(`/${cowork.type}/${cowork.id}`)
+      } else {
+        navigate("/cowork")
+      }
+      return
+    }
+
+    const dirSlug = currentDirSlug ?? getProjectDirSlug("")
+    if (!dirSlug) return
+
+    const decodedDir = decode64(dirSlug)
+    if (!decodedDir) {
+      navigate(`/${dirSlug}/${tab}`)
+      return
+    }
+
+    if (tab === "chat") {
+      const sessionId = layout.lastSessionPerTab.chat(decodedDir)
+      if (sessionId) {
+        navigate(`/${dirSlug}/chat/${sessionId}`)
+      } else {
+        navigate(`/${dirSlug}/chat`)
+      }
+    } else if (tab === "studio") {
+      const sessionId = layout.lastSessionPerTab.studio(decodedDir)
+      if (sessionId) {
+        navigate(`/${dirSlug}/studio/${sessionId}`)
+      } else {
+        navigate(`/${dirSlug}/studio`)
+      }
+    }
   }
 
   const hasActiveTab = createMemo(() => activeTab() !== undefined)

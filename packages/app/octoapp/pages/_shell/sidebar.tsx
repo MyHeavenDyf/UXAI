@@ -11,6 +11,7 @@ import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
+import { useLanguage } from "@/context/language"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import {
@@ -18,6 +19,7 @@ import {
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
 } from "./icons"
+import { ProjectInfo } from "@/pages/cowork/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -99,6 +101,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const dialog = useDialog()
   const notification = useNotification()
   const permission = usePermission()
+  const language = useLanguage()
 
   const projectDir = useProjectDir()
   const isOnboarding = createMemo(() => location.pathname === "/")
@@ -112,7 +115,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
   const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
 
-  // Effect 1: read projectDir() which tracks server.projects.last() (persisted store, reactive).
+  // Effect 1: read projectDir() which tracks server.projects.last (memo, reactive).
   // For returning users this fires immediately on mount with the persisted directory.
   createEffect(() => {
     const d = projectDir()
@@ -200,13 +203,46 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const [insightCollapsed, setInsightCollapsed] = createSignal(false)
   const [makeCollapsed, setMakeCollapsed] = createSignal(false)
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
+  const [showDropdown, setShowDropdown] = createSignal(false)
+  const [dropdownPos, setDropdownPos] = createSignal({ top: 0, left: 0 })
+
+  function toggleDropdown(e: MouseEvent) {
+    e.stopPropagation()
+    const btn = e.currentTarget as HTMLElement
+    const rect = btn.getBoundingClientRect()
+    setDropdownPos({ top: rect.bottom, left: rect.left + 87 })
+    setShowDropdown((v) => !v)
+  }
+
+  function closeDropdown() {
+    setShowDropdown(false)
+  }
+
+  createEffect(() => {
+    if (showDropdown()) {
+      document.addEventListener("click", closeDropdown)
+      onCleanup(() => document.removeEventListener("click", closeDropdown))
+    }
+  })
 
   function newSession() {
-    navigate("/insight")
+    const dir = resolvedDir()
+    if (!dir) return
+    const client = globalSDK.createClient({ directory: dir })
+    void client.session.create({ directory: dir, agent: "octo_insight" }).then((result) => {
+      const session = result.data as Session | undefined
+      if (session) navigate(`/insight/${session.id}`)
+    })
   }
 
   function newMakeSession() {
-    navigate("/make")
+    const dir = resolvedDir()
+    if (!dir) return
+    const client = globalSDK.createClient({ directory: dir })
+    void client.session.create({ directory: dir, agent: "octo_make" }).then((result) => {
+      const session = result.data as Session | undefined
+      if (session) navigate(`/make/${session.id}`)
+    })
   }
 
   return (
@@ -218,10 +254,61 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         "border-right": "1px solid var(--border-weak-base)",
       }}
     >
+      <div class="shrink-0">
+         <ProjectInfo />
+        <div style={{ margin: "12px 12px 8px 12px" }} class="relative">
+          <button
+            type="button"
+            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+            style={{ height: "44px", color: "#191919" }}
+            onClick={toggleDropdown}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
+              <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+            <span style="font-size:14px;">新建交付件</span>
+          </button>
+          <Show when={showDropdown()}>
+            <div
+              class="z-50 flex flex-col"
+              style={`position:fixed; top:${dropdownPos().top}px; left:${dropdownPos().left}px; background:#ffffff; border-radius:12px; box-shadow:0px 4px 12px 0px rgba(0,0,0,0.16); padding:8px; min-width:232px;`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+                style="color: #0a59f7;"
+                onClick={() => { newSession(); closeDropdown() }}
+              >
+                <div
+                  style="width:24px;height:24px;border-radius:3px;background:rgba(10,89,247,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
+                >
+                  <div style="width:20px;height:20px;background-image:url('/insightIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
+                </div>
+                <span style="font-weight:600">Octo Insight</span>
+              </button>
+              <button
+                type="button"
+                class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+                style="color: #6c00ff;"
+                onClick={() => { newMakeSession(); closeDropdown() }}
+              >
+                <div
+                  style="width:24px;height:24px;border-radius:3px;background:rgba(108,0,255,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
+                >
+                  <div style="width:20px;height:20px;background-image:url('/makeIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
+                </div>
+                <span style="font-weight:600">Octo Make</span>
+              </button>
+            </div>
+          </Show>
+        </div>
+        <div style={{ margin: "0 12px", height: "1px", background: "rgba(0,0,0,0.08)" }} />
+      </div>
       {/* Scrollable: Insight + Make sessions */}
       <div
         data-slot="list-scroll"
-        class="flex-1 min-h-0 overflow-y-auto px-[12px] py-[6px]"
+        class="flex-1 min-h-0 overflow-y-auto px-[12px]"
       >
         {/* ─── Octo Insight ─── */}
         <div class="mb-[2px]">
@@ -240,17 +327,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               >
                 Octo Insight
               </span>
-            </button>
-            <button
-              type="button"
-              onClick={newSession}
-              title="新建 Insight 对话"
-              class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
-              style={{ color: "var(--text-weak)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--text-weak)" }}
-            >
-              <PlusIcon />
             </button>
           </div>
 
@@ -360,17 +436,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               >
                 Octo Make
               </span>
-            </button>
-            <button
-              type="button"
-              onClick={newMakeSession}
-              title="新建 Make 对话"
-              class="w-[24px] h-[24px] flex items-center justify-center rounded-[4px] transition-colors"
-              style={{ color: "var(--text-weak)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = ""; e.currentTarget.style.color = "var(--text-weak)" }}
-            >
-              <PlusIcon />
             </button>
           </div>
           <Show when={!makeCollapsed()}>

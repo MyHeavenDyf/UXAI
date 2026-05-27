@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isMarkdownTable, isMindmapJSON, isHTML, isPlainJSON, stripCodeFence } from "./detect"
+import { isMarkdownTable, isMindmapJSON, isHTML, stripCodeFence, scanFencedHtml } from "./detect"
 import { uxrJsonToMarkdown } from "./mindmap-adapter"
 import { parseMarkdownTable, tableToCSV } from "./markdown-table"
 
@@ -37,6 +37,32 @@ describe("isMindmapJSON", () => {
   test("非 JSON 不命中", () => {
     expect(isMindmapJSON("hello world")).toBe(false)
   })
+  test("识别内网 MCP shape:[{file, mindmaps:[{name, children}]}]", () => {
+    const text = JSON.stringify([
+      {
+        file: "downloads/mindmap_xxx/访谈纲要.docx",
+        mindmaps: [
+          {
+            name: "用户访谈评估法提纲",
+            children: [
+              { name: "基本信息", children: [{ name: "部门" }] },
+            ],
+          },
+        ],
+      },
+    ])
+    expect(isMindmapJSON(text)).toBe(true)
+  })
+  test("识别多文件 shape", () => {
+    const text = JSON.stringify([
+      { file: "a.docx", mindmaps: [{ name: "A", children: [] }] },
+      { file: "b.docx", mindmaps: [{ name: "B", children: [] }] },
+    ])
+    expect(isMindmapJSON(text)).toBe(true)
+  })
+  test("{file, mindmaps:[]} 空 mindmaps 不命中", () => {
+    expect(isMindmapJSON(JSON.stringify([{ file: "a.docx", mindmaps: [] }]))).toBe(false)
+  })
 })
 
 describe("isHTML", () => {
@@ -60,15 +86,66 @@ describe("isHTML", () => {
   })
 })
 
-describe("isPlainJSON", () => {
-  test("识别普通 JSON 对象", () => {
-    expect(isPlainJSON('{"foo":"bar"}')).toBe(true)
+describe("scanFencedHtml (路径 B HTML 嗅探主路径)", () => {
+  test("单 part 单 fence 命中", () => {
+    const html = "<!DOCTYPE html><html><body>" + "x".repeat(40) + "</body></html>"
+    const parts = [{ text: `这里是说明文字。\n\`\`\`html\n${html}\n\`\`\`` }]
+    const blocks = scanFencedHtml(parts)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].html).toBe(html)
+    expect(blocks[0].closed).toBe(true)
+    expect(blocks[0].partIndex).toBe(0)
   })
-  test("识别带 fence 的 JSON", () => {
-    expect(isPlainJSON('```json\n{"foo":"bar"}\n```')).toBe(true)
+
+  test("单 part 内多个闭合 fence → 多个 block", () => {
+    const html1 = "<div>" + "a".repeat(60) + "</div>"
+    const html2 = "<section>" + "b".repeat(60) + "</section>"
+    const parts = [{ text: `\`\`\`html\n${html1}\n\`\`\`\n\n中间一段。\n\n\`\`\`html\n${html2}\n\`\`\`` }]
+    const blocks = scanFencedHtml(parts)
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0].html).toBe(html1)
+    expect(blocks[1].html).toBe(html2)
   })
-  test("非法 JSON 返回 false", () => {
-    expect(isPlainJSON("hello world")).toBe(false)
+
+  test("未闭合 fence(流式中途)取到末尾,closed: false", () => {
+    const html = "<div>" + "x".repeat(60) + "</div>"
+    const parts = [{ text: `\`\`\`html\n${html}` }]
+    const blocks = scanFencedHtml(parts)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].closed).toBe(false)
+  })
+
+  test("跨多个 part 累加", () => {
+    const html1 = "<div>" + "a".repeat(60) + "</div>"
+    const html2 = "<section>" + "b".repeat(60) + "</section>"
+    const parts = [
+      { text: `\`\`\`html\n${html1}\n\`\`\`` },
+      { text: "中间纯文字 part" },
+      { text: `\`\`\`html\n${html2}\n\`\`\`` },
+    ]
+    const blocks = scanFencedHtml(parts)
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0].partIndex).toBe(0)
+    expect(blocks[1].partIndex).toBe(2)
+  })
+
+  test("fence 内 < 50 字符 不命中(避免空 fence)", () => {
+    const parts = [{ text: "```html\n<div>x</div>\n```" }]
+    expect(scanFencedHtml(parts)).toHaveLength(0)
+  })
+
+  test("无 fence 不命中", () => {
+    const parts = [{ text: "<div>这只是 inline html 没 fence,不命中</div>" }]
+    expect(scanFencedHtml(parts)).toHaveLength(0)
+  })
+
+  test("空 part 数组安全返回", () => {
+    expect(scanFencedHtml([])).toEqual([])
+  })
+
+  test("part.text 为 undefined 安全跳过", () => {
+    const parts = [{ text: undefined }, { text: "```html\n" + "<div>" + "y".repeat(60) + "</div>" + "\n```" }]
+    expect(scanFencedHtml(parts)).toHaveLength(1)
   })
 })
 

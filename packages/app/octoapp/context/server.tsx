@@ -225,6 +225,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
 
     const origin = createMemo(() => projectsKey(state.active))
     const projectsList = createMemo(() => store.projects[origin()] ?? [])
+    const lastProject = createMemo(() => store.lastProject[origin()])
     const current: Accessor<ServerConnection.Any | undefined> = createMemo(
       () => allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0],
     )
@@ -296,9 +297,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           result.splice(toIndex, 0, item)
           setStore("projects", key, result)
         },
-        last() {
-          return store.lastProject[origin()]
-        },
+        last: lastProject,
         touch(directory: string) {
           setStore("lastProject", origin(), directory)
         },

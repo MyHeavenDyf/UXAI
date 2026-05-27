@@ -5,7 +5,7 @@ import { useData } from "@opencode-ai/ui/context"
 import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml } from "../icons"
-import { isMarkdownTable, isMindmapJSON, isHTML, isPlainJSON } from "../utils/detect"
+import { isMarkdownTable, isMindmapJSON, scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { findResourceLinks, mimeToOutputType } from "../utils/resource-link"
 import { type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
@@ -25,31 +25,10 @@ export type OutputCard = {
   createdAt: Date
 }
 
-function detectCard(text: string): { type: OutputCardType; title: string } | null {
-  const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
-
-  // 1. Markdown 表格
-  if (isMarkdownTable(text)) {
-    return { type: "table", title: heading(text) ?? "分析结果" }
-  }
-  // 2. 思维导图 JSON（在 HTML 之前，避免 HTML 内嵌 JSON-like 字符串误判）
-  if (isMindmapJSON(text)) {
-    return { type: "mindmap", title: heading(text) ?? "思维导图" }
-  }
-  // 3. HTML（在 plain JSON 之前，因为 HTML 内可能含 <script>{…}</script> 文本）
-  if (isHTML(text)) {
-    return { type: "html", title: heading(text) ?? "可视化页面" }
-  }
-  // 4. 通用 JSON
-  if (isPlainJSON(text)) {
-    return { type: "json", title: heading(text) ?? "JSON 数据" }
-  }
-  // 5. 长文本 Markdown（>200 字）
-  if (text.trim().length > 200) {
-    return { type: "markdown", title: heading(text) ?? "分析报告" }
-  }
-  return null
-}
+// 路径 B 嗅探规则:table / mindmap / json / html 互相独立,允许同时命中
+// (典型:内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape → 出双卡)
+// 详见 docs/specs/ui/output-renderers.md §2。直接在 outputCards memo 内顺序判断,
+// 不再走"按优先级取一个"的旧路径。
 
 function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
   switch (props.type) {
@@ -69,6 +48,22 @@ function formatTime(d: Date): string {
     hour: "2-digit",
     minute: "2-digit",
   })
+}
+
+/**
+ * 入口卡标题文案。优先用 card.title(来自 resource_link.name / heading);
+ * 缺省时按类型给默认词,贴近用户语言("可视化页面"而非"HTML")。
+ */
+function previewEntryLabel(card: OutputCard): string {
+  if (card.title && card.title.length > 0 && card.title !== "分析结果") return card.title
+  switch (card.type) {
+    case "html": return "可视化页面"
+    case "mindmap": return "思维导图"
+    case "table": return "分析表格"
+    case "markdown": return "Markdown 文档"
+    case "json": return "JSON 数据"
+    case "file": return card.fileName || "文件"
+  }
 }
 
 export function InsightTurn(props: {
@@ -119,62 +114,173 @@ export function InsightTurn(props: {
   // 同 turn 的 OutputCard 列表(支持 0~N 张,对应 MCP completed 返回的 1~N 个 resource_link)
   // 注意:parts 必须在 showGenerating 判断之前读,确保 SolidJS 始终追踪该依赖;
   // 若先 return [] 则 assistantParts() 从未被追踪,session idle 后 memo 不会因 parts 变化重新触发。
+  //
+  // 两类路径(spec: output-renderers.md §0):
+  //   A. MCP 强契约 — resource_link part → 必出卡 / 多卡(spec: §2.5)
+  //   B. 自由文本嗅探 — text part → fence/shape 兜底(spec: §2)
+  // 同 turn A 命中则 B 不执行(避免重复)。
   const outputCards = createMemo((): OutputCard[] => {
-    const parts = assistantParts()
+    const parts = assistantParts() as Array<{ type: string; text?: string }>
     if (showGenerating()) return []
 
     // 同 turn 有任务卡片就抑制 OutputCard:completed 由 TaskCardView 内的"查看完整结果"按钮触发 openTab
     // (spec: docs/specs/ui/task-card.md §3.4 优先级)
     if (props.taskCards.length > 0) return []
 
-    // 路径 1:resource_link part(无 task_id 的场景,比如未来直接同步返回 resource_link 的工具)
-    //         N 个 resource_link → N 张 OutputCard(spec: output-renderers.md §2.5.1)
+    // ── 路径 A:MCP resource_link part(强契约,零嗅探)──
+    // 路由按 business_type(MUST 必填,取值 = MCP tool 名)。第一版:
+    //   - "mindmap" → 双卡(json + mindmap),共享同 URI,由 tab-store (uri,type) 复合去重保证不重复
+    //   - 其他(key_findings / search_reports / run_*_analysis 等)→ 单卡按 mimeType 路由
+    // 未来加新 tool 时按需在此追加分支(如 search_reports 走 ReferenceList chip,见 insight-references.md)。
+    // 详见 output-renderers.md §2.5.2 + mcp-contract.md §business_type
     const links = findResourceLinks(parts)
     if (links.length > 0) {
       console.log("[octo:card] resource_links (no task)", {
         count: links.length,
-        links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri })),
+        links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri, business_type: l.business_type })),
         msgID: props.messageID,
       })
-      return links.map((link, idx) => ({
-        id: `card-${props.messageID}-${idx}`,
-        title: link.name || `分析结果 ${idx + 1}`,
-        type: mimeToOutputType(link.mimeType),
-        source: "uri" as const,
-        uri: link.uri,
-        mimeType: link.mimeType,
-        fileName: link.name,
-        description: link.description,
-        createdAt: new Date(),
-      }))
+      const cards: OutputCard[] = []
+      links.forEach((link, idx) => {
+        if (link.business_type === "mindmap") {
+          // 双卡:json 原始 + mindmap 可视化,共享 URI
+          cards.push({
+            id: `card-${props.messageID}-${idx}-json`,
+            title: link.name || `分析结果 ${idx + 1}`,
+            type: "json",
+            source: "uri" as const,
+            uri: link.uri,
+            mimeType: link.mimeType,
+            fileName: link.name,
+            description: link.description,
+            createdAt: new Date(),
+          })
+          cards.push({
+            id: `card-${props.messageID}-${idx}-mindmap`,
+            title: link.name ? `${link.name} (思维导图)` : "思维导图",
+            type: "mindmap",
+            source: "uri" as const,
+            uri: link.uri,
+            mimeType: link.mimeType,
+            fileName: link.name,
+            description: link.description,
+            createdAt: new Date(),
+          })
+        } else {
+          // 缺省 / reference / 其他:单卡按 mime 路由(reference 未来由 ReferenceList 接管,本期暂沿用)
+          cards.push({
+            id: `card-${props.messageID}-${idx}`,
+            title: link.name || `分析结果 ${idx + 1}`,
+            type: mimeToOutputType(link.mimeType),
+            source: "uri" as const,
+            uri: link.uri,
+            mimeType: link.mimeType,
+            fileName: link.name,
+            description: link.description,
+            createdAt: new Date(),
+          })
+        }
+      })
+      return cards
     }
 
-    // 路径 2:text-detect inline(原有路径,保持向后兼容)
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (!textPart || typeof textPart.text !== "string") return []
-    const text = textPart.text.trim()
-    if (text.length < 10) return []
-    const info = detectCard(text)
-    if (!info) return []
-    return [{
-      id: `card-${props.messageID}`,
-      ...info,
-      source: "inline" as const,
-      content: textPart.text,
-      createdAt: new Date(),
-    }]
+    // ── 路径 B:自由文本嗅探(规则收紧版,spec §2.1)──
+    const textParts = parts.filter((p) => p.type === "text" && typeof p.text === "string")
+    const summary = textParts.length === 0
+      ? ""
+      : ((textParts[textParts.length - 1]?.text ?? "").slice(0, 80))
+    console.log("[octo:detect] start", {
+      msgID: props.messageID,
+      partsCount: parts.length,
+      textPartsCount: textParts.length,
+      summary,
+    })
+
+    if (textParts.length === 0) {
+      console.log("[octo:detect] reject", { msgID: props.messageID, reason: "no text part" })
+      return []
+    }
+
+    const cards: OutputCard[] = []
+
+    // B-1. HTML fence 多卡(扫所有 part,支持未闭合 fence)
+    const htmlBlocks: HtmlFenceBlock[] = scanFencedHtml(textParts)
+    if (htmlBlocks.length > 0) {
+      console.log("[octo:detect] html-fence-found", {
+        msgID: props.messageID,
+        count: htmlBlocks.length,
+        blocks: htmlBlocks.map((b) => ({ closed: b.closed, len: b.html.length, partIndex: b.partIndex })),
+      })
+      htmlBlocks.forEach((block, idx) => {
+        const heading = block.html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim()
+        cards.push({
+          id: `card-${props.messageID}-html-${idx}`,
+          title: heading || (htmlBlocks.length > 1 ? `可视化页面 ${idx + 1}` : "可视化页面"),
+          type: "html",
+          source: "inline",
+          content: block.html,
+          createdAt: new Date(),
+        })
+      })
+    }
+
+    // B-2. 非 HTML 规则:取最后一条 text part 跑一次
+    //   - markdown 表格 → table 入口卡(美化预览 + CSV/Excel 下载)
+    //   - mindmap shape JSON → mindmap 入口卡(markmap 思维导图渲染)
+    //   - 其他 JSON / 代码 / markdown → **不出卡**(对话区 opencode <Markdown> 原渲染已足够)
+    // 设计:出卡的唯一目的是"追加预览能力";普通 JSON / 代码段有 shiki 高亮 + 复制即够,无追加价值。
+    // 详见 docs/specs/ui/output-renderers.md §2(嗅探规则:仅识别"值得追加预览"的内容)。
+    const lastText = (textParts[textParts.length - 1]?.text ?? "").trim()
+    if (lastText.length >= 10) {
+      const matched: string[] = []
+      if (isMarkdownTable(lastText)) {
+        matched.push("table")
+        cards.push({
+          id: `card-${props.messageID}-table`,
+          title: lastText.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? "分析表格",
+          type: "table",
+          source: "inline",
+          content: lastText,
+          createdAt: new Date(),
+        })
+      }
+      if (isMindmapJSON(lastText)) {
+        matched.push("mindmap")
+        cards.push({
+          id: `card-${props.messageID}-mindmap`,
+          title: lastText.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? "思维导图",
+          type: "mindmap",
+          source: "inline",
+          content: lastText,
+          createdAt: new Date(),
+        })
+      }
+      if (matched.length > 0) {
+        console.log("[octo:detect] match", {
+          msgID: props.messageID,
+          rules: matched,
+          textLen: lastText.length,
+        })
+      }
+    }
+
+    if (cards.length === 0) {
+      console.log("[octo:detect] reject", {
+        msgID: props.messageID,
+        reason: "no rule matched (length-tail-only fallback removed per spec §2.1)",
+        lastTextPreview: lastText.slice(0, 200),
+      })
+    }
+    return cards
   })
 
-  // mindmap / html / json 的原始文字对用户无价值,任一卡片是机器可读类型则隐藏 assistant 文字区
-  const suppressRawOutput = createMemo(() => {
-    const cards = outputCards()
-    return cards.some((c) => c.type === "mindmap" || c.type === "html" || c.type === "json")
-  })
+  // 对话区永远保留 opencode <Markdown> 原渲染(含 shiki 代码高亮 / markdown 表格 / 复制按钮)。
+  // 入口卡片(下方紧凑条)作为"附加预览能力",绝不替代对话内容。
+  // 业界对照:Claude.ai Artifacts / ChatGPT Canvas / Cursor 均保留对话原貌,不抹掉。
+  // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
 
   return (
-    <div class="flex flex-col" data-suppress-raw={suppressRawOutput() ? "" : undefined}>
+    <div class="flex flex-col">
       <SessionTurn
         sessionID={props.sessionID}
         messageID={props.messageID}
@@ -196,36 +302,25 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
+      {/* 紧凑预览入口卡(spec: output-renderers.md §6.B)
+          - 对话区已由上游 <Markdown> 原样渲染代码段 / markdown 表格,完整可读
+          - 入口卡是"附加预览能力",不替代对话内容
+          - 类型差异化文案:html 称"可视化"、mindmap 称"思维导图"、table 称"表格"等 */}
       <For each={outputCards()}>
         {(card) => (
           <button
             type="button"
+            class="octo-preview-entry"
             onClick={() => props.onOpenResult(card)}
-            class="mx-3 mb-3 p-3 text-left transition-all"
-            style={{
-              "border-radius": "var(--octo-radius-md)",
-              border: "1px solid var(--octo-border-default)",
-              background: "var(--octo-surface-page)",
-              width: "calc(100% - 1.5rem)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--octo-border-default)"
-            }}
           >
-            <div class="flex items-center gap-2">
-              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={card.type} /></span>
-              <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{card.title}</span>
-                <Show when={card.description}>
-                  <span class="text-xs truncate" style={{ color: "var(--octo-text-secondary)" }}>{card.description}</span>
-                </Show>
-                <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(card.createdAt)}</span>
-              </div>
-              <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
-            </div>
+            <span class="octo-preview-entry__icon"><CardTypeIcon type={card.type} /></span>
+            <span class="octo-preview-entry__body">
+              <span class="octo-preview-entry__title">{previewEntryLabel(card)}</span>
+              <Show when={card.description || card.fileName}>
+                <span class="octo-preview-entry__desc">{card.description || card.fileName}</span>
+              </Show>
+            </span>
+            <span class="octo-preview-entry__action">预览 →</span>
           </button>
         )}
       </For>

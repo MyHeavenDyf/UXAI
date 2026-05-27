@@ -52,6 +52,9 @@ const api: ElectronAPI = {
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   openLink: (url) => ipcRenderer.send("open-link", url),
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
+  downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
+  downloadResourceToTemp: (url, namespace, filename) =>
+    ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename),
   readClipboardImage: () => ipcRenderer.invoke("read-clipboard-image"),
   showNotification: (title, body) => ipcRenderer.send("show-notification", title, body),
   getWindowFocused: () => ipcRenderer.invoke("get-window-focused"),
@@ -70,6 +73,7 @@ const api: ElectronAPI = {
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
+  htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
 }

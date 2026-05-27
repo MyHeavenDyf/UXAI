@@ -51,6 +51,15 @@ type TabHandoff = {
   at: number
 }
 
+type LastSessionPerTab = {
+  cowork?: {
+    id: string
+    type: "insight" | "make"
+  }
+  chat: Record<string, string>
+  studio: Record<string, string>
+}
+
 export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
 
 export type ReviewDiffStyle = "unified" | "split"
@@ -262,6 +271,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
       }),
     )
+
+    const [lastSessionPerTab, setLastSession] = createStore<LastSessionPerTab>({
+      cowork: undefined,
+      chat: {},
+      studio: {},
+    })
 
     const MAX_SESSION_KEYS = 50
     const PENDING_MESSAGE_TTL_MS = 2 * 60 * 1000
@@ -552,6 +567,20 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         clearTabs() {
           if (!store.handoff?.tabs) return
           setStore("handoff", "tabs", undefined)
+        },
+      },
+      lastSessionPerTab: {
+        cowork: createMemo(() => lastSessionPerTab.cowork),
+        setCowork(id: string, type: "insight" | "make") {
+          setLastSession("cowork", { id, type })
+        },
+        chat: (dir: string) => lastSessionPerTab.chat[dir],
+        setChat(dir: string, id: string) {
+          setLastSession("chat", dir, id)
+        },
+        studio: (dir: string) => lastSessionPerTab.studio[dir],
+        setStudio(dir: string, id: string) {
+          setLastSession("studio", dir, id)
         },
       },
       projects: {

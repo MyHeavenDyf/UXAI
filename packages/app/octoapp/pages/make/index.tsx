@@ -3,12 +3,20 @@ import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@o
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { InlineInput } from "@opencode-ai/ui/inline-input"
+import { showToast } from "@opencode-ai/ui/toast"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import {
   batch,
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   For,
   on,
@@ -20,13 +28,19 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useLayout } from "@/context/layout"
+import { useLanguage } from "@/context/language"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { DesignSystemPicker } from "./components/design-system-picker"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
+import { Spinner } from "@opencode-ai/ui/spinner"
+import { loadDesignSystem } from "./utils/design-system-loader"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -43,8 +57,70 @@ export default function MakePage() {
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const layout = useLayout()
+  const language = useLanguage()
+  const dialog = useDialog()
 
   const homeDir = useProjectDir()
+
+  // 当前 session 元数据（标题等）
+  const [sessionInfo, { refetch: refetchSession }] = createResource(
+    () => params.id ?? "",
+    async (id) => {
+      if (!id) return null as Session | null
+      try {
+        const result = await globalSDK.client.session.get({ sessionID: id })
+        return (result.data as Session | undefined) ?? null
+      } catch {
+        navigate("/make")
+        return null as Session | null
+      }
+    },
+  )
+
+  // 标题编辑状态
+  const [titleState, setTitleState] = createStore({
+    editing: false,
+    draft: "",
+    menuOpen: false,
+  })
+  let titleRef: HTMLInputElement | undefined
+
+  function openTitleEditor() {
+    const info = sessionInfo()
+    setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
+    requestAnimationFrame(() => titleRef?.focus())
+  }
+
+  async function saveTitleEditor() {
+    const id = params.id
+    if (!id) return
+    const draft = titleState.draft.trim()
+    if (!draft) { setTitleState("editing", false); return }
+    try {
+      await globalSDK.client.session.update({ sessionID: id, title: draft })
+      void refetchSession()
+    } catch (err) {
+      showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
+    }
+    setTitleState("editing", false)
+  }
+
+  // 删除对话
+  async function deleteSession(sessionID: string) {
+    try {
+      await globalSDK.client.session.delete({ sessionID })
+      navigate("/make")
+    } catch (err) {
+      showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  function handleDeleteSession() {
+    const id = params.id
+    if (!id) return
+    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
+  }
 
   const [dataStore, setDataStore] = createStore<DataStore>({
     session: [],
@@ -53,6 +129,16 @@ export default function MakePage() {
     message: {},
     part: {},
   })
+
+  createEffect(
+    on(
+      () => params.id,
+      (id) => {
+        if (id) layout.lastSessionPerTab.setCowork(id, "make")
+        setSending(false)
+      },
+    ),
+  )
 
   createEffect(
     on(
@@ -158,6 +244,7 @@ export default function MakePage() {
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
   // 对话面板宽度：从 localStorage 恢复，无存储值时取约 45% 可用宽
   const CHAT_WIDTH_KEY = "octo:make:chat-width"
   function getInitialChatWidth(): number {
@@ -170,6 +257,8 @@ export default function MakePage() {
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
 
+  let dragCleanup: (() => void) | null = null
+
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
     const startX = e.clientX
@@ -177,20 +266,31 @@ export default function MakePage() {
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
+    const resetBody = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.body.style.overflow = ""
+      dragCleanup = null
+    }
     const onMove = (ev: MouseEvent) => {
       setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.45), startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
+      resetBody()
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
+    dragCleanup = () => {
+      resetBody()
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
   }
+
+  onCleanup(() => { dragCleanup?.() })
 
   const tabStore = createTabStore()
 
@@ -254,7 +354,39 @@ export default function MakePage() {
         filename: a.filename,
         url: a.dataUrl,
       }))
-      const textPart: TextPartInput = { type: "text", text }
+      let promptText = text
+
+      // Design system prompt injection
+      const dsId = selectedDesignSystem()
+      if (dsId) {
+        try {
+          const ds = await loadDesignSystem(dsId)
+          promptText = [
+            `[Design System: ${dsId}]`,
+            `The active design system is "${dsId}". Its full specification follows.`,
+            `You MUST:`,
+            `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
+            `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
+            `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
+            `4. Do NOT invent CSS variables that don't exist in the :root block below`,
+            ``,
+            `## DESIGN.md (authoritative visual rules)`,
+            ds.design,
+            ``,
+            `## :root tokens (paste verbatim into <style>)`,
+            "```css",
+            ds.tokens,
+            "```",
+            "",
+            `---`,
+            text,
+          ].join("\n")
+        } catch (err) {
+          console.error("[MakePage] design system load failed", err)
+        }
+      }
+
+      const textPart: TextPartInput = { type: "text", text: promptText }
       await globalSDK.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
@@ -365,6 +497,75 @@ export default function MakePage() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+            {/* 标题栏 */}
+            <Show when={params.id}>
+              <div
+                class="shrink-0 h-12 flex items-center justify-between px-4"
+                style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
+              >
+                <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
+                  <Show when={isBusy()}>
+                    <div class="shrink-0">
+                      <Spinner class="size-4" />
+                    </div>
+                  </Show>
+                  <Show
+                    when={!titleState.editing}
+                    fallback={
+                      <InlineInput
+                        ref={(el) => { titleRef = el }}
+                        value={titleState.draft}
+                        class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
+                        onInput={(e) => setTitleState("draft", e.currentTarget.value)}
+                        onKeyDown={(e) => {
+                          e.stopPropagation()
+                          if (e.key === "Enter") { e.preventDefault(); void saveTitleEditor() }
+                          if (e.key === "Escape") { e.preventDefault(); setTitleState("editing", false) }
+                        }}
+                        onBlur={() => void saveTitleEditor()}
+                      />
+                    }
+                  >
+                    <h1
+                      class="text-14-medium text-text-strong truncate min-w-0"
+                      onDblClick={openTitleEditor}
+                    >
+                      {sessionTitle(sessionInfo()?.title) ?? "Octo Make"}
+                    </h1>
+                  </Show>
+                </div>
+                <DropdownMenu
+                  gutter={4}
+                  placement="bottom-end"
+                  open={titleState.menuOpen}
+                  onOpenChange={(open) => setTitleState("menuOpen", open)}
+                >
+                  <DropdownMenu.Trigger
+                    as={IconButton}
+                    icon="dot-grid"
+                    variant="ghost"
+                    class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
+                    aria-label={language.t("common.moreOptions")}
+                  />
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content style={{ "min-width": "104px" }}>
+                      <DropdownMenu.Item
+                        onSelect={() => {
+                          setTitleState("menuOpen", false)
+                          openTitleEditor()
+                        }}
+                      >
+                        <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator />
+                      <DropdownMenu.Item onSelect={handleDeleteSession}>
+                        <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu>
+              </div>
+            </Show>
             {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
             <div
               class="flex-1 overflow-y-auto min-h-0"
@@ -424,23 +625,29 @@ export default function MakePage() {
                 />
 
                 <div class="flex items-center justify-between px-2.5 pb-2.5">
-                  <input
-                    ref={fileInputRef!}
-                    type="file"
-                    multiple
-                    class="hidden"
-                    accept="*/*"
-                    onChange={handleFileInputChange}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                    disabled={maxAttachments()}
-                    class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
-                    title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                  >
-                    <IconAttach size={14} />
-                  </button>
+                  <div class="flex items-center gap-1">
+                    <DesignSystemPicker
+                      selected={selectedDesignSystem()}
+                      onSelect={setSelectedDesignSystem}
+                    />
+                    <input
+                      ref={fileInputRef!}
+                      type="file"
+                      multiple
+                      class="hidden"
+                      accept="*/*"
+                      onChange={handleFileInputChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                      disabled={maxAttachments()}
+                      class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
+                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                    >
+                      <IconAttach size={14} />
+                    </button>
+                  </div>
 
                   <button
                     type="button"
@@ -505,5 +712,31 @@ function ChatEmptyState(): JSX.Element {
         描述需求，开始生成原型
       </div>
     </div>
+  )
+}
+
+function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
+  const language = useLanguage()
+  const dialog = useDialog()
+  return (
+    <Dialog title={language.t("session.delete.title")} fit>
+      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+        <span class="text-14-regular text-text-strong">
+          {language.t("session.delete.confirm", { name: props.name })}
+        </span>
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            size="large"
+            onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
+          >
+            {language.t("session.delete.button")}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   )
 }

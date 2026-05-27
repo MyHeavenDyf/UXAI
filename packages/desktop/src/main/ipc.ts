@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from "node:fs"
+import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, basename } from "node:path"
 import { homedir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
@@ -163,6 +164,29 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
+  ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    const buf = Buffer.from(await res.arrayBuffer())
+    await mkdir(dirname(destPath), { recursive: true })
+    await writeFile(destPath, buf)
+  })
+
+  ipcMain.handle(
+    "download-resource-to-temp",
+    async (_event: IpcMainInvokeEvent, url: string, namespace: string, filename: string) => {
+      const safeNs = namespace.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default"
+      const safeName = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
+      const destPath = join(app.getPath("temp"), "octo", safeNs, safeName)
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      const buf = Buffer.from(await res.arrayBuffer())
+      await mkdir(dirname(destPath), { recursive: true })
+      await writeFile(destPath, buf)
+      return destPath
+    },
+  )
+
   ipcMain.handle("read-clipboard-image", () => {
     const image = clipboard.readImage()
     if (image.isEmpty()) return null
@@ -281,6 +305,22 @@ export function registerIpcHandlers(deps: Deps) {
       mkdirSync(octoSkillDir, { recursive: true })
       await shell.openPath(octoSkillDir)
     }
+  })
+
+  ipcMain.handle("html-to-pdf", async (_event: IpcMainInvokeEvent, html: string) => {
+    const win = new BrowserWindow({
+      width: 1920,
+      height: 1080,
+      show: false,
+      webPreferences: { offscreen: true },
+    })
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    const pdfData = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: { width: 1920 * 0.264583, height: 1080 * 0.264583 },
+    })
+    win.destroy()
+    return pdfData.buffer as ArrayBuffer
   })
 }
 

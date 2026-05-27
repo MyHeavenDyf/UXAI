@@ -107,3 +107,41 @@ agent: "octo_insight",
 - 分隔线拖拽从 `mousedown/mousemove/mouseup` 改为 `pointer events`（修复 Electron webview 中 pointer capture）
 
 **Octo 适配已保留**：适配 A/B/C 全部正确应用，无遗漏。
+
+### 2026-05-26: commits `bbf0c13` + `cb84b73` (收紧嗅探 + tab URI 去重 + Office 唤起 + 全链路 console)
+
+**上游变更**：
+- `insight-turn.tsx`：OutputCard 检测拆为双路径（A: MCP resource_link 强契约 / B: 自由文本嗅探），HTML 改用 `scanFencedHtml` 多卡 + 未闭合 fence 支持，删除 length>200 markdown 兜底
+- `detect.ts`：新增 `scanFencedHtml` + `HtmlFenceBlock` 类型，`isPlainJSON` 收紧到 ≥80 字符 + fence 或 ≥3 keys
+- `result-viewer/index.tsx`：FileFallback 新增"用本地应用打开"和"下载到本地"双按钮（依赖 `electron-api.ts`）
+- `result-viewer/tab-store.ts`：openTab 新增 URI 去重（多入口指向同一产物不重复开 tab）
+- `index.tsx`：新增 busy→idle 时完整 dump assistant message 内容到 console（内网调试用）
+- `lib/electron-api.ts`：新增 Electron preload API 类型抽象（downloadResourceToTemp / openPath / saveFilePicker）
+- `store/preset-prompts.ts`：新增 `run_usability_analysis` 预置胶囊
+- `utils/resource-link.ts` / `utils/task-detect.ts`：新增全链路 branch 跟踪 console 日志
+
+**Octo 适配已保留**：适配 A/B/C 全部正确应用。`electron-api.ts` 中的 `downloadResourceToTemp` / `downloadResource` 在本项目中尚未实现 IPC handler，FileFallback 会优雅降级（显示 toast 提示桌面 API 不可用）。
+
+### 2026-05-27: commit `4283b01` (对话不抹 + 紧凑入口条 + business_type 标准字段 + JSON 高亮)
+
+**上游变更**：
+- `insight-turn.tsx`：重构 OutputCard 检测逻辑，对话不抹（保留上一轮结果），紧凑入口条样式，新增 `business_type` 标准字段判断
+- `result-viewer/index.tsx`：调整 tab 渲染逻辑适配新字段
+- `mindmap-renderer.tsx`：增强 mindmap 渲染器，使用 mindmap-adapter 适配 UXR JSON 格式
+- `tab-store.ts`：简化 tab URI 去重逻辑
+- `detect.ts` / `detect.test.ts`：新增 `stripCodeFence` 辅助函数，调整检测策略
+- `mindmap-adapter.ts`：新增 UXR JSON → Markdown 转换工具（处理内网 MCP mindmap 工具 shape）
+- `resource-link.ts`：新增 resource link 解析辅助函数
+- `octo-tokens.css`：新增 CSS 变量/样式
+
+**Octo 适配已保留**：适配 A（useSDK）和 B（octo_insight agent 名）未受影响（index.tsx 未变），适配 C（--octo-brand-a5）已加回 CSS。无 desktop-electron 变更。
+
+### 2026-05-27: commit `83a3418` (预置文案按设计师定稿 + 用户 tooltip 友好化 + agent prompt 去过期段)
+
+**上游变更**：
+- `index.tsx`：发送按钮 tooltip "等待附件上传完成" → "请等待附件上传完成"
+- `task-card/index.tsx`：3 处 tooltip 友好化（"等待" → "请等待"、"3分钟内只能刷新一次" → "请稍后再试"）
+- `preset-prompts.ts`：4 个预置胶囊 label 和 text 按设计师定稿更新（"观点解析" → "观点解析报告" 等）
+- `insight.md`（agent prompt）：去掉"模板下拉"过期描述，改为"预置按钮带入文本"表述
+
+**Octo 适配已保留**：index.tsx 仅 tooltip 文案变更（第 844 行），不涉及适配 A/B 的 import/sdk 代码。agent prompt 路径对应 `opencode/src/agent/prompt/octo_insight.txt`，已同步更新。

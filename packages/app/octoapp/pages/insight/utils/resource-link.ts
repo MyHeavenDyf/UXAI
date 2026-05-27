@@ -5,11 +5,21 @@ import type { OutputCardType } from "../components/insight-turn"
  * opencode 把 MCP CallToolResult.content[] 转 part 的具体字段路径需联调确认,
  * 本模块按"独立 resource_link part"主路径实现 + defensive 兜底扫 tool part 的 metadata/output。
  */
+/**
+ * MCP resource_link 解析后的客户端形态。
+ * `business_type` 是 octo + UXR 私有扩展字段,标准必填,取值 = 产生该资源的 MCP tool 名。
+ * 详见 docs/specs/agents/mcp-contract.md §resource_link 业务类型声明字段 business_type。
+ *   - 第一版:"run_usability_analysis" | "run_guide_analysis" | "key_findings" | "mindmap" | "search_reports"
+ *   - 客户端路由:`"mindmap"` → 双卡(json + mindmap);其他取值 → 单卡按 mimeType 路由
+ *   - 未来加新 tool 时取值自动扩展(无需改类型),客户端按需加渲染分支
+ * 类型用 string 而不是 enum 联合:与"取值 = tool 名"哲学一致,服务端扩展零客户端类型变更。
+ */
 export type ResourceLink = {
   uri: string
   name: string
   mimeType: string
   description?: string
+  business_type?: string
 }
 
 /**
@@ -24,24 +34,60 @@ export type ResourceLink = {
  */
 export function findResourceLinks(parts: unknown[]): ResourceLink[] {
   const out: ResourceLink[] = []
+  const branchHits = { A: 0, B: 0, C1: 0, C2: 0 }
   for (const part of parts) {
-    out.push(...readPart(part))
+    out.push(...readPart(part, branchHits))
+  }
+  if (out.length > 0) {
+    console.log("[octo:resource-link] found", {
+      count: out.length,
+      branches: branchHits,
+      mimes: out.map((r) => r.mimeType),
+      names: out.map((r) => r.name),
+      businessTypes: out.map((r) => r.business_type ?? "(default)"),
+    })
+  } else if (parts.some((p) => (p as { type?: string } | null)?.type === "resource_link" || (p as { type?: string } | null)?.type === "tool")) {
+    // 有 tool/resource_link 类型 part 但没解析出来 — 形态可能跟 spec 假设不一致,打详情供外网定位
+    console.log("[octo:resource-link] none-found-but-candidates-present", {
+      partsCount: parts.length,
+      types: parts.map((p) => (p as { type?: string } | null)?.type),
+      sample: parts.find((p) => (p as { type?: string } | null)?.type === "tool"),
+    })
   }
   return out
 }
 
-function readPart(part: unknown): ResourceLink[] {
+/**
+ * 从 raw resource_link 对象提取 business_type 字段(MCP 私有扩展,见 mcp-contract.md)。
+ * 字段是 MUST(标准必填,取值 = tool 名);客户端做防御性兜底:
+ *   - 缺失 / 非 string → 视作 undefined,console warn(服务端违反契约)
+ *   - 任意非空 string → 透传(客户端按 if/else 路由,未知值兜底走 mimeType)
+ */
+function readBusinessType(obj: Record<string, unknown>): string | undefined {
+  const v = obj.business_type
+  if (typeof v === "string" && v.length > 0) return v
+  console.warn("[octo:resource-link] missing-business-type", {
+    name: obj.name,
+    uri: obj.uri,
+    mimeType: obj.mimeType,
+  })
+  return undefined
+}
+
+function readPart(part: unknown, branchHits?: { A: number; B: number; C1: number; C2: number }): ResourceLink[] {
   if (!part || typeof part !== "object") return []
   const p = part as Record<string, unknown>
   const found: ResourceLink[] = []
 
   // A. 独立 resource_link part
   if (p.type === "resource_link" && typeof p.uri === "string" && typeof p.mimeType === "string") {
+    if (branchHits) branchHits.A++
     found.push({
       uri: p.uri,
       name: typeof p.name === "string" ? p.name : "",
       mimeType: p.mimeType,
       description: typeof p.description === "string" ? p.description : undefined,
+      business_type: readBusinessType(p),
     })
     return found
   }
@@ -53,11 +99,13 @@ function readPart(part: unknown): ResourceLink[] {
     if (direct && typeof direct === "object") {
       const d = direct as Record<string, unknown>
       if (typeof d.uri === "string" && typeof d.mimeType === "string") {
+        if (branchHits) branchHits.B++
         found.push({
           uri: d.uri,
           name: typeof d.name === "string" ? d.name : "",
           mimeType: d.mimeType,
           description: typeof d.description === "string" ? d.description : undefined,
+          business_type: readBusinessType(d),
         })
       }
     }
@@ -65,7 +113,12 @@ function readPart(part: unknown): ResourceLink[] {
     const content = meta.content
     if (Array.isArray(content)) {
       for (const item of content) {
-        found.push(...readPart(item))
+        const sub = readPart(item, branchHits)
+        if (sub.length > 0 && branchHits) {
+          // sub 已经在 A 分支里 ++ 过,但是来源是 C1 路径;这里追加 C1 标记
+          branchHits.C1 += sub.length
+        }
+        found.push(...sub)
       }
     }
   }
@@ -80,7 +133,11 @@ function readPart(part: unknown): ResourceLink[] {
           const c = (parsed as Record<string, unknown>).content
           if (Array.isArray(c)) {
             for (const item of c) {
-              found.push(...readPart(item))
+              const sub = readPart(item, branchHits)
+              if (sub.length > 0 && branchHits) {
+                branchHits.C2 += sub.length
+              }
+              found.push(...sub)
             }
           }
         }
