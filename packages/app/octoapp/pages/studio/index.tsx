@@ -3,7 +3,7 @@ import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -19,7 +19,6 @@ import { decode64 } from "@/utils/base64"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
-import { sortedRootSessions } from "@/pages/layout/helpers"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -865,15 +864,38 @@ export default function StudioPage() {
 }
 
 function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
-  const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
-  const sortNow = createMemo(() => Date.now())
 
-  const [store] = globalSync.child(props.directory, { bootstrap: true })
-  const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
-  const studioSessions = createMemo(() => sessions().filter(s => s.agent === "octo_studio" && !s.time?.archived))
-  const isLoading = createMemo(() => store.status === "loading")
+  const [sessions, { refetch }] = createResource(
+    () => props.directory ?? "",
+    async (d) => {
+      if (!d) return [] as Session[]
+      const client = globalSDK.createClient({ directory: d })
+      const result = await client.session.list()
+      const data = ((result.data ?? []) as Session[])
+        .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+      return data.filter(s => s.agent === "octo_studio" && !s.time?.archived)
+    },
+  )
+  const [sessionList, setSessionList] = createStore<Session[]>([])
+  createEffect(on(sessions, (data) => {
+    if (data) setSessionList(reconcile(data, { key: "id" }))
+  }, { defer: true }))
+
+  let refetchTimer: ReturnType<typeof setTimeout> | undefined
+  const unsub = globalSDK.event.listen((e) => {
+    const t = e.details.type
+    if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
+      clearTimeout(refetchTimer)
+      refetchTimer = setTimeout(() => void refetch(), 1000)
+    }
+  })
+  onCleanup(unsub)
+  onCleanup(() => { clearTimeout(refetchTimer) })
+
+  const isLoading = createMemo(() => sessions.loading)
 
   return (
     <div
@@ -912,7 +934,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
               </div>
             }>
               <Show
-                when={studioSessions().length > 0}
+                when={sessionList.length > 0}
                 fallback={
                   <div class="text-12-regular text-text-weak py-4 text-center">
                     {language.t("sidebar.history.empty")}
@@ -920,7 +942,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                 }
               >
                 <div class="flex flex-col gap-1">
-                  <For each={studioSessions()}>
+                  <For each={sessionList}>
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
                       return (

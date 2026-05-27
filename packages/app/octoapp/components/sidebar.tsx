@@ -1,5 +1,5 @@
-import { Show, createMemo, For } from "solid-js"
-import { produce } from "solid-js/store"
+import { Show, createMemo, createResource, createEffect, For, on, onCleanup } from "solid-js"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { Icon } from "@opencode-ai/ui/icon"
 import { A, useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
@@ -8,7 +8,6 @@ import { useLanguage } from "@/context/language"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { sortedRootSessions } from "@/pages/layout/helpers"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
@@ -34,7 +33,33 @@ export function Sidebar(props: {
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
   const dialog = useDialog()
-  const sortNow = createMemo(() => Date.now())
+
+  const [sessions, { refetch }] = createResource(
+    () => props.currentDir() ?? "",
+    async (d) => {
+      if (!d) return [] as Session[]
+      const client = globalSDK.createClient({ directory: d })
+      const result = await client.session.list()
+      const data = ((result.data ?? []) as Session[])
+        .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+      return data.filter(s => s.agent === "octo_ai")
+    },
+  )
+  const [sessionList, setSessionList] = createStore<Session[]>([])
+  createEffect(on(sessions, (data) => {
+    if (data) setSessionList(reconcile(data, { key: "id" }))
+  }, { defer: true }))
+
+  let refetchTimer: ReturnType<typeof setTimeout> | undefined
+  const unsub = globalSDK.event.listen((e) => {
+    const t = e.details.type
+    if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
+      clearTimeout(refetchTimer)
+      refetchTimer = setTimeout(() => void refetch(), 1000)
+    }
+  })
+  onCleanup(unsub)
+  onCleanup(() => { clearTimeout(refetchTimer) })
 
   async function archiveSession(session: Session) {
     const [store, setStore] = globalSync.child(session.directory)
@@ -129,87 +154,77 @@ export function Sidebar(props: {
           {/* Session list */}
           <div class="flex flex-col gap-1 flex-1 min-h-0">
             <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
-              <Show when={props.currentDir()} keyed>
-                {(dir) => {
-                  const [store] = globalSync.child(dir, { bootstrap: true })
-                  const sessions = createMemo(() => sortedRootSessions(store, sortNow()))
-                  const octoAiSessions = createMemo(() => sessions().filter(s => s.agent === "octo_ai"))
-                  const isLoading = createMemo(() => store.status === "loading")
-                  return (
-                    <Show when={!isLoading()} fallback={
-                      <div class="text-12-regular text-text-weak py-4 text-center">
-                        <Spinner class="size-4 mx-auto mb-1" />
-                        {language.t("common.loading")}
-                      </div>
-                    }>
-                      <Show
-                        when={octoAiSessions().length > 0}
-                        fallback={
-                          <div class="text-12-regular text-text-weak py-4 text-center">
-                            {language.t("session.review.empty")}
-                          </div>
-                        }
-                      >
-                      <div class="flex flex-col gap-1">
-                        <For each={octoAiSessions()}>
-                          {(session) => {
-                            const isActive = () => params.id === session.id
-                            return (
-                              <div class="group/item relative">
-                                <A
-                                  href={`/${base64Encode(dir)}/chat/${session.id}`}
-                                  activeClass=""
-                                  class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
-                                  style={{ "padding-right": isActive() ? "20px" : "12px" }}
-                                  classList={{
-                                    "bg-[rgba(10,89,247,0.08)]": isActive(),
-                                    "hover:bg-surface-base-hover": !isActive(),
-                                  }}
-                                >
-                                  <span class="flex-1 min-w-0 truncate">
-                                    {sessionTitle(session.title) ?? language.t("command.session.new")}
-                                  </span>
-                                </A>
-                                {/* Active right indicator bar */}
-                                <Show when={isActive()}>
-                                  <span
-                                    class="absolute rounded-full pointer-events-none"
-                                    style={{
-                                      right: "8px",
-                                      top: "50%",
-                                      transform: "translateY(-50%)",
-                                      width: "4px",
-                                      height: "32px",
-                                      background: "var(--text-interactive-base)",
-                                    }}
-                                  />
-                                </Show>
-                                {/* Archive on hover (non-active only) */}
-                                <Show when={!isActive()}>
-                                  <div class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/item:opacity-100 transition-opacity pointer-events-none group-hover/item:pointer-events-auto" style="display: none">
-                                    <button
-                                      type="button"
-                                      class="size-5 rounded flex items-center justify-center hover:bg-surface-raised-base-hover text-icon-weak"
-                                      onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        void archiveSession(session)
-                                      }}
-                                      aria-label={language.t("common.archive")}
-                                    >
-                                      <Icon name="archive" size="small" />
-                                    </button>
-                                  </div>
-                                </Show>
-                              </div>
-                            )
-                          }}
-                        </For>
-                      </div>
-                    </Show>
-                    </Show>
-                  )
-                }}
+              <Show when={!sessions.loading} fallback={
+                <div class="text-12-regular text-text-weak py-4 text-center">
+                  <Spinner class="size-4 mx-auto mb-1" />
+                  {language.t("common.loading")}
+                </div>
+              }>
+                <Show
+                  when={sessionList.length > 0}
+                  fallback={
+                    <div class="text-12-regular text-text-weak py-4 text-center">
+                      {language.t("session.review.empty")}
+                    </div>
+                  }
+                >
+                <div class="flex flex-col gap-1">
+                  <For each={sessionList}>
+                    {(session) => {
+                      const isActive = () => params.id === session.id
+                      return (
+                        <div class="group/item relative">
+                          <A
+                            href={`/${base64Encode(session.directory)}/chat/${session.id}`}
+                            activeClass=""
+                            class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
+                            style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                            classList={{
+                              "bg-[rgba(10,89,247,0.08)]": isActive(),
+                              "hover:bg-surface-base-hover": !isActive(),
+                            }}
+                          >
+                            <span class="flex-1 min-w-0 truncate">
+                              {sessionTitle(session.title) ?? language.t("command.session.new")}
+                            </span>
+                          </A>
+                          {/* Active right indicator bar */}
+                          <Show when={isActive()}>
+                            <span
+                              class="absolute rounded-full pointer-events-none"
+                              style={{
+                                right: "8px",
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                width: "4px",
+                                height: "32px",
+                                background: "var(--text-interactive-base)",
+                              }}
+                            />
+                          </Show>
+                          {/* Archive on hover (non-active only) */}
+                          <Show when={!isActive()}>
+                            <div class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/item:opacity-100 transition-opacity pointer-events-none group-hover/item:pointer-events-auto" style="display: none">
+                              <button
+                                type="button"
+                                class="size-5 rounded flex items-center justify-center hover:bg-surface-raised-base-hover text-icon-weak"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  void archiveSession(session)
+                                }}
+                                aria-label={language.t("common.archive")}
+                              >
+                                <Icon name="archive" size="small" />
+                              </button>
+                            </div>
+                          </Show>
+                        </div>
+                      )
+                    }}
+                  </For>
+                </div>
+              </Show>
               </Show>
             </div>
           </div>
