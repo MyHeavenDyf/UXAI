@@ -56,7 +56,7 @@ if (fs.existsSync(skillsDir)) {
     const agentName = relPath.split(/[/\\]/)[0] // e.g. "octo_insight"
     skillEntries[dirName] = {
       description: descMatch ? descMatch[1] : "",
-      import: true,
+      import: false,
       type: agentName,
     }
   }

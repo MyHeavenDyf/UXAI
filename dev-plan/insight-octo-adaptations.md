@@ -135,3 +135,13 @@ agent: "octo_insight",
 - `octo-tokens.css`：新增 CSS 变量/样式
 
 **Octo 适配已保留**：适配 A（useSDK）和 B（octo_insight agent 名）未受影响（index.tsx 未变），适配 C（--octo-brand-a5）已加回 CSS。无 desktop-electron 变更。
+
+### 2026-05-27: commit `83a3418` (预置文案按设计师定稿 + 用户 tooltip 友好化 + agent prompt 去过期段)
+
+**上游变更**：
+- `index.tsx`：发送按钮 tooltip "等待附件上传完成" → "请等待附件上传完成"
+- `task-card/index.tsx`：3 处 tooltip 友好化（"等待" → "请等待"、"3分钟内只能刷新一次" → "请稍后再试"）
+- `preset-prompts.ts`：4 个预置胶囊 label 和 text 按设计师定稿更新（"观点解析" → "观点解析报告" 等）
+- `insight.md`（agent prompt）：去掉"模板下拉"过期描述，改为"预置按钮带入文本"表述
+
+**Octo 适配已保留**：index.tsx 仅 tooltip 文案变更（第 844 行），不涉及适配 A/B 的 import/sdk 代码。agent prompt 路径对应 `opencode/src/agent/prompt/octo_insight.txt`，已同步更新。
