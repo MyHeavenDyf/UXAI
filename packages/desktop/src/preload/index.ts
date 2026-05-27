@@ -73,6 +73,7 @@ const api: ElectronAPI = {
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
+  htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
 }

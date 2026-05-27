@@ -142,7 +142,11 @@ export function ResultViewer(props: {
                     <DeckRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "svg"}>
-                    <SvgRenderer content={tab().content} />
+                    <SvgRenderer
+                      content={tab().content}
+                      mode={getHtmlMode(tab().id)}
+                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                    />
                   </Match>
                 </Switch>
               </div>

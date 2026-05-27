@@ -6,8 +6,7 @@ import { SessionEvent } from "@/v2/session-event"
 import * as DateTime from "effect/DateTime"
 import { SyncEvent } from "@/sync"
 import { SessionMessageTable, SessionTable } from "./session.sql"
-import { SessionCategoryTable } from "./session-category.sql"
-import { agentToCategory } from "./session-category"
+import { syncOnAgentSwitch } from "./session-category-query"
 import type { SessionID } from "./schema"
 import { Schema } from "effect"
 
@@ -130,13 +129,7 @@ export default [
       .where(eq(SessionTable.id, data.sessionID))
       .run()
 
-    // Sync category only on first assignment — do not overwrite existing category
-    const category = agentToCategory(data.agent)
-    const now = DateTime.toEpochMillis(data.timestamp)
-    db.insert(SessionCategoryTable)
-      .values({ session_id: data.sessionID, category, time_created: now, time_updated: now })
-      .onConflictDoNothing({ target: SessionCategoryTable.session_id })
-      .run()
+    syncOnAgentSwitch(db, data.sessionID, data.agent, DateTime.toEpochMillis(data.timestamp))
 
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.agent.switched", data })
   }),

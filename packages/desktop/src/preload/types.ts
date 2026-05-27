@@ -88,4 +88,5 @@ export type ElectronAPI = {
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   openSkillFolder: () => Promise<void>
+  htmlToPdf: (html: string) => Promise<ArrayBuffer>
 }

@@ -306,6 +306,22 @@ export function registerIpcHandlers(deps: Deps) {
       await shell.openPath(octoSkillDir)
     }
   })
+
+  ipcMain.handle("html-to-pdf", async (_event: IpcMainInvokeEvent, html: string) => {
+    const win = new BrowserWindow({
+      width: 1920,
+      height: 1080,
+      show: false,
+      webPreferences: { offscreen: true },
+    })
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    const pdfData = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: { width: 1920 * 0.264583, height: 1080 * 0.264583 },
+    })
+    win.destroy()
+    return pdfData.buffer as ArrayBuffer
+  })
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

@@ -121,3 +121,17 @@ agent: "octo_insight",
 - `utils/resource-link.ts` / `utils/task-detect.ts`：新增全链路 branch 跟踪 console 日志
 
 **Octo 适配已保留**：适配 A/B/C 全部正确应用。`electron-api.ts` 中的 `downloadResourceToTemp` / `downloadResource` 在本项目中尚未实现 IPC handler，FileFallback 会优雅降级（显示 toast 提示桌面 API 不可用）。
+
+### 2026-05-27: commit `4283b01` (对话不抹 + 紧凑入口条 + business_type 标准字段 + JSON 高亮)
+
+**上游变更**：
+- `insight-turn.tsx`：重构 OutputCard 检测逻辑，对话不抹（保留上一轮结果），紧凑入口条样式，新增 `business_type` 标准字段判断
+- `result-viewer/index.tsx`：调整 tab 渲染逻辑适配新字段
+- `mindmap-renderer.tsx`：增强 mindmap 渲染器，使用 mindmap-adapter 适配 UXR JSON 格式
+- `tab-store.ts`：简化 tab URI 去重逻辑
+- `detect.ts` / `detect.test.ts`：新增 `stripCodeFence` 辅助函数，调整检测策略
+- `mindmap-adapter.ts`：新增 UXR JSON → Markdown 转换工具（处理内网 MCP mindmap 工具 shape）
+- `resource-link.ts`：新增 resource link 解析辅助函数
+- `octo-tokens.css`：新增 CSS 变量/样式
+
+**Octo 适配已保留**：适配 A（useSDK）和 B（octo_insight agent 名）未受影响（index.tsx 未变），适配 C（--octo-brand-a5）已加回 CSS。无 desktop-electron 变更。

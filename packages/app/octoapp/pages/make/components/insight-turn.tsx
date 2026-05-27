@@ -56,7 +56,13 @@ function detectCard(text: string): { type: OutputCardType; title: string } | nul
   const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
 
   if (/```html/i.test(text) || /<!DOCTYPE\s+html/i.test(text) || /<html[\s>]/i.test(text)) {
+    if (/<div[^>]*class=["']slide["']/.test(text) || /\.slide\b/.test(text)) {
+      return { type: "deck", title: heading(text) ?? "幻灯片" }
+    }
     return { type: "html", title: heading(text) ?? "HTML 原型" }
+  }
+  if (/<svg[\s>]/i.test(text) || /```svg\b/i.test(text)) {
+    return { type: "svg", title: heading(text) ?? "SVG 图形" }
   }
   if (isMarkdownTable(text)) {
     return { type: "table", title: heading(text) ?? "分析结果" }
@@ -66,6 +72,9 @@ function detectCard(text: string): { type: OutputCardType; title: string } | nul
   }
   if (/```json/i.test(text)) {
     return { type: "json", title: heading(text) ?? "JSON 数据" }
+  }
+  if (/```(tsx?|jsx?|python|css|yaml|toml|rust|go|java|sh|bash)\b/i.test(text)) {
+    return { type: "code-snippet", title: heading(text) ?? "代码片段" }
   }
   if (text.trim().length > 200) {
     return { type: "markdown", title: heading(text) ?? "分析报告" }

@@ -1,4 +1,4 @@
-import { createMemo, createSignal } from "solid-js"
+import { createMemo } from "solid-js"
 import type { JSX } from "solid-js"
 
 function extractSvgContent(text: string): string {
@@ -9,8 +9,11 @@ function extractSvgContent(text: string): string {
   return text.trim()
 }
 
-export function SvgRenderer(props: { content: string }): JSX.Element {
-  const [mode, setMode] = createSignal<"preview" | "source">("preview")
+export function SvgRenderer(props: {
+  content: string
+  mode?: "preview" | "edit"
+  onContentChange?: (content: string) => void
+}): JSX.Element {
   const svg = createMemo(() => extractSvgContent(props.content))
 
   const srcdoc = createMemo(() => {
@@ -30,20 +33,20 @@ export function SvgRenderer(props: { content: string }): JSX.Element {
 
   return (
     <div class="flex flex-col h-full w-full overflow-hidden">
-      <div class="flex-1 overflow-hidden" style={{ background: mode() === "preview" ? "white" : "rgba(243,244,246,1)" }}>
-        {mode() === "preview" ? (
+      <div class="flex-1 overflow-hidden" style={{ background: props.mode === "edit" ? "rgba(243,244,246,1)" : "white" }}>
+        {props.mode === "edit" ? (
+          <textarea
+            value={svg()}
+            onInput={(e) => props.onContentChange?.(e.currentTarget.value)}
+            class="w-full h-full overflow-auto text-sm font-mono whitespace-pre-wrap p-4 resize-none border-0 outline-none"
+            style={{ color: "var(--octo-text-primary)", background: "rgba(243,244,246,1)" }}
+          />
+        ) : (
           <iframe
             srcdoc={srcdoc()}
             sandbox="allow-scripts"
             class="w-full h-full border-0"
           />
-        ) : (
-          <pre
-            class="w-full h-full overflow-auto text-sm font-mono whitespace-pre-wrap p-4"
-            style={{ color: "var(--octo-text-primary)", background: "rgba(243,244,246,1)" }}
-          >
-            {svg()}
-          </pre>
         )}
       </div>
     </div>

@@ -136,6 +136,7 @@ function injectFocusGuard(doc: string): string {
 function injectDeckBridge(doc: string, initialSlide: number = 0): string {
   const script = `<script data-od-deck-bridge>(function(){
   var current = ${initialSlide};
+  var origDisplay = [];
   function getAllSlides(){
     var byClass = document.querySelectorAll('.slide');
     if (byClass.length > 0) return Array.prototype.slice.call(byClass);
@@ -147,7 +148,10 @@ function injectDeckBridge(doc: string, initialSlide: number = 0): string {
     if (total === 0) return;
     current = Math.max(0, Math.min(idx, total - 1));
     slides.forEach(function(s, i){
-      s.style.display = i === current ? 'block' : 'none';
+      if (origDisplay[i] === undefined) {
+        origDisplay[i] = getComputedStyle(s).display;
+      }
+      s.style.display = i === current ? origDisplay[i] : 'none';
     });
     try {
       window.parent.postMessage({ type: 'od:slide-state', active: current, count: total }, '*');
