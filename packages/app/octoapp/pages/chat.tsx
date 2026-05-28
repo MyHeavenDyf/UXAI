@@ -90,7 +90,7 @@ export default function ChatPage() {
             console.error("Sidebar error:", err)
             return <div class="p-3 text-14-regular text-text-weak">Sidebar loading...</div>
           }}>
-            <Sidebar currentDir={resolvedDirectory} activeTab={() => "chat"} />
+            <Sidebar currentDir={resolvedDirectory} />
           </ErrorBoundary>
         </div>
         <div
