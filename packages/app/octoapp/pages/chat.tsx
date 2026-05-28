@@ -39,9 +39,14 @@ export default function ChatPage() {
     return null
   })
 
-  createEffect(() => {
-    local.agent.set("octo_ai")
-  })
+  createEffect(
+    on(
+      () => local.agent.list(),
+      () => {
+        local.agent.set("octo_ai")
+      }
+    )
+  )
 
   createEffect(
     on(
