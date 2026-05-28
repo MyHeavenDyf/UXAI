@@ -7,7 +7,7 @@ import { MarkedProvider } from "@opencode-ai/ui/context/marked"
 import { File } from "@opencode-ai/ui/file"
 import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
-import { ThemeProvider } from "@opencode-ai/ui/theme/context"
+import { ThemeProvider, useTheme } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
 import { type BaseRouterProps, Navigate, Route, Router, useLocation, useNavigate, useParams } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
@@ -22,6 +22,7 @@ import {
   type JSX,
   lazy,
   onCleanup,
+  onMount,
   type ParentProps,
   Show,
   Suspense,
@@ -98,6 +99,14 @@ declare global {
       setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
     }
   }
+}
+
+function ForceLightScheme(props: ParentProps) {
+  const theme = useTheme()
+  onMount(() => {
+    if (theme.colorScheme() !== "light") theme.setColorScheme("light")
+  })
+  return props.children
 }
 
 function QueryProvider(props: ParentProps) {
@@ -275,6 +284,7 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
           void window.api?.setTitlebar?.({ mode })
         }}
       >
+        <ForceLightScheme>
         <LanguageProvider locale={props.locale}>
           <UiI18nBridge>
             <ErrorBoundary
@@ -297,6 +307,7 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
             </ErrorBoundary>
           </UiI18nBridge>
         </LanguageProvider>
+        </ForceLightScheme>
       </ThemeProvider>
     </MetaProvider>
   )
