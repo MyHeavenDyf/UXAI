@@ -2,7 +2,7 @@ import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk/v2/client
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../utils/artifact-parser"
 import { stripArtifact } from "../utils/artifact-strip"
@@ -342,20 +342,26 @@ export function InsightTurn(props: {
   })
 
   // Stable flag: once artifact detected during generation, don't flicker back
-  const hasSeenArtifact = createSignal(false)
-  const stableStreamingCard = createMemo((): OutputCard | null => {
+  const [hasSeenArtifact, setHasSeenArtifact] = createSignal(false)
+  const [lastSeenCard, setLastSeenCard] = createSignal<OutputCard | null>(null)
+
+  // Track whether we've seen an artifact during streaming (effect, not memo)
+  createEffect(() => {
     if (!showGenerating()) {
-      if (hasSeenArtifact[0]()) hasSeenArtifact[1](false)
-      return null
+      setHasSeenArtifact(false)
+      setLastSeenCard(null)
+      return
     }
     const card = streamingArtifact()
     if (card) {
-      if (!hasSeenArtifact[0]()) hasSeenArtifact[1](true)
-      return card
+      setHasSeenArtifact(true)
+      setLastSeenCard(card)
     }
-    // If we've seen an artifact before, keep showing the last known state
-    // (parser might temporarily return null during streaming)
-    return hasSeenArtifact[0]() ? streamingArtifact() : null
+  })
+
+  const stableStreamingCard = createMemo((): OutputCard | null => {
+    if (!showGenerating()) return null
+    return streamingArtifact() ?? (hasSeenArtifact() ? lastSeenCard() : null)
   })
 
   // ── NEW: produced files ──

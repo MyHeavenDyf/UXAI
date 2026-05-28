@@ -44,7 +44,7 @@ export function SvgRenderer(props: {
         ) : (
           <iframe
             srcdoc={srcdoc()}
-            sandbox="allow-scripts"
+            sandbox=""
             class="w-full h-full border-0"
           />
         )}
