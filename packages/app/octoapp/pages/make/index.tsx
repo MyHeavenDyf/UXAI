@@ -43,6 +43,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { loadDesignSystem } from "./utils/design-system-loader"
 import { useModels } from "@/context/models"
+import { useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { Persist, persisted } from "@/utils/persist"
 
@@ -84,8 +85,8 @@ export default function MakePage() {
     visible: (key: { modelID: string; providerID: string }) => models.visible(key),
     current: () => {
       const key = selectedModelKey()
-      if (!key) return null
-      return models.find(key) ?? null
+      if (!key) return undefined
+      return models.find(key) ?? undefined
     },
     set: (key: { modelID: string; providerID: string } | undefined) => {
       if (key) {
@@ -94,9 +95,16 @@ export default function MakePage() {
         setModelStore(reconcile({}))
       }
     },
-    ready: () => models.ready(),
-    recent: { list: () => [] as { providerID: string; modelID: string }[], push: () => {} },
-    variant: { configured: () => undefined as string | undefined },
+    ready: models.ready,
+    recent: (() => []) as ReturnType<typeof useLocal>["model"]["recent"],
+    variant: {
+      configured: () => undefined as string | undefined,
+      selected: () => undefined as string | undefined,
+      current: () => undefined as string | undefined,
+      list: () => [] as string[],
+      set: (_value: string | undefined) => {},
+      cycle: () => {},
+    },
     cycle: () => {},
     setVisibility: models.setVisibility,
   }
