@@ -1529,7 +1529,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             variant: "ghost",
                             size: "normal",
                             style: control(),
-                            class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
+                            class: "min-w-0 max-w-[320px] text-13-regular text-text-base group !h-8 !px-3 gap-0.5 bg-[rgba(0,0,0,0.05)] hover:!bg-[rgba(0,0,0,0.1)] active:!bg-[rgba(0,0,0,0.15)]",
                             "data-action": "prompt-model",
                           }}
                           onClose={restoreFocus}

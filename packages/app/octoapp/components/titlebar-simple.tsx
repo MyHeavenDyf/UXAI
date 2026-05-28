@@ -51,7 +51,7 @@ type TauriApi = {
 const tauriApi = () => (window as unknown as { __TAURI__?: TauriApi }).__TAURI__
 const currentDesktopWindow = () => tauriApi()?.window?.getCurrentWindow?.()
 const currentThemeWindow = () => tauriApi()?.webviewWindow?.getCurrentWebviewWindow?.()
-const titlebarHeight = 64
+const titlebarHeight = 48
 const minTitlebarZoom = 0.25
 const windowsControlsBaseWidth = 138
 
@@ -193,7 +193,7 @@ export function TitlebarSimple() {
   return (
     <header
       class="shrink-0 bg-background-base relative overflow-hidden flex items-center px-4 border-b border-border-weak-base"
-      style={{ "min-height": minHeight(), height: minHeight() }}
+      style={{ "min-height": minHeight(), height: minHeight(), width:"100%", "justify-content": "space-between" }}
       data-tauri-drag-region
       onMouseDown={drag}
       onDblClick={maximize}
@@ -202,11 +202,10 @@ export function TitlebarSimple() {
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
-        <img src="/OctoLogo.svg" alt="" style={{ width: "26px", height: "24px" }} />
-        <span class="text-16-medium text-text-strong">Octo Agent</span>
+        <img src="/headerLogo.png" alt="" style={{ width: "90px", height: "18px" }} />
       </div>
 
-      <div class="flex-1 flex items-center justify-center min-w-0" style={{ zoom: counterZoom() }}>
+      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
         <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] gap-1 p-[2px]" role="tablist">
           {TAB_ITEMS.map((item) => (
             <button
