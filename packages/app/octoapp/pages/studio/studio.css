@@ -25,7 +25,7 @@
   flex: 0 0 240px;
   min-height: 0;
   overflow: hidden;
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  border-right: 1px solid var(--border-weak-base);
 }
 
 .studio-left > div > button:first-of-type > span:first-child {
@@ -45,25 +45,7 @@
 }
 
 
-.studio-left > div > button:last-of-type > span:first-child {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  font-size: 0;
-  background-color: currentColor;
-  mask-image: url("./settings-gear.svg");
-  -webkit-mask-image: url("./settings-gear.svg");
-  mask-size: contain;
-  -webkit-mask-size: contain;
-  mask-repeat: no-repeat;
-  -webkit-mask-repeat: no-repeat;
-  mask-position: center;
-  -webkit-mask-position: center;
-}
 
-.studio-left > div > button:last-of-type:hover {
-  background-color: transparent;
-}
 
 .studio-center {
   min-width: 360px;
@@ -204,17 +186,6 @@
 .studio-left > div {
   width: 100%;
   background: transparent !important;
-}
-
-.studio-left > div > button:last-of-type {
-  padding: 8px 12px;
-  gap: 12px;
-  font-size: 14px;
-  line-height: 20px;
-}
-
-.studio-left > div > button:last-of-type:hover {
-  background-color: var(--surface-base-hover);
 }
 
 .studio-empty-workspace {

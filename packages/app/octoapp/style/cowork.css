@@ -7,9 +7,9 @@
   --octo-text-primary: rgba(0, 0, 0, 0.9);
 }
 
-/* ① 侧栏容器：白色背景 */
+/* ① 侧栏容器 */
 [data-cowork-area="sidebar"] > .shrink-0.flex.flex-col.h-full.overflow-hidden {
-  background: #fff !important;
+  background: linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%);
 }
 
 /* ② 滚动区域：顶部留白 24px，左右 16px */

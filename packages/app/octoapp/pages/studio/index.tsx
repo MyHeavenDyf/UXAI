@@ -903,6 +903,20 @@ export default function StudioPage() {
   )
 }
 
+function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
+      style={{
+        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+        transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
+        "flex-shrink": "0",
+      }}
+    >
+      <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
+    </svg>
+  )
+}
+
 function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
@@ -936,36 +950,51 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
   onCleanup(() => { clearTimeout(refetchTimer) })
 
   const isLoading = createMemo(() => sessions.loading)
+  const [collapsed, setCollapsed] = createSignal(false)
 
   return (
     <div
-      class="h-full flex flex-col gap-6"
+      class="h-full flex flex-col"
       style={{
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
-        padding: "12px",
+        padding: "12px 12px 24px 12px",
       }}
     >
-      <div class="flex-1 min-h-0 flex flex-col gap-3">
+      <div class="flex-1 min-h-0 flex flex-col">
+        {/* New session button + divider */}
         <div class="flex flex-col gap-2 shrink-0">
           <button
             type="button"
-            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "44px", color: "#191919" }}
+            class="flex items-center gap-3 w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+            style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
             onClick={props.onNewConversation}
           >
-            <Icon name="plus" size="small" class="shrink-0" />
+            <Icon name="plus" size="normal" class="shrink-0" />
             <span>{language.t("command.session.new")}</span>
           </button>
-          <div style={{ height: "1px", background: "rgba(0,0,0,0.08)" }} />
-          <div class="flex items-center gap-3 px-3 py-2">
-            <img src="/IconStudio1.svg" alt="" style={{ width: "16px", height: "16px" }} />
-            <span class="flex-1 min-w-0 leading-6" style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}>
-              Studio
-            </span>
-          </div>
+          <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
         </div>
 
-        <div class="flex flex-col gap-1 flex-1 min-h-0" >
+        {/* Collapsible section header */}
+        <div class="flex items-center h-[36px] px-[12px] mt-[8px]">
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
+          >
+            <span class="flex items-center gap-[12px]">
+              <img src="/IconStudio1.svg" alt="" style={{ width: "20px", height: "20px" }} />
+              <span class="text-[12px] leading-[20px] select-none" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+                Octo Studio
+              </span>
+            </span>
+            <ChevronRightIcon collapsed={collapsed()} />
+          </button>
+        </div>
+
+        {/* Session list */}
+        <Show when={!collapsed()}>
+        <div class="flex flex-col flex-1 min-h-0">
           <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
             <Show when={!isLoading()} fallback={
               <div class="text-12-regular text-text-weak py-4 text-center">
@@ -981,7 +1010,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                   </div>
                 }
               >
-                <div class="flex flex-col gap-1">
+                <div class="flex flex-col">
                   <For each={sessionList}>
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
@@ -989,8 +1018,8 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                         <div class="group/item relative">
                           <a
                             href={`/${base64Encode(props.directory)}/studio/${session.id}`}
-                            class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
-                            style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                            class="flex items-center w-full rounded-[8px] transition-colors"
+                            style={{ height: "36px", padding: "0 24px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
                             classList={{
                               "bg-[rgba(10,89,247,0.08)]": isActive(),
                               "hover:bg-surface-base-hover": !isActive(),
@@ -1008,8 +1037,8 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                                 top: "50%",
                                 transform: "translateY(-50%)",
                                 width: "4px",
-                                height: "32px",
-                                background: "var(--text-interactive-base)",
+                                height: "28px",
+                                background: "#0A59F7",
                               }}
                             />
                           </Show>
@@ -1022,15 +1051,17 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
             </Show>
           </div>
         </div>
+        </Show>
       </div>
 
       <button
         type="button"
-        class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-text-strong shrink-0 hover:bg-surface-base-hover transition-colors"
+        class="flex items-center gap-3 w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+        style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
         onClick={() => dialog.show(() => <DialogSettings />)}
       >
         <Icon name="settings-gear" size="small" class="shrink-0" />
-        <span>{language.t("sidebar.settings")}</span>
+        <span class="text-[14px] leading-[22px]">{language.t("sidebar.settings")}</span>
       </button>
     </div>
   )

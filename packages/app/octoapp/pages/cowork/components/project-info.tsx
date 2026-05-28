@@ -10,7 +10,7 @@ export function ProjectInfo(): JSX.Element {
         background: "rgba(0,0,0,0.03)",
         "border-radius": "12px",
         padding: "8px 16px",
-        "margin": "12px",
+        "margin": "12px 4px",
         cursor: "pointer",
       }}
       onClick={() => dialog.show(() => (

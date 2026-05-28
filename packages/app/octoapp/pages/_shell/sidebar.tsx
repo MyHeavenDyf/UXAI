@@ -23,15 +23,14 @@ import { ProjectInfo } from "@/pages/cowork/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
-    <svg
-      width="12" height="12" viewBox="0 0 12 12" fill="none"
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
       style={{
-        transform: props.collapsed ? "rotate(0deg)" : "rotate(90deg)",
+        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
         transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
         "flex-shrink": "0",
       }}
     >
-      <path d="M4.5 2.5L7.5 6L4.5 9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
     </svg>
   )
 }
@@ -254,19 +253,19 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         "border-right": "1px solid var(--border-weak-base)",
       }}
     >
-      <div class="shrink-0">
+      <div class="shrink-0 flex flex-col px-[12px]">
          <ProjectInfo />
-        <div style={{ margin: "12px 12px 8px 12px" }} class="relative">
+        <div class="relative">
           <button
             type="button"
-            class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "44px", color: "#191919" }}
+            class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+            style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
             onClick={toggleDropdown}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
               <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
             </svg>
-            <span style="font-size:14px;">新建交付件</span>
+            <span>新建交付件</span>
           </button>
           <Show when={showDropdown()}>
             <div
@@ -303,7 +302,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
             </div>
           </Show>
         </div>
-        <div style={{ margin: "0 12px", height: "1px", background: "rgba(0,0,0,0.08)" }} />
+        <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>
       {/* Scrollable: Insight + Make sessions */}
       <div
@@ -312,26 +311,24 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       >
         {/* ─── Octo Insight ─── */}
         <div class="mb-[2px]">
-          {/* 分组标题行 */}
-          <div class="flex items-center h-[32px] px-[4px]">
+          <div class="flex items-center h-[36px] px-[12px]">
             <button
               type="button"
               onClick={() => setInsightCollapsed((v) => !v)}
-              class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-              style={{ color: "var(--text-weak)" }}
+              class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
             >
-              <ChevronRightIcon collapsed={insightCollapsed()} />
-              <span
-                class="text-[12px] font-medium select-none leading-[20px]"
-                style={{ color: "var(--text-weak)" }}
-              >
-                Octo Insight
+              <span class="flex items-center gap-[12px]">
+                <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+                <span class="text-[12px] leading-[20px] select-none" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+                  Octo Insight
+                </span>
               </span>
+              <ChevronRightIcon collapsed={insightCollapsed()} />
             </button>
           </div>
 
           <Show when={!insightCollapsed()}>
-            <div class="flex flex-col gap-[1px]">
+            <div class="flex flex-col">
               <Show
                 when={insightStable()}
                 fallback={
@@ -364,33 +361,34 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                         ),
                       )
                       return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            notification.session.markViewed(session.id)
-                            navigate(`/insight/${session.id}`)
-                          }}
-                          class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center gap-2 relative"
-                          style={{
-                            height: "36px",
-                            background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
-                            color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
-                            "font-weight": isActive() ? "500" : "400",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" } }}
-                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-strong)" } }}
-                        >
-                          <Show when={isActive()}>
-                            <span
-                              class="absolute left-0 top-1/2 rounded-r-[3px]"
-                              style={{
-                                height: "16px",
-                                width: "3px",
-                                background: "var(--text-interactive-base)",
-                                transform: "translateY(-50%)",
-                              }}
-                            />
-                          </Show>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              notification.session.markViewed(session.id)
+                              navigate(`/insight/${session.id}`)
+                            }}
+                            class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                            style={{
+                              height: "36px",
+                              padding: "0 24px 0 44px",
+                              color: isActive() ? "#0A59F7" : undefined,
+                            }}
+                            classList={{
+                              "bg-[rgba(10,89,247,0.08)]": isActive(),
+                              "hover:bg-surface-base-hover": !isActive(),
+                            }}
+                          >
+                            <Show when={isActive()}>
+                              <span
+                                class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
+                                style={{
+                                  height: "28px",
+                                  width: "4px",
+                                  background: "#0A59F7",
+                                  transform: "translateY(-50%)",
+                                }}
+                              />
+                            </Show>
                           <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
                             <div class="shrink-0 size-6 flex items-center justify-center">
                               <Switch>
@@ -409,7 +407,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               </Switch>
                             </div>
                           </Show>
-                          <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
+                          <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
                         </button>
                       )
                     }}
@@ -422,24 +420,23 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
         {/* ─── Octo Make ─── */}
         <div class="mb-[2px]">
-          <div class="flex items-center h-[32px] px-[4px]">
+          <div class="flex items-center h-[36px] px-[12px]">
             <button
               type="button"
               onClick={() => setMakeCollapsed((v) => !v)}
-              class="flex items-center gap-[4px] flex-1 min-w-0 text-left"
-              style={{ color: "var(--text-weak)" }}
+              class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
             >
-              <ChevronRightIcon collapsed={makeCollapsed()} />
-              <span
-                class="text-[12px] font-medium select-none leading-[20px]"
-                style={{ color: "var(--text-weak)" }}
-              >
-                Octo Make
+              <span class="flex items-center gap-[12px]">
+                <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+                <span class="text-[12px] leading-[20px] select-none" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+                  Octo Make
+                </span>
               </span>
+              <ChevronRightIcon collapsed={makeCollapsed()} />
             </button>
           </div>
           <Show when={!makeCollapsed()}>
-            <div class="flex flex-col gap-[1px]">
+            <div class="flex flex-col">
               <Show
                 when={makeStable()}
                 fallback={
@@ -472,33 +469,34 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                         ),
                       )
                       return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            notification.session.markViewed(session.id)
-                            navigate(`/make/${session.id}`)
-                          }}
-                          class="w-full text-left px-[8px] rounded-lg text-[12px] leading-[20px] transition-colors flex items-center relative"
-                          style={{
-                            height: "36px",
-                            background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
-                            color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
-                            "font-weight": isActive() ? "500" : "400",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive()) { e.currentTarget.style.background = "var(--surface-base-interactive-active)"; e.currentTarget.style.color = "var(--text-interactive-base)" } }}
-                          onMouseLeave={(e) => { if (!isActive()) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-strong)" } }}
-                        >
-                          <Show when={isActive()}>
-                            <span
-                              class="absolute left-0 top-1/2 rounded-r-[3px]"
-                              style={{
-                                height: "16px",
-                                width: "3px",
-                                background: "var(--text-interactive-base)",
-                                transform: "translateY(-50%)",
-                              }}
-                            />
-                          </Show>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              notification.session.markViewed(session.id)
+                              navigate(`/make/${session.id}`)
+                            }}
+                            class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                            style={{
+                              height: "36px",
+                              padding: "0 24px 0 44px",
+                              color: isActive() ? "#0A59F7" : undefined,
+                            }}
+                            classList={{
+                              "bg-[rgba(10,89,247,0.08)]": isActive(),
+                              "hover:bg-surface-base-hover": !isActive(),
+                            }}
+                          >
+                            <Show when={isActive()}>
+                              <span
+                                class="absolute right-[8px] top-1/2 rounded-full pointer-events-none"
+                                style={{
+                                  height: "28px",
+                                  width: "4px",
+                                  background: "#0A59F7",
+                                  transform: "translateY(-50%)",
+                                }}
+                              />
+                            </Show>
                           <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
                             <div class="shrink-0 size-6 flex items-center justify-center">
                               <Switch>
@@ -517,7 +515,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                               </Switch>
                             </div>
                           </Show>
-                          <span class="truncate block w-full">{sessionTitle(session.title) || "无标题"}</span>
+                          <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
                         </button>
                       )
                     }}
@@ -531,8 +529,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
 
       {/* Fixed bottom: 技能库 / 资产库 */}
       <div
-        class="shrink-0 flex flex-col gap-[2px] px-[8px] pt-[6px]"
-        style={{ "border-top": "1px solid var(--octo-border-default, #E5E7EB)" }}
+        class="shrink-0 flex flex-col gap-[2px] px-[12px] pt-[12px]"
       >
         <For each={NAV_ITEMS}>
           {(item) => {
@@ -587,11 +584,11 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       </div>
 
       {/* Settings */}
-      <div class="shrink-0 px-[8px] py-[8px]">
+      <div class="shrink-0 px-[12px] pb-[24px]">
         <button
           type="button"
           title="设置"
-          class="w-full flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors"
+          class="w-full flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors"
           style={{ height: "36px", color: "var(--text-strong)" }}
           onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
