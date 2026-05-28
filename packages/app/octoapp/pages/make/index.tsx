@@ -40,7 +40,12 @@ import { DesignSystemPicker } from "./components/design-system-picker"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Icon } from "@opencode-ai/ui/icon"
 import { loadDesignSystem } from "./utils/design-system-loader"
+import { useModels } from "@/context/models"
+import { useLocal } from "@/context/local"
+import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { Persist, persisted } from "@/utils/persist"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -63,6 +68,47 @@ export default function MakePage() {
 
   const homeDir = useProjectDir()
 
+  // ── 模型选择（与 Chat/Studio 隔离，workspace 级持久化） ────
+  const models = useModels()
+  const [modelStore, setModelStore] = persisted(
+    Persist.workspace(homeDir() ?? "", "make-model"),
+    createStore<{ providerID: string; modelID: string } | Record<string, never>>({}),
+  )
+  const selectedModelKey = createMemo<{ providerID: string; modelID: string } | null>(
+    () => {
+      const s = modelStore
+      return "providerID" in s && "modelID" in s ? s as { providerID: string; modelID: string } : null
+    },
+  )
+  const modelState = {
+    list: () => models.list(),
+    visible: (key: { modelID: string; providerID: string }) => models.visible(key),
+    current: () => {
+      const key = selectedModelKey()
+      if (!key) return undefined
+      return models.find(key) ?? undefined
+    },
+    set: (key: { modelID: string; providerID: string } | undefined) => {
+      if (key) {
+        setModelStore(reconcile({ providerID: key.providerID, modelID: key.modelID }))
+      } else {
+        setModelStore(reconcile({}))
+      }
+    },
+    ready: models.ready,
+    recent: (() => []) as ReturnType<typeof useLocal>["model"]["recent"],
+    variant: {
+      configured: () => undefined as string | undefined,
+      selected: () => undefined as string | undefined,
+      current: () => undefined as string | undefined,
+      list: () => [] as string[],
+      set: (_value: string | undefined) => {},
+      cycle: () => {},
+    },
+    cycle: () => {},
+    setVisibility: models.setVisibility,
+  }
+
   // 当前 session 元数据（标题等）
   const [sessionInfo, { refetch: refetchSession }] = createResource(
     () => params.id ?? "",
@@ -72,7 +118,6 @@ export default function MakePage() {
         const result = await globalSDK.client.session.get({ sessionID: id })
         return (result.data as Session | undefined) ?? null
       } catch {
-        navigate("/make")
         return null as Session | null
       }
     },
@@ -346,7 +391,6 @@ export default function MakePage() {
   }
 
   async function sendMessage(sessionId: string, text: string) {
-    setSending(true)
     try {
       const fileParts: FilePartInput[] = attachments().map((a) => ({
         type: "file",
@@ -387,29 +431,45 @@ export default function MakePage() {
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
+      const modelKey = selectedModelKey()
       await globalSDK.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
+        ...(modelKey ? { model: modelKey } : {}),
         parts: [textPart, ...fileParts],
       })
       setAttachments([])
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
-    } finally {
-      setSending(false)
     }
   }
 
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending()) return
+    setSending(true)
     setPrompt("")
-    let sid = params.id
-    if (!sid) {
-      sid = await createAndNavigate()
-      if (!sid) return
+    const submitSessionId = params.id
+    try {
+      let sid = submitSessionId
+      if (!sid) {
+        const dir = homeDir()
+        if (!dir) return
+        const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_make" })
+        const session = result.data as Session | undefined
+        if (!session) return
+        navigate(`/make/${session.id}`)
+        sid = session.id
+      }
+      await sendMessage(sid, text)
+    } catch (err) {
+      console.error("[MakePage] handleSubmit failed", err)
+    } finally {
+      // Only reset if we're still on the same session (or still on no session)
+      if (!submitSessionId || params.id === submitSessionId) {
+        setSending(false)
+      }
     }
-    await sendMessage(sid, text)
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -647,6 +707,21 @@ export default function MakePage() {
                     >
                       <IconAttach size={14} />
                     </button>
+                    <ModelSelectorPopover
+                      model={modelState}
+                      triggerAs={Button}
+                      triggerProps={{
+                        variant: "ghost",
+                        size: "normal",
+                        class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
+                        "data-action": "prompt-model",
+                      }}
+                    >
+                      <span class="truncate">
+                        {modelState.current()?.name ?? "选择模型"}
+                      </span>
+                      <Icon name="chevron-down" size="small" class="shrink-0" />
+                    </ModelSelectorPopover>
                   </div>
 
                   <button

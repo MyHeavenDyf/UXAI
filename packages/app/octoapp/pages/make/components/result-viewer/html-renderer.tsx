@@ -22,7 +22,7 @@ export function HtmlRenderer(props: {
       {props.mode === "preview" ? (
         <iframe
           srcdoc={srcdoc()}
-          sandbox="allow-scripts allow-popups"
+          sandbox="allow-scripts"
           class="w-full h-full border-0"
           style={{ "min-height": "200px" }}
         />
