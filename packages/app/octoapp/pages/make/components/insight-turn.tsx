@@ -483,7 +483,7 @@ export function InsightTurn(props: {
   })
 
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <div class="flex justify-end px-3 py-2.5">
         <div
@@ -523,7 +523,7 @@ export function InsightTurn(props: {
                   <Show when={i() > 0}>
                     <div class="my-1.5" style={{ "border-top": "1px dashed var(--octo-brand-a15)" }} />
                   </Show>
-                  <div class="whitespace-pre-wrap">{text}</div>
+                  <div class="whitespace-pre-wrap" style={{ "user-select": "text" }}>{text}</div>
                 </>
               )}
             </For>
@@ -545,7 +545,7 @@ export function InsightTurn(props: {
       <Show when={proseText().length > 0}>
         <div
           class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed"
-          style={{ color: "var(--octo-text-primary)" }}
+          style={{ color: "var(--octo-text-primary)", "user-select": "text" }}
         >
           <Markdown text={proseText()} />
         </div>

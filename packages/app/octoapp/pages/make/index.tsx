@@ -289,7 +289,21 @@ export default function MakePage() {
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const DS_KEY_PREFIX = "octo:make:design-system:"
+  const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
+  createEffect(() => {
+    const key = dsKey()
+    if (!key) return
+    const id = selectedDesignSystem()
+    if (id) localStorage.setItem(key, id)
+    else localStorage.removeItem(key)
+  })
+  createEffect(on(() => params.id, (id) => {
+    if (!id) return
+    const saved = localStorage.getItem(DS_KEY_PREFIX + id)
+    setSelectedDesignSystem(saved ?? null)
+  }))
   // 对话面板宽度：从 localStorage 恢复，无存储值时取约 45% 可用宽
   const CHAT_WIDTH_KEY = "octo:make:chat-width"
   function getInitialChatWidth(): number {
@@ -405,24 +419,30 @@ export default function MakePage() {
       if (dsId) {
         try {
           const ds = await loadDesignSystem(dsId)
+          if (!ds.design && !ds.tokens) {
+            console.warn("[MakePage] design system loaded but empty:", dsId)
+          }
           promptText = [
             `[Design System: ${dsId}]`,
-            `The active design system is "${dsId}". Its full specification follows.`,
-            `You MUST:`,
+            `The active design system is "${dsId}". Its full specification follows below.`,
+            `You MUST apply this design system to every artifact you create in this session:`,
             `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
             `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
             `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
             `4. Do NOT invent CSS variables that don't exist in the :root block below`,
+            `5. The design system content below is authoritative — it is not empty, use ALL of it`,
             ``,
-            `## DESIGN.md (authoritative visual rules)`,
+            `## DESIGN.md (authoritative visual rules for ${dsId})`,
+            ``,
             ds.design,
             ``,
             `## :root tokens (paste verbatim into <style>)`,
+            ``,
             "```css",
             ds.tokens,
             "```",
             "",
-            `---`,
+            "---",
             text,
           ].join("\n")
         } catch (err) {

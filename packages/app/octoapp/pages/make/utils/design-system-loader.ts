@@ -53,8 +53,9 @@ export async function loadDesignSystem(id: string): Promise<DesignSystemContent>
     tokenModules[tokensKey]?.() ?? Promise.resolve({ default: "" }),
   ])
 
-  return {
-    design: designModule.default,
-    tokens: tokensModule.default,
-  }
+  // With { import: "default" }, Vite returns the string directly, not { default: string }
+  const design = typeof designModule === "string" ? designModule : designModule.default
+  const tokens = typeof tokensModule === "string" ? tokensModule : tokensModule?.default ?? ""
+
+  return { design, tokens }
 }
