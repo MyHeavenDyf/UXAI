@@ -59,3 +59,11 @@ export async function loadDesignSystem(id: string): Promise<DesignSystemContent>
 
   return { design, tokens }
 }
+
+export async function loadDesignSystemTokens(id: string): Promise<string> {
+  const tokensKey = `../../../design-systems/${id}/tokens.css`
+  const loader = tokenModules[tokensKey]
+  if (!loader) return ""
+  const mod = await loader()
+  return typeof mod === "string" ? mod : mod.default ?? ""
+}

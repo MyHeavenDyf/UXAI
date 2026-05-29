@@ -151,39 +151,28 @@ export function ActionBar(props: {
   const canToggleMode = props.tab.type === "html" || props.tab.type === "svg"
 
   return (
-    <div
-      class="flex items-center justify-between px-4 py-1.5 shrink-0"
-      style={{
-        "border-bottom": "1px solid var(--octo-border-divider)",
-        background: "var(--octo-surface-page)",
-        "min-height": "36px",
-      }}
-    >
-      <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
+    <div class="octo-action-bar">
+      <span class="text-[12px] truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
         {canToggleMode && props.onModeChange && (
-          <ActionBtn
-            icon={props.mode === "edit" ? <IconActionPreview size={14} /> : <IconActionEdit size={14} />}
-            label={props.mode === "edit" ? "预览" : "编辑"}
+          <button
+            type="button"
+            class="octo-action-btn"
             onClick={props.onModeChange}
-          />
+          >
+            {props.mode === "edit" ? <IconActionPreview size={13} /> : <IconActionEdit size={13} />}
+            <span>{props.mode === "edit" ? "预览" : "编辑"}</span>
+          </button>
         )}
-        <ActionBtn icon={<IconActionCopy size={14} />} label="复制" onClick={() => copyToClipboard(props.tab.content)} />
-        <ActionBtn icon={<IconActionDownload size={14} />} label="下载" onClick={handleDownload} />
+        <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>
+          <IconActionCopy size={13} />
+          <span>复制</span>
+        </button>
+        <button type="button" class="octo-action-btn" onClick={handleDownload}>
+          <IconActionDownload size={13} />
+          <span>下载</span>
+        </button>
       </div>
     </div>
-  )
-}
-
-function ActionBtn(props: { icon: JSX.Element; label: string; onClick: () => void }): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action"
-    >
-      {props.icon}
-      <span>{props.label}</span>
-    </button>
   )
 }

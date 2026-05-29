@@ -37,11 +37,15 @@ import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
+import { TemplatePicker } from "./components/template-picker"
 import { IconAttach, IconSend } from "./icons"
 import { IllustrationInsightEmpty } from "./icons/illustrations"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { loadDesignSystem } from "./utils/design-system-loader"
+import { loadCrafts } from "./utils/craft-loader"
+import { createSnapshotStore } from "./utils/snapshot-store"
+import { VersionPanel } from "./components/result-viewer/version-panel"
 import { useModels } from "@/context/models"
 import { useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
@@ -237,12 +241,22 @@ export default function MakePage() {
       if (part.sessionID !== sessionId) return
       if (SKIP_PART_TYPES.has(part.type)) return
       const parts = dataStore.part[part.messageID]
-      if (!parts) { setDataStore("part", part.messageID, [part]); return }
+
+      // First time seeing parts for this message — always insert
+      if (!parts) {
+        setDataStore("part", part.messageID, [part])
+        return
+      }
+
       const result = Binary.search(parts, part.id, (p) => p.id)
-      if (result.found) {
-        setDataStore("part", part.messageID, result.index, reconcile(part))
-      } else {
+      if (!result.found) {
+        // New part — always insert
         setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
+      } else {
+        // Existing text part during streaming: skip reconcile, let deltas drive the text
+        // to avoid duplicated content. Final part.updated (when idle) sets canonical text.
+        if (part.type === "text" && isBusy()) return
+        setDataStore("part", part.messageID, result.index, reconcile(part))
       }
       return
     }
@@ -304,17 +318,21 @@ export default function MakePage() {
     const saved = localStorage.getItem(DS_KEY_PREFIX + id)
     setSelectedDesignSystem(saved ?? null)
   }))
-  // 对话面板宽度：从 localStorage 恢复，无存储值时取约 45% 可用宽
+  // 对话面板宽度：从 localStorage 恢复，无存储值时取默认 460px
   const CHAT_WIDTH_KEY = "octo:make:chat-width"
   function getInitialChatWidth(): number {
     const stored = localStorage.getItem(CHAT_WIDTH_KEY)
     if (stored) {
       const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 240) return n
+      if (!isNaN(n) && n >= 345 && n <= 720) return n
     }
-    return Math.max(360, Math.floor((window.innerWidth - 240) * 0.45))
+    return 460
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
+  const [focusMode, setFocusMode] = createSignal(false)
+
+  const MIN_CHAT = 345
+  const MAX_CHAT = 720
 
   let dragCleanup: (() => void) | null = null
 
@@ -332,7 +350,7 @@ export default function MakePage() {
       dragCleanup = null
     }
     const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.45), startWidth + ev.clientX - startX)))
+      setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
       resetBody()
@@ -352,6 +370,15 @@ export default function MakePage() {
   onCleanup(() => { dragCleanup?.() })
 
   const tabStore = createTabStore()
+  const snapshotStore = createSnapshotStore(() => params.id)
+  const [showVersionPanel, setShowVersionPanel] = createSignal(false)
+  const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
+  const [snapshotVersion, setSnapshotVersion] = createSignal(0)
+
+  function refreshSnapshots() {
+    setSnapshotList(snapshotStore.snapshots())
+    setSnapshotVersion((v) => v + 1)
+  }
 
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
@@ -414,15 +441,16 @@ export default function MakePage() {
       }))
       let promptText = text
 
-      // Design system prompt injection
+      // Design system prompt injection (prepended as hidden context, user text preserved)
       const dsId = selectedDesignSystem()
       if (dsId) {
+        let dsPrefix = ""
         try {
           const ds = await loadDesignSystem(dsId)
           if (!ds.design && !ds.tokens) {
             console.warn("[MakePage] design system loaded but empty:", dsId)
           }
-          promptText = [
+          dsPrefix = [
             `[Design System: ${dsId}]`,
             `The active design system is "${dsId}". Its full specification follows below.`,
             `You MUST apply this design system to every artifact you create in this session:`,
@@ -443,10 +471,30 @@ export default function MakePage() {
             "```",
             "",
             "---",
-            text,
           ].join("\n")
         } catch (err) {
           console.error("[MakePage] design system load failed", err)
+        }
+
+        // Craft document injection (design quality guides)
+        try {
+          const crafts = await loadCrafts(["anti-ai-slop", "typography", "color"])
+          if (crafts) {
+            dsPrefix += [
+              "",
+              "## Design Quality Guides (mandatory)",
+              "",
+              crafts,
+              "",
+              "---",
+            ].join("\n")
+          }
+        } catch (err) {
+          console.error("[MakePage] craft load failed", err)
+        }
+
+        if (dsPrefix) {
+          promptText = dsPrefix + "\n" + text
         }
       }
 
@@ -555,6 +603,12 @@ export default function MakePage() {
 
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
+    // Auto-save snapshot when a new result is opened
+    const tab = tabStore.tabs().find((t) => t.id === card.id)
+    if (tab) {
+      snapshotStore.save(tab)
+      refreshSnapshots()
+    }
   }
 
   const inputDisabled = () => sending() || isBusy()
@@ -562,21 +616,24 @@ export default function MakePage() {
 
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
-      <div class="size-full flex overflow-hidden relative">
+      <div
+        class="octo-split"
+        data-focus={focusMode() ? "true" : undefined}
+        style={!focusMode() ? { "grid-template-columns": `${chatWidth()}px 8px minmax(400px, 1fr)` } : undefined}
+      >
 
-        {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
-        <div
-          class="flex flex-col overflow-hidden flex-shrink-0"
-          style={{
-            width: `${chatWidth()}px`,
-            flex: "0 0 auto",
-            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
-            outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
-          }}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
+        {/* ── 左栏：对话面板 ──── */}
+        <Show when={!focusMode()}>
+          <div
+            class="flex flex-col overflow-hidden"
+            style={{
+              background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
+              outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
+            }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             {/* 标题栏 */}
             <Show when={params.id}>
               <div
@@ -710,6 +767,9 @@ export default function MakePage() {
                       selected={selectedDesignSystem()}
                       onSelect={setSelectedDesignSystem}
                     />
+                    <TemplatePicker
+                      onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                    />
                     <input
                       ref={fileInputRef!}
                       type="file"
@@ -757,42 +817,78 @@ export default function MakePage() {
             </div>
 
         </div>
+        </Show>
 
-        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊） */}
-        <div
-          class="absolute top-0 bottom-0 flex items-center justify-center group"
-          style={{ left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
-          onMouseDown={handleDividerMouseDown}
-        >
-          <div
-            class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-            style={{
-              width: "12px",
-              height: "36px",
-              "border-radius": "10px 0 0 10px",
-              "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
-              border: "1px solid var(--octo-border-divider)",
-              "border-right": "none",
-            }}
-          >
-            <div
-              class="w-[2px] h-[14px] rounded-full mr-[2px]"
-              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-            />
+        {/* ── 拖拽分隔线（Grid 中间列） ──── */}
+        <Show when={!focusMode()}>
+          <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
+        </Show>
+
+        {/* ── 右栏：ResultViewer + Version Panel ──── */}
+        <div class="flex flex-col min-w-0 overflow-hidden">
+          <div class="flex flex-1 min-h-0 overflow-hidden">
+            <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+              {/* 焦点模式 + 版本历史 切换按钮 */}
+              <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
+                <button
+                  type="button"
+                  class="octo-focus-btn"
+                  data-active={showVersionPanel() ? "true" : undefined}
+                  onClick={() => { refreshSnapshots(); setShowVersionPanel(!showVersionPanel()) }}
+                  title="版本历史"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="8" cy="8" r="6" />
+                    <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="octo-focus-btn"
+                  data-active={focusMode() ? "true" : undefined}
+                  onClick={() => setFocusMode(!focusMode())}
+                  title={focusMode() ? "退出焦点模式" : "焦点模式"}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <Show when={focusMode()} fallback={
+                      <>
+                        <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      </>
+                    }>
+                      <path d="M5 5h6M5 5v6M5 5L11 11" stroke-linecap="round" stroke-linejoin="round" />
+                    </Show>
+                  </svg>
+                </button>
+              </div>
+              <ResultViewer
+                tabs={tabStore.tabs()}
+                activeId={tabStore.activeId()}
+                onActivate={tabStore.activate}
+                onClose={tabStore.closeTab}
+                onContentChange={handleContentChange}
+              />
+            </div>
+            <Show when={showVersionPanel()}>
+              <VersionPanel
+                snapshots={snapshotList()}
+                onRestore={(id) => {
+                  const tab = snapshotStore.restore(id)
+                  if (tab) {
+                    tabStore.openTab(tab)
+                  }
+                }}
+                onRemove={(id) => {
+                  snapshotStore.remove(id)
+                  refreshSnapshots()
+                }}
+                onClose={() => setShowVersionPanel(false)}
+              />
+            </Show>
           </div>
         </div>
-
-        {/* ── 中栏：ResultViewer（始终渲染，无 tab 时显示空态） */}
-        <ResultViewer
-          tabs={tabStore.tabs()}
-          activeId={tabStore.activeId()}
-          onActivate={tabStore.activate}
-          onClose={tabStore.closeTab}
-          onContentChange={handleContentChange}
-        />
-
-        {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}
-        <div />
       </div>
     </DataProvider>
   )
