@@ -40,12 +40,13 @@ export function Sidebar(props: {
   const dialog = useDialog()
 
   const [sessions, { refetch }] = createResource(
-    () => props.currentDir() ?? "",
-    async (d) => {
+    () => ({ dir: props.currentDir() ?? "", id: params.id }),
+    async (source) => {
+      const d = source.dir
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
       const result = await client.session.list()
-      const data = ((result.data ?? []) as Session[])
+      const data = (result.data ?? [] as Session[])
         .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       return data.filter(s => s.agent === "octo_ai")
     },
