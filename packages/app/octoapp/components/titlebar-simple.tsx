@@ -4,7 +4,6 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
-import { useServer } from "@/context/server"
 import { useLayout } from "@/context/layout"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { Logo } from "@opencode-ai/ui/logo"
@@ -12,6 +11,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useGlobalSync } from "@/context/global-sync"
 import { useCommand } from "@/context/command"
+import { octoSessionsDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-start
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
@@ -62,7 +62,6 @@ export function TitlebarSimple() {
   const location = useLocation()
   const navigate = useNavigate()
   const globalSync = useGlobalSync()
-  const server = useServer()
   const command = useCommand()
   const layout = useLayout()
 
@@ -97,25 +96,14 @@ export function TitlebarSimple() {
     return "chat"
   })
 
-  const isGlobalRoute = (p: string) =>
-    p === "/" || p.startsWith("/cowork") || p.startsWith("/insight") || p.startsWith("/make") || p.startsWith("/skills")
-
-  const getProjectDirSlug = (path: string) => {
-    const dirMatch = path.match(/^\/([^/]+)/)
-    const firstSegment = dirMatch ? dirMatch[1] : ""
-    if (!firstSegment || firstSegment === "cowork" || firstSegment === "insight" || firstSegment === "make" || firstSegment === "skills") {
-      const last = server.projects.last()
-      const directory = last && last !== "/" && !/^[A-Z]:\\?$/.test(last) 
-        ? last 
-        : globalSync.data.path.home
-      return directory ? base64Encode(directory) : undefined
-    }
-    return firstSegment
+  const getConfigDirSlug = () => {
+    const config = globalSync.data.path.config
+    const directory = config ? octoSessionsDir(config) : ""
+    return directory ? base64Encode(directory) : undefined
   }
 
   const handleTabClick = (tab: TabType) => {
     const path = location.pathname
-    const currentDirSlug = isGlobalRoute(path) ? undefined : getProjectDirSlug(path)
 
     if (tab === "cowork") {
       const cowork = layout.lastSessionPerTab.cowork()
@@ -127,7 +115,7 @@ export function TitlebarSimple() {
       return
     }
 
-    const dirSlug = currentDirSlug ?? getProjectDirSlug("")
+    const dirSlug = getConfigDirSlug()
     if (!dirSlug) return
 
     const decodedDir = decode64(dirSlug)

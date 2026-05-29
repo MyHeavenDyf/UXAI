@@ -1,14 +1,15 @@
 import { DataProvider } from "@opencode-ai/ui/context"
-import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
-import { useLanguage } from "@/context/language"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { useServer } from "@/context/server"
-import { decode64 } from "@/utils/base64"
+import { useGlobalSync } from "@/context/global-sync"
+import { octoSessionsDir } from "@/hooks/use-project-dir"
+
+const SESSIONS_DIR_NAME = "sessions"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
@@ -18,8 +19,8 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const server = useServer()
   const slug = createMemo(() => base64Encode(props.directory))
 
-createEffect(() => {
-    if (props.directory) {
+  createEffect(() => {
+    if (props.directory && !props.directory.endsWith(SESSIONS_DIR_NAME)) {
       server.projects.touch(props.directory)
     }
   })
@@ -42,32 +43,12 @@ createEffect(() => {
 }
 
 export default function Layout(props: ParentProps) {
-  const params = useParams()
-  const language = useLanguage()
-  const navigate = useNavigate()
-  const location = useLocation()
-  let invalid = ""
+  const globalSync = useGlobalSync()
 
   const resolved = createMemo(() => {
-    if (!params.dir) return ""
-    return decode64(params.dir) ?? ""
-  })
-
-  createEffect(() => {
-    const dir = params.dir
-    if (!dir) return
-    if (resolved()) {
-      invalid = ""
-      return
-    }
-    if (invalid === dir) return
-    invalid = dir
-    showToast({
-      variant: "error",
-      title: language.t("common.requestFailed"),
-      description: language.t("directory.error.invalidUrl"),
-    })
-    navigate("/", { replace: true })
+    const config = globalSync.data.path.config
+    if (!config) return ""
+    return octoSessionsDir(config)
   })
 
   return (

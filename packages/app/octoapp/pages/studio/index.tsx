@@ -90,7 +90,7 @@ export default function StudioPage() {
   const language = useLanguage()
   const layout = useLayout()
 
-  const projectDir = useProjectDir()
+  const projectDir = useProjectDir({ mode: "config" })
   const [syncStore] = globalSync.child(projectDir(), { bootstrap: true })
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
@@ -923,8 +923,9 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
   const dialog = useDialog()
 
   const [sessions, { refetch }] = createResource(
-    () => props.directory ?? "",
-    async (d) => {
+    () => ({ dir: props.directory ?? "", id: props.activeSessionID }),
+    async (source) => {
+      const d = source.dir
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
       const result = await client.session.list()
