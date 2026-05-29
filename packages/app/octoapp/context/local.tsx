@@ -92,7 +92,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const validModel = (model: ModelKey) => {
       const provider = providers.all().find((item) => item.id === model.providerID)
-      return !!provider?.models[model.modelID] && connected().has(model.providerID)
+      return !!provider?.models[model.modelID] && connected().has(model.providerID) && models.visible(model)
     }
 
     const firstModel = (...items: Array<() => ModelKey | undefined>) => {
