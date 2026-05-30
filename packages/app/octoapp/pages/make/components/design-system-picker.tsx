@@ -2,6 +2,7 @@ import { createSignal, createMemo, createEffect, For, Show, onCleanup } from "so
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { loadDesignSystemIndex, loadDesignSystemTokens, type DesignSystemEntry } from "../utils/design-system-loader"
+import { getDesignSystemPreviewHtml } from "../utils/design-system-preview"
 
 export function DesignSystemPicker(props: {
   selected: string | null
@@ -11,8 +12,12 @@ export function DesignSystemPicker(props: {
   const [open, setOpen] = createSignal(false)
   const [search, setSearch] = createSignal("")
   const [swatches, setSwatches] = createSignal<string[]>([])
+  const [hoveredId, setHoveredId] = createSignal<string | null>(null)
+  const [previewHtml, setPreviewHtml] = createSignal<string | null>(null)
+  const [previewLoading, setPreviewLoading] = createSignal(false)
 
   let triggerRef: HTMLButtonElement | undefined
+  const previewCache = new Map<string, string>()
 
   createEffect(() => {
     const id = props.selected
@@ -20,6 +25,30 @@ export function DesignSystemPicker(props: {
     loadDesignSystemTokens(id).then((tokens) => {
       setSwatches(extractSwatches(tokens))
     }).catch(() => setSwatches([]))
+  })
+
+  // Preview target: hovered item while open, or selected
+  const previewTarget = createMemo(() => {
+    if (!open()) return null
+    return hoveredId() ?? props.selected
+  })
+
+  // Load preview when target changes
+  createEffect(() => {
+    const target = previewTarget()
+    if (!target) { setPreviewHtml(null); return }
+
+    const cached = previewCache.get(target)
+    if (cached) { setPreviewHtml(cached); return }
+
+    setPreviewLoading(true)
+    getDesignSystemPreviewHtml(target)
+      .then((html) => {
+        previewCache.set(target, html)
+        setPreviewHtml(html)
+      })
+      .catch(() => setPreviewHtml(null))
+      .finally(() => setPreviewLoading(false))
   })
 
   function getDropdownPos() {
@@ -94,8 +123,7 @@ export function DesignSystemPicker(props: {
                 style={{
                   top: `${pos.top}px`,
                   left: `${pos.left}px`,
-                  width: "256px",
-                  "max-height": "240px",
+                  width: "520px",
                   background: "var(--octo-surface-page)",
                   border: "1px solid var(--octo-border-default)",
                   transform: "translateY(-100%)",
@@ -112,39 +140,67 @@ export function DesignSystemPicker(props: {
                     style={{ background: "var(--octo-surface-selected)", color: "var(--octo-text-primary)" }}
                   />
                 </div>
-                <div class="max-h-48 overflow-y-auto">
-                  <button
-                    type="button"
-                    class="w-full text-left px-3 py-1.5 text-xs transition-colors rounded-md"
-                    style={{
-                      background: !props.selected ? "var(--octo-brand-a8)" : "transparent",
-                      color: !props.selected ? "var(--octo-brand)" : "var(--octo-text-primary)",
-                    }}
-                    onClick={() => { props.onSelect(null); setOpen(false) }}
-                  >
-                    None
-                  </button>
-                  <For each={filtered()}>
-                    {(entry) => (
-                      <button
-                        type="button"
-                        class="w-full text-left px-3 py-1.5 text-xs transition-colors rounded-md"
-                        style={{
-                          background: props.selected === entry.id ? "var(--octo-brand-a8)" : "transparent",
-                          color: props.selected === entry.id ? "var(--octo-brand)" : "var(--octo-text-primary)",
-                        }}
-                        onClick={() => { props.onSelect(entry.id); setOpen(false) }}
-                        onMouseEnter={(e) => {
-                          if (props.selected !== entry.id) e.currentTarget.style.background = "var(--octo-brand-a5)"
-                        }}
-                        onMouseLeave={(e) => {
-                          if (props.selected !== entry.id) e.currentTarget.style.background = "transparent"
-                        }}
+                <div class="flex" style={{ "max-height": "280px" }}>
+                  {/* List */}
+                  <div class="w-48 overflow-y-auto flex-shrink-0" style={{ "border-right": "1px solid var(--octo-border-divider)" }}>
+                    <button
+                      type="button"
+                      class="w-full text-left px-3 py-1.5 text-xs transition-colors"
+                      style={{
+                        background: !props.selected ? "var(--octo-brand-a8)" : "transparent",
+                        color: !props.selected ? "var(--octo-brand)" : "var(--octo-text-primary)",
+                      }}
+                      onClick={() => { props.onSelect(null); setOpen(false) }}
+                      onMouseEnter={() => setHoveredId(null)}
+                    >
+                      None
+                    </button>
+                    <For each={filtered()}>
+                      {(entry) => (
+                        <button
+                          type="button"
+                          class="w-full text-left px-3 py-1.5 text-xs transition-colors"
+                          style={{
+                            background: props.selected === entry.id ? "var(--octo-brand-a8)" : hoveredId() === entry.id ? "var(--octo-surface-hover)" : "transparent",
+                            color: props.selected === entry.id ? "var(--octo-brand)" : "var(--octo-text-primary)",
+                          }}
+                          onClick={() => { props.onSelect(entry.id); setOpen(false) }}
+                          onMouseEnter={() => setHoveredId(entry.id)}
+                        >
+                          <span class="font-medium truncate block">{entry.title}</span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+
+                  {/* Preview panel */}
+                  <div class="flex-1 min-w-0" style={{ background: "var(--octo-shell-bg)" }}>
+                    <Show
+                      when={previewTarget()}
+                      fallback={<div class="flex items-center justify-center h-full text-xs" style={{ color: "var(--octo-text-disabled)" }}>悬停查看预览</div>}
+                    >
+                      <Show
+                        when={previewHtml()}
+                        fallback={
+                          <div class="flex items-center justify-center h-full text-xs" style={{ color: "var(--octo-text-disabled)" }}>
+                            {previewLoading() ? "加载中..." : "无预览"}
+                          </div>
+                        }
                       >
-                        <span class="font-medium">{entry.title}</span>
-                      </button>
-                    )}
-                  </For>
+                        <iframe
+                          srcdoc={previewHtml()!}
+                          sandbox="allow-same-origin"
+                          style={{
+                            width: "100%",
+                            height: "240px",
+                            border: "none",
+                            "border-radius": "var(--octo-radius-sm)",
+                            background: "white",
+                          }}
+                        />
+                      </Show>
+                    </Show>
+                  </div>
                 </div>
               </div>
             )

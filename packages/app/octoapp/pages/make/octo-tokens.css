@@ -335,3 +335,32 @@
   color: var(--octo-text-disabled);
   cursor: not-allowed;
 }
+
+/* ── Viewport switcher ──────────────────── */
+
+.octo-viewport-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--octo-radius-sm);
+  background: transparent;
+  color: var(--octo-text-disabled);
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-viewport-btn:hover {
+  color: var(--octo-text-secondary);
+  background: rgba(0,0,0,0.04);
+}
+.octo-viewport-btn-active {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a8);
+}
+.octo-viewport-btn-active:hover {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a20);
+}
