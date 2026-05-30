@@ -26,15 +26,14 @@ export function useProjectDir(opts?: { mode?: "project" | "config" }) {
     }
     if (params.dir) {
       const decoded = decode64(params.dir)
-      if (isValidUserPath(decoded)) return decoded
+      if (decoded && isValidUserPath(decoded)) return decoded
     }
     const last = server.projects.last()
-    if (isValidUserPath(last)) return last
+    if (last && isValidUserPath(last)) return last
     
     const home = globalSync.data.path.home
-    if (isValidUserPath(home)) return home
+    if (home && isValidUserPath(home)) return home
     
-    // 不返回无效路径
     return ""
   }
 }
