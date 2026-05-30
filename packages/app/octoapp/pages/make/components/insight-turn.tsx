@@ -13,6 +13,8 @@ export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
 
+export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
+
 export type OutputCard = {
   id: string
   title: string
@@ -20,7 +22,22 @@ export type OutputCard = {
   content: string
   filePath?: string
   artifactKind?: string
+  exports?: ArtifactExportKind[]
+  designSystemId?: string | null
   createdAt: Date
+}
+
+const EXPORTS_BY_TYPE: Record<OutputCardType, ArtifactExportKind[]> = {
+  html: ["html", "pdf"],
+  deck: ["html", "pdf", "pptx"],
+  svg: ["svg"],
+  table: ["csv"],
+  json: ["json"],
+  markdown: ["md"],
+  "markdown-document": ["md"],
+  "code-snippet": ["txt"],
+  mindmap: ["md"],
+  file: ["txt"],
 }
 
 const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
@@ -101,7 +118,7 @@ function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt
   if (!text.includes("<artifact")) return null
   try {
     const parser = createArtifactParser()
-    let startEvent: { identifier: string; artifactType: string; title: string } | null = null
+    let startEvent: Extract<import("../utils/artifact-parser").ArtifactEvent, { type: "artifact:start" }> | null = null
     let fullContent = ""
     for (const ev of parser.feed(text)) {
       if (ev.type === "artifact:start") startEvent = ev
@@ -114,11 +131,16 @@ function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt
     if (!startEvent) return null
     const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
     if (!mappedType) return null
+    const explicitExports = startEvent.exports
+      ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
+      : undefined
     return {
       title: startEvent.title || mappedType,
       type: mappedType,
       content: fullContent,
       artifactKind: startEvent.artifactType,
+      exports: explicitExports,
+      designSystemId: startEvent.designSystemId || null,
     }
   } catch {
     return null
@@ -317,7 +339,7 @@ export function InsightTurn(props: {
     if (!textPart?.text) return null
 
     const parser = createArtifactParser()
-    let startEvent: { identifier: string; artifactType: string; title: string } | null = null
+    let startEvent: Extract<import("../utils/artifact-parser").ArtifactEvent, { type: "artifact:start" }> | null = null
     let fullContent = ""
     for (const ev of parser.feed(textPart.text)) {
       if (ev.type === "artifact:start") startEvent = ev

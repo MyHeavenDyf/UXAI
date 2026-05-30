@@ -7,7 +7,7 @@ import { computeSkipRanges, FENCE_OPEN_RE, isRealArtifactOpenAt, rangeContains }
 
 export type ArtifactEvent =
   | { type: "text"; delta: string }
-  | { type: "artifact:start"; identifier: string; artifactType: string; title: string }
+  | { type: "artifact:start"; identifier: string; artifactType: string; title: string; exports?: string; designSystemId?: string }
   | { type: "artifact:chunk"; identifier: string; delta: string }
   | { type: "artifact:end"; identifier: string; fullContent: string }
 
@@ -20,6 +20,8 @@ interface ParserState {
   identifier: string
   artifactType: string
   title: string
+  exports: string
+  designSystemId: string
   content: string
 }
 
@@ -130,6 +132,8 @@ export function createArtifactParser() {
     identifier: "",
     artifactType: "",
     title: "",
+    exports: "",
+    designSystemId: "",
     content: "",
   }
 
@@ -159,6 +163,8 @@ export function createArtifactParser() {
         state.identifier = attrs["identifier"] ?? ""
         state.artifactType = attrs["type"] ?? ""
         state.title = attrs["title"] ?? ""
+        state.exports = attrs["exports"] ?? ""
+        state.designSystemId = attrs["design-system-id"] ?? ""
         state.content = ""
         state.buffer = state.buffer.slice(open.end)
         yield {
@@ -166,6 +172,8 @@ export function createArtifactParser() {
           identifier: state.identifier,
           artifactType: state.artifactType,
           title: state.title,
+          exports: state.exports || undefined,
+          designSystemId: state.designSystemId || undefined,
         }
         continue
       }
@@ -192,6 +200,8 @@ export function createArtifactParser() {
       state.identifier = ""
       state.artifactType = ""
       state.title = ""
+      state.exports = ""
+      state.designSystemId = ""
       state.content = ""
     }
   }
