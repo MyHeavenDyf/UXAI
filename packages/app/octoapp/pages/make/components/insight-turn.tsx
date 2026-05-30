@@ -632,7 +632,7 @@ export function InsightTurn(props: {
                 padding: "16px 20px",
                 background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, #fff 49.853%)",
                 border: "1px solid rgba(0,0,0,0.1)",
-                width: "calc(100% - 1.5rem)",
+                width: "calc(100% - 48px)",
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = "linear-gradient(90deg, rgba(235,240,255,1) 0%, #fafafa 49.853%)"
