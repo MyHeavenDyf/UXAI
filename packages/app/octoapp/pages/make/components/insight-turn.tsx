@@ -509,11 +509,17 @@ export function InsightTurn(props: {
       {/* 用户消息气泡（右侧对齐） */}
       <div class="flex justify-end px-3 py-2.5">
         <div
-          class="text-sm whitespace-pre-wrap break-words leading-relaxed max-w-[85%] px-3 py-2"
+          class="break-words"
           style={{
-            color: "var(--octo-text-primary)",
             background: "var(--octo-brand-a8)",
-            "border-radius": "var(--octo-radius-md)",
+            padding: "8px 12px",
+            "border-radius": "16px 16px 2px 16px",
+            color: "#191919",
+            "font-size": "14px",
+            "line-height": "22px",
+            "white-space": "pre-wrap",
+            display: "inline-block",
+            "max-width": "85%",
           }}
         >
           {userText()}
@@ -529,21 +535,21 @@ export function InsightTurn(props: {
 
       {/* 思考过程（直接展示） */}
       <Show when={reasoningTexts().length > 0}>
-        <div class="mx-3 mb-1">
+        <div class="mx-3 mb-1" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
           <div
-            class="p-2.5 rounded-md text-xs leading-relaxed overflow-auto"
+            class="overflow-auto"
             style={{
-              background: "var(--octo-brand-a3)",
-              color: "var(--octo-text-secondary)",
+              color: "#777",
+              "font-size": "12px",
+              "line-height": "18px",
               "max-height": "300px",
-              "border": "1px solid var(--octo-brand-a8)",
             }}
           >
             <For each={reasoningTexts()}>
               {(text, i) => (
                 <>
                   <Show when={i() > 0}>
-                    <div class="my-1.5" style={{ "border-top": "1px dashed var(--octo-brand-a15)" }} />
+                    <div class="my-1.5" style={{ "border-top": "1px dashed rgba(0,0,0,0.08)" }} />
                   </Show>
                   <div class="whitespace-pre-wrap" style={{ "user-select": "text" }}>{text}</div>
                 </>
@@ -566,8 +572,8 @@ export function InsightTurn(props: {
       {/* AI 文字回复（剥离 artifact 标签） */}
       <Show when={proseText().length > 0}>
         <div
-          class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed"
-          style={{ color: "var(--octo-text-primary)", "user-select": "text" }}
+          class="mx-3 mb-2 px-3 py-2"
+          style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <Markdown text={proseText()} />
         </div>
@@ -614,27 +620,37 @@ export function InsightTurn(props: {
             <button
               type="button"
               onClick={() => props.onOpenResult(capturedCard)}
-              class="mx-3 mb-3 p-3 text-left transition-all"
+              class="mx-6 mb-3 text-left transition-all w-full"
               style={{
-                "border-radius": "var(--octo-radius-md)",
-                border: "1px solid var(--octo-border-default)",
-                background: "var(--octo-surface-page)",
+                "border-radius": "12px",
+                padding: "16px 20px",
+                background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, #fff 49.853%)",
+                border: "1px solid rgba(0,0,0,0.1)",
                 width: "calc(100% - 1.5rem)",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
+                e.currentTarget.style.background = "linear-gradient(90deg, rgba(235,240,255,1) 0%, #fafafa 49.853%)"
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--octo-border-default)"
+                e.currentTarget.style.background = "linear-gradient(90deg, rgba(245,248,255,1) 0%, #fff 49.853%)"
               }}
             >
-              <div class="flex items-center gap-2">
-                <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
+              <div class="flex items-center" style={{ gap: "12px" }}>
+                <div
+                  class="shrink-0"
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    "background-image": "url(/AI_doc_plaintext.svg)",
+                    "background-size": "contain",
+                    "background-repeat": "no-repeat",
+                    "background-position": "center",
+                  }}
+                />
+                <div class="flex flex-col min-w-0 flex-1" style={{ gap: "2px" }}>
+                  <span class="truncate" style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>{capturedCard.title}</span>
+                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.6)" }}>{formatTime(capturedCard.createdAt)}</span>
                 </div>
-                <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
               </div>
             </button>
           )

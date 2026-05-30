@@ -387,6 +387,14 @@
   }
 
   /* expanded content area */
+  &:not(:has([data-slot="reasoning-part-header"])) {
+    [data-component="markdown"] {
+      margin-top: 0;
+      padding-left: 0;
+      border: none;
+    }
+  }
+
   [data-component="markdown"] {
     margin-top: 20px;
     padding-left: 12px;

@@ -249,7 +249,7 @@ export function SessionComposerRegion(props: {
               <Show when={bubbleVisible()}>
                 <div 
                   class="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none" 
-                  style={{ top: `${-10 + lift()}px` }}
+                  style={{ top: `${-28 + lift()}px` }}
                   data-component="tooltip"
                 >
                   {language.t("prompt.hint.newSession")}

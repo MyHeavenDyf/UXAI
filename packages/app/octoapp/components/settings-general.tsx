@@ -249,10 +249,12 @@ export const SettingsGeneral: Component = () => {
   ])
 
   const languageOptions = createMemo(() =>
-    language.locales.map((locale) => ({
-      value: locale,
-      label: language.label(locale),
-    })),
+    language.locales
+      .filter((locale) => locale === "en" || locale === "zh")
+      .map((locale) => ({
+        value: locale,
+        label: language.label(locale),
+      })),
   )
 
   const noneSound = { id: "none", label: "sound.option.none" } as const
