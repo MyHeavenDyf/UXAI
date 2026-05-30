@@ -1,0 +1,47 @@
+.version-select-trigger {
+  padding: 0 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 4px !important;
+}
+
+.version-select-trigger [data-slot="select-select-trigger-icon"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: rgba(119,119,119,1) !important;
+}
+
+.version-select-trigger [data-slot="select-select-trigger-icon"] svg {
+  stroke: rgba(119,119,119,1) !important;
+  fill: rgba(119,119,119,1) !important;
+}
+
+.version-select-content {
+  background: white !important;
+  border-radius: 8px !important;
+  padding: 4px 12px !important;
+}
+
+.version-select-content [data-slot="select-select-item"] {
+  border-radius: 6px !important;
+  padding: 6px 8px !important;
+  font-size: 13px !important;
+  margin-bottom: 2px !important;
+}
+
+.version-select-content [data-slot="select-select-item"][data-highlighted],
+.version-select-content [data-slot="select-select-item"]:hover {
+  background: rgba(37, 99, 235, 0.08) !important;
+  color: #2563EB !important;
+}
+
+.version-select-content [data-slot="select-select-item"][data-selected] {
+  background: rgba(37, 99, 235, 0.08) !important;
+  color: #2563EB !important;
+}
+
+.version-select-content [data-slot="select-select-item"] [data-slot="select-select-item-indicator"] {
+  display: none;
+}
