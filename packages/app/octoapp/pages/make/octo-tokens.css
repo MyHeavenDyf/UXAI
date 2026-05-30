@@ -335,6 +335,12 @@
   color: var(--octo-text-disabled);
   cursor: not-allowed;
 }
+.octo-btn-stop {
+  background: #e53e3e;
+}
+.octo-btn-stop:hover {
+  background: #c53030;
+}
 
 /* ── Viewport switcher ──────────────────── */
 
