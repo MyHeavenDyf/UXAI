@@ -5,7 +5,7 @@ import { Markdown } from "@opencode-ai/ui/markdown"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../utils/artifact-parser"
-import { stripArtifact } from "../utils/artifact-strip"
+
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 
@@ -318,15 +318,21 @@ export function InsightTurn(props: {
       })
   })
 
-  // ── NEW: prose text (stripped of artifacts) ──
+  // ── NEW: prose text (stripped of artifacts, using parser for partial-tag safety) ──
   const proseText = createMemo(() => {
     const parts = assistantParts()
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
-    const stripped = stripArtifact(textPart.text)
-    return stripped.trim()
+    const parser = createArtifactParser()
+    let prose = ""
+    for (const ev of parser.feed(textPart.text)) {
+      if (ev.type === "text") prose += ev.delta
+    }
+    // Intentionally skip flush() — partial <artifact prefixes held in the buffer
+    // should NOT be emitted as visible text (prevents flicker/duplication).
+    return prose.trim()
   })
 
   // ── NEW: streaming artifact (live preview during generation) ──
@@ -394,7 +400,7 @@ export function InsightTurn(props: {
         (c.name.toLowerCase().includes("write") || c.name.toLowerCase().includes("edit"))
         && c.filePath && c.status === "done"
       )
-      .map((c) => ({ path: c.filePath!, name: c.filePath!.split("/").pop()! }))
+      .map((c) => ({ path: c.filePath!, name: c.filePath!.split(/[/\\]/).pop()! }))
       .filter((f, i, arr) => arr.findIndex((x) => x.path === f.path) === i)
   })
 
@@ -441,7 +447,7 @@ export function InsightTurn(props: {
           if (/```html/i.test(content) || /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content) || /\.html?$/i.test(filePath)) {
             return {
               id: `card-${props.messageID}-html`,
-              title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split("/").pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
+              title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split(/[/\\]/).pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
               type: "html",
               content,
               filePath: filePath || undefined,

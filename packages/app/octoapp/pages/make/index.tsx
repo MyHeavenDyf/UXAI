@@ -542,6 +542,12 @@ export default function MakePage() {
     }
   }
 
+  async function halt() {
+    const sid = params.id
+    if (!sid) return
+    await globalSDK.client.session.abort({ sessionID: sid }).catch(() => {})
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -845,8 +851,91 @@ export default function MakePage() {
               </ScrollView>
 
               {/* 输入区 */}
-              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
-                <InputArea />
+              <div class="shrink-0 p-4">
+                <AttachmentBar
+                  attachments={attachments()}
+                  onRemove={removeAttachment}
+                />
+
+                <div
+                  class="rounded-[var(--octo-radius-lg)] overflow-hidden"
+                  style={{
+                    background: "var(--octo-surface-page)",
+                    "box-shadow": "0 2px 12px rgba(0, 0, 0, 0.08)",
+                    "margin-top": attachments().length > 0 ? "6px" : "0",
+                  }}
+                >
+                  <textarea
+                    value={prompt()}
+                    onInput={(e) => setPrompt(e.currentTarget.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="输入指令，按 Enter 发送…"
+                    rows={3}
+                    disabled={inputDisabled()}
+                    class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
+                    style={{
+                      color: inputDisabled() ? "var(--octo-text-disabled)" : "var(--octo-text-primary)",
+                      "font-family": "var(--octo-font)",
+                      "max-height": "120px",
+                      "overflow-y": "auto",
+                    }}
+                  />
+
+                  <div class="flex items-center justify-between px-2.5 pb-2.5">
+                    <div class="flex items-center gap-1">
+                      <DesignSystemPicker
+                        selected={selectedDesignSystem()}
+                        onSelect={setSelectedDesignSystem}
+                      />
+                      <TemplatePicker
+                        onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                      />
+                      <input
+                        ref={fileInputRef!}
+                        type="file"
+                        multiple
+                        class="hidden"
+                        accept="*/*"
+                        onChange={handleFileInputChange}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        disabled={maxAttachments()}
+                        class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
+                        title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                      >
+                        <IconAttach size={14} />
+                      </button>
+                      <ModelSelectorPopover
+                        model={modelState}
+                        triggerAs={Button}
+                        triggerProps={{
+                          variant: "ghost",
+                          size: "normal",
+                          class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
+                          "data-action": "prompt-model",
+                        }}
+                      >
+                        <span class="truncate">
+                          {modelState.current()?.name ?? "选择模型"}
+                        </span>
+                        <Icon name="chevron-down" size="small" class="shrink-0" />
+                      </ModelSelectorPopover>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
+                      disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
+                      class="octo-btn-send flex-shrink-0"
+                      classList={{ "octo-btn-stop": isBusy() }}
+                      title={isBusy() ? "停止生成" : undefined}
+                    >
+                      {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
+                    </button>
+                  </div>
+                </div>
               </div>
             </Show>
 

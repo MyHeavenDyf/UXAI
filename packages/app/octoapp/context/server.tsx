@@ -3,6 +3,7 @@ import { type Accessor, batch, createEffect, createMemo, onCleanup } from "solid
 import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { useCheckServerHealth } from "@/utils/server-health"
+import { isValidUserPath } from "@/utils/path-valid"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
@@ -299,6 +300,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         },
         last: lastProject,
         touch(directory: string) {
+          if (!isValidUserPath(directory)) return  // 不存储无效路径
           setStore("lastProject", origin(), directory)
         },
       },

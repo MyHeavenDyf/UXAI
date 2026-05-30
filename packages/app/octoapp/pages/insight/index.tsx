@@ -12,7 +12,6 @@ import {
   Show,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
@@ -76,16 +75,15 @@ export default function InsightPage() {
   )
 }
 
+// 单轮对话最多上传文件数(超出提示分多轮处理)
+const MAX_ATTACHMENTS = 10
+
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const globalSDK = useGlobalSDK()
-  const globalSync = useGlobalSync()
   const sdk = useSDK()
   const sync = useSync()
   const selection = useInsightModelSelection()
-
-  const homeDir = () => globalSync.data.path.home
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
@@ -397,10 +395,14 @@ function InsightContent() {
     const doneAttachments = opts.consumeAttachments
       ? attachments().filter((a) => a.status === "done" && a.url)
       : []
-    const fullText = text + formatUploadsForPrompt(
+    // 上传 URL 块走独立 synthetic text part:LLM 收得到(server 只过滤 ignored),
+    // 但气泡不渲染(上游 UserMessageDisplay 过滤 synthetic)。文件卡片由 InsightTurn 解析渲染。
+    const uploadBlock = formatUploadsForPrompt(
       doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
     )
-    const textPart: TextPartInput = { type: "text", text: fullText }
+    const cleanTextPart: TextPartInput = { type: "text", text }
+    const parts: TextPartInput[] = [cleanTextPart]
+    if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
     const agent = "octo_insight"
 
@@ -420,13 +422,27 @@ function InsightContent() {
       time: { created: Date.now() },
       model,
     } as Message
-    const optimisticPart: Part = {
-      id: Identifier.ascending("part"),
-      sessionID: sessionId,
-      messageID,
-      type: "text",
-      text: fullText,
-    } as Part
+    // optimistic 镜像发送的 parts:干净文本 + (有附件时)synthetic 上传块。
+    // synthetic part 同样写入 optimistic,使乐观渲染就与 server 回传一致(气泡只显示干净文本)。
+    const optimisticParts: Part[] = [
+      {
+        id: Identifier.ascending("part"),
+        sessionID: sessionId,
+        messageID,
+        type: "text",
+        text,
+      } as Part,
+    ]
+    if (uploadBlock) {
+      optimisticParts.push({
+        id: Identifier.ascending("part"),
+        sessionID: sessionId,
+        messageID,
+        type: "text",
+        text: uploadBlock,
+        synthetic: true,
+      } as Part)
+    }
 
     console.log("[octo:prompt] send", {
       source: opts.source,
@@ -442,15 +458,16 @@ function InsightContent() {
     console.log("[octo:prompt] send-full", {
       source: opts.source,
       messageID,
-      fullText,   // 含 attachments 拼接后的最终文本
+      cleanText: text,         // 用户可见文本
+      uploadBlock,             // synthetic 上传块(喂给 LLM,气泡不显示)
     })
 
     sync.session.optimistic.add({
       sessionID: sessionId,
       message: optimisticMessage,
-      parts: [optimisticPart],
+      parts: optimisticParts,
     })
-    console.log("[octo:prompt] optimistic added", { messageID, partsCount: 1 })
+    console.log("[octo:prompt] optimistic added", { messageID, partsCount: optimisticParts.length })
 
     if (opts.consumeAttachments) {
       filesById.clear()
@@ -458,11 +475,11 @@ function InsightContent() {
     }
 
     try {
-      await globalSDK.client.session.promptAsync({
+      await sdk.client.session.promptAsync({
         sessionID: sessionId,
         agent,
         model,
-        parts: [textPart],
+        parts,
         messageID,
       })
       console.log("[octo:prompt] sent (async)", { messageID, sessionID: sessionId })
@@ -549,7 +566,12 @@ function InsightContent() {
   const filesById = new Map<string, File>()
 
   function addAttachments(files: File[]) {
-    const slots = 5 - attachments().length
+    const slots = MAX_ATTACHMENTS - attachments().length
+    // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
+    if (files.length > slots) {
+      showToast("请保持上传文件不超过10个或分多轮对话处理")
+    }
+    if (slots <= 0) return
     const toAdd = files.slice(0, slots)
     for (const file of toAdd) {
       const id = crypto.randomUUID()
@@ -788,7 +810,7 @@ function InsightContent() {
     lastTaskSnapshot = currentSnap
   })
 
-  const maxAttachments = () => attachments().length >= 5
+  const maxAttachments = () => attachments().length >= MAX_ATTACHMENTS
   function hasUploadingAttachments() {
     return attachments().some((a) => a.status === "uploading")
   }
@@ -867,19 +889,13 @@ function InsightContent() {
                   </div>
 
                   <div style={{ "margin-top": "80px", width: "100%", "max-width": "800px" }}>
-                    <AttachmentBar
-                      attachments={attachments()}
-                      onRemove={removeAttachment}
-                      onRetry={retryUpload}
-                    />
-
                     <PresetPrompts
                       prompts={PRESET_PROMPTS}
                       onClick={handlePresetClick}
                     />
 
                     <div
-                      class="rounded-[24px] transition-all duration-300 relative group flex flex-col"
+                      class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
                         border: "1px solid transparent",
                         background: `
@@ -894,9 +910,14 @@ function InsightContent() {
                             rgba(206, 7, 232, 1) 92%) border-box`,
                         "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
                         height: "150px",
-                        "margin-top": attachments().length > 0 ? "6px" : "0",
                       }}
                     >
+                      {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
+                      <AttachmentBar
+                        attachments={attachments()}
+                        onRemove={removeAttachment}
+                        onRetry={retryUpload}
+                      />
                       <textarea
                         ref={textareaRef!}
                         value={prompt()}
@@ -925,7 +946,7 @@ function InsightContent() {
                           onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
                           disabled={maxAttachments()}
                           class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                          title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                          title={maxAttachments() ? "最多 10 个文件" : "添加附件"}
                         >
                           <Icon name="plus" class="size-5" />
                         </button>
@@ -1000,12 +1021,6 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
-                <AttachmentBar
-                  attachments={attachments()}
-                  onRemove={removeAttachment}
-                  onRetry={retryUpload}
-                />
-
                 {/* 队列提示条:busy 时点了发送会先入队,这里给反馈 (SPEC-INS-007 §3.3.4) */}
                 <Show when={queuedText()}>
                   <div class="octo-queue-banner">
@@ -1031,7 +1046,7 @@ function InsightContent() {
                 />
 
                 <div
-                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group"
+                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `
@@ -1045,9 +1060,14 @@ function InsightContent() {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                    "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
+                  {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
+                  <AttachmentBar
+                    attachments={attachments()}
+                    onRemove={removeAttachment}
+                    onRetry={retryUpload}
+                  />
                   <textarea
                     ref={textareaRef!}
                     value={prompt()}

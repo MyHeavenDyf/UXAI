@@ -2,6 +2,7 @@ import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
 import { useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
+import { isValidUserPath } from "@/utils/path-valid"
 
 const SESSIONS_DIR_NAME = "sessions"
 
@@ -25,10 +26,14 @@ export function useProjectDir(opts?: { mode?: "project" | "config" }) {
     }
     if (params.dir) {
       const decoded = decode64(params.dir)
-      if (decoded) return decoded
+      if (decoded && isValidUserPath(decoded)) return decoded
     }
     const last = server.projects.last()
-    if (last && last !== "/" && !/^[A-Z]:\\?$/.test(last)) return last
-    return globalSync.data.path.home
+    if (last && isValidUserPath(last)) return last
+    
+    const home = globalSync.data.path.home
+    if (home && isValidUserPath(home)) return home
+    
+    return ""
   }
 }

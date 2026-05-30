@@ -258,19 +258,18 @@ export function SessionComposerRegion(props: {
               <Show
                 when={child()}
                 fallback={
-                  <Show when={!props.state.blocked()}>
-                    <PromptInput
-                      ref={props.inputRef}
-                      newSessionWorktree={props.newSessionWorktree}
-                      onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
-                      edit={props.followup?.edit}
-                      onEditLoaded={props.followup?.onEditLoaded}
-                      shouldQueue={props.followup?.queue}
-                      onQueue={props.followup?.onQueue}
-                      onAbort={props.followup?.onAbort}
-                      onSubmit={props.onSubmit}
-                    />
-                  </Show>
+                  <PromptInput
+                    ref={props.inputRef}
+                    newSessionWorktree={props.newSessionWorktree}
+                    onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
+                    edit={props.followup?.edit}
+                    onEditLoaded={props.followup?.onEditLoaded}
+                    shouldQueue={props.followup?.queue}
+                    onQueue={props.followup?.onQueue}
+                    onAbort={props.followup?.onAbort}
+                    onSubmit={props.onSubmit}
+                    disabled={props.state.busy()}
+                  />
                 }
               >
                 <div
