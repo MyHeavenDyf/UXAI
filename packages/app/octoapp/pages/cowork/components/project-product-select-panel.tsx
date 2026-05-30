@@ -1,11 +1,6 @@
 import { Switch } from "@opencode-ai/ui/switch"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { For } from "solid-js"
-import { createSignal } from "solid-js"
-import { createMemo } from "solid-js"
-import { createEffect } from "solid-js"
-import { createResource } from "solid-js"
-import type { JSX } from "solid-js"
+import { For, Show, createSignal, createMemo, createEffect, createResource, type JSX } from "solid-js"
 
 export type Domain = { id: string; label: string }
 export type ProductLine = { id: string; domainId: string; label: string }
@@ -332,7 +327,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
             }}
           />
           <Show when={props.search} fallback={
-            <svg style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <svg style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", "pointer-events": "none" }} width="14" height="14" viewBox="0 0 16 16" fill="none">
               <circle cx="7" cy="7" r="5" stroke="rgba(0,0,0,0.3)" stroke-width="1.5" />
               <path d="M11 11L14 14" stroke="rgba(0,0,0,0.3)" stroke-width="1.5" stroke-linecap="round" />
             </svg>
