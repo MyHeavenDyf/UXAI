@@ -1,6 +1,11 @@
 import type { JSX } from "solid-js"
+import { Show, For, createSignal } from "solid-js"
+import { Portal } from "solid-js/web"
 import type { ResultTab } from "./tab-store"
-import { IconActionCopy, IconActionDownload, IconActionEdit, IconActionPreview } from "../../icons"
+import type { ViewportPreset, PaletteId } from "./html-renderer"
+import type { ArtifactExportKind } from "../insight-turn"
+import { PALETTE_PRESETS } from "./html-renderer"
+import { IconActionCopy, IconActionDownload, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconInspect } from "../../icons"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(console.error)
@@ -101,6 +106,59 @@ function getDownloadInfo(tab: ResultTab): { filename: string; mime: string } {
   }
 }
 
+const EXPORT_LABELS: Record<ArtifactExportKind, string> = {
+  html: "HTML",
+  pdf: "PDF",
+  zip: "ZIP",
+  pptx: "PPTX",
+  svg: "SVG",
+  md: "Markdown",
+  txt: "Text",
+  json: "JSON",
+  csv: "CSV",
+}
+
+const EXPORT_MIME: Record<ArtifactExportKind, string> = {
+  html: "text/html;charset=utf-8",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  svg: "image/svg+xml;charset=utf-8",
+  md: "text/markdown;charset=utf-8",
+  txt: "text/plain;charset=utf-8",
+  json: "application/json;charset=utf-8",
+  csv: "text/csv;charset=utf-8",
+}
+
+function getExportContent(tab: ResultTab, kind: ArtifactExportKind): { content: string | Uint8Array; filename: string } | null {
+  const raw = extractDownloadContent(tab)
+  const base = tab.title.replace(/[^a-zA-Z0-9一-鿿_-]/g, "_")
+  switch (kind) {
+    case "html":
+      return { content: raw, filename: `${base}.html` }
+    case "svg":
+      return { content: raw, filename: `${base}.svg` }
+    case "json":
+      return { content: raw, filename: `${base}.json` }
+    case "csv":
+      return { content: markdownTableToCSV(tab.content), filename: `${base}.csv` }
+    case "md":
+      return { content: raw, filename: `${base}.md` }
+    case "txt": {
+      const ext = getCodeSnippetExt(tab.content)
+      return { content: raw, filename: `${base}.${ext}` }
+    }
+    case "pdf":
+      if (tab.type === "deck") {
+        exportDeckAsPDF(tab.content, tab.title)
+        return null
+      }
+      return { content: raw, filename: `${base}.html` }
+    default:
+      return null
+  }
+}
+
 function exportDeckAsPDF(content: string, title: string) {
   const html = extractDownloadContent({ type: "deck", content } as ResultTab)
   const printHtml = `<!doctype html>
@@ -136,7 +194,13 @@ function exportDeckAsPDF(content: string, title: string) {
 export function ActionBar(props: {
   tab: ResultTab
   mode?: "preview" | "edit"
+  viewport?: ViewportPreset
+  palette?: PaletteId | null
+  inspecting?: boolean
   onModeChange?: () => void
+  onViewportChange?: (vp: ViewportPreset) => void
+  onPaletteChange?: (palette: PaletteId | null) => void
+  onInspectToggle?: () => void
 }): JSX.Element {
   function handleDownload() {
     if (props.tab.type === "deck") {
@@ -149,11 +213,84 @@ export function ActionBar(props: {
   }
 
   const canToggleMode = props.tab.type === "html" || props.tab.type === "svg"
+  const showViewport = props.tab.type === "html"
 
   return (
     <div class="octo-action-bar">
       <span class="text-[12px] truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
+        {showViewport && props.onViewportChange && (
+          <div class="flex items-center gap-0.5 mr-1 px-1" style={{ "border-right": "1px solid var(--octo-border-divider)" }}>
+            <button
+              type="button"
+              class="octo-viewport-btn"
+              classList={{ "octo-viewport-btn-active": (props.viewport ?? "desktop") === "desktop" }}
+              onClick={() => props.onViewportChange!("desktop")}
+              title="桌面"
+            >
+              <IconViewportDesktop size={13} />
+            </button>
+            <button
+              type="button"
+              class="octo-viewport-btn"
+              classList={{ "octo-viewport-btn-active": props.viewport === "tablet" }}
+              onClick={() => props.onViewportChange!("tablet")}
+              title="平板"
+            >
+              <IconViewportTablet size={13} />
+            </button>
+            <button
+              type="button"
+              class="octo-viewport-btn"
+              classList={{ "octo-viewport-btn-active": props.viewport === "mobile" }}
+              onClick={() => props.onViewportChange!("mobile")}
+              title="手机"
+            >
+              <IconViewportMobile size={13} />
+            </button>
+          </div>
+        )}
+        {showViewport && props.onPaletteChange && (
+          <div class="flex items-center gap-[2px] mr-1 px-1" style={{ "border-right": "1px solid var(--octo-border-divider)" }}>
+            <button
+              type="button"
+              class="octo-viewport-btn"
+              classList={{ "octo-viewport-btn-active": !props.palette }}
+              onClick={() => props.onPaletteChange!(null)}
+              title="默认配色"
+            >
+              <span style={{ "font-size": "11px", "font-weight": 600, color: "inherit" }}>A</span>
+            </button>
+            <For each={PALETTE_PRESETS}>
+              {(p) => (
+                <button
+                  type="button"
+                  class="octo-viewport-btn"
+                  classList={{ "octo-viewport-btn-active": props.palette === p.id }}
+                  onClick={() => props.onPaletteChange!(props.palette === p.id ? null : p.id)}
+                  title={p.label}
+                >
+                  <span class="flex items-center gap-[1px]">
+                    <For each={p.colors.slice(0, 2)}>
+                      {(c) => <span style={{ width: "6px", height: "6px", "border-radius": "50%", background: c, display: "inline-block" }} />}
+                    </For>
+                  </span>
+                </button>
+              )}
+            </For>
+          </div>
+        )}
+        {showViewport && props.onInspectToggle && (
+          <button
+            type="button"
+            class="octo-viewport-btn"
+            classList={{ "octo-viewport-btn-active": !!props.inspecting }}
+            onClick={props.onInspectToggle}
+            title="元素检查"
+          >
+            <IconInspect size={13} />
+          </button>
+        )}
         {canToggleMode && props.onModeChange && (
           <button
             type="button"
@@ -168,11 +305,90 @@ export function ActionBar(props: {
           <IconActionCopy size={13} />
           <span>复制</span>
         </button>
-        <button type="button" class="octo-action-btn" onClick={handleDownload}>
+        <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
+      </div>
+    </div>
+  )
+}
+
+function ExportButton(props: {
+  tab: ResultTab
+  onPrimaryDownload: () => void
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  const exports = () => props.tab.exports
+  let btnRef: HTMLButtonElement | undefined
+
+  const hasMultiple = () => {
+    const e = exports()
+    return e && e.length > 1
+  }
+
+  const handleExport = (kind: ArtifactExportKind) => {
+    const result = getExportContent(props.tab, kind)
+    if (result) downloadBlob(result.content, result.filename, EXPORT_MIME[kind])
+    setOpen(false)
+  }
+
+  return (
+    <Show
+      when={hasMultiple()}
+      fallback={
+        <button type="button" class="octo-action-btn" onClick={props.onPrimaryDownload}>
           <IconActionDownload size={13} />
           <span>下载</span>
         </button>
+      }
+    >
+      <div class="relative" style={{ display: "inline-flex" }}>
+        <button
+          ref={btnRef}
+          type="button"
+          class="octo-action-btn"
+          onClick={() => setOpen(!open())}
+        >
+          <IconActionDownload size={13} />
+          <span>导出</span>
+        </button>
+        <Show when={open()}>
+          <Portal>
+            {(() => {
+              const rect = btnRef?.getBoundingClientRect()
+              return (
+                <div
+                  class="fixed z-[9999] rounded-lg overflow-hidden"
+                  style={{
+                    top: `${(rect?.bottom ?? 0) + 4}px`,
+                    left: `${(rect?.left ?? 0) - 40}px`,
+                    background: "var(--octo-surface-page)",
+                    border: "1px solid var(--octo-border-default)",
+                    "box-shadow": "var(--octo-shadow-md)",
+                    "min-width": "120px",
+                    animation: "octo-pop-in 120ms var(--octo-ease-out)",
+                  }}
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement
+                    if (!target.closest("button")) setOpen(false)
+                  }}
+                >
+                  <For each={exports()}>
+                    {(kind) => (
+                      <button
+                        type="button"
+                        class="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--octo-surface-hover)]"
+                        style={{ color: "var(--octo-text-primary)" }}
+                        onClick={() => handleExport(kind)}
+                      >
+                        {EXPORT_LABELS[kind]}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              )
+            })()}
+          </Portal>
+        </Show>
       </div>
-    </div>
+    </Show>
   )
 }
