@@ -5,7 +5,7 @@ import { Markdown } from "@opencode-ai/ui/markdown"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../utils/artifact-parser"
-import { stripArtifact } from "../utils/artifact-strip"
+
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 
@@ -318,15 +318,21 @@ export function InsightTurn(props: {
       })
   })
 
-  // ── NEW: prose text (stripped of artifacts) ──
+  // ── NEW: prose text (stripped of artifacts, using parser for partial-tag safety) ──
   const proseText = createMemo(() => {
     const parts = assistantParts()
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
-    const stripped = stripArtifact(textPart.text)
-    return stripped.trim()
+    const parser = createArtifactParser()
+    let prose = ""
+    for (const ev of parser.feed(textPart.text)) {
+      if (ev.type === "text") prose += ev.delta
+    }
+    // Intentionally skip flush() — partial <artifact prefixes held in the buffer
+    // should NOT be emitted as visible text (prevents flicker/duplication).
+    return prose.trim()
   })
 
   // ── NEW: streaming artifact (live preview during generation) ──
