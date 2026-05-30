@@ -4,6 +4,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useServer } from "@/context/server"
 import { useLanguage } from "@/context/language"
 import { createEffect, createMemo, createSignal, Show } from "solid-js"
+import { isValidUserPath } from "@/utils/path-valid"
 
 interface DialogProjectOnboardingProps {
   onSelect: (directory: string) => void
@@ -17,12 +18,18 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
 
   const initialDirectory = createMemo(() => {
     if (!server.ready()) return ""
+    
     const last = server.projects.last()
-    if (last && last !== "/" && !/^[A-Z]:\\?$/.test(last)) return last
+    if (isValidUserPath(last)) return last
+    
     const recent = globalSync.data.project
       .slice()
       .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
-    return recent[0]?.worktree ?? ""
+    const recentPath = recent[0]?.worktree
+    if (isValidUserPath(recentPath)) return recentPath
+    
+    // 不返回无效路径，让按钮显示 placeholder "选择文件夹"
+    return ""
   })
 
   const [directory, setDirectory] = createSignal<string>("")
@@ -49,9 +56,15 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
     if (selecting()) return
     setSelecting(true)
     try {
+      const home = globalSync.data.path.home
+      const defaultPath = isValidUserPath(directory()) 
+        ? directory() 
+        : (isValidUserPath(home) ? home : undefined)
+      
       const result = await platform.openDirectoryPickerDialog?.({
         title: language.t("command.project.open"),
         multiple: false,
+        defaultPath,
       })
       if (typeof result === "string" && result) {
         setDirectory(result)
