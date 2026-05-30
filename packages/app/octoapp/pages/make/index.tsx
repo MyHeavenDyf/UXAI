@@ -540,6 +540,12 @@ export default function MakePage() {
     }
   }
 
+  async function halt() {
+    const sid = params.id
+    if (!sid) return
+    await globalSDK.client.session.abort({ sessionID: sid }).catch(() => {})
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -806,11 +812,13 @@ export default function MakePage() {
 
                   <button
                     type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={!prompt().trim() || inputDisabled()}
+                    onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
+                    disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
                     class="octo-btn-send flex-shrink-0"
+                    classList={{ "octo-btn-stop": isBusy() }}
+                    title={isBusy() ? "停止生成" : undefined}
                   >
-                    {sending() ? "…" : <IconSend size={14} />}
+                    {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
                   </button>
                 </div>
               </div>
