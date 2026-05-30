@@ -30,7 +30,7 @@ export function deriveFileOps(calls: ToolCallInfo[]): FileOpEntry[] {
     } else {
       map.set(call.filePath, {
         path: call.filePath,
-        name: call.filePath.split("/").pop() ?? call.filePath,
+        name: call.filePath.split(/[/\\]/).pop() ?? call.filePath,
         ops: [op],
         status: call.status === "running" ? "running" : call.status === "error" ? "error" : "done",
       })

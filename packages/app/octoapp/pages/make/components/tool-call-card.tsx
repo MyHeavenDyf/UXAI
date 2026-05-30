@@ -65,7 +65,7 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
   const summary = createMemo(() => {
     const input = props.call.input
     if (!input) return ""
-    if (props.call.filePath) return props.call.filePath.split("/").pop() ?? props.call.filePath
+    if (props.call.filePath) return props.call.filePath.split(/[/\\]/).pop() ?? props.call.filePath
     if (typeof input.command === "string") return input.command.length > 60 ? input.command.slice(0, 60) + "…" : input.command
     if (typeof input.pattern === "string") return input.pattern
     if (typeof input.query === "string") return input.query
