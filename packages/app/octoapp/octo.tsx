@@ -226,10 +226,10 @@ function OnboardingLayer() {
 
   const showOnboarding = createMemo(() => location.pathname === "/")
 
-  function handleOnboardingSelect(directory: string) {
-    layout.projects.open(directory)
-    server.projects.touch(directory)
-    void globalSDK.createClient({ directory }).session.list().catch(() => {})
+  function handleOnboardingSelect(data: { directory: string }) {
+    layout.projects.open(data.directory)
+    server.projects.touch(data.directory)
+    void globalSDK.createClient({ directory: data.directory }).session.list().catch(() => {})
     navigate("/cowork")
   }
 
