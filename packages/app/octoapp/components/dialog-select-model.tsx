@@ -24,6 +24,8 @@ const ModelList: Component<{
   onSelect: () => void
   action?: JSX.Element
   model?: ModelState
+  search?: boolean
+  groupHeader?: (group: { category: string; items: unknown[] }) => null
 }> = (props) => {
   const model = props.model ?? useLocal().model
   const language = useLanguage()
@@ -38,7 +40,8 @@ const ModelList: Component<{
   return (
     <List
       class={`flex-1 min-h-0 [&_[data-slot=list-scroll]]:flex-1 [&_[data-slot=list-scroll]]:min-h-0 ${props.class ?? ""}`}
-      search={{ placeholder: language.t("dialog.model.search.placeholder"), autofocus: true, action: props.action }}
+      search={props.search ?? { placeholder: language.t("dialog.model.search.placeholder"), autofocus: true, action: props.action }}
+      groupHeader={props.groupHeader}
       emptyMessage={language.t("dialog.model.empty")}
       key={(x) => `${x.provider.id}:${x.id}`}
       items={models}
@@ -134,14 +137,15 @@ export function ModelSelectorPopover(props: {
       }}
       modal={false}
       placement="top-start"
-      gutter={4}
+      gutter={14}
     >
       <Kobalte.Trigger as={props.triggerAs ?? "div"} {...props.triggerProps}>
         {props.children}
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="w-72 h-80 flex flex-col p-2 rounded-md border border-border-base bg-surface-raised-stronger-non-alpha shadow-md z-50 outline-none overflow-hidden"
+          class="min-w-[198px] flex flex-col p-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
+          style="box-shadow: 0 4px 12px rgba(0,0,0,0.16)"
           onEscapeKeyDown={(event) => {
             close("escape")
             event.preventDefault()
@@ -164,7 +168,9 @@ export function ModelSelectorPopover(props: {
             provider={props.provider}
             model={props.model}
             onSelect={() => close("select")}
-            class="p-1"
+            search={false}
+            groupHeader={() => null}
+            class="p-[0px] [&_[data-slot=list-search-wrapper]]:!hidden [&_[data-slot=list-header]]:!hidden [&_[data-slot=list-scroll]]:gap-0 [&_[data-slot=list-item]]:!h-9 [&_[data-slot=list-item]]:!px-3 [&_[data-slot=list-item]]:!rounded-[6px] [&_[data-slot=list-item]]:!text-[14px] [&_[data-slot=list-item]]:!leading-[22px] [&_[data-slot=list-item]]:!text-[#191919] [&_[data-slot=list-item]>span]:!truncate [&_[data-slot=list-item]]:!mb-1 [&_[data-slot=list-group]:last-child]:!pb-0 [&_[data-slot=list-item-selected-icon]]:!hidden [&_[data-slot=list-item][data-active=true]]:!bg-transparent [&_[data-slot=list-item][data-active=true]:hover]:!bg-[rgba(0,0,0,0.1)] [&_[data-slot=list-item][data-selected=true]]:!bg-[rgba(0,0,0,0.05)] [&_[data-slot=list-item]:active]:!bg-[rgba(0,0,0,0.15)]"
             action={
               <div class="flex items-center gap-1">
                 <Tooltip placement="top" value={language.t("command.provider.connect")}>

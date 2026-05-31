@@ -1,0 +1,662 @@
+[
+  {
+    "id": "audio-jingle",
+    "title": "audio-jingle",
+    "mode": "audio",
+    "category": "marketing"
+  },
+  {
+    "id": "blog-post",
+    "title": "blog-post",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "clinical-case-report",
+    "title": "clinical-case-report",
+    "mode": "prototype",
+    "category": "healthcare"
+  },
+  {
+    "id": "critique",
+    "title": "critique",
+    "mode": "prototype",
+    "category": "design"
+  },
+  {
+    "id": "dashboard",
+    "title": "dashboard",
+    "mode": "prototype",
+    "category": "operations"
+  },
+  {
+    "id": "dating-web",
+    "title": "dating-web",
+    "mode": "prototype",
+    "category": "personal"
+  },
+  {
+    "id": "dcf-valuation",
+    "title": "dcf-valuation",
+    "mode": "prototype",
+    "category": "misc"
+  },
+  {
+    "id": "digital-eguide",
+    "title": "digital-eguide",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "docs-page",
+    "title": "docs-page",
+    "mode": "prototype",
+    "category": "engineering"
+  },
+  {
+    "id": "email-marketing",
+    "title": "email-marketing",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "eng-runbook",
+    "title": "eng-runbook",
+    "mode": "prototype",
+    "category": "engineering"
+  },
+  {
+    "id": "finance-report",
+    "title": "finance-report",
+    "mode": "prototype",
+    "category": "finance"
+  },
+  {
+    "id": "flowai-live-dashboard-template",
+    "title": "flowai-live-dashboard-template",
+    "mode": "prototype",
+    "category": "operations"
+  },
+  {
+    "id": "gamified-app",
+    "title": "gamified-app",
+    "mode": "prototype",
+    "category": "personal"
+  },
+  {
+    "id": "github-dashboard",
+    "title": "github-dashboard",
+    "mode": "prototype",
+    "category": "operation"
+  },
+  {
+    "id": "magazine-web-ppt",
+    "title": "magazine-web-ppt",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "hr-onboarding",
+    "title": "hr-onboarding",
+    "mode": "prototype",
+    "category": "hr"
+  },
+  {
+    "id": "html-ppt",
+    "title": "html-ppt",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-course-module",
+    "title": "html-ppt-course-module",
+    "mode": "deck",
+    "category": "education"
+  },
+  {
+    "id": "html-ppt-dir-key-nav-minimal",
+    "title": "html-ppt-dir-key-nav-minimal",
+    "mode": "deck",
+    "category": "personal"
+  },
+  {
+    "id": "html-ppt-graphify-dark-graph",
+    "title": "html-ppt-graphify-dark-graph",
+    "mode": "deck",
+    "category": "engineering"
+  },
+  {
+    "id": "html-ppt-hermes-cyber-terminal",
+    "title": "html-ppt-hermes-cyber-terminal",
+    "mode": "deck",
+    "category": "engineering"
+  },
+  {
+    "id": "html-ppt-knowledge-arch-blueprint",
+    "title": "html-ppt-knowledge-arch-blueprint",
+    "mode": "deck",
+    "category": "engineering"
+  },
+  {
+    "id": "html-ppt-obsidian-claude-gradient",
+    "title": "html-ppt-obsidian-claude-gradient",
+    "mode": "deck",
+    "category": "engineering"
+  },
+  {
+    "id": "html-ppt-pitch-deck",
+    "title": "html-ppt-pitch-deck",
+    "mode": "deck",
+    "category": "finance"
+  },
+  {
+    "id": "html-ppt-presenter-mode",
+    "title": "html-ppt-presenter-mode",
+    "mode": "deck",
+    "category": "engineering"
+  },
+  {
+    "id": "html-ppt-product-launch",
+    "title": "html-ppt-product-launch",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-taste-brutalist",
+    "title": "html-ppt-taste-brutalist",
+    "mode": "prototype",
+    "category": "misc"
+  },
+  {
+    "id": "html-ppt-taste-editorial",
+    "title": "html-ppt-taste-editorial",
+    "mode": "prototype",
+    "category": "misc"
+  },
+  {
+    "id": "html-ppt-tech-sharing",
+    "title": "html-ppt-tech-sharing",
+    "mode": "deck",
+    "category": "engineering"
+  },
+  {
+    "id": "html-ppt-testing-safety-alert",
+    "title": "html-ppt-testing-safety-alert",
+    "mode": "deck",
+    "category": "engineering"
+  },
+  {
+    "id": "html-ppt-weekly-report",
+    "title": "html-ppt-weekly-report",
+    "mode": "deck",
+    "category": "operations"
+  },
+  {
+    "id": "html-ppt-xhs-pastel-card",
+    "title": "html-ppt-xhs-pastel-card",
+    "mode": "deck",
+    "category": "personal"
+  },
+  {
+    "id": "html-ppt-xhs-post",
+    "title": "html-ppt-xhs-post",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-xhs-white-editorial",
+    "title": "html-ppt-xhs-white-editorial",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-8-bit-orbit",
+    "title": "html-ppt-zhangzara-8-bit-orbit",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-biennale-yellow",
+    "title": "html-ppt-zhangzara-biennale-yellow",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-block-frame",
+    "title": "html-ppt-zhangzara-block-frame",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-blue-professional",
+    "title": "html-ppt-zhangzara-blue-professional",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-bold-poster",
+    "title": "html-ppt-zhangzara-bold-poster",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-broadside",
+    "title": "html-ppt-zhangzara-broadside",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-capsule",
+    "title": "html-ppt-zhangzara-capsule",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-cartesian",
+    "title": "html-ppt-zhangzara-cartesian",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-cobalt-grid",
+    "title": "html-ppt-zhangzara-cobalt-grid",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-coral",
+    "title": "html-ppt-zhangzara-coral",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-creative-mode",
+    "title": "html-ppt-zhangzara-creative-mode",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-daisy-days",
+    "title": "html-ppt-zhangzara-daisy-days",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-editorial-tri-tone",
+    "title": "html-ppt-zhangzara-editorial-tri-tone",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-grove",
+    "title": "html-ppt-zhangzara-grove",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-long-table",
+    "title": "html-ppt-zhangzara-long-table",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-mat",
+    "title": "html-ppt-zhangzara-mat",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-monochrome",
+    "title": "html-ppt-zhangzara-monochrome",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-neo-grid-bold",
+    "title": "html-ppt-zhangzara-neo-grid-bold",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-peoples-platform",
+    "title": "html-ppt-zhangzara-peoples-platform",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-pin-and-paper",
+    "title": "html-ppt-zhangzara-pin-and-paper",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-pink-script",
+    "title": "html-ppt-zhangzara-pink-script",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-playful",
+    "title": "html-ppt-zhangzara-playful",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-raw-grid",
+    "title": "html-ppt-zhangzara-raw-grid",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-retro-windows",
+    "title": "html-ppt-zhangzara-retro-windows",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-retro-zine",
+    "title": "html-ppt-zhangzara-retro-zine",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-sakura-chroma",
+    "title": "html-ppt-zhangzara-sakura-chroma",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-scatterbrain",
+    "title": "html-ppt-zhangzara-scatterbrain",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-signal",
+    "title": "html-ppt-zhangzara-signal",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-soft-editorial",
+    "title": "html-ppt-zhangzara-soft-editorial",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-stencil-tablet",
+    "title": "html-ppt-zhangzara-stencil-tablet",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-studio",
+    "title": "html-ppt-zhangzara-studio",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "html-ppt-zhangzara-vellum",
+    "title": "html-ppt-zhangzara-vellum",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "hyperframes",
+    "title": "hyperframes",
+    "mode": "video",
+    "category": "video"
+  },
+  {
+    "id": "ib-pitch-book",
+    "title": "ib-pitch-book",
+    "mode": "deck",
+    "category": "finance"
+  },
+  {
+    "id": "image-poster",
+    "title": "image-poster",
+    "mode": "image",
+    "category": "design"
+  },
+  {
+    "id": "invoice",
+    "title": "invoice",
+    "mode": "prototype",
+    "category": "finance"
+  },
+  {
+    "id": "kami-deck",
+    "title": "kami-deck",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "kami-landing",
+    "title": "kami-landing",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "kanban-board",
+    "title": "kanban-board",
+    "mode": "prototype",
+    "category": "operations"
+  },
+  {
+    "id": "last30days",
+    "title": "last30days",
+    "mode": "prototype",
+    "category": "misc"
+  },
+  {
+    "id": "live-artifact",
+    "title": "live-artifact",
+    "mode": "prototype",
+    "category": "live"
+  },
+  {
+    "id": "live-dashboard",
+    "title": "live-dashboard",
+    "mode": "prototype",
+    "category": "operation"
+  },
+  {
+    "id": "magazine-poster",
+    "title": "magazine-poster",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "meeting-notes",
+    "title": "meeting-notes",
+    "mode": "prototype",
+    "category": "operations"
+  },
+  {
+    "id": "mobile-app",
+    "title": "mobile-app",
+    "mode": "prototype",
+    "category": "design"
+  },
+  {
+    "id": "mobile-onboarding",
+    "title": "mobile-onboarding",
+    "mode": "prototype",
+    "category": "design"
+  },
+  {
+    "id": "motion-frames",
+    "title": "motion-frames",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "open-design-landing",
+    "title": "open-design-landing",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "open-design-landing-deck",
+    "title": "open-design-landing-deck",
+    "mode": "deck",
+    "category": "marketing"
+  },
+  {
+    "id": "orbit-general",
+    "title": "orbit-general",
+    "mode": "prototype",
+    "category": "orbit"
+  },
+  {
+    "id": "orbit-github",
+    "title": "orbit-github",
+    "mode": "prototype",
+    "category": "orbit"
+  },
+  {
+    "id": "orbit-gmail",
+    "title": "orbit-gmail",
+    "mode": "prototype",
+    "category": "orbit"
+  },
+  {
+    "id": "orbit-linear",
+    "title": "orbit-linear",
+    "mode": "prototype",
+    "category": "orbit"
+  },
+  {
+    "id": "orbit-notion",
+    "title": "orbit-notion",
+    "mode": "prototype",
+    "category": "orbit"
+  },
+  {
+    "id": "pm-spec",
+    "title": "pm-spec",
+    "mode": "prototype",
+    "category": "product"
+  },
+  {
+    "id": "pricing-page",
+    "title": "pricing-page",
+    "mode": "prototype",
+    "category": "sales"
+  },
+  {
+    "id": "replit-deck",
+    "title": "replit-deck",
+    "mode": "deck",
+    "category": "product"
+  },
+  {
+    "id": "saas-landing",
+    "title": "saas-landing",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "simple-deck",
+    "title": "simple-deck",
+    "mode": "deck",
+    "category": "product"
+  },
+  {
+    "id": "social-carousel",
+    "title": "social-carousel",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "social-media-dashboard",
+    "title": "social-media-dashboard",
+    "mode": "prototype",
+    "category": "creator"
+  },
+  {
+    "id": "social-media-matrix-tracker-template",
+    "title": "social-media-matrix-tracker-template",
+    "mode": "template",
+    "category": "live-artifacts"
+  },
+  {
+    "id": "sprite-animation",
+    "title": "sprite-animation",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "team-okrs",
+    "title": "team-okrs",
+    "mode": "prototype",
+    "category": "product"
+  },
+  {
+    "id": "trading-analysis-dashboard-template",
+    "title": "trading-analysis-dashboard-template",
+    "mode": "template",
+    "category": "live-artifacts"
+  },
+  {
+    "id": "tweaks",
+    "title": "tweaks",
+    "mode": "prototype",
+    "category": "design"
+  },
+  {
+    "id": "video-shortform",
+    "title": "video-shortform",
+    "mode": "video",
+    "category": "marketing"
+  },
+  {
+    "id": "waitlist-page",
+    "title": "waitlist-page",
+    "mode": "prototype",
+    "category": "marketing"
+  },
+  {
+    "id": "web-prototype",
+    "title": "web-prototype",
+    "mode": "prototype",
+    "category": "design"
+  },
+  {
+    "id": "web-prototype-taste-brutalist",
+    "title": "web-prototype-taste-brutalist",
+    "mode": "prototype",
+    "category": "misc"
+  },
+  {
+    "id": "web-prototype-taste-editorial",
+    "title": "web-prototype-taste-editorial",
+    "mode": "prototype",
+    "category": "misc"
+  },
+  {
+    "id": "web-prototype-taste-soft",
+    "title": "web-prototype-taste-soft",
+    "mode": "prototype",
+    "category": "misc"
+  },
+  {
+    "id": "weekly-update",
+    "title": "weekly-update",
+    "mode": "deck",
+    "category": "operations"
+  },
+  {
+    "id": "wireframe-sketch",
+    "title": "wireframe-sketch",
+    "mode": "prototype",
+    "category": "design"
+  },
+  {
+    "id": "x-research",
+    "title": "x-research",
+    "mode": "prototype",
+    "category": "misc"
+  }
+]

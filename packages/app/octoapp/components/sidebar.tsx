@@ -1,4 +1,4 @@
-import { Show, createMemo, createResource, createEffect, For, on, onCleanup } from "solid-js"
+import { Show, createResource, createEffect, For, on, onCleanup, createSignal, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Icon } from "@opencode-ai/ui/icon"
 import { A, useParams, useNavigate } from "@solidjs/router"
@@ -13,17 +13,22 @@ import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
 import { Spinner } from "@opencode-ai/ui/spinner"
 
-type TabType = "chat" | "cowork" | "studio"
-
-const TAB_META: Record<TabType, { label: string; icon: string }> = {
-  chat: { label: "Chat", icon: "/IconChat1.svg" },
-  cowork: { label: "Cowork", icon: "/IconCowork1.svg" },
-  studio: { label: "Studio", icon: "/IconStudio1.svg" },
+function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 20 20" width="20" height="20" fill="none"
+      style={{
+        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+        transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
+        "flex-shrink": "0",
+      }}
+    >
+      <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
+    </svg>
+  )
 }
 
 export function Sidebar(props: {
   currentDir: () => string | null
-  activeTab: () => TabType
   newTarget?: string
   onOpenSettings?: () => void
 }) {
@@ -35,12 +40,13 @@ export function Sidebar(props: {
   const dialog = useDialog()
 
   const [sessions, { refetch }] = createResource(
-    () => props.currentDir() ?? "",
-    async (d) => {
+    () => ({ dir: props.currentDir() ?? "", id: params.id }),
+    async (source) => {
+      const d = source.dir
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
       const result = await client.session.list()
-      const data = ((result.data ?? []) as Session[])
+      const data = (result.data ?? [] as Session[])
         .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       return data.filter(s => s.agent === "octo_ai")
     },
@@ -94,66 +100,55 @@ export function Sidebar(props: {
     dialog.show(() => <DialogSettings />)
   }
 
-  const tabMeta = createMemo(() => TAB_META[props.activeTab()])
+  const [collapsed, setCollapsed] = createSignal(false)
 
   return (
     <div
-      class="flex h-full w-full flex-col gap-6"
+      class="flex h-full w-full flex-col"
       style={{
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
-        padding: "12px",
+        padding: "12px 12px 24px 12px",
       }}
     >
       <Show when={props.currentDir()}>
-        <div class="flex-1 min-h-0 flex flex-col gap-3">
-          {/* Top controls: new button + divider + section header */}
+        <div class="flex-1 min-h-0 flex flex-col">
+          {/* New session button + divider */}
           <div class="flex flex-col gap-2 shrink-0">
-            {/* New session button — no default background */}
             <button
               type="button"
-              class="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-14-regular text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-              style={{ height: "44px", color: "#191919" }}
+              class="flex items-center gap-3 w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
               onClick={() => {
                 const dir = props.currentDir()
                 if (!dir) return
                 navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}?hint=${Date.now()}`)
               }}
             >
-              <Icon name="plus" size="small" class="shrink-0" />
+              <Icon name="plus" size="normal" class="shrink-0" />
               <span>{language.t("command.session.new")}</span>
             </button>
-            {/* Divider */}
-            <div style={{ height: "1px", background: "rgba(0,0,0,0.08)", margin: "0 0" }} />
-            {/* Section header: tab icon + label */}
-            <div class="flex items-center gap-3 px-3 py-2">
-              <img src={tabMeta().icon} alt="" style={{ width: "16px", height: "16px" }} />
-              <span
-                class="flex-1 min-w-0 leading-6"
-                style={{ color: "#191919", "font-size": "16px", "font-weight": "700" }}
-              >
-                {tabMeta().label}
-              </span>
-            </div>
+            <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0" }} />
           </div>
-          {/* 历史记录 */}
-          <div class="shrink-0">
-            <div class="sidebar-history-title">历史记录</div>
-            {/* 搜索栏已移至 titlebar，保留此代码以备后续使用 */}
-            {/* <div class="sidebar-history-search-wrap">
-              <svg class="sidebar-history-search-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" />
-                <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-              </svg>
-              <input
-                type="text"
-                class="sidebar-history-search-input"
-                placeholder="搜索历史记录"
-              />
-            </div> */}
+          {/* Collapsible section header */}
+          <div class="flex items-center h-[36px] pl-[12px] pr-[16px] mt-[8px]">
+            <button
+              type="button"
+              onClick={() => setCollapsed((v) => !v)}
+              class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
+            >
+              <span class="flex items-center gap-[12px]">
+                <img src="/IconChat1.svg" alt="" style={{ width: "20px", height: "20px" }} />
+                <span class="text-[12px] leading-[20px] font-bold" style={{ color: "var(--text-strong)", "font-weight": 600 }}>
+                  Octo Chat
+                </span>
+              </span>
+              <ChevronRightIcon collapsed={collapsed()} />
+            </button>
           </div>
           {/* Session list */}
-          <div class="flex flex-col gap-1 flex-1 min-h-0">
-            <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
+          <Show when={!collapsed()}>
+          <div class="flex flex-col flex-1 min-h-0">
+            <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px", "padding-bottom": "12px"}}>
               <Show when={!sessions.loading} fallback={
                 <div class="text-12-regular text-text-weak py-4 text-center">
                   <Spinner class="size-4 mx-auto mb-1" />
@@ -168,7 +163,7 @@ export function Sidebar(props: {
                     </div>
                   }
                 >
-                <div class="flex flex-col gap-1">
+                <div class="flex flex-col">
                   <For each={sessionList}>
                     {(session) => {
                       const isActive = () => params.id === session.id
@@ -177,8 +172,8 @@ export function Sidebar(props: {
                           <A
                             href={`/${base64Encode(session.directory)}/chat/${session.id}`}
                             activeClass=""
-                            class="flex items-center w-full px-3 py-2 rounded-lg text-14-regular text-text-strong transition-colors"
-                            style={{ "padding-right": isActive() ? "20px" : "12px" }}
+                            class="flex items-center w-full rounded-[8px] transition-colors"
+                            style={{ height: "36px", padding: "0 24px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
                             classList={{
                               "bg-[rgba(10,89,247,0.08)]": isActive(),
                               "hover:bg-surface-base-hover": !isActive(),
@@ -193,12 +188,12 @@ export function Sidebar(props: {
                             <span
                               class="absolute rounded-full pointer-events-none"
                               style={{
-                                right: "8px",
+                                right: "12px",
                                 top: "50%",
                                 transform: "translateY(-50%)",
                                 width: "4px",
-                                height: "32px",
-                                background: "var(--text-interactive-base)",
+                                height: "28px",
+                                background: "#0A59F7",
                               }}
                             />
                           </Show>
@@ -215,7 +210,7 @@ export function Sidebar(props: {
                                 }}
                                 aria-label={language.t("common.archive")}
                               >
-                                <Icon name="archive" size="small" />
+                                <Icon name="archive" size="normal" />
                               </button>
                             </div>
                           </Show>
@@ -228,6 +223,7 @@ export function Sidebar(props: {
               </Show>
             </div>
           </div>
+          </Show>
         </div>
 
         {/* Settings button */}

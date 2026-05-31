@@ -2,8 +2,10 @@ import { For, Show } from "solid-js"
 import type { Component, JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { useServer } from "@/context/server"
+import { decode64 } from "@/utils/base64"
 import { useLayout } from "@/context/layout"
+import { useGlobalSync } from "@/context/global-sync"
+import { octoSessionsDir } from "@/hooks/use-project-dir"
 import {
   OctoLogo, IconSearch,
   IconChat, IconChat1,
@@ -36,22 +38,20 @@ const TAB_ICON_MAP: Record<string, { default: string; selected: string }> = {
 export function OctoTopbar(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
-  const server = useServer()
   const layout = useLayout()
+  const globalSync = useGlobalSync()
+
+  const getConfigDirSlug = () => {
+    const config = globalSync.data.path.config
+    const directory = config ? octoSessionsDir(config) : ""
+    return directory ? base64Encode(directory) : undefined
+  }
 
   const activeHref = () => {
     const p = location.pathname
     if (p === "/" || p.startsWith("/chat")) return "/chat"
     if (p.startsWith("/studio")) return "/studio"
     return "/insight"
-  }
-
-  const isGlobalRoute = (p: string) =>
-    p === "/" || p.startsWith("/insight") || p.startsWith("/make") || p.startsWith("/cowork") || p.startsWith("/skills")
-
-  const getLastProjectDir = () => {
-    const dir = server.projects.last()
-    return dir ? base64Encode(dir) : undefined
   }
 
   const tabIndex = () => Math.max(0, TABS.findIndex((t) => t.href === activeHref()))
@@ -107,10 +107,6 @@ export function OctoTopbar(): JSX.Element {
                 <button
                   type="button"
 onClick={() => {
-                     const p = location.pathname
-                     const segments = p.split("/").filter(Boolean)
-                     const currentDir = isGlobalRoute(p) ? undefined : segments[0]
-
                      if (tab.href === "/insight") {
                        const cowork = layout.lastSessionPerTab.cowork()
                        if (cowork?.id) {
@@ -119,24 +115,20 @@ onClick={() => {
                          navigate("/insight")
                        }
                      } else if (tab.href === "/chat") {
-                       const dir = currentDir ?? getLastProjectDir()
-                       if (!dir) {
-                         navigate("/chat")
-                         return
-                       }
-                       const sessionId = layout.lastSessionPerTab.chat(dir)
+                       const dir = getConfigDirSlug()
+                       if (!dir) return
+                       const decoded = decode64(dir)
+                       const sessionId = decoded ? layout.lastSessionPerTab.chat(decoded) : undefined
                        if (sessionId) {
                          navigate(`/${dir}/chat/${sessionId}`)
                        } else {
                          navigate(`/${dir}/chat`)
                        }
                      } else if (tab.href === "/studio") {
-                       const dir = currentDir ?? getLastProjectDir()
-                       if (!dir) {
-                         navigate("/studio")
-                         return
-                       }
-                       const sessionId = layout.lastSessionPerTab.studio(dir)
+                       const dir = getConfigDirSlug()
+                       if (!dir) return
+                       const decoded = decode64(dir)
+                       const sessionId = decoded ? layout.lastSessionPerTab.studio(decoded) : undefined
                        if (sessionId) {
                          navigate(`/${dir}/studio/${sessionId}`)
                        } else {

@@ -4,7 +4,6 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
-import { useServer } from "@/context/server"
 import { useLayout } from "@/context/layout"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { Logo } from "@opencode-ai/ui/logo"
@@ -12,6 +11,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useGlobalSync } from "@/context/global-sync"
 import { useCommand } from "@/context/command"
+import { octoSessionsDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-start
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
@@ -51,7 +51,7 @@ type TauriApi = {
 const tauriApi = () => (window as unknown as { __TAURI__?: TauriApi }).__TAURI__
 const currentDesktopWindow = () => tauriApi()?.window?.getCurrentWindow?.()
 const currentThemeWindow = () => tauriApi()?.webviewWindow?.getCurrentWebviewWindow?.()
-const titlebarHeight = 64
+const titlebarHeight = 48
 const minTitlebarZoom = 0.25
 const windowsControlsBaseWidth = 138
 
@@ -62,7 +62,6 @@ export function TitlebarSimple() {
   const location = useLocation()
   const navigate = useNavigate()
   const globalSync = useGlobalSync()
-  const server = useServer()
   const command = useCommand()
   const layout = useLayout()
 
@@ -97,25 +96,14 @@ export function TitlebarSimple() {
     return "chat"
   })
 
-  const isGlobalRoute = (p: string) =>
-    p === "/" || p.startsWith("/cowork") || p.startsWith("/insight") || p.startsWith("/make") || p.startsWith("/skills")
-
-  const getProjectDirSlug = (path: string) => {
-    const dirMatch = path.match(/^\/([^/]+)/)
-    const firstSegment = dirMatch ? dirMatch[1] : ""
-    if (!firstSegment || firstSegment === "cowork" || firstSegment === "insight" || firstSegment === "make" || firstSegment === "skills") {
-      const last = server.projects.last()
-      const directory = last && last !== "/" && !/^[A-Z]:\\?$/.test(last) 
-        ? last 
-        : globalSync.data.path.home
-      return directory ? base64Encode(directory) : undefined
-    }
-    return firstSegment
+  const getConfigDirSlug = () => {
+    const config = globalSync.data.path.config
+    const directory = config ? octoSessionsDir(config) : ""
+    return directory ? base64Encode(directory) : undefined
   }
 
   const handleTabClick = (tab: TabType) => {
     const path = location.pathname
-    const currentDirSlug = isGlobalRoute(path) ? undefined : getProjectDirSlug(path)
 
     if (tab === "cowork") {
       const cowork = layout.lastSessionPerTab.cowork()
@@ -127,7 +115,7 @@ export function TitlebarSimple() {
       return
     }
 
-    const dirSlug = currentDirSlug ?? getProjectDirSlug("")
+    const dirSlug = getConfigDirSlug()
     if (!dirSlug) return
 
     const decodedDir = decode64(dirSlug)
@@ -193,7 +181,7 @@ export function TitlebarSimple() {
   return (
     <header
       class="shrink-0 bg-background-base relative overflow-hidden flex items-center px-4 border-b border-border-weak-base"
-      style={{ "min-height": minHeight(), height: minHeight() }}
+      style={{ "min-height": minHeight(), height: minHeight(), width:"100%", "justify-content": "space-between" }}
       data-tauri-drag-region
       onMouseDown={drag}
       onDblClick={maximize}
@@ -202,11 +190,10 @@ export function TitlebarSimple() {
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
         </Show>
-        <img src="/OctoLogo.svg" alt="" style={{ width: "26px", height: "24px" }} />
-        <span class="text-16-medium text-text-strong">Octo Agent</span>
+        <img src="/headerLogo.png" alt="" style={{ width: "90px", height: "18px" }} />
       </div>
 
-      <div class="flex-1 flex items-center justify-center min-w-0" style={{ zoom: counterZoom() }}>
+      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
         <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] gap-1 p-[2px]" role="tablist">
           {TAB_ITEMS.map((item) => (
             <button

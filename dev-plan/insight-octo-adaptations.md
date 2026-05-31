@@ -145,3 +145,14 @@ agent: "octo_insight",
 - `insight.md`（agent prompt）：去掉"模板下拉"过期描述，改为"预置按钮带入文本"表述
 
 **Octo 适配已保留**：index.tsx 仅 tooltip 文案变更（第 844 行），不涉及适配 A/B 的 import/sdk 代码。agent prompt 路径对应 `opencode/src/agent/prompt/octo_insight.txt`，已同步更新。
+
+### 2026-05-30: commit `6855421` (文件上传交互改版——chip 入胶囊 + 气泡文件卡片)
+
+**上游变更**：
+- `index.tsx`：附件上限 5→10，超额弹 toast 截断；uploadBlock 走独立 synthetic text part（不再拼进用户可见文本）；doSendPrompt 中 optimistic parts 包含 synthetic 上传块
+- `attachment-bar.tsx`：附件条从胶囊外移到胶囊内部顶部，单行横向滚动（overflow-x: auto）
+- `insight-turn.tsx`：新增 `parseUploadedFiles` 解析 synthetic 块，渲染用户上传文件卡片（气泡上方，右对齐）
+- `upload.ts`：`formatUploadsForPrompt` 去掉前导换行；新增 `parseUploadedFiles` 逆解析函数
+- `octo-tokens.css`：新增 `.octo-attach-strip`（附件条滚动）和 `.octo-input-attachments`/`.octo-input-attachment-card`（文件卡片样式）
+
+**Octo 适配已保留**：适配 A（useSDK/sdk.client/sdk.directory）和 B（octo_insight agent 名）已正确应用到 InsightContent。适配 C（--octo-brand-a5）已加回 CSS。agent prompt 无变更，无需同步。

@@ -1,7 +1,7 @@
 [data-component="card"] {
-  --card-pad-y: 10px;
-  --card-pad-r: 12px;
-  --card-pad-l: 10px;
+  --card-pad-y: calc(var(--spacing) * 2.5);
+  --card-pad-r: calc(var(--spacing) * 3);
+  --card-pad-l: calc(var(--spacing) * 2.5);
 
   width: 100%;
   display: flex;
@@ -17,19 +17,19 @@
   font-size: var(--font-size-base);
   font-style: normal;
   font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-large);
+  line-height: var(--line-height-x-large);
   letter-spacing: var(--letter-spacing-normal);
   color: var(--text-strong);
 
-  --card-gap: 8px;
+  --card-gap: calc(var(--spacing) * 2);
   --card-icon: 16px;
   --card-indent: 0px;
-  --card-line-pad: 8px;
+  --card-line-pad: calc(var(--spacing) * 2);
 
   --card-accent: var(--icon-active);
 
   &:has([data-slot="card-title"]) {
-    gap: 8px;
+    gap: calc(var(--spacing) * 2);
   }
 
   &:has([data-slot="card-title-icon"]) {

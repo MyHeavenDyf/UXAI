@@ -2,16 +2,18 @@ import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk/v2/client
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../utils/artifact-parser"
-import { stripArtifact } from "../utils/artifact-strip"
+
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 
 export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
+
+export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
 export type OutputCard = {
   id: string
@@ -20,7 +22,22 @@ export type OutputCard = {
   content: string
   filePath?: string
   artifactKind?: string
+  exports?: ArtifactExportKind[]
+  designSystemId?: string | null
   createdAt: Date
+}
+
+const EXPORTS_BY_TYPE: Record<OutputCardType, ArtifactExportKind[]> = {
+  html: ["html", "pdf"],
+  deck: ["html", "pdf", "pptx"],
+  svg: ["svg"],
+  table: ["csv"],
+  json: ["json"],
+  markdown: ["md"],
+  "markdown-document": ["md"],
+  "code-snippet": ["txt"],
+  mindmap: ["md"],
+  file: ["txt"],
 }
 
 const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
@@ -101,7 +118,7 @@ function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt
   if (!text.includes("<artifact")) return null
   try {
     const parser = createArtifactParser()
-    let startEvent: { identifier: string; artifactType: string; title: string } | null = null
+    let startEvent: Extract<import("../utils/artifact-parser").ArtifactEvent, { type: "artifact:start" }> | null = null
     let fullContent = ""
     for (const ev of parser.feed(text)) {
       if (ev.type === "artifact:start") startEvent = ev
@@ -114,11 +131,16 @@ function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt
     if (!startEvent) return null
     const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
     if (!mappedType) return null
+    const explicitExports = startEvent.exports
+      ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
+      : undefined
     return {
       title: startEvent.title || mappedType,
       type: mappedType,
       content: fullContent,
       artifactKind: startEvent.artifactType,
+      exports: explicitExports,
+      designSystemId: startEvent.designSystemId || null,
     }
   } catch {
     return null
@@ -296,15 +318,21 @@ export function InsightTurn(props: {
       })
   })
 
-  // ── NEW: prose text (stripped of artifacts) ──
+  // ── NEW: prose text (stripped of artifacts, using parser for partial-tag safety) ──
   const proseText = createMemo(() => {
     const parts = assistantParts()
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
-    const stripped = stripArtifact(textPart.text)
-    return stripped.trim()
+    const parser = createArtifactParser()
+    let prose = ""
+    for (const ev of parser.feed(textPart.text)) {
+      if (ev.type === "text") prose += ev.delta
+    }
+    // Intentionally skip flush() — partial <artifact prefixes held in the buffer
+    // should NOT be emitted as visible text (prevents flicker/duplication).
+    return prose.trim()
   })
 
   // ── NEW: streaming artifact (live preview during generation) ──
@@ -317,7 +345,7 @@ export function InsightTurn(props: {
     if (!textPart?.text) return null
 
     const parser = createArtifactParser()
-    let startEvent: { identifier: string; artifactType: string; title: string } | null = null
+    let startEvent: Extract<import("../utils/artifact-parser").ArtifactEvent, { type: "artifact:start" }> | null = null
     let fullContent = ""
     for (const ev of parser.feed(textPart.text)) {
       if (ev.type === "artifact:start") startEvent = ev
@@ -342,20 +370,26 @@ export function InsightTurn(props: {
   })
 
   // Stable flag: once artifact detected during generation, don't flicker back
-  const hasSeenArtifact = createSignal(false)
-  const stableStreamingCard = createMemo((): OutputCard | null => {
+  const [hasSeenArtifact, setHasSeenArtifact] = createSignal(false)
+  const [lastSeenCard, setLastSeenCard] = createSignal<OutputCard | null>(null)
+
+  // Track whether we've seen an artifact during streaming (effect, not memo)
+  createEffect(() => {
     if (!showGenerating()) {
-      if (hasSeenArtifact[0]()) hasSeenArtifact[1](false)
-      return null
+      setHasSeenArtifact(false)
+      setLastSeenCard(null)
+      return
     }
     const card = streamingArtifact()
     if (card) {
-      if (!hasSeenArtifact[0]()) hasSeenArtifact[1](true)
-      return card
+      setHasSeenArtifact(true)
+      setLastSeenCard(card)
     }
-    // If we've seen an artifact before, keep showing the last known state
-    // (parser might temporarily return null during streaming)
-    return hasSeenArtifact[0]() ? streamingArtifact() : null
+  })
+
+  const stableStreamingCard = createMemo((): OutputCard | null => {
+    if (!showGenerating()) return null
+    return streamingArtifact() ?? (hasSeenArtifact() ? lastSeenCard() : null)
   })
 
   // ── NEW: produced files ──
@@ -366,7 +400,7 @@ export function InsightTurn(props: {
         (c.name.toLowerCase().includes("write") || c.name.toLowerCase().includes("edit"))
         && c.filePath && c.status === "done"
       )
-      .map((c) => ({ path: c.filePath!, name: c.filePath!.split("/").pop()! }))
+      .map((c) => ({ path: c.filePath!, name: c.filePath!.split(/[/\\]/).pop()! }))
       .filter((f, i, arr) => arr.findIndex((x) => x.path === f.path) === i)
   })
 
@@ -413,7 +447,7 @@ export function InsightTurn(props: {
           if (/```html/i.test(content) || /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content) || /\.html?$/i.test(filePath)) {
             return {
               id: `card-${props.messageID}-html`,
-              title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split("/").pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
+              title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split(/[/\\]/).pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
               type: "html",
               content,
               filePath: filePath || undefined,
@@ -477,15 +511,21 @@ export function InsightTurn(props: {
   })
 
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <div class="flex justify-end px-3 py-2.5">
         <div
-          class="text-sm whitespace-pre-wrap break-words leading-relaxed max-w-[85%] px-3 py-2"
+          class="break-words"
           style={{
-            color: "var(--octo-text-primary)",
             background: "var(--octo-brand-a8)",
-            "border-radius": "var(--octo-radius-md)",
+            padding: "8px 12px",
+            "border-radius": "16px 16px 2px 16px",
+            color: "#191919",
+            "font-size": "14px",
+            "line-height": "22px",
+            "white-space": "pre-wrap",
+            display: "inline-block",
+            "max-width": "85%",
           }}
         >
           {userText()}
@@ -501,23 +541,23 @@ export function InsightTurn(props: {
 
       {/* 思考过程（直接展示） */}
       <Show when={reasoningTexts().length > 0}>
-        <div class="mx-3 mb-1">
+        <div class="mx-3 mb-1" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
           <div
-            class="p-2.5 rounded-md text-xs leading-relaxed overflow-auto"
+            class="overflow-auto"
             style={{
-              background: "var(--octo-brand-a3)",
-              color: "var(--octo-text-secondary)",
+              color: "#777",
+              "font-size": "12px",
+              "line-height": "18px",
               "max-height": "300px",
-              "border": "1px solid var(--octo-brand-a8)",
             }}
           >
             <For each={reasoningTexts()}>
               {(text, i) => (
                 <>
                   <Show when={i() > 0}>
-                    <div class="my-1.5" style={{ "border-top": "1px dashed var(--octo-brand-a15)" }} />
+                    <div class="my-1.5" style={{ "border-top": "1px dashed rgba(0,0,0,0.08)" }} />
                   </Show>
-                  <div class="whitespace-pre-wrap">{text}</div>
+                  <div class="whitespace-pre-wrap" style={{ "user-select": "text" }}>{text}</div>
                 </>
               )}
             </For>
@@ -538,8 +578,8 @@ export function InsightTurn(props: {
       {/* AI 文字回复（剥离 artifact 标签） */}
       <Show when={proseText().length > 0}>
         <div
-          class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed"
-          style={{ color: "var(--octo-text-primary)" }}
+          class="mx-3 mb-2 px-3 py-2"
+          style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <Markdown text={proseText()} />
         </div>
@@ -586,27 +626,37 @@ export function InsightTurn(props: {
             <button
               type="button"
               onClick={() => props.onOpenResult(capturedCard)}
-              class="mx-3 mb-3 p-3 text-left transition-all"
+              class="mx-6 mb-3 text-left transition-all w-full"
               style={{
-                "border-radius": "var(--octo-radius-md)",
-                border: "1px solid var(--octo-border-default)",
-                background: "var(--octo-surface-page)",
-                width: "calc(100% - 1.5rem)",
+                "border-radius": "12px",
+                padding: "16px 20px",
+                background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, #fff 49.853%)",
+                border: "1px solid rgba(0,0,0,0.1)",
+                width: "calc(100% - 48px)",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
+                e.currentTarget.style.background = "linear-gradient(90deg, rgba(235,240,255,1) 0%, #fafafa 49.853%)"
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--octo-border-default)"
+                e.currentTarget.style.background = "linear-gradient(90deg, rgba(245,248,255,1) 0%, #fff 49.853%)"
               }}
             >
-              <div class="flex items-center gap-2">
-                <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
+              <div class="flex items-center" style={{ gap: "12px" }}>
+                <div
+                  class="shrink-0"
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    "background-image": "url(/AI_doc_plaintext.svg)",
+                    "background-size": "contain",
+                    "background-repeat": "no-repeat",
+                    "background-position": "center",
+                  }}
+                />
+                <div class="flex flex-col min-w-0 flex-1" style={{ gap: "2px" }}>
+                  <span class="truncate" style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>{capturedCard.title}</span>
+                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.6)" }}>{formatTime(capturedCard.createdAt)}</span>
                 </div>
-                <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
               </div>
             </button>
           )

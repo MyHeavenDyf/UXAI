@@ -3,6 +3,7 @@ import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@o
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -37,10 +38,19 @@ import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
-import { IconAttach, IconSend } from "./icons"
-import { IllustrationInsightEmpty } from "./icons/illustrations"
+import { TemplatePicker } from "./components/template-picker"
+import { IconSend } from "./icons"
+import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Icon } from "@opencode-ai/ui/icon"
 import { loadDesignSystem } from "./utils/design-system-loader"
+import { loadCrafts } from "./utils/craft-loader"
+import { createSnapshotStore } from "./utils/snapshot-store"
+import { VersionPanel } from "./components/result-viewer/version-panel"
+import { useModels } from "@/context/models"
+import { useLocal } from "@/context/local"
+import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { Persist, persisted } from "@/utils/persist"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -63,6 +73,47 @@ export default function MakePage() {
 
   const homeDir = useProjectDir()
 
+  // ── 模型选择（与 Chat/Studio 隔离，workspace 级持久化） ────
+  const models = useModels()
+  const [modelStore, setModelStore] = persisted(
+    Persist.workspace(homeDir() ?? "", "make-model"),
+    createStore<{ providerID: string; modelID: string } | Record<string, never>>({}),
+  )
+  const selectedModelKey = createMemo<{ providerID: string; modelID: string } | null>(
+    () => {
+      const s = modelStore
+      return "providerID" in s && "modelID" in s ? s as { providerID: string; modelID: string } : null
+    },
+  )
+  const modelState = {
+    list: () => models.list(),
+    visible: (key: { modelID: string; providerID: string }) => models.visible(key),
+    current: () => {
+      const key = selectedModelKey()
+      if (!key) return undefined
+      return models.find(key) ?? undefined
+    },
+    set: (key: { modelID: string; providerID: string } | undefined) => {
+      if (key) {
+        setModelStore(reconcile({ providerID: key.providerID, modelID: key.modelID }))
+      } else {
+        setModelStore(reconcile({}))
+      }
+    },
+    ready: models.ready,
+    recent: (() => []) as ReturnType<typeof useLocal>["model"]["recent"],
+    variant: {
+      configured: () => undefined as string | undefined,
+      selected: () => undefined as string | undefined,
+      current: () => undefined as string | undefined,
+      list: () => [] as string[],
+      set: (_value: string | undefined) => {},
+      cycle: () => {},
+    },
+    cycle: () => {},
+    setVisibility: models.setVisibility,
+  }
+
   // 当前 session 元数据（标题等）
   const [sessionInfo, { refetch: refetchSession }] = createResource(
     () => params.id ?? "",
@@ -72,7 +123,6 @@ export default function MakePage() {
         const result = await globalSDK.client.session.get({ sessionID: id })
         return (result.data as Session | undefined) ?? null
       } catch {
-        navigate("/make")
         return null as Session | null
       }
     },
@@ -192,12 +242,22 @@ export default function MakePage() {
       if (part.sessionID !== sessionId) return
       if (SKIP_PART_TYPES.has(part.type)) return
       const parts = dataStore.part[part.messageID]
-      if (!parts) { setDataStore("part", part.messageID, [part]); return }
+
+      // First time seeing parts for this message — always insert
+      if (!parts) {
+        setDataStore("part", part.messageID, [part])
+        return
+      }
+
       const result = Binary.search(parts, part.id, (p) => p.id)
-      if (result.found) {
-        setDataStore("part", part.messageID, result.index, reconcile(part))
-      } else {
+      if (!result.found) {
+        // New part — always insert
         setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
+      } else {
+        // Existing text part during streaming: skip reconcile, let deltas drive the text
+        // to avoid duplicated content. Final part.updated (when idle) sets canonical text.
+        if (part.type === "text" && isBusy()) return
+        setDataStore("part", part.messageID, result.index, reconcile(part))
       }
       return
     }
@@ -239,23 +299,42 @@ export default function MakePage() {
   })
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
+  const hasContent = () => !!(params.id && userMessages().length > 0)
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const DS_KEY_PREFIX = "octo:make:design-system:"
+  const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
-  // 对话面板宽度：从 localStorage 恢复，无存储值时取约 45% 可用宽
+  createEffect(() => {
+    const key = dsKey()
+    if (!key) return
+    const id = selectedDesignSystem()
+    if (id) localStorage.setItem(key, id)
+    else localStorage.removeItem(key)
+  })
+  createEffect(on(() => params.id, (id) => {
+    if (!id) return
+    const saved = localStorage.getItem(DS_KEY_PREFIX + id)
+    setSelectedDesignSystem(saved ?? null)
+  }))
+  // 对话面板宽度：从 localStorage 恢复，无存储值时取默认 460px
   const CHAT_WIDTH_KEY = "octo:make:chat-width"
   function getInitialChatWidth(): number {
     const stored = localStorage.getItem(CHAT_WIDTH_KEY)
     if (stored) {
       const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 240) return n
+      if (!isNaN(n) && n >= 345 && n <= 720) return n
     }
-    return Math.max(360, Math.floor((window.innerWidth - 240) * 0.45))
+    return 460
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
+  const [focusMode, setFocusMode] = createSignal(false)
+
+  const MIN_CHAT = 345
+  const MAX_CHAT = 720
 
   let dragCleanup: (() => void) | null = null
 
@@ -273,7 +352,7 @@ export default function MakePage() {
       dragCleanup = null
     }
     const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.45), startWidth + ev.clientX - startX)))
+      setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
       resetBody()
@@ -293,6 +372,15 @@ export default function MakePage() {
   onCleanup(() => { dragCleanup?.() })
 
   const tabStore = createTabStore()
+  const snapshotStore = createSnapshotStore(() => params.id)
+  const [showVersionPanel, setShowVersionPanel] = createSignal(false)
+  const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
+  const [snapshotVersion, setSnapshotVersion] = createSignal(0)
+
+  function refreshSnapshots() {
+    setSnapshotList(snapshotStore.snapshots())
+    setSnapshotVersion((v) => v + 1)
+  }
 
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
@@ -346,7 +434,6 @@ export default function MakePage() {
   }
 
   async function sendMessage(sessionId: string, text: string) {
-    setSending(true)
     try {
       const fileParts: FilePartInput[] = attachments().map((a) => ({
         type: "file",
@@ -356,60 +443,109 @@ export default function MakePage() {
       }))
       let promptText = text
 
-      // Design system prompt injection
+      // Design system prompt injection (prepended as hidden context, user text preserved)
       const dsId = selectedDesignSystem()
       if (dsId) {
+        let dsPrefix = ""
         try {
           const ds = await loadDesignSystem(dsId)
-          promptText = [
+          if (!ds.design && !ds.tokens) {
+            console.warn("[MakePage] design system loaded but empty:", dsId)
+          }
+          dsPrefix = [
             `[Design System: ${dsId}]`,
-            `The active design system is "${dsId}". Its full specification follows.`,
-            `You MUST:`,
+            `The active design system is "${dsId}". Its full specification follows below.`,
+            `You MUST apply this design system to every artifact you create in this session:`,
             `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
             `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
             `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
             `4. Do NOT invent CSS variables that don't exist in the :root block below`,
+            `5. The design system content below is authoritative — it is not empty, use ALL of it`,
             ``,
-            `## DESIGN.md (authoritative visual rules)`,
+            `## DESIGN.md (authoritative visual rules for ${dsId})`,
+            ``,
             ds.design,
             ``,
             `## :root tokens (paste verbatim into <style>)`,
+            ``,
             "```css",
             ds.tokens,
             "```",
             "",
-            `---`,
-            text,
+            "---",
           ].join("\n")
         } catch (err) {
           console.error("[MakePage] design system load failed", err)
         }
+
+        // Craft document injection (design quality guides)
+        try {
+          const crafts = await loadCrafts(["anti-ai-slop", "typography", "color"])
+          if (crafts) {
+            dsPrefix += [
+              "",
+              "## Design Quality Guides (mandatory)",
+              "",
+              crafts,
+              "",
+              "---",
+            ].join("\n")
+          }
+        } catch (err) {
+          console.error("[MakePage] craft load failed", err)
+        }
+
+        if (dsPrefix) {
+          promptText = dsPrefix + "\n" + text
+        }
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
+      const modelKey = selectedModelKey()
       await globalSDK.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
+        ...(modelKey ? { model: modelKey } : {}),
         parts: [textPart, ...fileParts],
       })
       setAttachments([])
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
-    } finally {
-      setSending(false)
     }
   }
 
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending()) return
+    setSending(true)
     setPrompt("")
-    let sid = params.id
-    if (!sid) {
-      sid = await createAndNavigate()
-      if (!sid) return
+    const submitSessionId = params.id
+    try {
+      let sid = submitSessionId
+      if (!sid) {
+        const dir = homeDir()
+        if (!dir) return
+        const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_make" })
+        const session = result.data as Session | undefined
+        if (!session) return
+        navigate(`/make/${session.id}`)
+        sid = session.id
+      }
+      await sendMessage(sid, text)
+    } catch (err) {
+      console.error("[MakePage] handleSubmit failed", err)
+    } finally {
+      // Only reset if we're still on the same session (or still on no session)
+      if (!submitSessionId || params.id === submitSessionId) {
+        setSending(false)
+      }
     }
-    await sendMessage(sid, text)
+  }
+
+  async function halt() {
+    const sid = params.id
+    if (!sid) return
+    await globalSDK.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -475,6 +611,12 @@ export default function MakePage() {
 
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
+    // Auto-save snapshot when a new result is opened
+    const tab = tabStore.tabs().find((t) => t.id === card.id)
+    if (tab) {
+      snapshotStore.save(tab)
+      refreshSnapshots()
+    }
   }
 
   const inputDisabled = () => sending() || isBusy()
@@ -482,26 +624,35 @@ export default function MakePage() {
 
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
-      <div class="size-full flex overflow-hidden relative">
+      <div
+        class="octo-split bg-background-base"
+        data-focus={focusMode() ? "true" : undefined}
+        style={{
+          "grid-template-columns": !focusMode()
+            ? hasContent()
+              ? `${chatWidth()}px 8px minmax(400px, 1fr)`
+              : "1fr"
+            : undefined,
+        }}
+      >
 
-        {/* ── 左栏：对话面板（固定宽度，始终可拖拽） ──── */}
-        <div
-          class="flex flex-col overflow-hidden flex-shrink-0"
-          style={{
-            width: `${chatWidth()}px`,
-            flex: "0 0 auto",
-            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
-            outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
-          }}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
+        {/* ── 左栏：对话面板 ──── */}
+        <Show when={!focusMode()}>
+          <div
+            class="flex flex-col overflow-hidden"
+            style={{
+              background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
+              outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
+            }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             {/* 标题栏 */}
-            <Show when={params.id}>
+            <Show when={hasContent()}>
               <div
-                class="shrink-0 h-12 flex items-center justify-between px-4"
-                style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
+                class="shrink-0 flex items-center justify-between"
+                style={{ padding: "12px 24px", background: "#fff" }}
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
@@ -527,7 +678,8 @@ export default function MakePage() {
                     }
                   >
                     <h1
-                      class="text-14-medium text-text-strong truncate min-w-0"
+                      class="truncate min-w-0"
+                      style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
                       {sessionTitle(sessionInfo()?.title) ?? "Octo Make"}
@@ -566,16 +718,107 @@ export default function MakePage() {
                 </DropdownMenu>
               </div>
             </Show>
-            {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
-            <div
-              class="flex-1 overflow-y-auto min-h-0"
-              ref={autoScroll.scrollRef}
-              onScroll={autoScroll.handleScroll}
-              onMouseUp={autoScroll.handleInteraction}
-            >
-              <Show
-                when={params.id && userMessages().length > 0}
-                fallback={<ChatEmptyState />}
+            <Show when={hasContent()} fallback={
+              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+                <ChatEmptyState />
+                <div class="w-full max-w-[800px] px-8">
+                  <AttachmentBar
+                    attachments={attachments()}
+                    onRemove={removeAttachment}
+                  />
+                  <div
+                    class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+                    style={{
+                      border: "1px solid transparent",
+                      background: `
+                        linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+                        linear-gradient(135deg,
+                          rgba(246, 97, 23, 0.7) 1%,
+                          rgba(95, 45, 255, 0.7) 8%,
+                          rgba(61, 93, 255, 0.7) 22%,
+                          rgba(104, 138, 255, 0.7) 43%,
+                          rgba(28, 171, 111, 0.7) 54%,
+                          rgba(61, 93, 255, 0.7) 87%,
+                          rgba(206, 7, 232, 0.7) 92%) border-box`,
+                      "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+                      "margin-top": attachments().length > 0 ? "6px" : "0",
+                      height: "150px",
+                    }}
+                  >
+                    <textarea
+                      value={prompt()}
+                      onInput={(e) => setPrompt(e.currentTarget.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="输入指令，按 Enter 发送…"
+                      disabled={inputDisabled()}
+                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-3"
+                      style={{
+                        "font-family": "var(--octo-font)",
+                        "overflow-y": "auto",
+                      }}
+                    />
+                    <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10">
+                      <div class="flex items-center gap-1">
+                        <DesignSystemPicker
+                          selected={selectedDesignSystem()}
+                          onSelect={setSelectedDesignSystem}
+                        />
+                        <TemplatePicker
+                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                        />
+                        <input
+                          ref={fileInputRef!}
+                          type="file"
+                          multiple
+                          class="hidden"
+                          accept="*/*"
+                          onChange={handleFileInputChange}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          disabled={maxAttachments()}
+                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                          title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                        >
+                          <Icon name="plus" class="size-5" />
+                        </button>
+                        <ModelSelectorPopover
+                          model={modelState}
+                          triggerAs="button"
+                          triggerProps={{
+                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                            "data-action": "prompt-model",
+                          }}
+                        >
+                          <span class="truncate">
+                            {modelState.current()?.name ?? "选择模型"}
+                          </span>
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                        </ModelSelectorPopover>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
+                        disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
+                        class="octo-btn-send flex-shrink-0"
+                        classList={{ "octo-btn-stop": isBusy() }}
+                        title={isBusy() ? "停止生成" : undefined}
+                      >
+                        {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            }>
+              {/* 消息列表 */}
+              <ScrollView
+                class="flex-1 min-h-0"
+                style={{ background: "#fff" }}
+                viewportRef={autoScroll.scrollRef}
+                onScroll={autoScroll.handleScroll}
+                onMouseUp={autoScroll.handleInteraction}
               >
                 <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
                   <For each={userMessages()}>
@@ -590,114 +833,176 @@ export default function MakePage() {
                     )}
                   </For>
                 </div>
-              </Show>
-            </div>
+              </ScrollView>
 
-            {/* 输入区 */}
-            <div class="shrink-0 p-4">
-              <AttachmentBar
-                attachments={attachments()}
-                onRemove={removeAttachment}
-              />
-
-              <div
-                class="rounded-[var(--octo-radius-lg)] overflow-hidden"
-                style={{
-                  background: "var(--octo-surface-page)",
-                  "box-shadow": "0 2px 12px rgba(0, 0, 0, 0.08)",
-                  "margin-top": attachments().length > 0 ? "6px" : "0",
-                }}
-              >
-                <textarea
-                  value={prompt()}
-                  onInput={(e) => setPrompt(e.currentTarget.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="输入指令，按 Enter 发送…"
-                  rows={3}
-                  disabled={inputDisabled()}
-                  class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
-                  style={{
-                    color: inputDisabled() ? "var(--octo-text-disabled)" : "var(--octo-text-primary)",
-                    "font-family": "var(--octo-font)",
-                    "max-height": "120px",
-                    "overflow-y": "auto",
-                  }}
+              {/* 输入区 */}
+              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+                <AttachmentBar
+                  attachments={attachments()}
+                  onRemove={removeAttachment}
                 />
-
-                <div class="flex items-center justify-between px-2.5 pb-2.5">
-                  <div class="flex items-center gap-1">
-                    <DesignSystemPicker
-                      selected={selectedDesignSystem()}
-                      onSelect={setSelectedDesignSystem}
-                    />
-                    <input
-                      ref={fileInputRef!}
-                      type="file"
-                      multiple
-                      class="hidden"
-                      accept="*/*"
-                      onChange={handleFileInputChange}
-                    />
+                <div
+                  class="rounded-[16px] transition-all duration-300 relative group"
+                  style={{
+                    border: "1px solid transparent",
+                    background: `
+                      linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+                      linear-gradient(135deg,
+                        rgba(246, 97, 23, 0.7) 1%,
+                        rgba(95, 45, 255, 0.7) 8%,
+                        rgba(61, 93, 255, 0.7) 22%,
+                        rgba(104, 138, 255, 0.7) 43%,
+                        rgba(28, 171, 111, 0.7) 54%,
+                        rgba(61, 93, 255, 0.7) 87%,
+                        rgba(206, 7, 232, 0.7) 92%) border-box`,
+                    "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+                    "margin-top": attachments().length > 0 ? "6px" : "0",
+                  }}
+                >
+                  <textarea
+                    value={prompt()}
+                    onInput={(e) => setPrompt(e.currentTarget.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="输入指令，按 Enter 发送…"
+                    rows={3}
+                    disabled={inputDisabled()}
+                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
+                    style={{
+                      "font-family": "var(--octo-font)",
+                      "max-height": "120px",
+                      "overflow-y": "auto",
+                    }}
+                  />
+                  <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10">
+                    <div class="flex items-center gap-1">
+                      <DesignSystemPicker
+                        selected={selectedDesignSystem()}
+                        onSelect={setSelectedDesignSystem}
+                      />
+                      <TemplatePicker
+                        onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                      />
+                      <input
+                        ref={fileInputRef!}
+                        type="file"
+                        multiple
+                        class="hidden"
+                        accept="*/*"
+                        onChange={handleFileInputChange}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        disabled={maxAttachments()}
+                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                        title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                      >
+                        <Icon name="plus" class="size-5" />
+                      </button>
+                      <ModelSelectorPopover
+                        model={modelState}
+                        triggerAs="button"
+                        triggerProps={{
+                          class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                          "data-action": "prompt-model",
+                        }}
+                      >
+                        <span class="truncate">
+                          {modelState.current()?.name ?? "选择模型"}
+                        </span>
+                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                      </ModelSelectorPopover>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                      disabled={maxAttachments()}
-                      class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
-                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                      onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
+                      disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
+                      class="octo-btn-send flex-shrink-0"
+                      classList={{ "octo-btn-stop": isBusy() }}
+                      title={isBusy() ? "停止生成" : undefined}
                     >
-                      <IconAttach size={14} />
+                      {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
                     </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={!prompt().trim() || inputDisabled()}
-                    class="octo-btn-send flex-shrink-0"
-                  >
-                    {sending() ? "…" : <IconSend size={14} />}
-                  </button>
                 </div>
               </div>
-            </div>
+            </Show>
 
         </div>
+        </Show>
 
-        {/* ── 聊天/结果 拖拽分隔线（半侧贴边胶囊） */}
-        <div
-          class="absolute top-0 bottom-0 flex items-center justify-center group"
-          style={{ left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
-          onMouseDown={handleDividerMouseDown}
-        >
-          <div
-            class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-            style={{
-              width: "12px",
-              height: "36px",
-              "border-radius": "10px 0 0 10px",
-              "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
-              border: "1px solid var(--octo-border-divider)",
-              "border-right": "none",
-            }}
-          >
-            <div
-              class="w-[2px] h-[14px] rounded-full mr-[2px]"
-              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-            />
+        {/* ── 拖拽分隔线（Grid 中间列） ──── */}
+        <Show when={hasContent() && !focusMode()}>
+          <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
+        </Show>
+
+        {/* ── 右栏：ResultViewer + Version Panel ──── */}
+        <Show when={hasContent()}>
+        <div class="flex flex-col min-w-0 overflow-hidden">
+          <div class="flex flex-1 min-h-0 overflow-hidden">
+            <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+              {/* 焦点模式 + 版本历史 切换按钮 */}
+              <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
+                <button
+                  type="button"
+                  class="octo-focus-btn"
+                  data-active={showVersionPanel() ? "true" : undefined}
+                  onClick={() => { refreshSnapshots(); setShowVersionPanel(!showVersionPanel()) }}
+                  title="版本历史"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="8" cy="8" r="6" />
+                    <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="octo-focus-btn"
+                  data-active={focusMode() ? "true" : undefined}
+                  onClick={() => setFocusMode(!focusMode())}
+                  title={focusMode() ? "退出焦点模式" : "焦点模式"}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <Show when={focusMode()} fallback={
+                      <>
+                        <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                      </>
+                    }>
+                      <path d="M5 5h6M5 5v6M5 5L11 11" stroke-linecap="round" stroke-linejoin="round" />
+                    </Show>
+                  </svg>
+                </button>
+              </div>
+              <ResultViewer
+                tabs={tabStore.tabs()}
+                activeId={tabStore.activeId()}
+                onActivate={tabStore.activate}
+                onClose={tabStore.closeTab}
+                onContentChange={handleContentChange}
+              />
+            </div>
+            <Show when={showVersionPanel()}>
+              <VersionPanel
+                snapshots={snapshotList()}
+                onRestore={(id) => {
+                  const tab = snapshotStore.restore(id)
+                  if (tab) {
+                    tabStore.openTab(tab)
+                  }
+                }}
+                onRemove={(id) => {
+                  snapshotStore.remove(id)
+                  refreshSnapshots()
+                }}
+                onClose={() => setShowVersionPanel(false)}
+              />
+            </Show>
           </div>
         </div>
-
-        {/* ── 中栏：ResultViewer（始终渲染，无 tab 时显示空态） */}
-        <ResultViewer
-          tabs={tabStore.tabs()}
-          activeId={tabStore.activeId()}
-          onActivate={tabStore.activate}
-          onClose={tabStore.closeTab}
-          onContentChange={handleContentChange}
-        />
-
-        {/* ── 右栏：Workspace 占位 (P2) ──────────────── */}
-        <div />
+        </Show>
       </div>
     </DataProvider>
   )
@@ -705,11 +1010,13 @@ export default function MakePage() {
 
 function ChatEmptyState(): JSX.Element {
   return (
-    <div class="size-full flex flex-col items-center justify-center gap-3 text-center px-8">
-      <IllustrationInsightEmpty width={120} height={120} />
-      <div class="text-[15px] font-semibold" style={{ color: "var(--octo-text-strong)" }}>Octo Make</div>
-      <div class="text-[13px] max-w-[200px] leading-relaxed" style={{ color: "var(--octo-text-secondary)" }}>
-        描述需求，开始生成原型
+    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
+      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <div class="flex flex-col items-center gap-2">
+        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Make</div>
+        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
+          描述需求，开始生成原型
+        </div>
       </div>
     </div>
   )

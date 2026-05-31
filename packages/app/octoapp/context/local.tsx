@@ -24,6 +24,7 @@ type Saved = {
 
 const WORKSPACE_KEY = "__workspace__"
 const handoff = new Map<string, State>()
+const lastState = new Map<string, State>()
 
 const handoffKey = (dir: string, id: string) => `${dir}\n${id}`
 
@@ -64,7 +65,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const list = createMemo(() => sync.data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
     const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
 
-    const [saved, setSaved] = persisted(
+    const [saved, setSaved, , savedReady] = persisted(
       {
         ...Persist.workspace(sdk.directory, "model-selection", ["model-selection.v1"]),
         migrate,
@@ -91,7 +92,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const validModel = (model: ModelKey) => {
       const provider = providers.all().find((item) => item.id === model.providerID)
-      return !!provider?.models[model.modelID] && connected().has(model.providerID)
+      return !!provider?.models[model.modelID] && connected().has(model.providerID) && models.visible(model)
     }
 
     const firstModel = (...items: Array<() => ModelKey | undefined>) => {
@@ -118,10 +119,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       setStore("current", items[0]?.name)
     })
 
+    const draftKey = (dir: string) => `${dir}\n__draft__`
+
     const scope = createMemo<State | undefined>(() => {
       const session = id()
-      if (!session) return store.draft
-      return saved.session[session] ?? handoff.get(handoffKey(sdk.directory, session))
+      if (!session) return store.draft ?? lastState.get(draftKey(sdk.directory))
+      return saved.session[session] ?? lastState.get(handoffKey(sdk.directory, session)) ?? handoff.get(handoffKey(sdk.directory, session))
     })
 
     createEffect(() => {
@@ -222,6 +225,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const current = () => {
+      if (!savedReady()) return undefined
       const item = firstModel(
         () => scope()?.model,
         () => agent.current()?.model,
@@ -260,9 +264,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
       const session = id()
       if (session) {
+        lastState.set(handoffKey(sdk.directory, session), clone(state)!)
         setSaved("session", session, state)
         return
       }
+      lastState.set(draftKey(sdk.directory), clone(state)!)
       setStore("draft", state)
     }
 
