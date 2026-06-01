@@ -167,11 +167,6 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [searchResults] = createResource(() => props.search, searchProducts)
   const isSearching = () => !!props.search
 
-  const domainMap: Record<string, Domain[]> = {
-    ict: [{ id: "ict", label: "ICT" }],
-    cloud: [{ id: "cloud", label: "云计算" }],
-    ai: [{ id: "ai", label: "AI" }],
-  }
   const domains = createMemo(() => [{ id: "ict", label: "ICT" }, { id: "cloud", label: "云计算" }, { id: "ai", label: "AI" }])
 
   const productLineMap: Record<string, ProductLine[]> = {
@@ -249,31 +244,11 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
       { id: "hilens-studio", productLineId: "hilens", label: "HiLens Studio" },
     ],
   }
+
   const allProducts = createMemo(() => {
     const id = selectedProductLineId()
     if (!id) return []
     return productMap[id] ?? []
-  })
-
-  createEffect(() => {
-    const list = domains()
-    if (!list?.length) return
-    const next = autoSelect(list, selectedDomainId(), undefined)
-    if (next && next.id !== selectedDomainId()) props.onDomainChange(next)
-  })
-
-  createEffect(() => {
-    const list = productLines()
-    if (!list?.length) return
-    const next = autoSelect(list, selectedProductLineId(), undefined)
-    if (next && next.id !== selectedProductLineId()) props.onProductLineChange(next)
-  })
-
-  createEffect(() => {
-    const list = allProducts()
-    if (!list?.length) return
-    const next = autoSelect(list, selectedProductId(), undefined)
-    if (next && next.id !== selectedProductId()) props.onProductChange(next)
   })
 
   const filteredProducts = () => {
@@ -356,15 +331,18 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
               <For each={domains() ?? []}>
                 {(item) => (
                   <div
-                    class={`panel-item ${item.id === selectedDomainId() ? "panel-item-selected" : ""}`}
+                    classList={{ "panel-item": true, "panel-item-selected": item.id === selectedDomainId() }}
                     onClick={(e) => {
                       e.stopPropagation()
-                      props.onDomainChange(item)
+                      if (item.id === selectedDomainId()) return
                       setSelectedDomainId(item.id)
-                      props.onProductLineChange(undefined)
-                      setSelectedProductLineId(undefined)
-                      props.onProductChange(undefined)
-                      setSelectedProductId(undefined)
+                      props.onDomainChange(item)
+                      const nextPL = (productLineMap[item.id] ?? [])[0]
+                      setSelectedProductLineId(nextPL?.id)
+                      props.onProductLineChange(nextPL)
+                      const nextP = nextPL ? (productMap[nextPL.id] ?? [])[0] : undefined
+                      setSelectedProductId(nextP?.id)
+                      props.onProductChange(nextP)
                     }}
                   >
                     {item.label}
@@ -379,13 +357,15 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
               <For each={productLines() ?? []}>
                 {(item) => (
                   <div
-                    class={`panel-item ${item.id === selectedProductLineId() ? "panel-item-selected" : ""}`}
+                    classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductLineId() }}
                     onClick={(e) => {
                       e.stopPropagation()
-                      props.onProductLineChange(item)
+                      if (item.id === selectedProductLineId()) return
                       setSelectedProductLineId(item.id)
-                      props.onProductChange(undefined)
-                      setSelectedProductId(undefined)
+                      props.onProductLineChange(item)
+                      const nextP = (productMap[item.id] ?? [])[0]
+                      setSelectedProductId(nextP?.id)
+                      props.onProductChange(nextP)
                     }}
                   >
                     {item.label}
@@ -400,11 +380,12 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
               <For each={filteredProducts()}>
                 {(item) => (
                   <div
-                    class={`panel-item ${item.id === selectedProductId() ? "panel-item-selected" : ""}`}
+                    classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductId() }}
                     onClick={(e) => {
                       e.stopPropagation()
-                      props.onProductChange(item)
+                      if (item.id === selectedProductId()) return
                       setSelectedProductId(item.id)
+                      props.onProductChange(item)
                     }}
                   >
                     {item.label}
@@ -420,7 +401,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
           <For each={searchResults() ?? []}>
             {(result) => (
               <div
-                class={`panel-item ${result.product.id === selectedProductId() ? "panel-item-selected" : ""}`}
+                classList={{ "panel-item": true, "panel-item-selected": result.product.id === selectedProductId() }}
                 onClick={(e) => {
                   e.stopPropagation()
                   props.onDomainChange(result.domain)
