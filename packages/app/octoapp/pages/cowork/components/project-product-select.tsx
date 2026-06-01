@@ -60,7 +60,6 @@ export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Elem
           gap: "4px",
         },
       }}
-      portal={false}
       placement="bottom-start"
       style={{
         width: "522px",

@@ -1,6 +1,6 @@
 import { Switch } from "@opencode-ai/ui/switch"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { For, Show, createSignal, createMemo, createEffect, createResource, type JSX } from "solid-js"
+import { For, Show, createSignal, createMemo, createResource, type JSX } from "solid-js"
 
 export type Domain = { id: string; label: string }
 export type ProductLine = { id: string; domainId: string; label: string }
@@ -160,10 +160,6 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [selectedProductLineId, setSelectedProductLineId] = createSignal(props.productLine?.id)
   const [selectedProductId, setSelectedProductId] = createSignal(props.product?.id)
 
-  createEffect(() => setSelectedDomainId(props.domain?.id))
-  createEffect(() => setSelectedProductLineId(props.productLine?.id))
-  createEffect(() => setSelectedProductId(props.product?.id))
-
   const [searchResults] = createResource(() => props.search, searchProducts)
   const isSearching = () => !!props.search
 
@@ -260,7 +256,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   }
 
   return (
-    <div onPointerDown={(e) => e.preventDefault()}>
+    <div onPointerDown={(e) => e.stopPropagation()}>
       <style>{`
         .panel-item { font-size: 13px; padding: 6px 8px; cursor: pointer; border-radius: 6px; margin-bottom: 2px; }
         .panel-item-selected { background: rgba(37, 99, 235, 0.08); color: #2563EB; }
