@@ -1,6 +1,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { loadDesignSystemIndex, loadDesignSystemTokens, type DesignSystemEntry } from "../utils/design-system-loader"
 import { getDesignSystemPreviewHtml } from "../utils/design-system-preview"
 
@@ -65,12 +66,20 @@ export function DesignSystemPicker(props: {
         setOpen(false)
       }
     }
+    const onFocusOutside = (e: FocusEvent) => {
+      const target = e.target as HTMLElement
+      if (!triggerRef?.contains(target) && !target?.closest?.(".design-system-picker-portal")) {
+        setOpen(false)
+      }
+    }
     const timer = setTimeout(() => {
       document.addEventListener("mousedown", onClickOutside, true)
+      document.addEventListener("focusin", onFocusOutside, true)
     }, 0)
     onCleanup(() => {
       clearTimeout(timer)
       document.removeEventListener("mousedown", onClickOutside, true)
+      document.removeEventListener("focusin", onFocusOutside, true)
     })
   })
 
@@ -140,9 +149,9 @@ export function DesignSystemPicker(props: {
                     style={{ background: "var(--octo-surface-selected)", color: "var(--octo-text-primary)" }}
                   />
                 </div>
-                <div class="flex" style={{ "max-height": "280px" }}>
+                <div class="flex" style={{ height: "280px" }}>
                   {/* List */}
-                  <div class="w-48 overflow-y-auto flex-shrink-0" style={{ "border-right": "1px solid var(--octo-border-divider)" }}>
+                  <ScrollView class="w-48 flex-shrink-0" style={{ "border-right": "1px solid var(--octo-border-divider)", "max-height": "280px" }}>
                     <button
                       type="button"
                       class="w-full text-left px-3 py-1.5 text-xs transition-colors"
@@ -171,7 +180,7 @@ export function DesignSystemPicker(props: {
                         </button>
                       )}
                     </For>
-                  </div>
+                  </ScrollView>
 
                   {/* Preview panel */}
                   <div class="flex-1 min-w-0" style={{ background: "var(--octo-shell-bg)" }}>

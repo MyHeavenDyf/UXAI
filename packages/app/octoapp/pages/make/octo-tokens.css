@@ -198,7 +198,7 @@
 /* ── DS picker trigger (pill style) ──────── */
 
 .octo-ds-trigger {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
@@ -208,7 +208,10 @@
   font-size: 11.5px;
   color: var(--octo-text-secondary);
   cursor: pointer;
+  width: 100%;
   max-width: 200px;
+  min-width: 48px;
+  overflow: hidden;
   transition: background var(--octo-dur-normal) var(--octo-ease-out),
               border-color var(--octo-dur-normal) var(--octo-ease-out);
 }

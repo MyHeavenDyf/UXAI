@@ -31,7 +31,7 @@ export function ProjectInfo(): JSX.Element {
           <path d="M7 13H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
         </svg>
         <div style={{ flex: "1", "min-width": "0" }}>
-          <div style={{ "font-size": "14px", "line-height": "22px", color: "#191919" }}>CANN/PYPTO</div>
+          <div style={{ "font-size": "14px", "line-height": "22px", color: "#191919", "overflow": "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>CANN/PYPTO</div>
           <div style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0,0,0,0.6)" }}>ICT/计算</div>
         </div>
         <div style={{ display: "flex", "align-items": "center", "flex-shrink": "0", height: "42px" }}>
