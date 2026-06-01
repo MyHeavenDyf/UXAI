@@ -1,6 +1,7 @@
 import { Switch } from "@opencode-ai/ui/switch"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { For, Show, createSignal, createMemo, createResource, type JSX } from "solid-js"
+import { For, Show, createSignal, createResource, type JSX } from "solid-js"
+import { fetchDomains, fetchProductLines, fetchProducts, searchProducts } from "./project-product-select-api"
 
 export type Domain = { id: string; label: string }
 export type ProductLine = { id: string; domainId: string; label: string }
@@ -30,107 +31,6 @@ export function loadCachedSelection(): ProjectSelection | undefined {
   } catch {
     return undefined
   }
-}
-
-export async function fetchVersions(productId: string): Promise<Version[]> {
-  const map: Record<string, Version[]> = {
-    pypto: [
-      { value: "v2612304", label: "v2612304" },
-      { value: "v2612303", label: "v2612303" },
-    ],
-    ascend: [
-      { value: "v260101", label: "v260101" },
-    ],
-    router: [
-      { value: "v255001", label: "v255001" },
-    ],
-    switch: [
-      { value: "v255002", label: "v255002" },
-    ],
-    "ecs-main": [
-      { value: "v2612304", label: "v2612304" },
-    ],
-    "ecs-auto": [
-      { value: "v2612304", label: "v2612304" },
-    ],
-    "obs-main": [
-      { value: "v2612304", label: "v2612304" },
-    ],
-    "ms-lite": [
-      { value: "v2612304", label: "v2612304" },
-    ],
-    "ms-full": [
-      { value: "v2612304", label: "v2612304" },
-    ],
-    "ma-pro": [
-      { value: "v2612304", label: "v2612304" },
-    ],
-  }
-  return map[productId] ?? [{ value: "v2612304", label: "v2612304" }]
-}
-
-export type SearchResult = {
-  domain: Domain
-  productLine: ProductLine
-  product: Product
-}
-
-export async function searchProducts(keyword: string): Promise<SearchResult[]> {
-  if (!keyword) return []
-  const lower = keyword.toLowerCase()
-  const allDomains: Domain[] = [{ id: "ict", label: "ICT" }, { id: "cloud", label: "云计算" }, { id: "ai", label: "AI" }]
-  const allProductLines: ProductLine[] = [
-    { id: "cann", domainId: "ict", label: "CANN" },
-    { id: "network", domainId: "ict", label: "网络" },
-    { id: "storage", domainId: "ict", label: "存储" },
-    { id: "server", domainId: "ict", label: "服务器" },
-    { id: "ecs", domainId: "cloud", label: "ECS" },
-    { id: "obs", domainId: "cloud", label: "OBS" },
-    { id: "vpc", domainId: "cloud", label: "VPC" },
-    { id: "elb", domainId: "cloud", label: "ELB" },
-    { id: "mindspore", domainId: "ai", label: "MindSpore" },
-    { id: "modelarts", domainId: "ai", label: "ModelArts" },
-    { id: "hilens", domainId: "ai", label: "HiLens" },
-  ]
-  const allProducts: Product[] = [
-    { id: "pypto", productLineId: "cann", label: "PYPTO" },
-    { id: "ascend", productLineId: "cann", label: "AscendCL", closed: true },
-    { id: "cann-toolkit", productLineId: "cann", label: "CANN Toolkit" },
-    { id: "router", productLineId: "network", label: "路由器" },
-    { id: "switch", productLineId: "network", label: "交换机", closed: true },
-    { id: "firewall", productLineId: "network", label: "防火墙" },
-    { id: "oceanstore", productLineId: "storage", label: "OceanStor" },
-    { id: "fusionstorage", productLineId: "storage", label: "FusionStorage", closed: true },
-    { id: "taishan", productLineId: "server", label: "泰山服务器" },
-    { id: "kunpeng", productLineId: "server", label: "鲲鹏服务器" },
-    { id: "ecs-main", productLineId: "ecs", label: "ECS主服务" },
-    { id: "ecs-auto", productLineId: "ecs", label: "AutoScaling", closed: true },
-    { id: "ecs-bare", productLineId: "ecs", label: "裸金属服务器" },
-    { id: "obs-main", productLineId: "obs", label: "OBS主服务" },
-    { id: "obs-archive", productLineId: "obs", label: "OBS归档存储" },
-    { id: "vpc-core", productLineId: "vpc", label: "VPC核心" },
-    { id: "vpc-peering", productLineId: "vpc", label: "VPC对等连接" },
-    { id: "elb-share", productLineId: "elb", label: "共享型ELB" },
-    { id: "elb-dedicated", productLineId: "elb", label: "独享型ELB" },
-    { id: "ms-lite", productLineId: "mindspore", label: "MindSpore Lite" },
-    { id: "ms-full", productLineId: "mindspore", label: "MindSpore全栈", closed: true },
-    { id: "ms-serving", productLineId: "mindspore", label: "MindSpore Serving" },
-    { id: "ma-pro", productLineId: "modelarts", label: "ModelArts Pro", closed: true },
-    { id: "ma-studio", productLineId: "modelarts", label: "ModelArts Studio" },
-    { id: "hilens-kit", productLineId: "hilens", label: "HiLens Kit" },
-    { id: "hilens-studio", productLineId: "hilens", label: "HiLens Studio" },
-  ]
-  const results: SearchResult[] = []
-  for (const product of allProducts) {
-    if (product.label.toLowerCase().includes(lower)) {
-      const productLine = allProductLines.find((pl) => pl.id === product.productLineId)
-      const domain = allDomains.find((d) => d.id === productLine?.domainId)
-      if (productLine && domain) {
-        results.push({ domain, productLine, product })
-      }
-    }
-  }
-  return results
 }
 
 function autoSelect<T extends { id: string }>(list: T[] | undefined, prevId: string | undefined, fallback: T | undefined): T | undefined {
@@ -163,95 +63,14 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [searchResults] = createResource(() => props.search, searchProducts)
   const isSearching = () => !!props.search
 
-  const domains = createMemo(() => [{ id: "ict", label: "ICT" }, { id: "cloud", label: "云计算" }, { id: "ai", label: "AI" }])
-
-  const productLineMap: Record<string, ProductLine[]> = {
-    ict: [
-      { id: "cann", domainId: "ict", label: "CANN" },
-      { id: "network", domainId: "ict", label: "网络" },
-      { id: "storage", domainId: "ict", label: "存储" },
-      { id: "server", domainId: "ict", label: "服务器" },
-    ],
-    cloud: [
-      { id: "ecs", domainId: "cloud", label: "ECS" },
-      { id: "obs", domainId: "cloud", label: "OBS" },
-      { id: "vpc", domainId: "cloud", label: "VPC" },
-      { id: "elb", domainId: "cloud", label: "ELB" },
-    ],
-    ai: [
-      { id: "mindspore", domainId: "ai", label: "MindSpore" },
-      { id: "modelarts", domainId: "ai", label: "ModelArts" },
-      { id: "hilens", domainId: "ai", label: "HiLens" },
-    ],
-  }
-  const productLines = createMemo(() => {
-    const id = selectedDomainId()
-    if (!id) return []
-    return productLineMap[id] ?? []
-  })
-
-  const productMap: Record<string, Product[]> = {
-    cann: [
-      { id: "pypto", productLineId: "cann", label: "PYPTO" },
-      { id: "ascend", productLineId: "cann", label: "AscendCL", closed: true },
-      { id: "cann-toolkit", productLineId: "cann", label: "CANN Toolkit" },
-    ],
-    network: [
-      { id: "router", productLineId: "network", label: "路由器" },
-      { id: "switch", productLineId: "network", label: "交换机", closed: true },
-      { id: "firewall", productLineId: "network", label: "防火墙" },
-    ],
-    storage: [
-      { id: "oceanstore", productLineId: "storage", label: "OceanStor" },
-      { id: "fusionstorage", productLineId: "storage", label: "FusionStorage", closed: true },
-    ],
-    server: [
-      { id: "taishan", productLineId: "server", label: "泰山服务器" },
-      { id: "kunpeng", productLineId: "server", label: "鲲鹏服务器" },
-    ],
-    ecs: [
-      { id: "ecs-main", productLineId: "ecs", label: "ECS主服务" },
-      { id: "ecs-auto", productLineId: "ecs", label: "AutoScaling", closed: true },
-      { id: "ecs-bare", productLineId: "ecs", label: "裸金属服务器" },
-    ],
-    obs: [
-      { id: "obs-main", productLineId: "obs", label: "OBS主服务" },
-      { id: "obs-archive", productLineId: "obs", label: "OBS归档存储" },
-    ],
-    vpc: [
-      { id: "vpc-core", productLineId: "vpc", label: "VPC核心" },
-      { id: "vpc-peering", productLineId: "vpc", label: "VPC对等连接" },
-    ],
-    elb: [
-      { id: "elb-share", productLineId: "elb", label: "共享型ELB" },
-      { id: "elb-dedicated", productLineId: "elb", label: "独享型ELB" },
-    ],
-    mindspore: [
-      { id: "ms-lite", productLineId: "mindspore", label: "MindSpore Lite" },
-      { id: "ms-full", productLineId: "mindspore", label: "MindSpore全栈", closed: true },
-      { id: "ms-serving", productLineId: "mindspore", label: "MindSpore Serving" },
-    ],
-    modelarts: [
-      { id: "ma-pro", productLineId: "modelarts", label: "ModelArts Pro", closed: true },
-      { id: "ma-studio", productLineId: "modelarts", label: "ModelArts Studio" },
-    ],
-    hilens: [
-      { id: "hilens-kit", productLineId: "hilens", label: "HiLens Kit" },
-      { id: "hilens-studio", productLineId: "hilens", label: "HiLens Studio" },
-    ],
-  }
-
-  const allProducts = createMemo(() => {
-    const id = selectedProductLineId()
-    if (!id) return []
-    return productMap[id] ?? []
-  })
+  const [domains] = createResource(fetchDomains)
+  const [productLines] = createResource(() => selectedDomainId(), fetchProductLines)
+  const [allProducts] = createResource(() => selectedProductLineId(), fetchProducts)
 
   const filteredProducts = () => {
     const list = allProducts() ?? []
     let result = list
     if (props.hideClosed) result = result.filter((x) => !x.closed)
-    if (props.search) result = result.filter((x) => x.label.toLowerCase().includes(props.search.toLowerCase()))
     return result
   }
 
@@ -332,13 +151,11 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                       e.stopPropagation()
                       if (item.id === selectedDomainId()) return
                       setSelectedDomainId(item.id)
+                      setSelectedProductLineId(undefined)
+                      setSelectedProductId(undefined)
                       props.onDomainChange(item)
-                      const nextPL = (productLineMap[item.id] ?? [])[0]
-                      setSelectedProductLineId(nextPL?.id)
-                      props.onProductLineChange(nextPL)
-                      const nextP = nextPL ? (productMap[nextPL.id] ?? [])[0] : undefined
-                      setSelectedProductId(nextP?.id)
-                      props.onProductChange(nextP)
+                      props.onProductLineChange(undefined)
+                      props.onProductChange(undefined)
                     }}
                   >
                     {item.label}
@@ -358,10 +175,9 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                       e.stopPropagation()
                       if (item.id === selectedProductLineId()) return
                       setSelectedProductLineId(item.id)
+                      setSelectedProductId(undefined)
                       props.onProductLineChange(item)
-                      const nextP = (productMap[item.id] ?? [])[0]
-                      setSelectedProductId(nextP?.id)
-                      props.onProductChange(nextP)
+                      props.onProductChange(undefined)
                     }}
                   >
                     {item.label}
