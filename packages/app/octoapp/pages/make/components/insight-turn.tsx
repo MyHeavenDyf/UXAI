@@ -22,6 +22,7 @@ export type OutputCard = {
   content: string
   filePath?: string
   artifactKind?: string
+  artifactIdentifier?: string
   exports?: ArtifactExportKind[]
   designSystemId?: string | null
   createdAt: Date
@@ -114,37 +115,69 @@ function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
   }
 }
 
-function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt"> | null {
-  if (!text.includes("<artifact")) return null
+function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "createdAt">[] {
+  if (!text.includes("<artifact")) return []
+  const results: Omit<OutputCard, "id" | "createdAt">[] = []
   try {
     const parser = createArtifactParser()
     let startEvent: Extract<import("../utils/artifact-parser").ArtifactEvent, { type: "artifact:start" }> | null = null
     let fullContent = ""
-    for (const ev of parser.feed(text)) {
-      if (ev.type === "artifact:start") startEvent = ev
-      else if (ev.type === "artifact:end") fullContent = ev.fullContent
+    function handleEvent(ev: import("../utils/artifact-parser").ArtifactEvent) {
+      if (ev.type === "artifact:start") {
+        startEvent = ev
+        fullContent = ""
+      } else if (ev.type === "artifact:chunk") {
+        fullContent += ev.delta
+      } else if (ev.type === "artifact:end") {
+        fullContent = ev.fullContent
+        if (!startEvent) return
+        const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
+        if (!mappedType) return
+        const explicitExports = startEvent.exports
+          ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
+          : undefined
+        results.push({
+          title: startEvent.title || mappedType,
+          type: mappedType,
+          content: fullContent,
+          artifactKind: startEvent.artifactType,
+          artifactIdentifier: startEvent.identifier || undefined,
+          exports: explicitExports,
+          designSystemId: startEvent.designSystemId || null,
+        })
+        startEvent = null
+      }
     }
-    for (const ev of parser.flush()) {
-      if (ev.type === "artifact:start") startEvent = ev
-      else if (ev.type === "artifact:end") fullContent = ev.fullContent
-    }
-    if (!startEvent) return null
-    const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
-    if (!mappedType) return null
-    const explicitExports = startEvent.exports
-      ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
-      : undefined
-    return {
-      title: startEvent.title || mappedType,
-      type: mappedType,
-      content: fullContent,
-      artifactKind: startEvent.artifactType,
-      exports: explicitExports,
-      designSystemId: startEvent.designSystemId || null,
-    }
+    for (const ev of parser.feed(text)) handleEvent(ev)
+    for (const ev of parser.flush()) handleEvent(ev)
   } catch {
-    return null
+    // ignore parse errors
   }
+  return results
+}
+
+function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt"> | null {
+  const all = parseAllArtifactsFromText(text)
+  return all.length > 0 ? all[0] : null
+}
+
+/** Quick regex scan for all artifact open tags (completed + in-progress) for streaming placeholders */
+function scanArtifactHeaders(text: string): Array<{ identifier: string; title: string; type: OutputCardType }> {
+  if (!text.includes("<artifact")) return []
+  const results: Array<{ identifier: string; title: string; type: OutputCardType }> = []
+  const re = /<artifact\s+([^>]*)>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const attrs = m[1]
+    const identifier = attrs.match(/identifier="([^"]*)"/)?.[1] ?? ""
+    const artifactType = attrs.match(/type="([^"]*)"/)?.[1] ?? "text/html"
+    const title = attrs.match(/title="([^"]*)"/)?.[1] ?? ""
+    const mappedType = ARTIFACT_TYPE_MAP[artifactType]
+    if (mappedType) {
+      results.push({ identifier, title: title || mappedType, type: mappedType })
+    }
+  }
+  return results
 }
 
 function formatTime(d: Date): string {
@@ -260,6 +293,17 @@ export function InsightTurn(props: {
     return undefined
   })
 
+  const assistantError = createMemo(() => {
+    const msg = assistantMsg() as Record<string, unknown> | undefined
+    if (!msg) return null
+    const err = msg.error as Record<string, unknown> | undefined
+    if (!err) return null
+    if (err.name === "MessageAbortedError") return null
+    const data = err.data as Record<string, unknown> | undefined
+    const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
+    return { name: err.name as string, message }
+  })
+
   const assistantParts = createMemo(() => {
     const msg = assistantMsg()
     if (!msg) return []
@@ -305,17 +349,137 @@ export function InsightTurn(props: {
           ? ((input.path ?? input.filepath ?? input.filePath ?? "") as string)
           : ""
         const hasOutput = typeof state.output === "string" && (state.output as string).length > 0
-        const isError = state.meta
-          ? ((state.meta as Record<string, unknown>).exitCode as number) !== 0
-          : false
+        const metadata = state.metadata as Record<string, unknown> | undefined
+        const isError = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
         return {
-          name: (state.name as string) ?? (raw.name as string) ?? "unknown",
+          // V1 ToolPart uses `tool` field, not `name`
+          name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
           status: !hasOutput ? ("running" as const) : isError ? ("error" as const) : ("done" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
         }
       })
+  })
+
+  // Non-task tool calls (for ToolCallGroupCard — task calls shown separately as subtask cards)
+  const nonTaskToolCalls = createMemo(() =>
+    toolCalls().filter((c) => !/task/i.test(c.name))
+  )
+
+  // ── NEW: subtask sessions (from Task tool calls) ──
+  type SubtaskInfo = {
+    taskDescription: string
+    subSessionID: string
+    status: "running" | "done" | "error"
+    textParts: string[]
+    artifactOutputs: Array<{ identifier: string; title: string; content: string }>
+  }
+  const subtasks = createMemo((): SubtaskInfo[] => {
+    const parts = assistantParts()
+    const tasks: SubtaskInfo[] = []
+    for (const p of parts) {
+      if (p.type !== "tool") continue
+      const raw = p as Record<string, unknown>
+      const state = raw.state as Record<string, unknown> | undefined
+      if (!state) continue
+      const input = state.input as Record<string, unknown> | undefined
+      const toolName = raw.tool ?? raw.name ?? state.name
+      if (typeof toolName !== "string" || !/task/i.test(toolName) || !input) continue
+
+      const metadata = state.metadata as Record<string, unknown> | undefined
+      const subSessionID = (metadata?.sessionId as string)
+        ?? (typeof state.output === "string" ? (state.output as string).match(/task_id:\s*(\S+)/)?.[1] : undefined)
+      if (!subSessionID) continue
+
+      const outputStr = typeof state.output === "string" ? (state.output as string) : ""
+      const hasOutput = outputStr.length > 0
+      const isError = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+
+      // Parse <task_result> content from Task tool output
+      const textParts: string[] = []
+      const artifactOutputs: Array<{ identifier: string; title: string; content: string }> = []
+
+      const taskResultMatch = outputStr.match(/<task_result>([\s\S]*?)<\/task_result>/)
+      const resultContent = taskResultMatch?.[1]?.trim() ?? ""
+
+      if (resultContent.length > 0) {
+        // Extract artifacts from the result
+        const parsedArtifacts = parseAllArtifactsFromText(resultContent)
+        for (const a of parsedArtifacts) {
+          artifactOutputs.push({
+            identifier: a.artifactIdentifier ?? "",
+            title: a.title,
+            content: a.content,
+          })
+        }
+        // Fallback: sub-agent may output HTML without <artifact> wrapper
+        if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|footer|main|article|form|table)\b/i.test(resultContent)) {
+          artifactOutputs.push({
+            identifier: "raw-fragment",
+            title: "HTML 片段",
+            content: resultContent,
+          })
+        }
+        // Prose text (stripped of artifacts)
+        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/g, "").trim()
+        if (proseOnly.length > 0) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
+      }
+
+      // Also try loading sub-session data from store as supplement
+      const subMessages = msgStore?.[subSessionID] ?? []
+      for (const msg of subMessages) {
+        if (msg.role !== "assistant") continue
+        const subParts = partStore?.[msg.id] ?? []
+        for (const sp of subParts) {
+          const spRaw = sp as Record<string, unknown>
+          if (spRaw.type === "text" && typeof spRaw.text === "string" && spRaw.text.trim().length > 0) {
+            const extra = parseAllArtifactsFromText(spRaw.text)
+            for (const a of extra) {
+              if (!artifactOutputs.some((e) => e.identifier === (a.artifactIdentifier ?? ""))) {
+                artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+              }
+            }
+          }
+          if (spRaw.type === "tool") {
+            const spState = spRaw.state as Record<string, unknown> | undefined
+            const spInputData = spState?.input as Record<string, unknown> | undefined
+            if (spInputData) {
+              const content = (spInputData.content ?? spInputData.newString) as string | undefined
+              if (content && content.length > 20 && /<html|<!doctype|<artifact/i.test(content)) {
+                const parsed = parseAllArtifactsFromText(content)
+                if (parsed.length > 0) {
+                  for (const a of parsed) {
+                    if (!artifactOutputs.some((e) => e.identifier === (a.artifactIdentifier ?? ""))) {
+                      artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+                    }
+                  }
+                } else if (/<html|<!doctype/i.test(content)) {
+                  const filePath = (spInputData.filePath ?? spInputData.path ?? "") as string
+                  const id = filePath.split(/[/\\]/).pop()?.replace(/\.html?$/i, "") ?? "component"
+                  if (!artifactOutputs.some((e) => e.identifier === id)) {
+                    artifactOutputs.push({
+                      identifier: id,
+                      title: filePath.split(/[/\\]/).pop()?.replace(/\.html?$/i, "") ?? "HTML 片段",
+                      content,
+                    })
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      tasks.push({
+        taskDescription: (input.description as string) ?? (input.prompt as string)?.slice(0, 60) ?? "子任务",
+        subSessionID,
+        status: isError ? "error" : hasOutput ? "done" : "running",
+        textParts,
+        artifactOutputs,
+      })
+    }
+    return tasks
   })
 
   // ── NEW: prose text (stripped of artifacts, using parser for partial-tag safety) ──
@@ -335,61 +499,70 @@ export function InsightTurn(props: {
     return prose.trim()
   })
 
-  // ── NEW: streaming artifact (live preview during generation) ──
-  const streamingArtifact = createMemo((): OutputCard | null => {
-    if (!showGenerating()) return null
+  // ── NEW: streaming artifacts (live preview during generation, multiple) ──
+  const streamingArtifacts = createMemo((): OutputCard[] => {
+    if (!showGenerating()) return []
     const parts = assistantParts()
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (!textPart?.text) return null
+    if (!textPart?.text) return []
 
-    const parser = createArtifactParser()
-    let startEvent: Extract<import("../utils/artifact-parser").ArtifactEvent, { type: "artifact:start" }> | null = null
-    let fullContent = ""
-    for (const ev of parser.feed(textPart.text)) {
-      if (ev.type === "artifact:start") startEvent = ev
-      else if (ev.type === "artifact:chunk") fullContent += ev.delta
-      else if (ev.type === "artifact:end") fullContent = ev.fullContent
-    }
-    for (const ev of parser.flush()) {
-      if (ev.type === "artifact:start") startEvent = ev
-      else if (ev.type === "artifact:chunk") fullContent += ev.delta
-      else if (ev.type === "artifact:end") fullContent = ev.fullContent
-    }
-    if (!startEvent) return null
-    const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
-    if (!mappedType) return null
-    return {
-      id: `streaming-${props.messageID}`,
-      title: startEvent.title || mappedType,
-      type: mappedType,
-      content: fullContent,
-      createdAt: props.status.type === "busy" ? new Date(0) : new Date(),
-    }
+    const text = textPart.text
+    const ts = props.status.type === "busy" ? new Date(0) : new Date()
+
+    // Use regex scan to find ALL artifact headers (completed + in-progress)
+    const headers = scanArtifactHeaders(text)
+    if (headers.length === 0) return []
+
+    // Also get completed artifacts with full content
+    const completed = parseAllArtifactsFromText(text)
+    const completedById = new Map(completed.map((a) => [a.artifactIdentifier, a]))
+
+    return headers.map((h, i) => {
+      const done = completedById.get(h.identifier)
+      if (done) {
+        return {
+          ...done,
+          id: `streaming-${props.messageID}-${i}`,
+          createdAt: ts,
+        }
+      }
+      // In-progress: show placeholder
+      return {
+        id: `streaming-partial-${props.messageID}-${i}`,
+        title: h.title,
+        type: h.type,
+        content: "",
+        artifactIdentifier: h.identifier,
+        createdAt: ts,
+      }
+    })
   })
 
   // Stable flag: once artifact detected during generation, don't flicker back
-  const [hasSeenArtifact, setHasSeenArtifact] = createSignal(false)
-  const [lastSeenCard, setLastSeenCard] = createSignal<OutputCard | null>(null)
+  const [hasSeenCount, setHasSeenCount] = createSignal(0)
+  const [lastSeenCards, setLastSeenCards] = createSignal<OutputCard[]>([])
 
-  // Track whether we've seen an artifact during streaming (effect, not memo)
+  // Track whether we've seen artifacts during streaming (effect, not memo)
   createEffect(() => {
     if (!showGenerating()) {
-      setHasSeenArtifact(false)
-      setLastSeenCard(null)
+      setHasSeenCount(0)
+      setLastSeenCards([])
       return
     }
-    const card = streamingArtifact()
-    if (card) {
-      setHasSeenArtifact(true)
-      setLastSeenCard(card)
+    const cards = streamingArtifacts()
+    if (cards.length > 0) {
+      setHasSeenCount(cards.length)
+      setLastSeenCards(cards)
     }
   })
 
-  const stableStreamingCard = createMemo((): OutputCard | null => {
-    if (!showGenerating()) return null
-    return streamingArtifact() ?? (hasSeenArtifact() ? lastSeenCard() : null)
+  const stableStreamingCards = createMemo((): OutputCard[] => {
+    if (!showGenerating()) return []
+    const live = streamingArtifacts()
+    if (live.length > 0) return live
+    return hasSeenCount() > 0 ? lastSeenCards() : []
   })
 
   // ── NEW: produced files ──
@@ -404,13 +577,13 @@ export function InsightTurn(props: {
       .filter((f, i, arr) => arr.findIndex((x) => x.path === f.path) === i)
   })
 
-  // ── output card (final, after generation) ──
-  const outputCard = createMemo((): OutputCard | null => {
+  // ── output cards (final, after generation, multiple) ──
+  const outputCards = createMemo((): OutputCard[] => {
     const parts = assistantParts()
-    if (parts.length === 0 && !showGenerating()) return null
-    if (showGenerating()) return null
+    if (parts.length === 0 && !showGenerating()) return []
+    if (showGenerating()) return []
 
-    // ── 优先级 1：带文件路径的 write tool（HTML 文件写入） ──
+    // ── 优先级 1：write / edit tool（HTML 文件写入或编辑） ──
     for (const p of [...parts].reverse()) {
       if (p.type !== "tool") continue
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
@@ -423,60 +596,79 @@ export function InsightTurn(props: {
           if (att.mime === "text/html" && att.url) {
             const html = decodeDataUrl(att.url)
             if (html.length > 10) {
-              return {
+              return [{
                 id: `card-${props.messageID}-html`,
                 title: att.filename?.replace(/\.html?$/i, "") ?? "HTML 原型",
                 type: "html",
                 content: html,
                 createdAt: new Date(),
-              }
+              }]
             }
           }
         }
       }
 
-      // input (write tool — 检测 HTML 文件)
+      // input (write/edit tool — 检测 HTML 文件)
       const input = state.input as Record<string, unknown> | undefined
       if (input) {
-        const content = (input.content ?? input.text ?? input.data) as string | undefined
+        // write tool uses `content`, edit tool uses `newString`
+        const content = (input.content ?? input.newString ?? input.text ?? input.data) as string | undefined
         const filePath = (input.path ?? input.filepath ?? input.filePath ?? "") as string
         if (content && content.length > 10) {
-          const artifact = parseArtifactFromText(content)
-          if (artifact) return { ...artifact, id: `card-${props.messageID}-artifact`, filePath: filePath || undefined, createdAt: new Date() }
+          const artifacts = parseAllArtifactsFromText(content)
+          if (artifacts.length > 0) {
+            return artifacts.map((a, i) => ({
+              ...a,
+              id: `card-${props.messageID}-artifact-${i}`,
+              filePath: filePath || undefined,
+              createdAt: new Date(),
+            }))
+          }
 
           if (/```html/i.test(content) || /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content) || /\.html?$/i.test(filePath)) {
-            return {
+            return [{
               id: `card-${props.messageID}-html`,
               title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split(/[/\\]/).pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
               type: "html",
               content,
               filePath: filePath || undefined,
               createdAt: new Date(),
-            }
+            }]
           }
         }
       }
     }
 
-    // ── 优先级 2：text parts（含 artifact 标签） ──
+    // ── 优先级 2：text parts（含 artifact 标签，支持多个） ──
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (textPart && typeof textPart.text === "string") {
       const text = textPart.text.trim()
       if (text.length > 0) {
-        const artifact = parseArtifactFromText(text)
-        if (artifact) return { ...artifact, id: `card-${props.messageID}-artifact`, createdAt: new Date() }
+        const artifacts = parseAllArtifactsFromText(text)
+        if (artifacts.length > 0) {
+          return artifacts.map((a, i) => ({
+            ...a,
+            id: `card-${props.messageID}-artifact-${i}`,
+            createdAt: new Date(),
+          }))
+        }
 
         const info = detectCard(text)
-        if (info) return { id: `card-${props.messageID}`, ...info, content: textPart.text, createdAt: new Date() }
+        if (info) return [{ id: `card-${props.messageID}`, ...info, content: textPart.text, createdAt: new Date() }]
 
-        return {
-          id: `card-${props.messageID}-text`,
-          title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
-          type: "markdown",
-          content: textPart.text,
-          createdAt: new Date(),
+        // Before falling back to markdown, check if subtask artifacts exist for assembly
+        const stForText = subtasks()
+        const subArtForText = stForText.flatMap((t) => t.artifactOutputs)
+        if (subArtForText.length === 0) {
+          return [{
+            id: `card-${props.messageID}-text`,
+            title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
+            type: "markdown",
+            content: textPart.text,
+            createdAt: new Date(),
+          }]
         }
       }
     }
@@ -491,23 +683,83 @@ export function InsightTurn(props: {
       if (output && output.trim().length > 0) allToolOutput.push(output.trim())
     }
     if (allToolOutput.length > 0) {
-      const content = allToolOutput.join("\n\n")
-      const artifact = parseArtifactFromText(content)
-      if (artifact) return { ...artifact, id: `card-${props.messageID}-artifact`, createdAt: new Date() }
+      // When subtasks have artifact outputs, skip priority 3 entirely —
+      // priority 4 will assemble them into a complete page.
+      const stForTools = subtasks()
+      const hasSubArtifacts = stForTools.some((t) => t.artifactOutputs.length > 0)
+      if (!hasSubArtifacts) {
+        const content = allToolOutput.join("\n\n")
+        const artifacts = parseAllArtifactsFromText(content)
+        if (artifacts.length > 0) {
+          return artifacts.map((a, i) => ({
+            ...a,
+            id: `card-${props.messageID}-artifact-${i}`,
+            createdAt: new Date(),
+          }))
+        }
 
-      const info = detectCard(content)
-      if (info) return { id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date() }
+        const info = detectCard(content)
+        if (info) return [{ id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date() }]
 
-      return {
-        id: `card-${props.messageID}-tools-fallback`,
-        title: content.split("\n")[0]?.slice(0, 40) ?? "工具产出",
-        type: "markdown",
-        content,
-        createdAt: new Date(),
+        return [{
+          id: `card-${props.messageID}-tools-fallback`,
+          title: content.split("\n")[0]?.slice(0, 40) ?? "工具产出",
+          type: "markdown",
+          content,
+          createdAt: new Date(),
+        }]
       }
     }
 
-    return null
+    // ── 优先级 4：子任务 artifact 自动组装 ──
+    const st = subtasks()
+    const subArtifacts = st.flatMap((t) => t.artifactOutputs)
+    if (subArtifacts.length > 0) {
+      // Check if any subtask artifact is a full HTML document — use it directly
+      const fullDoc = subArtifacts.find((a) => /<!DOCTYPE\s+html/i.test(a.content) || /<html[\s>]/i.test(a.content))
+      if (fullDoc) {
+        return [{
+          id: `card-${props.messageID}-composed-from-subtask`,
+          title: "完整页面（组装）",
+          type: "html",
+          content: fullDoc.content,
+          artifactIdentifier: fullDoc.identifier + "-composed",
+          createdAt: new Date(),
+        }]
+      }
+      // Assemble HTML fragments into a full page
+      const styles = subArtifacts.map((a) => {
+        const matches = a.content.match(/<style[^>]*>([\s\S]*?)<\/style>/gi)
+        return matches ? matches.map((m) => m.replace(/<\/?style[^>]*>/gi, "")).join("\n") : ""
+      }).filter(Boolean).join("\n")
+      const bodies = subArtifacts.map((a) =>
+        a.content.replace(/<style[\s\S]*?<\/style>/gi, "").trim()
+      ).filter(Boolean).join("\n")
+      const assembled = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>页面预览</title>
+<style>
+${styles}
+</style>
+</head>
+<body>
+${bodies}
+</body>
+</html>`
+      return [{
+        id: `card-${props.messageID}-composed-auto`,
+        title: "完整页面（自动组装）",
+        type: "html",
+        content: assembled,
+        artifactIdentifier: "auto-composed",
+        createdAt: new Date(),
+      }]
+    }
+
+    return []
   })
 
   return (
@@ -532,14 +784,7 @@ export function InsightTurn(props: {
         </div>
       </div>
 
-      {/* 文件操作摘要（生成完成后） */}
-      <Show when={!showGenerating() && toolCalls().length > 0}>
-        <div class="mb-1">
-          <FileOpsSummary calls={toolCalls()} />
-        </div>
-      </Show>
-
-      {/* 思考过程（直接展示） */}
+      {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
         <div class="mx-3 mb-1" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
           <div
@@ -565,18 +810,8 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
-      {/* 生成中状态指示 */}
-      <Show when={showGenerating()}>
-        <WaitingPill parts={assistantParts()} />
-      </Show>
-
-      {/* 工具调用进度 */}
-      <Show when={toolCalls().length > 0}>
-        <ToolCallGroupCard calls={toolCalls()} />
-      </Show>
-
-      {/* AI 文字回复（剥离 artifact 标签） */}
-      <Show when={proseText().length > 0}>
+      {/* AI 文字回复（剥离 artifact 标签；生成中若检测到 artifact 卡片则隐藏避免重复） */}
+      <Show when={proseText().length > 0 && (showGenerating() && hasSeenCount() === 0 || !showGenerating() && outputCards().length === 0)}>
         <div
           class="mx-3 mb-2 px-3 py-2"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
@@ -585,10 +820,187 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
-      {/* 生成中的 artifact 卡片（非点击，带进度指示） */}
-      <Show when={showGenerating() && stableStreamingCard()}>
-        {(card) => {
-          const genCard = card()
+      {/* 工具调用进度（排除 Task 工具，由子任务卡片单独展示） */}
+      <Show when={nonTaskToolCalls().length > 0}>
+        <ToolCallGroupCard calls={nonTaskToolCalls()} />
+      </Show>
+
+      {/* 子任务进度（Task tool 调用的子 agent 会话） */}
+      <For each={subtasks()}>
+        {(task) => {
+          const [expanded, setExpanded] = createSignal(true)
+          const hasContent = task.textParts.length > 0 || task.artifactOutputs.length > 0
+          return (
+            <div class="mx-3 mb-2" style={{ "border-radius": "var(--octo-radius-md)", border: "1px solid var(--octo-border-default)", background: "var(--octo-surface-page)" }}>
+              {/* Header */}
+              <button
+                type="button"
+                onClick={() => setExpanded(!expanded())}
+                class="w-full px-2.5 py-1.5 flex items-center gap-2 text-xs text-left"
+                style={{ background: "transparent" }}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                  style={{ transform: expanded() ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", color: "var(--octo-text-disabled)" }}>
+                  <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" />
+                </svg>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ color: "var(--octo-brand, #3b82f6)" }}>
+                  <path d="M2 3h10M2 7h10M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+                <span class="truncate flex-1 min-w-0" style={{ color: "var(--octo-text-primary)", "font-weight": 500 }}>{task.taskDescription}</span>
+                <Show when={task.status === "running"}>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}>
+                    <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
+                    运行中
+                  </span>
+                </Show>
+                <Show when={task.status === "done"}>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(34,197,94,0.1)", color: "#22c55e" }}>
+                    完成
+                  </span>
+                </Show>
+                <Show when={task.status === "error"}>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}>
+                    错误
+                  </span>
+                </Show>
+                <Show when={task.artifactOutputs.length > 0}>
+                  <span class="text-[11px]" style={{ color: "var(--octo-text-disabled)" }}>
+                    {task.artifactOutputs.length} 输出
+                  </span>
+                </Show>
+              </button>
+              {/* Expandable content */}
+              <Show when={expanded() && hasContent}>
+                <div style={{ "border-top": "1px solid var(--octo-border-default)" }}>
+                  {/* Sub-agent text responses */}
+                  <Show when={task.textParts.length > 0}>
+                    <div class="px-2.5 py-1.5 text-xs leading-relaxed max-h-[120px] overflow-auto" style={{ color: "var(--octo-text-secondary)", "user-select": "text" }}>
+                      <For each={task.textParts}>
+                        {(text) => <div class="mb-1 whitespace-pre-wrap">{text}</div>}
+                      </For>
+                    </div>
+                  </Show>
+                  {/* Artifact outputs — clickable preview cards */}
+                  <Show when={task.artifactOutputs.length > 0}>
+                    <div class="px-2.5 py-1.5 flex flex-col gap-1.5" style={{ "border-top": task.textParts.length > 0 ? "1px solid var(--octo-border-default)" : "none" }}>
+                      <div class="text-[10px] mb-1" style={{ color: "var(--octo-text-disabled)" }}>输出结果</div>
+                      <For each={task.artifactOutputs}>
+                        {(artifact) => {
+                          const outputCard: OutputCard = {
+                            id: "subtask-" + task.subSessionID + "-" + artifact.identifier,
+                            title: artifact.title,
+                            type: "html",
+                            content: artifact.content,
+                            artifactIdentifier: artifact.identifier || undefined,
+                            createdAt: new Date(),
+                          }
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => props.onOpenResult(outputCard)}
+                              class="px-2 py-1.5 rounded text-xs text-left w-full transition-all"
+                              style={{ background: "var(--octo-brand-a3)", border: "1px solid var(--octo-brand-a8)", color: "var(--octo-text-primary)" }}
+                              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand)" }}
+                              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand-a8)" }}
+                            >
+                              <div class="flex items-center gap-1.5">
+                                <span class="flex-shrink-0"><CardTypeIcon type="html" /></span>
+                                <span class="font-medium truncate flex-1 min-w-0">{artifact.title}</span>
+                                <span class="text-[10px] flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
+                              </div>
+                              <div class="text-[10px] mt-0.5 truncate" style={{ color: "var(--octo-text-disabled)" }}>
+                                {artifact.content.replace(/<[^>]+>/g, "").slice(0, 80)}{artifact.content.length > 80 ? "…" : ""}
+                              </div>
+                            </button>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+            </div>
+          )
+        }}
+      </For>
+
+      {/* 文件操作摘要（生成完成后） */}
+      <Show when={!showGenerating() && nonTaskToolCalls().length > 0}>
+        <div class="mb-1">
+          <FileOpsSummary calls={nonTaskToolCalls()} />
+        </div>
+      </Show>
+
+      {/* 错误提示 */}
+      <Show when={assistantError()}>
+        <div
+          class="mx-3 mb-2 px-3 py-2 text-xs leading-relaxed"
+          style={{
+            "border-radius": "var(--octo-radius-md)",
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.2)",
+            color: "#ef4444",
+          }}
+        >
+          <div class="flex items-center gap-1.5 mb-1 font-medium">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2" />
+              <path d="M7 4v3M7 9v0.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+            </svg>
+            {assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
+          </div>
+          <Show when={assistantError()!.message}>
+            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+          </Show>
+        </div>
+      </Show>
+
+      {/* 输出卡片（生成完成后，支持多个） */}
+      <For each={outputCards()}>
+        {(capturedCard) => (
+          <button
+            type="button"
+            onClick={() => props.onOpenResult(capturedCard)}
+            class="mx-3 mb-3 p-3 text-left transition-all"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: "1px solid var(--octo-border-default)",
+              background: "var(--octo-surface-page)",
+              width: "calc(100% - 1.5rem)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--octo-border-default)"
+            }}
+          >
+            <div class="flex items-center gap-2">
+              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
+              <div class="flex flex-col gap-0.5 min-w-0 flex-1">
+                <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
+                <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
+              </div>
+              <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
+            </div>
+          </button>
+        )}
+      </For>
+
+      {/* 产出文件列表 */}
+      <Show when={!showGenerating() && producedFiles().length > 0}>
+        <ProducedFilesList files={producedFiles()} />
+      </Show>
+
+      {/* 生成中状态指示 — 始终在底部 */}
+      <Show when={showGenerating()}>
+        <WaitingPill parts={assistantParts()} />
+      </Show>
+
+      {/* 生成中的 artifact 卡片（带进度指示，支持多个）— 始终在底部 */}
+      <For each={stableStreamingCards()}>
+        {(genCard) => {
+          const isPartial = genCard.content.length === 0
           return (
             <div
               class="mx-3 mb-3 p-3"
@@ -603,70 +1015,22 @@ export function InsightTurn(props: {
                 <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={genCard.type} /></span>
                 <div class="flex flex-col gap-0.5 min-w-0 flex-1">
                   <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{genCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>正在生成…</span>
+                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
+                    {isPartial ? "等待内容…" : "生成中…"}
+                  </span>
                 </div>
                 <span
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium"
                   style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}
                 >
                   <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
-                  生成中
+                  {isPartial ? "排队中" : "生成中"}
                 </span>
               </div>
             </div>
           )
         }}
-      </Show>
-
-      {/* 输出卡片（生成完成后） */}
-      <Show when={outputCard()}>
-        {(card) => {
-          const capturedCard = card()
-          return (
-            <button
-              type="button"
-              onClick={() => props.onOpenResult(capturedCard)}
-              class="mx-6 mb-3 text-left transition-all w-full"
-              style={{
-                "border-radius": "12px",
-                padding: "16px 20px",
-                background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, #fff 49.853%)",
-                border: "1px solid rgba(0,0,0,0.1)",
-                width: "calc(100% - 48px)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "linear-gradient(90deg, rgba(235,240,255,1) 0%, #fafafa 49.853%)"
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "linear-gradient(90deg, rgba(245,248,255,1) 0%, #fff 49.853%)"
-              }}
-            >
-              <div class="flex items-center" style={{ gap: "12px" }}>
-                <div
-                  class="shrink-0"
-                  style={{
-                    width: "28px",
-                    height: "28px",
-                    "background-image": "url(/AI_doc_plaintext.svg)",
-                    "background-size": "contain",
-                    "background-repeat": "no-repeat",
-                    "background-position": "center",
-                  }}
-                />
-                <div class="flex flex-col min-w-0 flex-1" style={{ gap: "2px" }}>
-                  <span class="truncate" style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>{capturedCard.title}</span>
-                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.6)" }}>{formatTime(capturedCard.createdAt)}</span>
-                </div>
-              </div>
-            </button>
-          )
-        }}
-      </Show>
-
-      {/* 产出文件列表 */}
-      <Show when={!showGenerating() && producedFiles().length > 0}>
-        <ProducedFilesList files={producedFiles()} />
-      </Show>
+      </For>
     </div>
   )
 }

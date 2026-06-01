@@ -54,7 +54,9 @@ export function DesignSystemPicker(props: {
   function getDropdownPos() {
     if (!triggerRef) return { top: 0, left: 0 }
     const rect = triggerRef.getBoundingClientRect()
-    return { top: rect.top - 4, left: rect.left }
+    const dropdownW = 520
+    const maxLeft = Math.max(0, window.innerWidth - dropdownW - 8)
+    return { top: rect.top - 4, left: Math.min(rect.left, maxLeft) }
   }
 
   createEffect(() => {

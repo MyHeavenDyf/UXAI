@@ -17,6 +17,7 @@ import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
+import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -194,6 +195,22 @@ export const layer = Layer.effect(
             ),
             description: `Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.`,
             prompt: PROMPT_EXPLORE,
+            options: {},
+            mode: "subagent",
+            native: true,
+          },
+          make_component: {
+            name: "make_component",
+            description: "HTML component generator. Generates a single self-contained HTML fragment for a specified UI component, following design system tokens.",
+            prompt: PROMPT_MAKE_COMPONENT,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                task: "deny",
+                todowrite: "deny",
+              }),
+              user,
+            ),
             options: {},
             mode: "subagent",
             native: true,

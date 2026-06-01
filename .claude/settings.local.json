@@ -9,7 +9,12 @@
       "Bash(sed -i 's/\\\\/\\\\.opencode\\\\/agent\\\\/, \\\\/\\\\.opencode\\\\/agents\\\\/, \\\\/agent\\\\/, \\\\/agents\\\\/]/\\\\/.octo\\\\/agent\\\\/, \\\\/.octo\\\\/agents\\\\/, \\\\/.opencode\\\\/agent\\\\/, \\\\/.opencode\\\\/agents\\\\/, \\\\/agent\\\\/, \\\\/agents\\\\/]/g' packages/opencode/src/config/agent.ts)",
       "Bash(diff \"packages/app/src/context/sync.tsx\" \"packages/app/octoapp/context/sync.tsx\")",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(bunx tsgo *)"
+      "Bash(bunx tsgo *)",
+      "Bash(cp D:/octoAI/merge/UXAI/packages/opencode/test/tool/image-generate-inputs.test.ts D:/octoAI/octoAI/packages/opencode/test/tool/image-generate-inputs.test.ts)",
+      "Bash(cp D:/octoAI/merge/UXAI/packages/opencode/test/tool/registry.test.ts D:/octoAI/octoAI/packages/opencode/test/tool/registry.test.ts)",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Bash(git *)"
     ]
   }
 }
