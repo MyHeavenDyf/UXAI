@@ -4,8 +4,10 @@ import type { ImageGenerateInput, ImageGenerateOutput } from "@/studio/image-pro
 import type { StudioCapability } from "@/studio/image-provider"
 
 const METHOD = "POST"
-const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
-const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
+// const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
+// const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
+const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
+const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
 const DEFAULT_USER_IDX = "l00423136"
 const DEFAULT_TIMEOUT_MS = 120_000
 
