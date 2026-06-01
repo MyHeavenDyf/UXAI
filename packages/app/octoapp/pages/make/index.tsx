@@ -1,5 +1,5 @@
 import "./octo-tokens.css"
-import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
@@ -11,10 +11,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Binary } from "@opencode-ai/core/util/binary"
-import { base64Encode } from "@opencode-ai/core/util/encode"
 import {
-  batch,
   createEffect,
   createMemo,
   createResource,
@@ -25,13 +22,15 @@ import {
   Show,
   type JSX,
 } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { SDKProvider, useSDK } from "@/context/sdk"
+import { SyncProvider, useSync } from "@/context/sync"
+import { ModelsProvider, useModels } from "@/context/models"
+import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -47,36 +46,43 @@ import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
-import { useModels } from "@/context/models"
-import { useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { Persist, persisted } from "@/utils/persist"
 
-const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
+export default function MakePage() {
+  const globalSync = useGlobalSync()
+  const homeDir = () => globalSync.data.path.home
 
-type DataStore = {
-  session: Session[]
-  session_status: { [sessionID: string]: SessionStatus }
-  session_diff: { [sessionID: string]: SnapshotFileDiff[] }
-  message: { [sessionID: string]: Message[] }
-  part: { [messageID: string]: Part[] }
+  return (
+    <Show when={homeDir()} keyed>
+      {(dir) => (
+        <SDKProvider directory={() => dir}>
+          <SyncProvider>
+            <ModelsProvider>
+              <LocalProvider>
+                <MakeContent />
+              </LocalProvider>
+            </ModelsProvider>
+          </SyncProvider>
+        </SDKProvider>
+      )}
+    </Show>
+  )
 }
 
-export default function MakePage() {
+function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const globalSDK = useGlobalSDK()
-  const globalSync = useGlobalSync()
+  const sdk = useSDK()
+  const sync = useSync()
   const layout = useLayout()
   const language = useLanguage()
   const dialog = useDialog()
 
-  const homeDir = useProjectDir()
-
   // ── 模型选择（与 Chat/Studio 隔离，workspace 级持久化） ────
   const models = useModels()
   const [modelStore, setModelStore] = persisted(
-    Persist.workspace(homeDir() ?? "", "make-model"),
+    Persist.workspace(sdk.directory || "", "make-model"),
     createStore<{ providerID: string; modelID: string } | Record<string, never>>({}),
   )
   const selectedModelKey = createMemo<{ providerID: string; modelID: string } | null>(
@@ -120,7 +126,7 @@ export default function MakePage() {
     async (id) => {
       if (!id) return null as Session | null
       try {
-        const result = await globalSDK.client.session.get({ sessionID: id })
+        const result = await sdk.client.session.get({ sessionID: id })
         return (result.data as Session | undefined) ?? null
       } catch {
         return null as Session | null
@@ -148,7 +154,7 @@ export default function MakePage() {
     const draft = titleState.draft.trim()
     if (!draft) { setTitleState("editing", false); return }
     try {
-      await globalSDK.client.session.update({ sessionID: id, title: draft })
+      await sdk.client.session.update({ sessionID: id, title: draft })
       void refetchSession()
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
@@ -159,7 +165,7 @@ export default function MakePage() {
   // 删除对话
   async function deleteSession(sessionID: string) {
     try {
-      await globalSDK.client.session.delete({ sessionID })
+      await sdk.client.session.delete({ sessionID })
       navigate("/make")
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
@@ -171,14 +177,6 @@ export default function MakePage() {
     if (!id) return
     dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
   }
-
-  const [dataStore, setDataStore] = createStore<DataStore>({
-    session: [],
-    session_status: {},
-    session_diff: {},
-    message: {},
-    part: {},
-  })
 
   createEffect(
     on(
@@ -193,27 +191,9 @@ export default function MakePage() {
   createEffect(
     on(
       () => params.id,
-      async (id) => {
+      (id) => {
         if (!id) return
-        try {
-          const result = await globalSDK.client.session.messages({ sessionID: id })
-          const items = result.data ?? []
-          const msgs: Message[] = []
-          const partMap: { [msgId: string]: Part[] } = {}
-          for (const { info, parts } of items as { info: Message; parts: Part[] }[]) {
-            msgs.push(info)
-            const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
-            if (visible.length > 0) partMap[info.id] = visible
-          }
-          batch(() => {
-            setDataStore("message", id, reconcile(msgs, { key: "id" }))
-            for (const [msgId, ps] of Object.entries(partMap)) {
-              setDataStore("part", msgId, reconcile(ps, { key: "id" }))
-            }
-          })
-        } catch (err) {
-          console.error("[InsightPage] messages load failed", err)
-        }
+        void sync.session.sync(id)
       },
     ),
   )
@@ -225,101 +205,29 @@ export default function MakePage() {
     if (!subSessionID || loadedChildSessions.has(subSessionID)) return
     loadedChildSessions.add(subSessionID)
     setChildSessionIDs((prev) => { const next = new Set(prev); next.add(subSessionID); return next })
-    globalSDK.client.session.messages({ sessionID: subSessionID })
-      .then((result) => {
-        const items = (result.data ?? []) as { info: Message; parts: Part[] }[]
-        batch(() => {
-          const msgs: Message[] = []
-          for (const { info, parts: ps } of items) {
-            msgs.push(info)
-            const visible = ps.filter((p) => !SKIP_PART_TYPES.has(p.type))
-            if (visible.length > 0) setDataStore("part", info.id, reconcile(visible, { key: "id" }))
-          }
-          setDataStore("message", subSessionID, reconcile(msgs, { key: "id" }))
-        })
-      })
-      .catch(() => {})
+    void sync.session.sync(subSessionID)
   }
-
-  const unsub = globalSDK.event.listen((e) => {
-    const sessionId = params.id
-    if (!sessionId) return
-    const event = e.details
-
-    if (event.type === "message.updated") {
-      const info = event.properties.info
-      const msgSessionID = info.sessionID
-      if (msgSessionID !== sessionId && !childSessionIDs().has(msgSessionID)) return
-      const messages = dataStore.message[msgSessionID]
-      if (!messages) { setDataStore("message", msgSessionID, [info]); return }
-      const result = Binary.search(messages, info.id, (m) => m.id)
-      if (result.found) {
-        setDataStore("message", msgSessionID, result.index, reconcile(info))
-      } else {
-        setDataStore("message", msgSessionID, produce((d) => { d.splice(result.index, 0, info) }))
-      }
-      return
-    }
-
-    if (event.type === "message.part.updated") {
-      const part = event.properties.part
-      if (part.sessionID !== sessionId && !childSessionIDs().has(part.sessionID)) return
-      if (SKIP_PART_TYPES.has(part.type)) return
-      const parts = dataStore.part[part.messageID]
-
-      if (!parts) {
-        setDataStore("part", part.messageID, [part])
-        return
-      }
-
-      const result = Binary.search(parts, part.id, (p) => p.id)
-      if (!result.found) {
-        setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
-      } else {
-        setDataStore("part", part.messageID, result.index, reconcile(part))
-      }
-      return
-    }
-
-    if (event.type === "session.status") {
-      const { sessionID, status } = event.properties
-      if (sessionID !== sessionId) return
-      setDataStore("session_status", sessionID, reconcile(status))
-      return
-    }
-
-    const raw = event as unknown as { type: string; properties: Record<string, unknown> }
-    if (raw.type === "message.part.delta") {
-      const { messageID, partID, field, delta } = raw.properties as {
-        messageID: string; partID: string; field: string; delta: string
-      }
-      const parts = dataStore.part[messageID]
-      if (!parts) return
-      const result = Binary.search(parts, partID, (p) => p.id)
-      if (!result.found) return
-      const existing = (parts[result.index] as Record<string, unknown>)[field] as string | undefined
-      if (existing?.endsWith(delta)) return
-      setDataStore("part", messageID, produce((d) => {
-        const p = d[result.index] as Record<string, unknown>
-        p[field] = ((p[field] as string) ?? "") + delta
-      }))
-    }
-  })
-  onCleanup(unsub)
 
   const userMessages = createMemo((): Message[] => {
     const id = params.id
     if (!id) return []
-    return (dataStore.message[id] ?? []).filter((m) => m.role === "user")
+    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
-    return dataStore.session_status[id] ?? { type: "idle" }
+    return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => sessionStatus().type === "busy")
+  const isBusy = createMemo(() => {
+    if (sessionStatus().type !== "idle") return true
+    const id = params.id
+    if (!id) return false
+    return ((sync.data.message[id] ?? []) as Message[]).some(
+      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+    )
+  })
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
@@ -413,13 +321,12 @@ export default function MakePage() {
     const tab = tabStore.tabs().find((t) => t.id === tabId)
     if (tab?.filePath) {
       try {
-        const dir = homeDir()
-        if (dir) {
-          await fetch(`${globalSDK.url}/content`, {
+        if (sdk.directory) {
+          await fetch(`${sdk.url}/content`, {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
-              "x-opencode-directory": dir,
+              "x-opencode-directory": sdk.directory,
             },
             body: JSON.stringify({ path: tab.filePath, content }),
           })
@@ -433,12 +340,12 @@ export default function MakePage() {
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = homeDir()
+    const dir = sdk.directory
     console.log("[MakePage] createAndNavigate dir:", dir)
     if (!dir) return
     setSending(true)
     try {
-      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_make" })
+      const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
       const session = result.data as Session | undefined
       console.log("[MakePage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
@@ -522,7 +429,7 @@ export default function MakePage() {
 
       const textPart: TextPartInput = { type: "text", text: promptText }
       const modelKey = selectedModelKey()
-      await globalSDK.client.session.prompt({
+      await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
@@ -543,9 +450,9 @@ export default function MakePage() {
     try {
       let sid = submitSessionId
       if (!sid) {
-        const dir = homeDir()
+        const dir = sdk.directory
         if (!dir) return
-        const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_make" })
+        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
         const session = result.data as Session | undefined
         if (!session) return
         navigate(`/make/${session.id}`)
@@ -565,7 +472,7 @@ export default function MakePage() {
   async function halt() {
     const sid = params.id
     if (!sid) return
-    await globalSDK.client.session.abort({ sessionID: sid }).catch(() => {})
+    await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -655,7 +562,7 @@ export default function MakePage() {
   const maxAttachments = () => attachments().length >= 5
 
   return (
-    <DataProvider data={dataStore} directory={homeDir() || ""}>
+    <DataProvider data={sync.data} directory={sdk.directory || ""}>
       <div
         class="octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
