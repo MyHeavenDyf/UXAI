@@ -24,11 +24,14 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
+import { useLayout } from "@/context/layout"
+import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
@@ -240,6 +243,7 @@ export function MessageTimeline(props: {
   const dialog = useDialog()
   const language = useLanguage()
   const { params, sessionKey } = useSessionKey()
+  const layout = useLayout()
   const platform = usePlatform()
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
@@ -497,6 +501,8 @@ export function MessageTimeline(props: {
       navigate(`/${params.dir}/chat/${nextSessionID}`)
       return
     }
+    const decoded = decode64(params.dir)
+    if (decoded) layout.lastSessionPerTab.setChat(decoded, "")
     navigate(`/${params.dir}/chat`)
   }
 
@@ -580,6 +586,7 @@ export function MessageTimeline(props: {
         }
 
         draft.session = draft.session.filter((s) => !removed.has(s.id))
+        dropSessionCaches(draft, removed)
       }),
     )
 
