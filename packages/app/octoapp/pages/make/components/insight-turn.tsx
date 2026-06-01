@@ -4,7 +4,7 @@ import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
-import { createArtifactParser } from "../utils/artifact-parser"
+import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -25,6 +25,7 @@ export type OutputCard = {
   artifactIdentifier?: string
   exports?: ArtifactExportKind[]
   designSystemId?: string | null
+  truncated?: boolean
   createdAt: Date
 }
 
@@ -266,6 +267,8 @@ export function InsightTurn(props: {
   status: SessionStatus
   active: boolean
   onOpenResult: (card: OutputCard) => void
+  onContinue?: (card: OutputCard) => void
+  onChildSession?: (subSessionID: string) => void
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -390,38 +393,46 @@ export function InsightTurn(props: {
       const metadata = state.metadata as Record<string, unknown> | undefined
       const subSessionID = (metadata?.sessionId as string)
         ?? (typeof state.output === "string" ? (state.output as string).match(/task_id:\s*(\S+)/)?.[1] : undefined)
-      if (!subSessionID) continue
 
       const outputStr = typeof state.output === "string" ? (state.output as string) : ""
       const hasOutput = outputStr.length > 0
       const isError = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
 
-      // Parse <task_result> content from Task tool output
       const textParts: string[] = []
       const artifactOutputs: Array<{ identifier: string; title: string; content: string }> = []
 
+      if (!subSessionID) {
+        // Degraded: subSessionID missing — still show as subtask card
+        const parsed = parseAllArtifactsFromText(outputStr)
+        for (const a of parsed) {
+          artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
+        }
+        if (artifactOutputs.length === 0
+            && /<(?:div|section|style|nav|header|main|article|form|table|html)\b/i.test(outputStr)) {
+          artifactOutputs.push({ identifier: "degraded", title: "HTML 片段", content: outputStr })
+        }
+        tasks.push({
+          taskDescription: (input.description as string) ?? (input.prompt as string)?.slice(0, 60) ?? "子任务",
+          subSessionID: "",
+          status: isError ? "error" : hasOutput ? "done" : "running",
+          textParts: [],
+          artifactOutputs,
+        })
+        continue
+      }
+
+      // Parse <task_result> content from Task tool output
       const taskResultMatch = outputStr.match(/<task_result>([\s\S]*?)<\/task_result>/)
       const resultContent = taskResultMatch?.[1]?.trim() ?? ""
 
       if (resultContent.length > 0) {
-        // Extract artifacts from the result
         const parsedArtifacts = parseAllArtifactsFromText(resultContent)
         for (const a of parsedArtifacts) {
-          artifactOutputs.push({
-            identifier: a.artifactIdentifier ?? "",
-            title: a.title,
-            content: a.content,
-          })
+          artifactOutputs.push({ identifier: a.artifactIdentifier ?? "", title: a.title, content: a.content })
         }
-        // Fallback: sub-agent may output HTML without <artifact> wrapper
         if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|footer|main|article|form|table)\b/i.test(resultContent)) {
-          artifactOutputs.push({
-            identifier: "raw-fragment",
-            title: "HTML 片段",
-            content: resultContent,
-          })
+          artifactOutputs.push({ identifier: "raw-fragment", title: "HTML 片段", content: resultContent })
         }
-        // Prose text (stripped of artifacts)
         const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/g, "").trim()
         if (proseOnly.length > 0) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
       }
@@ -497,6 +508,13 @@ export function InsightTurn(props: {
     // Intentionally skip flush() — partial <artifact prefixes held in the buffer
     // should NOT be emitted as visible text (prevents flicker/duplication).
     return prose.trim()
+  })
+
+  // Notify parent when subtasks with valid session IDs appear
+  createEffect(() => {
+    for (const t of subtasks()) {
+      if (t.subSessionID) props.onChildSession?.(t.subSessionID)
+    }
   })
 
   // ── NEW: streaming artifacts (live preview during generation, multiple) ──
@@ -583,6 +601,11 @@ export function InsightTurn(props: {
     if (parts.length === 0 && !showGenerating()) return []
     if (showGenerating()) return []
 
+    function maybeRepair(card: OutputCard): OutputCard {
+      if (card.type !== "html" || !isTruncatedHtml(card.content)) return card
+      return { ...card, content: repairTruncatedHtml(card.content), truncated: true }
+    }
+
     // ── 优先级 1：write / edit tool（HTML 文件写入或编辑） ──
     for (const p of [...parts].reverse()) {
       if (p.type !== "tool") continue
@@ -596,13 +619,13 @@ export function InsightTurn(props: {
           if (att.mime === "text/html" && att.url) {
             const html = decodeDataUrl(att.url)
             if (html.length > 10) {
-              return [{
+              return [maybeRepair({
                 id: `card-${props.messageID}-html`,
                 title: att.filename?.replace(/\.html?$/i, "") ?? "HTML 原型",
                 type: "html",
                 content: html,
                 createdAt: new Date(),
-              }]
+              })]
             }
           }
         }
@@ -626,14 +649,14 @@ export function InsightTurn(props: {
           }
 
           if (/```html/i.test(content) || /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content) || /\.html?$/i.test(filePath)) {
-            return [{
+            return [maybeRepair({
               id: `card-${props.messageID}-html`,
               title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split(/[/\\]/).pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
               type: "html",
               content,
               filePath: filePath || undefined,
               createdAt: new Date(),
-            }]
+            })]
           }
         }
       }
@@ -718,14 +741,14 @@ export function InsightTurn(props: {
       // Check if any subtask artifact is a full HTML document — use it directly
       const fullDoc = subArtifacts.find((a) => /<!DOCTYPE\s+html/i.test(a.content) || /<html[\s>]/i.test(a.content))
       if (fullDoc) {
-        return [{
+        return [maybeRepair({
           id: `card-${props.messageID}-composed-from-subtask`,
           title: "完整页面（组装）",
           type: "html",
           content: fullDoc.content,
           artifactIdentifier: fullDoc.identifier + "-composed",
           createdAt: new Date(),
-        }]
+        })]
       }
       // Assemble HTML fragments into a full page
       const styles = subArtifacts.map((a) => {
@@ -749,14 +772,14 @@ ${styles}
 ${bodies}
 </body>
 </html>`
-      return [{
+      return [maybeRepair({
         id: `card-${props.messageID}-composed-auto`,
         title: "完整页面（自动组装）",
         type: "html",
         content: assembled,
         artifactIdentifier: "auto-composed",
         createdAt: new Date(),
-      }]
+      })]
     }
 
     return []
@@ -810,8 +833,8 @@ ${bodies}
         </div>
       </Show>
 
-      {/* AI 文字回复（生成中若检测到 artifact 或子任务则隐藏避免重复，生成完成后始终显示） */}
-      <Show when={proseText().length > 0 && (!showGenerating() || (hasSeenCount() === 0 && subtasks().length === 0))}>
+      {/* AI 文字回复（proseText 已剥离 artifact 内容，始终显示） */}
+      <Show when={proseText().length > 0}>
         <div
           class="mx-3 mb-2 px-3 py-2"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
@@ -958,32 +981,46 @@ ${bodies}
       {/* 输出卡片（生成完成后，支持多个） */}
       <For each={outputCards()}>
         {(capturedCard) => (
-          <button
-            type="button"
-            onClick={() => props.onOpenResult(capturedCard)}
-            class="mx-3 mb-3 p-3 text-left transition-all"
+          <div
+            class="mx-3 mb-3 p-3"
             style={{
               "border-radius": "var(--octo-radius-md)",
-              border: "1px solid var(--octo-border-default)",
+              border: capturedCard.truncated ? "1px solid rgba(234,179,8,0.3)" : "1px solid var(--octo-border-default)",
               background: "var(--octo-surface-page)",
               width: "calc(100% - 1.5rem)",
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--octo-border-default)"
-            }}
           >
-            <div class="flex items-center gap-2">
-              <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
-              <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
-                <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
+            <button
+              type="button"
+              onClick={() => props.onOpenResult(capturedCard)}
+              class="w-full text-left transition-all"
+              style={{ background: "transparent" }}
+            >
+              <div class="flex items-center gap-2">
+                <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
+                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
+                  <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
+                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
+                </div>
+                <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
               </div>
-              <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
-            </div>
-          </button>
+            </button>
+            <Show when={capturedCard.truncated}>
+              <div class="flex items-center gap-2 mt-2 pt-2" style={{ "border-top": "1px solid rgba(234,179,8,0.15)" }}>
+                <span class="text-[11px] px-1.5 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.1)", color: "#ca8a04" }}>
+                  输出被截断
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); props.onContinue?.(capturedCard) }}
+                  class="text-[11px] px-1.5 py-0.5 rounded hover:opacity-80"
+                  style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}
+                >
+                  续写
+                </button>
+              </div>
+            </Show>
+          </div>
         )}
       </For>
 

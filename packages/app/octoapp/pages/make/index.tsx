@@ -218,6 +218,29 @@ export default function MakePage() {
     ),
   )
 
+  const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
+  const loadedChildSessions = new Set<string>()
+
+  function ensureChildSession(subSessionID: string) {
+    if (!subSessionID || loadedChildSessions.has(subSessionID)) return
+    loadedChildSessions.add(subSessionID)
+    setChildSessionIDs((prev) => { const next = new Set(prev); next.add(subSessionID); return next })
+    globalSDK.client.session.messages({ sessionID: subSessionID })
+      .then((result) => {
+        const items = (result.data ?? []) as { info: Message; parts: Part[] }[]
+        batch(() => {
+          const msgs: Message[] = []
+          for (const { info, parts: ps } of items) {
+            msgs.push(info)
+            const visible = ps.filter((p) => !SKIP_PART_TYPES.has(p.type))
+            if (visible.length > 0) setDataStore("part", info.id, reconcile(visible, { key: "id" }))
+          }
+          setDataStore("message", subSessionID, reconcile(msgs, { key: "id" }))
+        })
+      })
+      .catch(() => {})
+  }
+
   const unsub = globalSDK.event.listen((e) => {
     const sessionId = params.id
     if (!sessionId) return
@@ -225,21 +248,22 @@ export default function MakePage() {
 
     if (event.type === "message.updated") {
       const info = event.properties.info
-      if (info.sessionID !== sessionId) return
-      const messages = dataStore.message[sessionId]
-      if (!messages) { setDataStore("message", sessionId, [info]); return }
+      const msgSessionID = info.sessionID
+      if (msgSessionID !== sessionId && !childSessionIDs().has(msgSessionID)) return
+      const messages = dataStore.message[msgSessionID]
+      if (!messages) { setDataStore("message", msgSessionID, [info]); return }
       const result = Binary.search(messages, info.id, (m) => m.id)
       if (result.found) {
-        setDataStore("message", sessionId, result.index, reconcile(info))
+        setDataStore("message", msgSessionID, result.index, reconcile(info))
       } else {
-        setDataStore("message", sessionId, produce((d) => { d.splice(result.index, 0, info) }))
+        setDataStore("message", msgSessionID, produce((d) => { d.splice(result.index, 0, info) }))
       }
       return
     }
 
     if (event.type === "message.part.updated") {
       const part = event.properties.part
-      if (part.sessionID !== sessionId) return
+      if (part.sessionID !== sessionId && !childSessionIDs().has(part.sessionID)) return
       if (SKIP_PART_TYPES.has(part.type)) return
       const parts = dataStore.part[part.messageID]
 
@@ -619,6 +643,14 @@ export default function MakePage() {
     }
   }
 
+  function handleContinue(card: OutputCard) {
+    const sid = params.id
+    if (!sid) return
+    const lastChars = card.content.slice(-300)
+    setPrompt(`请继续完成上一个设计。上次的输出在以下位置被截断：\n\`\`\`\n${lastChars}\n\`\`\`\n\n请从截断点继续，输出完整 HTML。`)
+    void handleSubmit()
+  }
+
   const inputDisabled = () => sending() || isBusy()
   const maxAttachments = () => attachments().length >= 5
 
@@ -833,6 +865,8 @@ export default function MakePage() {
                         status={sessionStatus()}
                         active={isBusy()}
                         onOpenResult={handleOpenResult}
+                        onContinue={handleContinue}
+                        onChildSession={ensureChildSession}
                       />
                     )}
                   </For>
