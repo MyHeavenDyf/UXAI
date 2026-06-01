@@ -810,8 +810,8 @@ ${bodies}
         </div>
       </Show>
 
-      {/* AI 文字回复（剥离 artifact 标签；生成中若检测到 artifact 卡片则隐藏避免重复） */}
-      <Show when={proseText().length > 0 && (showGenerating() && hasSeenCount() === 0 || !showGenerating() && outputCards().length === 0)}>
+      {/* AI 文字回复（剥离 artifact 标签；生成中若检测到 artifact 卡片则暂时隐藏避免重复，生成完成后始终显示） */}
+      <Show when={proseText().length > 0 && (!showGenerating() || hasSeenCount() === 0)}>
         <div
           class="mx-3 mb-2 px-3 py-2"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
