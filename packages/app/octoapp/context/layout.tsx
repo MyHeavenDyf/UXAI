@@ -54,7 +54,7 @@ type TabHandoff = {
 type LastSessionPerTab = {
   cowork?: {
     id: string
-    type: "insight" | "make"
+    type: "insight" | "make" | "pattern"
   }
   chat: Record<string, string>
   studio: Record<string, string>
@@ -571,7 +571,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       },
       lastSessionPerTab: {
         cowork: createMemo(() => lastSessionPerTab.cowork),
-        setCowork(id: string, type: "insight" | "make") {
+        setCowork(id: string, type: "insight" | "make" | "pattern") {
           setLastSession("cowork", { id, type })
         },
         chat: (dir: string) => lastSessionPerTab.chat[dir],

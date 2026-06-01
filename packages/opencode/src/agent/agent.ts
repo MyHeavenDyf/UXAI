@@ -16,6 +16,7 @@ import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
+import PROMPT_OCTO_PATTERN from "./prompt/octo_pattern.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
 import { Permission } from "@/permission"
@@ -257,6 +258,15 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             skills: ["creative-assets"],
+          },
+          octo_pattern: {
+            name: "octo_pattern",
+            description: "A2UI generative UI specialist. Produces structured A2UI JSON documents describing complete user interfaces.",
+            prompt: PROMPT_OCTO_PATTERN,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
           },
           compaction: {
             name: "compaction",
