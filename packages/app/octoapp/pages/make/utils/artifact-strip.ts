@@ -60,7 +60,7 @@ export function stripArtifact(text: string): string {
     }
     const endIdx = closeIdx + "</artifact>".length
     result = result.slice(0, openIdx) + result.slice(endIdx)
-    break // Only strip the first artifact
+    // Continue stripping — there may be more artifacts after this one
   }
 
   return result.trim()

@@ -156,3 +156,21 @@ agent: "octo_insight",
 - `octo-tokens.css`：新增 `.octo-attach-strip`（附件条滚动）和 `.octo-input-attachments`/`.octo-input-attachment-card`（文件卡片样式）
 
 **Octo 适配已保留**：适配 A（useSDK/sdk.client/sdk.directory）和 B（octo_insight agent 名）已正确应用到 InsightContent。适配 C（--octo-brand-a5）已加回 CSS。agent prompt 无变更，无需同步。
+
+### 2026-06-01: commits `bbcee4c..45d3188` (19 commits: 停止按钮 + 浅色强制 + 标题栏 + 文件上传预过滤 + 产出卡片改版 + FileFallback 三按钮 + mindmap 双卡合一 + 错误卡修复 + 对话背景白色 + 预览卡间距)
+
+**上游变更**（19 个 commit 主要变更）：
+- `index.tsx`：停止生成按钮（abort）；会话标题栏（conversation-header）；上传端点未配置时用户友好文案；`useTheme` + mount 时注入亮色 token 覆盖暗色
+- `components/conversation-header.tsx`：新增会话标题栏组件（标题编辑、删除、模型选择）
+- `components/insight-turn.tsx`：预览卡与下一轮用户消息加 16px 间距；产出卡片改预览/代码切换；mindmap 双卡合一；预览入口卡片简化
+- `components/attachment-bar.tsx`：文件上传 accept 预过滤 + 支持类型 tooltip；附件失败 chip 重试与错误提示修复
+- `components/result-viewer/index.tsx`：预览/代码切换模式；FileFallback 三按钮（打开/文件夹定位/另存为）
+- `components/result-viewer/action-bar.tsx`：产出卡片 action bar 增强
+- `components/result-viewer/mindmap-renderer.tsx`：mindmap 渲染逻辑统一检测规则
+- `lib/electron-api.ts`：新增 `showItemInFolder` 桌面 API（FileFallback"打开所在文件夹"按钮）
+- `lib/upload.ts`：上传端点未配置时友好错误文案
+- `utils/detect.ts`：mindmap 检测=渲染同一规则
+- `utils/mindmap-adapter.ts`：mindmap adapter 增强
+- `octo-tokens.css`：对话背景改白色；用户消息气泡对齐 UXAI 样式；错误 card 文字颜色修复；预置按钮样式调整；停止按钮样式
+
+**Octo 适配已保留**：适配 A（useSDK/sdk.client/sdk.directory）和 B（octo_insight agent 名）已正确应用到 InsightContent（5 处 globalSDK→sdk 替换）。适配 C（--octo-brand-a5）已加回 CSS。agent prompt 无变更。`showItemInFolder` 桌面 API 在本项目 Electron 壳尚未实现，FileFallback 按钮会优雅降级为 toast 提示。

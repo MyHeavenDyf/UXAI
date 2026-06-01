@@ -334,7 +334,7 @@
   border-radius: 999px;
   background: var(--studio-blue);
   color: #fff;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 26px;
   transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
@@ -361,6 +361,95 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px);
   border-radius: 12px;
+}
+
+.studio-image-settings-menu {
+  left: 16px;
+  width: 532px;
+  padding: 16px;
+}
+
+.studio-image-settings-title {
+  margin-bottom: 18px;
+  color: #191919;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 850;
+}
+
+.studio-image-settings-label {
+  margin-bottom: 8px;
+  color: #858587;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+.studio-image-settings-ratios,
+.studio-image-settings-counts {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  padding: 6px;
+  border-radius: 8px;
+  background: #f4f4f5;
+}
+
+.studio-image-settings-ratios {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.studio-image-settings-counts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.studio-image-settings-ratio,
+.studio-image-settings-count {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #191919;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.studio-image-settings-ratio:hover,
+.studio-image-settings-count:hover {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.studio-image-settings-ratio.active,
+.studio-image-settings-count.active {
+  background: #fff;
+  color: #191919;
+  font-weight: 850;
+}
+
+.studio-image-settings-ratio {
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.studio-image-settings-ratio-icon {
+  height: auto;
+  flex: 0 0 auto;
+  border: 1.5px solid #111827;
+  border-radius: 3px;
+}
+
+.studio-image-settings-ratio-text {
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.studio-image-settings-count {
+  height: 32px;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .studio-capability-option {
@@ -724,10 +813,6 @@
   height: 48px;
   display: flex;
   align-items: center;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.12);
   transform: translateX(-50%);
 }
 

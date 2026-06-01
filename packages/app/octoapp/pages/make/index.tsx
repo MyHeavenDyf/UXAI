@@ -611,6 +611,10 @@ export default function MakePage() {
 
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
+    // Auto-activate composed artifact tab (identifier ends with "-composed")
+    if (card.artifactIdentifier?.endsWith("-composed")) {
+      tabStore.activate(card.id)
+    }
     // Auto-save snapshot when a new result is opened
     const tab = tabStore.tabs().find((t) => t.id === card.id)
     if (tab) {

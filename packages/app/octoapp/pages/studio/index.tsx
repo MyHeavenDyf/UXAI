@@ -673,7 +673,6 @@ export default function StudioPage() {
       `风格模型：${styleModelLabel(styleModel())}`,
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
-      "当前选中的生图工具：内部",
       input.sourceImage
         ? "将延续上一轮画面设定重新生成。"
         : undefined,
@@ -1378,40 +1377,40 @@ function ImageSettings(props: {
   onCount: (value: 1 | 2 | 3 | 4) => void
 }): JSX.Element {
   return (
-    <div class="studio-menu w-[420px] p-4 left-[16px]">
-      <div class="text-[13px] font-semibold mb-5">图片设置</div>
-      <div class="text-[12px] text-[var(--studio-muted)] mb-2">选择比例</div>
-      <div class="grid grid-cols-7 gap-1 bg-[#f1f1f2] rounded-[8px] p-1 mb-5">
+    <div class="studio-menu studio-image-settings-menu">
+      <div class="studio-image-settings-title">图片设置</div>
+      <div class="studio-image-settings-label">选择比例</div>
+      <div class="studio-image-settings-ratios">
         <For each={STUDIO_ASPECT_RATIOS}>
           {(item) => (
             <button
               type="button"
               onClick={() => props.onAspectRatio(item)}
-              class="h-[54px] rounded-[7px] text-[12px] flex flex-col items-center justify-center gap-1 border transition-colors"
-              classList={{
-                "border-[#1267ff] bg-[#eef5ff] text-[#1267ff] shadow-sm font-semibold": item === props.aspectRatio,
-                "border-transparent hover:bg-white/70": item !== props.aspectRatio,
-              }}
+              class="studio-image-settings-ratio"
+              classList={{ active: item === props.aspectRatio }}
               aria-pressed={item === props.aspectRatio}
             >
-              <span class="w-4 h-5 border border-current rounded-[2px]" />
-              <span>{item}</span>
+              <span
+                class="studio-image-settings-ratio-icon"
+                style={{
+                  "aspect-ratio": item.replace(":", " / "),
+                  width: item === "1:1" ? "22px" : item === "2:3" || item === "3:4" || item === "9:16" ? "14px" : "28px",
+                }}
+              />
+              <span class="studio-image-settings-ratio-text">{item}</span>
             </button>
           )}
         </For>
       </div>
-      <div class="text-[12px] text-[var(--studio-muted)] mb-2">图片数量</div>
-      <div class="grid grid-cols-4 gap-1 bg-[#f1f1f2] rounded-[8px] p-1">
+      <div class="studio-image-settings-label">图片数量</div>
+      <div class="studio-image-settings-counts">
         <For each={[1, 2, 3, 4] as const}>
           {(item) => (
             <button
               type="button"
               onClick={() => props.onCount(item)}
-              class="h-8 rounded-[7px] text-[13px] border transition-colors"
-              classList={{
-                "border-[#1267ff] bg-[#eef5ff] text-[#1267ff] shadow-sm font-semibold": item === props.count,
-                "border-transparent hover:bg-white/70": item !== props.count,
-              }}
+              class="studio-image-settings-count"
+              classList={{ active: item === props.count }}
               aria-pressed={item === props.count}
             >
               {item}张
@@ -1437,8 +1436,8 @@ function StudioConversation(props: {
             <div class="studio-user-bubble">
               {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
             </div>
-            <Show when={turn.assistantText}>
-              <div class="studio-assistant-copy">{turn.assistantText}</div>
+            <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
+              {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
             </Show>
             <div
               class="studio-result-card"
@@ -1492,6 +1491,14 @@ function StudioConversation(props: {
       </For>
     </div>
   )
+}
+
+function sanitizeStudioAssistantText(text?: string) {
+  return text
+    ?.split("\n")
+    .filter((line) => !line.includes("当前选中的生图工具") && !line.includes("内部模型"))
+    .join("\n")
+    .trim()
 }
 
 function StudioResultCanvas(props: {
