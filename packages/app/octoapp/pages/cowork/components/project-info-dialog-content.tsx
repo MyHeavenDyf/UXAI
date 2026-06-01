@@ -5,7 +5,7 @@ import { createEffect } from "solid-js"
 import { createResource } from "solid-js"
 import type { JSX } from "solid-js"
 import type { Domain, ProductLine, Product, Version } from "./project-product-select-panel"
-import { fetchVersions } from "./project-product-select-panel"
+import { fetchVersions } from "./project-product-select-api"
 
 interface ProjectInfoDialogContentProps {
   defaults?: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }
