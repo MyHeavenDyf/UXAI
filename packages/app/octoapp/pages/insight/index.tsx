@@ -9,6 +9,8 @@ import {
   createSignal,
   For,
   on,
+  onCleanup,
+  onMount,
   Show,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
@@ -17,6 +19,8 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useTheme } from "@opencode-ai/ui/theme/context"
+import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { ModelsProvider } from "@/context/models"
 import { LocalProvider } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
@@ -25,15 +29,17 @@ import {
   useInsightModelSelection,
 } from "./store/model-selection"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { ConversationHeader } from "./components/conversation-header"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
-import { IllustrationInsightEmpty, IconSendBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, UploadError } from "./lib/upload"
+import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
+import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
-import { mimeToOutputType } from "./utils/resource-link"
+import { linkToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
 
@@ -78,12 +84,41 @@ export default function InsightPage() {
 // 单轮对话最多上传文件数(超出提示分多轮处理)
 const MAX_ATTACHMENTS = 10
 
+// 文件选择器 accept:从 ALLOWED_EXT 派生(与 validateFile 同一事实源)。
+// 仅是原生弹窗的预过滤提示,不做强制——拖拽绕过它,校验仍以 validateFile 为准。
+const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
+
+// 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
+const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
+
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
   const sync = useSync()
   const selection = useInsightModelSelection()
+  const themeCtx = useTheme()
+
+  // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
+  // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
+  // html[data-color-scheme="dark"] 比 :root 优先级高（attribute selector），可覆盖 ThemeProvider。
+  // 覆盖 token 来自 oc-2 light variant，与 ThemeProvider 写入 :root 的来源一致。
+  onMount(() => {
+    const oc2 = themeCtx.themes()["oc-2"]
+    if (!oc2) return
+    const css = themeToCss(resolveThemeVariant(oc2.light, false))
+    const style = document.createElement("style")
+    style.id = "oc-insight-force-light"
+    style.textContent = [
+      `html[data-color-scheme="dark"] {`,
+      `  color-scheme: light;`,
+      `  --text-mix-blend-mode: multiply;`,
+      `  ${css}`,
+      `}`,
+    ].join("\n")
+    document.head.appendChild(style)
+    onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
+  })
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
@@ -541,6 +576,21 @@ function InsightContent() {
     console.log("[octo:queue] canceled, restored to input")
   }
 
+  async function handleAbort() {
+    const sid = params.id
+    if (!sid) return
+    // 先取消排队消息，避免 abort 完成后 idle 触发器自动 flush
+    if (queuedText()) cancelQueued()
+    try {
+      await sdk.client.session.abort({ sessionID: sid })
+    } catch {
+      // session_status 事件自动同步状态，忽略网络错误
+    }
+  }
+
+  // 输入框空 + AI 忙 → 发送键变为停止键
+  const stopping = createMemo(() => isBusy() && !prompt().trim() && !hasUploadingAttachments())
+
   function handlePresetClick(preset: PresetPrompt) {
     setPrompt(preset.text)
     console.log("[octo:preset] click", { id: preset.id, expectedTool: preset.expectedTool })
@@ -578,9 +628,13 @@ function InsightContent() {
       const mime = file.type || "application/octet-stream"
       const validationErr = validateFile(file)
       if (validationErr) {
+        // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
+        console.warn("[octo:upload] client-validate rejected", {
+          id, filename: file.name, code: validationErr.code, message: validationErr.message,
+        })
         setAttachments((prev) => [
           ...prev,
-          { id, filename: file.name, mime, size: file.size, status: "error", error: validationErr.message },
+          { id, filename: file.name, mime, size: file.size, status: "error", error: validationErr.message, retriable: false },
         ])
         continue
       }
@@ -605,8 +659,9 @@ function InsightContent() {
         err instanceof Error ? err.message :
         "上传失败"
       console.error("[InsightPage] upload failed", { id, filename: file.name, err })
+      // 已发起过上传(File 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message } : a)),
+        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
       )
     }
   }
@@ -619,11 +674,14 @@ function InsightContent() {
   function retryUpload(id: string) {
     const file = filesById.get(id)
     if (!file) {
-      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选
+      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选。
+      // 正常情况下这类 chip 已隐藏重试按钮(retriable=false),走到这里属兜底,打日志便于排查。
+      console.warn("[octo:upload] retry skipped: no original File (client-validation chip)", { id })
       return
     }
+    console.log("[octo:upload] retry", { id, filename: file.name })
     setAttachments((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined } : a)),
+      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
     )
     void doUpload(id, file)
   }
@@ -707,7 +765,7 @@ function InsightContent() {
       return card.resourceLinks.map((link, idx) => ({
         id: `task-${card.taskId}-${idx}`,
         title: link.name || `${baseTitle} ${idx + 1}`,
-        type: mimeToOutputType(link.mimeType),
+        type: linkToOutputType(link),
         source: "uri" as const,
         uri: link.uri,
         mimeType: link.mimeType,
@@ -836,7 +894,7 @@ function InsightContent() {
             flex: "0 0 auto",
             "min-width": "0",
             transition: panelAnimating() ? `width ${PANEL_ANIM_MS}ms ease` : "none",
-            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
+            background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
           onDragOver={handleDragOver}
@@ -938,18 +996,24 @@ function InsightContent() {
                           type="file"
                           multiple
                           class="hidden"
-                          accept="*/*"
+                          accept={UPLOAD_ACCEPT}
                           onChange={handleFileInputChange}
                         />
-                        <button
-                          type="button"
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          disabled={maxAttachments()}
-                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                          title={maxAttachments() ? "最多 10 个文件" : "添加附件"}
+                        <Tooltip
+                          placement="top"
+                          class="flex-shrink-0"
+                          value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
                         >
-                          <Icon name="plus" class="size-5" />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                            disabled={maxAttachments()}
+                            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                            aria-label="添加附件"
+                          >
+                            <Icon name="plus" class="size-5" />
+                          </button>
+                        </Tooltip>
 
                         <ModelSelectorPopover
                           model={selection.model}
@@ -970,16 +1034,18 @@ function InsightContent() {
 
                         <button
                           type="button"
-                          onClick={() => void handleSubmit()}
-                          disabled={!prompt().trim() || hasUploadingAttachments()}
-                          title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
+                          onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
+                          disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
-                            opacity: (!prompt().trim() || hasUploadingAttachments()) ? 0.4 : 1,
-                            filter: (!prompt().trim() || hasUploadingAttachments()) ? "grayscale(0.5)" : "none",
+                            opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                            filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                           }}
                         >
-                          <IconSendBlue width={40} height={40} />
+                          <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
+                            <IconStopBlue width={40} height={40} />
+                          </Show>
                         </button>
                       </div>
                     </div>
@@ -988,6 +1054,9 @@ function InsightContent() {
                 </Show>
               }
             >
+              {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
+              <ConversationHeader />
+
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
                 class="flex-1 overflow-y-auto min-h-0"
@@ -1046,7 +1115,7 @@ function InsightContent() {
                 />
 
                 <div
-                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group overflow-hidden"
+                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `
@@ -1060,6 +1129,8 @@ function InsightContent() {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+                    height: "150px",
+                    "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
                   {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
@@ -1074,12 +1145,10 @@ function InsightContent() {
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
-                    rows={3}
-                    class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="w-full flex-1 resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
-                      "max-height": "120px",
                       "overflow-y": "auto",
                     }}
                   />
@@ -1090,18 +1159,24 @@ function InsightContent() {
                       type="file"
                       multiple
                       class="hidden"
-                      accept="*/*"
+                      accept={UPLOAD_ACCEPT}
                       onChange={handleFileInputChange}
                     />
-                    <button
-                      type="button"
-                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                      disabled={maxAttachments()}
-                      class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                    <Tooltip
+                      placement="top"
+                      class="flex-shrink-0"
+                      value={maxAttachments() ? `最多 ${MAX_ATTACHMENTS} 个文件` : UPLOAD_HINT}
                     >
-                      <Icon name="plus" class="size-5" />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        disabled={maxAttachments()}
+                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                        aria-label="添加附件"
+                      >
+                        <Icon name="plus" class="size-5" />
+                      </button>
+                    </Tooltip>
 
                     <ModelSelectorPopover
                       model={selection.model}
@@ -1122,16 +1197,18 @@ function InsightContent() {
 
                     <button
                       type="button"
-                      onClick={() => void handleSubmit()}
-                      disabled={!prompt().trim() || hasUploadingAttachments()}
-                      title={hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined)}
+                      onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
+                      disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
-                        opacity: (!prompt().trim() || hasUploadingAttachments()) ? 0.4 : 1,
-                        filter: (!prompt().trim() || hasUploadingAttachments()) ? "grayscale(0.5)" : "none",
+                        opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
+                        filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
                       }}
                     >
-                      <IconSendBlue width={40} height={40} />
+                      <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
+                        <IconStopBlue width={40} height={40} />
+                      </Show>
                     </button>
                   </div>
                 </div>
@@ -1150,6 +1227,7 @@ function InsightContent() {
             style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
             onPointerDown={handleDividerPointerDown}
           >
+            {/* 拖拽手柄视觉胶囊已隐藏(dev-yfy d8bc3d4):保留热区与拖拽手感,仅去掉胶囊视觉
             <div
               class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
               style={{
@@ -1165,7 +1243,7 @@ function InsightContent() {
                 class="w-[2px] h-[14px] rounded-full mr-[2px]"
                 style={{ background: "var(--octo-border-input, #c9c9c9)" }}
               />
-            </div>
+            </div> */}
           </div>
           </Show>
 
@@ -1177,6 +1255,7 @@ function InsightContent() {
             onClose={handleCloseTab}
             onCacheContent={tabStore.cacheContent}
             onCollapse={() => setPanelCollapsed(true)}
+            onSetViewMode={tabStore.setViewMode}
           />
         </Show>
       </div>

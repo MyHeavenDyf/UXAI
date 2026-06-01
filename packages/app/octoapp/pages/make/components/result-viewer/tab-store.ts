@@ -8,6 +8,7 @@ export type ResultTab = {
   content: string
   filePath?: string
   exports?: ArtifactExportKind[]
+  artifactIdentifier?: string
   createdAt: Date
 }
 
@@ -28,6 +29,7 @@ export function createTabStore() {
       content: card.content,
       filePath: card.filePath,
       exports: card.exports,
+      artifactIdentifier: card.artifactIdentifier,
       createdAt: card.createdAt,
     }
     setTabs((prev) => [...prev, tab])
