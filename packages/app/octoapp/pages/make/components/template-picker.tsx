@@ -1,6 +1,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { loadTemplateIndex, loadTemplate, type TemplateEntry } from "../utils/template-loader"
 
 export function TemplatePicker(props: {
@@ -21,12 +22,20 @@ export function TemplatePicker(props: {
         setOpen(false)
       }
     }
+    const onFocusOutside = (e: FocusEvent) => {
+      const target = e.target as HTMLElement
+      if (!triggerRef?.contains(target) && !target?.closest?.(".template-picker-portal")) {
+        setOpen(false)
+      }
+    }
     const timer = setTimeout(() => {
       document.addEventListener("mousedown", onClickOutside, true)
+      document.addEventListener("focusin", onFocusOutside, true)
     }, 0)
     onCleanup(() => {
       clearTimeout(timer)
       document.removeEventListener("mousedown", onClickOutside, true)
+      document.removeEventListener("focusin", onFocusOutside, true)
     })
   })
 
@@ -73,7 +82,7 @@ export function TemplatePicker(props: {
       <button
         ref={triggerRef}
         type="button"
-        class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors"
+        class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors min-w-0 overflow-hidden w-full"
         style={{
           background: "transparent",
           color: "var(--octo-text-secondary)",
@@ -90,7 +99,7 @@ export function TemplatePicker(props: {
           <rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1" />
           <rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" stroke-width="1" />
         </svg>
-        <span>Template</span>
+        <span class="truncate">Template</span>
       </button>
 
       <Show when={open()}>
@@ -104,7 +113,7 @@ export function TemplatePicker(props: {
                   top: `${pos.top}px`,
                   left: `${pos.left}px`,
                   width: "320px",
-                  "max-height": "360px",
+                  height: "360px",
                   background: "var(--octo-surface-page)",
                   border: "1px solid var(--octo-border-default)",
                   transform: "translateY(-100%)",
@@ -151,7 +160,7 @@ export function TemplatePicker(props: {
                     </For>
                   </div>
                 </Show>
-                <div class="flex-1 overflow-y-auto min-h-0">
+                <ScrollView class="flex-1 min-h-0">
                   <For each={filtered()}>
                     {(entry) => (
                       <button
@@ -182,7 +191,7 @@ export function TemplatePicker(props: {
                       No templates found
                     </div>
                   </Show>
-                </div>
+                </ScrollView>
               </div>
             )
           })()}

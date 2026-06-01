@@ -44,7 +44,7 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
             onMouseDown={handleSidebarResize}
           >
             <div
-              class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+              class="hidden absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
               style={{
                 width: "12px",
                 height: "36px",

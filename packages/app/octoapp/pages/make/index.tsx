@@ -761,15 +761,19 @@ export default function MakePage() {
                         "overflow-y": "auto",
                       }}
                     />
-                    <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10">
-                      <div class="flex items-center gap-1">
-                        <DesignSystemPicker
-                          selected={selectedDesignSystem()}
-                          onSelect={setSelectedDesignSystem}
-                        />
-                        <TemplatePicker
-                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                        />
+                    <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                      <div class="flex items-center gap-1 min-w-0">
+                        <div class="flex-1 min-w-0">
+                          <DesignSystemPicker
+                            selected={selectedDesignSystem()}
+                            onSelect={setSelectedDesignSystem}
+                          />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <TemplatePicker
+                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                          />
+                        </div>
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -791,7 +795,7 @@ export default function MakePage() {
                           model={modelState}
                           triggerAs="button"
                           triggerProps={{
-                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
                             "data-action": "prompt-model",
                           }}
                         >
@@ -877,15 +881,19 @@ export default function MakePage() {
                       "overflow-y": "auto",
                     }}
                   />
-                  <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10">
-                    <div class="flex items-center gap-1">
-                      <DesignSystemPicker
-                        selected={selectedDesignSystem()}
-                        onSelect={setSelectedDesignSystem}
-                      />
-                      <TemplatePicker
-                        onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                      />
+                  <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                      <div class="flex items-center gap-1 min-w-0">
+                        <div class="flex-1 min-w-0">
+                          <DesignSystemPicker
+                            selected={selectedDesignSystem()}
+                            onSelect={setSelectedDesignSystem}
+                          />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <TemplatePicker
+                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                          />
+                        </div>
                       <input
                         ref={fileInputRef!}
                         type="file"
@@ -907,7 +915,7 @@ export default function MakePage() {
                         model={modelState}
                         triggerAs="button"
                         triggerProps={{
-                          class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                          class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
                           "data-action": "prompt-model",
                         }}
                       >

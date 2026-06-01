@@ -891,7 +891,7 @@ export default function StudioPage() {
               <StudioIntro />
               <div class="relative size-full">
                 <Show when={hintVisible()}>
-                  <div class="absolute -top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-none whitespace-nowrap" data-component="tooltip">
+                  <div class="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none -top-7" data-component="tooltip">
                     {language.t("prompt.hint.newSession")}
                   </div>
                 </Show>

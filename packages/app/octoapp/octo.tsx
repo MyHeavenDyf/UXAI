@@ -169,6 +169,7 @@ function OctoSidebarLayout(props: ParentProps) {
             "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
             border: "1px solid var(--octo-border-divider)",
             "border-left": "none",
+            display: "none"
           }}
         >
           <div

@@ -317,9 +317,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               onClick={() => setInsightCollapsed((v) => !v)}
               class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
             >
-              <span class="flex items-center gap-[12px]">
+              <span class="flex items-center gap-[12px] min-w-0">
                 <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
-                <span class="text-[12px] leading-[20px] select-none" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+                <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                   Octo Insight
                 </span>
               </span>
@@ -426,9 +426,9 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
               onClick={() => setMakeCollapsed((v) => !v)}
               class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
             >
-              <span class="flex items-center gap-[12px]">
+              <span class="flex items-center gap-[12px] min-w-0">
                 <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
-                <span class="text-[12px] leading-[20px] select-none" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+                <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                   Octo Make
                 </span>
               </span>
@@ -565,7 +565,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                     <item.IconActive size={16} />
                   </Show>
                 </span>
-                <span class="whitespace-nowrap">{item.label}</span>
+                <span class="truncate">{item.label}</span>
                 <Show when={isActive()}>
                   <span
                     class="absolute right-0 top-1/2 rounded-l-[3px]"
