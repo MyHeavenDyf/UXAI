@@ -1,6 +1,5 @@
 import "./studio.css"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
-import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
@@ -19,6 +18,8 @@ import { decode64 } from "@/utils/base64"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import { authTokenFromCredentials } from "@/utils/server"
+import { useServer } from "@/context/server"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -40,13 +41,20 @@ import type {
   StudioImageTool,
 } from "./types"
 import {
-  buildStudioConversationContext,
   buildStudioDisplayPrompt,
   buildStudioTurns,
   type StudioTurnData,
 } from "./turns"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
+const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
+  "image.generate",
+  "image.upscale",
+  "image.cutout",
+  "image.outpaint",
+  "image.fusion",
+])
+const STUDIO_GENERATION_TIMEOUT_MS = 180_000
 
 type DataStore = {
   session: Session[]
@@ -57,6 +65,35 @@ type DataStore = {
 
 type StudioPendingResult = StudioGenerationResult & {
   sourceImage?: string
+}
+
+function formatStudioGenerationError(response: Response, bodyText: string) {
+  const parsed = bodyText
+    ? (() => {
+        try {
+          return JSON.parse(bodyText) as {
+            data?: { message?: string }
+            error?: string
+            message?: string
+            issues?: unknown
+          }
+        } catch {
+          return undefined
+        }
+      })()
+    : undefined
+  const message =
+    parsed?.data?.message ??
+    parsed?.error ??
+    parsed?.message ??
+    (parsed?.issues ? JSON.stringify(parsed.issues) : undefined) ??
+    bodyText.trim()
+  return [
+    `Studio generation failed: ${response.status} ${response.statusText}`.trim(),
+    message,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join("\n")
 }
 
 function createBlobUrlFromDataUrl(url: string) {
@@ -89,6 +126,7 @@ export default function StudioPage() {
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const layout = useLayout()
+  const server = useServer()
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -366,10 +404,27 @@ export default function StudioPage() {
   )
   const displayTurns = createMemo(() =>
     (() => {
-      const next = turns().map((turn) => (turn.result ? { ...turn, result: normalizeResultValue(turn.result) } : turn))
       const pending = pendingResult()
-      if (!pending || !sending()) return next
-      if (next.at(-1)?.id === pending.id) return next
+      const pendingTurnID = pending ? `studio_${pending.id}` : undefined
+      const next = turns().map((turn) => {
+        const normalized = turn.result ? { ...turn, result: normalizeResultValue(turn.result) } : turn
+        if (!pending || normalized.id !== pendingTurnID) return normalized
+        return {
+          ...normalized,
+          assistantText: normalized.assistantText || buildStudioThinkingText({
+            text: pending.prompt,
+            capability: pending.capability,
+            sourceImage: pending.sourceImage,
+          }),
+          toolTitle: pending.status === "failed" ? "图片生成失败" : pending.status === "succeeded" ? "图片生成完成" : "图片生成中",
+          toolName: `${imageToolLabel(imageTool())} · ${pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
+          toolRunning: pending.status === "running",
+          result: normalizeResultValue(pending),
+        }
+      })
+      if (!pending) return next
+      if (!sending() && pending.status !== "failed" && next.length > 0) return next
+      if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return next
       return [
         ...next,
         {
@@ -380,8 +435,8 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: "图片生成中",
-          toolName: `${imageToolLabel(imageTool())} · 生成中`,
+          toolTitle: pending.status === "failed" ? "图片生成失败" : "图片生成中",
+          toolName: `${imageToolLabel(imageTool())} · ${pending.status === "failed" ? "失败" : "生成中"}`,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -394,9 +449,11 @@ export default function StudioPage() {
   const result = createMemo(() => normalizeResultValue(studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult()))
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     if (result()?.images.length) return "succeeded"
-    if (isBusy()) return "running"
+    if (status() === "failed" || result()?.status === "failed") return "failed"
     if (studioTurn()?.toolError) return "failed"
     if (studioTurn()?.assistantText && params.id) return "failed"
+    if (status() === "succeeded") return "succeeded"
+    if (isBusy()) return "running"
     return status()
   })
 
@@ -413,6 +470,7 @@ export default function StudioPage() {
   createEffect(() => {
     const pending = pendingResult()
     if (!pending) return
+    if (studioTurn()?.id === pending.id) return
     if (studioTurn()?.userText !== pending.prompt) return
     if (!studioTurn()?.result && !studioTurn()?.toolError) return
     setPendingResult(undefined)
@@ -423,6 +481,7 @@ export default function StudioPage() {
     const pending = pendingResult()
     if (!pending || sending()) return
     if (sessionStatus().type !== "idle") return
+    if (studioTurn()?.id === pending.id) return
     if (studioTurn()?.userText !== pending.prompt) return
     if (studioTurn()?.result?.images.length) {
       setPendingResult(undefined)
@@ -438,7 +497,11 @@ export default function StudioPage() {
     on(
       () => params.id,
       (id) => {
-        if (!id || !sending()) {
+        if (!id && !sending() && !pendingResult()) {
+          setStatus("idle")
+          setPendingResult(undefined)
+        }
+        if (id && !sending()) {
           setStatus("idle")
           setPendingResult(undefined)
         }
@@ -451,7 +514,14 @@ export default function StudioPage() {
     ),
   )
 
-  const canSubmit = createMemo(() => prompt().trim().length > 0 && !isBusy())
+  const selectedCapabilityNeedsImage = createMemo(() =>
+    capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.outpaint",
+  )
+  const canSubmit = createMemo(() =>
+    SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
+    !isBusy() &&
+    (prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(selectedImage()))),
+  )
   const currentTitle = createMemo(() =>
     latestCompletedTurn()?.result
       ? buildStudioDisplayPrompt(latestCompletedTurn()!.result!.prompt)
@@ -523,7 +593,7 @@ export default function StudioPage() {
     input.value = ""
   }
 
-  async function createAndNavigate(title?: string) {
+  async function createStudioSession(title?: string) {
     const dir = projectDir()
     if (!dir) return
     const result = await globalSDK.client.session.create({
@@ -533,52 +603,7 @@ export default function StudioPage() {
     })
     const session = result.data as Session | undefined
     if (!session) return
-    navigate(`/${slug()}/studio/${session.id}`)
     return session.id
-  }
-
-  function buildStudioPromptText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
-    console.log('buildStudioPromptText');
-    const context = buildStudioConversationContext({
-      messages: params.id ? dataStore.message[params.id] ?? [] : [],
-      parts: dataStore.part,
-      fallback: pendingResult(),
-    })
-    const selectedTool = input.capability === "image.upscale"
-      ? "internel_image_generate"
-      : imageTool() === "internel" ? "internel_image_generate" : "jimeng_image_generate"
-    const toolSettings = JSON.stringify({
-      capability: input.capability,
-      styleModel: styleModelLabel(styleModel()),
-      aspectRatio: aspectRatio(),
-      count: count(),
-      imageTool: selectedTool,
-      ...(input.capability === "image.upscale" && input.sourceImage && !input.sourceImage.startsWith("data:image/")
-        ? { sourceImage: input.sourceImage }
-        : {}),
-    })
-    return [
-      `用户需求：${input.text}`,
-      `能力：${input.capability}`,
-      `风格模型：${styleModelLabel(styleModel())}`,
-      `画幅比例：${aspectRatio()}`,
-      `生成数量：${count()}`,
-      `当前选中的生图工具：${selectedTool}`,
-      `工具参数JSON：${toolSettings}`,
-      "本轮必须调用当前选中的生图工具，不要只回复文字。",
-      "调用生图工具时必须使用工具参数JSON中的 capability、styleModel、aspectRatio、count。",
-      input.capability === "image.upscale"
-        ? "这是变清晰任务，当前图片已作为附件提供；必须将当前查看的图片作为 sourceImage 传给生图工具。"
-        : input.sourceImage && imageTool() === "internel"
-        ? "内部生图不传参考图，请根据上一轮摘要保持主体、风格、构图和色调一致，并按用户新需求重新生成。"
-        : input.sourceImage
-          ? "这是基于上一张图继续编辑。"
-          : undefined,
-      context ? `上一轮摘要：\n${context}` : undefined,
-      "输出时先简短说明，再调用对应工具。",
-    ]
-      .filter((item): item is string => Boolean(item))
-      .join("\n")
   }
 
   function buildStudioThinkingText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
@@ -605,79 +630,99 @@ export default function StudioPage() {
       .join("\n")
   }
 
-  function buildStudioPromptParts(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
-    const textPart: TextPartInput = {
-      type: "text",
-      text: buildStudioPromptText({
-        text: input.text,
-        capability: input.capability,
-        sourceImage: input.sourceImage,
-      }),
+  async function createStudioGeneration(input: {
+    sessionID: string
+    text: string
+    capability: StudioCapability
+    sourceImage?: string
+    extra?: Record<string, unknown>
+  }) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      "x-opencode-directory": projectDir(),
     }
-    const fileParts: FilePartInput[] = assets().map((item) => ({
-      type: "file",
-      mime: item.mime,
-      filename: item.name,
-      url: item.dataUrl,
-    }))
-    if (!input.sourceImage || (imageTool() === "internel" && input.capability !== "image.upscale")) return [textPart, ...fileParts]
-    return [
-      textPart,
-      ...fileParts,
-      {
-        type: "file",
-        mime: "image/png",
-        filename: "source-image.png",
-        url: input.sourceImage,
-      },
-    ] satisfies Array<TextPartInput | FilePartInput>
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_TIMEOUT_MS)
+    const response = await fetch(new URL("/studio/generations", current.http.url), {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        sessionID: input.sessionID,
+        capability: input.capability,
+        prompt: input.text,
+        styleModel: styleModelLabel(styleModel()),
+        aspectRatio: aspectRatio(),
+        count: count(),
+        imageTool: "internel",
+        referenceImages: assets().map((item) => item.dataUrl),
+        sourceImage: input.sourceImage,
+        extra: input.extra,
+      }),
+    }).finally(() => clearTimeout(timeout))
+    const bodyText = await response.text()
+    if (!response.ok) {
+      throw new Error(formatStudioGenerationError(response, bodyText))
+    }
+    return JSON.parse(bodyText) as StudioGenerationResult
   }
 
-  async function sendStudioPrompt(input: { sessionID: string; text: string; capability: StudioCapability; sourceImage?: string }) {
-    console.log('send promp: ', imageTool());
-    await globalSDK.client.session.promptAsync({
-      sessionID: input.sessionID,
-      agent: "octo_studio",
-      tools: {
-        // jimeng_image_generate: imageTool() !== "internel",
-        internel_image_generate: imageTool() === "internel" || input.capability === "image.upscale",
-      },
-      parts: buildStudioPromptParts({ text: input.text, capability: input.capability, sourceImage: input.sourceImage }),
-    })
-  }
-
-  async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string }) {
-    const text = (overrides?.prompt ?? prompt()).trim()
+  async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string; extra?: Record<string, unknown> }) {
+    const nextCapability = overrides?.capability ?? capability()
+    const text = (overrides?.prompt ?? prompt()).trim() || (
+      nextCapability === "image.upscale"
+        ? "将当前图片变清晰，提升分辨率和细节"
+        : nextCapability === "image.cutout"
+          ? "对当前图片进行抠图，移除背景并保留主体"
+          : nextCapability === "image.outpaint"
+            ? "保留主体和画面风格，扩展更大尺寸和更多环境内容"
+            : ""
+    )
     if (!text || isBusy()) return
     const previousPrompt = prompt()
     setOpenMenu(null)
     setMode("preview")
+    setSending(true)
     setStatus("submitting")
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
       status: "running",
-      capability: overrides?.capability ?? capability(),
+      capability: nextCapability,
       prompt: text,
-      provider: imageTool(),
+      provider: nextCapability === "image.generate" ? imageTool() : "internel",
       model: styleModelLabel(styleModel()),
       aspectRatio: aspectRatio(),
       images: [],
       createdAt: Date.now(),
       sourceImage: overrides?.sourceImage,
     })
-    setSending(true)
     setPrompt("")
     try {
-      const sessionID = isValidStudioSession(params.id) ? params.id! : await createAndNavigate(text)
+      const existingSession = isValidStudioSession(params.id)
+      const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
-      await sendStudioPrompt({
+      const generation = await createStudioGeneration({
         sessionID,
         text,
-        capability: overrides?.capability ?? capability(),
+        capability: nextCapability,
+        sourceImage: overrides?.sourceImage,
+        extra: overrides?.extra,
+      })
+      setPendingResult({
+        ...generation,
         sourceImage: overrides?.sourceImage,
       })
+      if (!existingSession) navigate(`/${slug()}/studio/${sessionID}`)
       await loadSessionMessages(sessionID)
-      setStatus("running")
+      setStatus("succeeded")
       setAssets([])
     } catch (error) {
       console.error("[StudioPage] studio prompt failed", error)
@@ -690,6 +735,16 @@ export default function StudioPage() {
   }
 
   function handleSubmit() {
+    if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
+    if (capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.outpaint") {
+      const image = selectedImage()
+      if (!image) return
+      void runGeneration({
+        capability: capability(),
+        sourceImage: image.remoteUrl ?? image.url,
+      })
+      return
+    }
     void runGeneration()
   }
 
@@ -704,13 +759,14 @@ export default function StudioPage() {
     setMode("outpaint")
   }
 
-  function submitOutpaint() {
+  function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
     const image = selectedImage()
     if (!image) return
     void runGeneration({
       capability: "image.outpaint",
       sourceImage: image.remoteUrl ?? image.url,
-      prompt: prompt().trim() || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
+      prompt: input.prompt || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
+      extra: input.extra,
     })
   }
 
@@ -721,6 +777,16 @@ export default function StudioPage() {
       capability: "image.upscale",
       sourceImage: image.remoteUrl ?? image.url,
       prompt: "将当前图片变清晰，提升分辨率和细节",
+    })
+  }
+
+  function cutoutCurrentImage() {
+    const image = selectedImage()
+    if (!image || isBusy()) return
+    void runGeneration({
+      capability: "image.cutout",
+      sourceImage: image.remoteUrl ?? image.url,
+      prompt: "对当前图片进行抠图，移除背景并保留主体",
     })
   }
 
@@ -805,16 +871,16 @@ export default function StudioPage() {
         </main>
       }>
         <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
-          <div class="h-[56px] shrink-0 flex items-center px-6 border-b border-[rgba(15,23,42,0.08)]">
-            <div class="text-[15px] font-semibold truncate">{currentTitle()}</div>
-            <div class="ml-auto text-[11px] text-[var(--studio-muted)] truncate max-w-[180px]" title={projectDir()}>
+          <div class="studio-center-header">
+            <div class="studio-center-title">{currentTitle()}</div>
+            <div class="studio-center-path" title={projectDir()}>
               {projectDir()}
             </div>
           </div>
 
           <ScrollView
             viewportRef={(el) => { conversationScrollRef = el }}
-            class="flex-1 min-h-0 px-6 py-6"
+            class="studio-center-scroll"
           >
             <Show when={turns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
               <StudioConversation
@@ -892,6 +958,7 @@ export default function StudioPage() {
                 onSelectImage={setSelectedImageId}
                 onRegenerate={regenerateCurrentResult}
                 onUpscale={upscaleCurrentImage}
+                onCutout={cutoutCurrentImage}
                 onOutpaint={openOutpaint}
               />
             </aside>
@@ -984,7 +1051,7 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
             class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
             <span class="flex items-center gap-[12px]">
-              <img src="/IconStudio1.svg" alt="" style={{ width: "20px", height: "20px" }} />
+              <img src="/studio/IconStudio1.svg" alt="" style={{ width: "20px", height: "20px" }} />
               <span class="text-[12px] leading-[20px] select-none" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                 Octo Studio
               </span>
@@ -1134,21 +1201,19 @@ function StudioComposer(props: {
       </Show>
 
       <div class="studio-composer">
-        <div class="flex gap-4">
+        <div class="studio-composer-input-row">
           <button
             type="button"
             onClick={props.onPickFile}
-            class="w-[48px] h-[62px] shrink-0 rounded-[6px] bg-[#f4f5f7] border border-[rgba(15,23,42,0.06)] rotate-[-4deg] flex items-center justify-center text-[24px] text-[rgba(15,23,42,0.32)]"
+            class="studio-composer-ref-btn"
             title="上传参考图"
-          >
-            +
-          </button>
+          />
           <textarea
             value={props.prompt}
             onInput={(event) => props.onPrompt(event.currentTarget.value)}
             onKeyDown={props.onKeyDown}
             placeholder="上传参考图、输入文字，描述你想生成的图片。"
-            class="flex-1 min-h-[76px] resize-none border-0 outline-none bg-transparent text-[13px] leading-[22px] placeholder:text-[rgba(15,23,42,0.45)]"
+            class="studio-composer-input"
             disabled={props.status === "running" || props.status === "submitting"}
           />
         </div>
@@ -1171,7 +1236,7 @@ function StudioComposer(props: {
           </div>
         </Show>
 
-        <div class="flex items-center gap-2 mt-5">
+        <div class="studio-composer-toolbar">
           <ToolButton label={capabilityLabel(props.capability)} onClick={() => props.onOpenMenu(props.openMenu === "capability" ? null : "capability")} />
           <ToolButton label={imageToolLabel(props.imageTool)} onClick={() => props.onOpenMenu(props.openMenu === "imageTool" ? null : "imageTool")} />
           <ToolButton label={styleModelLabel(props.styleModel)} onClick={() => props.onOpenMenu(props.openMenu === "style" ? null : "style")} />
@@ -1181,11 +1246,9 @@ function StudioComposer(props: {
             type="button"
             onClick={props.onSubmit}
             disabled={!props.canSubmit}
-            class="ml-auto w-[38px] h-[38px] rounded-full studio-gradient-button flex items-center justify-center disabled:opacity-45 disabled:shadow-none"
+            class="studio-composer-send"
             title="生成"
-          >
-            {props.status === "submitting" || props.status === "running" ? "…" : "➤"}
-          </button>
+          />
         </div>
       </div>
     </div>
@@ -1194,18 +1257,22 @@ function StudioComposer(props: {
 
 function ToolButton(props: { label: string; onClick: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="h-8 px-3 rounded-full bg-[#f2f3f5] hover:bg-[#e8e9ec] transition-colors text-[13px] flex items-center gap-1">
-      <span>{props.label}</span>
-      <span class="text-[10px] text-[var(--studio-muted)]">⌄</span>
+    <button type="button" onClick={props.onClick} class="studio-composer-tool-btn">
+      <span class="studio-composer-tool-label">{props.label}</span>
+      <span class="studio-composer-tool-caret" />
     </button>
   )
 }
 
 function IconTool(props: { label: string; onClick: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="w-8 h-8 rounded-full bg-[#f2f3f5] hover:bg-[#e8e9ec] transition-colors text-[13px]" title={props.label}>
-      {props.label === "参数" ? "≛" : "▣"}
-    </button>
+    <button
+      type="button"
+      onClick={props.onClick}
+      class={`studio-composer-icon-tool ${props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"}`}
+      title={props.label}
+      aria-label={props.label}
+    />
   )
 }
 
@@ -1218,11 +1285,16 @@ function CapabilityMenu(props: { value: StudioCapability; onSelect: (value: Stud
             <button
               type="button"
               onClick={() => props.onSelect(item.id)}
-              class="w-full h-10 rounded-[8px] px-3 flex items-center gap-2 text-left text-[13px] hover:bg-[#f4f5f7]"
-              classList={{ "bg-[#f0f1f3]": item.id === props.value }}
+              disabled={!SUPPORTED_STUDIO_CAPABILITIES.has(item.id)}
+              class="studio-capability-option"
+              classList={{
+                active: item.id === props.value,
+                "opacity-45 cursor-not-allowed": !SUPPORTED_STUDIO_CAPABILITIES.has(item.id),
+              }}
+              title={SUPPORTED_STUDIO_CAPABILITIES.has(item.id) ? item.description : "即将支持"}
             >
-              <span style={{ color: item.tone }}>✦</span>
-              <span>{item.label}</span>
+              <span class={`studio-capability-icon studio-capability-icon-${index() + 1}`} />
+              <span class="studio-capability-label">{item.label}</span>
             </button>
             <Show when={index() === 1 || index() === 5}>
               <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 12px" }} />
@@ -1240,17 +1312,17 @@ function StyleMenu(props: { value: string; onSelect: (value: string) => void }):
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3">
         <For each={STUDIO_STYLE_MODELS}>
-          {(item) => (
+          {(item, index) => (
             <button
               type="button"
               onClick={() => props.onSelect(item.id)}
-              class="h-[52px] rounded-[8px] px-2 flex items-center gap-3 text-left hover:bg-[#f4f5f7]"
-              classList={{ "bg-[#f0f1f3]": item.id === props.value }}
+              class="studio-style-option"
+              classList={{ active: item.id === props.value }}
             >
-              <span class="w-10 h-10 rounded-[6px] shrink-0" style={{ background: item.color }} />
-              <span class="text-[13px]">{item.label}</span>
+              <span class={`studio-style-icon studio-style-icon-${index() + 1}`} />
+              <span class="studio-style-label">{item.label}</span>
               <Show when={item.id === props.value}>
-                <span class="ml-auto">✓</span>
+                <span class="studio-style-check" />
               </Show>
             </button>
           )}
@@ -1342,48 +1414,58 @@ function StudioConversation(props: {
   onSelectImage: (id: string) => void
 }): JSX.Element {
   return (
-    <div class="flex flex-col gap-8">
+    <div class="studio-conversation">
       <For each={props.turns}>
         {(turn, index) => (
-          <div classList={{ "pt-8 border-t border-[rgba(15,23,42,0.08)]": index() > 0 }}>
-            <div class="ml-auto max-w-[374px] rounded-[14px] bg-[#fdeeff] px-4 py-3 text-[13px] leading-[21px] whitespace-pre-wrap">
+          <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
+            <div class="studio-user-bubble">
               {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
             </div>
             <Show when={turn.assistantText}>
-              <div class="mt-6 text-[13px] leading-[22px] whitespace-pre-wrap">{turn.assistantText}</div>
+              <div class="studio-assistant-copy">{turn.assistantText}</div>
             </Show>
-            <div class="studio-result-card mt-5 p-3">
-              <div class="inline-flex items-center gap-1 rounded-[14px] bg-white" style={{ "font-size": "12px", "line-height": "20px", color: "#BC03D4", padding: "4px 12px", background: "#fff" }}>
-                <div style={{ width: "12px", height: "12px", "background-image": "url(/studio/picture_star_fill.svg)", "background-size": "contain", "background-repeat": "no-repeat" }} />
-                {capabilityLabel(props.result?.capability ?? "image.generate")}
+            <div
+              class="studio-result-card"
+              classList={{
+                complete: Boolean(turn.result?.images.length),
+                generating: Boolean((props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length),
+                failed: Boolean(turn.toolError || turn.result?.error),
+              }}
+            >
+              <div class="studio-result-badge">
+                <span class="studio-result-badge-icon" />
+                {capabilityLabel(turn.result?.capability ?? props.result?.capability ?? "image.generate")}
               </div>
-              <div class="mt-4 text-[16px] font-semibold">{turn.toolTitle ?? "图片生成中"}</div>
-              <div class="mt-1 text-[13px] text-[var(--studio-muted)]">
+              <div class="studio-result-title">{turn.toolTitle ?? (turn.result?.images.length ? "图片生成完成" : "图片生成中")}</div>
+              <div class="studio-result-meta">
                 {turn.toolName ? `Tool：${turn.toolName} · ` : ""}
                 创建时间：{formatTime(turn.createdAt)}
               </div>
               <Show when={turn.toolError}>
-                <div class="mt-4 rounded-[10px] bg-white/70 px-3 py-2 text-[12px] leading-[18px] text-[#b42318]">
+                <div class="studio-result-error">
                   {turn.toolError}
                 </div>
               </Show>
               <Show when={turn.result?.error}>
-                <div class="mt-4 rounded-[10px] bg-white/70 px-3 py-2 text-[12px] leading-[18px] text-[#b42318] whitespace-pre-wrap break-all">
+                <div class="studio-result-error">
                   {turn.result?.error}
                 </div>
               </Show>
-              <Show when={(props.busy || turn.toolRunning) && turn.isLatest && !turn.result} fallback={
-                <div class="grid grid-cols-4 gap-2 mt-5">
+              <Show when={(props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length} fallback={
+                <div class="studio-result-grid">
                   <For each={turn.result?.images ?? []}>
                     {(image) => (
-                      <button type="button" onClick={() => props.onSelectImage(image.id)} class="aspect-[3/4] overflow-hidden rounded-[14px] bg-white">
-                        <img src={image.thumbnailUrl ?? image.url} class="w-full h-full object-cover" alt="" />
+                      <button type="button" onClick={() => props.onSelectImage(image.id)} class="studio-result-thumb">
+                        <img src={image.thumbnailUrl ?? image.url} alt="" />
                       </button>
                     )}
                   </For>
                 </div>
               }>
-                <div class="mt-5 h-[168px] rounded-[12px] bg-[#e7c7ff] animate-pulse" />
+                <div class="studio-generation-skeleton">
+                  <div class="studio-generation-skeleton-shine" />
+                  <div class="studio-generation-skeleton-image" />
+                </div>
               </Show>
             </div>
           </div>
@@ -1433,22 +1515,26 @@ function StudioResultCanvas(props: {
     }>
       {(image) => (
         <>
-          <div class="h-[56px] shrink-0 flex items-center border-b border-[rgba(15,23,42,0.08)] px-6">
-            <span class="rounded-full bg-[#fde7ff] text-[#c100d8] px-3 py-1 text-[13px]">{props.imageLabel}</span>
+          <div class="studio-canvas-header">
+            <span class="studio-canvas-label">{props.imageLabel}</span>
           </div>
-          <div class="flex-1 min-h-0 flex items-center justify-center px-10 pt-10 pb-[106px]">
-            <img src={image().url} class="max-h-full max-w-full object-contain" alt="Studio generated result" />
+          <div class="studio-canvas-stage">
+            <img src={image().url} class="studio-canvas-image" alt="Studio generated result" />
           </div>
-          <div class="absolute bottom-12 left-1/2 -translate-x-1/2 h-12 rounded-full bg-white shadow-[0_18px_52px_rgba(15,23,42,0.16)] flex items-center gap-2 px-4">
-            <button type="button" class="w-8 h-8 rounded-full hover:bg-[#f3f4f6]" title="收藏">♡</button>
+          <div class="studio-canvas-floating-actions">
+            <div class="studio-canvas-actions-group">
+              <button type="button" class="studio-canvas-favorite-button" title="收藏" aria-label="收藏" />
+            </div>
+            <div class="studio-canvas-actions-divider" />
             <button
               type="button"
-              class="w-8 h-8 rounded-full hover:bg-[#f3f4f6] disabled:opacity-45 disabled:cursor-not-allowed"
+              class="studio-canvas-regenerate-button disabled:opacity-45 disabled:cursor-not-allowed"
               onClick={props.onRegenerate}
               disabled={props.regenerateDisabled}
               title="再次生成"
-            >↻</button>
-            <button type="button" onClick={props.onDownload} class="studio-gradient-button studio-canvas-download-action h-8 min-w-[76px] px-6 rounded-full text-[13px] whitespace-nowrap leading-none flex items-center justify-center" title="下载">下载</button>
+              aria-label="再次生成"
+            />
+            <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
           </div>
         </>
       )}
@@ -1465,85 +1551,154 @@ function StudioDetails(props: {
   onSelectImage: (id: string) => void
   onRegenerate: () => void
   onUpscale: () => void
+  onCutout: () => void
   onOutpaint: () => void
 }): JSX.Element {
   return (
-    <ScrollView class="h-full px-7 py-7">
-      <div class="grid grid-cols-4 gap-2 pb-4 border-b border-[rgba(15,23,42,0.08)]">
+    <ScrollView class="studio-detail-panel">
+      <div class="studio-detail-cover">
         <For each={props.result.images}>
           {(image) => (
             <button
               type="button"
               onClick={() => props.onSelectImage(image.id)}
-              class="relative aspect-[3/4] rounded-[7px] overflow-hidden"
+              class="studio-detail-preview-button"
+              classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
             >
-              <img src={image.thumbnailUrl ?? image.url} class="w-full h-full object-cover" alt="" />
-              <Show when={image.id === (props.selectedImageId ?? props.result.images[0]?.id)}>
-                <span class="pointer-events-none absolute inset-0 rounded-[7px] border-2 border-[#1267ff]" />
-              </Show>
+              <img src={image.thumbnailUrl ?? image.url} class="studio-detail-preview-image" alt="" />
             </button>
           )}
         </For>
       </div>
-      <div class="py-5 border-b border-[rgba(15,23,42,0.08)]">
-        <div class="text-[14px] font-semibold">{capabilityLabel(props.result.capability)}</div>
-        <p class="mt-2 text-[12px] leading-[20px] text-[var(--studio-muted)]">
+      <section class="studio-detail-section">
+        <div class="studio-detail-title">{buildStudioDisplayPrompt(props.result.prompt)}</div>
+        <p class="studio-detail-copy">
           {props.result.prompt}
         </p>
-      </div>
-      <div class="py-5 border-b border-[rgba(15,23,42,0.08)]">
-        <div class="text-[15px] font-semibold mb-4">生成信息</div>
+      </section>
+      <section class="studio-detail-section">
+        <div class="studio-detail-section-title">生成信息</div>
         <InfoRow label="模型" value={props.result.model} />
         <InfoRow label="比例" value={props.result.aspectRatio} />
-        <InfoRow label="文件名" value={props.imageLabel} />
-      </div>
-      <div class="py-5 border-b border-[rgba(15,23,42,0.08)]">
-        <div class="text-[15px] font-semibold mb-3">提示词</div>
-        <p class="text-[12px] leading-[20px] text-[var(--studio-muted)]">{props.result.prompt.split("\n")[0]}</p>
-      </div>
-      <div class="py-5 border-b border-[rgba(15,23,42,0.08)]">
+        <InfoRow label="分辨率" value={props.image?.width && props.image.height ? `${props.image.width} x ${props.image.height}` : "-"} />
+        <InfoRow label="数量" value={`${props.result.images.length}`} />
+        <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
+      </section>
+      <section class="studio-detail-section">
+        <div class="studio-detail-section-title">提示词</div>
+        <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
         <button
           type="button"
           onClick={props.onRegenerate}
           disabled={props.regenerateDisabled}
-          class="studio-gradient-button studio-details-primary-action w-full h-8 rounded-full text-[13px] mb-3 disabled:opacity-45 disabled:cursor-not-allowed"
+          class="studio-details-primary-action disabled:opacity-45 disabled:cursor-not-allowed"
         >
-          ✦ 再次生成
+          再次生成
         </button>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="studio-detail-action-grid">
           <button
             type="button"
             onClick={props.onUpscale}
             disabled={props.regenerateDisabled}
-            class="studio-details-secondary-action h-8 rounded-full text-[12px] disabled:opacity-45 disabled:cursor-not-allowed"
+            class="studio-details-secondary-action studio-detail-action-upscale disabled:opacity-45 disabled:cursor-not-allowed"
           >
-            <img src="/studio/imgCreate3.svg" alt="" aria-hidden="true" />
             <span>变清晰</span>
           </button>
-          <button type="button" class="studio-details-secondary-action h-8 rounded-full text-[12px]">
-            <img src="/studio/imgCreate4.svg" alt="" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={props.onCutout}
+            disabled={props.regenerateDisabled}
+            class="studio-details-secondary-action studio-detail-action-cutout disabled:opacity-45 disabled:cursor-not-allowed"
+          >
             <span>抠图</span>
           </button>
-          <button type="button" class="studio-details-secondary-action h-8 rounded-full text-[12px]">
-            <img src="/studio/imgCreate5.svg" alt="" aria-hidden="true" />
+          <button type="button" class="studio-details-secondary-action studio-detail-action-inpaint">
             <span>局部重绘</span>
           </button>
-          <button type="button" onClick={props.onOutpaint} class="studio-details-secondary-action h-8 rounded-full text-[12px]">
-            <img src="/studio/imgCreate6.svg" alt="" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={props.onOutpaint}
+            disabled={props.regenerateDisabled}
+            class="studio-details-secondary-action studio-detail-action-outpaint disabled:opacity-45 disabled:cursor-not-allowed"
+          >
             <span>扩图</span>
           </button>
         </div>
-      </div>
-      <div class="py-5">
-        <div class="text-[15px] font-semibold mb-3">风格标签</div>
-        <div class="flex flex-wrap gap-2">
-          <For each={[capabilityLabel(props.result.capability), props.result.provider, props.result.aspectRatio, props.result.model]}>
-            {(item) => <span class="px-2 py-1 rounded-[4px] bg-[#f5f5f5] text-[11px]">{item}</span>}
+      </section>
+      <section class="studio-detail-section">
+        <div class="studio-detail-section-title">风格标签</div>
+        <div class="studio-detail-tags">
+          <For each={[capabilityLabel(props.result.capability), props.result.model, props.result.aspectRatio, `${props.result.images.length}张`, `${props.result.images.length}张结果`]}>
+            {(item) => <span>{item}</span>}
           </For>
         </div>
-      </div>
+      </section>
     </ScrollView>
   )
+}
+
+type OutpaintBox = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type OutpaintHandle = "top-left" | "top" | "top-right" | "left" | "right" | "bottom-left" | "bottom" | "bottom-right"
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function ratioBox(imageBox: OutpaintBox, stage: { width: number; height: number }, ratio: StudioAspectRatio): OutpaintBox {
+  const ratioValue =
+    ratio === "16:9"
+      ? 16 / 9
+      : ratio === "9:16"
+        ? 9 / 16
+        : 1
+  const imageRatio = imageBox.width / imageBox.height
+  const width = ratioValue > imageRatio ? imageBox.height * ratioValue : imageBox.width
+  const height = ratioValue > imageRatio ? imageBox.height : imageBox.width / ratioValue
+  return {
+    x: clamp(imageBox.x + (imageBox.width - width) / 2, 0, stage.width - width),
+    y: clamp(imageBox.y + (imageBox.height - height) / 2, 0, stage.height - height),
+    width,
+    height,
+  }
+}
+
+function resizeOutpaintBox(input: {
+  rect: OutpaintBox
+  imageBox: OutpaintBox
+  stage: { width: number; height: number }
+  handle: OutpaintHandle
+  dx: number
+  dy: number
+}): OutpaintBox {
+  const next = { ...input.rect }
+  const imageRight = input.imageBox.x + input.imageBox.width
+  const imageBottom = input.imageBox.y + input.imageBox.height
+  if (input.handle.includes("left")) {
+    next.x = clamp(input.rect.x + input.dx, 0, input.imageBox.x)
+    next.width = input.rect.x + input.rect.width - next.x
+  }
+  if (input.handle.includes("right")) {
+    next.width = clamp(input.rect.x + input.rect.width + input.dx, imageRight, input.stage.width) - next.x
+  }
+  if (input.handle.includes("top")) {
+    next.y = clamp(input.rect.y + input.dy, 0, input.imageBox.y)
+    next.height = input.rect.y + input.rect.height - next.y
+  }
+  if (input.handle.includes("bottom")) {
+    next.height = clamp(input.rect.y + input.rect.height + input.dy, imageBottom, input.stage.height) - next.y
+  }
+  return {
+    x: next.x,
+    y: next.y,
+    width: Math.max(input.imageBox.width, next.width),
+    height: Math.max(input.imageBox.height, next.height),
+  }
 }
 
 function StudioOutpaintEditor(props: {
@@ -1551,51 +1706,216 @@ function StudioOutpaintEditor(props: {
   aspectRatio: StudioAspectRatio
   onAspectRatio: (value: StudioAspectRatio) => void
   onClose: () => void
-  onSubmit: () => void
+  onSubmit: (input: { prompt: string; extra: Record<string, unknown> }) => void
 }): JSX.Element {
+  const [editorPrompt, setEditorPrompt] = createSignal("")
+  const [stage, setStage] = createSignal({ width: 828, height: 420 })
+  const [rect, setRect] = createSignal<OutpaintBox>()
+  const ratios = ["1:1", "9:16", "16:9"] as StudioAspectRatio[]
+  let stageRef!: HTMLDivElement
+
+  const imageBox = createMemo<OutpaintBox>(() => {
+    const sourceWidth = props.image.width ?? 1024
+    const sourceHeight = props.image.height ?? 1024
+    const maxWidth = Math.min(320, stage().width * 0.42)
+    const maxHeight = stage().height * 0.56
+    const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight)
+    const width = sourceWidth * scale
+    const height = sourceHeight * scale
+    return {
+      x: (stage().width - width) / 2,
+      y: (stage().height - height) / 2,
+      width,
+      height,
+    }
+  })
+
+  createEffect(() => {
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      setStage({
+        width: Math.max(360, entry.contentRect.width),
+        height: Math.max(280, entry.contentRect.height),
+      })
+    })
+    observer.observe(stageRef)
+    onCleanup(() => observer.disconnect())
+  })
+
+  createEffect(
+    on(
+      () => `${props.image.id}:${stage().width}:${stage().height}`,
+      () => setRect(imageBox()),
+      { defer: true },
+    ),
+  )
+
+  function applyRatio(ratio: StudioAspectRatio) {
+    props.onAspectRatio(ratio)
+    setRect(ratioBox(imageBox(), stage(), ratio))
+  }
+
+  function handlePointerDown(handle: OutpaintHandle, event: PointerEvent) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startY = event.clientY
+    const startRect = rect() ?? imageBox()
+    function onMove(moveEvent: PointerEvent) {
+      setRect(resizeOutpaintBox({
+        rect: startRect,
+        imageBox: imageBox(),
+        stage: stage(),
+        handle,
+        dx: moveEvent.clientX - startX,
+        dy: moveEvent.clientY - startY,
+      }))
+    }
+    function onUp() {
+      document.removeEventListener("pointermove", onMove)
+      document.removeEventListener("pointerup", onUp)
+    }
+    document.addEventListener("pointermove", onMove)
+    document.addEventListener("pointerup", onUp)
+  }
+
+  const outpaintMetrics = createMemo(() => {
+    const current = rect() ?? imageBox()
+    const scale = imageBox().width / (props.image.width ?? 1024)
+    const left = Math.round((imageBox().x - current.x) / scale)
+    const right = Math.round((current.x + current.width - imageBox().x - imageBox().width) / scale)
+    const top = Math.round((imageBox().y - current.y) / scale)
+    const bottom = Math.round((current.y + current.height - imageBox().y - imageBox().height) / scale)
+    return {
+      left: Math.max(0, left),
+      right: Math.max(0, right),
+      top: Math.max(0, top),
+      bottom: Math.max(0, bottom),
+      realWidth: Math.round(current.width / scale),
+      realHeight: Math.round(current.height / scale),
+    }
+  })
+  const canSubmit = createMemo(() =>
+    outpaintMetrics().left > 0 ||
+    outpaintMetrics().right > 0 ||
+    outpaintMetrics().top > 0 ||
+    outpaintMetrics().bottom > 0,
+  )
   return (
-    <div class="absolute inset-0 bg-black text-white">
-      <div class="h-[64px] flex items-center px-8 gap-3">
-        <span>扩图</span>
-        <span class="text-[13px] text-white/70">保留特征生成更大尺寸和内容</span>
-        <button type="button" onClick={props.onClose} class="ml-auto text-[22px]">×</button>
+    <div class="studio-enlarging">
+      <div class="studio-enlarging-header">
+        <div class="min-w-0">
+          <div class="studio-enlarging-title">扩图</div>
+          <div class="studio-enlarging-meta">
+            {currentImageName(props.image)} · {props.image.width ?? "-"} x {props.image.height ?? "-"} {"->"} {outpaintMetrics().realWidth} x {outpaintMetrics().realHeight}
+          </div>
+        </div>
+        <button type="button" onClick={props.onClose} class="studio-enlarging-close" aria-label="关闭扩图" title="关闭扩图" />
       </div>
-      <div class="absolute inset-x-0 top-[64px] bottom-[136px] flex items-center justify-center">
-        <img src={props.image.url} class="max-w-[64%] max-h-full object-contain" alt="Outpaint source" />
-      </div>
-      <div class="absolute left-8 right-8 bottom-8 rounded-[14px] bg-[#1c1c1c] border border-white/10 p-5">
-        <div class="flex gap-7 text-[13px] mb-5">
-          <For each={["1:1", "16:9", "9:16"] as StudioAspectRatio[]}>
+      <div class="studio-enlarging-body">
+        <div ref={stageRef!} class="studio-enlarging-canvas-wrap">
+          <div class="studio-enlarging-stage" style={{ width: `${stage().width}px`, height: `${stage().height}px` }}>
+            <div
+              class="studio-enlarging-selection"
+              style={{
+                left: `${(rect() ?? imageBox()).x}px`,
+                top: `${(rect() ?? imageBox()).y}px`,
+                width: `${(rect() ?? imageBox()).width}px`,
+                height: `${(rect() ?? imageBox()).height}px`,
+              }}
+            >
+              <For each={[
+                ["top-left", "nwse-resize"],
+                ["top", "ns-resize"],
+                ["top-right", "nesw-resize"],
+                ["left", "ew-resize"],
+                ["right", "ew-resize"],
+                ["bottom-left", "nesw-resize"],
+                ["bottom", "ns-resize"],
+                ["bottom-right", "nwse-resize"],
+              ] as const}>
+                {(item) => (
+                  <button
+                    type="button"
+                    class={`studio-enlarging-handle studio-enlarging-handle-${item[0]}`}
+                    style={{ cursor: item[1] }}
+                    aria-label={`调整${item[0]}`}
+                    onPointerDown={(event) => handlePointerDown(item[0], event)}
+                  />
+                )}
+              </For>
+            </div>
+            <img
+              src={props.image.url}
+              class="studio-enlarging-image"
+              style={{
+                left: `${imageBox().x}px`,
+                top: `${imageBox().y}px`,
+                width: `${imageBox().width}px`,
+                height: `${imageBox().height}px`,
+              }}
+              alt="Outpaint source"
+            />
+          </div>
+        </div>
+        <div class="studio-enlarging-controls">
+          <div class="studio-enlarging-ratios" aria-label="扩图比例">
+          <For each={ratios}>
             {(item) => (
               <button
                 type="button"
-                onClick={() => props.onAspectRatio(item)}
-                class="text-white/60"
-                classList={{ "text-white": item === props.aspectRatio }}
+                onClick={() => applyRatio(item)}
+                class="studio-enlarging-ratio"
+                classList={{ active: item === props.aspectRatio }}
               >
-                □ {item}
+                {item}
               </button>
             )}
           </For>
-        </div>
-        <div class="flex gap-4">
-          <input
-            class="flex-1 h-10 rounded-[6px] bg-[#3a3a3a] px-3 text-[13px] outline-none"
-            placeholder="请输入提示词：建议格式：风格，主体，背景，其他细节"
+            <span class="studio-enlarging-distance">
+              左 {outpaintMetrics().left} · 右 {outpaintMetrics().right} · 上 {outpaintMetrics().top} · 下 {outpaintMetrics().bottom}
+            </span>
+          </div>
+          <div class="studio-enlarging-prompt-row">
+          <textarea
+            class="studio-enlarging-prompt"
+            maxlength="2000"
+            placeholder="描述希望扩展出的画面内容"
+            value={editorPrompt()}
+            onInput={(event) => setEditorPrompt(event.currentTarget.value)}
           />
-          <button type="button" class="h-10 px-8 rounded-[6px] bg-[#333]">删除</button>
-          <button type="button" onClick={props.onSubmit} class="studio-gradient-button h-10 px-9 rounded-[6px]">一键生成</button>
+          <button type="button" onClick={() => setRect(imageBox())} class="studio-enlarging-reset">重置</button>
+          <button
+            type="button"
+            disabled={!canSubmit()}
+            onClick={() => props.onSubmit({
+              prompt: editorPrompt().trim(),
+              extra: {
+                ...outpaintMetrics(),
+                numImage: 1,
+                ratio: props.aspectRatio,
+              },
+            })}
+            class="studio-enlarging-create disabled:opacity-45"
+          >
+            一键生成
+          </button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
+function currentImageName(image: StudioImage) {
+  return image.localPath?.split("/").at(-1) ?? image.id
+}
+
 function InfoRow(props: { label: string; value: string }): JSX.Element {
   return (
-    <div class="flex items-center justify-between text-[12px] mb-3">
-      <span class="text-[var(--studio-muted)]">{props.label}</span>
-      <span>{props.value}</span>
+    <div class="studio-detail-row">
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
     </div>
   )
 }

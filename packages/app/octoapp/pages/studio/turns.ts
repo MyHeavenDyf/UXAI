@@ -1,5 +1,5 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import type { StudioGenerationResult } from "./types"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationResult } from "./types"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -91,6 +91,58 @@ function parseToolImages(output: string) {
   }
 }
 
+function parseToolOutput(output?: string) {
+  if (!output) return {}
+  try {
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function stringField(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key]
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function numberField(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function normalizeCapability(value?: string): StudioCapability {
+  if (
+    value === "image.generate" ||
+    value === "video.generate" ||
+    value === "image.upscale" ||
+    value === "image.cutout" ||
+    value === "image.inpaint" ||
+    value === "image.outpaint" ||
+    value === "image.fusion"
+  ) return value
+  return "image.generate"
+}
+
+function normalizeAspectRatio(value?: string): StudioAspectRatio {
+  if (
+    value === "1:1" ||
+    value === "2:3" ||
+    value === "3:4" ||
+    value === "9:16" ||
+    value === "3:2" ||
+    value === "4:3" ||
+    value === "16:9"
+  ) return value
+  return "3:4"
+}
+
+function toolInput(part?: Extract<Part, { type: "tool" }>) {
+  const state = part?.state as Record<string, unknown> | undefined
+  const input = state?.input
+  return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined
+}
+
 function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
   const state = part.state as Record<string, unknown>
   const attachments = Array.isArray(state.attachments) ? state.attachments : []
@@ -158,6 +210,11 @@ function buildResult(input: {
       part.state.status === "error",
     )
   const images = completed ? Array.from(new Set([...parseToolAttachments(completed), ...parseToolImages(completed.state.output)])) : []
+  const output = parseToolOutput(completed?.state.output)
+  const inputRecord = toolInput(completed)
+  const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
+  const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
+  const model = stringField(output, "model") ?? completed?.tool ?? "image-generation-tool"
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
@@ -170,16 +227,20 @@ function buildResult(input: {
       ? {
           id: `studio_${completed?.id ?? input.messageID}`,
           status: "succeeded",
-          capability: "image.generate",
+          capability,
           prompt: extractUserDemand(input.userText),
           provider: resolveProvider(completed?.tool),
-          model: completed?.tool ?? "image-generation-tool",
-          aspectRatio: "3:4",
+          toolAction: stringField(output, "toolAction") as StudioGenerationResult["toolAction"],
+          taskId: stringField(output, "taskId"),
+          model,
+          aspectRatio,
           images: images.map((url, index) => ({
             id: `studio_img_${completed?.id ?? input.messageID}_${index}`,
             url,
             thumbnailUrl: url,
             remoteUrl: url,
+            width: numberField(output, "width"),
+            height: numberField(output, "height"),
           })),
           createdAt: input.createdAt,
           completedAt: completed?.state.time.end,
@@ -232,8 +293,9 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       id: `studio_${input.fallback.id}`,
       userText: extractUserDemand(input.fallback.prompt),
       assistantText: "",
-      toolTitle: "图片生成完成",
+      toolTitle: input.fallback.status === "running" ? "图片生成中" : input.fallback.status === "failed" ? "图片生成失败" : "图片生成完成",
       toolName: input.fallback.provider,
+      toolRunning: input.fallback.status === "running",
       result: input.fallback,
       createdAt: input.fallback.createdAt,
       isLatest: true,

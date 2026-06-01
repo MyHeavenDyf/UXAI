@@ -78,6 +78,7 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
+const STUDIO_IMAGE_TOOLS = new Set(["jimeng_image_generate", "internel_image_generate"])
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
@@ -1539,8 +1540,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               messages: msgs,
             })
 
+            const studioImageGeneration =
+              agent.name === "octo_studio" &&
+              Object.entries(lastUser.tools ?? {}).some(([name, enabled]) => enabled !== false && STUDIO_IMAGE_TOOLS.has(name))
+            const activeTools = studioImageGeneration
+              ? Object.fromEntries(Object.entries(tools).filter(([name]) => name === "invalid" || STUDIO_IMAGE_TOOLS.has(name)))
+              : tools
+
             if (lastUser.format?.type === "json_schema") {
-              tools["StructuredOutput"] = createStructuredOutputTool({
+              activeTools["StructuredOutput"] = createStructuredOutputTool({
                 schema: lastUser.format.schema,
                 onSuccess(output) {
                   structured = output
@@ -1588,9 +1596,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               parentSessionID: session.parentID,
               system,
               messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
-              tools,
+              tools: activeTools,
               model,
-              toolChoice: format.type === "json_schema" ? "required" : undefined,
+              toolChoice: format.type === "json_schema" || studioImageGeneration ? "required" : undefined,
             })
 
             if (structured !== undefined) {

@@ -29,6 +29,8 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   provider: StudioProvider
+  toolAction?: "generate_image" | "super_resolution" | "cutout" | "outpainting"
+  taskId?: string
   model: string
   aspectRatio: string
   images: { id: string; url: string; thumbnailUrl?: string; remoteUrl?: string; width?: number; height?: number }[]
@@ -40,9 +42,17 @@ export type StudioGenerationResult = {
 }
 
 function resolveProvider(input: StudioGenerationRequest): StudioProvider {
+  if (input.capability !== "image.generate") return "internel"
   if (input.imageTool) return input.imageTool
   if (input.extra?.imageTool === "internel") return "internel"
   return "jimeng"
+}
+
+function toolActionForCapability(capability: StudioCapability) {
+  if (capability === "image.upscale") return "super_resolution"
+  if (capability === "image.cutout") return "cutout"
+  if (capability === "image.outpaint") return "outpainting"
+  return "generate_image"
 }
 
 function buildAssistantText(input: StudioGenerationRequest) {
@@ -64,6 +74,16 @@ function resultSummary(input: { provider: StudioProvider; raw: unknown; rawBody?
 
 function toolName(provider: StudioProvider) {
   return provider === "internel" ? "internel_image_generate" : "jimeng_image_generate"
+}
+
+function stripUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripUndefined)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, stripUndefined(item)]),
+  )
 }
 
 async function persistStudioSession(input: {
@@ -134,6 +154,7 @@ async function persistStudioSession(input: {
       status: "completed",
       title: "图片生成",
       input: {
+        capability: input.request.capability,
         prompt: input.request.prompt,
         styleModel: input.request.styleModel,
         aspectRatio: input.request.aspectRatio,
@@ -146,7 +167,14 @@ async function persistStudioSession(input: {
         {
           ok: true,
           provider: input.result.provider,
+          capability: input.result.capability,
+          toolAction: input.result.toolAction ?? toolActionForCapability(input.result.capability),
+          taskId: input.result.taskId,
           model: input.result.model,
+          aspectRatio: input.result.aspectRatio,
+          width: input.result.images[0]?.width,
+          height: input.result.images[0]?.height,
+          imageCount: input.result.images.length,
           images: input.result.images.map((image) => image.remoteUrl ?? image.url),
           primaryImage: input.result.images[0]?.remoteUrl ?? input.result.images[0]?.url ?? null,
           response: input.result.response,
@@ -157,6 +185,7 @@ async function persistStudioSession(input: {
       metadata: {
         request: input.result.request,
         response: input.result.response,
+        statusCode: 200,
       },
       time: {
         start: input.result.createdAt,
@@ -266,9 +295,12 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
         sourceImage: input.sourceImage,
         extra: input.extra,
       })
-
+  
+  console.log("[studio.service] ret: ", output)
   console.log("[studio.service] generation tool result", {
     provider: output.provider,
+    toolAction: output.toolAction ?? toolActionForCapability(input.capability),
+    taskId: output.taskId,
     model: output.model,
     statusCode: output.statusCode,
     imageCount: output.images.length,
@@ -284,12 +316,14 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
     )
   }
 
-  const result = {
+  const result = stripUndefined({
     id: `studio_gen_${createdAt}`,
     status: "succeeded" as const,
     capability: input.capability,
     prompt: input.prompt,
     provider: output.provider,
+    toolAction: output.toolAction ?? toolActionForCapability(input.capability),
+    taskId: output.taskId,
     model: output.model,
     aspectRatio: input.aspectRatio ?? "3:4",
     images: output.images.map((image, index) => ({
@@ -297,21 +331,29 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       url: image.url,
       thumbnailUrl: image.url,
       remoteUrl: image.url,
-      width: image.width,
-      height: image.height,
+      ...(image.width !== undefined ? { width: image.width } : {}),
+      ...(image.height !== undefined ? { height: image.height } : {}),
     })),
-    request: output.request,
-    response: resultSummary({ provider, raw: output.raw, rawBody: output.rawBody }),
+    request: stripUndefined(output.request),
+    response: stripUndefined(resultSummary({ provider, raw: output.raw, rawBody: output.rawBody })),
     createdAt,
     completedAt: Date.now(),
-  }
-
+  }) as StudioGenerationResult
   if (input.sessionID) {
-    await persistStudioSession({
-      sessionID: SessionID.zod.parse(input.sessionID),
-      request: input,
-      result,
-    })
+    try {
+      await persistStudioSession({
+        sessionID: SessionID.zod.parse(input.sessionID),
+        request: input,
+        result,
+      })
+    } catch (error) {
+      console.error("[studio.service] persist generated result failed", {
+        sessionID: input.sessionID,
+        resultID: result.id,
+        taskId: result.taskId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   return result
