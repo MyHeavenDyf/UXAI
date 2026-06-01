@@ -3,6 +3,7 @@ import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@o
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -38,8 +39,8 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
-import { IconAttach, IconSend } from "./icons"
-import { IllustrationInsightEmpty } from "./icons/illustrations"
+import { IconSend } from "./icons"
+import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { loadDesignSystem } from "./utils/design-system-loader"
@@ -298,6 +299,7 @@ export default function MakePage() {
   })
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
+  const hasContent = () => !!(params.id && userMessages().length > 0)
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
@@ -540,6 +542,12 @@ export default function MakePage() {
     }
   }
 
+  async function halt() {
+    const sid = params.id
+    if (!sid) return
+    await globalSDK.client.session.abort({ sessionID: sid }).catch(() => {})
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -603,6 +611,10 @@ export default function MakePage() {
 
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
+    // Auto-activate composed artifact tab (identifier ends with "-composed")
+    if (card.artifactIdentifier?.endsWith("-composed")) {
+      tabStore.activate(card.id)
+    }
     // Auto-save snapshot when a new result is opened
     const tab = tabStore.tabs().find((t) => t.id === card.id)
     if (tab) {
@@ -617,9 +629,15 @@ export default function MakePage() {
   return (
     <DataProvider data={dataStore} directory={homeDir() || ""}>
       <div
-        class="octo-split"
+        class="octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
-        style={!focusMode() ? { "grid-template-columns": `${chatWidth()}px 8px minmax(400px, 1fr)` } : undefined}
+        style={{
+          "grid-template-columns": !focusMode()
+            ? hasContent()
+              ? `${chatWidth()}px 8px minmax(400px, 1fr)`
+              : "1fr"
+            : undefined,
+        }}
       >
 
         {/* ── 左栏：对话面板 ──── */}
@@ -627,7 +645,7 @@ export default function MakePage() {
           <div
             class="flex flex-col overflow-hidden"
             style={{
-              background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-shell-bg)",
+              background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
             }}
             onDragOver={handleDragOver}
@@ -635,10 +653,10 @@ export default function MakePage() {
             onDrop={handleDrop}
           >
             {/* 标题栏 */}
-            <Show when={params.id}>
+            <Show when={hasContent()}>
               <div
-                class="shrink-0 h-12 flex items-center justify-between px-4"
-                style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
+                class="shrink-0 flex items-center justify-between"
+                style={{ padding: "12px 24px", background: "#fff" }}
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
@@ -664,7 +682,8 @@ export default function MakePage() {
                     }
                   >
                     <h1
-                      class="text-14-medium text-text-strong truncate min-w-0"
+                      class="truncate min-w-0"
+                      style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
                       {sessionTitle(sessionInfo()?.title) ?? "Octo Make"}
@@ -703,16 +722,107 @@ export default function MakePage() {
                 </DropdownMenu>
               </div>
             </Show>
-            {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
-            <div
-              class="flex-1 overflow-y-auto min-h-0"
-              ref={autoScroll.scrollRef}
-              onScroll={autoScroll.handleScroll}
-              onMouseUp={autoScroll.handleInteraction}
-            >
-              <Show
-                when={params.id && userMessages().length > 0}
-                fallback={<ChatEmptyState />}
+            <Show when={hasContent()} fallback={
+              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+                <ChatEmptyState />
+                <div class="w-full max-w-[800px] px-8">
+                  <AttachmentBar
+                    attachments={attachments()}
+                    onRemove={removeAttachment}
+                  />
+                  <div
+                    class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+                    style={{
+                      border: "1px solid transparent",
+                      background: `
+                        linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+                        linear-gradient(135deg,
+                          rgba(246, 97, 23, 0.7) 1%,
+                          rgba(95, 45, 255, 0.7) 8%,
+                          rgba(61, 93, 255, 0.7) 22%,
+                          rgba(104, 138, 255, 0.7) 43%,
+                          rgba(28, 171, 111, 0.7) 54%,
+                          rgba(61, 93, 255, 0.7) 87%,
+                          rgba(206, 7, 232, 0.7) 92%) border-box`,
+                      "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+                      "margin-top": attachments().length > 0 ? "6px" : "0",
+                      height: "150px",
+                    }}
+                  >
+                    <textarea
+                      value={prompt()}
+                      onInput={(e) => setPrompt(e.currentTarget.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="输入指令，按 Enter 发送…"
+                      disabled={inputDisabled()}
+                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-3"
+                      style={{
+                        "font-family": "var(--octo-font)",
+                        "overflow-y": "auto",
+                      }}
+                    />
+                    <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10">
+                      <div class="flex items-center gap-1">
+                        <DesignSystemPicker
+                          selected={selectedDesignSystem()}
+                          onSelect={setSelectedDesignSystem}
+                        />
+                        <TemplatePicker
+                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                        />
+                        <input
+                          ref={fileInputRef!}
+                          type="file"
+                          multiple
+                          class="hidden"
+                          accept="*/*"
+                          onChange={handleFileInputChange}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          disabled={maxAttachments()}
+                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                          title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                        >
+                          <Icon name="plus" class="size-5" />
+                        </button>
+                        <ModelSelectorPopover
+                          model={modelState}
+                          triggerAs="button"
+                          triggerProps={{
+                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                            "data-action": "prompt-model",
+                          }}
+                        >
+                          <span class="truncate">
+                            {modelState.current()?.name ?? "选择模型"}
+                          </span>
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                        </ModelSelectorPopover>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
+                        disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
+                        class="octo-btn-send flex-shrink-0"
+                        classList={{ "octo-btn-stop": isBusy() }}
+                        title={isBusy() ? "停止生成" : undefined}
+                      >
+                        {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            }>
+              {/* 消息列表 */}
+              <ScrollView
+                class="flex-1 min-h-0"
+                style={{ background: "#fff" }}
+                viewportRef={autoScroll.scrollRef}
+                onScroll={autoScroll.handleScroll}
+                onMouseUp={autoScroll.handleInteraction}
               >
                 <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
                   <For each={userMessages()}>
@@ -727,104 +837,111 @@ export default function MakePage() {
                     )}
                   </For>
                 </div>
-              </Show>
-            </div>
+              </ScrollView>
 
-            {/* 输入区 */}
-            <div class="shrink-0 p-4">
-              <AttachmentBar
-                attachments={attachments()}
-                onRemove={removeAttachment}
-              />
-
-              <div
-                class="rounded-[var(--octo-radius-lg)] overflow-hidden"
-                style={{
-                  background: "var(--octo-surface-page)",
-                  "box-shadow": "0 2px 12px rgba(0, 0, 0, 0.08)",
-                  "margin-top": attachments().length > 0 ? "6px" : "0",
-                }}
-              >
-                <textarea
-                  value={prompt()}
-                  onInput={(e) => setPrompt(e.currentTarget.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="输入指令，按 Enter 发送…"
-                  rows={3}
-                  disabled={inputDisabled()}
-                  class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
-                  style={{
-                    color: inputDisabled() ? "var(--octo-text-disabled)" : "var(--octo-text-primary)",
-                    "font-family": "var(--octo-font)",
-                    "max-height": "120px",
-                    "overflow-y": "auto",
-                  }}
+              {/* 输入区 */}
+              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+                <AttachmentBar
+                  attachments={attachments()}
+                  onRemove={removeAttachment}
                 />
-
-                <div class="flex items-center justify-between px-2.5 pb-2.5">
-                  <div class="flex items-center gap-1">
-                    <DesignSystemPicker
-                      selected={selectedDesignSystem()}
-                      onSelect={setSelectedDesignSystem}
-                    />
-                    <TemplatePicker
-                      onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                    />
-                    <input
-                      ref={fileInputRef!}
-                      type="file"
-                      multiple
-                      class="hidden"
-                      accept="*/*"
-                      onChange={handleFileInputChange}
-                    />
+                <div
+                  class="rounded-[16px] transition-all duration-300 relative group"
+                  style={{
+                    border: "1px solid transparent",
+                    background: `
+                      linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+                      linear-gradient(135deg,
+                        rgba(246, 97, 23, 0.7) 1%,
+                        rgba(95, 45, 255, 0.7) 8%,
+                        rgba(61, 93, 255, 0.7) 22%,
+                        rgba(104, 138, 255, 0.7) 43%,
+                        rgba(28, 171, 111, 0.7) 54%,
+                        rgba(61, 93, 255, 0.7) 87%,
+                        rgba(206, 7, 232, 0.7) 92%) border-box`,
+                    "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+                    "margin-top": attachments().length > 0 ? "6px" : "0",
+                  }}
+                >
+                  <textarea
+                    value={prompt()}
+                    onInput={(e) => setPrompt(e.currentTarget.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="输入指令，按 Enter 发送…"
+                    rows={3}
+                    disabled={inputDisabled()}
+                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
+                    style={{
+                      "font-family": "var(--octo-font)",
+                      "max-height": "120px",
+                      "overflow-y": "auto",
+                    }}
+                  />
+                  <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10">
+                    <div class="flex items-center gap-1">
+                      <DesignSystemPicker
+                        selected={selectedDesignSystem()}
+                        onSelect={setSelectedDesignSystem}
+                      />
+                      <TemplatePicker
+                        onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                      />
+                      <input
+                        ref={fileInputRef!}
+                        type="file"
+                        multiple
+                        class="hidden"
+                        accept="*/*"
+                        onChange={handleFileInputChange}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        disabled={maxAttachments()}
+                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
+                        title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                      >
+                        <Icon name="plus" class="size-5" />
+                      </button>
+                      <ModelSelectorPopover
+                        model={modelState}
+                        triggerAs="button"
+                        triggerProps={{
+                          class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                          "data-action": "prompt-model",
+                        }}
+                      >
+                        <span class="truncate">
+                          {modelState.current()?.name ?? "选择模型"}
+                        </span>
+                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                      </ModelSelectorPopover>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                      disabled={maxAttachments()}
-                      class="flex items-center gap-1 px-2 py-1 text-xs transition-colors octo-btn-attachment"
-                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                      onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
+                      disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
+                      class="octo-btn-send flex-shrink-0"
+                      classList={{ "octo-btn-stop": isBusy() }}
+                      title={isBusy() ? "停止生成" : undefined}
                     >
-                      <IconAttach size={14} />
+                      {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
                     </button>
-                    <ModelSelectorPopover
-                      model={modelState}
-                      triggerAs={Button}
-                      triggerProps={{
-                        variant: "ghost",
-                        size: "normal",
-                        class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
-                        "data-action": "prompt-model",
-                      }}
-                    >
-                      <span class="truncate">
-                        {modelState.current()?.name ?? "选择模型"}
-                      </span>
-                      <Icon name="chevron-down" size="small" class="shrink-0" />
-                    </ModelSelectorPopover>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={!prompt().trim() || inputDisabled()}
-                    class="octo-btn-send flex-shrink-0"
-                  >
-                    {sending() ? "…" : <IconSend size={14} />}
-                  </button>
                 </div>
               </div>
-            </div>
+            </Show>
 
         </div>
         </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
-        <Show when={!focusMode()}>
+        <Show when={hasContent() && !focusMode()}>
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
+        <Show when={hasContent()}>
         <div class="flex flex-col min-w-0 overflow-hidden">
           <div class="flex flex-1 min-h-0 overflow-hidden">
             <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -889,6 +1006,7 @@ export default function MakePage() {
             </Show>
           </div>
         </div>
+        </Show>
       </div>
     </DataProvider>
   )
@@ -896,11 +1014,13 @@ export default function MakePage() {
 
 function ChatEmptyState(): JSX.Element {
   return (
-    <div class="size-full flex flex-col items-center justify-center gap-3 text-center px-8">
-      <IllustrationInsightEmpty width={120} height={120} />
-      <div class="text-[15px] font-semibold" style={{ color: "var(--octo-text-strong)" }}>Octo Make</div>
-      <div class="text-[13px] max-w-[200px] leading-relaxed" style={{ color: "var(--octo-text-secondary)" }}>
-        描述需求，开始生成原型
+    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
+      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <div class="flex flex-col items-center gap-2">
+        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Make</div>
+        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
+          描述需求，开始生成原型
+        </div>
       </div>
     </div>
   )

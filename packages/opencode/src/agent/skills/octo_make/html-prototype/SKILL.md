@@ -7,6 +7,8 @@ description: Generate high-fidelity interactive HTML prototypes with design syst
 
 Generate structured design prototypes using the `<artifact>` tag format.
 
+**IMPORTANT**: Output ALL HTML inside `<artifact>` tags in your text response. Do NOT use write, edit, or file-editing tools. The user can only see your work through artifact preview cards.
+
 ## Artifact Output Format
 
 ```

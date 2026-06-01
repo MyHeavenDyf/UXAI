@@ -7,6 +7,7 @@ import type {
   AppAgentsResponses,
   AppLogErrors,
   AppLogResponses,
+  AppSkillsRefreshResponses,
   AppSkillsResponses,
   Auth as Auth3,
   AuthRemoveErrors,
@@ -164,6 +165,8 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  StudioGenerationsCreateErrors,
+  StudioGenerationsCreateResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -319,6 +322,38 @@ export class Auth extends HeyApiClient {
   }
 }
 
+export class Skills extends HeyApiClient {
+  /**
+   * Refresh skills
+   *
+   * Invalidate skill cache and re-discover skills from disk.
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<AppSkillsRefreshResponses, unknown, ThrowOnError>({
+      url: "/skill/refresh",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class App extends HeyApiClient {
   /**
    * Write log
@@ -423,6 +458,11 @@ export class App extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _skills?: Skills
+  get skills2(): Skills {
+    return (this._skills ??= new Skills({ client: this.client }))
   }
 }
 
@@ -4769,6 +4809,83 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class Generations extends HeyApiClient {
+  /**
+   * Create Studio image generation
+   *
+   * Generate images using the built-in Studio image generation tool.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      capability?:
+        | "image.generate"
+        | "video.generate"
+        | "image.upscale"
+        | "image.cutout"
+        | "image.inpaint"
+        | "image.outpaint"
+        | "image.fusion"
+      prompt?: string
+      styleModel?: string
+      aspectRatio?: string
+      count?: number
+      imageTool?: "jimeng" | "internel"
+      referenceImages?: Array<string>
+      sourceImage?: string
+      extra?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "capability" },
+            { in: "body", key: "prompt" },
+            { in: "body", key: "styleModel" },
+            { in: "body", key: "aspectRatio" },
+            { in: "body", key: "count" },
+            { in: "body", key: "imageTool" },
+            { in: "body", key: "referenceImages" },
+            { in: "body", key: "sourceImage" },
+            { in: "body", key: "extra" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsCreateResponses,
+      StudioGenerationsCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Studio extends HeyApiClient {
+  private _generations?: Generations
+  get generations(): Generations {
+    return (this._generations ??= new Generations({ client: this.client }))
+  }
+}
+
 export class OpencodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<OpencodeClient>()
 
@@ -4910,5 +5027,10 @@ export class OpencodeClient extends HeyApiClient {
   private _tui?: Tui
   get tui(): Tui {
     return (this._tui ??= new Tui({ client: this.client }))
+  }
+
+  private _studio?: Studio
+  get studio(): Studio {
+    return (this._studio ??= new Studio({ client: this.client }))
   }
 }

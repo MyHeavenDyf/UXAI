@@ -249,10 +249,12 @@ export const SettingsGeneral: Component = () => {
   ])
 
   const languageOptions = createMemo(() =>
-    language.locales.map((locale) => ({
-      value: locale,
-      label: language.label(locale),
-    })),
+    language.locales
+      .filter((locale) => locale === "en" || locale === "zh")
+      .map((locale) => ({
+        value: locale,
+        label: language.label(locale),
+      })),
   )
 
   const noneSound = { id: "none", label: "sound.option.none" } as const
@@ -433,7 +435,7 @@ export const SettingsGeneral: Component = () => {
 
   const AdvancedSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.advanced")}</h3>
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.general.section.advanced")}</div>
 
       <SettingsList>
         <SettingsRow
@@ -501,7 +503,7 @@ export const SettingsGeneral: Component = () => {
 
   const AppearanceSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.appearance")}</h3>
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.general.section.appearance")}</div>
 
       <SettingsList>
         <SettingsRow
@@ -578,7 +580,7 @@ export const SettingsGeneral: Component = () => {
 
   const NotificationsSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.notifications")}</h3>
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.general.section.notifications")}</div>
 
       <SettingsList>
         <SettingsRow
@@ -622,7 +624,7 @@ export const SettingsGeneral: Component = () => {
 
   const SoundsSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.sounds")}</h3>
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.general.section.sounds")}</div>
 
       <SettingsList>
         <SettingsRow
@@ -675,7 +677,7 @@ export const SettingsGeneral: Component = () => {
 
   const UpdatesSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.updates")}</h3>
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.general.section.updates")}</div>
 
       <SettingsList>
         <SettingsRow
@@ -718,10 +720,10 @@ export const SettingsGeneral: Component = () => {
   )
 
   return (
-    <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
-      <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
-        <div class="flex flex-col gap-1 pt-6 pb-8">
-          <h2 class="text-16-medium text-text-strong">{language.t("settings.tab.general")}</h2>
+    <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
+      <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 12px), transparent);">
+        <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
+          {language.t("settings.tab.general")}
         </div>
       </div>
 
@@ -738,7 +740,7 @@ export const SettingsGeneral: Component = () => {
 
         <Show when={linux()}>
           <div class="flex flex-col gap-1">
-            <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.display")}</h3>
+            <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.general.section.display")}</div>
 
             <SettingsList>
               <SettingsRow
@@ -778,12 +780,12 @@ interface SettingsRowProps {
 
 const SettingsRow: Component<SettingsRowProps> = (props) => {
   return (
-    <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak-base last:border-none sm:flex-nowrap">
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="text-14-medium text-text-strong">{props.title}</span>
-        <span class="text-12-regular text-text-weak">{props.description}</span>
+    <div style={{ display: "flex", "align-items": "center", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+      <div style={{ display: "flex", "min-width": 0, flex: 1, "flex-direction": "column", gap: "4px" }}>
+        <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{props.title}</span>
+        <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)" }}>{props.description}</span>
       </div>
-      <div class="flex w-full justify-end sm:w-auto sm:shrink-0">{props.children}</div>
+      <div style={{ display: "flex", "align-items": "center", "flex-shrink": 0 }}>{props.children}</div>
     </div>
   )
 }

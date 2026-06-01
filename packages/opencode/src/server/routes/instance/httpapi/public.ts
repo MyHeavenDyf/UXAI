@@ -359,8 +359,14 @@ function normalizeLegacyErrorResponses(operation: OpenApiOperation) {
   if (operation.responses?.["400"] && isBuiltInErrorResponse(operation.responses["400"], "BadRequest")) {
     operation.responses["400"] = legacyErrorResponse("Bad request", "BadRequestError")
   }
+  if (operation.responses?.["400"]) {
+    rewriteBuiltInErrorRefs(operation.responses["400"], "BadRequest", "BadRequestError")
+  }
   if (operation.responses?.["404"] && isBuiltInErrorResponse(operation.responses["404"], "NotFound")) {
     operation.responses["404"] = legacyErrorResponse("Not found", "NotFoundError")
+  }
+  if (operation.responses?.["404"]) {
+    rewriteBuiltInErrorRefs(operation.responses["404"], "NotFound", "NotFoundError")
   }
 }
 
@@ -389,6 +395,23 @@ function isRefResponse(response: OpenApiResponse, name: string) {
 
 function isBuiltInErrorResponse(response: OpenApiResponse, name: "BadRequest" | "NotFound") {
   return response.description === name || isRefResponse(response, `EffectHttpApiError${name}`)
+}
+
+function rewriteBuiltInErrorRefs(input: unknown, name: "BadRequest" | "NotFound", legacyName: "BadRequestError" | "NotFoundError"): void {
+  if (Array.isArray(input)) {
+    for (const item of input) rewriteBuiltInErrorRefs(item, name, legacyName)
+    return
+  }
+  if (!input || typeof input !== "object") return
+  const schema = input as OpenApiSchema
+  const lowerName = name === "BadRequest" ? "BadRequest" : "NotFound"
+  if (
+    schema.$ref === `#/components/schemas/EffectHttpApiError${name}` ||
+    schema.$ref === `#/components/schemas/effect_HttpApiError_${lowerName}`
+  ) {
+    schema.$ref = `#/components/schemas/${legacyName}`
+  }
+  for (const value of Object.values(input)) rewriteBuiltInErrorRefs(value, name, legacyName)
 }
 
 function legacyErrorResponse(description: string, name: "BadRequestError" | "NotFoundError"): OpenApiResponse {

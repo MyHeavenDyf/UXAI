@@ -1,17 +1,19 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import type { ImageGenerateInput, ImageGenerateOutput } from "@/studio/image-provider"
+import type { StudioCapability } from "@/studio/image-provider"
 
 const METHOD = "POST"
-const DEFAULT_CREATE_TASK_URL =
-  "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
-const DEFAULT_QUERY_TASK_BASE_URL =
-  "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
+// const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
+// const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
+const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
+const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
 const DEFAULT_USER_IDX = "l00423136"
 const DEFAULT_TIMEOUT_MS = 120_000
 
 type JsonRecord = Record<string, unknown>
 type InternalTaskType = "txt2img" | "img2img"
+type InternalToolAction = "generate_image" | "super_resolution" | "cutout" | "outpainting"
 type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
 type InternalStyleConfig = {
   taskType: string
@@ -90,6 +92,15 @@ type QueryTaskResponse = {
 }
 
 const Parameters = Schema.Struct({
+  capability: Schema.optional(Schema.Literals([
+    "image.generate",
+    "video.generate",
+    "image.upscale",
+    "image.cutout",
+    "image.inpaint",
+    "image.outpaint",
+    "image.fusion",
+  ])),
   prompt: Schema.String,
   styleModel: Schema.optional(Schema.String),
   aspectRatio: Schema.optional(Schema.String),
@@ -106,6 +117,16 @@ type Metadata = {
   rawBody?: string
 }
 
+type InternalRequestContext = {
+  userIdx: string
+  styleConfig: InternalStyleConfig
+  targetSize: {
+    width: number
+    height: number
+  }
+  taskType: string
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -116,10 +137,16 @@ function isRetriableHttpStatus(status: number): boolean {
 
 function isRetriableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : ""
   return [
     "fetch failed",
+    "Unable to connect",
     "ECONNRESET",
     "ECONNREFUSED",
+    "ConnectionRefused",
+    "FailedToOpenSocket",
     "ETIMEDOUT",
     "UND_ERR_CONNECT_TIMEOUT",
     "UND_ERR_HEADERS_TIMEOUT",
@@ -127,7 +154,28 @@ function isRetriableError(error: unknown): boolean {
     "socket hang up",
     "The operation was aborted",
     "AbortError",
-  ].some((keyword) => message.includes(keyword))
+  ].some((keyword) => message.includes(keyword) || code.includes(keyword))
+}
+
+function describeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  const code = error && typeof error === "object" && "code" in error
+    ? (error as { code?: unknown }).code
+    : undefined
+  const path = error && typeof error === "object" && "path" in error
+    ? (error as { path?: unknown }).path
+    : undefined
+  const cause = error && typeof error === "object" && "cause" in error
+    ? (error as { cause?: unknown }).cause
+    : undefined
+  return [
+    message,
+    code ? `code=${String(code)}` : undefined,
+    path ? `path=${String(path)}` : undefined,
+    cause ? `cause=${cause instanceof Error ? cause.message : String(cause)}` : undefined,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join("; ")
 }
 
 function getBackoffMs(attempt: number): number {
@@ -260,6 +308,10 @@ function base64ToDataUrl(value: string) {
   return `data:image/png;base64,${value}`
 }
 
+function dataUrlToBase64(value: string) {
+  return value.split(",")[1] ?? value
+}
+
 function isRenderableImageUrl(url: string) {
   if (!url) return false
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
@@ -269,12 +321,15 @@ export function extractInternalImages(response: QueryTaskResponse) {
   const directResults = Array.isArray(response.result?.results)
     ? response.result.results.filter((item): item is string => typeof item === "string" && item.length > 0)
     : []
+  const cleanBgResults = Array.isArray(response.result?.results_clean_bg)
+    ? response.result.results_clean_bg.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : []
   const versionedResults = Array.isArray(response.result?.results_v2)
     ? response.result.results_v2
-        .map((item) => item.output?.image)
+        .map((item) => item.output?.clean_bg ?? item.output?.image)
         .filter((item): item is string => typeof item === "string" && item.length > 0)
     : []
-  const imageUrls = [...directResults, ...versionedResults, ...collectImageUrls(response)].filter(isRenderableImageUrl)
+  const imageUrls = [...directResults, ...cleanBgResults, ...versionedResults, ...collectImageUrls(response)].filter(isRenderableImageUrl)
   const binaryImages = collectBase64Images(response).map(base64ToDataUrl).filter(isRenderableImageUrl)
   return Array.from(new Set([...imageUrls, ...binaryImages]))
 }
@@ -365,9 +420,7 @@ async function createTaskWithRetry(
 
       const response = await fetch(createTaskUrl, {
         method: METHOD,
-        headers: {
-          "content-type": "application/json",
-        },
+        headers: internalImageHeaders(),
         body: JSON.stringify(createPayload),
         signal: controller.signal,
       }).finally(() => {
@@ -419,6 +472,16 @@ async function createTaskWithRetry(
         await sleep(getBackoffMs(attempt))
         continue
       }
+      if (isRetriableError(error)) {
+        throw new Error(
+          [
+            "create_task network failed.",
+            `attempt=${attempt}/${maxCreateRetries}`,
+            `url=${createTaskUrl}`,
+            `error=${describeError(error)}`,
+          ].join("\n"),
+        )
+      }
       throw error
     }
   }
@@ -435,7 +498,16 @@ async function queryTask(
     method: "GET",
     headers: {
       accept: "application/json, text/plain, */*",
+      ...internalImageHeaders({ contentType: false }),
     },
+  }).catch((error) => {
+    throw new Error(
+      [
+        "query_task network failed.",
+        `url=${queryUrl}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
   })
   const text = await response.text()
 
@@ -460,6 +532,32 @@ function env(name: string) {
 function timeoutMsFor(name: string, fallback: number) {
   const value = Number(env(name))
   return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+function internalImageHeaders(input: { contentType?: boolean } = {}) {
+  return {
+    ...(input.contentType === false ? {} : { "content-type": "application/json" }),
+    ...(env("IMAGE_API_TOKEN") ? { authorization: `Bearer ${env("IMAGE_API_TOKEN")}` } : {}),
+    ...(env("IMAGE_API_COOKIE") ? { cookie: env("IMAGE_API_COOKIE") } : {}),
+    ...(env("IMAGE_API_CLIENT_ID") ? { "x-client-id": env("IMAGE_API_CLIENT_ID") } : {}),
+    ...(env("IMAGE_API_CLIENT_SECRET") ? { "x-client-secret": env("IMAGE_API_CLIENT_SECRET") } : {}),
+  }
+}
+
+function redactImagePayload(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (value.startsWith("data:image/")) return `<data-image bytes=${value.length}>`
+    if (value.length > 200 && /^[A-Za-z0-9+/=]+$/.test(value)) return `<base64 bytes=${value.length}>`
+    return value
+  }
+  if (Array.isArray(value)) return value.map(redactImagePayload)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(
+    Object.entries(value as JsonRecord).map(([key, item]) => [
+      key,
+      /token|cookie|secret|authorization/i.test(key) ? "<redacted>" : redactImagePayload(item),
+    ]),
+  )
 }
 
 const defaultInternalStyleConfig = {
@@ -633,6 +731,24 @@ function getStudioStyleModel(input: ImageGenerateInput) {
   )
 }
 
+function getStudioCapability(input: ImageGenerateInput): StudioCapability {
+  const settings = extractStudioToolSettings(input.prompt)
+  const value =
+    (typeof settings.capability === "string" ? settings.capability : undefined) ??
+    input.prompt.match(/能力：([^\n]+)/)?.[1]?.trim() ??
+    input.capability
+  if (
+    value === "image.generate" ||
+    value === "video.generate" ||
+    value === "image.upscale" ||
+    value === "image.cutout" ||
+    value === "image.inpaint" ||
+    value === "image.outpaint" ||
+    value === "image.fusion"
+  ) return value
+  return "image.generate"
+}
+
 function getStudioCount(input: ImageGenerateInput) {
   const settings = extractStudioToolSettings(input.prompt)
   const value =
@@ -681,7 +797,116 @@ export function getTaskType(input: { generationMode: InternalTaskType; taskType?
   return input.taskType ?? txt2img
 }
 
+function toolActionForCapability(capability: StudioCapability): InternalToolAction {
+  if (capability === "image.upscale") return "super_resolution"
+  if (capability === "image.cutout") return "cutout"
+  if (capability === "image.outpaint") return "outpainting"
+  return "generate_image"
+}
+
+async function getSourceImageDataUrl(input: ImageGenerateInput) {
+  const settings = extractStudioToolSettings(input.prompt)
+  const sourceImage =
+    input.sourceImage ??
+    input.referenceImages?.[0] ??
+    (typeof settings.sourceImage === "string" ? settings.sourceImage : undefined)
+  if (!sourceImage) throw new Error("This Studio action requires a source image.")
+  if (sourceImage.startsWith("data:image/")) {
+    if (!dataUrlToBase64(sourceImage)) throw new Error("Studio source image data URL is missing base64 content.")
+    return sourceImage
+  }
+  const response = await fetch(sourceImage)
+  if (!response.ok) throw new Error(`Failed to fetch Studio source image. status=${response.status}`)
+  const mime = response.headers.get("content-type") ?? "image/png"
+  if (!mime.startsWith("image/")) throw new Error(`Studio source URL is not an image. content-type=${mime}`)
+  return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
+}
+
+function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  return {
+    user: { idx: context.userIdx },
+    task_type: context.taskType,
+    args: {
+      tag_name:
+        input.extra && typeof input.extra.tagName === "string"
+          ? input.extra.tagName
+          : context.styleConfig.tagName,
+      num_image: getStudioCount(input),
+      target: input.extra && typeof input.extra.target === "string" ? input.extra.target : context.styleConfig.target,
+      target_size: context.targetSize,
+      loras: context.styleConfig.loras,
+      mode: input.extra && typeof input.extra.mode === "string" ? input.extra.mode : context.styleConfig.mode,
+      ref_img_list: [],
+      customer_prompt: input.prompt,
+      prompt: buildPrompt(input),
+    },
+  }
+}
+
+async function buildUpscaleRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  return {
+    user: { idx: context.userIdx },
+    task_type: "magnify",
+    args: {
+      mode: "super_resolution",
+      image_base64: await getSourceImageDataUrl(input),
+    },
+  }
+}
+
+async function buildCutoutRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  return {
+    user: { idx: context.userIdx },
+    task_type: "remove_bg",
+    args: {
+      num_image: 1,
+      image_list: [
+        {
+          mode: "new",
+          image_base64: await getSourceImageDataUrl(input),
+        },
+      ],
+    },
+  }
+}
+
+function extraNumber(input: ImageGenerateInput, key: string, fallback: number) {
+  const value = input.extra?.[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback
+}
+
+async function buildOutpaintRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const distances = {
+    left: extraNumber(input, "left", 0),
+    right: extraNumber(input, "right", 0),
+    top: extraNumber(input, "top", 0),
+    bottom: extraNumber(input, "bottom", 0),
+  }
+  if (Object.values(distances).some((value) => value < 0)) throw new Error("Outpaint distances must be non-negative numbers.")
+  if (Object.values(distances).every((value) => value === 0)) throw new Error("Outpaint requires at least one expanded direction.")
+  return {
+    user: { idx: context.userIdx },
+    task_type: "outpainting",
+    args: {
+      prompt: input.prompt,
+      image_base64: await getSourceImageDataUrl(input),
+      ...distances,
+      num_image: getStudioCount(input),
+    },
+  }
+}
+
+async function buildInternalRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const capability = getStudioCapability(input)
+  if (capability === "image.upscale") return buildUpscaleRequestBody(input, context)
+  if (capability === "image.cutout") return buildCutoutRequestBody(input, context)
+  if (capability === "image.outpaint") return buildOutpaintRequestBody(input, context)
+  return buildTextToImageRequestBody(input, context)
+}
+
 export async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
+  const capability = getStudioCapability(input)
+  const toolAction = toolActionForCapability(capability)
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
   const queryTaskBaseUrl = env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
@@ -699,24 +924,13 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     taskType: input.extra && typeof input.extra.taskType === "string" ? input.extra.taskType : styleConfig.taskType,
   })
 
-  const requestBody = {
-    user: { idx: userIdx },
-    task_type: taskType,
-    args: {
-      tag_name:
-        input.extra && typeof input.extra.tagName === "string"
-          ? input.extra.tagName
-          : styleConfig.tagName,
-      num_image: getStudioCount(input),
-      target: input.extra && typeof input.extra.target === "string" ? input.extra.target : styleConfig.target,
-      target_size: targetSize,
-      loras: styleConfig.loras,
-      mode: input.extra && typeof input.extra.mode === "string" ? input.extra.mode : styleConfig.mode,
-      ref_img_list: [],
-      customer_prompt: input.prompt,
-      prompt: buildPrompt(input),
-    },
-  }
+  const requestBody = await buildInternalRequestBody(input, {
+    userIdx,
+    styleConfig,
+    targetSize,
+    taskType,
+  })
+  const requestTaskType = typeof requestBody.task_type === "string" ? requestBody.task_type : taskType
   const debugRequest = {
     url: createTaskUrl,
     method: METHOD,
@@ -730,7 +944,7 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     Number(input.extra && typeof input.extra.createTimeoutMs === "number" ? input.extra.createTimeoutMs : DEFAULT_TIMEOUT_MS),
   )
 
-  console.log("[studio.internel] request", JSON.stringify(debugRequest, null, 2))
+  console.log("[studio.internel] request", JSON.stringify(redactImagePayload(debugRequest), null, 2))
   const createJson = await createTaskWithRetry(createTaskUrl, requestBody, maxCreateRetries, createTimeoutMs)
   const taskId = getTaskId(createJson)
 
@@ -750,8 +964,12 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
       const images = extractInternalImages(queryJson)
       return {
         provider: "internel",
-        model: taskType,
+        model: requestTaskType,
+        capability,
+        toolAction,
+        taskId,
         images: images.map((url) => ({ url })),
+        request: requestBody,
         raw: queryJson,
       }
     }
@@ -790,6 +1008,7 @@ export const InternelImageGenerateTool = Tool.define<
   description: "Generate or edit images through the built-in internal image generation tool.",
   parameters: Parameters,
   execute: (params: {
+    capability?: StudioCapability
     prompt: string
     styleModel?: string
     aspectRatio?: string
@@ -800,7 +1019,7 @@ export const InternelImageGenerateTool = Tool.define<
   }) =>
     Effect.promise(async () => {
       const result = await executeInternelImageGenerate({
-        capability: "image.generate",
+        capability: params.capability ?? "image.generate",
         prompt: params.prompt,
         styleModel: params.styleModel,
         aspectRatio: params.aspectRatio,
@@ -815,7 +1034,7 @@ export const InternelImageGenerateTool = Tool.define<
         url: image.url,
         filename: `internel-${index + 1}.png`,
       }))
-      const outputImages = attachments.map((item) => item.url).filter((url) => !url.startsWith("data:image/"))
+      const outputImages = attachments.map((item) => item.url)
       return {
         title: "Internal image generation",
         metadata: {
@@ -824,6 +1043,7 @@ export const InternelImageGenerateTool = Tool.define<
             queryTaskBaseUrl: env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL,
             userIdx: params.extra && typeof params.extra.userIdx === "string" ? params.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
             ignoredReferenceImageCount: resolveReferenceImages(params).length,
+            body: redactImagePayload(result.request),
           },
           response: summarizeInternalOutput(result.raw),
           statusCode: 200,
@@ -832,7 +1052,13 @@ export const InternelImageGenerateTool = Tool.define<
           {
             ok: true,
             provider: result.provider,
+            capability: result.capability ?? params.capability ?? "image.generate",
+            toolAction: result.toolAction,
+            taskId: result.taskId,
             model: result.model,
+            aspectRatio: params.aspectRatio,
+            width: params.extra && typeof params.extra.width === "number" ? params.extra.width : undefined,
+            height: params.extra && typeof params.extra.height === "number" ? params.extra.height : undefined,
             imageCount: result.images.length,
             images: outputImages,
             primaryImage: outputImages[0] ?? null,

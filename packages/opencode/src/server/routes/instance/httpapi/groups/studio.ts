@@ -57,6 +57,13 @@ const StudioGenerationResult = Schema.Struct({
   capability: StudioGenerationPayload.fields.capability,
   prompt: Schema.String,
   provider: Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")]),
+  toolAction: Schema.optional(Schema.Union([
+    Schema.Literal("generate_image"),
+    Schema.Literal("super_resolution"),
+    Schema.Literal("cutout"),
+    Schema.Literal("outpainting"),
+  ])),
+  taskId: Schema.optional(Schema.String),
   model: Schema.String,
   aspectRatio: Schema.String,
   images: Schema.Array(StudioGenerationImage),

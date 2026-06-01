@@ -54,6 +54,8 @@ export default function CoworkPage() {
               background: "rgba(227, 236, 254, 0.4)",
               gap: "12px",
               "max-width": "300px",
+              position: "relative",
+              overflow: "hidden",
             }}
             onClick={handleInsightClick}
           >
@@ -63,6 +65,10 @@ export default function CoworkPage() {
                 height: "32px",
                 "border-radius": "8px",
                 background: "rgba(10, 89, 247, 0.1)",
+                "background-image": "url(/insightIcon.svg)",
+                "background-size": "24px 24px",
+                "background-repeat": "no-repeat",
+                "background-position": "center",
                 "flex-shrink": "0",
               }}
             />
@@ -74,6 +80,21 @@ export default function CoworkPage() {
                 AI辅助用户洞察研究
               </div>
             </div>
+            <div
+              style={{
+                position: "absolute",
+                right: "16px",
+                bottom: "16px",
+                width: "60px",
+                height: "60px",
+                "background-image": "url(/insightIcon.svg)",
+                "background-size": "contain",
+                "background-repeat": "no-repeat",
+                "background-position": "center",
+                opacity: 0.03,
+                "pointer-events": "none",
+              }}
+            />
           </div>
           <div
             class="flex items-center flex-1 cursor-pointer transition-opacity hover:opacity-80"
@@ -83,6 +104,8 @@ export default function CoworkPage() {
               background: "rgba(237, 226, 253, 0.4)",
               gap: "12px",
               "max-width": "300px",
+              position: "relative",
+              overflow: "hidden",
             }}
             onClick={handleMakeClick}
           >
@@ -92,6 +115,10 @@ export default function CoworkPage() {
                 height: "32px",
                 "border-radius": "8px",
                 background: "rgba(108, 0, 255, 0.1)",
+                "background-image": "url(/makeIcon.svg)",
+                "background-size": "24px 24px",
+                "background-repeat": "no-repeat",
+                "background-position": "center",
                 "flex-shrink": "0",
               }}
             />
@@ -103,6 +130,21 @@ export default function CoworkPage() {
                 自然语言生成可交互设计原型
               </div>
             </div>
+            <div
+              style={{
+                position: "absolute",
+                right: "16px",
+                bottom: "16px",
+                width: "60px",
+                height: "60px",
+                "background-image": "url(/makeIcon.svg)",
+                "background-size": "contain",
+                "background-repeat": "no-repeat",
+                "background-position": "center",
+                "pointer-events": "none",
+                opacity: 0.03,
+              }}
+            />
           </div>
         </div>
       </div>

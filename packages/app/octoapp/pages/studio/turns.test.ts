@@ -98,10 +98,10 @@ const contentFileToolPart = (id: string, messageID: string, url: string, tool = 
     },
   }) as unknown as Part
 
-const pendingResult = (): StudioGenerationResult =>
+const pendingResult = (status: StudioGenerationResult["status"] = "succeeded"): StudioGenerationResult =>
   ({
     id: "studio_pending_1",
-    status: "succeeded",
+    status,
     capability: "image.generate",
     prompt: "生成一张卡通小猫的图",
     provider: "jimeng",
@@ -109,7 +109,7 @@ const pendingResult = (): StudioGenerationResult =>
     aspectRatio: "3:4",
     images: [],
     createdAt: 1,
-    completedAt: 1,
+    completedAt: status === "succeeded" ? 1 : undefined,
   }) as StudioGenerationResult
 
 describe("buildStudioTurns", () => {
@@ -206,6 +206,18 @@ describe("buildStudioTurns", () => {
     expect(turns[0].isLatest).toBe(true)
   })
 
+  test("marks fallback pending generations as running", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: pendingResult("running"),
+    })
+
+    expect(turns[0].toolTitle).toBe("图片生成中")
+    expect(turns[0].toolRunning).toBe(true)
+    expect(turns[0].result?.status).toBe("running")
+  })
+
   test("builds a continuity summary from the latest completed turn", () => {
     const m1 = userMessage("msg_1")
     const a1 = assistantMessage("msg_2")
@@ -241,6 +253,54 @@ describe("buildStudioTurns", () => {
     })
 
     expect(turns[0].result?.provider).toBe("internel")
+  })
+
+  test("restores studio generation metadata from unified tool output", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "将当前图片变清晰，提升分辨率和细节")],
+        [a1.id]: [
+          ({
+            id: "p_2",
+            sessionID: "ses_1",
+            messageID: a1.id,
+            type: "tool",
+            tool: "internel_image_generate",
+            state: {
+              status: "completed",
+              title: "图片生成",
+              input: {
+                capability: "image.upscale",
+                aspectRatio: "16:9",
+              },
+              time: { start: 1, end: 2 },
+              output: JSON.stringify({
+                ok: true,
+                capability: "image.upscale",
+                toolAction: "super_resolution",
+                taskId: "task_1",
+                model: "magnify",
+                aspectRatio: "16:9",
+                width: 1280,
+                height: 720,
+                images: ["https://example.com/upscaled.png"],
+              }),
+            },
+          }) as unknown as Part,
+        ],
+      },
+    })
+
+    expect(turns[0].result?.capability).toBe("image.upscale")
+    expect(turns[0].result?.toolAction).toBe("super_resolution")
+    expect(turns[0].result?.taskId).toBe("task_1")
+    expect(turns[0].result?.model).toBe("magnify")
+    expect(turns[0].result?.aspectRatio).toBe("16:9")
+    expect(turns[0].result?.images[0]?.width).toBe(1280)
   })
 
   test("ignores request urls when extracting images from tool output", () => {

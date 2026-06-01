@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js"
-import type { OutputCard } from "../insight-turn"
+import type { OutputCard, ArtifactExportKind } from "../insight-turn"
 
 export type ResultTab = {
   id: string
@@ -7,6 +7,8 @@ export type ResultTab = {
   type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet"
   content: string
   filePath?: string
+  exports?: ArtifactExportKind[]
+  artifactIdentifier?: string
   createdAt: Date
 }
 
@@ -26,6 +28,8 @@ export function createTabStore() {
       type: card.type,
       content: card.content,
       filePath: card.filePath,
+      exports: card.exports,
+      artifactIdentifier: card.artifactIdentifier,
       createdAt: card.createdAt,
     }
     setTabs((prev) => [...prev, tab])

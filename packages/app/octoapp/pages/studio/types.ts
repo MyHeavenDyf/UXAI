@@ -40,6 +40,8 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   provider: "mock" | "jimeng" | "internel"
+  toolAction?: "generate_image" | "super_resolution" | "cutout" | "outpainting"
+  taskId?: string
   model: string
   aspectRatio: StudioAspectRatio
   images: StudioImage[]

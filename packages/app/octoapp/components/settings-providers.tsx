@@ -131,16 +131,16 @@ export const SettingsProviders: Component = () => {
   }
 
   return (
-    <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
-      <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
-        <div class="flex flex-col gap-1 pt-6 pb-8 max-w-[720px]">
-          <h2 class="text-16-medium text-text-strong">{language.t("settings.providers.title")}</h2>
+    <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
+      <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 24px), transparent);">
+        <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
+          {language.t("settings.providers.title")}
         </div>
       </div>
 
-      <div class="flex flex-col gap-8 max-w-[720px]">
+      <div class="flex flex-col gap-8">
         <div class="flex flex-col gap-1" data-component="connected-providers-section">
-          <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.providers.section.connected")}</h3>
+          <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.providers.section.connected")}</div>
           <SettingsList>
             <Show
               when={connected().length > 0}
@@ -152,14 +152,14 @@ export const SettingsProviders: Component = () => {
             >
               <For each={connected()}>
                 {(item) => (
-                  <div class="group flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
-                    <div class="flex items-center gap-3 min-w-0">
+                  <div class="group" style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+                    <div style={{ display: "flex", "align-items": "center", gap: "12px", "min-width": 0 }}>
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span class="text-14-medium text-text-strong truncate">{item.name}</span>
+                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{item.name}</span>
                       <Tag>{type(item)}</Tag>
                     </div>
                     <Show when={item.id === "opencode"}>
-                      <div class="flex items-center gap-2">
+                      <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
                         <Button size="large" variant="secondary" onClick={() => {
                           dialog.show(() => <DialogConnectProvider provider="opencode" />)
                         }}>
@@ -196,15 +196,15 @@ export const SettingsProviders: Component = () => {
         </div>
 
         <div class="flex flex-col gap-1">
-          <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.providers.section.popular")}</h3>
+          <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>{language.t("settings.providers.section.popular")}</div>
           <SettingsList>
             <For each={popular()}>
               {(item) => (
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
-                  <div class="flex flex-col min-w-0">
-                    <div class="flex items-center gap-x-3">
+                <div style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+                  <div style={{ display: "flex", "flex-direction": "column", "min-width": 0 }}>
+                    <div style={{ display: "flex", "align-items": "center", gap: "12px" }}>
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
-                      <span class="text-14-medium text-text-strong">{item.name}</span>
+                      <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{item.name}</span>
                       <Show when={item.id === "opencode"}>
                         <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </Show>
@@ -213,7 +213,7 @@ export const SettingsProviders: Component = () => {
                       </Show>
                     </div>
                     <Show when={note(item.id)}>
-                      {(key) => <span class="text-12-regular text-text-weak pl-8">{language.t(key())}</span>}
+                      {(key) => <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)", "margin-top": "4px" }}>{language.t(key())}</span>}
                     </Show>
                   </div>
                   <Button
@@ -231,16 +231,16 @@ export const SettingsProviders: Component = () => {
             </For>
 
             <div
-              class="flex items-center justify-between gap-4 min-h-16 border-b border-border-weak-base last:border-none flex-wrap py-3"
+              style={{ display: "flex", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px", "flex-wrap": "wrap" }}
               data-component="custom-provider-section"
             >
-              <div class="flex flex-col min-w-0">
-                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div style={{ display: "flex", "flex-direction": "column", "min-width": 0 }}>
+                <div style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", gap: "12px" }}>
                   <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
-                  <span class="text-14-medium text-text-strong">{language.t("provider.custom.title")}</span>
+                  <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{language.t("provider.custom.title")}</span>
                   <Tag>{language.t("settings.providers.tag.custom")}</Tag>
                 </div>
-                <span class="text-12-regular text-text-weak pl-8">
+                <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)", "margin-top": "4px" }}>
                   {language.t("settings.providers.custom.description")}
                 </span>
               </div>

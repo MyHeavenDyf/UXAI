@@ -46,6 +46,27 @@ describe("image generate input filtering", () => {
     ).toEqual(["https://example.com/internal.png"])
   })
 
+  test("prefers internal clean background outputs for cutout", () => {
+    expect(
+      extractInternalImages({
+        resp_code: 200,
+        result: {
+          status: 2,
+          progress: 100,
+          results_clean_bg: ["https://example.com/clean.png"],
+          results_v2: [
+            {
+              output: {
+                image: "https://example.com/original.png",
+                clean_bg: "https://example.com/v2-clean.png",
+              },
+            },
+          ],
+        },
+      }),
+    ).toEqual(["https://example.com/clean.png", "https://example.com/v2-clean.png"])
+  })
+
   test("keeps internal image generation on txt2img task type by default", () => {
     expect(getTaskType({ generationMode: "img2img" })).toBe("txt2img_qwen")
   })

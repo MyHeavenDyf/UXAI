@@ -184,6 +184,7 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
 
   return {
     blocked,
+    busy,
     questionRequest,
     permissionRequest,
     permissionResponding,
