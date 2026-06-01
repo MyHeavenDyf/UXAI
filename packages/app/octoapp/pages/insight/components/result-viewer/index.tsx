@@ -2,7 +2,7 @@ import { createMemo, createResource, createSignal, Show, Switch, Match } from "s
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { ResultTab } from "./tab-store"
+import type { ResultTab, TabViewMode } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
@@ -10,23 +10,21 @@ import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { stripCodeFence } from "../../utils/detect"
+import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
 
-// ── JSON 渲染器 ────────────────────────────────────────────────
-// 复用上游 <Markdown> 的 shiki 高亮:把 JSON 包成 ```json fence 喂给它,
+// ── 源码渲染器 ──────────────────────────────────────────────────
+// 复用上游 <Markdown> 的 shiki 高亮:把内容包成 ```lang fence 喂给它,
 // 自动获得 syntax highlight + 复制按钮(跟对话区的代码段视觉完全一致)。
-// 避免之前 <pre> 纯文本无高亮的体验断层。
-function JsonRenderer(props: { content: string }): JSX.Element {
+function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
   const fenced = createMemo(() => {
     const raw = stripCodeFence(props.content)
-    let pretty = raw
-    try {
-      pretty = JSON.stringify(JSON.parse(raw), null, 2)
-    } catch {
-      // 解析失败保持原样,markdown 仍按 json 语法高亮(shiki 容错)
+    let body = raw
+    if (props.lang === "json") {
+      try { body = JSON.stringify(JSON.parse(raw), null, 2) } catch { /* 解析失败保持原样,shiki 容错 */ }
     }
-    return "```json\n" + pretty + "\n```"
+    return "```" + props.lang + "\n" + body + "\n```"
   })
   return (
     <div class="p-4 h-full overflow-auto">
@@ -54,6 +52,8 @@ export function ResultViewer(props: {
   onCacheContent?: (id: string, content: string) => void
   /** 收起任务面板(保留 tab,仅隐藏容器);见 SPEC-INS-009 */
   onCollapse?: () => void
+  /** 切换 预览/代码 视图(仅 toggle 类型) */
+  onSetViewMode?: (id: string, mode: TabViewMode) => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
 
@@ -73,7 +73,11 @@ export function ResultViewer(props: {
         <Show when={activeTab()}>
           {(tab) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <ActionBar tab={tab()} />
+              <ActionBar
+                tab={tab()}
+                viewMode={tab().viewMode ?? "preview"}
+                onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
+              />
               <div class="flex-1 overflow-hidden">
                 <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
               </div>
@@ -139,8 +143,11 @@ function UriTabBody(props: {
 }
 
 // 实际内容渲染(content 已就位,inline 或缓存后均走这里)
+// toggle 类型(mindmap/html/table/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
+// json 单视图(源),file 单视图(本地打开/下载)。见 output-renderers.md §1 视图切换。
 function TabContent(props: { tab: ResultTab }): JSX.Element {
   const content = () => props.tab.content ?? ""
+  const isSource = () => (props.tab.viewMode ?? "preview") === "source"
   return (
     <Switch
       fallback={
@@ -150,19 +157,33 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
       }
     >
       <Match when={props.tab.type === "table"}>
-        <TableRenderer content={content()} />
+        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
+          <TableRenderer content={content()} />
+        </Show>
       </Match>
       <Match when={props.tab.type === "markdown"}>
-        <MarkdownRenderer content={content()} />
+        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
+          <MarkdownRenderer content={content()} />
+        </Show>
       </Match>
       <Match when={props.tab.type === "mindmap"}>
-        <MindmapRenderer content={content()} />
+        {/* 预览态仅在内容真能渲染成思维导图时走 MindmapRenderer;否则(源码态 / 内容非 mindmap shape)
+            直接降级为代码视图看原始 JSON —— 服务端 business_type:"mindmap" 但内容违约时,
+            不出空的错误占位、也不另起新卡(原始 JSON 就在这张卡里)。详见 output-renderers.md §6.A。 */}
+        <Show
+          when={!isSource() && isMindmapJSON(content())}
+          fallback={<SourceCodeView content={content()} lang="json" />}
+        >
+          <MindmapRenderer content={content()} />
+        </Show>
       </Match>
       <Match when={props.tab.type === "html"}>
-        <HtmlRenderer content={content()} />
+        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" />}>
+          <HtmlRenderer content={content()} />
+        </Show>
       </Match>
       <Match when={props.tab.type === "json"}>
-        <JsonRenderer content={content()} />
+        <SourceCodeView content={content()} lang="json" />
       </Match>
       <Match when={props.tab.type === "file"}>
         <FileFallback tab={props.tab} />
@@ -224,6 +245,7 @@ function ResourceErrorFallback(props: {
 function FileFallback(props: { tab: ResultTab }): JSX.Element {
   const [openBusy, setOpenBusy] = createSignal(false)
   const [downloadBusy, setDownloadBusy] = createSignal(false)
+  const [revealBusy, setRevealBusy] = createSignal(false)
 
   function sanitize(name: string): string {
     return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
@@ -284,7 +306,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     }
   }
 
-  async function handleDownload() {
+  async function handleSaveAs() {
     if (!props.tab.uri || downloadBusy()) return
     const api = getDesktopApi()
     if (!api || !api.downloadResourceToTemp || !api.openPath || !api.downloadResource || !api.saveFilePicker) {
@@ -298,19 +320,47 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
         setDownloadBusy(false)
         return
       }
-      console.log("[octo:office] download-start", { uri: props.tab.uri, destPath: chosen, mode: "user-save" })
+      console.log("[octo:office] saveas-start", { uri: props.tab.uri, destPath: chosen })
       await api.downloadResource(props.tab.uri, chosen)
-      console.log("[octo:office] download-ok", { destPath: chosen })
-      showToast({ description: "已下载", variant: "success", duration: 2000 })
+      console.log("[octo:office] saveas-ok", { destPath: chosen })
+      showToast({ description: "已另存", variant: "success", duration: 2000 })
     } catch (err) {
-      console.error("[octo:office] download-failed", { uri: props.tab.uri, err })
+      console.error("[octo:office] saveas-failed", { uri: props.tab.uri, err })
       showToast({
-        title: "下载失败",
+        title: "另存失败",
         description: err instanceof Error ? err.message : String(err),
         variant: "error",
       })
     } finally {
       setDownloadBusy(false)
+    }
+  }
+
+  // 在系统文件管理器中定位本地副本(如未下载先 download-to-temp,与"用本地应用打开"共用缓存)。
+  // 微信桌面端模式:让用户能找到打开过 / 改过的本地文件,自己 cp 到正式位置。
+  async function handleRevealInFolder() {
+    if (!props.tab.uri || revealBusy()) return
+    const api = getDesktopApi()
+    if (!api || !api.downloadResourceToTemp || !api.showItemInFolder) {
+      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+      return
+    }
+    setRevealBusy(true)
+    const fname = defaultFilename()
+    console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.id, filename: fname })
+    try {
+      const localPath = await api.downloadResourceToTemp(props.tab.uri, props.tab.id, fname)
+      console.log("[octo:office] reveal-show", { localPath })
+      api.showItemInFolder(localPath)
+    } catch (err) {
+      console.error("[octo:office] reveal-failed", { uri: props.tab.uri, err })
+      showToast({
+        title: "无法定位文件",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      })
+    } finally {
+      setRevealBusy(false)
     }
   }
 
@@ -325,7 +375,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       <Show when={props.tab.uri} fallback={
         <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>无远程地址,无法打开 / 下载</div>
       }>
-        <div class="flex items-center gap-2 mt-1">
+        <div class="flex items-center gap-2 mt-1 flex-wrap justify-center">
           <button
             type="button"
             onClick={() => void handleOpenInApp()}
@@ -337,12 +387,23 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
           </button>
           <button
             type="button"
-            onClick={() => void handleDownload()}
+            onClick={() => void handleRevealInFolder()}
+            disabled={revealBusy()}
+            class="px-3 py-1 text-xs rounded disabled:opacity-50"
+            style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+            title="在 Finder / Explorer 中定位本地副本(可手动 cp 或保留编辑后内容)"
+          >
+            {revealBusy() ? "定位中…" : "在文件夹中打开"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSaveAs()}
             disabled={downloadBusy()}
             class="px-3 py-1 text-xs rounded disabled:opacity-50"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+            title="重新从源 URL 下载一份到你选择的位置(不含本地编辑改动)"
           >
-            {downloadBusy() ? "下载中…" : "下载到本地"}
+            {downloadBusy() ? "保存中…" : "另存为"}
           </button>
         </div>
       </Show>
