@@ -243,7 +243,6 @@ export default function MakePage() {
       if (SKIP_PART_TYPES.has(part.type)) return
       const parts = dataStore.part[part.messageID]
 
-      // First time seeing parts for this message — always insert
       if (!parts) {
         setDataStore("part", part.messageID, [part])
         return
@@ -251,12 +250,8 @@ export default function MakePage() {
 
       const result = Binary.search(parts, part.id, (p) => p.id)
       if (!result.found) {
-        // New part — always insert
         setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
       } else {
-        // Existing text part during streaming: skip reconcile, let deltas drive the text
-        // to avoid duplicated content. Final part.updated (when idle) sets canonical text.
-        if (part.type === "text" && isBusy()) return
         setDataStore("part", part.messageID, result.index, reconcile(part))
       }
       return
@@ -278,6 +273,8 @@ export default function MakePage() {
       if (!parts) return
       const result = Binary.search(parts, partID, (p) => p.id)
       if (!result.found) return
+      const existing = (parts[result.index] as Record<string, unknown>)[field] as string | undefined
+      if (existing?.endsWith(delta)) return
       setDataStore("part", messageID, produce((d) => {
         const p = d[result.index] as Record<string, unknown>
         p[field] = ((p[field] as string) ?? "") + delta
@@ -299,10 +296,9 @@ export default function MakePage() {
   })
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
-  const hasContent = () => !!(params.id && userMessages().length > 0)
-
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
+  const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const DS_KEY_PREFIX = "octo:make:design-system:"
