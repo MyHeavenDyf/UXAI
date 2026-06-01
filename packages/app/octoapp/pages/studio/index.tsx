@@ -24,10 +24,8 @@ import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import {
   STUDIO_ASPECT_RATIOS,
   STUDIO_CAPABILITIES,
-  STUDIO_IMAGE_TOOLS,
   STUDIO_STYLE_MODELS,
   capabilityLabel,
-  imageToolLabel,
   styleModelLabel,
 } from "./data"
 import type {
@@ -38,7 +36,6 @@ import type {
   StudioGenerationStatus,
   StudioImage,
   StudioMode,
-  StudioImageTool,
 } from "./types"
 import {
   buildStudioDisplayPrompt,
@@ -156,12 +153,12 @@ export default function StudioPage() {
   const [styleModel, setStyleModel] = createSignal("qwen")
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
-  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
+  const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
-  const [openMenu, setOpenMenu] = createSignal<"capability" | "imageTool" | "style" | "settings" | null>(null)
+  const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | null>(null)
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
@@ -417,12 +414,43 @@ export default function StudioPage() {
             sourceImage: pending.sourceImage,
           }),
           toolTitle: pending.status === "failed" ? "图片生成失败" : pending.status === "succeeded" ? "图片生成完成" : "图片生成中",
-          toolName: `${imageToolLabel(imageTool())} · ${pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
+          toolName: `内部 · ${pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "running",
           result: normalizeResultValue(pending),
         }
       })
       if (!pending) return next
+      const latest = next.at(-1)
+      if (latest?.userText === pending.prompt && !latest.result?.images.length && latest.toolRunning) {
+        if (pending.status === "failed") {
+          return [
+            ...next.slice(0, -1),
+            {
+              ...latest,
+              toolTitle: "图片生成失败",
+              toolName: "内部 · 失败",
+              toolRunning: false,
+              result: normalizeResultValue(pending),
+            },
+          ]
+        }
+        if (pending.status !== "succeeded" || pending.images.length === 0) return next
+        return [
+          ...next.slice(0, -1),
+          {
+            ...latest,
+            assistantText: latest.assistantText || buildStudioThinkingText({
+              text: pending.prompt,
+              capability: pending.capability,
+              sourceImage: pending.sourceImage,
+            }),
+            toolTitle: "图片生成完成",
+            toolName: "内部 · 完成",
+            toolRunning: false,
+            result: normalizeResultValue(pending),
+          },
+        ]
+      }
       if (!sending() && pending.status !== "failed" && next.length > 0) return next
       if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return next
       return [
@@ -436,7 +464,7 @@ export default function StudioPage() {
             sourceImage: pending.sourceImage,
           }),
           toolTitle: pending.status === "failed" ? "图片生成失败" : "图片生成中",
-          toolName: `${imageToolLabel(imageTool())} · ${pending.status === "failed" ? "失败" : "生成中"}`,
+          toolName: `内部 · ${pending.status === "failed" ? "失败" : "生成中"}`,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -446,7 +474,15 @@ export default function StudioPage() {
   )
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
-  const result = createMemo(() => normalizeResultValue(studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult()))
+  const defaultResult = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
+  const selectedResult = createMemo(() => {
+    const id = selectedResultId()
+    if (!id) return
+    return displayTurns()
+      .map((turn) => turn.result)
+      .find((item): item is StudioGenerationResult => item?.id === id)
+  })
+  const result = createMemo(() => normalizeResultValue(selectedResult() ?? defaultResult()))
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     if (result()?.images.length) return "succeeded"
     if (status() === "failed" || result()?.status === "failed") return "failed"
@@ -467,11 +503,21 @@ export default function StudioPage() {
     if (first && !result()?.images.some((image) => image.id === selectedImageId())) setSelectedImageId(first)
   })
 
+  function selectStudioImage(input: { resultID: string; imageID: string }) {
+    batch(() => {
+      setSelectedResultId(input.resultID)
+      setSelectedImageId(input.imageID)
+      setMode("preview")
+    })
+  }
+
   createEffect(() => {
     const pending = pendingResult()
     if (!pending) return
     if (studioTurn()?.id === pending.id) return
     if (studioTurn()?.userText !== pending.prompt) return
+    if (pending.status === "failed" && studioTurn()?.toolRunning) return
+    if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
     if (!studioTurn()?.result && !studioTurn()?.toolError) return
     setPendingResult(undefined)
     setStatus(studioTurn()?.toolError ? "failed" : "succeeded")
@@ -486,6 +532,14 @@ export default function StudioPage() {
     if (studioTurn()?.result?.images.length) {
       setPendingResult(undefined)
       setStatus("succeeded")
+      return
+    }
+    if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) {
+      setStatus("succeeded")
+      return
+    }
+    if (pending.status === "failed" && studioTurn()?.toolRunning) {
+      setStatus("failed")
       return
     }
     if (!studioTurn()?.toolError && !studioTurn()?.assistantText) return
@@ -506,6 +560,7 @@ export default function StudioPage() {
           setPendingResult(undefined)
         }
         setSelectedImageId(undefined)
+        setSelectedResultId(undefined)
         setMode("preview")
         setAssets([])
         setPrompt("")
@@ -523,8 +578,8 @@ export default function StudioPage() {
     (prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(selectedImage()))),
   )
   const currentTitle = createMemo(() =>
-    latestCompletedTurn()?.result
-      ? buildStudioDisplayPrompt(latestCompletedTurn()!.result!.prompt)
+    result()?.prompt
+      ? buildStudioDisplayPrompt(result()!.prompt)
       : studioTurn()?.userText || "Octo Studio",
   )
   const currentImageLabel = createMemo(() => {
@@ -618,12 +673,10 @@ export default function StudioPage() {
       `风格模型：${styleModelLabel(styleModel())}`,
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
-      `当前选中的生图工具：${imageToolLabel(imageTool())}`,
-      input.sourceImage && imageTool() === "internel"
+      "当前选中的生图工具：内部",
+      input.sourceImage
         ? "将延续上一轮画面设定重新生成。"
-        : input.sourceImage
-          ? "这是基于上一张图片继续编辑。"
-          : undefined,
+        : undefined,
       `用户需求：${input.text}`,
     ]
       .filter((item): item is string => Boolean(item))
@@ -692,12 +745,13 @@ export default function StudioPage() {
     setMode("preview")
     setSending(true)
     setStatus("submitting")
+    setSelectedResultId(undefined)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
       status: "running",
       capability: nextCapability,
       prompt: text,
-      provider: nextCapability === "image.generate" ? imageTool() : "internel",
+      provider: "internel",
       model: styleModelLabel(styleModel()),
       aspectRatio: aspectRatio(),
       images: [],
@@ -709,6 +763,7 @@ export default function StudioPage() {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
+      if (!existingSession) navigate(`/${slug()}/studio/${sessionID}`)
       const generation = await createStudioGeneration({
         sessionID,
         text,
@@ -720,7 +775,6 @@ export default function StudioPage() {
         ...generation,
         sourceImage: overrides?.sourceImage,
       })
-      if (!existingSession) navigate(`/${slug()}/studio/${sessionID}`)
       await loadSessionMessages(sessionID)
       setStatus("succeeded")
       setAssets([])
@@ -845,7 +899,6 @@ export default function StudioPage() {
                 <StudioComposer
                   prompt={prompt()}
                 capability={capability()}
-                imageTool={imageTool()}
                 styleModel={styleModel()}
                 aspectRatio={aspectRatio()}
                 count={count()}
@@ -855,7 +908,6 @@ export default function StudioPage() {
                 canSubmit={canSubmit()}
                 onPrompt={setPrompt}
                 onCapability={setCapability}
-                onImageTool={setImageTool}
                 onStyleModel={setStyleModel}
                 onAspectRatio={setAspectRatio}
                 onCount={setCount}
@@ -873,9 +925,6 @@ export default function StudioPage() {
         <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
           <div class="studio-center-header">
             <div class="studio-center-title">{currentTitle()}</div>
-            <div class="studio-center-path" title={projectDir()}>
-              {projectDir()}
-            </div>
           </div>
 
           <ScrollView
@@ -887,7 +936,7 @@ export default function StudioPage() {
                 result={result()}
                 turns={displayTurns()}
                 busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
-                onSelectImage={setSelectedImageId}
+                onSelectImage={selectStudioImage}
               />
             </Show>
           </ScrollView>
@@ -895,7 +944,6 @@ export default function StudioPage() {
           <StudioComposer
             prompt={prompt()}
             capability={capability()}
-            imageTool={imageTool()}
             styleModel={styleModel()}
             aspectRatio={aspectRatio()}
             count={count()}
@@ -905,7 +953,6 @@ export default function StudioPage() {
             canSubmit={canSubmit()}
             onPrompt={setPrompt}
             onCapability={setCapability}
-            onImageTool={setImageTool}
             onStyleModel={setStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
@@ -930,8 +977,6 @@ export default function StudioPage() {
               image={selectedImage()}
               result={result()}
               imageLabel={currentImageLabel()}
-              regenerateDisabled={isBusy()}
-              onRegenerate={regenerateCurrentResult}
               onDownload={() => void downloadCurrentImage()}
             />
           }>
@@ -955,7 +1000,7 @@ export default function StudioPage() {
                 selectedImageId={selectedImageId()}
                 imageLabel={currentImageLabel()}
                 regenerateDisabled={isBusy()}
-                onSelectImage={setSelectedImageId}
+                onSelectImage={(id) => setSelectedImageId(id)}
                 onRegenerate={regenerateCurrentResult}
                 onUpscale={upscaleCurrentImage}
                 onCutout={cutoutCurrentImage}
@@ -1150,21 +1195,19 @@ function StudioIntro(): JSX.Element {
 function StudioComposer(props: {
   prompt: string
   capability: StudioCapability
-  imageTool: StudioImageTool
   styleModel: string
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
   assets: StudioAsset[]
   status: StudioGenerationStatus
-  openMenu: "capability" | "imageTool" | "style" | "settings" | null
+  openMenu: "capability" | "style" | "settings" | null
   canSubmit: boolean
   onPrompt: (value: string) => void
   onCapability: (value: StudioCapability) => void
-  onImageTool: (value: StudioImageTool) => void
   onStyleModel: (value: string) => void
   onAspectRatio: (value: StudioAspectRatio) => void
   onCount: (value: 1 | 2 | 3 | 4) => void
-  onOpenMenu: (value: "capability" | "imageTool" | "style" | "settings" | null) => void
+  onOpenMenu: (value: "capability" | "style" | "settings" | null) => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
@@ -1184,9 +1227,6 @@ function StudioComposer(props: {
     <div ref={composerRef!} class="studio-composer-wrap relative shrink-0">
       <Show when={props.openMenu === "capability"}>
         <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
-      </Show>
-      <Show when={props.openMenu === "imageTool"}>
-        <ImageToolMenu value={props.imageTool} onSelect={(value) => { props.onImageTool(value); props.onOpenMenu(null) }} />
       </Show>
       <Show when={props.openMenu === "style"}>
         <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
@@ -1238,7 +1278,6 @@ function StudioComposer(props: {
 
         <div class="studio-composer-toolbar">
           <ToolButton label={capabilityLabel(props.capability)} onClick={() => props.onOpenMenu(props.openMenu === "capability" ? null : "capability")} />
-          <ToolButton label={imageToolLabel(props.imageTool)} onClick={() => props.onOpenMenu(props.openMenu === "imageTool" ? null : "imageTool")} />
           <ToolButton label={styleModelLabel(props.styleModel)} onClick={() => props.onOpenMenu(props.openMenu === "style" ? null : "style")} />
           <IconTool label="参数" onClick={() => props.onOpenMenu(props.openMenu === "settings" ? null : "settings")} />
           <IconTool label="素材" onClick={props.onPickFile} />
@@ -1332,29 +1371,6 @@ function StyleMenu(props: { value: string; onSelect: (value: string) => void }):
   )
 }
 
-function ImageToolMenu(props: { value: StudioImageTool; onSelect: (value: StudioImageTool) => void }): JSX.Element {
-  return (
-    <div class="studio-menu w-[280px] p-4 left-[118px]">
-      <div class="text-[13px] font-semibold mb-3">生图工具</div>
-      <div class="flex flex-col gap-2">
-        <For each={STUDIO_IMAGE_TOOLS}>
-          {(item) => (
-            <button
-              type="button"
-              onClick={() => props.onSelect(item.id)}
-              class="w-full rounded-[8px] px-3 py-2 text-left hover:bg-[#f4f5f7]"
-              classList={{ "bg-[#f0f1f3]": item.id === props.value }}
-            >
-              <div class="text-[13px] font-medium">{item.label}</div>
-              <div class="text-[11px] text-[var(--studio-muted)] mt-1">{item.description}</div>
-            </button>
-          )}
-        </For>
-      </div>
-    </div>
-  )
-}
-
 function ImageSettings(props: {
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
@@ -1411,7 +1427,7 @@ function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
   busy: boolean
-  onSelectImage: (id: string) => void
+  onSelectImage: (input: { resultID: string; imageID: string }) => void
 }): JSX.Element {
   return (
     <div class="studio-conversation">
@@ -1438,7 +1454,6 @@ function StudioConversation(props: {
               </div>
               <div class="studio-result-title">{turn.toolTitle ?? (turn.result?.images.length ? "图片生成完成" : "图片生成中")}</div>
               <div class="studio-result-meta">
-                {turn.toolName ? `Tool：${turn.toolName} · ` : ""}
                 创建时间：{formatTime(turn.createdAt)}
               </div>
               <Show when={turn.toolError}>
@@ -1455,7 +1470,11 @@ function StudioConversation(props: {
                 <div class="studio-result-grid">
                   <For each={turn.result?.images ?? []}>
                     {(image) => (
-                      <button type="button" onClick={() => props.onSelectImage(image.id)} class="studio-result-thumb">
+                      <button
+                        type="button"
+                        onClick={() => turn.result && props.onSelectImage({ resultID: turn.result.id, imageID: image.id })}
+                        class="studio-result-thumb"
+                      >
                         <img src={image.thumbnailUrl ?? image.url} alt="" />
                       </button>
                     )}
@@ -1480,8 +1499,6 @@ function StudioResultCanvas(props: {
   image?: StudioImage
   result?: StudioGenerationResult
   imageLabel: string
-  regenerateDisabled: boolean
-  onRegenerate: () => void
   onDownload: () => void
 }): JSX.Element {
   return (
@@ -1516,24 +1533,14 @@ function StudioResultCanvas(props: {
       {(image) => (
         <>
           <div class="studio-canvas-header">
-            <span class="studio-canvas-label">{props.imageLabel}</span>
+            <span class="studio-canvas-label">
+              <span class="studio-canvas-label-text">{props.imageLabel}</span>
+            </span>
           </div>
           <div class="studio-canvas-stage">
             <img src={image().url} class="studio-canvas-image" alt="Studio generated result" />
           </div>
           <div class="studio-canvas-floating-actions">
-            <div class="studio-canvas-actions-group">
-              <button type="button" class="studio-canvas-favorite-button" title="收藏" aria-label="收藏" />
-            </div>
-            <div class="studio-canvas-actions-divider" />
-            <button
-              type="button"
-              class="studio-canvas-regenerate-button disabled:opacity-45 disabled:cursor-not-allowed"
-              onClick={props.onRegenerate}
-              disabled={props.regenerateDisabled}
-              title="再次生成"
-              aria-label="再次生成"
-            />
             <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
           </div>
         </>
@@ -1623,14 +1630,6 @@ function StudioDetails(props: {
           >
             <span>扩图</span>
           </button>
-        </div>
-      </section>
-      <section class="studio-detail-section">
-        <div class="studio-detail-section-title">风格标签</div>
-        <div class="studio-detail-tags">
-          <For each={[capabilityLabel(props.result.capability), props.result.model, props.result.aspectRatio, `${props.result.images.length}张`, `${props.result.images.length}张结果`]}>
-            {(item) => <span>{item}</span>}
-          </For>
         </div>
       </section>
     </ScrollView>
