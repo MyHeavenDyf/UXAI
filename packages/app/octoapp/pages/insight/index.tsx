@@ -14,9 +14,9 @@ import {
   Show,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { useLayout } from "@/context/layout"
-import { SDKProvider, useSDK } from "@/context/sdk"
+import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -95,12 +95,16 @@ const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const sdk = useSDK()
+  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const sync = useSync()
   const selection = useInsightModelSelection()
   const themeCtx = useTheme()
-  const layout = useLayout()
 
+  // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
+  // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
+  // html[data-color-scheme="dark"] 比 :root 优先级高（attribute selector），可覆盖 ThemeProvider。
+  // 覆盖 token 来自 oc-2 light variant，与 ThemeProvider 写入 :root 的来源一致。
   onMount(() => {
     const oc2 = themeCtx.themes()["oc-2"]
     if (!oc2) return
@@ -118,11 +122,14 @@ function InsightContent() {
     onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
   })
 
+  const homeDir = () => globalSync.data.path.home
+
+  // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
+  // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   createEffect(
     on(
       () => params.id,
       (id) => {
-        if (id) layout.lastSessionPerTab.setCowork(id)
         if (!id) return
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)
@@ -385,10 +392,10 @@ function InsightContent() {
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = sdk.directory
+    const dir = homeDir()
     if (!dir) return
     try {
-      const result = await sdk.client.session.create({ directory: dir, agent: "octo_insight" })
+      const result = await globalSDK.client.session.create({ directory: dir })
       const session = result.data as Session | undefined
       if (session) {
         navigate(`/insight/${session.id}`)
@@ -436,7 +443,7 @@ function InsightContent() {
     const parts: TextPartInput[] = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
-    const agent = "octo_insight"
+    const agent = "insight"
 
     // 当前 insight 选中的模型(来自 useInsightModelSelection,workspace 级持久化)
     const currentModel = selection.model.current()
@@ -507,7 +514,7 @@ function InsightContent() {
     }
 
     try {
-      await sdk.client.session.promptAsync({
+      await globalSDK.client.session.promptAsync({
         sessionID: sessionId,
         agent,
         model,
@@ -579,7 +586,7 @@ function InsightContent() {
     // 先取消排队消息，避免 abort 完成后 idle 触发器自动 flush
     if (queuedText()) cancelQueued()
     try {
-      await sdk.client.session.abort({ sessionID: sid })
+      await globalSDK.client.session.abort({ sessionID: sid })
     } catch {
       // session_status 事件自动同步状态，忽略网络错误
     }
@@ -873,7 +880,7 @@ function InsightContent() {
   return (
     <DataProvider
       data={sync.data}
-      directory={sdk.directory || ""}
+      directory={homeDir() || ""}
       onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
@@ -1112,7 +1119,7 @@ function InsightContent() {
                 />
 
                 <div
-                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group flex flex-col overflow-hidden"
+                  class="rounded-[16px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `
