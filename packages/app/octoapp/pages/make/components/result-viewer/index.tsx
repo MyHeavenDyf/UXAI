@@ -9,36 +9,14 @@ import { TableRenderer } from "./table-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { DeckRenderer } from "./deck-renderer"
 import { SvgRenderer } from "./svg-renderer"
+import { ReactComponentRenderer } from "./react-component-renderer"
+import { DiagramRenderer } from "./diagram-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
   const m = text.match(re)
   return m ? m[1].trim() : text.trim()
-}
-
-function MermaidPlaceholder(props: { content: string }): JSX.Element {
-  const code = createMemo(() => extractCodeBlock(props.content, "mermaid"))
-  return (
-    <div class="p-4 h-full overflow-auto flex flex-col gap-3">
-      <div
-        class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-        style={{
-          background: "rgba(251,191,36,0.08)",
-          border: "1px solid rgba(251,191,36,0.25)",
-          color: "#92400e",
-        }}
-      >
-        <span>Mermaid 图表渲染将在后续实现，当前显示源码</span>
-      </div>
-      <pre
-        class="flex-1 text-sm text-[var(--octo-text-primary)] p-4 rounded-lg overflow-auto"
-        style={{ background: "rgba(243,244,246,1)", "font-family": "monospace" }}
-      >
-        {code()}
-      </pre>
-    </div>
-  )
 }
 
 function JsonRenderer(props: { content: string }): JSX.Element {
@@ -135,8 +113,8 @@ export function ResultViewer(props: {
                   <Match when={tab().type === "markdown" || tab().type === "markdown-document"}>
                     <MarkdownRenderer content={tab().content} />
                   </Match>
-                  <Match when={tab().type === "mindmap"}>
-                    <MermaidPlaceholder content={tab().content} />
+                  <Match when={tab().type === "mindmap" || tab().type === "diagram"}>
+                    <DiagramRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "json"}>
                     <JsonRenderer content={tab().content} />
@@ -160,6 +138,9 @@ export function ResultViewer(props: {
                       mode={getHtmlMode(tab().id)}
                       onContentChange={(content) => props.onContentChange?.(tab().id, content)}
                     />
+                  </Match>
+                  <Match when={tab().type === "react-component"}>
+                    <ReactComponentRenderer content={tab().content} title={tab().title} />
                   </Match>
                 </Switch>
               </div>

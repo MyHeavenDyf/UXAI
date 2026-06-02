@@ -3,7 +3,7 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
-import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
+import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
@@ -12,6 +12,7 @@ import { FileOpsSummary } from "./file-ops-summary"
 export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
+  | "react-component" | "diagram"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -38,6 +39,8 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "image/svg+xml": "svg",
   "markdown-document": "markdown-document",
   "code-snippet": "code-snippet",
+  "react-component": "react-component",
+  diagram: "diagram",
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -61,6 +64,12 @@ function decodeDataUrl(url: string): string {
 function detectCard(text: string): { type: OutputCardType; title: string } | null {
   const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
 
+  if (/```tsx\b/i.test(text) || /```jsx\b/i.test(text) || /^import\s+React/i.test(text)) {
+    return { type: "react-component", title: heading(text) ?? "React 组件" }
+  }
+  if (/```mermaid\b/i.test(text)) {
+    return { type: "diagram", title: heading(text) ?? "流程图" }
+  }
   if (/```html/i.test(text) || /<!DOCTYPE\s+html/i.test(text) || /<html[\s>]/i.test(text) || /<script[\s>]/i.test(text)) {
     if (/<div[^>]*class=["']slide["']/.test(text) || /\.slide\b/.test(text)) {
       return { type: "deck", title: heading(text) ?? "幻灯片" }
@@ -72,9 +81,6 @@ function detectCard(text: string): { type: OutputCardType; title: string } | nul
   }
   if (isMarkdownTable(text)) {
     return { type: "table", title: heading(text) ?? "分析结果" }
-  }
-  if (/```mermaid/i.test(text)) {
-    return { type: "mindmap", title: heading(text) ?? "思维导图" }
   }
   if (/```json/i.test(text)) {
     return { type: "json", title: heading(text) ?? "JSON 数据" }
@@ -100,6 +106,8 @@ function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
     case "svg": return <IconCardSvg size={16} />
     case "markdown-document": return <IconCardMarkdown size={16} />
     case "code-snippet": return <IconCardFile size={16} />
+    case "react-component": return <IconCardReact size={16} />
+    case "diagram": return <IconCardDiagram size={16} />
   }
 }
 
