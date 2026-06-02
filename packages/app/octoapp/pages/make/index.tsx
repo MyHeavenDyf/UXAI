@@ -147,6 +147,7 @@ function MakeContent() {
     editing: false,
     draft: "",
     menuOpen: false,
+    pendingRename: false,
   })
   let titleRef: HTMLInputElement | undefined
 
@@ -719,12 +720,18 @@ createEffect(
                     aria-label={language.t("common.moreOptions")}
                   />
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content style={{ "min-width": "104px" }}>
-                      <DropdownMenu.Item
-                        onSelect={() => {
-                          setTitleState("menuOpen", false)
+                    <DropdownMenu.Content
+                      style={{ "min-width": "104px" }}
+                      onCloseAutoFocus={(event) => {
+                        if (titleState.pendingRename) {
+                          event.preventDefault()
+                          setTitleState("pendingRename", false)
                           openTitleEditor()
-                        }}
+                        }
+                      }}
+                    >
+                      <DropdownMenu.Item
+                        onSelect={() => setTitleState({ pendingRename: true, menuOpen: false })}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>

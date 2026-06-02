@@ -20,8 +20,8 @@ type TabType = "chat" | "make" | "cowork" | "studio"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "chat", label: "Chat" },
+  { key: "cowork", label: "Insight" },
   { key: "make", label: "Make" },
-  { key: "cowork", label: "Cowork" },
   { key: "studio", label: "Studio" },
 ]
 
