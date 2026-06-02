@@ -169,6 +169,7 @@ function OctoSidebarLayout(props: ParentProps) {
             "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
             border: "1px solid var(--octo-border-divider)",
             "border-left": "none",
+            display: "none"
           }}
         >
           <div
@@ -225,10 +226,10 @@ function OnboardingLayer() {
 
   const showOnboarding = createMemo(() => location.pathname === "/")
 
-  function handleOnboardingSelect(directory: string) {
-    layout.projects.open(directory)
-    server.projects.touch(directory)
-    void globalSDK.createClient({ directory }).session.list().catch(() => {})
+  function handleOnboardingSelect(data: { directory: string }) {
+    layout.projects.open(data.directory)
+    server.projects.touch(data.directory)
+    void globalSDK.createClient({ directory: data.directory }).session.list().catch(() => {})
     navigate("/cowork")
   }
 

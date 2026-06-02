@@ -1425,7 +1425,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 class="size-8 p-0"
                 style={buttons()}
                 onClick={pick}
-                disabled={store.mode !== "normal"}
+                disabled={store.mode !== "normal" || props.disabled}
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 aria-label={language.t("prompt.action.attachFile")}
               >
@@ -1580,7 +1580,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               <IconButton
                 data-action="prompt-submit"
                 type="submit"
-                disabled={!working() && blank()}
+                disabled={props.disabled || (!working() && blank())}
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                 variant="primary"
