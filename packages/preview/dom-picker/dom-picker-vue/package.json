@@ -1,0 +1,15 @@
+{
+  "name": "@dom-picker/vue",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./node-transform": "./nodeTransform.js",
+    "./runtime": "./runtime.js"
+  },
+  "peerDependencies": {
+    "vue": ">=3",
+    "@vue/compiler-core": ">=3"
+  }
+}

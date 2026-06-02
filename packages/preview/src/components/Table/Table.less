@@ -1,0 +1,77 @@
+.el-table {
+  --el-table-border-color: var(--el-border-color-light);
+  // --el-table-border: 1px solid var(--el-table-border-color);
+  // --el-table-text-color: var(--el-text-color-regular);
+  --el-table-header-text-color: var(--el-text-color-regular);
+  --el-table-row-hover-bg-color: #f5f5f5;
+  // --el-table-current-row-bg-color: var(--el-color-primary-light-9);
+  --el-table-header-bg-color: #f5f5f5;
+  // --el-table-fixed-box-shadow: var(--el-box-shadow-light);
+  // --el-table-bg-color: var(--el-fill-color-blank);
+  // --el-table-tr-bg-color: var(--el-fill-color-blank);
+  // --el-table-expanded-cell-bg-color: var(--el-fill-color-blank);
+  // --el-table-fixed-left-column: inset 10px 0 10px -10px rgba(0, 0, 0, .15);
+  // --el-table-fixed-right-column: inset -10px 0 10px -10px rgba(0, 0, 0, .15);
+  // --el-table-index: var(--el-index-normal);
+}
+
+.el-table thead th {
+  font-weight: var(--font-weight-medium);
+}
+.el-table thead .el-table__cell {
+  padding: 4px 0;
+}
+
+.el-table .cell {
+  display: flex;
+  align-items: center;
+}
+.el-table .el-table__cell {
+  &.is-left .cell {
+    justify-content: start;
+  }
+  &.is-center .cell {
+    justify-content: center;
+  }
+  &.is-right .cell {
+    justify-content: end;
+  }
+}
+
+.el-table__column-filter-trigger {
+  margin-left: 4px;
+}
+
+.el-pagination .el-select {
+  width: 112px;
+}
+
+.el-pagination.is-background .btn-prev.is-active,
+.el-pagination.is-background .btn-next.is-active,
+.el-pagination.is-background .el-pager li.is-active {
+  background-color: var(--el-color-primary-light-9);
+  color: var(--text-primary);
+  font-weight: var(--el-font-weight-primary);
+}
+.el-pagination.is-background .btn-prev,
+.el-pagination.is-background .btn-next,
+.el-pagination.is-background .el-pager li {
+  background-color: transparent;
+  &:hover {
+    color: var(--el-text-color-primary);
+    background-color: rgba(25, 25, 25, 0.05);
+  }
+}
+.el-pagination.is-background .btn-prev:disabled,
+.el-pagination.is-background .btn-prev.is-disabled,
+.el-pagination.is-background .btn-next:disabled,
+.el-pagination.is-background .btn-next.is-disabled,
+.el-pagination.is-background .el-pager li:disabled,
+.el-pagination.is-background .el-pager li.is-disabled {
+  color: var(--el-text-color-placeholder);
+  background-color: transparent;
+}
+.el-pagination .btn-prev .el-icon,
+.el-pagination .btn-next .el-icon {
+  font-size: var(--el-font-size-medium);
+}

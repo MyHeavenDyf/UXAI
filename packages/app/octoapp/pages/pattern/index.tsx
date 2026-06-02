@@ -740,13 +740,25 @@ export default function PatternPage() {
           </div>
         </div>
 
-        <ResultViewer
-          tabs={tabStore.tabs()}
-          activeId={tabStore.activeId()}
-          onActivate={tabStore.activate}
-          onClose={tabStore.closeTab}
-          onContentChange={handleContentChange}
-        />
+        <div class="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ background: "var(--octo-surface-result)" }}>
+          <Show
+            when={tabStore.tabs().length > 0}
+            fallback={
+              <iframe
+                src="http://127.0.0.1:5173"
+                style={{ width: "100%", height: "100%", border: "none" }}
+              />
+            }
+          >
+            <ResultViewer
+              tabs={tabStore.tabs()}
+              activeId={tabStore.activeId()}
+              onActivate={tabStore.activate}
+              onClose={tabStore.closeTab}
+              onContentChange={handleContentChange}
+            />
+          </Show>
+        </div>
       </div>
     </DataProvider>
   )

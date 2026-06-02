@@ -1,0 +1,33 @@
+{
+  "name": "element-ts",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dom-picker/core": "file:./dom-picker/dom-picker-core",
+    "@dom-picker/vue": "file:./dom-picker/dom-picker-vue",
+    "@hui/charts": "file:hui-charts-0.1.9.tgz",
+    "@tailwindcss/vite": "^4.2.2",
+    "d3": "6.6.2",
+    "echarts": "5.6.0",
+    "element-plus": "^2.13.7",
+    "lucide-vue-next": "^1.0.0",
+    "tailwindcss": "^4.2.2",
+    "vue": "^3.5.32",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "@vitejs/plugin-vue": "^6.0.5",
+    "@vue/tsconfig": "^0.9.1",
+    "less": "^4.6.4",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.11",
+    "vue-tsc": "^3.2.6"
+  }
+}
