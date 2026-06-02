@@ -1,4 +1,4 @@
-import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk/v2/client"
+import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
@@ -27,19 +27,6 @@ export type OutputCard = {
   designSystemId?: string | null
   truncated?: boolean
   createdAt: Date
-}
-
-const EXPORTS_BY_TYPE: Record<OutputCardType, ArtifactExportKind[]> = {
-  html: ["html", "pdf"],
-  deck: ["html", "pdf", "pptx"],
-  svg: ["svg"],
-  table: ["csv"],
-  json: ["json"],
-  markdown: ["md"],
-  "markdown-document": ["md"],
-  "code-snippet": ["txt"],
-  mindmap: ["md"],
-  file: ["txt"],
 }
 
 const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
@@ -155,11 +142,6 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
     // ignore parse errors
   }
   return results
-}
-
-function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt"> | null {
-  const all = parseAllArtifactsFromText(text)
-  return all.length > 0 ? all[0] : null
 }
 
 /** Quick regex scan for all artifact open tags (completed + in-progress) for streaming placeholders */
@@ -284,33 +266,44 @@ export function InsightTurn(props: {
     return raw.trim()
   })
 
-  const assistantMsg = createMemo((): AssistantMessage | undefined => {
+  // Collect ALL assistant messages between this user message and the next user message.
+  // Backend agent loop can produce multiple assistant messages per user turn
+  // (e.g. first does reasoning + tool calls, second generates the actual artifact).
+  const assistantMsgs = createMemo((): AssistantMessage[] => {
     const messages = msgStore?.[props.sessionID] ?? []
     const idx = messages.findIndex((m) => m.id === props.messageID)
-    if (idx === -1) return undefined
+    if (idx === -1) return []
+    const result: AssistantMessage[] = []
     for (let i = idx + 1; i < messages.length; i++) {
       const m = messages[i]
-      if (m.role === "assistant") return m as AssistantMessage
+      if (m.role === "assistant") result.push(m as AssistantMessage)
       if (m.role === "user") break
     }
-    return undefined
+    return result
   })
 
   const assistantError = createMemo(() => {
-    const msg = assistantMsg() as Record<string, unknown> | undefined
-    if (!msg) return null
-    const err = msg.error as Record<string, unknown> | undefined
-    if (!err) return null
-    if (err.name === "MessageAbortedError") return null
-    const data = err.data as Record<string, unknown> | undefined
-    const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
-    return { name: err.name as string, message }
+    for (const msg of assistantMsgs()) {
+      const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
+      if (!err) continue
+      if (err.name === "MessageAbortedError") continue
+      const data = err.data as Record<string, unknown> | undefined
+      const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
+      return { name: err.name as string, message }
+    }
+    return null
   })
 
   const assistantParts = createMemo(() => {
-    const msg = assistantMsg()
-    if (!msg) return []
-    return partStore?.[msg.id] ?? []
+    const msgs = assistantMsgs()
+    if (msgs.length === 0) return []
+    // Aggregate parts from all assistant messages in order
+    const allParts: { type: string; text?: string }[] = []
+    for (const msg of msgs) {
+      const parts = partStore?.[msg.id] ?? []
+      allParts.push(...parts)
+    }
+    return allParts
   })
 
   // 提取 reasoning 内容
@@ -663,23 +656,32 @@ export function InsightTurn(props: {
     }
 
     // ── 优先级 2：text parts（含 artifact 标签，支持多个） ──
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (textPart && typeof textPart.text === "string") {
-      const text = textPart.text.trim()
-      if (text.length > 0) {
-        const artifacts = parseAllArtifactsFromText(text)
-        if (artifacts.length > 0) {
-          return artifacts.map((a, i) => ({
-            ...a,
-            id: `card-${props.messageID}-artifact-${i}`,
-            createdAt: new Date(),
-          }))
-        }
+    // 多条 assistant 消息时，HTML artifact 可能不在最后一个 text part，
+    // 所以要先扫描所有 text part 找 artifact 标签
+    const allTextParts = parts.filter((p) => p.type === "text") as Array<{ type: "text"; text?: string }>
 
+    // 优先从所有 text part 中找 artifact 标签（按 reverse 顺序，最近的优先）
+    for (const textPart of [...allTextParts].reverse()) {
+      if (typeof textPart.text !== "string") continue
+      const text = textPart.text.trim()
+      if (text.length === 0) continue
+      const artifacts = parseAllArtifactsFromText(text)
+      if (artifacts.length > 0) {
+        return artifacts.map((a, i) => ({
+          ...a,
+          id: `card-${props.messageID}-artifact-${i}`,
+          createdAt: new Date(),
+        }))
+      }
+    }
+
+    // 没有 artifact 标签，fallback 到最后一个 text part 用 detectCard 检测
+    const lastTextPart = allTextParts[allTextParts.length - 1]
+    if (lastTextPart && typeof lastTextPart.text === "string") {
+      const text = lastTextPart.text.trim()
+      if (text.length > 0) {
         const info = detectCard(text)
-        if (info) return [{ id: `card-${props.messageID}`, ...info, content: textPart.text, createdAt: new Date() }]
+        if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date() }]
 
         // Before falling back to markdown, check if subtask artifacts exist for assembly
         const stForText = subtasks()
@@ -689,7 +691,7 @@ export function InsightTurn(props: {
             id: `card-${props.messageID}-text`,
             title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
             type: "markdown",
-            content: textPart.text,
+            content: lastTextPart.text,
             createdAt: new Date(),
           }]
         }
