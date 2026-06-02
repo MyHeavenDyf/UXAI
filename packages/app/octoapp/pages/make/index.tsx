@@ -25,12 +25,14 @@ import {
 import { createStore, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { ModelsProvider, useModels } from "@/context/models"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
+import { octoSessionsDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -78,6 +80,12 @@ function MakeContent() {
   const layout = useLayout()
   const language = useLanguage()
   const dialog = useDialog()
+  const globalSync = useGlobalSync()
+
+  const configDir = () => {
+    const config = globalSync.data.path.config
+    return config ? octoSessionsDir(config) : ""
+  }
 
   // ── 模型选择（与 Chat/Studio 隔离，workspace 级持久化） ────
   const models = useModels()
@@ -178,12 +186,11 @@ function MakeContent() {
     dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
   }
 
-  createEffect(
+createEffect(
     on(
       () => params.id,
       (id) => {
-        const dir = sdk.directory
-        if (id && dir) layout.lastSessionPerTab.setMake(dir, id)
+        if (id) layout.lastSessionPerTab.setMake(id)
         setSending(false)
       },
     ),

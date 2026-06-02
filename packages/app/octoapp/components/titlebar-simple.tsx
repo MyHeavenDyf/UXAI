@@ -117,25 +117,22 @@ export function TitlebarSimple() {
       return
     }
 
-    const dirSlug = getConfigDirSlug()
-    if (!dirSlug) {
-      if (tab === "make") navigate("/make")
+    if (tab === "make") {
+      const make = layout.lastSessionPerTab.make()
+      if (make?.id) {
+        navigate(`/make/${make.id}`)
+      } else {
+        navigate("/make")
+      }
       return
     }
+
+    const dirSlug = getConfigDirSlug()
+    if (!dirSlug) return
 
     const decodedDir = decode64(dirSlug)
     if (!decodedDir) {
       navigate(`/${dirSlug}/${tab}`)
-      return
-    }
-
-    if (tab === "make") {
-      const sessionId = layout.lastSessionPerTab.make(decodedDir)
-      if (sessionId) {
-        navigate(`/${dirSlug}/make/${sessionId}`)
-      } else {
-        navigate("/make")
-      }
       return
     }
 
