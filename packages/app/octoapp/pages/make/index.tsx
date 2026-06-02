@@ -184,7 +184,8 @@ export default function MakePage() {
     on(
       () => params.id,
       (id) => {
-        if (id) layout.lastSessionPerTab.setCowork(id, "make")
+        const dir = homeDir()
+        if (id && dir) layout.lastSessionPerTab.setMake(dir, id)
         setSending(false)
       },
     ),
