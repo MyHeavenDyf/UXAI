@@ -206,6 +206,21 @@ createEffect(
     ),
   )
 
+  // 调试日志：打印当前 session 相关的 SSE 事件
+  createEffect(() => {
+    const sid = params.id
+    if (!sid) return
+    const unsub = sdk.event.listen((evt) => {
+      const e = evt.details
+      const props = e.properties as Record<string, unknown> | undefined
+      const eventSessionID = props?.sessionID as string | undefined
+      if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
+      if (e.type === "message.part.delta") return
+      console.log(`[make:event] ${e.type}`, props)
+    })
+    onCleanup(unsub)
+  })
+
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
   const loadedChildSessions = new Set<string>()
 
@@ -236,6 +251,34 @@ createEffect(
       (item) => item.role === "assistant" && typeof item.time.completed !== "number",
     )
   })
+  // ── 执行计时器 ────────────────────────────────────────────
+  const [elapsedText, setElapsedText] = createSignal("")
+  let elapsedTimer: ReturnType<typeof setInterval> | undefined
+  createEffect(() => {
+    if (isBusy()) {
+      const id = params.id
+      if (id) {
+        const messages = (sync.data.message[id] ?? []) as Message[]
+        const pending = [...messages].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        if (pending) {
+          const start = pending.time.created
+          const fmt = () => {
+            const secs = Math.round((Date.now() - start) / 1000)
+            const m = Math.floor(secs / 60)
+            const s = secs % 60
+            setElapsedText(m > 0 ? `${m}分${s}秒` : `${s}秒`)
+          }
+          fmt()
+          elapsedTimer = setInterval(fmt, 1000)
+        }
+      }
+    } else {
+      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = undefined }
+      setElapsedText("")
+    }
+    onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
+  })
+
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
@@ -603,8 +646,11 @@ createEffect(
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
-                    <div class="shrink-0">
+                    <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
+                      <Show when={elapsedText()}>
+                        <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>已执行 {elapsedText()}</span>
+                      </Show>
                     </div>
                   </Show>
                   <Show
