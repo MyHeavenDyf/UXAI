@@ -285,6 +285,7 @@ createEffect(
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const DS_KEY_PREFIX = "octo:make:design-system:"
+  const PROMPT_KEY_PREFIX = "octo:make:prompt:"
   const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
   createEffect(() => {
@@ -298,6 +299,31 @@ createEffect(
     if (!id) return
     const saved = localStorage.getItem(DS_KEY_PREFIX + id)
     setSelectedDesignSystem(saved ?? null)
+  }))
+
+  // 保存 prompt 到 localStorage
+  function savePromptToStorage(sessionId: string | undefined, text: string) {
+    if (!sessionId) return
+    const key = PROMPT_KEY_PREFIX + sessionId
+    if (text.trim()) localStorage.setItem(key, text)
+    else localStorage.removeItem(key)
+  }
+  // 加载 prompt from localStorage
+  function loadPromptFromStorage(sessionId: string | undefined): string {
+    if (!sessionId) return ""
+    return localStorage.getItem(PROMPT_KEY_PREFIX + sessionId) ?? ""
+  }
+
+  // 追踪当前 session ID 用于保存 prompt
+  let currentSessionIdForPrompt: string | undefined = params.id
+  // prompt 变化时立即保存到当前 session
+  createEffect(on(prompt, (text) => {
+    savePromptToStorage(currentSessionIdForPrompt, text)
+  }, { defer: true }))
+  // 切换 session 时：更新追踪 ID 并加载新 prompt
+  createEffect(on(() => params.id, (newId) => {
+    currentSessionIdForPrompt = newId
+    setPrompt(loadPromptFromStorage(newId))
   }))
   // 对话面板宽度：从 localStorage 恢复，无存储值时取默认 460px
   const CHAT_WIDTH_KEY = "octo:make:chat-width"

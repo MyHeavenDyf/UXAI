@@ -11,6 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "@/config/config"
 import { ConfigMCP } from "../config/mcp"
+import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import * as Log from "@opencode-ai/core/util/log"
 import { NamedError } from "@opencode-ai/core/util/error"
 import z from "zod/v4"
@@ -34,6 +35,7 @@ import { zod as effectZod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 
 const log = Log.create({ service: "mcp" })
+const elog = EffectLogger.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
 
 export const Resource = Schema.Struct({
@@ -160,6 +162,11 @@ function defs(key: string, client: MCPClient, timeout?: number) {
     catch: (err) => (err instanceof Error ? err : new Error(String(err))),
   }).pipe(
     Effect.map((result) => result.tools),
+    Effect.tap((tools) =>
+      Effect.sync(() => {
+        log.info("defs fetched", { key, toolCount: tools.length, tools: tools.map((t) => t.name).join(",") })
+      }),
+    ),
     Effect.catch((err) => {
       log.error("failed to get tools from client", { key, error: err })
       return Effect.succeed(undefined)
@@ -487,6 +494,7 @@ export const layer = Layer.effect(
         if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
         s.defs[name] = listed
+        log.info("tools list updated", { server: name, newToolCount: listed.length })
         await bridge.promise(bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
       })
     }
@@ -501,6 +509,7 @@ export const layer = Layer.effect(
           clients: {},
           defs: {},
         }
+        yield* elog.info("init", { servers: Object.keys(config), count: Object.keys(config).length })
 
         yield* Effect.forEach(
           Object.entries(config),
@@ -517,6 +526,7 @@ export const layer = Layer.effect(
               }
 
               s.status[key] = { status: "connecting" }
+              yield* elog.info("connecting", { server: key, type: mcp.type })
 
               yield* Effect.forkScoped(
                 Effect.gen(function* () {
@@ -534,6 +544,12 @@ export const layer = Layer.effect(
                   )
 
                   s.status[key] = result.status
+                  yield* elog.info("connect result", {
+                    server: key,
+                    status: result.status.status,
+                    toolCount: result.defs?.length ?? 0,
+                    error: result.status.status === "failed" ? result.status.error : undefined,
+                  })
                   if (result.mcpClient) {
                     s.clients[key] = result.mcpClient
                     s.defs[key] = result.defs!
@@ -663,6 +679,13 @@ export const layer = Layer.effect(
         ([clientName]) => s.status[clientName]?.status === "connected",
       )
 
+      yield* elog.info("tools", {
+        connectedServers: connectedClients.map(([n]) => n),
+        connectedCount: connectedClients.length,
+        totalClients: Object.keys(s.clients).length,
+        allStatus: Object.fromEntries(Object.entries(s.status).map(([k, v]) => [k, v.status])),
+      })
+
       yield* Effect.forEach(
         connectedClients,
         ([clientName, client]) =>
@@ -702,22 +725,30 @@ export const layer = Layer.effect(
     const toolsForAgent = Effect.fn("MCP.toolsForAgent")(
       function* (agentMcp: string[] | undefined, customServerNames: string[]) {
         const allTools = yield* tools()
+        const allToolCount = Object.keys(allTools).length
         // Only agents with explicit mcp field see builtin MCP tools
         if (!agentMcp || agentMcp.length === 0) {
-          if (customServerNames.length === 0) return {}
+          if (customServerNames.length === 0) {
+            yield* elog.info("toolsForAgent", { agentMcp, customServerNames, allToolCount, filteredToolCount: 0, filteredTools: "" })
+            return {}
+          }
           const customPrefixes = customServerNames.map(sanitize)
-          return Object.fromEntries(
+          const filtered = Object.fromEntries(
             Object.entries(allTools).filter(([key]) =>
               customPrefixes.some((p) => key.startsWith(p + "_")),
             ),
           )
+          yield* elog.info("toolsForAgent", { agentMcp, customServerNames, allToolCount, filteredToolCount: Object.keys(filtered).length, filteredTools: Object.keys(filtered).join(",") })
+          return filtered
         }
         const prefixes = [...agentMcp.map(sanitize), ...customServerNames.map(sanitize)]
-        return Object.fromEntries(
+        const filtered = Object.fromEntries(
           Object.entries(allTools).filter(([key]) =>
             prefixes.some((p) => key.startsWith(p + "_")),
           ),
         )
+        yield* elog.info("toolsForAgent", { agentMcp, customServerNames, allToolCount, filteredToolCount: Object.keys(filtered).length, filteredTools: Object.keys(filtered).join(",") })
+        return filtered
       },
     )
 
