@@ -373,3 +373,7 @@
   color: var(--octo-brand);
   background: var(--octo-brand-a20);
 }
+
+button[title="版本历史"] {
+  display: none;
+}
