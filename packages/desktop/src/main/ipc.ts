@@ -164,6 +164,10 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
+  ipcMain.on("show-item-in-folder", (_event: IpcMainEvent, path: string) => {
+    shell.showItemInFolder(path)
+  })
+
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
     const res = await fetch(url)
     if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
