@@ -45,7 +45,7 @@ import { useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { Persist, persisted } from "@/utils/persist"
 import { loadDesignSystem } from "./utils/design-system-loader"
-import { buildPatternPrompt, detectCatalog } from "./utils/a2ui-protocol"
+import { buildPatternPrompt, detectCatalog, detectA2UIJson } from "./utils/a2ui-protocol"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 const AGENT_NAME = "octo_pattern"
@@ -337,6 +337,23 @@ export default function PatternPage() {
   const tabStore = createTabStore()
 
   const autoScroll = createAutoScroll({ working: isBusy })
+
+  let previewIframeRef: HTMLIFrameElement | undefined
+
+  function sendToPreview(data: unknown) {
+    if (!previewIframeRef?.contentWindow) return
+    previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
+  }
+
+  createEffect(() => {
+    const tabs = tabStore.tabs()
+    const active = tabStore.activeId()
+    if (!active || tabs.length === 0) return
+    const tab = tabs.find((t) => t.id === active)
+    if (!tab) return
+    const doc = detectA2UIJson(tab.content)
+    if (doc) sendToPreview(doc)
+  })
 
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
 
@@ -741,23 +758,11 @@ export default function PatternPage() {
         </div>
 
         <div class="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ background: "var(--octo-surface-result)" }}>
-          <Show
-            when={tabStore.tabs().length > 0}
-            fallback={
-              <iframe
-                src="http://127.0.0.1:5173"
-                style={{ width: "100%", height: "100%", border: "none" }}
-              />
-            }
-          >
-            <ResultViewer
-              tabs={tabStore.tabs()}
-              activeId={tabStore.activeId()}
-              onActivate={tabStore.activate}
-              onClose={tabStore.closeTab}
-              onContentChange={handleContentChange}
-            />
-          </Show>
+          <iframe
+            ref={(el) => { previewIframeRef = el }}
+            src="http://127.0.0.1:5173"
+            style={{ width: "100%", height: "100%", border: "none" }}
+          />
         </div>
       </div>
     </DataProvider>
