@@ -395,7 +395,7 @@ function InsightContent() {
     const dir = homeDir()
     if (!dir) return
     try {
-      const result = await globalSDK.client.session.create({ directory: dir })
+      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
         navigate(`/insight/${session.id}`)
@@ -443,7 +443,7 @@ function InsightContent() {
     const parts: TextPartInput[] = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
-    const agent = "insight"
+    const agent = "octo_insight"
 
     // 当前 insight 选中的模型(来自 useInsightModelSelection,workspace 级持久化)
     const currentModel = selection.model.current()

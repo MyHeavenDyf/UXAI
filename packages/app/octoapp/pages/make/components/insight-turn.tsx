@@ -1007,21 +1007,7 @@ ${bodies}
                 <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
               </div>
             </button>
-            <Show when={capturedCard.truncated}>
-              <div class="flex items-center gap-2 mt-2 pt-2" style={{ "border-top": "1px solid rgba(234,179,8,0.15)" }}>
-                <span class="text-[11px] px-1.5 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.1)", color: "#ca8a04" }}>
-                  输出被截断
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); props.onContinue?.(capturedCard) }}
-                  class="text-[11px] px-1.5 py-0.5 rounded hover:opacity-80"
-                  style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}
-                >
-                  续写
-                </button>
-              </div>
-            </Show>
+            {/* 续写功能暂时屏蔽 — truncated 检测逻辑尚未完善 */}
           </div>
         )}
       </For>
