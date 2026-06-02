@@ -501,6 +501,32 @@
         "@opentui/solid",
       ],
     },
+    "packages/preview": {
+      "name": "element-ts",
+      "version": "0.0.0",
+      "dependencies": {
+        "@dom-picker/core": "file:./dom-picker/dom-picker-core",
+        "@dom-picker/vue": "file:./dom-picker/dom-picker-vue",
+        "@hui/charts": "file:hui-charts-0.1.9.tgz",
+        "@tailwindcss/vite": "^4.2.2",
+        "d3": "6.6.2",
+        "echarts": "5.6.0",
+        "element-plus": "^2.13.7",
+        "lucide-vue-next": "^1.0.0",
+        "tailwindcss": "^4.2.2",
+        "vue": "^3.5.32",
+        "vue-router": "^4.5.1",
+      },
+      "devDependencies": {
+        "@types/node": "^24.12.2",
+        "@vitejs/plugin-vue": "^6.0.5",
+        "@vue/tsconfig": "^0.9.1",
+        "less": "^4.6.4",
+        "typescript": "~6.0.2",
+        "vite": "^8.0.11",
+        "vue-tsc": "^3.2.6",
+      },
+    },
     "packages/script": {
       "name": "@opencode-ai/script",
       "dependencies": {
@@ -608,32 +634,6 @@
         "vite": "catalog:",
         "vite-plugin-icons-spritesheet": "3.0.1",
         "vite-plugin-solid": "catalog:",
-      },
-    },
-    "packages/vue-project": {
-      "name": "element-ts",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dom-picker/core": "file:./dom-picker/dom-picker-core",
-        "@dom-picker/vue": "file:./dom-picker/dom-picker-vue",
-        "@hui/charts": "file:hui-charts-0.1.9.tgz",
-        "@tailwindcss/vite": "^4.2.2",
-        "d3": "6.6.2",
-        "echarts": "5.6.0",
-        "element-plus": "^2.13.7",
-        "lucide-vue-next": "^1.0.0",
-        "tailwindcss": "^4.2.2",
-        "vue": "^3.5.32",
-        "vue-router": "^4.5.1",
-      },
-      "devDependencies": {
-        "@types/node": "^24.12.2",
-        "@vitejs/plugin-vue": "^6.0.5",
-        "@vue/tsconfig": "^0.9.1",
-        "less": "^4.6.4",
-        "typescript": "~6.0.2",
-        "vite": "^8.0.11",
-        "vue-tsc": "^3.2.6",
       },
     },
     "packages/web": {
@@ -3231,7 +3231,7 @@
 
     "element-plus": ["element-plus@2.14.1", "", { "dependencies": { "@ctrl/tinycolor": "^4.2.0", "@element-plus/icons-vue": "^2.3.2", "@floating-ui/dom": "^1.7.6", "@popperjs/core": "npm:@sxzz/popperjs-es@^2.11.8", "@types/lodash": "^4.17.24", "@types/lodash-es": "^4.17.12", "@vueuse/core": "14.3.0", "async-validator": "^4.2.5", "dayjs": "^1.11.20", "lodash": "^4.18.1", "lodash-es": "^4.18.1", "lodash-unified": "^1.0.3", "memoize-one": "^6.0.0", "normalize-wheel-es": "^1.2.0", "vue-component-type-helpers": "^3.3.1" }, "peerDependencies": { "vue": "^3.3.7" } }, "sha512-UFnm1+BckNi+azkKJ7L32q1uXs9ekr99Z9pWTQPeDR05jqEWUwQq51ro4kZMVrANbjknX3Z7ukCZwTi2T6Tr9A=="],
 
-    "element-ts": ["element-ts@workspace:packages/vue-project"],
+    "element-ts": ["element-ts@workspace:packages/preview"],
 
     "emmet": ["emmet@2.4.11", "", { "dependencies": { "@emmetio/abbreviation": "^2.3.3", "@emmetio/css-abbreviation": "^2.1.8" } }, "sha512-23QPJB3moh/U9sT4rQzGgeyyGIrcM+GH5uVYg2C6wZIxAIJq7Ng3QLT79tl8FUwDXhyq9SusfknOrofAKqvgyQ=="],
 
@@ -6175,9 +6175,9 @@
 
     "electron-winstaller/fs-extra": ["fs-extra@7.0.1", "", { "dependencies": { "graceful-fs": "^4.1.2", "jsonfile": "^4.0.0", "universalify": "^0.1.0" } }, "sha512-YJDaCJZEnBmcbw13fvdAM9AwNOJwOzrE4pqMqBq5nFiEqXUqHwlK4B+3pUw6JNvfSPtX05xFHtYy/1ni01eGCw=="],
 
-    "element-ts/@dom-picker/core": ["@dom-picker/core@file:packages/vue-project/dom-picker/dom-picker-core", {}],
+    "element-ts/@dom-picker/core": ["@dom-picker/core@file:packages/preview/dom-picker/dom-picker-core", {}],
 
-    "element-ts/@dom-picker/vue": ["@dom-picker/vue@file:packages/vue-project/dom-picker/dom-picker-vue", { "peerDependencies": { "@vue/compiler-core": ">=3", "vue": ">=3" } }],
+    "element-ts/@dom-picker/vue": ["@dom-picker/vue@file:packages/preview/dom-picker/dom-picker-vue", { "dependencies": { "@dom-picker/core": "file:../dom-picker-core" }, "peerDependencies": { "@vue/compiler-core": ">=3", "vue": ">=3" } }],
 
     "element-ts/@tailwindcss/vite": ["@tailwindcss/vite@4.3.0", "", { "dependencies": { "@tailwindcss/node": "4.3.0", "@tailwindcss/oxide": "4.3.0", "tailwindcss": "4.3.0" }, "peerDependencies": { "vite": "^5.2.0 || ^6 || ^7 || ^8" } }, "sha512-t6J3OrB5Fc0ExuhohouH0fWUGMYL6PTLhW+E7zIk/pdbnJARZDCwjBznFnkh5ynRnIRSI4YjtTH0t6USjJISrw=="],
 
@@ -7158,6 +7158,8 @@
     "electron-builder/yargs/string-width": ["string-width@4.2.3", "", { "dependencies": { "emoji-regex": "^8.0.0", "is-fullwidth-code-point": "^3.0.0", "strip-ansi": "^6.0.1" } }, "sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g=="],
 
     "electron-winstaller/fs-extra/universalify": ["universalify@0.1.2", "", {}, "sha512-rBJeI5CXAlmy1pV+617WB9J63U6XcazHHF2f2dbJix4XzpUF0RS3Zbj0FGIOCAva5P/d/GBOYaACQ1w+0azUkg=="],
+
+    "element-ts/@dom-picker/vue/@dom-picker/core": ["@dom-picker/core@file:packages\\preview\\dom-picker\\dom-picker-core", {}],
 
     "element-ts/@tailwindcss/vite/@tailwindcss/node": ["@tailwindcss/node@4.3.0", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.21.0", "jiti": "^2.6.1", "lightningcss": "1.32.0", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.3.0" } }, "sha512-aFb4gUhFOgdh9AXo4IzBEOzBkkAxm9VigwDJnMIYv3lcfXCJVesNfbEaBl4BNgVRyid92AmdviqwBUBRKSeY3g=="],
 

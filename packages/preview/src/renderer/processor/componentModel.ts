@@ -3,7 +3,7 @@
  */
 import type { ComponentInstance, AnyComponentNode, ComponentChildren, ResolvedValue, ResolvedMap } from './type'
 import { isObject, isTemplateChildren, isDataBinding, isComponentNode } from "./guards.ts";
-import { DataModel } from './DataModel';
+import { DataModel } from './dataModel.ts';
 import { DataContext } from './dataContext'
 
 export class ComponentModel {
