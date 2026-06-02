@@ -182,7 +182,7 @@ function MakeContent() {
     on(
       () => params.id,
       (id) => {
-        const dir = homeDir()
+        const dir = sdk.directory
         if (id && dir) layout.lastSessionPerTab.setMake(dir, id)
         setSending(false)
       },
