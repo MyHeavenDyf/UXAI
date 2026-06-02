@@ -16,16 +16,18 @@ import { octoSessionsDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
 
-type TabType = "chat" | "cowork" | "studio"
+type TabType = "chat" | "make" | "cowork" | "studio"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "chat", label: "Chat" },
+  { key: "make", label: "Make" },
   { key: "cowork", label: "Cowork" },
   { key: "studio", label: "Studio" },
 ]
 
 const TAB_ICON_MAP: Record<TabType, { default: string; selected: string }> = {
   chat: { default: "/IconChat.svg", selected: "/IconChat1.svg" },
+  make: { default: "/IconMake.svg", selected: "/IconMake1.svg" },
   cowork: { default: "/IconCowork.svg", selected: "/IconCowork1.svg" },
   studio: { default: "/IconStudio.svg", selected: "/IconStudio1.svg" },
 }
@@ -84,13 +86,13 @@ export function TitlebarSimple() {
 
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
-    if (path === "/") return "cowork"
-    if (path === "/cowork" || path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
+    if (path === "/" || path === "/cowork" || path.startsWith("/insight") || path === "/skills") return "cowork"
+    if (path === "/make" || path.startsWith("/make/")) return "make"
     if (path === "/") return "chat"
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
 
-    const tabMatch = path.match(/^\/[^/]+\/(chat|cowork|studio)/)
+    const tabMatch = path.match(/^\/[^/]+\/(chat|make|cowork|studio)/)
     if (tabMatch) return tabMatch[1] as TabType
 
     return "chat"
@@ -108,7 +110,7 @@ export function TitlebarSimple() {
     if (tab === "cowork") {
       const cowork = layout.lastSessionPerTab.cowork()
       if (cowork?.id) {
-        navigate(`/${cowork.type}/${cowork.id}`)
+        navigate(`/insight/${cowork.id}`)
       } else {
         navigate("/cowork")
       }
@@ -116,11 +118,24 @@ export function TitlebarSimple() {
     }
 
     const dirSlug = getConfigDirSlug()
-    if (!dirSlug) return
+    if (!dirSlug) {
+      if (tab === "make") navigate("/make")
+      return
+    }
 
     const decodedDir = decode64(dirSlug)
     if (!decodedDir) {
       navigate(`/${dirSlug}/${tab}`)
+      return
+    }
+
+    if (tab === "make") {
+      const sessionId = layout.lastSessionPerTab.make(decodedDir)
+      if (sessionId) {
+        navigate(`/${dirSlug}/make/${sessionId}`)
+      } else {
+        navigate("/make")
+      }
       return
     }
 
