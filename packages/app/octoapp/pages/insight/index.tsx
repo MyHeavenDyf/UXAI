@@ -15,6 +15,7 @@ import {
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
+import { useLayout } from "@/context/layout"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
@@ -98,11 +99,8 @@ function InsightContent() {
   const sync = useSync()
   const selection = useInsightModelSelection()
   const themeCtx = useTheme()
+  const layout = useLayout()
 
-  // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
-  // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
-  // html[data-color-scheme="dark"] 比 :root 优先级高（attribute selector），可覆盖 ThemeProvider。
-  // 覆盖 token 来自 oc-2 light variant，与 ThemeProvider 写入 :root 的来源一致。
   onMount(() => {
     const oc2 = themeCtx.themes()["oc-2"]
     if (!oc2) return
@@ -120,12 +118,11 @@ function InsightContent() {
     onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
   })
 
-  // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
-  // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   createEffect(
     on(
       () => params.id,
       (id) => {
+        if (id) layout.lastSessionPerTab.setCowork(id)
         if (!id) return
         console.log("[octo:sync] session.sync", { sessionID: id })
         void sync.session.sync(id)

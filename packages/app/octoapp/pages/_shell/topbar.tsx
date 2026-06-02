@@ -107,14 +107,14 @@ export function OctoTopbar(): JSX.Element {
                 <button
                   type="button"
 onClick={() => {
-                     if (tab.href === "/insight") {
-                       const cowork = layout.lastSessionPerTab.cowork()
-                       if (cowork?.id) {
-                         navigate(`/${cowork.type}/${cowork.id}`)
-                       } else {
-                         navigate("/insight")
-                       }
-                     } else if (tab.href === "/chat") {
+                      if (tab.href === "/insight") {
+                        const cowork = layout.lastSessionPerTab.cowork()
+                        if (cowork?.id) {
+                          navigate(`/insight/${cowork.id}`)
+                        } else {
+                          navigate("/insight")
+                        }
+                      } else if (tab.href === "/chat") {
                        const dir = getConfigDirSlug()
                        if (!dir) return
                        const decoded = decode64(dir)

@@ -18,7 +18,7 @@ import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
-} from "./icons"
+} from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/pages/cowork/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
@@ -35,64 +35,12 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-function PlusIcon(): JSX.Element {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-    </svg>
-  )
-}
-
-function InsightIcon(): JSX.Element {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
-      <path d="M10 5v5l3 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx="10" cy="10" r="1.5" fill="currentColor" />
-    </svg>
-  )
-}
-
-function MakeIcon(): JSX.Element {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M6.5 17.5L3.5 14.5L13.5 4.5L16.5 7.5L6.5 17.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-      <circle cx="14" cy="6" r="2" stroke="currentColor" stroke-width="1.5" />
-      <circle cx="6" cy="14" r="2" stroke="currentColor" stroke-width="1.5" />
-    </svg>
-  )
-}
-
-function SkillIcon(): JSX.Element {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M10 2L12.09 6.64L17 6.64L13.35 9.82L14.63 14.47L10 11.6L5.37 14.47L6.65 9.82L3 6.64L7.91 6.64L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-    </svg>
-  )
-}
-
-function AssetIcon(): JSX.Element {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M2 6.5L10 2L18 6.5V13.5L10 18L2 13.5V6.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-      <path d="M2 6.5L10 10.5L18 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-      <path d="M10 10.5V18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-    </svg>
-  )
-}
-
-function SettingsIcon(): JSX.Element {
-  return (
-    <img src="/IconSettings.svg" alt="" style={{ width: "16px", height: "16px" }} />
-  )
-}
-
 const NAV_ITEMS = [
   { key: "skill_market", label: "技能库", Icon: IconSkill, IconActive: IconSkill1 },
   { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
 ] as const
 
-export function OctoSidebar(props: { width: number }): JSX.Element {
+export function MakeSidebar(props: { width: number }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
@@ -105,24 +53,14 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const projectDir = useProjectDir()
   const isOnboarding = createMemo(() => location.pathname === "/")
 
-  // Resolved directory signal — the single source of truth for session loading.
-  // Populated by two effects from different reliable reactive sources.
   const [resolvedDir, setResolvedDir] = createSignal<string>()
+  const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
 
-  // Track which directory the fetched data came from, so we only show content
-  // when the data matches the current directory (prevents flicker when dir changes from home → project)
-  const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
-
-  // Effect 1: read projectDir() which tracks server.projects.last (memo, reactive).
-  // For returning users this fires immediately on mount with the persisted directory.
   createEffect(() => {
     const d = projectDir()
     if (d) setResolvedDir(d)
   })
 
-  // Effect 2: track globalSync.data.ready (= bootstrap.isPending from useQuery, reliable).
-  // When bootstrap completes, explicitly read projectDir() — by then pathQuery.data is cached
-  // and the getter returns the real path even though the reactivity chain is broken.
   createEffect(() => {
     if (!globalSync.data.ready) {
       const d = projectDir()
@@ -130,30 +68,27 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     }
   })
 
-  // Insight sessions
   const [sessions, { refetch }] = createResource(
     () => isOnboarding() ? "" : (resolvedDir() ?? ""),
     async (d) => {
       if (!d) {
-        setInsightFetchedDir(d)
+        setMakeFetchedDir(d)
         return [] as Session[]
       }
       const client = globalSDK.createClient({ directory: d })
       const result = await client.session.list()
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-      setInsightFetchedDir(d)
-      return data.filter(s => s.agent === "octo_insight")
+      setMakeFetchedDir(d)
+      return data.filter(s => s.agent === "octo_make")
     },
   )
 
-  // Reconciled store with key="id" so <For> items keep stable references
   const [sessionList, setSessionList] = createStore<Session[]>([])
   createEffect(on(sessions, (data) => {
     if (data) setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
-  // Insight data is "stable" when fetched dir matches current dir
-  const insightStable = createMemo(() => insightFetchedDir() === resolvedDir())
+  const makeStable = createMemo(() => makeFetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -168,20 +103,20 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   onCleanup(() => { clearTimeout(refetchTimer) })
 
   const activeSessionId = () => {
-    const m = location.pathname.match(/^\/insight\/(.+)$/)
+    const m = location.pathname.match(/^\/make\/(.+)$/)
     return m?.[1]
   }
 
-  const [insightCollapsed, setInsightCollapsed] = createSignal(false)
+  const [makeCollapsed, setMakeCollapsed] = createSignal(false)
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
 
   function newSession() {
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "octo_insight" }).then((result) => {
+    void client.session.create({ directory: dir, agent: "octo_make" }).then((result) => {
       const session = result.data as Session | undefined
-      if (session) navigate(`/insight/${session.id}`)
+      if (session) navigate(`/make/${session.id}`)
     })
   }
 
@@ -211,33 +146,32 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>
-      {/* Scrollable: Insight + Make sessions */}
+
       <div
         data-slot="list-scroll"
         class="flex-1 min-h-0 overflow-y-auto px-[12px]"
       >
-        {/* ─── Octo Insight ─── */}
         <div class="mb-[2px]">
           <div class="flex items-center h-[36px] px-[12px]">
             <button
               type="button"
-              onClick={() => setInsightCollapsed((v) => !v)}
+              onClick={() => setMakeCollapsed((v) => !v)}
               class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
             >
               <span class="flex items-center gap-[12px] min-w-0">
-                <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+                <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
                 <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                  Octo Insight
+                  Octo Make
                 </span>
               </span>
-              <ChevronRightIcon collapsed={insightCollapsed()} />
+              <ChevronRightIcon collapsed={makeCollapsed()} />
             </button>
           </div>
 
-          <Show when={!insightCollapsed()}>
+          <Show when={!makeCollapsed()}>
             <div class="flex flex-col">
               <Show
-                when={insightStable()}
+                when={makeStable()}
                 fallback={
                   <div class="px-[8px] py-[6px]">
                     <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
@@ -268,34 +202,34 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                         ),
                       )
                       return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              notification.session.markViewed(session.id)
-                              navigate(`/insight/${session.id}`)
-                            }}
-                            class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
-                            style={{
-                              height: "36px",
-                              padding: "0 24px 0 44px",
-                              color: isActive() ? "#0A59F7" : undefined,
-                            }}
-                            classList={{
-                              "bg-[rgba(10,89,247,0.08)]": isActive(),
-                              "hover:bg-surface-base-hover": !isActive(),
-                            }}
-                          >
-                            <Show when={isActive()}>
-                              <span
-                                class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
-                                style={{
-                                  height: "28px",
-                                  width: "4px",
-                                  background: "#0A59F7",
-                                  transform: "translateY(-50%)",
-                                }}
-                              />
-                            </Show>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            notification.session.markViewed(session.id)
+                            navigate(`/make/${session.id}`)
+                          }}
+                          class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                          style={{
+                            height: "36px",
+                            padding: "0 24px 0 44px",
+                            color: isActive() ? "#0A59F7" : undefined,
+                          }}
+                          classList={{
+                            "bg-[rgba(10,89,247,0.08)]": isActive(),
+                            "hover:bg-surface-base-hover": !isActive(),
+                          }}
+                        >
+                          <Show when={isActive()}>
+                            <span
+                              class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
+                              style={{
+                                height: "28px",
+                                width: "4px",
+                                background: "#0A59F7",
+                                transform: "translateY(-50%)",
+                              }}
+                            />
+                          </Show>
                           <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
                             <div class="shrink-0 size-6 flex items-center justify-center">
                               <Switch>
@@ -326,7 +260,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         </div>
       </div>
 
-      {/* Fixed bottom: 技能库 / 资产库 */}
       <div
         class="shrink-0 flex flex-col gap-[2px] px-[12px] pt-[12px]"
       >
@@ -382,7 +315,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         </For>
       </div>
 
-      {/* Settings */}
       <div class="shrink-0 px-[12px] pb-[24px]">
         <button
           type="button"

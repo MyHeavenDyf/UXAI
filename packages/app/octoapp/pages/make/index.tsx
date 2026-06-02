@@ -182,7 +182,8 @@ function MakeContent() {
     on(
       () => params.id,
       (id) => {
-        if (id) layout.lastSessionPerTab.setCowork(id, "make")
+        const dir = sdk.directory
+        if (id && dir) layout.lastSessionPerTab.setMake(dir, id)
         setSending(false)
       },
     ),
