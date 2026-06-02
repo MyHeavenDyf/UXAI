@@ -12,6 +12,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import {
@@ -49,6 +50,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
   const notification = useNotification()
   const permission = usePermission()
   const language = useLanguage()
+  const layout = useLayout()
 
   const projectDir = useProjectDir()
   const isOnboarding = createMemo(() => location.pathname === "/")
@@ -274,6 +276,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
                 type="button"
                 onClick={() => {
                   if (item.key === "skill_market") {
+                    layout.sidebarSource.set("make")
                     navigate("/skills")
                   } else {
                     setActiveNav((v) => (v === item.key ? null : item.key))

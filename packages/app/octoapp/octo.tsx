@@ -249,6 +249,14 @@ function MakeSidebarLayout(props: ParentProps) {
   )
 }
 
+function SkillsSidebarLayout(props: ParentProps) {
+  const layout = useLayout()
+  const source = layout.sidebarSource.get()
+  return source === "make"
+    ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
+    : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+}
+
 function AppShellProviders(props: ParentProps) {
   return (
     <SettingsProvider>
@@ -309,12 +317,16 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
 
   const isCoworkPage = () => {
     const p = location.pathname
-    return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/") || p === "/skills"
+    return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/")
   }
 
   const isMakePage = () => {
     const p = location.pathname
     return p === "/make" || p.startsWith("/make/")
+  }
+
+  const isSkillsPage = () => {
+    return location.pathname === "/skills"
   }
 
   return (
@@ -333,7 +345,10 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <Show when={isMakePage()}>
                       <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
                     </Show>
-                    <Show when={!isCoworkPage() && !isMakePage()}>
+                    <Show when={isSkillsPage()}>
+                      <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
+                    </Show>
+                    <Show when={!isCoworkPage() && !isMakePage() && !isSkillsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>

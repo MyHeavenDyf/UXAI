@@ -86,9 +86,12 @@ export function TitlebarSimple() {
 
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
-    if (path === "/" || path === "/cowork" || path.startsWith("/insight") || path === "/skills") return "cowork"
+    if (path === "/" || path === "/cowork" || path.startsWith("/insight")) return "cowork"
     if (path === "/make" || path.startsWith("/make/")) return "make"
-    if (path === "/") return "chat"
+    if (path === "/skills") {
+      const source = layout.sidebarSource.get()
+      return source === "make" ? "make" : "cowork"
+    }
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
 

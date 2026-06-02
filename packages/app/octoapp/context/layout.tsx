@@ -58,6 +58,8 @@ type LastSessionPerTab = {
   studio: Record<string, string>
 }
 
+type SidebarSource = "cowork" | "make"
+
 export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
 
 export type ReviewDiffStyle = "unified" | "split"
@@ -275,6 +277,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       make: undefined,
       chat: {},
       studio: {},
+    })
+
+    const [sidebarSource, setSidebarSource] = createStore<{ source: SidebarSource }>({
+      source: "cowork",
     })
 
     const MAX_SESSION_KEYS = 50
@@ -584,6 +590,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         studio: (dir: string) => lastSessionPerTab.studio[dir],
         setStudio(dir: string, id: string) {
           setLastSession("studio", dir, id)
+        },
+      },
+      sidebarSource: {
+        get: createMemo(() => sidebarSource.source),
+        set(source: SidebarSource) {
+          setSidebarSource("source", source)
         },
       },
       projects: {
