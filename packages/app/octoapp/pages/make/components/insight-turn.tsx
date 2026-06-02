@@ -74,7 +74,7 @@ function decodeDataUrl(url: string): string {
 function detectCard(text: string): { type: OutputCardType; title: string } | null {
   const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
 
-  if (/```html/i.test(text) || /<!DOCTYPE\s+html/i.test(text) || /<html[\s>]/i.test(text)) {
+  if (/```html/i.test(text) || /<!DOCTYPE\s+html/i.test(text) || /<html[\s>]/i.test(text) || /<script[\s>]/i.test(text)) {
     if (/<div[^>]*class=["']slide["']/.test(text) || /\.slide\b/.test(text)) {
       return { type: "deck", title: heading(text) ?? "幻灯片" }
     }
