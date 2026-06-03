@@ -83,6 +83,8 @@ export function createMainWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
+    minWidth: 1024,
+    minHeight: 576,
     show: false,
     title: "Octo AI",
     icon: iconPath(),

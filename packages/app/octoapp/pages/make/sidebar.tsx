@@ -113,8 +113,16 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
 
   const [makeCollapsed, setMakeCollapsed] = createSignal(false)
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
+  const [creating, setCreating] = createSignal(false)
+  let createTimer: ReturnType<typeof setTimeout> | undefined
+
+  onCleanup(() => clearTimeout(createTimer))
 
   function newSession() {
+    if (creating()) return
+    setCreating(true)
+    clearTimeout(createTimer)
+    createTimer = setTimeout(() => setCreating(false), 500)
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
