@@ -35,7 +35,7 @@ import { useLanguage } from "@/context/language"
 import { octoSessionsDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -193,6 +193,7 @@ createEffect(
       (id) => {
         if (id) layout.lastSessionPerTab.setMake(id)
         setSending(false)
+        setDeltaLog([])
       },
     ),
   )
@@ -216,13 +217,28 @@ createEffect(
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
       if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
-      if (e.type === "message.part.delta") return
-      console.log(`[make:event] ${e.type}`, props)
+      
+      if (e.type === "message.part.delta") {
+        setDeltaLog(prev => [
+          ...prev.slice(-19),
+          {
+            timestamp: Date.now(),
+            eventType: e.type,
+            messageID: props?.messageID as string,
+            partID: props?.partID as string,
+            field: (props as Record<string, unknown>)?.field as string,
+            delta: (props as Record<string, unknown>)?.delta as string,
+          }
+        ])
+      } else {
+        console.log(`[make:event] ${e.type}`, props)
+      }
     })
     onCleanup(unsub)
   })
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
+  const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
 
   function ensureChildSession(subSessionID: string) {
@@ -861,6 +877,7 @@ createEffect(
                         onOpenResult={handleOpenResult}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
+                        deltaLog={deltaLog()}
                       />
                     )}
                   </For>

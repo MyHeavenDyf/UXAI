@@ -9,6 +9,15 @@ import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../u
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 
+export type DeltaLogEntry = {
+  timestamp: number
+  eventType: string
+  messageID: string
+  partID: string
+  field: string
+  delta: string
+}
+
 export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
@@ -172,9 +181,24 @@ function formatTime(d: Date): string {
   })
 }
 
+function formatDeltaTime(ms: number): string {
+  const d = new Date(ms)
+  return d.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+}
+
 // ── Internal: WaitingPill ──────────────────────────────────
 
-function WaitingPill(props: { parts: Array<{ type: string; text?: string }> }): JSX.Element {
+function WaitingPill(props: {
+  parts: Array<{ type: string; text?: string }>
+  partStore: Record<string, { type: string; text?: string }[]>
+  messageID: string
+  deltaLog: DeltaLogEntry[]
+}): JSX.Element {
   const statusLabel = createMemo(() => {
     const parts = props.parts
     const toolParts = parts.filter((p) => p.type === "tool")
@@ -187,24 +211,95 @@ function WaitingPill(props: { parts: Array<{ type: string; text?: string }> }): 
     return "生成中"
   })
 
+  const accumulatedText = createMemo(() => {
+    if (!props.messageID) return ""
+    const parts = props.partStore?.[props.messageID] ?? []
+    const textPart = [...parts]
+      .reverse()
+      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+    return textPart?.text ?? ""
+  })
+
+  const filteredDeltaLog = createMemo(() => {
+    if (!props.messageID) return []
+    return props.deltaLog
+      .filter((entry) => entry.messageID === props.messageID)
+      .slice(-20)
+  })
+
+  let contentRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (accumulatedText() && contentRef) {
+      contentRef.scrollTop = contentRef.scrollHeight
+    }
+  })
+
+  createEffect(() => {
+    if (!accumulatedText() && filteredDeltaLog().length > 0 && contentRef) {
+      contentRef.scrollTop = contentRef.scrollHeight
+    }
+  })
+
   return (
     <div
-      class="mx-3 mb-2 px-3 py-2 flex items-center gap-2"
+      class="mx-3 mb-2"
       style={{
         "border-radius": "var(--octo-radius-md)",
         background: "var(--octo-brand-a3)",
         border: "1.5px dashed var(--octo-brand-a25)",
       }}
     >
-      <div
-        class="w-1.5 h-1.5 rounded-full animate-pulse"
-        style={{
-          background: "var(--octo-brand, #3b82f6)",
-        }}
-      />
-      <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
-        {statusLabel()}…
-      </span>
+      <div class="px-3 py-2 flex items-center gap-2">
+        <div
+          class="w-1.5 h-1.5 rounded-full animate-pulse"
+          style={{
+            background: "var(--octo-brand, #3b82f6)",
+          }}
+        />
+        <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
+          {statusLabel()}…
+        </span>
+      </div>
+      <Show when={accumulatedText().length > 0} fallback={
+        <Show when={filteredDeltaLog().length > 0}>
+          <div
+            ref={(el) => { contentRef = el }}
+            class="px-3 pb-2"
+            style={{
+              "max-height": "120px",
+              overflow: "auto",
+              "font-size": "11px",
+              "font-family": "'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace",
+              color: "var(--octo-text-primary)",
+            }}
+          >
+            <For each={filteredDeltaLog()}>
+              {(entry) => (
+                <div style={{ padding: "2px 0", "border-bottom": "1px dashed #ddd" }}>
+                  <span style={{ color: "#888", "font-size": "10px" }}>{formatDeltaTime(entry.timestamp)}</span>
+                  <span style={{ color: "#3b82f6", "font-weight": "600", "margin-left": "8px" }}>{entry.field}</span>
+                  <span style={{ "margin-left": "8px" }}>{entry.delta.slice(0, 50)}{entry.delta.length > 50 ? "…" : ""}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      }>
+        <div
+          ref={(el) => { contentRef = el }}
+          class="px-3 pb-2"
+          style={{
+            "max-height": "120px",
+            overflow: "auto",
+            "font-size": "11px",
+            "font-family": "'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace",
+            color: "var(--octo-text-primary)",
+          }}
+        >
+          <pre class="whitespace-pre-wrap word-break-word" style={{ margin: "0" }}>{accumulatedText()}</pre>
+        </div>
+      </Show>
     </div>
   )
 }
@@ -251,6 +346,7 @@ export function InsightTurn(props: {
   onOpenResult: (card: OutputCard) => void
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
+  deltaLog?: DeltaLogEntry[]
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -304,6 +400,12 @@ export function InsightTurn(props: {
       allParts.push(...parts)
     }
     return allParts
+  })
+
+  const latestAssistantMessageID = createMemo(() => {
+    const msgs = assistantMsgs()
+    if (msgs.length === 0) return ""
+    return msgs[msgs.length - 1].id
   })
 
   // 提取 reasoning 内容
@@ -1019,7 +1121,12 @@ ${bodies}
 
       {/* 生成中状态指示 — 始终在底部 */}
       <Show when={showGenerating()}>
-        <WaitingPill parts={assistantParts()} />
+        <WaitingPill
+          parts={assistantParts()}
+          partStore={partStore}
+          messageID={latestAssistantMessageID()}
+          deltaLog={props.deltaLog ?? []}
+        />
       </Show>
 
       {/* 生成中的 artifact 卡片（带进度指示，支持多个）— 始终在底部 */}
