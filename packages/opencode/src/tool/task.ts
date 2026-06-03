@@ -125,12 +125,7 @@ export const TaskTool = Tool.define(
       const cancel = ops.cancel(nextSession.id)
 
       function onAbort() {
-        void Effect.runPromise(
-          cancel.pipe(
-            Effect.withLogSpan("TaskTool.abort"),
-            Effect.catchCause(() => Effect.void),
-          ),
-        )
+        runCancel.fork(cancel)
       }
 
       return yield* Effect.acquireUseRelease(
