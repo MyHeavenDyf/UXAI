@@ -97,6 +97,18 @@ function detectCard(text: string): { type: OutputCardType; title: string } | nul
   return null
 }
 
+function getToolEndTime(state: Record<string, unknown> | undefined): number {
+  const time = state?.time as Record<string, unknown> | undefined
+  const end = time?.end as number | undefined
+  return end ?? Date.now()
+}
+
+function getTextPartTime(part: Record<string, unknown>): number {
+  const time = part.time as Record<string, unknown> | undefined
+  const end = time?.end as number | undefined
+  return end ?? Date.now()
+}
+
 function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
   switch (props.type) {
     case "table": return <IconCardTable size={16} />
@@ -472,6 +484,7 @@ export function InsightTurn(props: {
     status: "running" | "done" | "error"
     textParts: string[]
     artifactOutputs: Array<{ identifier: string; title: string; content: string }>
+    completedAt?: number
   }
   const subtasks = createMemo((): SubtaskInfo[] => {
     const parts = assistantParts()
@@ -512,6 +525,7 @@ export function InsightTurn(props: {
           status: isError ? "error" : hasOutput ? "done" : "running",
           textParts: [],
           artifactOutputs,
+          completedAt: getToolEndTime(state),
         })
         continue
       }
@@ -583,6 +597,7 @@ export function InsightTurn(props: {
         status: isError ? "error" : hasOutput ? "done" : "running",
         textParts,
         artifactOutputs,
+        completedAt: getToolEndTime(state),
       })
     }
     return tasks
@@ -707,6 +722,8 @@ export function InsightTurn(props: {
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
       if (!state) continue
 
+      const toolTs = getToolEndTime(state)
+
       // attachments
       const attachments = state.attachments as Array<{ mime?: string; url?: string; filename?: string }> | undefined
       if (attachments) {
@@ -719,7 +736,7 @@ export function InsightTurn(props: {
                 title: att.filename?.replace(/\.html?$/i, "") ?? "HTML 原型",
                 type: "html",
                 content: html,
-                createdAt: new Date(),
+                createdAt: new Date(toolTs),
               })]
             }
           }
@@ -739,7 +756,7 @@ export function InsightTurn(props: {
               ...a,
               id: `card-${props.messageID}-artifact-${i}`,
               filePath: filePath || undefined,
-              createdAt: new Date(),
+              createdAt: new Date(toolTs),
             }))
           }
 
@@ -750,7 +767,7 @@ export function InsightTurn(props: {
               type: "html",
               content,
               filePath: filePath || undefined,
-              createdAt: new Date(),
+              createdAt: new Date(toolTs),
             })]
           }
         }
@@ -769,10 +786,11 @@ export function InsightTurn(props: {
       if (text.length === 0) continue
       const artifacts = parseAllArtifactsFromText(text)
       if (artifacts.length > 0) {
+        const ts = getTextPartTime(textPart as Record<string, unknown>)
         return artifacts.map((a, i) => ({
           ...a,
           id: `card-${props.messageID}-artifact-${i}`,
-          createdAt: new Date(),
+          createdAt: new Date(ts),
         }))
       }
     }
@@ -782,8 +800,9 @@ export function InsightTurn(props: {
     if (lastTextPart && typeof lastTextPart.text === "string") {
       const text = lastTextPart.text.trim()
       if (text.length > 0) {
+        const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
         const info = detectCard(text)
-        if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date() }]
+        if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
 
         // Before falling back to markdown, check if subtask artifacts exist for assembly
         const stForText = subtasks()
@@ -794,7 +813,7 @@ export function InsightTurn(props: {
             title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
             type: "markdown",
             content: lastTextPart.text,
-            createdAt: new Date(),
+            createdAt: new Date(ts),
           }]
         }
       }
@@ -802,12 +821,15 @@ export function InsightTurn(props: {
 
     // ── 优先级 3：任何 tool output（聚合所有 tool 输出） ──
     const allToolOutput: string[] = []
+    let latestToolTs = 0
     for (const p of parts) {
       if (p.type !== "tool") continue
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
       if (!state) continue
       const output = state.output as string | undefined
       if (output && output.trim().length > 0) allToolOutput.push(output.trim())
+      const ts = getToolEndTime(state)
+      if (ts > latestToolTs) latestToolTs = ts
     }
     if (allToolOutput.length > 0) {
       // When subtasks have artifact outputs, skip priority 3 entirely —
@@ -816,24 +838,25 @@ export function InsightTurn(props: {
       const hasSubArtifacts = stForTools.some((t) => t.artifactOutputs.length > 0)
       if (!hasSubArtifacts) {
         const content = allToolOutput.join("\n\n")
+        const ts = latestToolTs || Date.now()
         const artifacts = parseAllArtifactsFromText(content)
         if (artifacts.length > 0) {
           return artifacts.map((a, i) => ({
             ...a,
             id: `card-${props.messageID}-artifact-${i}`,
-            createdAt: new Date(),
+            createdAt: new Date(ts),
           }))
         }
 
         const info = detectCard(content)
-        if (info) return [{ id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date() }]
+        if (info) return [{ id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date(ts) }]
 
         return [{
           id: `card-${props.messageID}-tools-fallback`,
           title: content.split("\n")[0]?.slice(0, 40) ?? "工具产出",
           type: "markdown",
           content,
-          createdAt: new Date(),
+          createdAt: new Date(ts),
         }]
       }
     }
@@ -842,6 +865,7 @@ export function InsightTurn(props: {
     const st = subtasks()
     const subArtifacts = st.flatMap((t) => t.artifactOutputs)
     if (subArtifacts.length > 0) {
+      const subtaskTs = st.reduce((max, t) => Math.max(max, t.completedAt ?? 0), 0) || Date.now()
       // Check if any subtask artifact is a full HTML document — use it directly
       const fullDoc = subArtifacts.find((a) => /<!DOCTYPE\s+html/i.test(a.content) || /<html[\s>]/i.test(a.content))
       if (fullDoc) {
@@ -851,7 +875,7 @@ export function InsightTurn(props: {
           type: "html",
           content: fullDoc.content,
           artifactIdentifier: fullDoc.identifier + "-composed",
-          createdAt: new Date(),
+          createdAt: new Date(subtaskTs),
         })]
       }
       // Assemble HTML fragments into a full page
@@ -882,7 +906,7 @@ ${bodies}
         type: "html",
         content: assembled,
         artifactIdentifier: "auto-composed",
-        createdAt: new Date(),
+        createdAt: new Date(subtaskTs),
       })]
     }
 
@@ -1019,7 +1043,7 @@ ${bodies}
                             type: "html",
                             content: artifact.content,
                             artifactIdentifier: artifact.identifier || undefined,
-                            createdAt: new Date(),
+                            createdAt: new Date(task.completedAt ?? Date.now()),
                           }
                           return (
                             <button
