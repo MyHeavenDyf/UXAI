@@ -5,17 +5,17 @@
  */
 :root {
   /* ── Brand ─────────────────────────────── */
-  --octo-brand:        #0067D1;
-  --octo-brand-hover:  #2E86DE;
-  --octo-brand-active: #004EA8;
+  --octo-brand:        #0a59f7;
+  --octo-brand-hover:  #0950de;
+  --octo-brand-active: #0a55eb;
   --octo-brand-subtle: #EFF6FF;   /* surface.selected */
 
   /* brand alpha 层级 */
-  --octo-brand-a3:  rgba(0, 103, 209, 0.03);
-  --octo-brand-a8:  rgba(0, 103, 209, 0.08);
-  --octo-brand-a20: rgba(0, 103, 209, 0.20);
-  --octo-brand-a25: rgba(0, 103, 209, 0.25);
-  --octo-brand-a40: rgba(0, 103, 209, 0.40);
+  --octo-brand-a3:  rgba(10, 89, 247, 0.03);
+  --octo-brand-a8:  rgba(10, 89, 247, 0.08);
+  --octo-brand-a20: rgba(10, 89, 247, 0.20);
+  --octo-brand-a25: rgba(10, 89, 247, 0.25);
+  --octo-brand-a40: rgba(10, 89, 247, 0.40);
 
   /* ── Text ───────────────────────────────── */
   --octo-text-strong:      #101828;
@@ -197,29 +197,6 @@
 
 /* ── DS picker trigger (pill style) ──────── */
 
-.octo-ds-trigger {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: var(--octo-radius-pill);
-  border: 1px solid var(--octo-border-default);
-  background: var(--octo-surface-page);
-  font-size: 11.5px;
-  color: var(--octo-text-secondary);
-  cursor: pointer;
-  width: 100%;
-  max-width: 200px;
-  min-width: 48px;
-  overflow: hidden;
-  transition: background var(--octo-dur-normal) var(--octo-ease-out),
-              border-color var(--octo-dur-normal) var(--octo-ease-out);
-}
-.octo-ds-trigger[data-picked="true"] {
-  border-color: var(--octo-brand-a20);
-  background: var(--octo-brand-a8);
-  color: var(--octo-brand);
-}
 .octo-ds-swatch {
   width: 10px;
   height: 10px;
@@ -275,11 +252,7 @@
 }
 
 /* 用户消息气泡 */
-[data-component="session-turn"] [data-component="user-message"] {
-  background: var(--octo-brand-subtle);
-  padding: 12px;
-  border-radius: var(--octo-radius-lg);
-}
+
 [data-component="session-turn"] [data-slot="user-message-attachment"] {
   background: var(--octo-surface-page) !important;
   border: 1px solid var(--octo-border-default) !important;
@@ -301,48 +274,28 @@
 
 /* ── 输入区按钮状态 ─────────────────────────── */
 
-.octo-btn-attachment {
-  border-radius: var(--octo-radius-sm);
-  background: rgba(0,0,0,0.04);
-  border: 1px solid var(--octo-border-divider);
-  color: var(--octo-text-secondary);
-  cursor: pointer;
-}
-.octo-btn-attachment:hover:not(:disabled) {
-  background: rgba(0,0,0,0.08);
-  color: var(--octo-text-primary);
-}
-.octo-btn-attachment:disabled {
-  color: var(--octo-text-disabled);
-  cursor: not-allowed;
+.octo-split [data-action="prompt-submit"] {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-image: url(/IconSend-blue.svg);
+  background-size: 48.4px auto;
+  background-position: -8px -3.5px;
+  background-repeat: no-repeat;
+  background-color: transparent;
+  border: none;
 }
 
-.octo-btn-send {
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--octo-brand);
-  color: #FFFFFF;
-  cursor: pointer;
-  border: none;
-  transition: background var(--octo-dur-fast) var(--octo-ease);
+.octo-split [data-action="prompt-submit"]:disabled {
+  opacity: 0.6;
 }
-.octo-btn-send:hover:not(:disabled) {
-  background: var(--octo-brand-hover);
+
+.octo-split [data-action="prompt-submit"][data-icon="stop"] {
+  background-image: url(/pauseIcon.svg);
 }
-.octo-btn-send:disabled {
-  background: var(--octo-surface-disabled);
-  color: var(--octo-text-disabled);
-  cursor: not-allowed;
-}
-.octo-btn-stop {
-  background: #e53e3e;
-}
-.octo-btn-stop:hover {
-  background: #c53030;
+
+.octo-split [data-action="prompt-submit"] [data-slot="icon-svg"] {
+  display: none;
 }
 
 /* ── Viewport switcher ──────────────────── */

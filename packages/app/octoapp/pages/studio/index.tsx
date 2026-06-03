@@ -1182,10 +1182,10 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="studio-intro-copy">
         <div class="studio-intro-title">Octo Studio</div>
-        <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
+        <div class="studio-intro-subtitle">一键创意落地，让视觉生产力触手可及</div>
       </div>
     </div>
   )
@@ -1276,8 +1276,8 @@ function StudioComposer(props: {
         </Show>
 
         <div class="studio-composer-toolbar">
-          <ToolButton label={capabilityLabel(props.capability)} onClick={() => props.onOpenMenu(props.openMenu === "capability" ? null : "capability")} />
-          <ToolButton label={styleModelLabel(props.styleModel)} onClick={() => props.onOpenMenu(props.openMenu === "style" ? null : "style")} />
+          <ToolButton label={capabilityLabel(props.capability)} active={props.openMenu === "capability"} onClick={() => props.onOpenMenu(props.openMenu === "capability" ? null : "capability")} />
+          <ToolButton label={styleModelLabel(props.styleModel)} active={props.openMenu === "style"} onClick={() => props.onOpenMenu(props.openMenu === "style" ? null : "style")} />
           <IconTool label="参数" onClick={() => props.onOpenMenu(props.openMenu === "settings" ? null : "settings")} />
           <IconTool label="素材" onClick={props.onPickFile} />
           <button
@@ -1293,9 +1293,9 @@ function StudioComposer(props: {
   )
 }
 
-function ToolButton(props: { label: string; onClick: () => void }): JSX.Element {
+function ToolButton(props: { label: string; active?: boolean; onClick: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="studio-composer-tool-btn">
+    <button type="button" onClick={props.onClick} class="studio-composer-tool-btn" data-active={props.active || undefined}>
       <span class="studio-composer-tool-label">{props.label}</span>
       <span class="studio-composer-tool-caret" />
     </button>

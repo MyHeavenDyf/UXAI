@@ -40,7 +40,6 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
-import { IconSend } from "./icons"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -771,19 +770,15 @@ createEffect(
                         "overflow-y": "auto",
                       }}
                     />
-                    <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                    <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <div class="flex-1 min-w-0">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </div>
-                        <div class="flex-1 min-w-0">
-                          <TemplatePicker
-                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                          />
-                        </div>
+                        <DesignSystemPicker
+                          selected={selectedDesignSystem()}
+                          onSelect={setSelectedDesignSystem}
+                        />
+                        <TemplatePicker
+                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                        />
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -805,26 +800,25 @@ createEffect(
                           model={local.model}
                           triggerAs="button"
                           triggerProps={{
-                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
-                            "data-action": "prompt-model",
-                          }}
+                             class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                             "data-action": "prompt-model",
+                           }}
                         >
                           <span class="truncate">
                             {currentModel()?.name ?? "选择模型"}
                           </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
                       </div>
-                      <button
-                        type="button"
+                      <IconButton
+                        data-action="prompt-submit"
+                        type="submit"
+                        icon={isBusy() ? "stop" : "arrow-up"}
+                        class="size-8 flex-shrink-0"
                         onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                         disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                        class="octo-btn-send flex-shrink-0"
-                        classList={{ "octo-btn-stop": isBusy() }}
-                        title={isBusy() ? "停止生成" : undefined}
-                      >
-                        {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
-                      </button>
+                        aria-label={isBusy() ? "停止生成" : undefined}
+                      />
                     </div>
                   </div>
                 </div>
@@ -893,19 +887,15 @@ createEffect(
                       "overflow-y": "auto",
                     }}
                   />
-                  <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                  <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <div class="flex-1 min-w-0">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </div>
-                        <div class="flex-1 min-w-0">
-                          <TemplatePicker
-                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                          />
-                        </div>
+                        <DesignSystemPicker
+                          selected={selectedDesignSystem()}
+                          onSelect={setSelectedDesignSystem}
+                        />
+                        <TemplatePicker
+                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                        />
                       <input
                         ref={fileInputRef!}
                         type="file"
@@ -927,26 +917,26 @@ createEffect(
                         model={local.model}
                         triggerAs="button"
                         triggerProps={{
-                          class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                          class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
                           "data-action": "prompt-model",
                         }}
                       >
                         <span class="truncate">
                           {currentModel()?.name ?? "选择模型"}
                         </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" />
                       </ModelSelectorPopover>
                     </div>
-                    <button
-                      type="button"
+                    <IconButton
+                      data-action="prompt-submit"
+                      type="submit"
+                      icon={isBusy() ? "stop" : "arrow-up"}
+                      variant="primary"
+                      class="size-8 flex-shrink-0"
                       onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                       disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                      class="octo-btn-send flex-shrink-0"
-                      classList={{ "octo-btn-stop": isBusy() }}
-                      title={isBusy() ? "停止生成" : undefined}
-                    >
-                      {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
-                    </button>
+                      aria-label={isBusy() ? "停止生成" : undefined}
+                    />
                   </div>
                 </div>
               </div>
@@ -1035,7 +1025,7 @@ createEffect(
 function ChatEmptyState(): JSX.Element {
   return (
     <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="flex flex-col items-center gap-2">
         <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Make</div>
         <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
