@@ -547,11 +547,15 @@ createEffect(
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
-        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
-        const session = result.data as Session | undefined
-        if (!session) return
-        navigate(`/make/${session.id}`)
-        sid = session.id
+const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+      const session = result.data as Session | undefined
+      if (!session) return
+      const dsId = selectedDesignSystem()
+      if (dsId) {
+        localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+      }
+      navigate(`/make/${session.id}`)
+      sid = session.id
       }
       await sendMessage(sid, text)
     } catch (err) {
