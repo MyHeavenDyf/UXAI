@@ -305,18 +305,18 @@ export const MOBILE_DESIGN_SYSTEM = `
 
 export const CARD_EXAMPLE = `{
   "state": { "title": "今日任务", "description": "完成项目报告并提交", "status": "进行中", "progress": 65 },
-  "rootId": "mainCardContainer",
+  "rootId": "pattern_root",
   "elements": [
-    { "id": "mainCardContainer", "component": "div", "props": { "className": "p-4 bg-white rounded-lg shadow-sm border border-slate-200" }, "children": ["mainCardHeader", "mainCardBody", "mainCardFooter"] },
-    { "id": "mainCardHeader", "component": "div", "props": { "className": "flex justify-between items-center mb-3" }, "children": ["mainCardTitle", "mainCardTag"] },
-    { "id": "mainCardTitle", "component": "span", "props": { "value": { "path": "/title" }, "className": "text-base font-semibold text-slate-800" } },
-    { "id": "mainCardTag", "component": "Tag", "props": { "value": { "path": "/status" }, "color": "blue" } },
-    { "id": "mainCardBody", "component": "div", "props": { "className": "mb-3" }, "children": ["mainCardDesc"] },
-    { "id": "mainCardDesc", "component": "span", "props": { "value": { "path": "/description" }, "className": "text-sm text-slate-500" } },
-    { "id": "mainCardFooter", "component": "div", "props": { "className": "flex items-center gap-2" }, "children": ["mainCardProgress", "mainCardProgressText"] },
-    { "id": "mainCardProgress", "component": "Progress", "props": { "percent": { "path": "/progress" }, "showInfo": false, "strokeColor": "#3b82f6" } },
-    { "id": "mainCardProgressText", "component": "span", "props": { "value": { "path": "/progress" }, "className": "text-xs text-slate-400 ml-auto" } },
-    { "id": "mainCardBtn", "component": "Button", "props": { "value": "查看详情", "type": "primary", "size": "small", "className": "mt-3" } }
+    { "id": "pattern_root", "component": "div", "props": { "className": "p-4 bg-white rounded-lg shadow-sm border border-slate-200" }, "children": ["ptnCardHeader", "ptnCardBody", "ptnCardFooter"] },
+    { "id": "ptnCardHeader", "component": "div", "props": { "className": "flex justify-between items-center mb-3" }, "children": ["ptnCardTitle", "ptnCardTag"] },
+    { "id": "ptnCardTitle", "component": "span", "props": { "value": { "path": "/title" }, "className": "text-base font-semibold text-slate-800" } },
+    { "id": "ptnCardTag", "component": "Tag", "props": { "value": { "path": "/status" }, "color": "processing" } },
+    { "id": "ptnCardBody", "component": "div", "props": { "className": "mb-3" }, "children": ["ptnCardDesc"] },
+    { "id": "ptnCardDesc", "component": "span", "props": { "value": { "path": "/description" }, "className": "text-sm text-slate-500" } },
+    { "id": "ptnCardFooter", "component": "div", "props": { "className": "flex items-center gap-2" }, "children": ["ptnCardProgress", "ptnCardProgressText"] },
+    { "id": "ptnCardProgress", "component": "Progress", "props": { "percent": { "path": "/progress" }, "showInfo": false, "strokeColor": "#3b82f6" } },
+    { "id": "ptnCardProgressText", "component": "span", "props": { "value": { "path": "/progress" }, "className": "text-xs text-slate-400 ml-auto" } },
+    { "id": "ptnCardBtn", "component": "Button", "props": { "value": "查看详情", "color": "primary", "size": "small", "className": "mt-3" } }
   ]
 }`
 
@@ -328,17 +328,17 @@ export const LIST_EXAMPLE = `{
       { "id": 3, "imgSrc": "https://picsum.photos/id/103/200/200", "title": "数据统计", "desc": "上月数据报告", "time": "昨天" }
     ]
   },
-  "rootId": "mainListContainer",
+  "rootId": "pattern_root",
   "elements": [
-    { "id": "mainListContainer", "component": "div", "props": { "className": "flex flex-col gap-3 p-4" }, "children": ["mainListLoop"] },
-    { "id": "mainListLoop", "component": "div", "props": { "className": "flex flex-col" }, "children": { "path": "/news", "componentId": "mainListItem" } },
-    { "id": "mainListItem", "component": "div", "props": { "className": "flex gap-3 p-3 bg-white rounded-lg border border-slate-200 hover:shadow-sm transition-shadow" }, "children": ["mainListItemImg", "mainListItemContent"] },
-    { "id": "mainListItemImg", "component": "div", "props": { "className": "w-16 h-16 shrink-0 rounded-lg overflow-hidden" }, "children": ["mainListItemImage"] },
-    { "id": "mainListItemImage", "component": "img", "props": { "src": { "path": "imgSrc" }, "className": "w-full h-full object-cover" } },
-    { "id": "mainListItemContent", "component": "div", "props": { "className": "flex-1 min-w-0 flex flex-col justify-center" }, "children": ["mainListItemTitle", "mainListItemDesc", "mainListItemTime"] },
-    { "id": "mainListItemTitle", "component": "span", "props": { "value": { "path": "title" }, "className": "text-sm font-semibold text-slate-800" } },
-    { "id": "mainListItemDesc", "component": "span", "props": { "value": { "path": "desc" }, "className": "text-xs text-slate-500 mt-1" } },
-    { "id": "mainListItemTime", "component": "span", "props": { "value": { "path": "time" }, "className": "text-xs text-slate-400 mt-2" } }
+    { "id": "pattern_root", "component": "div", "props": { "className": "flex flex-col gap-3 p-4" }, "children": ["ptnListLoop"] },
+    { "id": "ptnListLoop", "component": "div", "props": { "className": "flex flex-col" }, "children": { "path": "/news", "componentId": "ptnListItem" } },
+    { "id": "ptnListItem", "component": "div", "props": { "className": "flex gap-3 p-3 bg-white rounded-lg border border-slate-200 hover:shadow-sm transition-shadow" }, "children": ["ptnListItemImg", "ptnListItemContent"] },
+    { "id": "ptnListItemImg", "component": "div", "props": { "className": "w-16 h-16 shrink-0 rounded-lg overflow-hidden" }, "children": ["ptnListItemImage"] },
+    { "id": "ptnListItemImage", "component": "img", "props": { "src": { "path": "imgSrc" }, "className": "w-full h-full object-cover" } },
+    { "id": "ptnListItemContent", "component": "div", "props": { "className": "flex-1 min-w-0 flex flex-col justify-center" }, "children": ["ptnListItemTitle", "ptnListItemDesc", "ptnListItemTime"] },
+    { "id": "ptnListItemTitle", "component": "span", "props": { "value": { "path": "title" }, "className": "text-sm font-semibold text-slate-800" } },
+    { "id": "ptnListItemDesc", "component": "span", "props": { "value": { "path": "desc" }, "className": "text-xs text-slate-500 mt-1" } },
+    { "id": "ptnListItemTime", "component": "span", "props": { "value": { "path": "time" }, "className": "text-xs text-slate-400 mt-2" } }
   ]
 }`
 
@@ -351,37 +351,37 @@ export const TABS_EXAMPLE = `{
       { "key": "tab3", "name": "权限管理", "icon": "safety", "content": "这是权限管理面板" }
     ]
   },
-  "rootId": "mainTabsContainer",
+  "rootId": "pattern_root",
   "elements": [
-    { "id": "mainTabsContainer", "component": "Tabs", "props": { "activeKey": { "path": "/activeTab" } }, "children": { "path": "/rbacConfig",  "componentId": "mainTabsItem" }},
-    { "id": "mainTabsItem", "component": "TabItem", "props": { "key": { "path": "key" }, "label": { "path": "name" }, "icon": { "path": "icon" }, "content": { "componentId": "mainTabsContent" } }},
-    { "id": "mainTabsContent", "component": "div", "props": { "className": "p-4", "value": { "path": "content" } }}
+    { "id": "pattern_root", "component": "Tabs", "props": { "activeKey": { "path": "/activeTab" } }, "children": { "path": "/rbacConfig",  "componentId": "ptnTabsItem" }},
+    { "id": "ptnTabsItem", "component": "TabItem", "props": { "key": { "path": "key" }, "label": { "path": "name" }, "icon": { "path": "icon" }, "content": { "componentId": "ptnTabsContent" } }},
+    { "id": "ptnTabsContent", "component": "div", "props": { "className": "p-4", "value": { "path": "content" } } }
   ]
 }`
 
 export const FORM_EXAMPLE = `{
   "state": { "username": "", "country": "", "hobbies": [], "notification": true, "birthday": "" },
-  "rootId": "mainFormContainer",
+  "rootId": "pattern_root",
   "elements": [
-    { "id": "mainFormContainer", "component": "div", "props": { "className": "p-6 max-w-lg mx-auto bg-white rounded-xl" }, "children": ["mainFormTitle", "mainFormContent", "mainFormBtn"] },
-    { "id": "mainFormTitle", "component": "h2", "props": { "value": "用户信息收集", "className": "text-xl font-bold text-slate-800 mb-6" } },
-    { "id": "mainFormContent", "component": "div", "props": { "className": "flex flex-col gap-5" }, "children": ["mainFormUsernameField", "mainFormBirthdayField", "mainFormCountryField", "mainFormHobbiesField", "mainFormNotificationField"] },
-    { "id": "mainFormUsernameField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["mainFormUsernameLabel", "mainFormUsernameInput"] },
-    { "id": "mainFormUsernameLabel", "component": "span", "props": { "value": "用户名", "className": "text-sm font-medium text-slate-700" } },
-    { "id": "mainFormUsernameInput", "component": "Input", "props": { "value": { "path": "/username" }, "placeholder": "请输入用户名", "prefix": "User", "className": "w-full" } },
-    { "id": "mainFormBirthdayField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["mainFormBirthdayLabel", "mainFormBirthdayPicker"] },
-    { "id": "mainFormBirthdayLabel", "component": "span", "props": { "value": "生日", "className": "text-sm font-medium text-slate-700" } },
-    { "id": "mainFormBirthdayPicker", "component": "DatePicker", "props": { "value": { "path": "/birthday" }, "placeholder": "选择日期", "picker": "date", "className": "w-full" } },
-    { "id": "mainFormCountryField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["mainFormCountryLabel", "mainFormCountrySelect"] },
-    { "id": "mainFormCountryLabel", "component": "span", "props": { "value": "国家", "className": "text-sm font-medium text-slate-700" } },
-    { "id": "mainFormCountrySelect", "component": "Select", "props": { "value": { "path": "/country" }, "placeholder": "请选择国家", "options": [{ "label": "中国", "value": "cn" }, { "label": "美国", "value": "us" }, { "label": "日本", "value": "jp" }], "className": "w-full" } },
-    { "id": "mainFormHobbiesField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["mainFormHobbiesLabel", "mainFormHobbiesCheckbox"] },
-    { "id": "mainFormHobbiesLabel", "component": "span", "props": { "value": "爱好", "className": "text-sm font-medium text-slate-700" } },
-    { "id": "mainFormHobbiesCheckbox", "component": "CheckboxGroup", "props": { "value": { "path": "/hobbies" }, "options": [{ "label": "阅读", "value": "reading" }, { "label": "运动", "value": "sports" }, { "label": "音乐", "value": "music" }] } },
-    { "id": "mainFormNotificationField", "component": "div", "props": { "className": "flex items-center justify-between" }, "children": ["mainFormNotificationLabel", "mainFormNotificationSwitch"] },
-    { "id": "mainFormNotificationLabel", "component": "span", "props": { "value": "接收通知", "className": "text-sm font-medium text-slate-700" } },
-    { "id": "mainFormNotificationSwitch", "component": "Switch", "props": { "value": { "path": "/notification" }, "checkedChildren": "开", "unCheckedChildren": "关" } },
-    { "id": "mainFormBtn", "component": "Button", "props": { "value": "提交", "type": "primary", "className": "w-full mt-6" } }
+    { "id": "pattern_root", "component": "div", "props": { "className": "p-6 max-w-lg mx-auto bg-white rounded-xl" }, "children": ["ptnFormTitle", "ptnFormContent", "ptnFormBtn"] },
+    { "id": "ptnFormTitle", "component": "h2", "props": { "value": "用户信息收集", "className": "text-xl font-bold text-slate-800 mb-6" } },
+    { "id": "ptnFormContent", "component": "div", "props": { "className": "flex flex-col gap-5" }, "children": ["ptnFormUsernameField", "ptnFormBirthdayField", "ptnFormCountryField", "ptnFormHobbiesField", "ptnFormNotificationField"] },
+    { "id": "ptnFormUsernameField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["ptnFormUsernameLabel", "ptnFormUsernameInput"] },
+    { "id": "ptnFormUsernameLabel", "component": "span", "props": { "value": "用户名", "className": "text-sm font-medium text-slate-700" } },
+    { "id": "ptnFormUsernameInput", "component": "Input", "props": { "value": { "path": "/username" }, "placeholder": "请输入用户名", "prefix": "User", "className": "w-full" } },
+    { "id": "ptnFormBirthdayField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["ptnFormBirthdayLabel", "ptnFormBirthdayPicker"] },
+    { "id": "ptnFormBirthdayLabel", "component": "span", "props": { "value": "生日", "className": "text-sm font-medium text-slate-700" } },
+    { "id": "ptnFormBirthdayPicker", "component": "DatePicker", "props": { "value": { "path": "/birthday" }, "placeholder": "选择日期", "picker": "date", "className": "w-full" } },
+    { "id": "ptnFormCountryField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["ptnFormCountryLabel", "ptnFormCountrySelect"] },
+    { "id": "ptnFormCountryLabel", "component": "span", "props": { "value": "国家", "className": "text-sm font-medium text-slate-700" } },
+    { "id": "ptnFormCountrySelect", "component": "Select", "props": { "value": { "path": "/country" }, "placeholder": "请选择国家", "options": [{ "label": "中国", "value": "cn" }, { "label": "美国", "value": "us" }, { "label": "日本", "value": "jp" }], "className": "w-full" } },
+    { "id": "ptnFormHobbiesField", "component": "div", "props": { "className": "flex flex-col gap-2" }, "children": ["ptnFormHobbiesLabel", "ptnFormHobbiesCheckbox"] },
+    { "id": "ptnFormHobbiesLabel", "component": "span", "props": { "value": "爱好", "className": "text-sm font-medium text-slate-700" } },
+    { "id": "ptnFormHobbiesCheckbox", "component": "CheckboxGroup", "props": { "value": { "path": "/hobbies" }, "options": [{ "label": "阅读", "value": "reading" }, { "label": "运动", "value": "sports" }, { "label": "音乐", "value": "music" }] } },
+    { "id": "ptnFormNotificationField", "component": "div", "props": { "className": "flex items-center justify-between" }, "children": ["ptnFormNotificationLabel", "ptnFormNotificationSwitch"] },
+    { "id": "ptnFormNotificationLabel", "component": "span", "props": { "value": "接收通知", "className": "text-sm font-medium text-slate-700" } },
+    { "id": "ptnFormNotificationSwitch", "component": "Switch", "props": { "value": { "path": "/notification" }, "checkedChildren": "开", "unCheckedChildren": "关" } },
+    { "id": "ptnFormBtn", "component": "Button", "props": { "value": "提交", "color": "primary", "className": "w-full mt-6" } }
   ]
 }`
 
@@ -398,19 +398,19 @@ export const HTML_EXAMPLE = `{
     ],
     "actionText": "立即开始体验"
   },
-  "rootId": "mainAppContainer",
+  "rootId": "pattern_root",
   "elements": [
-    { "id": "mainAppContainer", "component": "div", "props": { "className": "flex flex-col min-h-screen bg-gray-50" }, "children": ["headerAppTitle", "mainContentArea"] },
-    { "id": "headerAppTitle", "component": "h1", "props": { "className": "bg-white p-4 text-center font-bold border-b", "value": { "path": "/pageTitle" } } },
-    { "id": "mainContentArea", "component": "div", "props": { "className": "flex-1 p-4" }, "children": ["mainHeroCard", "mainFeatureList", "mainActionBtn"] },
-    { "id": "mainHeroCard", "component": "div", "props": { "className": "bg-blue-600 text-white p-6 rounded-2xl mb-4" }, "children": ["mainHeroTitle", "mainHeroDesc"] },
-    { "id": "mainHeroTitle", "component": "h2", "props": { "className": "text-xl font-bold", "value": { "path": "/heroTitle" } } },
-    { "id": "mainHeroDesc", "component": "p", "props": { "className": "text-xs opacity-80", "value": { "path": "/heroDesc" } } },
-    { "id": "mainFeatureList", "component": "div", "props": { "className": "flex flex-col gap-2 mb-4" }, "children": { "path": "/features", "componentId": "mainFeatureRow" } },
-    { "id": "mainFeatureRow", "component": "div", "props": { "className": "bg-white p-3 rounded-lg flex items-center gap-3 shadow-sm" }, "children": ["mainFeatureIcon", "mainFeatureLabel"] },
-    { "id": "mainFeatureIcon", "component": "Icon", "props": { "name": { "path": "icon" } } },
-    { "id": "mainFeatureLabel", "component": "span", "props": { "className": "text-sm", "value": { "path": "label" } } },
-    { "id": "mainActionBtn", "component": "Button", "props": { "className": "w-full bg-blue-600 text-white p-4 rounded-xl font-bold", "value": { "path": "/actionText" } } }
+    { "id": "pattern_root", "component": "div", "props": { "className": "flex flex-col min-h-screen bg-gray-50" }, "children": ["ptnHeaderTitle", "ptnContentArea"] },
+    { "id": "ptnHeaderTitle", "component": "h1", "props": { "className": "bg-white p-4 text-center font-bold border-b", "value": { "path": "/pageTitle" } } },
+    { "id": "ptnContentArea", "component": "div", "props": { "className": "flex-1 p-4" }, "children": ["ptnHeroCard", "ptnFeatureList", "ptnActionBtn"] },
+    { "id": "ptnHeroCard", "component": "div", "props": { "className": "bg-blue-600 text-white p-6 rounded-2xl mb-4" }, "children": ["ptnHeroTitle", "ptnHeroDesc"] },
+    { "id": "ptnHeroTitle", "component": "h2", "props": { "className": "text-xl font-bold", "value": { "path": "/heroTitle" } } },
+    { "id": "ptnHeroDesc", "component": "p", "props": { "className": "text-xs opacity-80", "value": { "path": "/heroDesc" } } },
+    { "id": "ptnFeatureList", "component": "div", "props": { "className": "flex flex-col gap-2 mb-4" }, "children": { "path": "/features", "componentId": "ptnFeatureRow" } },
+    { "id": "ptnFeatureRow", "component": "div", "props": { "className": "bg-white p-3 rounded-lg flex items-center gap-3 shadow-sm" }, "children": ["ptnFeatureIcon", "ptnFeatureLabel"] },
+    { "id": "ptnFeatureIcon", "component": "Icon", "props": { "name": { "path": "icon" } } },
+    { "id": "ptnFeatureLabel", "component": "span", "props": { "className": "text-sm", "value": { "path": "label" } } },
+    { "id": "ptnActionBtn", "component": "Button", "props": { "className": "w-full", "color": "primary", "value": { "path": "/actionText" } } }
   ]
 }`
 
@@ -448,17 +448,256 @@ function componentCatalogList(catalog: ComponentCatalog): string {
   return lines.join("\n")
 }
 
-const COMPONENT_USAGE_GUIDE = `
-# Component Usage Guide
-- Side navigation menus MUST use \`Menu\` component, NOT \`Tabs\`.
-- Header navigation menus MUST use \`Menu\` component, NOT \`Tabs\`.
-- Card top-right multi-select/toggle SHOULD use \`Segmented\`.
-- Table pagination is built-in — do NOT create separate pagination elements.
-- TopN chart selection rules:
-  - Multi-series data → use \`BarChart\`
-  - Center text requirement → use \`JadeJueChart\`
-  - Percentage/ratio values → use \`ProcessChart\` (data: [{"name":"A","value":45}])
-  - Absolute values → use \`HillChart\` (data: [{"name":"A","value":1250}])
+const COMPONENT_API_REFERENCE = `
+# Component API Reference (STRICT — only use documented props)
+
+## General
+
+### Button
+\`\`\`
+{
+  "component": "Button",
+  "props": {
+    "value": string | { "path": "/field" },       // button text (REQUIRED)
+    "color": "default" | "primary" | "danger" | "success" | "warning" | "info",  // color/type mapping
+    "types": "default" | "link",                   // "link" = text-style link button
+    "size": "large" | "medium" | "small",
+    "icon": "lucide-icon-name",                    // Lucide icon name
+    "iconPlacement": "start" | "end",
+    "shape": "default" | "circle" | "round",
+    "className": "tailwind-classes"
+  }
+}
+\`\`\`
+**CRITICAL**: Use \`color\` for visual style (NOT \`type\`). Example: \`"color": "primary"\`.
+
+### Icon
+\`\`\`
+{
+  "component": "Icon",
+  "props": {
+    "name": string | { "path": "/field" },         // Lucide icon name (REQUIRED)
+    "shape": "outline" | "fill" | "square" | "circle",
+    "color": "primary" | "success" | "warning" | "critical" | "error" | "info" | "#hex",
+    "className": "tailwind-classes"
+  }
+}
+\`\`\`
+
+## Navigation
+
+### Menu
+\`\`\`
+{
+  "component": "Menu",
+  "props": {
+    "items": { "path": "/navArray" } | [{ "key": "home", "title": "首页", "icon": "home" }],
+    "mode": "vertical" | "horizontal",
+    "selectedKeys": { "path": "/activeKey" },
+    "openKeys": { "path": "/openKeys" },
+    "inlineCollapsed": false,
+    "className": "tailwind-classes"
+  }
+}
+\`\`\`
+**Menu items data shape**: \`{ key: string, title: string, icon?: string, children?: [...] }\`
+**CRITICAL**: Side nav and header nav MUST use Menu, NOT Tabs.
+
+### Tabs / TabItem (loop or explicit)
+\`\`\`
+// Loop mode (identical tab structures):
+{ "component": "Tabs", "props": { "activeKey": { "path": "/activeTab" }, "types": "line" | "card", "tabPlacement": "top" | "bottom" | "start" | "end" },
+  "children": { "path": "/tabData", "componentId": "tabItemTpl" } }
+{ "id": "tabItemTpl", "component": "TabItem", "props": { "key": { "path": "key" }, "label": { "path": "name" }, "icon": { "path": "icon" }, "content": { "componentId": "tabContentDiv" } } }
+
+// Explicit mode (different tab content):
+{ "component": "Tabs", "props": { ... }, "children": ["tab1", "tab2"] }
+\`\`\`
+
+### Steps / StepItem
+\`\`\`
+{ "component": "Steps", "props": { "current": 2, "orientation": "horizontal" | "vertical", "status": "wait" | "process" | "finish" | "error", "types": "default" | "dot" | "navigation" | "panel" },
+  "children": { "path": "/stepsData", "componentId": "stepItemTpl" } }
+{ "id": "stepItemTpl", "component": "StepItem", "props": { "title": { "path": "title" }, "content": { "path": "desc" }, "icon": { "path": "icon" }, "status": { "path": "status" } } }
+\`\`\`
+
+### Breadcrumb
+\`\`\`
+{ "component": "Breadcrumb", "props": { "items": [{ "title": "Home" }, { "title": "Products" }], "separator": "/" } }
+\`\`\`
+
+### Dropdown
+\`\`\`
+{ "component": "Dropdown", "props": { "menu": [{ "label": "Edit", "key": "edit", "icon": "pencil" }], "trigger": "click" | "hover", "placement": "bottom" | "bottomLeft" | "bottomRight" | "top" },
+  "children": ["triggerBtnId"] }
+\`\`\`
+
+## Data Entry
+
+### Input
+\`\`\`
+{ "component": "Input", "props": { "value": { "path": "/field" }, "placeholder": "请输入", "prefix": "lucide-icon", "suffix": "lucide-icon", "size": "large" | "medium" | "small" } }
+\`\`\`
+
+### InputNumber
+\`\`\`
+{ "component": "InputNumber", "props": { "value": { "path": "/field" }, "placeholder": "0", "min": 0, "max": 100, "step": 1, "size": "large" | "medium" | "small" } }
+\`\`\`
+
+### TextArea
+\`\`\`
+{ "component": "TextArea", "props": { "value": { "path": "/field" }, "placeholder": "请输入", "autoSize": true } }
+\`\`\`
+
+### Select
+\`\`\`
+{ "component": "Select", "props": { "value": { "path": "/field" }, "options": [{ "label": "中国", "value": "cn" }], "placeholder": "请选择", "showSearch": true, "mode": "" | "multiple" } }
+\`\`\`
+
+### CheckboxGroup
+\`\`\`
+{ "component": "CheckboxGroup", "props": { "value": { "path": "/field" }, "options": [{ "label": "阅读", "value": "reading" }] } }
+\`\`\`
+
+### RadioGroup
+\`\`\`
+{ "component": "RadioGroup", "props": { "value": { "path": "/field" }, "options": [{ "label": "A", "value": "a" }], "orientation": "horizontal" | "vertical", "optionType": "default" | "button" } }
+\`\`\`
+
+### Switch
+\`\`\`
+{ "component": "Switch", "props": { "value": { "path": "/field" }, "checkedChildren": "开", "unCheckedChildren": "关", "size": "medium" | "small" } }
+\`\`\`
+
+### Slider
+\`\`\`
+{ "component": "Slider", "props": { "value": 50, "min": 0, "max": 100, "step": 1, "range": false } }
+\`\`\`
+
+### Rate
+\`\`\`
+{ "component": "Rate", "props": { "count": 5, "value": { "path": "/rating" }, "allowClear": true } }
+\`\`\`
+
+### DatePicker
+\`\`\`
+{ "component": "DatePicker", "props": { "value": { "path": "/date" }, "placeholder": "选择日期", "picker": "date" | "week" | "month" | "quarter" | "year", "format": "YYYY-MM-DD" } }
+\`\`\`
+
+### TimePicker
+\`\`\`
+{ "component": "TimePicker", "props": { "value": { "path": "/time" }, "placeholder": "选择时间", "format": "HH:mm:ss" } }
+\`\`\`
+
+## Data Display
+
+### Table (with built-in pagination)
+\`\`\`
+{
+  "component": "Table",
+  "props": {
+    "rowKey": "id",                                // REQUIRED: unique row key field name
+    "columns": [                                    // REQUIRED: column definitions
+      { "title": "名称", "dataIndex": "name", "align": "left" | "center" | "right", "sort": true, "width": 120 }
+    ],
+    "dataSource": { "path": "/tableData" },         // REQUIRED: data array binding
+    "pagination": true,
+    "rowSelection": { "type": "checkbox" | "radio", "selectedRowKeys": { "path": "/selectedKeys" } },
+    "className": "tailwind-classes"
+  },
+  "children": { "path": "/tableData", "componentId": "tableRowTpl" }
+}
+{ "id": "tableRowTpl", "component": "TableRow", "children": ["cell1", "cell2", ...] }
+\`\`\`
+**CRITICAL**: \`rowKey\`, \`columns\`, and \`dataSource\` are REQUIRED. Pagination is built-in — do NOT create separate pagination elements.
+
+### Tag
+\`\`\`
+{ "component": "Tag", "props": { "value": "热销", "color": "success" | "processing" | "error" | "default" | "warning" | "#hex", "variant": "filled" | "solid" | "outlined", "icon": "lucide-icon", "closable": false } }
+\`\`\`
+
+### Badge
+\`\`\`
+{ "component": "Badge", "props": { "count": { "path": "/count" } | 5, "status": "success" | "processing" | "default" | "error" | "warning", "dot": true, "color": "#hex" },
+  "children": ["childElementId"] }
+\`\`\`
+**CRITICAL**: Use \`count\` for badge value (NOT \`text\`).
+
+### Collapse / CollapseItem
+\`\`\`
+{ "component": "Collapse", "props": { "activeKey": { "path": "/activeKey" }, "accordion": false, "expandIcon": "lucide-icon" },
+  "children": { "path": "/collapseData", "componentId": "collapseItemTpl" } }
+{ "id": "collapseItemTpl", "component": "CollapseItem", "props": { "key": { "path": "key" }, "label": { "path": "title" }, "content": { "path": "desc" } } }
+\`\`\`
+
+### Timeline / TimelineItem
+\`\`\`
+{ "component": "Timeline", "props": { "mode": "start" | "alternate" | "end", "variant": "filled" | "outlined" },
+  "children": { "path": "/timelineData", "componentId": "timelineItemTpl" } }
+{ "id": "timelineItemTpl", "component": "TimelineItem", "props": { "title": { "path": "year" }, "content": { "path": "event" }, "color": { "path": "color" }, "icon": { "path": "icon" } } }
+\`\`\`
+
+### Divider
+\`\`\`
+{ "component": "Divider", "props": { "orientation": "horizontal" | "vertical", "variant": "dashed" | "dotted" | "solid", "titlePlacement": "start" | "end" | "center" } }
+\`\`\`
+
+### Carousel
+\`\`\`
+{ "component": "Carousel", "props": { "arrows": true, "adaptiveHeight": false, "dotPlacement": "bottom" | "top" | "start" | "end", "className": "tailwind-classes" },
+  "children": ["slide1Id", "slide2Id"] }
+\`\`\`
+**CRITICAL**: Carousel does NOT have \`autoplay\` or \`dots\` props. Only use documented props.
+
+### Segmented
+\`\`\`
+{ "component": "Segmented", "props": { "value": { "path": "/activeTab" }, "options": [{ "label": "日", "value": "day" }], "block": false, "orientation": "horizontal" | "vertical" } }
+\`\`\`
+Card top-right multi-select/toggle SHOULD use Segmented.
+
+### Tree
+\`\`\`
+{ "component": "Tree", "props": { "options": { "path": "/treeData" }, "checkable": false, "defaultExpandedKeys": ["1"] } }
+// Tree data shape: { title: string, key: string, icon?: string, children?: [...] }
+\`\`\`
+
+### Progress
+\`\`\`
+{ "component": "Progress", "props": { "percent": { "path": "/progress" }, "status": "success" | "exception" | "normal" | "active", "showInfo": true, "strokeColor": "#hex" } }
+\`\`\`
+
+## Charts (ALL charts use \`option\` prop pattern)
+
+### LineChart / BarChart / PieChart / RadarChart / GaugeChart / ProcessChart / BubbleChart / AssembleBubbleChart / BulletChart / FunnelChart / HillChart / JadeJueChart / ScatterChart
+\`\`\`
+{
+  "component": "LineChart",                        // or BarChart, PieChart, etc.
+  "props": {
+    "option": {
+      "data": { "path": "/chartData" },             // REQUIRED: chart data array
+      "color": ["#5470c6", "#91cc75", ...],          // optional: custom color palette
+      "yAxisTitle": "销售额"                          // optional: Y-axis label (LineChart/BarChart)
+    },
+    "className": "tailwind-classes"
+  }
+}
+\`\`\`
+**Chart data shapes**:
+- LineChart/BarChart: \`[{ "month": "1月", "sales": 4200, "target": 4500 }]\` (multi-key = multi-series)
+- PieChart: \`[{ "name": "品牌A", "value": 28 }]\`
+- RadarChart: \`[{ "name": "产品A", "value": [95, 70, 88] }]\` + \`"radarIndicators": [{ "name": "维度1", "max": 100 }]\` in state
+- GaugeChart: state has a single numeric value, option.data references it
+- ProcessChart: \`[{ "name": "项目A", "value": 45 }]\` (percentage/ratio)
+- HillChart: \`[{ "name": "项目A", "value": 1250 }]\` (absolute values)
+- JadeJueChart: \`[{ "name": "产品A", "value": 85 }]\` (percentage for concentric rings)
+
+**CRITICAL**: Charts MUST use \`option.data\` pattern. FORBIDDEN to use \`color\` as a top-level prop on charts. Charts have built-in legends, units, axes — do NOT generate UI elements for these.
+
+## TopN Chart Selection Rules
+- Multi-series data → BarChart
+- Center text requirement → JadeJueChart
+- Percentage/ratio values → ProcessChart
+- Absolute values → HillChart
 `
 
 export function detectCatalog(query: string): ComponentCatalog {
@@ -481,7 +720,7 @@ export function buildPatternPrompt(opts: {
     ``,
     components,
     ``,
-    COMPONENT_USAGE_GUIDE,
+    COMPONENT_API_REFERENCE,
     ``,
     `You MUST output valid A2UI JSON Protocol format:`,
     `{ "state": {...}, "rootId": "pattern_root", "elements": [...] }`,
@@ -500,6 +739,7 @@ export function buildPatternPrompt(opts: {
     `- Output ONLY valid JSON. No markdown, no code blocks, no explanations.`,
     `- Every referenced path MUST exist in state object`,
     `- MUST use ALL items in every array AND ALL keys from the data`,
+    `- ONLY use props documented in the Component API Reference above. NEVER invent undocumented props.`,
     ``,
     `# Mock Data Rules`,
     `- Use realistic, rich mock data with highly semantic key names (Good: hotelName, trendIcon. Bad: value, desc)`,
