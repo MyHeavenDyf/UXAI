@@ -9,6 +9,15 @@ import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../u
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 
+export type DeltaLogEntry = {
+  timestamp: number
+  eventType: string
+  messageID: string
+  partID: string
+  field: string
+  delta: string
+}
+
 export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
@@ -86,6 +95,18 @@ function detectCard(text: string): { type: OutputCardType; title: string } | nul
     return { type: "markdown", title: heading(text) ?? "分析报告" }
   }
   return null
+}
+
+function getToolEndTime(state: Record<string, unknown> | undefined): number {
+  const time = state?.time as Record<string, unknown> | undefined
+  const end = time?.end as number | undefined
+  return end ?? Date.now()
+}
+
+function getTextPartTime(part: Record<string, unknown>): number {
+  const time = part.time as Record<string, unknown> | undefined
+  const end = time?.end as number | undefined
+  return end ?? Date.now()
 }
 
 function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
@@ -172,9 +193,24 @@ function formatTime(d: Date): string {
   })
 }
 
+function formatDeltaTime(ms: number): string {
+  const d = new Date(ms)
+  return d.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+}
+
 // ── Internal: WaitingPill ──────────────────────────────────
 
-function WaitingPill(props: { parts: Array<{ type: string; text?: string }> }): JSX.Element {
+function WaitingPill(props: {
+  parts: Array<{ type: string; text?: string }>
+  partStore: Record<string, { type: string; text?: string }[]>
+  messageID: string
+  deltaLog: DeltaLogEntry[]
+}): JSX.Element {
   const statusLabel = createMemo(() => {
     const parts = props.parts
     const toolParts = parts.filter((p) => p.type === "tool")
@@ -187,24 +223,95 @@ function WaitingPill(props: { parts: Array<{ type: string; text?: string }> }): 
     return "生成中"
   })
 
+  const accumulatedText = createMemo(() => {
+    if (!props.messageID) return ""
+    const parts = props.partStore?.[props.messageID] ?? []
+    const textPart = [...parts]
+      .reverse()
+      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+    return textPart?.text ?? ""
+  })
+
+  const filteredDeltaLog = createMemo(() => {
+    if (!props.messageID) return []
+    return props.deltaLog
+      .filter((entry) => entry.messageID === props.messageID)
+      .slice(-20)
+  })
+
+  let contentRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (accumulatedText() && contentRef) {
+      contentRef.scrollTop = contentRef.scrollHeight
+    }
+  })
+
+  createEffect(() => {
+    if (!accumulatedText() && filteredDeltaLog().length > 0 && contentRef) {
+      contentRef.scrollTop = contentRef.scrollHeight
+    }
+  })
+
   return (
     <div
-      class="mx-3 mb-2 px-3 py-2 flex items-center gap-2"
+      class="mx-3 mb-2"
       style={{
         "border-radius": "var(--octo-radius-md)",
         background: "var(--octo-brand-a3)",
         border: "1.5px dashed var(--octo-brand-a25)",
       }}
     >
-      <div
-        class="w-1.5 h-1.5 rounded-full animate-pulse"
-        style={{
-          background: "var(--octo-brand, #3b82f6)",
-        }}
-      />
-      <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
-        {statusLabel()}…
-      </span>
+      <div class="px-3 py-2 flex items-center gap-2">
+        <div
+          class="w-1.5 h-1.5 rounded-full animate-pulse"
+          style={{
+            background: "var(--octo-brand, #3b82f6)",
+          }}
+        />
+        <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
+          {statusLabel()}…
+        </span>
+      </div>
+      <Show when={accumulatedText().length > 0} fallback={
+        <Show when={filteredDeltaLog().length > 0}>
+          <div
+            ref={(el) => { contentRef = el }}
+            class="px-3 pb-2"
+            style={{
+              "max-height": "120px",
+              overflow: "auto",
+              "font-size": "11px",
+              "font-family": "'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace",
+              color: "var(--octo-text-primary)",
+            }}
+          >
+            <For each={filteredDeltaLog()}>
+              {(entry) => (
+                <div style={{ padding: "2px 0", "border-bottom": "1px dashed #ddd" }}>
+                  <span style={{ color: "#888", "font-size": "10px" }}>{formatDeltaTime(entry.timestamp)}</span>
+                  <span style={{ color: "#3b82f6", "font-weight": "600", "margin-left": "8px" }}>{entry.field}</span>
+                  <span style={{ "margin-left": "8px" }}>{entry.delta.slice(0, 50)}{entry.delta.length > 50 ? "…" : ""}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      }>
+        <div
+          ref={(el) => { contentRef = el }}
+          class="px-3 pb-2"
+          style={{
+            "max-height": "120px",
+            overflow: "auto",
+            "font-size": "11px",
+            "font-family": "'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace",
+            color: "var(--octo-text-primary)",
+          }}
+        >
+          <pre class="whitespace-pre-wrap word-break-word" style={{ margin: "0" }}>{accumulatedText()}</pre>
+        </div>
+      </Show>
     </div>
   )
 }
@@ -251,6 +358,7 @@ export function InsightTurn(props: {
   onOpenResult: (card: OutputCard) => void
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
+  deltaLog?: DeltaLogEntry[]
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -304,6 +412,12 @@ export function InsightTurn(props: {
       allParts.push(...parts)
     }
     return allParts
+  })
+
+  const latestAssistantMessageID = createMemo(() => {
+    const msgs = assistantMsgs()
+    if (msgs.length === 0) return ""
+    return msgs[msgs.length - 1].id
   })
 
   // 提取 reasoning 内容
@@ -367,9 +481,10 @@ export function InsightTurn(props: {
   type SubtaskInfo = {
     taskDescription: string
     subSessionID: string
-    status: "running" | "done" | "error"
+    status: "running" | "done" | "error" | "cancelled"
     textParts: string[]
     artifactOutputs: Array<{ identifier: string; title: string; content: string }>
+    completedAt?: number
   }
   const subtasks = createMemo((): SubtaskInfo[] => {
     const parts = assistantParts()
@@ -387,9 +502,14 @@ export function InsightTurn(props: {
       const subSessionID = (metadata?.sessionId as string)
         ?? (typeof state.output === "string" ? (state.output as string).match(/task_id:\s*(\S+)/)?.[1] : undefined)
 
+const stateStatus = state.status as string | undefined
+      const stateError = state.error as string | undefined
       const outputStr = typeof state.output === "string" ? (state.output as string) : ""
       const hasOutput = outputStr.length > 0
-      const isError = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+      const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
+      const isErrorFromStatus = stateStatus === "error" && !isCancelled
+      const isErrorFromMetadata = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+      const isError = isErrorFromStatus || isErrorFromMetadata
 
       const textParts: string[] = []
       const artifactOutputs: Array<{ identifier: string; title: string; content: string }> = []
@@ -407,9 +527,10 @@ export function InsightTurn(props: {
         tasks.push({
           taskDescription: (input.description as string) ?? (input.prompt as string)?.slice(0, 60) ?? "子任务",
           subSessionID: "",
-          status: isError ? "error" : hasOutput ? "done" : "running",
+          status: isCancelled ? "cancelled" : isError ? "error" : hasOutput ? "done" : "running",
           textParts: [],
           artifactOutputs,
+          completedAt: getToolEndTime(state),
         })
         continue
       }
@@ -478,9 +599,10 @@ export function InsightTurn(props: {
       tasks.push({
         taskDescription: (input.description as string) ?? (input.prompt as string)?.slice(0, 60) ?? "子任务",
         subSessionID,
-        status: isError ? "error" : hasOutput ? "done" : "running",
+        status: isCancelled ? "cancelled" : isError ? "error" : hasOutput ? "done" : "running",
         textParts,
         artifactOutputs,
+        completedAt: getToolEndTime(state),
       })
     }
     return tasks
@@ -605,6 +727,8 @@ export function InsightTurn(props: {
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
       if (!state) continue
 
+      const toolTs = getToolEndTime(state)
+
       // attachments
       const attachments = state.attachments as Array<{ mime?: string; url?: string; filename?: string }> | undefined
       if (attachments) {
@@ -617,7 +741,7 @@ export function InsightTurn(props: {
                 title: att.filename?.replace(/\.html?$/i, "") ?? "HTML 原型",
                 type: "html",
                 content: html,
-                createdAt: new Date(),
+                createdAt: new Date(toolTs),
               })]
             }
           }
@@ -637,7 +761,7 @@ export function InsightTurn(props: {
               ...a,
               id: `card-${props.messageID}-artifact-${i}`,
               filePath: filePath || undefined,
-              createdAt: new Date(),
+              createdAt: new Date(toolTs),
             }))
           }
 
@@ -648,7 +772,7 @@ export function InsightTurn(props: {
               type: "html",
               content,
               filePath: filePath || undefined,
-              createdAt: new Date(),
+              createdAt: new Date(toolTs),
             })]
           }
         }
@@ -667,10 +791,11 @@ export function InsightTurn(props: {
       if (text.length === 0) continue
       const artifacts = parseAllArtifactsFromText(text)
       if (artifacts.length > 0) {
+        const ts = getTextPartTime(textPart as Record<string, unknown>)
         return artifacts.map((a, i) => ({
           ...a,
           id: `card-${props.messageID}-artifact-${i}`,
-          createdAt: new Date(),
+          createdAt: new Date(ts),
         }))
       }
     }
@@ -680,8 +805,9 @@ export function InsightTurn(props: {
     if (lastTextPart && typeof lastTextPart.text === "string") {
       const text = lastTextPart.text.trim()
       if (text.length > 0) {
+        const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
         const info = detectCard(text)
-        if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date() }]
+        if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
 
         // Before falling back to markdown, check if subtask artifacts exist for assembly
         const stForText = subtasks()
@@ -692,7 +818,7 @@ export function InsightTurn(props: {
             title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
             type: "markdown",
             content: lastTextPart.text,
-            createdAt: new Date(),
+            createdAt: new Date(ts),
           }]
         }
       }
@@ -700,12 +826,15 @@ export function InsightTurn(props: {
 
     // ── 优先级 3：任何 tool output（聚合所有 tool 输出） ──
     const allToolOutput: string[] = []
+    let latestToolTs = 0
     for (const p of parts) {
       if (p.type !== "tool") continue
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
       if (!state) continue
       const output = state.output as string | undefined
       if (output && output.trim().length > 0) allToolOutput.push(output.trim())
+      const ts = getToolEndTime(state)
+      if (ts > latestToolTs) latestToolTs = ts
     }
     if (allToolOutput.length > 0) {
       // When subtasks have artifact outputs, skip priority 3 entirely —
@@ -714,24 +843,25 @@ export function InsightTurn(props: {
       const hasSubArtifacts = stForTools.some((t) => t.artifactOutputs.length > 0)
       if (!hasSubArtifacts) {
         const content = allToolOutput.join("\n\n")
+        const ts = latestToolTs || Date.now()
         const artifacts = parseAllArtifactsFromText(content)
         if (artifacts.length > 0) {
           return artifacts.map((a, i) => ({
             ...a,
             id: `card-${props.messageID}-artifact-${i}`,
-            createdAt: new Date(),
+            createdAt: new Date(ts),
           }))
         }
 
         const info = detectCard(content)
-        if (info) return [{ id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date() }]
+        if (info) return [{ id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date(ts) }]
 
         return [{
           id: `card-${props.messageID}-tools-fallback`,
           title: content.split("\n")[0]?.slice(0, 40) ?? "工具产出",
           type: "markdown",
           content,
-          createdAt: new Date(),
+          createdAt: new Date(ts),
         }]
       }
     }
@@ -740,6 +870,7 @@ export function InsightTurn(props: {
     const st = subtasks()
     const subArtifacts = st.flatMap((t) => t.artifactOutputs)
     if (subArtifacts.length > 0) {
+      const subtaskTs = st.reduce((max, t) => Math.max(max, t.completedAt ?? 0), 0) || Date.now()
       // Check if any subtask artifact is a full HTML document — use it directly
       const fullDoc = subArtifacts.find((a) => /<!DOCTYPE\s+html/i.test(a.content) || /<html[\s>]/i.test(a.content))
       if (fullDoc) {
@@ -749,7 +880,7 @@ export function InsightTurn(props: {
           type: "html",
           content: fullDoc.content,
           artifactIdentifier: fullDoc.identifier + "-composed",
-          createdAt: new Date(),
+          createdAt: new Date(subtaskTs),
         })]
       }
       // Assemble HTML fragments into a full page
@@ -780,7 +911,7 @@ ${bodies}
         type: "html",
         content: assembled,
         artifactIdentifier: "auto-composed",
-        createdAt: new Date(),
+        createdAt: new Date(subtaskTs),
       })]
     }
 
@@ -883,6 +1014,11 @@ ${bodies}
                     完成
                   </span>
                 </Show>
+                <Show when={task.status === "cancelled"}>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(156,163,175,0.1)", color: "#6b7280" }}>
+                    已中止
+                  </span>
+                </Show>
                 <Show when={task.status === "error"}>
                   <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}>
                     错误
@@ -917,7 +1053,7 @@ ${bodies}
                             type: "html",
                             content: artifact.content,
                             artifactIdentifier: artifact.identifier || undefined,
-                            createdAt: new Date(),
+                            createdAt: new Date(task.completedAt ?? Date.now()),
                           }
                           return (
                             <button
@@ -1019,7 +1155,12 @@ ${bodies}
 
       {/* 生成中状态指示 — 始终在底部 */}
       <Show when={showGenerating()}>
-        <WaitingPill parts={assistantParts()} />
+        <WaitingPill
+          parts={assistantParts()}
+          partStore={partStore}
+          messageID={latestAssistantMessageID()}
+          deltaLog={props.deltaLog ?? []}
+        />
       </Show>
 
       {/* 生成中的 artifact 卡片（带进度指示，支持多个）— 始终在底部 */}

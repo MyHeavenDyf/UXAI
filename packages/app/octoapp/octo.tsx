@@ -56,7 +56,6 @@ import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
-const CoworkPage = lazy(() => import("@/pages/cowork"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
@@ -81,7 +80,7 @@ const SessionRedirectRoute = () => {
   return <Navigate href={`../chat/${params.id ?? ""}`} />
 }
 const CoworkRedirectRoute = () => {
-  return <Navigate href="/cowork" />
+  return <Navigate href="/insight" />
 }
 
 function UiI18nBridge(props: ParentProps) {
@@ -290,19 +289,22 @@ function SessionProviders(props: ParentProps) {
 }
 
 function OnboardingLayer() {
-  const location = useLocation()
   const navigate = useNavigate()
   const server = useServer()
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
 
-  const showOnboarding = createMemo(() => location.pathname === "/")
+  const showOnboarding = createMemo(() => {
+    if (!server.ready()) return false
+    return layout.onboarding.show()
+  })
 
   function handleOnboardingSelect(data: { directory: string }) {
     layout.projects.open(data.directory)
     server.projects.touch(data.directory)
+    layout.onboarding.hide()
     void globalSDK.createClient({ directory: data.directory }).session.list().catch(() => {})
-    navigate("/cowork")
+    navigate("/insight")
   }
 
   return (
@@ -547,8 +549,8 @@ export function AppInterface(props: {
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
-                  <Route path="/" component={CoworkPage} />
-                  <Route path="/cowork" component={CoworkPage} />
+                  <Route path="/" component={() => <Navigate href="/insight" />} />
+                  <Route path="/cowork" component={() => <Navigate href="/insight" />} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />
