@@ -15,6 +15,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Icon } from "@opencode-ai/ui/icon"
 import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
@@ -141,9 +142,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
             style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
             onClick={newSession}
           >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
-              <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-            </svg>
+            <Icon name="plus" size="normal" class="shrink-0" />
             <span>新建</span>
           </button>
         </div>

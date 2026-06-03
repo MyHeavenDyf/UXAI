@@ -48,6 +48,7 @@ const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
   "image.generate",
   "image.upscale",
   "image.cutout",
+  "image.inpaint",
   "image.outpaint",
   "image.fusion",
 ])
@@ -63,6 +64,14 @@ type DataStore = {
 type StudioPendingResult = StudioGenerationResult & {
   sourceImage?: string
 }
+
+type StudioHDMode = "restoration_8k" | "restoration" | "super_restoration"
+type StudioInpaintMode = "qwen_image_edit" | "erase"
+const STUDIO_HD_MODES = [
+  { label: "8k超清", value: "restoration_8k" },
+  { label: "4k清晰", value: "restoration" },
+  { label: "2k性能", value: "super_restoration" },
+] satisfies { label: string; value: StudioHDMode }[]
 
 function formatStudioGenerationError(response: Response, bodyText: string) {
   const parsed = bodyText
@@ -570,13 +579,14 @@ export default function StudioPage() {
   )
 
   const selectedCapabilityNeedsImage = createMemo(() =>
-    capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.outpaint",
+    capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.inpaint" || capability() === "image.outpaint",
   )
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isBusy() &&
     (prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(selectedImage()))),
   )
+  const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
   const currentTitle = createMemo(() =>
     result()?.prompt
       ? buildStudioDisplayPrompt(result()!.prompt)
@@ -621,14 +631,12 @@ export default function StudioPage() {
   )
 
   function addAssets(files: File[]) {
-    const slots = 5 - assets().length
-    files.slice(0, slots).map((file) => {
+    files.slice(0, 1).map((file) => {
       const reader = new FileReader()
       reader.onload = (event) => {
         const dataUrl = event.target?.result
         if (typeof dataUrl !== "string") return
-        setAssets((items) => [
-          ...items,
+        setAssets([
           {
             id: crypto.randomUUID(),
             name: file.name,
@@ -665,6 +673,8 @@ export default function StudioPage() {
     const opening =
       input.capability === "image.upscale"
         ? "好的，我将提升当前图片的清晰度和细节。"
+        : input.capability === "image.inpaint"
+          ? "好的，我将根据涂抹区域局部重绘当前图片。"
         : input.capability === "image.outpaint"
           ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
           : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
@@ -686,6 +696,7 @@ export default function StudioPage() {
     sessionID: string
     text: string
     capability: StudioCapability
+    referenceImages?: string[]
     sourceImage?: string
     extra?: Record<string, unknown>
   }) {
@@ -715,7 +726,7 @@ export default function StudioPage() {
         aspectRatio: aspectRatio(),
         count: count(),
         imageTool: "internel",
-        referenceImages: assets().map((item) => item.dataUrl),
+        referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
         extra: input.extra,
       }),
@@ -734,12 +745,15 @@ export default function StudioPage() {
         ? "将当前图片变清晰，提升分辨率和细节"
         : nextCapability === "image.cutout"
           ? "对当前图片进行抠图，移除背景并保留主体"
+          : nextCapability === "image.inpaint"
+            ? "重绘所选区域"
           : nextCapability === "image.outpaint"
             ? "保留主体和画面风格，扩展更大尺寸和更多环境内容"
             : ""
     )
     if (!text || isBusy()) return
     const previousPrompt = prompt()
+    const referenceImages = nextCapability === "image.generate" ? assets().map((item) => item.dataUrl) : []
     setOpenMenu(null)
     setMode("preview")
     setSending(true)
@@ -758,6 +772,7 @@ export default function StudioPage() {
       sourceImage: overrides?.sourceImage,
     })
     setPrompt("")
+    setAssets([])
     try {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
@@ -767,6 +782,7 @@ export default function StudioPage() {
         sessionID,
         text,
         capability: nextCapability,
+        referenceImages,
         sourceImage: overrides?.sourceImage,
         extra: overrides?.extra,
       })
@@ -776,7 +792,6 @@ export default function StudioPage() {
       })
       await loadSessionMessages(sessionID)
       setStatus("succeeded")
-      setAssets([])
     } catch (error) {
       console.error("[StudioPage] studio prompt failed", error)
       setPrompt(previousPrompt)
@@ -789,7 +804,15 @@ export default function StudioPage() {
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
-    if (capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.outpaint") {
+    if (capability() === "image.upscale") {
+      openHD()
+      return
+    }
+    if (capability() === "image.inpaint") {
+      openInpaint()
+      return
+    }
+    if (capability() === "image.cutout" || capability() === "image.outpaint") {
       const image = selectedImage()
       if (!image) return
       void runGeneration({
@@ -812,6 +835,16 @@ export default function StudioPage() {
     setMode("outpaint")
   }
 
+  function openHD() {
+    if (!selectedImage() || isBusy()) return
+    setMode("hd")
+  }
+
+  function openInpaint() {
+    if (!selectedImage() || isBusy()) return
+    setMode("inpaint")
+  }
+
   function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
     const image = selectedImage()
     if (!image) return
@@ -823,13 +856,36 @@ export default function StudioPage() {
     })
   }
 
-  function upscaleCurrentImage() {
+  function submitInpaint(input: {
+    prompt: string
+    mode: StudioInpaintMode
+    sourceImage: string
+    compositeImage: string
+    hasDrawing: boolean
+  }) {
+    if (isBusy() || !input.hasDrawing) return
+    void runGeneration({
+      capability: "image.inpaint",
+      sourceImage: input.sourceImage,
+      prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+      extra: {
+        generateMode: input.mode,
+        compositeImage: input.compositeImage,
+        hasDrawing: input.hasDrawing,
+      },
+    })
+  }
+
+  function submitHD(input: { mode: StudioHDMode }) {
     const image = selectedImage()
     if (!image || isBusy()) return
     void runGeneration({
       capability: "image.upscale",
       sourceImage: image.remoteUrl ?? image.url,
       prompt: "将当前图片变清晰，提升分辨率和细节",
+      extra: {
+        mode: input.mode,
+      },
     })
   }
 
@@ -970,7 +1026,7 @@ export default function StudioPage() {
 
       <main class="studio-workspace">
         <section class="studio-canvas">
-          <Show when={mode() === "outpaint" && selectedImage()} fallback={
+          <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               status={effectiveStatus()}
               image={selectedImage()}
@@ -979,19 +1035,49 @@ export default function StudioPage() {
               onDownload={() => void downloadCurrentImage()}
             />
           }>
-            {(image) => (
-              <StudioOutpaintEditor
-                image={image()}
-                aspectRatio={aspectRatio()}
-                onAspectRatio={setAspectRatio}
-                onClose={() => setMode("preview")}
-                onSubmit={submitOutpaint}
+            <Show when={mode() === "hd" && selectedImage()}>
+              {(image) => (
+                <StudioHDEditor
+                  image={image()}
+                  onClose={() => setMode("preview")}
+                  onSubmit={submitHD}
+                />
+              )}
+            </Show>
+            <Show when={mode() === "outpaint" && selectedImage()}>
+              {(image) => (
+                <StudioOutpaintEditor
+                  image={image()}
+                  aspectRatio={aspectRatio()}
+                  onAspectRatio={setAspectRatio}
+                  onClose={() => setMode("preview")}
+                  onSubmit={submitOutpaint}
+                />
+              )}
+            </Show>
+            <Show when={mode() === "inpaint" && selectedImage()}>
+              {(image) => (
+                <StudioInpaintEditor
+                  image={image()}
+                  busy={isBusy()}
+                  onClose={() => setMode("preview")}
+                  onSubmit={submitInpaint}
+                />
+              )}
+            </Show>
+            <Show when={!selectedImage()}>
+              <StudioResultCanvas
+                status={effectiveStatus()}
+                image={selectedImage()}
+                result={result()}
+                imageLabel={currentImageLabel()}
+                onDownload={() => void downloadCurrentImage()}
               />
-            )}
+            </Show>
           </Show>
         </section>
 
-          <Show when={result()?.images.length}>
+          <Show when={!isEditingWorkspaceMode() && result()?.images.length}>
             <aside class="studio-details">
               <StudioDetails
                 result={result()!}
@@ -1001,15 +1087,16 @@ export default function StudioPage() {
                 regenerateDisabled={isBusy()}
                 onSelectImage={(id) => setSelectedImageId(id)}
                 onRegenerate={regenerateCurrentResult}
-                onUpscale={upscaleCurrentImage}
+                onUpscale={openHD}
                 onCutout={cutoutCurrentImage}
+                onInpaint={openInpaint}
                 onOutpaint={openOutpaint}
               />
             </aside>
           </Show>
         </main>
       </Show>
-      <input ref={fileInputRef!} type="file" multiple accept="image/*" class="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef!} type="file" accept="image/*" class="hidden" onChange={handleFileChange} />
     </div>
   )
 }
@@ -1182,10 +1269,10 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="studio-intro-copy">
         <div class="studio-intro-title">Octo Studio</div>
-        <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
+        <div class="studio-intro-subtitle">一键创意落地，让视觉生产力触手可及</div>
       </div>
     </div>
   )
@@ -1212,10 +1299,13 @@ function StudioComposer(props: {
   onPickFile: () => void
   onRemoveAsset: (id: string) => void
 }): JSX.Element {
-  let composerRef!: HTMLDivElement
+  let pointerDownOpenMenu: typeof props.openMenu = null
+  const referenceAsset = createMemo(() => props.assets[0])
+  const isImageGeneration = createMemo(() => props.capability === "image.generate")
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
-    if (!props.openMenu || composerRef.contains(event.target as Node)) return
+    if (!props.openMenu) return
+    if (event.target instanceof Element && event.target.closest(".studio-menu")) return
     props.onOpenMenu(null)
   }
 
@@ -1223,14 +1313,14 @@ function StudioComposer(props: {
   onCleanup(() => document.removeEventListener("pointerdown", handleDocumentPointerDown))
 
   return (
-    <div ref={composerRef!} class="studio-composer-wrap relative shrink-0">
+    <div class="studio-composer-wrap relative shrink-0">
       <Show when={props.openMenu === "capability"}>
         <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
       </Show>
-      <Show when={props.openMenu === "style"}>
+      <Show when={isImageGeneration() && props.openMenu === "style"}>
         <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
       </Show>
-      <Show when={props.openMenu === "settings"}>
+      <Show when={isImageGeneration() && props.openMenu === "settings"}>
         <ImageSettings
           aspectRatio={props.aspectRatio}
           count={props.count}
@@ -1240,13 +1330,37 @@ function StudioComposer(props: {
       </Show>
 
       <div class="studio-composer">
-        <div class="studio-composer-input-row">
-          <button
-            type="button"
-            onClick={props.onPickFile}
-            class="studio-composer-ref-btn"
-            title="上传参考图"
-          />
+        <div class="studio-composer-input-row" classList={{ "with-reference": isImageGeneration() }}>
+          <Show when={isImageGeneration()}>
+            <div class="studio-composer-ref-slot" classList={{ filled: Boolean(referenceAsset()) }}>
+              <button
+                type="button"
+                onClick={props.onPickFile}
+                class="studio-composer-ref-btn"
+                title={referenceAsset() ? "替换参考图" : "上传参考图"}
+              >
+                <Show when={referenceAsset()}>
+                  {(asset) => <img src={asset().dataUrl} alt={asset().name} class="studio-composer-ref-image" />}
+                </Show>
+              </button>
+              <Show when={referenceAsset()}>
+                {(asset) => (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      props.onRemoveAsset(asset().id)
+                    }}
+                    class="studio-composer-ref-remove"
+                    aria-label="删除参考图"
+                    title="删除参考图"
+                  >
+                    ×
+                  </button>
+                )}
+              </Show>
+            </div>
+          </Show>
           <textarea
             value={props.prompt}
             onInput={(event) => props.onPrompt(event.currentTarget.value)}
@@ -1257,29 +1371,25 @@ function StudioComposer(props: {
           />
         </div>
 
-        <Show when={props.assets.length > 0}>
-          <div class="flex gap-2 mt-3 overflow-x-auto">
-            <For each={props.assets}>
-              {(item) => (
-                <button
-                  type="button"
-                  onClick={() => props.onRemoveAsset(item.id)}
-                  class="relative w-[46px] h-[46px] shrink-0 overflow-hidden rounded-[8px] border border-[rgba(15,23,42,0.08)]"
-                  title={`${item.name}，点击移除`}
-                >
-                  <img src={item.dataUrl} class="w-full h-full object-cover" alt="" />
-                  <span class="absolute right-0 top-0 w-4 h-4 rounded-bl-[8px] bg-black/50 text-white text-[10px]">×</span>
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-
         <div class="studio-composer-toolbar">
-          <ToolButton label={capabilityLabel(props.capability)} onClick={() => props.onOpenMenu(props.openMenu === "capability" ? null : "capability")} />
-          <ToolButton label={styleModelLabel(props.styleModel)} onClick={() => props.onOpenMenu(props.openMenu === "style" ? null : "style")} />
-          <IconTool label="参数" onClick={() => props.onOpenMenu(props.openMenu === "settings" ? null : "settings")} />
-          <IconTool label="素材" onClick={props.onPickFile} />
+          <ToolButton
+            label={capabilityLabel(props.capability)}
+            onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+            onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
+          />
+          <Show when={isImageGeneration()}>
+            <ToolButton
+              label={styleModelLabel(props.styleModel)}
+              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
+            />
+            <IconTool
+              label="参数"
+              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+            />
+            <IconTool label="素材" />
+          </Show>
           <button
             type="button"
             onClick={props.onSubmit}
@@ -1293,19 +1403,20 @@ function StudioComposer(props: {
   )
 }
 
-function ToolButton(props: { label: string; onClick: () => void }): JSX.Element {
+function ToolButton(props: { label: string; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="studio-composer-tool-btn">
+    <button type="button" onPointerDown={props.onPointerDown} onClick={props.onClick} class="studio-composer-tool-btn">
       <span class="studio-composer-tool-label">{props.label}</span>
       <span class="studio-composer-tool-caret" />
     </button>
   )
 }
 
-function IconTool(props: { label: string; onClick: () => void }): JSX.Element {
+function IconTool(props: { label: string; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
     <button
       type="button"
+      onPointerDown={props.onPointerDown}
       onClick={props.onClick}
       class={`studio-composer-icon-tool ${props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"}`}
       title={props.label}
@@ -1566,6 +1677,7 @@ function StudioDetails(props: {
   onRegenerate: () => void
   onUpscale: () => void
   onCutout: () => void
+  onInpaint: () => void
   onOutpaint: () => void
 }): JSX.Element {
   return (
@@ -1626,7 +1738,12 @@ function StudioDetails(props: {
           >
             <span>抠图</span>
           </button>
-          <button type="button" class="studio-details-secondary-action studio-detail-action-inpaint">
+          <button
+            type="button"
+            onClick={props.onInpaint}
+            disabled={props.regenerateDisabled}
+            class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
+          >
             <span>局部重绘</span>
           </button>
           <button
@@ -1640,6 +1757,462 @@ function StudioDetails(props: {
         </div>
       </section>
     </ScrollView>
+  )
+}
+
+function StudioHDEditor(props: {
+  image: StudioImage
+  onClose: () => void
+  onSubmit: (input: { mode: StudioHDMode }) => void
+}): JSX.Element {
+  const [selectedMode, setSelectedMode] = createSignal<StudioHDMode>("restoration")
+  const [loadError, setLoadError] = createSignal("")
+
+  createEffect(
+    on(
+      () => props.image.id,
+      () => {
+        setLoadError("")
+        setSelectedMode("restoration")
+      },
+    ),
+  )
+
+  return (
+    <div class="studio-hd">
+      <div class="studio-hd-header">
+        <div class="min-w-0">
+          <div class="studio-hd-title">变清晰</div>
+          <div class="studio-hd-meta">
+            {currentImageName(props.image)} · {props.image.width ?? "-"} x {props.image.height ?? "-"}
+          </div>
+        </div>
+        <button type="button" onClick={props.onClose} class="studio-hd-close" aria-label="关闭变清晰" title="关闭变清晰" />
+      </div>
+      <div class="studio-hd-body">
+        <div class="studio-hd-canvas-wrap">
+          <img
+            class="studio-hd-image"
+            src={props.image.url}
+            alt="HD source"
+            onLoad={() => setLoadError("")}
+            onError={() => setLoadError("图片加载失败")}
+          />
+          <Show when={loadError()}>
+            {(message) => <div class="studio-hd-loading">{message()}</div>}
+          </Show>
+        </div>
+        <div class="studio-hd-controls">
+          <div class="studio-hd-mode-group" aria-label="放大模式">
+            <span class="studio-hd-mode-label">放大模式</span>
+            <For each={STUDIO_HD_MODES}>
+              {(option) => (
+                <button
+                  type="button"
+                  class="studio-hd-mode-option"
+                  classList={{ active: selectedMode() === option.value }}
+                  aria-pressed={selectedMode() === option.value}
+                  data-mode={option.value}
+                  onClick={() => setSelectedMode(option.value)}
+                >
+                  <span class="studio-hd-mode-dot" />
+                  <span class="studio-hd-mode-text">{option.label}</span>
+                </button>
+              )}
+            </For>
+          </div>
+          <button
+            type="button"
+            class="studio-hd-create"
+            onClick={() => props.onSubmit({ mode: selectedMode() })}
+          >
+            一键生成
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StudioInpaintEditor(props: {
+  image: StudioImage
+  busy: boolean
+  onClose: () => void
+  onSubmit: (input: {
+    prompt: string
+    mode: StudioInpaintMode
+    sourceImage: string
+    compositeImage: string
+    hasDrawing: boolean
+  }) => void
+}): JSX.Element {
+  const [editMode, setEditMode] = createSignal<StudioInpaintMode>("qwen_image_edit")
+  const [brushSize, setBrushSize] = createSignal(40)
+  const [editorPrompt, setEditorPrompt] = createSignal("")
+  const [sourceSize, setSourceSize] = createSignal({ width: props.image.width ?? 0, height: props.image.height ?? 0 })
+  const [displaySize, setDisplaySize] = createSignal({ width: 0, height: 0 })
+  const [undoList, setUndoList] = createSignal<string[]>([])
+  const [redoList, setRedoList] = createSignal<string[]>([])
+  const [hasDrawing, setHasDrawing] = createSignal(false)
+  const [loadError, setLoadError] = createSignal("")
+  const [cursor, setCursor] = createSignal({ x: 0, y: 0, visible: false })
+  const sourceMaskCanvas = document.createElement("canvas")
+  let sourceImage: HTMLImageElement | undefined
+  let canvasWrapRef!: HTMLDivElement
+  let maskCanvasRef!: HTMLCanvasElement
+  let drawing = false
+  let lastPoint: { x: number; y: number } | undefined
+
+  function renderMaskPreview() {
+    const context = maskCanvasRef?.getContext("2d")
+    if (!context) return
+    context.clearRect(0, 0, displaySize().width, displaySize().height)
+    if (!sourceMaskCanvas.width || !sourceMaskCanvas.height) return
+    context.drawImage(sourceMaskCanvas, 0, 0, displaySize().width, displaySize().height)
+  }
+
+  function resetMaskCanvas(width: number, height: number) {
+    sourceMaskCanvas.width = width
+    sourceMaskCanvas.height = height
+    const initialState = sourceMaskCanvas.toDataURL("image/png")
+    setUndoList([initialState])
+    setRedoList([])
+    setHasDrawing(false)
+    renderMaskPreview()
+  }
+
+  function updateHasDrawing() {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context || !sourceMaskCanvas.width || !sourceMaskCanvas.height) {
+      setHasDrawing(false)
+      return false
+    }
+    const pixels = context.getImageData(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height).data
+    const nextHasDrawing = pixels.some((value, index) => index % 4 === 3 && value > 0)
+    setHasDrawing(nextHasDrawing)
+    return nextHasDrawing
+  }
+
+  function restoreMaskState(state: string) {
+    const image = new Image()
+    image.onload = () => {
+      const context = sourceMaskCanvas.getContext("2d")
+      if (!context) return
+      context.clearRect(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
+      context.drawImage(image, 0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
+      updateHasDrawing()
+      renderMaskPreview()
+    }
+    image.src = state
+  }
+
+  function updateDisplaySize() {
+    const width = sourceSize().width
+    const height = sourceSize().height
+    if (!canvasWrapRef || !width || !height) return
+    const rect = canvasWrapRef.getBoundingClientRect()
+    const scale = Math.min(
+      Math.max(1, rect.width - 48) / width,
+      Math.max(1, rect.height - 48) / height,
+      1,
+    )
+    setDisplaySize({
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale)),
+    })
+  }
+
+  createEffect(
+    on(
+      () => `${props.image.id}:${props.image.url}`,
+      () => {
+        setLoadError("")
+        setEditorPrompt("")
+        setEditMode("qwen_image_edit")
+        const image = new Image()
+        if (/^https?:\/\//i.test(props.image.url)) image.crossOrigin = "anonymous"
+        image.onload = () => {
+          sourceImage = image
+          setSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
+          resetMaskCanvas(image.naturalWidth, image.naturalHeight)
+          requestAnimationFrame(updateDisplaySize)
+        }
+        image.onerror = () => setLoadError("图片加载失败")
+        image.src = props.image.url
+      },
+    ),
+  )
+
+  createEffect(() => {
+    const observer = new ResizeObserver(() => updateDisplaySize())
+    observer.observe(canvasWrapRef)
+    onCleanup(() => observer.disconnect())
+  })
+
+  createEffect(() => {
+    displaySize()
+    requestAnimationFrame(renderMaskPreview)
+  })
+
+  function toSourcePoint(event: PointerEvent) {
+    const rect = maskCanvasRef.getBoundingClientRect()
+    return {
+      x: clamp((event.clientX - rect.left) / rect.width * sourceMaskCanvas.width, 0, sourceMaskCanvas.width),
+      y: clamp((event.clientY - rect.top) / rect.height * sourceMaskCanvas.height, 0, sourceMaskCanvas.height),
+    }
+  }
+
+  function updateCursor(event: PointerEvent, visible: boolean) {
+    const rect = maskCanvasRef.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    setCursor({
+      x,
+      y,
+      visible: visible && x >= 0 && y >= 0 && x <= rect.width && y <= rect.height,
+    })
+  }
+
+  function drawDot(point: { x: number; y: number }) {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context) return
+    const scale = displaySize().width / sourceMaskCanvas.width
+    context.fillStyle = "rgba(137, 71, 213, 0.3)"
+    context.beginPath()
+    context.arc(point.x, point.y, brushSize() / Math.max(scale, 0.001) / 2, 0, Math.PI * 2)
+    context.fill()
+  }
+
+  function drawLine(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context) return
+    const scale = displaySize().width / sourceMaskCanvas.width
+    context.strokeStyle = "rgba(137, 71, 213, 0.3)"
+    context.lineCap = "round"
+    context.lineJoin = "round"
+    context.lineWidth = brushSize() / Math.max(scale, 0.001)
+    context.beginPath()
+    context.moveTo(from.x, from.y)
+    context.lineTo(to.x, to.y)
+    context.stroke()
+  }
+
+  function finishDrawing() {
+    if (!drawing) return
+    drawing = false
+    lastPoint = undefined
+    const nextState = sourceMaskCanvas.toDataURL("image/png")
+    setUndoList((items) => [...items, nextState])
+    setRedoList([])
+    updateHasDrawing()
+    renderMaskPreview()
+  }
+
+  function clearMask() {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context) return
+    context.clearRect(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
+    const initialState = sourceMaskCanvas.toDataURL("image/png")
+    setUndoList([initialState])
+    setRedoList([])
+    setHasDrawing(false)
+    renderMaskPreview()
+  }
+
+  function undoMask() {
+    const current = undoList().at(-1)
+    const previous = undoList().at(-2)
+    if (!current || !previous) return
+    setUndoList((items) => items.slice(0, -1))
+    setRedoList((items) => [...items, current])
+    restoreMaskState(previous)
+  }
+
+  function redoMask() {
+    const next = redoList().at(-1)
+    if (!next) return
+    setRedoList((items) => items.slice(0, -1))
+    setUndoList((items) => [...items, next])
+    restoreMaskState(next)
+  }
+
+  function handlePointerDown(event: PointerEvent) {
+    if (!sourceMaskCanvas.width || !sourceMaskCanvas.height || props.busy) return
+    event.preventDefault()
+    maskCanvasRef.setPointerCapture(event.pointerId)
+    drawing = true
+    lastPoint = toSourcePoint(event)
+    drawDot(lastPoint)
+    updateCursor(event, true)
+    renderMaskPreview()
+  }
+
+  function handlePointerMove(event: PointerEvent) {
+    updateCursor(event, true)
+    if (!drawing || !lastPoint) return
+    const nextPoint = toSourcePoint(event)
+    drawLine(lastPoint, nextPoint)
+    lastPoint = nextPoint
+    renderMaskPreview()
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    updateCursor(event, true)
+    if (maskCanvasRef.hasPointerCapture(event.pointerId)) maskCanvasRef.releasePointerCapture(event.pointerId)
+    finishDrawing()
+  }
+
+  function createCompositeImage() {
+    if (!sourceImage) throw new Error("图片尚未加载完成")
+    const canvas = document.createElement("canvas")
+    canvas.width = sourceSize().width
+    canvas.height = sourceSize().height
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("无法创建局部重绘画布")
+    context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
+    context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL("image/png").split(",")[1] ?? ""
+  }
+
+  function submit() {
+    const nextHasDrawing = updateHasDrawing()
+    if (!nextHasDrawing || props.busy) return
+    try {
+      props.onSubmit({
+        prompt: editorPrompt().trim(),
+        mode: editMode(),
+        sourceImage: props.image.remoteUrl ?? props.image.url,
+        compositeImage: createCompositeImage(),
+        hasDrawing: nextHasDrawing,
+      })
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const promptPlaceholder = createMemo(() =>
+    editMode() === "erase"
+      ? "请输入想要消除的物体，可留空"
+      : hasDrawing()
+        ? "重绘所选区域：例如把花瓶改成台灯"
+        : "涂抹要修改的区域，并描述希望变成什么",
+  )
+
+  return (
+    <div class="studio-inpaint">
+      <div class="studio-inpaint-header">
+        <div class="min-w-0">
+          <div class="studio-inpaint-title">局部重绘</div>
+          <div class="studio-inpaint-meta">
+            {currentImageName(props.image)} · {sourceSize().width || "-"} x {sourceSize().height || "-"}
+          </div>
+        </div>
+        <button type="button" onClick={props.onClose} class="studio-inpaint-close" aria-label="关闭局部重绘" title="关闭局部重绘" />
+      </div>
+      <div class="studio-inpaint-body">
+        <div ref={canvasWrapRef!} class="studio-inpaint-canvas-wrap">
+          <Show when={displaySize().width && displaySize().height} fallback={
+            <div class="studio-inpaint-loading">{loadError() || "图片加载中..."}</div>
+          }>
+            <div
+              class="studio-inpaint-stage"
+              style={{ width: `${displaySize().width}px`, height: `${displaySize().height}px` }}
+            >
+              <img
+                src={props.image.url}
+                class="studio-inpaint-image"
+                alt="Inpaint source"
+                draggable={false}
+              />
+              <canvas
+                ref={maskCanvasRef!}
+                class="studio-inpaint-mask"
+                width={displaySize().width}
+                height={displaySize().height}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onPointerLeave={(event) => {
+                  updateCursor(event, false)
+                  finishDrawing()
+                }}
+              />
+              <Show when={cursor().visible}>
+                <span
+                  class="studio-inpaint-cursor"
+                  style={{
+                    left: `${cursor().x}px`,
+                    top: `${cursor().y}px`,
+                    width: `${brushSize()}px`,
+                    height: `${brushSize()}px`,
+                  }}
+                />
+              </Show>
+            </div>
+          </Show>
+          <Show when={loadError()}>
+            {(message) => <div class="studio-inpaint-error">{message()}</div>}
+          </Show>
+        </div>
+        <div class="studio-inpaint-controls">
+          <div class="studio-inpaint-toolbar">
+            <div class="studio-inpaint-mode-group" aria-label="生成模式">
+              <For each={[
+                { label: "重绘", value: "qwen_image_edit" },
+                { label: "消除", value: "erase" },
+              ] as const}>
+                {(option) => (
+                  <button
+                    type="button"
+                    onClick={() => setEditMode(option.value)}
+                    class="studio-inpaint-mode"
+                    classList={{ active: editMode() === option.value }}
+                    aria-pressed={editMode() === option.value}
+                  >
+                    {option.label}
+                  </button>
+                )}
+              </For>
+            </div>
+            <div class="studio-inpaint-tool-row">
+              <button type="button" onClick={clearMask} disabled={!hasDrawing() || props.busy} class="studio-inpaint-tool">清空</button>
+              <button type="button" onClick={undoMask} disabled={undoList().length < 2 || props.busy} class="studio-inpaint-tool">撤销</button>
+              <button type="button" onClick={redoMask} disabled={redoList().length === 0 || props.busy} class="studio-inpaint-tool">重做</button>
+            </div>
+            <label class="studio-inpaint-brush">
+              <span>笔刷粗细</span>
+              <strong>{brushSize()}</strong>
+              <input
+                type="range"
+                min="10"
+                max="126"
+                value={brushSize()}
+                onInput={(event) => setBrushSize(Number(event.currentTarget.value))}
+              />
+            </label>
+          </div>
+          <div class="studio-inpaint-prompt-row">
+            <textarea
+              class="studio-inpaint-prompt"
+              maxlength="2000"
+              placeholder={promptPlaceholder()}
+              value={editorPrompt()}
+              disabled={props.busy}
+              onInput={(event) => setEditorPrompt(event.currentTarget.value)}
+            />
+            <button
+              type="button"
+              disabled={!hasDrawing() || props.busy}
+              onClick={submit}
+              class="studio-inpaint-create"
+            >
+              一键生成
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1717,12 +2290,28 @@ function StudioOutpaintEditor(props: {
   const [editorPrompt, setEditorPrompt] = createSignal("")
   const [stage, setStage] = createSignal({ width: 828, height: 420 })
   const [rect, setRect] = createSignal<OutpaintBox>()
+  const [imageSourceSize, setImageSourceSize] = createSignal({ width: props.image.width ?? 1024, height: props.image.height ?? 1024 })
   const ratios = ["1:1", "9:16", "16:9"] as StudioAspectRatio[]
   let stageRef!: HTMLDivElement
 
+  createEffect(
+    on(
+      () => `${props.image.id}:${props.image.url}:${props.image.width ?? ""}:${props.image.height ?? ""}`,
+      () => {
+        if (props.image.width && props.image.height) {
+          setImageSourceSize({ width: props.image.width, height: props.image.height })
+          return
+        }
+        const image = new Image()
+        image.onload = () => setImageSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
+        image.src = props.image.url
+      },
+    ),
+  )
+
   const imageBox = createMemo<OutpaintBox>(() => {
-    const sourceWidth = props.image.width ?? 1024
-    const sourceHeight = props.image.height ?? 1024
+    const sourceWidth = imageSourceSize().width
+    const sourceHeight = imageSourceSize().height
     const maxWidth = Math.min(320, stage().width * 0.42)
     const maxHeight = stage().height * 0.56
     const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight)
@@ -1751,7 +2340,7 @@ function StudioOutpaintEditor(props: {
 
   createEffect(
     on(
-      () => `${props.image.id}:${stage().width}:${stage().height}`,
+      () => `${props.image.id}:${stage().width}:${stage().height}:${imageSourceSize().width}:${imageSourceSize().height}`,
       () => setRect(imageBox()),
       { defer: true },
     ),
@@ -1787,7 +2376,7 @@ function StudioOutpaintEditor(props: {
 
   const outpaintMetrics = createMemo(() => {
     const current = rect() ?? imageBox()
-    const scale = imageBox().width / (props.image.width ?? 1024)
+    const scale = imageBox().width / imageSourceSize().width
     const left = Math.round((imageBox().x - current.x) / scale)
     const right = Math.round((current.x + current.width - imageBox().x - imageBox().width) / scale)
     const top = Math.round((imageBox().y - current.y) / scale)
