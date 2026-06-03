@@ -105,11 +105,12 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const layout = useLayout()
 
   const projectDir = useProjectDir()
-  const isOnboarding = createMemo(() => location.pathname === "/")
 
   // Resolved directory signal — the single source of truth for session loading.
   // Populated by two effects from different reliable reactive sources.
   const [resolvedDir, setResolvedDir] = createSignal<string>()
+
+  const isOnboarding = createMemo(() => !resolvedDir())
 
   // Track which directory the fetched data came from, so we only show content
   // when the data matches the current directory (prevents flicker when dir changes from home → project)
