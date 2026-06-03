@@ -20,6 +20,28 @@
   color: var(--studio-text);
 }
 
+.studio-center-title,
+.studio-intro-title,
+.studio-intro-subtitle,
+.studio-user-bubble,
+.studio-assistant-copy,
+.studio-result-title,
+.studio-result-meta,
+.studio-result-error,
+.studio-canvas-label-text,
+.studio-detail-title,
+.studio-detail-copy,
+.studio-detail-section-title,
+.studio-detail-row,
+.studio-detail-prompt,
+.studio-hd-title,
+.studio-hd-meta,
+.studio-enlarging-title,
+.studio-enlarging-meta {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .studio-left {
   width: 240px;
   flex: 0 0 240px;
@@ -123,10 +145,23 @@
 
 .studio-composer-input-row {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   min-height: 64px;
+}
+
+.studio-composer-input-row.with-reference {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+
+.studio-composer-ref-slot {
+  position: relative;
+  width: 52px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .studio-composer-ref-btn {
@@ -142,11 +177,51 @@
   font-size: 0;
 }
 
-.studio-composer-ref-btn::before {
+.studio-composer-ref-slot:not(.filled) .studio-composer-ref-btn::before {
   content: "";
   width: 52px;
   height: 64px;
   background: url("/studio/IconAdd.svg") center / 52px 64px no-repeat;
+}
+
+.studio-composer-ref-slot.filled .studio-composer-ref-btn {
+  width: 52px;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+}
+
+.studio-composer-ref-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.studio-composer-ref-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(8, 12, 20, 0.94);
+  color: #fff;
+  font-size: 18px;
+  line-height: 18px;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 2;
+}
+
+.studio-composer-ref-slot:hover .studio-composer-ref-remove,
+.studio-composer-ref-remove:focus-visible {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .studio-composer-input {
@@ -822,6 +897,454 @@
   transform: translateX(-50%);
 }
 
+.studio-hd {
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 64px minmax(0, 1fr);
+  background: #fff;
+}
+
+.studio-hd-header {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.studio-hd-title {
+  color: #191919;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 24px;
+}
+
+.studio-hd-meta {
+  margin-top: 2px;
+  overflow: hidden;
+  color: rgba(25, 25, 25, 0.56);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-hd-close {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 999px;
+  background: rgba(25, 25, 25, 0.06);
+}
+
+.studio-hd-close::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  display: block;
+  margin: 8px;
+  background: rgba(25, 25, 25, 0.74);
+  mask: url("/studio/xmark.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/xmark.svg") center / contain no-repeat;
+}
+
+.studio-hd-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 88px;
+}
+
+.studio-hd-canvas-wrap {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 56px;
+  background: #fff;
+}
+
+.studio-hd-image {
+  max-width: min(100%, 620px);
+  max-height: min(100%, 480px);
+  display: block;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 34px rgba(17, 24, 39, 0.14);
+}
+
+.studio-hd-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(25, 25, 25, 0.56);
+  font-size: 13px;
+}
+
+.studio-hd-controls {
+  min-height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+}
+
+.studio-hd-mode-group {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.studio-hd-mode-label {
+  color: rgba(25, 25, 25, 0.56);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.studio-hd-mode-option {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  background: #f6f7f9;
+  color: rgba(25, 25, 25, 0.78);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.studio-hd-mode-option.active {
+  border-color: rgba(10, 89, 247, 0.24);
+  background: #eaf2ff;
+  color: #0a59f7;
+}
+
+.studio-hd-mode-radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.studio-hd-mode-dot {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+}
+
+.studio-hd-mode-option.active .studio-hd-mode-dot {
+  border-width: 3px;
+}
+
+.studio-hd-create {
+  height: 36px;
+  min-width: 112px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  border-radius: 999px;
+  background: var(--studio-blue);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 22px;
+  white-space: nowrap;
+  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+}
+
+.studio-hd-create:hover {
+  filter: brightness(1.04);
+  box-shadow: 0 8px 18px rgba(116, 87, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.studio-hd-create:active {
+  filter: brightness(0.98);
+  box-shadow: none;
+  transform: translateY(0);
+}
+
+.studio-inpaint {
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 64px minmax(0, 1fr);
+  background: #fff;
+}
+
+.studio-inpaint-header {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.studio-inpaint-title {
+  color: #191919;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 24px;
+}
+
+.studio-inpaint-meta {
+  margin-top: 2px;
+  overflow: hidden;
+  color: rgba(25, 25, 25, 0.56);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-inpaint-close {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 999px;
+  background: rgba(25, 25, 25, 0.06);
+}
+
+.studio-inpaint-close::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  display: block;
+  margin: 8px;
+  background: rgba(25, 25, 25, 0.74);
+  mask: url("/studio/xmark.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/xmark.svg") center / contain no-repeat;
+}
+
+.studio-inpaint-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 24px;
+}
+
+.studio-inpaint-canvas-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.studio-inpaint-stage {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 12px 34px rgba(17, 24, 39, 0.14);
+}
+
+.studio-inpaint-image,
+.studio-inpaint-mask {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.studio-inpaint-image {
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+}
+
+.studio-inpaint-mask {
+  cursor: none;
+  touch-action: none;
+}
+
+.studio-inpaint-cursor {
+  position: absolute;
+  z-index: 3;
+  border: 1px solid rgb(214, 179, 255);
+  border-radius: 999px;
+  background: rgba(137, 71, 213, 0.3);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.studio-inpaint-loading,
+.studio-inpaint-error {
+  color: rgba(25, 25, 25, 0.56);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.studio-inpaint-error {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 18px;
+  overflow: hidden;
+  padding: 10px 12px;
+  border: 1px solid rgba(180, 35, 24, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 244, 242, 0.94);
+  color: #b42318;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-inpaint-controls {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  background: #fff;
+}
+
+.studio-inpaint-toolbar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 176px 228px minmax(320px, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.studio-inpaint-mode-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #f3f3f3;
+}
+
+.studio-inpaint-mode {
+  height: 30px;
+  border-radius: 999px;
+  color: rgba(25, 25, 25, 0.68);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.studio-inpaint-mode.active {
+  background: #fff;
+  color: #0a59f7;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.1);
+}
+
+.studio-inpaint-tool-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.studio-inpaint-tool {
+  height: 30px;
+  border-radius: 8px;
+  background: #f3f3f3;
+  color: #191919;
+  font-size: 13px;
+}
+
+.studio-inpaint-tool:hover:not(:disabled) {
+  background: #dfdfdf;
+}
+
+.studio-inpaint-tool:disabled,
+.studio-inpaint-create:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.studio-inpaint-brush {
+  display: grid;
+  grid-template-columns: auto auto minmax(220px, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: rgba(25, 25, 25, 0.68);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.studio-inpaint-brush strong {
+  color: #191919;
+  font-weight: 700;
+}
+
+.studio-inpaint-brush input {
+  min-width: 0;
+  width: 100%;
+  accent-color: #0a59f7;
+}
+
+.studio-inpaint-prompt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.studio-inpaint-prompt {
+  width: 100%;
+  height: 76px;
+  min-height: 76px;
+  resize: none;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+  color: #191919;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.studio-inpaint-prompt:focus {
+  border-color: rgba(10, 89, 247, 0.7);
+}
+
+.studio-inpaint-prompt::placeholder {
+  color: rgba(25, 25, 25, 0.42);
+}
+
+.studio-inpaint-create {
+  height: 76px;
+  border-radius: 8px;
+  background: #0a59f7;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.studio-inpaint-create:hover:not(:disabled) {
+  background: #0950de;
+}
+
 .studio-detail-panel {
   height: 100%;
   padding: 12px 14px 18px;
@@ -1392,11 +1915,11 @@
 }
 
 .studio-empty-stack .studio-composer-input-row {
-  min-height: 58px;
+  min-height: 64px;
 }
 
 .studio-empty-stack .studio-composer-input {
-  min-height: 58px;
+  min-height: 64px;
   padding-top: 0;
   color: #191919;
   font-size: 14px;
