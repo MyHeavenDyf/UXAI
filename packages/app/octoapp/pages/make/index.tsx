@@ -952,9 +952,9 @@ createEffect(
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={hasContent()}>
-        <div class="flex flex-col min-w-0 overflow-hidden" style="min-width:650px">
-          <div class="flex flex-1 min-h-0 overflow-hidden">
-            <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div class="flex flex-col overflow-hidden" >
+          <div class="flex flex-1 min-h-0 overflow-scroll">
+            <div class="flex flex-col flex-1" style="min-width:800px">
               {/* 焦点模式 + 版本历史 切换按钮 */}
               <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
                 <button
