@@ -61,6 +61,7 @@ const StudioGenerationResult = Schema.Struct({
     Schema.Literal("generate_image"),
     Schema.Literal("super_resolution"),
     Schema.Literal("cutout"),
+    Schema.Literal("inpainting"),
     Schema.Literal("outpainting"),
   ])),
   taskId: Schema.optional(Schema.String),
