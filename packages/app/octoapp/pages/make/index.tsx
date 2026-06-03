@@ -22,13 +22,13 @@ import {
   Show,
   type JSX,
 } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
-import { ModelsProvider, useModels } from "@/context/models"
+
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
@@ -49,7 +49,6 @@ import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { Persist, persisted } from "@/utils/persist"
 
 export default function MakePage() {
   const globalSync = useGlobalSync()
@@ -60,11 +59,9 @@ export default function MakePage() {
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
-            <ModelsProvider>
-              <LocalProvider>
-                <MakeContent />
-              </LocalProvider>
-            </ModelsProvider>
+            <LocalProvider>
+              <MakeContent />
+            </LocalProvider>
           </SyncProvider>
         </SDKProvider>
       )}
@@ -87,46 +84,15 @@ function MakeContent() {
     return config ? octoSessionsDir(config) : ""
   }
 
-  // ── 模型选择（与 Chat/Studio 隔离，workspace 级持久化） ────
-  const models = useModels()
-  const [modelStore, setModelStore] = persisted(
-    Persist.workspace(sdk.directory || "", "make-model"),
-    createStore<{ providerID: string; modelID: string } | Record<string, never>>({}),
-  )
-  const selectedModelKey = createMemo<{ providerID: string; modelID: string } | null>(
-    () => {
-      const s = modelStore
-      return "providerID" in s && "modelID" in s ? s as { providerID: string; modelID: string } : null
-    },
-  )
-  const modelState = {
-    list: () => models.list(),
-    visible: (key: { modelID: string; providerID: string }) => models.visible(key),
-    current: () => {
-      const key = selectedModelKey()
-      if (!key) return undefined
-      return models.find(key) ?? undefined
-    },
-    set: (key: { modelID: string; providerID: string } | undefined) => {
-      if (key) {
-        setModelStore(reconcile({ providerID: key.providerID, modelID: key.modelID }))
-      } else {
-        setModelStore(reconcile({}))
-      }
-    },
-    ready: models.ready,
-    recent: (() => []) as ReturnType<typeof useLocal>["model"]["recent"],
-    variant: {
-      configured: () => undefined as string | undefined,
-      selected: () => undefined as string | undefined,
-      current: () => undefined as string | undefined,
-      list: () => [] as string[],
-      set: (_value: string | undefined) => {},
-      cycle: () => {},
-    },
-    cycle: () => {},
-    setVisibility: models.setVisibility,
-  }
+  // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
+  const local = useLocal()
+  const currentModel = () => local.model.current()
+
+  const activeModelKey = createMemo(() => {
+    const m = currentModel()
+    if (!m) return null
+    return { providerID: m.provider.id, modelID: m.id }
+  })
 
   // 当前 session 元数据（标题等）
   const [sessionInfo, { refetch: refetchSession }] = createResource(
@@ -151,12 +117,14 @@ function MakeContent() {
   })
   let titleRef: HTMLInputElement | undefined
 
+  /** 打开标题编辑模式 */
   function openTitleEditor() {
     const info = sessionInfo()
     setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
+  /** 保存标题编辑 */
   async function saveTitleEditor() {
     const id = params.id
     if (!id) return
@@ -172,6 +140,7 @@ function MakeContent() {
   }
 
   // 删除对话
+  /** 删除会话 */
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
@@ -181,6 +150,7 @@ function MakeContent() {
     }
   }
 
+  /** 弹出删除确认弹框 */
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
@@ -225,6 +195,7 @@ createEffect(
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
   const loadedChildSessions = new Set<string>()
 
+  /** 加载子会话数据 */
   function ensureChildSession(subSessionID: string) {
     if (!subSessionID || loadedChildSessions.has(subSessionID)) return
     loadedChildSessions.add(subSessionID)
@@ -344,6 +315,7 @@ createEffect(
 
   let dragCleanup: (() => void) | null = null
 
+  /** 聊天面板分隔线拖拽调整宽度 */
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
     const startX = e.clientX
@@ -383,6 +355,7 @@ createEffect(
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
 
+  /** 刷新版本快照列表 */
   function refreshSnapshots() {
     setSnapshotList(snapshotStore.snapshots())
     setSnapshotVersion((v) => v + 1)
@@ -394,6 +367,7 @@ createEffect(
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
 
+  /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
@@ -417,6 +391,7 @@ createEffect(
 
   // ── session 操作 ──────────────────────────────────────────
 
+  /** 创建新 session 并导航 */
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = sdk.directory
     console.log("[MakePage] createAndNavigate dir:", dir)
@@ -438,6 +413,7 @@ createEffect(
     return undefined
   }
 
+  /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string) {
     try {
       const fileParts: FilePartInput[] = attachments().map((a) => ({
@@ -506,7 +482,8 @@ createEffect(
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
-      const modelKey = selectedModelKey()
+      const modelKey = activeModelKey()
+      if (!modelKey) return
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
@@ -519,9 +496,10 @@ createEffect(
     }
   }
 
+  /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending()) return
+    if (!text || sending() || !activeModelKey()) return
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
@@ -547,12 +525,14 @@ createEffect(
     }
   }
 
+  /** 终止当前生成 */
   async function halt() {
     const sid = params.id
     if (!sid) return
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
+  /** Enter 发送，Shift+Enter 换行 */
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -564,6 +544,7 @@ createEffect(
 
   let fileInputRef!: HTMLInputElement
 
+  /** 添加文件附件（最多 5 个） */
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
@@ -585,10 +566,12 @@ createEffect(
     }
   }
 
+  /** 移除附件 */
   function removeAttachment(id: string) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  /** 文件选择回调 */
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
@@ -597,16 +580,19 @@ createEffect(
     }
   }
 
+  /** 拖拽悬停 */
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
+  /** 拖拽离开 */
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
+  /** 拖拽放置 → 添加文件附件 */
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
@@ -614,6 +600,7 @@ createEffect(
     if (files.length > 0) addAttachments(files)
   }
 
+  /** 打开结果到 ResultViewer（自动保存快照） */
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
     // Auto-activate composed artifact tab (identifier ends with "-composed")
@@ -628,6 +615,7 @@ createEffect(
     }
   }
 
+  /** 继续生成（追加被截断的内容作为 prompt） */
   function handleContinue(card: OutputCard) {
     const sid = params.id
     if (!sid) return
@@ -636,7 +624,7 @@ createEffect(
     void handleSubmit()
   }
 
-  const inputDisabled = () => sending() || isBusy()
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey()
   const maxAttachments = () => attachments().length >= 5
 
   return (
@@ -814,7 +802,7 @@ createEffect(
                           <Icon name="plus" class="size-5" />
                         </button>
                         <ModelSelectorPopover
-                          model={modelState}
+                          model={local.model}
                           triggerAs="button"
                           triggerProps={{
                             class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
@@ -822,7 +810,7 @@ createEffect(
                           }}
                         >
                           <span class="truncate">
-                            {modelState.current()?.name ?? "选择模型"}
+                            {currentModel()?.name ?? "选择模型"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                         </ModelSelectorPopover>
@@ -935,8 +923,8 @@ createEffect(
                       >
                         <Icon name="plus" class="size-5" />
                       </button>
-                      <ModelSelectorPopover
-                        model={modelState}
+                       <ModelSelectorPopover
+                        model={local.model}
                         triggerAs="button"
                         triggerProps={{
                           class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
@@ -944,7 +932,7 @@ createEffect(
                         }}
                       >
                         <span class="truncate">
-                          {modelState.current()?.name ?? "选择模型"}
+                          {currentModel()?.name ?? "选择模型"}
                         </span>
                         <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
                       </ModelSelectorPopover>
@@ -974,7 +962,7 @@ createEffect(
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={hasContent()}>
-        <div class="flex flex-col min-w-0 overflow-hidden">
+        <div class="flex flex-col min-w-0 overflow-hidden" style="min-width:650px">
           <div class="flex flex-1 min-h-0 overflow-hidden">
             <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
               {/* 焦点模式 + 版本历史 切换按钮 */}
