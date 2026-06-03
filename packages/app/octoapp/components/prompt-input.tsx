@@ -1060,6 +1060,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     },
     addPart,
     readClipboardImage: platform.readClipboardImage,
+    disabled: () => props.disabled ?? working(),
   })
 
   const variants = createMemo(() => ["default", ...local.model.variant.list()])

@@ -9,7 +9,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   createEffect,
@@ -35,7 +35,7 @@ import { useLanguage } from "@/context/language"
 import { octoSessionsDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -162,6 +162,8 @@ createEffect(
       (id) => {
         if (id) layout.lastSessionPerTab.setMake(id)
         setSending(false)
+        setDeltaLog([])
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -185,13 +187,28 @@ createEffect(
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
       if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
-      if (e.type === "message.part.delta") return
-      console.log(`[make:event] ${e.type}`, props)
+      
+      if (e.type === "message.part.delta") {
+        setDeltaLog(prev => [
+          ...prev.slice(-19),
+          {
+            timestamp: Date.now(),
+            eventType: e.type,
+            messageID: props?.messageID as string,
+            partID: props?.partID as string,
+            field: (props as Record<string, unknown>)?.field as string,
+            delta: (props as Record<string, unknown>)?.delta as string,
+          }
+        ])
+      } else {
+        console.log(`[make:event] ${e.type}`, props)
+      }
     })
     onCleanup(unsub)
   })
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
+  const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
 
   /** 加载子会话数据 */
@@ -507,11 +524,15 @@ createEffect(
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
-        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
-        const session = result.data as Session | undefined
-        if (!session) return
-        navigate(`/make/${session.id}`)
-        sid = session.id
+const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+      const session = result.data as Session | undefined
+      if (!session) return
+      const dsId = selectedDesignSystem()
+      if (dsId) {
+        localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+      }
+      navigate(`/make/${session.id}`)
+      sid = session.id
       }
       await sendMessage(sid, text)
     } catch (err) {
@@ -628,6 +649,7 @@ createEffect(
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
+      <Toast.Region />
       <div
         class="octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
@@ -843,6 +865,7 @@ createEffect(
                         onOpenResult={handleOpenResult}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
+                        deltaLog={deltaLog()}
                       />
                     )}
                   </For>

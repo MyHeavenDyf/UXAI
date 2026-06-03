@@ -720,6 +720,9 @@ export function MessageTimeline(props: {
                   "pl-2 pr-3 md:pl-4 md:pr-3": true,
                   "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
                 }}
+                onMouseMove={(e) => {
+                  if (title.editing) e.stopPropagation()
+                }}
               >
                 <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>
                   <div
