@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       testFilesPlugin()
     ],
     server: {
-      port: parseInt(rootEnv.VUE_FRONTEND_PORT || '5173'),
+      port: parseInt(rootEnv.VUE_FRONTEND_PORT || '8989'),
     },
   }
 })

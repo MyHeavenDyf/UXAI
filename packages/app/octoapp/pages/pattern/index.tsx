@@ -760,7 +760,7 @@ export default function PatternPage() {
         <div class="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ background: "var(--octo-surface-result)" }}>
           <iframe
             ref={(el) => { previewIframeRef = el }}
-            src="http://127.0.0.1:5173"
+            src="http://127.0.0.1:8989"
             style={{ width: "100%", height: "100%", border: "none" }}
           />
         </div>
