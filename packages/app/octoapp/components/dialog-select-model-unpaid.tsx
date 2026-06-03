@@ -41,7 +41,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState; children?:
 
   return (
     <Kobalte open={store.open} onOpenChange={(next) => setStore("open", next)} placement="top-start" gutter={14}>
-      <Kobalte.Trigger as="div">{props.children}</Kobalte.Trigger>
+      <Kobalte.Trigger as="div" class="group">{props.children}</Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content class="flex flex-col rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden shadow-[0_4px_12px_0_rgba(0,0,0,0.16)]">
           <div class="flex flex-col p-2 gap-3" onKeyDown={handleKeyDown}>

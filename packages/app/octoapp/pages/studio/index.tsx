@@ -1269,10 +1269,10 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="studio-intro-copy">
         <div class="studio-intro-title">Octo Studio</div>
-        <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
+        <div class="studio-intro-subtitle">一键创意落地，让视觉生产力触手可及</div>
       </div>
     </div>
   )

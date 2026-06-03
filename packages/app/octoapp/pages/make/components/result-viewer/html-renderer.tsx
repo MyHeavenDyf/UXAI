@@ -124,8 +124,8 @@ export function HtmlRenderer(props: {
   return (
     <div
       ref={containerRef}
-      class="h-full w-full overflow-auto"
-      style={{ background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
+      class="h-full w-full"
+      style={{ overflow: "auto", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
     >
       {props.mode === "preview" ? (
         <>
@@ -158,7 +158,7 @@ export function HtmlRenderer(props: {
               srcdoc={srcdoc()}
               sandbox="allow-scripts"
               class="w-full h-full border-0"
-              style={{ "min-height": "200px" }}
+              style={{ "min-height": "200px", "min-width": "800px" }}
             />
           )}
           <Show when={props.inspecting}>
