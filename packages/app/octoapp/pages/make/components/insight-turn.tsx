@@ -481,7 +481,7 @@ export function InsightTurn(props: {
   type SubtaskInfo = {
     taskDescription: string
     subSessionID: string
-    status: "running" | "done" | "error"
+    status: "running" | "done" | "error" | "cancelled"
     textParts: string[]
     artifactOutputs: Array<{ identifier: string; title: string; content: string }>
     completedAt?: number
@@ -502,9 +502,14 @@ export function InsightTurn(props: {
       const subSessionID = (metadata?.sessionId as string)
         ?? (typeof state.output === "string" ? (state.output as string).match(/task_id:\s*(\S+)/)?.[1] : undefined)
 
+const stateStatus = state.status as string | undefined
+      const stateError = state.error as string | undefined
       const outputStr = typeof state.output === "string" ? (state.output as string) : ""
       const hasOutput = outputStr.length > 0
-      const isError = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+      const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
+      const isErrorFromStatus = stateStatus === "error" && !isCancelled
+      const isErrorFromMetadata = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+      const isError = isErrorFromStatus || isErrorFromMetadata
 
       const textParts: string[] = []
       const artifactOutputs: Array<{ identifier: string; title: string; content: string }> = []
@@ -522,7 +527,7 @@ export function InsightTurn(props: {
         tasks.push({
           taskDescription: (input.description as string) ?? (input.prompt as string)?.slice(0, 60) ?? "子任务",
           subSessionID: "",
-          status: isError ? "error" : hasOutput ? "done" : "running",
+          status: isCancelled ? "cancelled" : isError ? "error" : hasOutput ? "done" : "running",
           textParts: [],
           artifactOutputs,
           completedAt: getToolEndTime(state),
@@ -594,7 +599,7 @@ export function InsightTurn(props: {
       tasks.push({
         taskDescription: (input.description as string) ?? (input.prompt as string)?.slice(0, 60) ?? "子任务",
         subSessionID,
-        status: isError ? "error" : hasOutput ? "done" : "running",
+        status: isCancelled ? "cancelled" : isError ? "error" : hasOutput ? "done" : "running",
         textParts,
         artifactOutputs,
         completedAt: getToolEndTime(state),
@@ -1007,6 +1012,11 @@ ${bodies}
                 <Show when={task.status === "done"}>
                   <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(34,197,94,0.1)", color: "#22c55e" }}>
                     完成
+                  </span>
+                </Show>
+                <Show when={task.status === "cancelled"}>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(156,163,175,0.1)", color: "#6b7280" }}>
+                    已中止
                   </span>
                 </Show>
                 <Show when={task.status === "error"}>

@@ -664,6 +664,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           Effect.onInterrupt(() =>
             Effect.gen(function* () {
               taskAbort.abort()
+              const toolState = part.state
+              if (toolState.status === "running" || toolState.status === "completed") {
+                const childSessionID = toolState.metadata?.sessionId as string | undefined
+                if (childSessionID) {
+                  yield* state.cancel(SessionID.make(childSessionID)).pipe(
+                    Effect.catchCause(() => Effect.void),
+                  )
+                }
+              }
               assistantMessage.finish = "tool-calls"
               assistantMessage.time.completed = Date.now()
               yield* sessions.updateMessage(assistantMessage)
