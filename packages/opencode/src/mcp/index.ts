@@ -669,11 +669,20 @@ export const layer = Layer.effect(
 
     const tools = Effect.fn("MCP.tools")(function* () {
       const result: Record<string, Tool> = {}
-      const s = yield* InstanceState.get(state)
+      let s = yield* InstanceState.get(state)
 
       const cfg = yield* cfgSvc.get()
       const config = cfg.mcp ?? {}
       const defaultTimeout = cfg.experimental?.mcp_timeout
+
+      // Wait for connecting servers (up to 5s) on first access
+      let waitAttempts = 0
+      const maxAttempts = 50 // 50 * 100ms = 5s
+      while (Object.values(s.status).some((v) => v.status === "connecting") && waitAttempts < maxAttempts) {
+        yield* Effect.sleep(100)
+        s = yield* InstanceState.get(state)
+        waitAttempts++
+      }
 
       const connectedClients = Object.entries(s.clients).filter(
         ([clientName]) => s.status[clientName]?.status === "connected",
@@ -683,6 +692,7 @@ export const layer = Layer.effect(
         connectedServers: connectedClients.map(([n]) => n),
         connectedCount: connectedClients.length,
         totalClients: Object.keys(s.clients).length,
+        waitedMs: waitAttempts * 100,
         allStatus: Object.fromEntries(Object.entries(s.status).map(([k, v]) => [k, v.status])),
       })
 

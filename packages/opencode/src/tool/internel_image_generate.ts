@@ -13,7 +13,7 @@ const DEFAULT_TIMEOUT_MS = 120_000
 
 type JsonRecord = Record<string, unknown>
 type InternalTaskType = "txt2img" | "img2img"
-type InternalToolAction = "generate_image" | "super_resolution" | "cutout" | "outpainting"
+type InternalToolAction = "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
 type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
 type InternalStyleConfig = {
   taskType: string
@@ -800,6 +800,7 @@ export function getTaskType(input: { generationMode: InternalTaskType; taskType?
 function toolActionForCapability(capability: StudioCapability): InternalToolAction {
   if (capability === "image.upscale") return "super_resolution"
   if (capability === "image.cutout") return "cutout"
+  if (capability === "image.inpaint") return "inpainting"
   if (capability === "image.outpaint") return "outpainting"
   return "generate_image"
 }
@@ -823,6 +824,13 @@ async function getSourceImageDataUrl(input: ImageGenerateInput) {
 }
 
 function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const refImgList = (input.referenceImages ?? [])
+    .filter((item) => item.startsWith("data:image/") && Boolean(dataUrlToBase64(item)))
+    .map((item) => ({
+      ref_type: "kontext",
+      image_base64: item,
+    }))
+
   return {
     user: { idx: context.userIdx },
     task_type: context.taskType,
@@ -836,7 +844,7 @@ function buildTextToImageRequestBody(input: ImageGenerateInput, context: Interna
       target_size: context.targetSize,
       loras: context.styleConfig.loras,
       mode: input.extra && typeof input.extra.mode === "string" ? input.extra.mode : context.styleConfig.mode,
-      ref_img_list: [],
+      ref_img_list: refImgList,
       customer_prompt: input.prompt,
       prompt: buildPrompt(input),
     },
@@ -844,11 +852,15 @@ function buildTextToImageRequestBody(input: ImageGenerateInput, context: Interna
 }
 
 async function buildUpscaleRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const mode = input.extra?.mode
   return {
     user: { idx: context.userIdx },
     task_type: "magnify",
     args: {
-      mode: "super_resolution",
+      mode:
+        mode === "restoration_8k" || mode === "restoration" || mode === "super_restoration"
+          ? mode
+          : "restoration",
       image_base64: await getSourceImageDataUrl(input),
     },
   }
@@ -873,6 +885,28 @@ async function buildCutoutRequestBody(input: ImageGenerateInput, context: Intern
 function extraNumber(input: ImageGenerateInput, key: string, fallback: number) {
   const value = input.extra?.[key]
   return typeof value === "number" && Number.isFinite(value) ? value : fallback
+}
+
+function extraString(input: ImageGenerateInput, key: string) {
+  const value = input.extra?.[key]
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function buildInpaintRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const compositeImage = extraString(input, "compositeImage")
+  if (!compositeImage) throw new Error("Inpaint requires a composite image base64.")
+  const generateMode = extraString(input, "generateMode")
+  return {
+    user: { idx: context.userIdx },
+    task_type: "inpainting",
+    args: {
+      prompt: input.prompt,
+      has_drawing: input.extra?.hasDrawing === true,
+      image_base64: compositeImage.startsWith("data:image/") ? dataUrlToBase64(compositeImage) : compositeImage,
+      generate_mode: generateMode === "erase" ? "erase" : "qwen_image_edit",
+      num_image: 1,
+    },
+  }
 }
 
 async function buildOutpaintRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
@@ -900,6 +934,7 @@ async function buildInternalRequestBody(input: ImageGenerateInput, context: Inte
   const capability = getStudioCapability(input)
   if (capability === "image.upscale") return buildUpscaleRequestBody(input, context)
   if (capability === "image.cutout") return buildCutoutRequestBody(input, context)
+  if (capability === "image.inpaint") return buildInpaintRequestBody(input, context)
   if (capability === "image.outpaint") return buildOutpaintRequestBody(input, context)
   return buildTextToImageRequestBody(input, context)
 }

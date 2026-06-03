@@ -34,7 +34,7 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   provider: StudioProvider
-  toolAction?: "generate_image" | "super_resolution" | "cutout" | "outpainting"
+  toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskId?: string
   model: string
   aspectRatio: string
@@ -56,6 +56,7 @@ function resolveProvider(input: StudioGenerationRequest): StudioProvider {
 function toolActionForCapability(capability: StudioCapability) {
   if (capability === "image.upscale") return "super_resolution"
   if (capability === "image.cutout") return "cutout"
+  if (capability === "image.inpaint") return "inpainting"
   if (capability === "image.outpaint") return "outpainting"
   return "generate_image"
 }
