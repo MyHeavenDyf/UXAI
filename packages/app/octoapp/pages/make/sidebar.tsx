@@ -54,10 +54,11 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
   const layout = useLayout()
 
   const projectDir = useProjectDir()
-  const isOnboarding = createMemo(() => location.pathname === "/")
 
   const [resolvedDir, setResolvedDir] = createSignal<string>()
   const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
+
+  const isOnboarding = createMemo(() => !resolvedDir())
 
   createEffect(() => {
     const d = projectDir()

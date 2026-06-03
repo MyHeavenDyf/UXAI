@@ -191,6 +191,11 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  ipcMain.handle("write-file-buffer", async (_event: IpcMainInvokeEvent, path: string, buffer: ArrayBuffer) => {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, Buffer.from(buffer))
+  })
+
   ipcMain.handle("read-clipboard-image", () => {
     const image = clipboard.readImage()
     if (image.isEmpty()) return null

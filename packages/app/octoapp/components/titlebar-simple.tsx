@@ -115,7 +115,7 @@ export function TitlebarSimple() {
       if (cowork?.id) {
         navigate(`/insight/${cowork.id}`)
       } else {
-        navigate("/cowork")
+        navigate("/insight")
       }
       return
     }
