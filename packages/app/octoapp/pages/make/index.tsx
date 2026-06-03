@@ -9,7 +9,7 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   createEffect,
@@ -658,6 +658,7 @@ createEffect(
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
+      <Toast.Region />
       <div
         class="octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
