@@ -194,6 +194,7 @@ createEffect(
         if (id) layout.lastSessionPerTab.setMake(id)
         setSending(false)
         setDeltaLog([])
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
