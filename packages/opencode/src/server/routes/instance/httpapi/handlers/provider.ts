@@ -13,10 +13,12 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
 
     const list = Effect.fn("ProviderHttpApi.list")(function* () {
       const connected = yield* provider.list()
+      const hasAuth = (p: Provider.Info) =>
+        Boolean(p.key) || p.source === "env" || p.source === "api" || Boolean((p.options as Record<string, unknown>)?.apiKey)
       return {
         all: Object.values(connected),
         default: Provider.defaultModelIDs(connected),
-        connected: Object.keys(connected),
+        connected: Object.keys(connected).filter((id) => hasAuth(connected[id as keyof typeof connected])),
       }
     })
 
