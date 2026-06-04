@@ -284,20 +284,22 @@ export function registerIpcHandlers(deps: Deps) {
       cpSync(sourcePath, destDir, { recursive: true })
 
       // Update skills.json with type: "common"
+      const skillMdPath = join(destDir, "SKILL.md")
+      if (!existsSync(skillMdPath)) {
+        return { success: false, error: "所选文件夹中未找到 SKILL.md" }
+      }
       const config = existsSync(skillsConfigPath)
         ? JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
         : {}
-      const skillMdPath = join(destDir, "SKILL.md")
-      if (existsSync(skillMdPath)) {
-        const content = readFileSync(skillMdPath, "utf-8")
-        const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
-        config[skillName] = {
-          description: descMatch ? descMatch[1] : "",
-          import: true,
-          type: "common",
-        }
-        writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      const content = readFileSync(skillMdPath, "utf-8")
+      const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
+      config[skillName] = {
+        description: descMatch ? descMatch[1] : "",
+        import: true,
+        type: "common",
       }
+      mkdirSync(dirname(skillsConfigPath), { recursive: true })
+      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
 
       return { success: true, skillName }
     } catch (err) {
