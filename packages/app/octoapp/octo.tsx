@@ -48,6 +48,7 @@ import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
+import { MakeSidebar } from "@/pages/make/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
@@ -55,7 +56,6 @@ import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
-const CoworkPage = lazy(() => import("@/pages/cowork"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
@@ -80,7 +80,7 @@ const SessionRedirectRoute = () => {
   return <Navigate href={`../chat/${params.id ?? ""}`} />
 }
 const CoworkRedirectRoute = () => {
-  return <Navigate href="/cowork" />
+  return <Navigate href="/insight" />
 }
 
 function UiI18nBridge(props: ParentProps) {
@@ -185,6 +185,77 @@ function OctoSidebarLayout(props: ParentProps) {
   )
 }
 
+function MakeSidebarLayout(props: ParentProps) {
+  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
+    Persist.global("make.sidebar.width"),
+    createStore({ width: 296 }),
+  )
+  const sidebarWidth = () => sidebarWidthStore.width
+  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
+
+  function handleSidebarResize(e: MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth()
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onUp = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  return (
+    <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <MakeSidebar width={sidebarWidth()} />
+      <div
+        class="absolute top-0 bottom-0 flex items-center justify-center group"
+        style={{
+          left: `${sidebarWidth() - 10}px`,
+          width: "20px",
+          cursor: "col-resize",
+          "z-index": "10",
+        }}
+        onMouseDown={handleSidebarResize}
+      >
+        <div
+          class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+          style={{
+            width: "12px",
+            height: "36px",
+            "border-radius": "0 10px 10px 0",
+            "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
+            border: "1px solid var(--octo-border-divider)",
+            "border-left": "none",
+            display: "none"
+          }}
+        >
+          <div
+            class="w-[2px] h-[14px] rounded-full ml-[2px]"
+            style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+          />
+        </div>
+      </div>
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {props.children}
+      </div>
+    </div>
+  )
+}
+
+function SkillsSidebarLayout(props: ParentProps) {
+  const layout = useLayout()
+  const source = layout.sidebarSource.get()
+  return source === "make"
+    ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
+    : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+}
+
 function AppShellProviders(props: ParentProps) {
   return (
     <SettingsProvider>
@@ -218,19 +289,22 @@ function SessionProviders(props: ParentProps) {
 }
 
 function OnboardingLayer() {
-  const location = useLocation()
   const navigate = useNavigate()
   const server = useServer()
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
 
-  const showOnboarding = createMemo(() => location.pathname === "/")
+  const showOnboarding = createMemo(() => {
+    if (!server.ready()) return false
+    return layout.onboarding.show()
+  })
 
   function handleOnboardingSelect(data: { directory: string }) {
     layout.projects.open(data.directory)
     server.projects.touch(data.directory)
+    layout.onboarding.hide()
     void globalSDK.createClient({ directory: data.directory }).session.list().catch(() => {})
-    navigate("/cowork")
+    navigate("/insight")
   }
 
   return (
@@ -243,9 +317,18 @@ function OnboardingLayer() {
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
 
-  const isOctoPage = () => {
+  const isCoworkPage = () => {
     const p = location.pathname
-    return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
+    return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/")
+  }
+
+  const isMakePage = () => {
+    const p = location.pathname
+    return p === "/make" || p.startsWith("/make/")
+  }
+
+  const isSkillsPage = () => {
+    return location.pathname === "/skills"
   }
 
   return (
@@ -258,10 +341,16 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                 <HighlightsProvider>
                   <Layout>
                     <OnboardingLayer />
-                    <Show when={isOctoPage()}>
+                    <Show when={isCoworkPage()}>
                       <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
                     </Show>
-                    <Show when={!isOctoPage()}>
+                    <Show when={isMakePage()}>
+                      <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
+                    </Show>
+                    <Show when={isSkillsPage()}>
+                      <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
+                    </Show>
+                    <Show when={!isCoworkPage() && !isMakePage() && !isSkillsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>
@@ -460,8 +549,8 @@ export function AppInterface(props: {
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
-                  <Route path="/" component={CoworkPage} />
-                  <Route path="/cowork" component={CoworkPage} />
+                  <Route path="/" component={() => <Navigate href="/insight" />} />
+                  <Route path="/cowork" component={() => <Navigate href="/insight" />} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />

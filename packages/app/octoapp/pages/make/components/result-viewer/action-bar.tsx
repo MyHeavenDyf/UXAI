@@ -6,14 +6,33 @@ import type { ViewportPreset, PaletteId } from "./html-renderer"
 import type { ArtifactExportKind } from "../insight-turn"
 import { PALETTE_PRESETS } from "./html-renderer"
 import { IconActionCopy, IconActionDownload, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconInspect } from "../../icons"
+import { showToast } from "@opencode-ai/ui/toast"
+import { getDesktopApi } from "../../lib/electron-api"
 
 function copyToClipboard(text: string) {
-  navigator.clipboard.writeText(text).catch(console.error)
+  navigator.clipboard.writeText(text)
+    .then(() => showToast({ title: "已复制" }))
+    .catch(console.error)
 }
 
-function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
-  const part: BlobPart = typeof content === "string" ? content : (content.buffer as ArrayBuffer)
-  const blob = new Blob([part], { type: mimeType })
+function sanitizeFilename(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
+}
+
+async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
+  const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
+  const blob = new Blob([blobPart], { type: mimeType })
+  const api = getDesktopApi()
+
+  if (api?.saveFilePicker && api?.writeFileBuffer) {
+    const chosen = await api.saveFilePicker({ defaultPath: sanitizeFilename(filename) })
+    if (!chosen) return
+    const buffer = await blob.arrayBuffer()
+    await api.writeFileBuffer(chosen, buffer)
+    showToast({ title: "已下载" })
+    return
+  }
+
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
@@ -22,6 +41,7 @@ function downloadBlob(content: string | Uint8Array, filename: string, mimeType: 
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+  showToast({ title: "已下载" })
 }
 
 function markdownTableToCSV(md: string): string {
@@ -178,8 +198,8 @@ function exportDeckAsPDF(content: string, title: string) {
 
   const desktopApi = (window as unknown as { api?: { htmlToPdf?: (html: string) => Promise<ArrayBuffer> } }).api
   if (desktopApi?.htmlToPdf) {
-    desktopApi.htmlToPdf(printHtml).then((buffer) => {
-      downloadBlob(new Uint8Array(buffer), `${title}.pdf`, "application/pdf")
+    desktopApi.htmlToPdf(printHtml).then(async (buffer) => {
+      await downloadBlob(new Uint8Array(buffer), `${title}.pdf`, "application/pdf")
     }).catch(console.error)
     return
   }
@@ -202,14 +222,14 @@ export function ActionBar(props: {
   onPaletteChange?: (palette: PaletteId | null) => void
   onInspectToggle?: () => void
 }): JSX.Element {
-  function handleDownload() {
+  async function handleDownload() {
     if (props.tab.type === "deck") {
       exportDeckAsPDF(props.tab.content, props.tab.title)
       return
     }
     const info = getDownloadInfo(props.tab)
     const content = extractDownloadContent(props.tab)
-    downloadBlob(content, info.filename, info.mime)
+    await downloadBlob(content, info.filename, info.mime)
   }
 
   const canToggleMode = props.tab.type === "html" || props.tab.type === "svg"
@@ -313,7 +333,7 @@ export function ActionBar(props: {
 
 function ExportButton(props: {
   tab: ResultTab
-  onPrimaryDownload: () => void
+  onPrimaryDownload: () => Promise<void>
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const exports = () => props.tab.exports
@@ -324,9 +344,9 @@ function ExportButton(props: {
     return e && e.length > 1
   }
 
-  const handleExport = (kind: ArtifactExportKind) => {
+  const handleExport = async (kind: ArtifactExportKind) => {
     const result = getExportContent(props.tab, kind)
-    if (result) downloadBlob(result.content, result.filename, EXPORT_MIME[kind])
+    if (result) await downloadBlob(result.content, result.filename, EXPORT_MIME[kind])
     setOpen(false)
   }
 

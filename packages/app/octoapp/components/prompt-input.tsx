@@ -1060,6 +1060,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     },
     addPart,
     readClipboardImage: platform.readClipboardImage,
+    disabled: () => props.disabled ?? working(),
   })
 
   const variants = createMemo(() => ["default", ...local.model.variant.list()])
@@ -1425,7 +1426,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 class="size-8 p-0"
                 style={buttons()}
                 onClick={pick}
-                disabled={store.mode !== "normal"}
+                disabled={store.mode !== "normal" || props.disabled}
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 aria-label={language.t("prompt.action.attachFile")}
               >
@@ -1504,13 +1505,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               as="div"
                               variant="ghost"
                               size="normal"
-                              class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
+                              class="min-w-0 max-w-[320px] text-13-regular text-text-base group focus-visible:outline-none"
                               style={control()}
                             >
                               <span class="truncate">
                                 {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                               </span>
-                              <Icon name="chevron-down" size="small" class="shrink-0" />
+                              <Icon class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" name="chevron-down" size="small" style="color: #000"/>
                             </Button>
                           </DialogSelectModelUnpaid>
                         </TooltipKeybind>
@@ -1529,7 +1530,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             variant: "ghost",
                             size: "normal",
                             style: control(),
-                            class: "min-w-0 max-w-[320px] text-13-regular text-text-base group !h-8 !px-3 gap-0.5 bg-[rgba(0,0,0,0.05)] hover:!bg-[rgba(0,0,0,0.1)] active:!bg-[rgba(0,0,0,0.15)]",
+                            class: "min-w-0 max-w-[320px] text-13-regular text-text-base group !h-8 !px-3 gap-0.5 bg-[rgba(0,0,0,0.05)] hover:!bg-[rgba(0,0,0,0.1)] active:!bg-[rgba(0,0,0,0.15)] focus-visible:outline-none",
                             "data-action": "prompt-model",
                           }}
                           onClose={restoreFocus}
@@ -1537,7 +1538,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           <span class="truncate">
                             {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                           </span>
-                          <Icon name="chevron-down" size="small" class="shrink-0" />
+                          <Icon class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" name="chevron-down" size="small" style="color: #000"/>
                         </ModelSelectorPopover>
                       </TooltipKeybind>
                     </Show>
@@ -1580,7 +1581,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               <IconButton
                 data-action="prompt-submit"
                 type="submit"
-                disabled={!working() && blank()}
+                disabled={props.disabled || (!working() && blank())}
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                 variant="primary"

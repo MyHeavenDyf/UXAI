@@ -1524,7 +1524,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               as="div"
                               variant="ghost"
                               size="normal"
-                              class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
+                              class="min-w-0 max-w-[320px] text-13-regular text-text-base group focus-visible:outline-none"
                               style={control()}
                               onClick={() => {
                                 void import("@/components/dialog-select-model-unpaid").then((x) => {
@@ -1542,7 +1542,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               <span class="truncate">
                                 {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                               </span>
-                              <Icon name="chevron-down" size="small" class="shrink-0" />
+                              <Icon name="chevron-down" size="small" class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                             </Button>
                           </TooltipKeybind>
                         }
@@ -1575,7 +1575,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             <span class="truncate">
                               {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                             </span>
-                            <Icon name="chevron-down" size="small" class="shrink-0" />
+                            <Icon name="chevron-down" size="small" class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                           </ModelSelectorPopover>
                         </TooltipKeybind>
                       </Show>

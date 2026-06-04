@@ -639,6 +639,7 @@ export function MessageTimeline(props: {
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
           classList={{
+            hidden: !!dialog.active,
             "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
             "opacity-0 translate-y-2 scale-95 pointer-events-none":
               !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
@@ -726,6 +727,9 @@ export function MessageTimeline(props: {
                   "pb-4": true,
                   "pl-2 pr-3 md:pl-4 md:pr-3": true,
                   "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+                }}
+                onMouseMove={(e) => {
+                  if (title.editing) e.stopPropagation()
                 }}
               >
                 <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>

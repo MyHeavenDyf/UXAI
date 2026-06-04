@@ -12,6 +12,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import {
@@ -101,18 +102,19 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const notification = useNotification()
   const permission = usePermission()
   const language = useLanguage()
+  const layout = useLayout()
 
   const projectDir = useProjectDir()
-  const isOnboarding = createMemo(() => location.pathname === "/")
 
   // Resolved directory signal — the single source of truth for session loading.
   // Populated by two effects from different reliable reactive sources.
   const [resolvedDir, setResolvedDir] = createSignal<string>()
 
+  const isOnboarding = createMemo(() => !resolvedDir())
+
   // Track which directory the fetched data came from, so we only show content
   // when the data matches the current directory (prevents flicker when dir changes from home → project)
   const [insightFetchedDir, setInsightFetchedDir] = createSignal<string>()
-  const [makeFetchedDir, setMakeFetchedDir] = createSignal<string>()
 
   // Effect 1: read projectDir() which tracks server.projects.last (memo, reactive).
   // For returning users this fires immediately on mount with the persisted directory.
@@ -156,73 +158,25 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   // Insight data is "stable" when fetched dir matches current dir
   const insightStable = createMemo(() => insightFetchedDir() === resolvedDir())
 
-  // Make sessions
-  const [makeSessions, { refetch: refetchMake }] = createResource(
-    () => isOnboarding() ? "" : (resolvedDir() ?? ""),
-    async (d) => {
-      if (!d) {
-        setMakeFetchedDir(d)
-        return [] as Session[]
-      }
-      const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
-      const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-      setMakeFetchedDir(d)
-      return data.filter(s => s.agent === "octo_make")
-    },
-  )
-
-  const [makeSessionList, setMakeSessionList] = createStore<Session[]>([])
-  createEffect(on(makeSessions, (data) => {
-    if (data) setMakeSessionList(reconcile(data, { key: "id" }))
-  }, { defer: true }))
-
-  const makeStable = createMemo(() => makeFetchedDir() === resolvedDir())
-
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
-  let refetchMakeTimer: ReturnType<typeof setTimeout> | undefined
 
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
     if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
       clearTimeout(refetchTimer)
       refetchTimer = setTimeout(() => void refetch(), 1000)
-      clearTimeout(refetchMakeTimer)
-      refetchMakeTimer = setTimeout(() => void refetchMake(), 1000)
     }
   })
   onCleanup(unsub)
-  onCleanup(() => { clearTimeout(refetchTimer); clearTimeout(refetchMakeTimer) })
+  onCleanup(() => { clearTimeout(refetchTimer) })
 
   const activeSessionId = () => {
-    const m = location.pathname.match(/^\/(?:insight|make)\/(.+)$/)
+    const m = location.pathname.match(/^\/insight\/(.+)$/)
     return m?.[1]
   }
 
   const [insightCollapsed, setInsightCollapsed] = createSignal(false)
-  const [makeCollapsed, setMakeCollapsed] = createSignal(false)
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
-  const [showDropdown, setShowDropdown] = createSignal(false)
-  const [dropdownPos, setDropdownPos] = createSignal({ top: 0, left: 0 })
-
-  function toggleDropdown(e: MouseEvent) {
-    e.stopPropagation()
-    const btn = e.currentTarget as HTMLElement
-    const rect = btn.getBoundingClientRect()
-    setDropdownPos({ top: rect.bottom, left: rect.left + 87 })
-    setShowDropdown((v) => !v)
-  }
-
-  function closeDropdown() {
-    setShowDropdown(false)
-  }
-
-  createEffect(() => {
-    if (showDropdown()) {
-      document.addEventListener("click", closeDropdown)
-      onCleanup(() => document.removeEventListener("click", closeDropdown))
-    }
-  })
 
   function newSession() {
     const dir = resolvedDir()
@@ -231,16 +185,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     void client.session.create({ directory: dir, agent: "octo_insight" }).then((result) => {
       const session = result.data as Session | undefined
       if (session) navigate(`/insight/${session.id}`)
-    })
-  }
-
-  function newMakeSession() {
-    const dir = resolvedDir()
-    if (!dir) return
-    const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "octo_make" }).then((result) => {
-      const session = result.data as Session | undefined
-      if (session) navigate(`/make/${session.id}`)
     })
   }
 
@@ -254,53 +198,19 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       }}
     >
       <div class="shrink-0 flex flex-col px-[12px]">
-         <ProjectInfo />
+        <ProjectInfo />
         <div class="relative">
           <button
             type="button"
             class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
             style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-            onClick={toggleDropdown}
+            onClick={newSession}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
               <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
             </svg>
-            <span>新建交付件</span>
+            <span>新建</span>
           </button>
-          <Show when={showDropdown()}>
-            <div
-              class="z-50 flex flex-col"
-              style={`position:fixed; top:${dropdownPos().top}px; left:${dropdownPos().left}px; background:#ffffff; border-radius:12px; box-shadow:0px 4px 12px 0px rgba(0,0,0,0.16); padding:8px; min-width:232px;`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-                style="color: #0a59f7;"
-                onClick={() => { newSession(); closeDropdown() }}
-              >
-                <div
-                  style="width:24px;height:24px;border-radius:3px;background:rgba(10,89,247,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
-                >
-                  <div style="width:20px;height:20px;background-image:url('/insightIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
-                </div>
-                <span style="font-weight:600">Octo Insight</span>
-              </button>
-              <button
-                type="button"
-                class="flex items-center gap-2 w-full px-2 py-2 text-14-regular text-left rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-                style="color: #6c00ff;"
-                onClick={() => { newMakeSession(); closeDropdown() }}
-              >
-                <div
-                  style="width:24px;height:24px;border-radius:3px;background:rgba(108,0,255,0.10);flex-shrink:0;display:flex;align-items:center;justify-content:center;"
-                >
-                  <div style="width:20px;height:20px;background-image:url('/makeIcon.svg');background-size:20px 20px;background-repeat:no-repeat;background-position:center;" />
-                </div>
-                <span style="font-weight:600">Octo Make</span>
-              </button>
-            </div>
-          </Show>
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>
@@ -417,114 +327,6 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
             </div>
           </Show>
         </div>
-
-        {/* ─── Octo Make ─── */}
-        <div class="mb-[2px]">
-          <div class="flex items-center h-[36px] px-[12px]">
-            <button
-              type="button"
-              onClick={() => setMakeCollapsed((v) => !v)}
-              class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
-            >
-              <span class="flex items-center gap-[12px] min-w-0">
-                <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
-                <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                  Octo Make
-                </span>
-              </span>
-              <ChevronRightIcon collapsed={makeCollapsed()} />
-            </button>
-          </div>
-          <Show when={!makeCollapsed()}>
-            <div class="flex flex-col">
-              <Show
-                when={makeStable()}
-                fallback={
-                  <div class="px-[8px] py-[6px]">
-                    <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
-                  </div>
-                }
-              >
-                <Show
-                  when={makeSessionList.length > 0}
-                  fallback={
-                    <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
-                    </div>
-                  }
-                >
-                  <For each={makeSessionList}>
-                    {(session) => {
-                      const isActive = () => activeSessionId() === session.id
-                      const [sessionStore] = globalSync.child(session.directory)
-                      const isWorking = createMemo(() => {
-                        const status = sessionStore.session_status[session.id]
-                        return status !== undefined && status.type !== "idle"
-                      })
-                      const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
-                      const hasError = createMemo(() => notification.session.unseenHasError(session.id))
-                      const hasPermissions = createMemo(() =>
-                        !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
-                          !permission.autoResponds(item, session.directory),
-                        ),
-                      )
-                      return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              notification.session.markViewed(session.id)
-                              navigate(`/make/${session.id}`)
-                            }}
-                            class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
-                            style={{
-                              height: "36px",
-                              padding: "0 24px 0 44px",
-                              color: isActive() ? "#0A59F7" : undefined,
-                            }}
-                            classList={{
-                              "bg-[rgba(10,89,247,0.08)]": isActive(),
-                              "hover:bg-surface-base-hover": !isActive(),
-                            }}
-                          >
-                            <Show when={isActive()}>
-                              <span
-                                class="absolute right-[8px] top-1/2 rounded-full pointer-events-none"
-                                style={{
-                                  height: "28px",
-                                  width: "4px",
-                                  background: "#0A59F7",
-                                  transform: "translateY(-50%)",
-                                }}
-                              />
-                            </Show>
-                          <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                            <div class="shrink-0 size-6 flex items-center justify-center">
-                              <Switch>
-                                <Match when={isWorking()}>
-                                  <Spinner class="size-[15px]" />
-                                </Match>
-                                <Match when={hasPermissions()}>
-                                  <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-                                </Match>
-                                <Match when={hasError()}>
-                                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-                                </Match>
-                                <Match when={unseenCount() > 0}>
-                                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
-                                </Match>
-                              </Switch>
-                            </div>
-                          </Show>
-                          <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
-                        </button>
-                      )
-                    }}
-                  </For>
-                </Show>
-              </Show>
-            </div>
-          </Show>
-        </div>
       </div>
 
       {/* Fixed bottom: 技能库 / 资产库 */}
@@ -542,6 +344,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 type="button"
                 onClick={() => {
                   if (item.key === "skill_market") {
+                    layout.sidebarSource.set("cowork")
                     navigate("/skills")
                   } else {
                     setActiveNav((v) => (v === item.key ? null : item.key))

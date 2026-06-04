@@ -5,6 +5,9 @@ import { useLanguage } from "@/context/language"
 import { SettingsGeneral } from "./settings-general"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
+// jk-j60099994-replace-with-dialog-settings-1-start
+// jk-j60099994-replace-with-dialog-settings-1-end
+
 
 const sectionTitle: Record<string, string> = {
   "font-size": "14px",
@@ -118,23 +121,51 @@ export const DialogSettings: Component = () => {
             <div>
               <div style={sectionTitle}>{language.t("settings.section.desktop")}</div>
               <TabsTrigger value="general" style={triggerStyle}>
-                <div style={{ ...iconBase, "mask-image": "url(/setting/generalIcon.svg)", "-webkit-mask-image": "url(/setting/generalIcon.svg)" }} />
+                <div
+                  style={{
+                    ...iconBase,
+                    "mask-image": "url(/setting/generalIcon.svg)",
+                    "-webkit-mask-image": "url(/setting/generalIcon.svg)",
+                  }}
+                />
                 {language.t("settings.tab.general")}
               </TabsTrigger>
 
               <div style={sectionTitle}>{language.t("settings.section.server")}</div>
               <TabsTrigger value="providers" style={triggerStyle}>
-                <div style={{ ...iconBase, "mask-image": "url(/setting/providerIcon.svg)", "-webkit-mask-image": "url(/setting/providerIcon.svg)" }} />
+                <div
+                  style={{
+                    ...iconBase,
+                    "mask-image": "url(/setting/providerIcon.svg)",
+                    "-webkit-mask-image": "url(/setting/providerIcon.svg)",
+                  }}
+                />
                 {language.t("settings.providers.title")}
               </TabsTrigger>
               <TabsTrigger value="models" style={triggerStyle}>
-                <div style={{ ...iconBase, "mask-image": "url(/setting/modeIcon.svg)", "-webkit-mask-image": "url(/setting/modeIcon.svg)" }} />
+                <div
+                  style={{
+                    ...iconBase,
+                    "mask-image": "url(/setting/modeIcon.svg)",
+                    "-webkit-mask-image": "url(/setting/modeIcon.svg)",
+                  }}
+                />
                 {language.t("settings.models.title")}
               </TabsTrigger>
             </div>
-            <div style={{ display: "flex", "align-items": "center", "justify-content": "center", gap: "12px", padding: "0" }}>
+            <div
+              style={{
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "center",
+                gap: "12px",
+                padding: "0",
+              }}
+            >
               <img src="/setting/OctoAgentLogo.png" width={114} height={28} alt="" />
+              {/* jk-j60099994-replace-with-dialog-settings-2-start */}
               <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)" }}>v1.14.41</span>
+              {/* jk-j60099994-replace-with-dialog-settings-2-end */}
             </div>
           </TabsList>
           <TabsContent value="general" style={{ flex: 1, overflow: "auto", padding: "8px 20px" }}>

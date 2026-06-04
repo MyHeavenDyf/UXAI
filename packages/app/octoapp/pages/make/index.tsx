@@ -1,5 +1,5 @@
 import "./octo-tokens.css"
-import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
@@ -9,12 +9,9 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Binary } from "@opencode-ai/core/util/binary"
-import { base64Encode } from "@opencode-ai/core/util/encode"
 import {
-  batch,
   createEffect,
   createMemo,
   createResource,
@@ -25,21 +22,24 @@ import {
   Show,
   type JSX,
 } from "solid-js"
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { SDKProvider, useSDK } from "@/context/sdk"
+import { SyncProvider, useSync } from "@/context/sync"
+
+import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { useProjectDir } from "@/hooks/use-project-dir"
+import { octoSessionsDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
-import { IconSend } from "./icons"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -47,72 +47,51 @@ import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
-import { useModels } from "@/context/models"
-import { useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { Persist, persisted } from "@/utils/persist"
-
-const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
-
-type DataStore = {
-  session: Session[]
-  session_status: { [sessionID: string]: SessionStatus }
-  session_diff: { [sessionID: string]: SnapshotFileDiff[] }
-  message: { [sessionID: string]: Message[] }
-  part: { [messageID: string]: Part[] }
-}
 
 export default function MakePage() {
+  const globalSync = useGlobalSync()
+  const homeDir = () => globalSync.data.path.home
+
+  return (
+    <Show when={homeDir()} keyed>
+      {(dir) => (
+        <SDKProvider directory={() => dir}>
+          <SyncProvider>
+            <LocalProvider>
+              <MakeContent />
+            </LocalProvider>
+          </SyncProvider>
+        </SDKProvider>
+      )}
+    </Show>
+  )
+}
+
+function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const globalSDK = useGlobalSDK()
-  const globalSync = useGlobalSync()
+  const sdk = useSDK()
+  const sync = useSync()
   const layout = useLayout()
   const language = useLanguage()
   const dialog = useDialog()
+  const globalSync = useGlobalSync()
 
-  const homeDir = useProjectDir()
-
-  // ── 模型选择（与 Chat/Studio 隔离，workspace 级持久化） ────
-  const models = useModels()
-  const [modelStore, setModelStore] = persisted(
-    Persist.workspace(homeDir() ?? "", "make-model"),
-    createStore<{ providerID: string; modelID: string } | Record<string, never>>({}),
-  )
-  const selectedModelKey = createMemo<{ providerID: string; modelID: string } | null>(
-    () => {
-      const s = modelStore
-      return "providerID" in s && "modelID" in s ? s as { providerID: string; modelID: string } : null
-    },
-  )
-  const modelState = {
-    list: () => models.list(),
-    visible: (key: { modelID: string; providerID: string }) => models.visible(key),
-    current: () => {
-      const key = selectedModelKey()
-      if (!key) return undefined
-      return models.find(key) ?? undefined
-    },
-    set: (key: { modelID: string; providerID: string } | undefined) => {
-      if (key) {
-        setModelStore(reconcile({ providerID: key.providerID, modelID: key.modelID }))
-      } else {
-        setModelStore(reconcile({}))
-      }
-    },
-    ready: models.ready,
-    recent: (() => []) as ReturnType<typeof useLocal>["model"]["recent"],
-    variant: {
-      configured: () => undefined as string | undefined,
-      selected: () => undefined as string | undefined,
-      current: () => undefined as string | undefined,
-      list: () => [] as string[],
-      set: (_value: string | undefined) => {},
-      cycle: () => {},
-    },
-    cycle: () => {},
-    setVisibility: models.setVisibility,
+  const configDir = () => {
+    const config = globalSync.data.path.config
+    return config ? octoSessionsDir(config) : ""
   }
+
+  // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
+  const local = useLocal()
+  const currentModel = () => local.model.current()
+
+  const activeModelKey = createMemo(() => {
+    const m = currentModel()
+    if (!m) return null
+    return { providerID: m.provider.id, modelID: m.id }
+  })
 
   // 当前 session 元数据（标题等）
   const [sessionInfo, { refetch: refetchSession }] = createResource(
@@ -120,7 +99,7 @@ export default function MakePage() {
     async (id) => {
       if (!id) return null as Session | null
       try {
-        const result = await globalSDK.client.session.get({ sessionID: id })
+        const result = await sdk.client.session.get({ sessionID: id })
         return (result.data as Session | undefined) ?? null
       } catch {
         return null as Session | null
@@ -133,22 +112,25 @@ export default function MakePage() {
     editing: false,
     draft: "",
     menuOpen: false,
+    pendingRename: false,
   })
   let titleRef: HTMLInputElement | undefined
 
+  /** 打开标题编辑模式 */
   function openTitleEditor() {
     const info = sessionInfo()
     setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
+  /** 保存标题编辑 */
   async function saveTitleEditor() {
     const id = params.id
     if (!id) return
     const draft = titleState.draft.trim()
     if (!draft) { setTitleState("editing", false); return }
     try {
-      await globalSDK.client.session.update({ sessionID: id, title: draft })
+      await sdk.client.session.update({ sessionID: id, title: draft })
       void refetchSession()
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
@@ -157,155 +139,141 @@ export default function MakePage() {
   }
 
   // 删除对话
+  /** 删除会话 */
   async function deleteSession(sessionID: string) {
     try {
-      await globalSDK.client.session.delete({ sessionID })
+      await sdk.client.session.delete({ sessionID })
       navigate("/make")
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
+  /** 弹出删除确认弹框 */
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
     dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
   }
 
-  const [dataStore, setDataStore] = createStore<DataStore>({
-    session: [],
-    session_status: {},
-    session_diff: {},
-    message: {},
-    part: {},
-  })
+createEffect(
+    on(
+      () => params.id,
+      (id) => {
+        if (id) layout.lastSessionPerTab.setMake(id)
+        setSending(false)
+        setDeltaLog([])
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      },
+    ),
+  )
 
   createEffect(
     on(
       () => params.id,
       (id) => {
-        if (id) layout.lastSessionPerTab.setCowork(id, "make")
-        setSending(false)
-      },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => params.id,
-      async (id) => {
         if (!id) return
-        try {
-          const result = await globalSDK.client.session.messages({ sessionID: id })
-          const items = result.data ?? []
-          const msgs: Message[] = []
-          const partMap: { [msgId: string]: Part[] } = {}
-          for (const { info, parts } of items as { info: Message; parts: Part[] }[]) {
-            msgs.push(info)
-            const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
-            if (visible.length > 0) partMap[info.id] = visible
-          }
-          batch(() => {
-            setDataStore("message", id, reconcile(msgs, { key: "id" }))
-            for (const [msgId, ps] of Object.entries(partMap)) {
-              setDataStore("part", msgId, reconcile(ps, { key: "id" }))
-            }
-          })
-        } catch (err) {
-          console.error("[InsightPage] messages load failed", err)
-        }
+        void sync.session.sync(id)
       },
     ),
   )
 
-  const unsub = globalSDK.event.listen((e) => {
-    const sessionId = params.id
-    if (!sessionId) return
-    const event = e.details
-
-    if (event.type === "message.updated") {
-      const info = event.properties.info
-      if (info.sessionID !== sessionId) return
-      const messages = dataStore.message[sessionId]
-      if (!messages) { setDataStore("message", sessionId, [info]); return }
-      const result = Binary.search(messages, info.id, (m) => m.id)
-      if (result.found) {
-        setDataStore("message", sessionId, result.index, reconcile(info))
+  // 调试日志：打印当前 session 相关的 SSE 事件
+  createEffect(() => {
+    const sid = params.id
+    if (!sid) return
+    const unsub = sdk.event.listen((evt) => {
+      const e = evt.details
+      const props = e.properties as Record<string, unknown> | undefined
+      const eventSessionID = props?.sessionID as string | undefined
+      if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
+      
+      if (e.type === "message.part.delta") {
+        setDeltaLog(prev => [
+          ...prev.slice(-19),
+          {
+            timestamp: Date.now(),
+            eventType: e.type,
+            messageID: props?.messageID as string,
+            partID: props?.partID as string,
+            field: (props as Record<string, unknown>)?.field as string,
+            delta: (props as Record<string, unknown>)?.delta as string,
+          }
+        ])
       } else {
-        setDataStore("message", sessionId, produce((d) => { d.splice(result.index, 0, info) }))
+        console.log(`[make:event] ${e.type}`, props)
       }
-      return
-    }
-
-    if (event.type === "message.part.updated") {
-      const part = event.properties.part
-      if (part.sessionID !== sessionId) return
-      if (SKIP_PART_TYPES.has(part.type)) return
-      const parts = dataStore.part[part.messageID]
-
-      // First time seeing parts for this message — always insert
-      if (!parts) {
-        setDataStore("part", part.messageID, [part])
-        return
-      }
-
-      const result = Binary.search(parts, part.id, (p) => p.id)
-      if (!result.found) {
-        // New part — always insert
-        setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
-      } else {
-        // Existing text part during streaming: skip reconcile, let deltas drive the text
-        // to avoid duplicated content. Final part.updated (when idle) sets canonical text.
-        if (part.type === "text" && isBusy()) return
-        setDataStore("part", part.messageID, result.index, reconcile(part))
-      }
-      return
-    }
-
-    if (event.type === "session.status") {
-      const { sessionID, status } = event.properties
-      if (sessionID !== sessionId) return
-      setDataStore("session_status", sessionID, reconcile(status))
-      return
-    }
-
-    const raw = event as unknown as { type: string; properties: Record<string, unknown> }
-    if (raw.type === "message.part.delta") {
-      const { messageID, partID, field, delta } = raw.properties as {
-        messageID: string; partID: string; field: string; delta: string
-      }
-      const parts = dataStore.part[messageID]
-      if (!parts) return
-      const result = Binary.search(parts, partID, (p) => p.id)
-      if (!result.found) return
-      setDataStore("part", messageID, produce((d) => {
-        const p = d[result.index] as Record<string, unknown>
-        p[field] = ((p[field] as string) ?? "") + delta
-      }))
-    }
+    })
+    onCleanup(unsub)
   })
-  onCleanup(unsub)
+
+  const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
+  const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
+  const loadedChildSessions = new Set<string>()
+
+  /** 加载子会话数据 */
+  function ensureChildSession(subSessionID: string) {
+    if (!subSessionID || loadedChildSessions.has(subSessionID)) return
+    loadedChildSessions.add(subSessionID)
+    setChildSessionIDs((prev) => { const next = new Set(prev); next.add(subSessionID); return next })
+    void sync.session.sync(subSessionID)
+  }
 
   const userMessages = createMemo((): Message[] => {
     const id = params.id
     if (!id) return []
-    return (dataStore.message[id] ?? []).filter((m) => m.role === "user")
+    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
-    return dataStore.session_status[id] ?? { type: "idle" }
+    return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => sessionStatus().type === "busy")
-  const hasContent = () => !!(params.id && userMessages().length > 0)
+  const isBusy = createMemo(() => {
+    if (sessionStatus().type !== "idle") return true
+    const id = params.id
+    if (!id) return false
+    return ((sync.data.message[id] ?? []) as Message[]).some(
+      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+    )
+  })
+  // ── 执行计时器 ────────────────────────────────────────────
+  const [elapsedText, setElapsedText] = createSignal("")
+  let elapsedTimer: ReturnType<typeof setInterval> | undefined
+  createEffect(() => {
+    if (isBusy()) {
+      const id = params.id
+      if (id) {
+        const messages = (sync.data.message[id] ?? []) as Message[]
+        const pending = [...messages].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        if (pending) {
+          const start = pending.time.created
+          const fmt = () => {
+            const secs = Math.round((Date.now() - start) / 1000)
+            const m = Math.floor(secs / 60)
+            const s = secs % 60
+            setElapsedText(m > 0 ? `${m}分${s}秒` : `${s}秒`)
+          }
+          fmt()
+          elapsedTimer = setInterval(fmt, 1000)
+        }
+      }
+    } else {
+      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = undefined }
+      setElapsedText("")
+    }
+    onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
+  })
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
+  const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const DS_KEY_PREFIX = "octo:make:design-system:"
+  const PROMPT_KEY_PREFIX = "octo:make:prompt:"
   const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
   createEffect(() => {
@@ -319,6 +287,31 @@ export default function MakePage() {
     if (!id) return
     const saved = localStorage.getItem(DS_KEY_PREFIX + id)
     setSelectedDesignSystem(saved ?? null)
+  }))
+
+  // 保存 prompt 到 localStorage
+  function savePromptToStorage(sessionId: string | undefined, text: string) {
+    if (!sessionId) return
+    const key = PROMPT_KEY_PREFIX + sessionId
+    if (text.trim()) localStorage.setItem(key, text)
+    else localStorage.removeItem(key)
+  }
+  // 加载 prompt from localStorage
+  function loadPromptFromStorage(sessionId: string | undefined): string {
+    if (!sessionId) return ""
+    return localStorage.getItem(PROMPT_KEY_PREFIX + sessionId) ?? ""
+  }
+
+  // 追踪当前 session ID 用于保存 prompt
+  let currentSessionIdForPrompt: string | undefined = params.id
+  // prompt 变化时立即保存到当前 session
+  createEffect(on(prompt, (text) => {
+    savePromptToStorage(currentSessionIdForPrompt, text)
+  }, { defer: true }))
+  // 切换 session 时：更新追踪 ID 并加载新 prompt
+  createEffect(on(() => params.id, (newId) => {
+    currentSessionIdForPrompt = newId
+    setPrompt(loadPromptFromStorage(newId))
   }))
   // 对话面板宽度：从 localStorage 恢复，无存储值时取默认 460px
   const CHAT_WIDTH_KEY = "octo:make:chat-width"
@@ -338,6 +331,7 @@ export default function MakePage() {
 
   let dragCleanup: (() => void) | null = null
 
+  /** 聊天面板分隔线拖拽调整宽度 */
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
     const startX = e.clientX
@@ -377,6 +371,7 @@ export default function MakePage() {
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
 
+  /** 刷新版本快照列表 */
   function refreshSnapshots() {
     setSnapshotList(snapshotStore.snapshots())
     setSnapshotVersion((v) => v + 1)
@@ -388,18 +383,18 @@ export default function MakePage() {
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
 
+  /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
     if (tab?.filePath) {
       try {
-        const dir = homeDir()
-        if (dir) {
-          await fetch(`${globalSDK.url}/content`, {
+        if (sdk.directory) {
+          await fetch(`${sdk.url}/content`, {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
-              "x-opencode-directory": dir,
+              "x-opencode-directory": sdk.directory,
             },
             body: JSON.stringify({ path: tab.filePath, content }),
           })
@@ -412,13 +407,14 @@ export default function MakePage() {
 
   // ── session 操作 ──────────────────────────────────────────
 
+  /** 创建新 session 并导航 */
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = homeDir()
+    const dir = sdk.directory
     console.log("[MakePage] createAndNavigate dir:", dir)
     if (!dir) return
     setSending(true)
     try {
-      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_make" })
+      const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
       const session = result.data as Session | undefined
       console.log("[MakePage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
@@ -433,6 +429,7 @@ export default function MakePage() {
     return undefined
   }
 
+  /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string) {
     try {
       const fileParts: FilePartInput[] = attachments().map((a) => ({
@@ -501,8 +498,9 @@ export default function MakePage() {
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
-      const modelKey = selectedModelKey()
-      await globalSDK.client.session.prompt({
+      const modelKey = activeModelKey()
+      if (!modelKey) return
+      await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
@@ -514,22 +512,27 @@ export default function MakePage() {
     }
   }
 
+  /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending()) return
+    if (!text || sending() || !activeModelKey()) return
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
     try {
       let sid = submitSessionId
       if (!sid) {
-        const dir = homeDir()
+        const dir = sdk.directory
         if (!dir) return
-        const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_make" })
-        const session = result.data as Session | undefined
-        if (!session) return
-        navigate(`/make/${session.id}`)
-        sid = session.id
+const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+      const session = result.data as Session | undefined
+      if (!session) return
+      const dsId = selectedDesignSystem()
+      if (dsId) {
+        localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+      }
+      navigate(`/make/${session.id}`)
+      sid = session.id
       }
       await sendMessage(sid, text)
     } catch (err) {
@@ -542,12 +545,14 @@ export default function MakePage() {
     }
   }
 
+  /** 终止当前生成 */
   async function halt() {
     const sid = params.id
     if (!sid) return
-    await globalSDK.client.session.abort({ sessionID: sid }).catch(() => {})
+    await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
+  /** Enter 发送，Shift+Enter 换行 */
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -559,6 +564,7 @@ export default function MakePage() {
 
   let fileInputRef!: HTMLInputElement
 
+  /** 添加文件附件（最多 5 个） */
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
@@ -580,10 +586,12 @@ export default function MakePage() {
     }
   }
 
+  /** 移除附件 */
   function removeAttachment(id: string) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  /** 文件选择回调 */
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
@@ -592,16 +600,19 @@ export default function MakePage() {
     }
   }
 
+  /** 拖拽悬停 */
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
+  /** 拖拽离开 */
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
+  /** 拖拽放置 → 添加文件附件 */
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
@@ -609,6 +620,7 @@ export default function MakePage() {
     if (files.length > 0) addAttachments(files)
   }
 
+  /** 打开结果到 ResultViewer（自动保存快照） */
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
     // Auto-activate composed artifact tab (identifier ends with "-composed")
@@ -623,11 +635,21 @@ export default function MakePage() {
     }
   }
 
-  const inputDisabled = () => sending() || isBusy()
+  /** 继续生成（追加被截断的内容作为 prompt） */
+  function handleContinue(card: OutputCard) {
+    const sid = params.id
+    if (!sid) return
+    const lastChars = card.content.slice(-300)
+    setPrompt(`请继续完成上一个设计。上次的输出在以下位置被截断：\n\`\`\`\n${lastChars}\n\`\`\`\n\n请从截断点继续，输出完整 HTML。`)
+    void handleSubmit()
+  }
+
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey()
   const maxAttachments = () => attachments().length >= 5
 
   return (
-    <DataProvider data={dataStore} directory={homeDir() || ""}>
+    <DataProvider data={sync.data} directory={sdk.directory || ""}>
+      <Toast.Region />
       <div
         class="octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
@@ -660,8 +682,11 @@ export default function MakePage() {
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
-                    <div class="shrink-0">
+                    <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
+                      <Show when={elapsedText()}>
+                        <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>已执行 {elapsedText()}</span>
+                      </Show>
                     </div>
                   </Show>
                   <Show
@@ -704,12 +729,18 @@ export default function MakePage() {
                     aria-label={language.t("common.moreOptions")}
                   />
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content style={{ "min-width": "104px" }}>
-                      <DropdownMenu.Item
-                        onSelect={() => {
-                          setTitleState("menuOpen", false)
+                    <DropdownMenu.Content
+                      style={{ "min-width": "104px" }}
+                      onCloseAutoFocus={(event) => {
+                        if (titleState.pendingRename) {
+                          event.preventDefault()
+                          setTitleState("pendingRename", false)
                           openTitleEditor()
-                        }}
+                        }
+                      }}
+                    >
+                      <DropdownMenu.Item
+                        onSelect={() => setTitleState({ pendingRename: true, menuOpen: false })}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
@@ -761,19 +792,15 @@ export default function MakePage() {
                         "overflow-y": "auto",
                       }}
                     />
-                    <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                    <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <div class="flex-1 min-w-0">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </div>
-                        <div class="flex-1 min-w-0">
-                          <TemplatePicker
-                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                          />
-                        </div>
+                        <DesignSystemPicker
+                          selected={selectedDesignSystem()}
+                          onSelect={setSelectedDesignSystem}
+                        />
+                        <TemplatePicker
+                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                        />
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -792,29 +819,28 @@ export default function MakePage() {
                           <Icon name="plus" class="size-5" />
                         </button>
                         <ModelSelectorPopover
-                          model={modelState}
+                          model={local.model}
                           triggerAs="button"
                           triggerProps={{
-                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
-                            "data-action": "prompt-model",
-                          }}
+                             class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                             "data-action": "prompt-model",
+                           }}
                         >
                           <span class="truncate">
-                            {modelState.current()?.name ?? "选择模型"}
+                            {currentModel()?.name ?? "选择模型"}
                           </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
                       </div>
-                      <button
-                        type="button"
+                      <IconButton
+                        data-action="prompt-submit"
+                        type="submit"
+                        icon={isBusy() ? "stop" : "arrow-up"}
+                        class="size-8 flex-shrink-0"
                         onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                         disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                        class="octo-btn-send flex-shrink-0"
-                        classList={{ "octo-btn-stop": isBusy() }}
-                        title={isBusy() ? "停止生成" : undefined}
-                      >
-                        {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
-                      </button>
+                        aria-label={isBusy() ? "停止生成" : undefined}
+                      />
                     </div>
                   </div>
                 </div>
@@ -837,6 +863,9 @@ export default function MakePage() {
                         status={sessionStatus()}
                         active={isBusy()}
                         onOpenResult={handleOpenResult}
+                        onContinue={handleContinue}
+                        onChildSession={ensureChildSession}
+                        deltaLog={deltaLog()}
                       />
                     )}
                   </For>
@@ -881,19 +910,15 @@ export default function MakePage() {
                       "overflow-y": "auto",
                     }}
                   />
-                  <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                  <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <div class="flex-1 min-w-0">
-                          <DesignSystemPicker
-                            selected={selectedDesignSystem()}
-                            onSelect={setSelectedDesignSystem}
-                          />
-                        </div>
-                        <div class="flex-1 min-w-0">
-                          <TemplatePicker
-                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                          />
-                        </div>
+                        <DesignSystemPicker
+                          selected={selectedDesignSystem()}
+                          onSelect={setSelectedDesignSystem}
+                        />
+                        <TemplatePicker
+                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                        />
                       <input
                         ref={fileInputRef!}
                         type="file"
@@ -911,30 +936,30 @@ export default function MakePage() {
                       >
                         <Icon name="plus" class="size-5" />
                       </button>
-                      <ModelSelectorPopover
-                        model={modelState}
+                       <ModelSelectorPopover
+                        model={local.model}
                         triggerAs="button"
                         triggerProps={{
-                          class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                          class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
                           "data-action": "prompt-model",
                         }}
                       >
                         <span class="truncate">
-                          {modelState.current()?.name ?? "选择模型"}
+                          {currentModel()?.name ?? "选择模型"}
                         </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" />
                       </ModelSelectorPopover>
                     </div>
-                    <button
-                      type="button"
+                    <IconButton
+                      data-action="prompt-submit"
+                      type="submit"
+                      icon={isBusy() ? "stop" : "arrow-up"}
+                      variant="primary"
+                      class="size-8 flex-shrink-0"
                       onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                       disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                      class="octo-btn-send flex-shrink-0"
-                      classList={{ "octo-btn-stop": isBusy() }}
-                      title={isBusy() ? "停止生成" : undefined}
-                    >
-                      {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
-                    </button>
+                      aria-label={isBusy() ? "停止生成" : undefined}
+                    />
                   </div>
                 </div>
               </div>
@@ -950,9 +975,9 @@ export default function MakePage() {
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={hasContent()}>
-        <div class="flex flex-col min-w-0 overflow-hidden">
-          <div class="flex flex-1 min-h-0 overflow-hidden">
-            <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div class="flex flex-col overflow-hidden" >
+          <div class="flex flex-1 min-h-0 overflow-scroll">
+            <div class="flex flex-col flex-1" style="min-width:800px">
               {/* 焦点模式 + 版本历史 切换按钮 */}
               <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
                 <button
@@ -1023,7 +1048,7 @@ export default function MakePage() {
 function ChatEmptyState(): JSX.Element {
   return (
     <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="flex flex-col items-center gap-2">
         <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Make</div>
         <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>

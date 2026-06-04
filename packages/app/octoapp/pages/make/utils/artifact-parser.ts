@@ -125,6 +125,22 @@ function findOpenTag(buffer: string): OpenTagMatch {
   return { kind: "none" }
 }
 
+/** Only detect full documents (starting with <!DOCTYPE or <html) as truncated — component fragments don't count */
+export function isTruncatedHtml(content: string): boolean {
+  const isFullDoc = /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content)
+  if (!isFullDoc) return false
+  return !content.toLowerCase().includes("</html>")
+}
+
+/** Repair truncated HTML: strip incomplete trailing tags + add closing tags */
+export function repairTruncatedHtml(content: string): string {
+  if (!isTruncatedHtml(content)) return content
+  let fixed = content.replace(/<[^>]*$/, "")
+  if (!fixed.toLowerCase().includes("</body>")) fixed += "\n</body>"
+  if (!fixed.toLowerCase().includes("</html>")) fixed += "\n</html>"
+  return fixed
+}
+
 export function createArtifactParser() {
   const state: ParserState = {
     inside: false,

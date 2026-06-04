@@ -14,8 +14,9 @@ import {
   Show,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
-import { SDKProvider, useSDK } from "@/context/sdk"
+import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -94,7 +95,8 @@ const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const sdk = useSDK()
+  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const sync = useSync()
   const selection = useInsightModelSelection()
   const themeCtx = useTheme()
@@ -119,6 +121,8 @@ function InsightContent() {
     document.head.appendChild(style)
     onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
   })
+
+  const homeDir = () => globalSync.data.path.home
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
@@ -388,10 +392,10 @@ function InsightContent() {
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = sdk.directory
+    const dir = homeDir()
     if (!dir) return
     try {
-      const result = await sdk.client.session.create({ directory: dir, agent: "octo_insight" })
+      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
         navigate(`/insight/${session.id}`)
@@ -510,7 +514,7 @@ function InsightContent() {
     }
 
     try {
-      await sdk.client.session.promptAsync({
+      await globalSDK.client.session.promptAsync({
         sessionID: sessionId,
         agent,
         model,
@@ -582,7 +586,7 @@ function InsightContent() {
     // 先取消排队消息，避免 abort 完成后 idle 触发器自动 flush
     if (queuedText()) cancelQueued()
     try {
-      await sdk.client.session.abort({ sessionID: sid })
+      await globalSDK.client.session.abort({ sessionID: sid })
     } catch {
       // session_status 事件自动同步状态，忽略网络错误
     }
@@ -876,7 +880,7 @@ function InsightContent() {
   return (
     <DataProvider
       data={sync.data}
-      directory={sdk.directory || ""}
+      directory={homeDir() || ""}
       onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
@@ -1115,7 +1119,7 @@ function InsightContent() {
                 />
 
                 <div
-                  class="rounded-[var(--octo-radius-lg)] transition-all duration-300 relative group flex flex-col overflow-hidden"
+                  class="rounded-[16px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `
