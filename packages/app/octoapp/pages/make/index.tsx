@@ -376,30 +376,34 @@ createEffect(
     e.preventDefault()
     const startX = e.clientX
     const startWidth = chatWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    document.body.style.overflow = "hidden"
-    const resetBody = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
-      dragCleanup = null
-    }
+    
+    const overlay = document.createElement("div")
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      cursor: col-resize;
+      background: transparent;
+    `
+    document.body.appendChild(overlay)
+    
     const onMove = (ev: MouseEvent) => {
       setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
-      resetBody()
+      overlay.remove()
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+      dragCleanup = null
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+    overlay.addEventListener("mousemove", onMove)
+    overlay.addEventListener("mouseup", onUp)
     dragCleanup = () => {
-      resetBody()
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      overlay.remove()
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+      dragCleanup = null
     }
   }
 
