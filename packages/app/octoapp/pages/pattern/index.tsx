@@ -241,6 +241,31 @@ function PatternContent() {
   const autoScroll = createAutoScroll({ working: isBusy })
 
   let previewIframeRef: HTMLIFrameElement | undefined
+  let previewPaneRef: HTMLDivElement | undefined
+  const [previewScale, setPreviewScale] = createSignal(1)
+
+  const TARGET_WIDTH = 1920
+  const TARGET_HEIGHT = 1280
+
+  function updatePreviewScale() {
+    if (!previewPaneRef) return
+    const containerWidth = previewPaneRef.clientWidth - 40
+    const containerHeight = previewPaneRef.clientHeight - 40
+    const scaleX = containerWidth / TARGET_WIDTH
+    const scaleY = containerHeight / TARGET_HEIGHT
+    setPreviewScale(Math.min(scaleX, scaleY, 1))
+  }
+
+  let previewResizeObserver: ResizeObserver | undefined
+  onCleanup(() => previewResizeObserver?.disconnect())
+
+  function bindPreviewPaneRef(el: HTMLDivElement) {
+    previewPaneRef = el
+    updatePreviewScale()
+    previewResizeObserver?.disconnect()
+    previewResizeObserver = new ResizeObserver(() => updatePreviewScale())
+    previewResizeObserver.observe(el)
+  }
 
   function sendToPreview(data: unknown) {
     if (!previewIframeRef?.contentWindow) return
@@ -631,46 +656,42 @@ function PatternContent() {
         </Show>
 
         <Show when={hasContent()}>
-          <div class="flex flex-col overflow-hidden">
-            <div class="flex flex-1 min-h-0 overflow-scroll">
-              <div class="flex flex-col flex-1" style="min-width:800px">
-                <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
-                  <button
-                    type="button"
-                    style={{
-                      display: "inline-flex",
-                      "align-items": "center",
-                      "justify-content": "center",
-                      width: "28px",
-                      height: "28px",
-                      "border-radius": "6px",
-                      border: "none",
-                      background: "transparent",
-                      color: "var(--octo-text-secondary)",
-                      cursor: "pointer",
-                    }}
-                    data-active={focusMode() ? "true" : undefined}
-                    onClick={() => setFocusMode(!focusMode())}
-                    title={focusMode() ? "退出焦点模式" : "焦点模式"}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <Show when={focusMode()} fallback={
-                        <>
-                          <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                        </>
-                      }>
-                        <path d="M5 5h6M5 5v6M5 5L11 11" stroke-linecap="round" stroke-linejoin="round" />
-                      </Show>
-                    </svg>
-                  </button>
-                </div>
+          <div ref={bindPreviewPaneRef} class="flex flex-col overflow-hidden" style="position:relative">
+            <div class="absolute right-[12px] top-[12px] flex gap-[6px]" style={{ "z-index": 10 }}>
+              <button
+                class="preview-action-btn"
+                title="历史版本"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+              <button
+                class="preview-action-btn"
+                title="刷新"
+                onClick={() => { if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989" }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+              <button
+                class="preview-action-btn"
+                title="全屏"
+                onClick={() => {
+                  if (previewPaneRef?.requestFullscreen) previewPaneRef.requestFullscreen()
+                }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+              </button>
+            </div>
+            <div style={{ flex: "1", "min-height": "0", overflow: "hidden", display: "flex", "justify-content": "center", "align-items": "center", padding: "20px", position: "relative" }}>
+              <div class="preview-iframe-wrapper" style={{ width: `${TARGET_WIDTH}px`, height: `${TARGET_HEIGHT}px`, transform: `scale(${previewScale()})` }}>
                 <iframe
                   ref={(el) => { previewIframeRef = el }}
                   src="http://127.0.0.1:8989"
-                  style={{ width: "100%", height: "100%", border: "none" }}
                 />
               </div>
             </div>
