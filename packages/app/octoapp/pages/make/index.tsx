@@ -239,6 +239,8 @@ createEffect(
     return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
+  const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
