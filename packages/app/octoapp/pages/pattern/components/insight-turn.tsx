@@ -587,7 +587,7 @@ export function InsightTurn(props: {
       {/* 输出卡片（生成完成后） */}
       <Show when={outputCard()}>
         {(card) => {
-          const capturedCard = card()
+          const capturedCard = card() as OutputCard
           return (
             <button
               type="button"

@@ -17,6 +17,8 @@ import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_PATTERN from "./prompt/octo_pattern.txt"
+import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
+import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
 import { Permission } from "@/permission"
@@ -267,6 +269,26 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+          },
+          octo_pattern_intent: {
+            name: "octo_pattern_intent",
+            description: "Pattern intent expansion agent. Analyzes user requirements and generates structured Pattern description blueprints.",
+            prompt: PROMPT_OCTO_PATTERN_INTENT,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
+            hidden: true,
+          },
+          octo_pattern_module: {
+            name: "octo_pattern_module",
+            description: "Pattern module creation agent. Generates A2UI JSON from Pattern description blueprints.",
+            prompt: PROMPT_OCTO_PATTERN_MODULE,
+            permission: Permission.merge(defaults, user),
+            options: {},
+            mode: "primary",
+            native: false,
+            hidden: true,
           },
           compaction: {
             name: "compaction",

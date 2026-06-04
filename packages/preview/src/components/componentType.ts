@@ -492,6 +492,38 @@ interface LinkNode extends AnyComponentNode<ResolvedLink> {
   type: 'Link',
 }
 
+interface ResolvedPatGauge {
+  value: number | DataBinding;
+  max?: number | DataBinding;
+  className?: string;
+}
+interface PatGaugeNode extends AnyComponentNode<ResolvedPatGauge> {
+  type: "PatGauge";
+}
+
+interface ResolvedPatStackedBar {
+  normal: number | DataBinding;
+  warning: number | DataBinding;
+  danger: number | DataBinding;
+  error: number | DataBinding;
+  className?: string;
+}
+interface PatStackedBarNode extends AnyComponentNode<ResolvedPatStackedBar> {
+  type: "PatStackedBar";
+}
+
+interface ResolvedCircleProcessChart {
+  option: {
+    data: object[] | DataBinding;
+    color?: string[] | DataBinding;
+    title?: { text: string; subtext?: string };
+  };
+  className?: string;
+}
+interface CircleProcessChartNode extends AnyComponentNode<ResolvedCircleProcessChart> {
+  type: "CircleProcessChart";
+}
+
 
 
 export type {
@@ -529,5 +561,8 @@ export type {
   TreeNodeNode,
   ImageNode,
   StreamNode,
-  LinkNode
+  LinkNode,
+  PatGaugeNode,
+  PatStackedBarNode,
+  CircleProcessChartNode,
 }

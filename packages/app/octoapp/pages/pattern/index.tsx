@@ -45,10 +45,12 @@ import { useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { Persist, persisted } from "@/utils/persist"
 import { loadDesignSystem } from "./utils/design-system-loader"
-import { buildPatternPrompt, detectCatalog, detectA2UIJson } from "./utils/a2ui-protocol"
+import { buildPatternPrompt, buildIntentPrompt, buildModulePrompt, detectCatalog, detectA2UIJson, extractIntentJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 const AGENT_NAME = "octo_pattern"
+const AGENT_INTENT = "octo_pattern_intent"
+const AGENT_MODULE = "octo_pattern_module"
 
 type DataStore = {
   session: Session[]
@@ -178,6 +180,7 @@ export default function PatternPage() {
       (id) => {
         if (id) layout.lastSessionPerTab.setCowork(id, "pattern")
         setSending(false)
+        setPhase("idle")
       },
     ),
   )
@@ -284,6 +287,8 @@ export default function PatternPage() {
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
+  const [phase, setPhase] = createSignal<"idle" | "intent" | "module">("idle")
+  const [detectedCatalog, setDetectedCatalog] = createSignal<ComponentCatalog>("desktop")
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
@@ -337,6 +342,50 @@ export default function PatternPage() {
   const tabStore = createTabStore()
 
   const autoScroll = createAutoScroll({ working: isBusy })
+
+  function findIntentFromMessages(sessionId: string): Record<string, unknown> | null {
+    const messages = dataStore.message[sessionId] ?? []
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.role !== "assistant") continue
+      const msgParts = dataStore.part[msg.id] ?? []
+      for (const p of [...msgParts].reverse()) {
+        if (p.type !== "text") continue
+        const text = (p as { text?: string }).text ?? ""
+        const intent = extractIntentJson(text)
+        if (intent) return intent
+      }
+    }
+    return null
+  }
+
+  createEffect(() => {
+    const status = sessionStatus().type
+    const currentPhase = phase()
+    if (status !== "idle" || currentPhase !== "intent") return
+
+    const sessionId = params.id
+    if (!sessionId) return
+
+    const timer = setTimeout(() => {
+      const intent = findIntentFromMessages(sessionId)
+      if (intent) {
+        void sendModulePrompt(sessionId, intent)
+      } else {
+        setPhase("idle")
+        setSending(false)
+      }
+    }, 800)
+    onCleanup(() => clearTimeout(timer))
+  })
+
+  createEffect(() => {
+    const status = sessionStatus().type
+    const currentPhase = phase()
+    if (status !== "idle" || currentPhase !== "module") return
+    setPhase("idle")
+    setSending(false)
+  })
 
   let previewIframeRef: HTMLIFrameElement | undefined
 
@@ -398,52 +447,66 @@ export default function PatternPage() {
     return undefined
   }
 
-  async function sendMessage(sessionId: string, text: string) {
-    try {
-      const fileParts: FilePartInput[] = attachments().map((a) => ({
-        type: "file",
-        mime: a.mime,
-        filename: a.filename,
-        url: a.dataUrl,
-      }))
+  async function sendIntentPrompt(sessionId: string, text: string) {
+    const catalog = detectCatalog(text)
+    setDetectedCatalog(catalog)
+    const intentPrompt = buildIntentPrompt({ query: text, catalog })
+    const fileParts: FilePartInput[] = attachments().map((a) => ({
+      type: "file",
+      mime: a.mime,
+      filename: a.filename,
+      url: a.dataUrl,
+    }))
+    const textPart: TextPartInput = { type: "text", text: intentPrompt }
+    const modelKey = selectedModelKey()
+    await globalSDK.client.session.prompt({
+      sessionID: sessionId,
+      agent: AGENT_INTENT,
+      ...(modelKey ? { model: modelKey } : {}),
+      parts: [textPart, ...fileParts],
+    })
+    setAttachments([])
+  }
 
-      let designPrompt: string | undefined
-      const dsId = selectedDesignSystem()
-      if (dsId) {
-        try {
-          const ds = await loadDesignSystem(dsId)
-          designPrompt = [
-            `## DESIGN.md (authoritative visual rules)`,
-            ds.design,
-            ``,
-            `## :root tokens (paste verbatim into <style>)`,
-            "```css",
-            ds.tokens,
-            "```",
-          ].join("\n")
-        } catch (err) {
-          console.error("[PatternPage] design system load failed", err)
-        }
+  async function sendModulePrompt(sessionId: string, intentJson: Record<string, unknown>) {
+    setPhase("module")
+    let designPrompt: string | undefined
+    const dsId = selectedDesignSystem()
+    if (dsId) {
+      try {
+        const ds = await loadDesignSystem(dsId)
+        designPrompt = [
+          `## DESIGN.md (authoritative visual rules)`,
+          ds.design,
+          ``,
+          `## :root tokens (paste verbatim into <style>)`,
+          "```css",
+          ds.tokens,
+          "```",
+        ].join("\n")
+      } catch (err) {
+        console.error("[PatternPage] design system load failed", err)
       }
-
-      const promptText = buildPatternPrompt({
-        query: text,
-        catalog: detectCatalog(text),
-        designSystemPrompt: designPrompt,
-      })
-
-      const textPart: TextPartInput = { type: "text", text: promptText }
-      const modelKey = selectedModelKey()
-      await globalSDK.client.session.prompt({
-        sessionID: sessionId,
-        agent: AGENT_NAME,
-        ...(modelKey ? { model: modelKey } : {}),
-        parts: [textPart, ...fileParts],
-      })
-      setAttachments([])
-    } catch (err) {
-      console.error("[PatternPage] prompt failed", err)
     }
+
+    const modulePromptText = buildModulePrompt({
+      intentJson,
+      catalog: detectedCatalog(),
+      designSystemPrompt: designPrompt,
+    })
+    const textPart: TextPartInput = { type: "text", text: modulePromptText }
+    const modelKey = selectedModelKey()
+    await globalSDK.client.session.prompt({
+      sessionID: sessionId,
+      agent: AGENT_MODULE,
+      ...(modelKey ? { model: modelKey } : {}),
+      parts: [textPart],
+    })
+  }
+
+  async function sendMessage(sessionId: string, text: string) {
+    setPhase("intent")
+    await sendIntentPrompt(sessionId, text)
   }
 
   async function handleSubmit() {
@@ -451,9 +514,8 @@ export default function PatternPage() {
     if (!text || sending()) return
     setSending(true)
     setPrompt("")
-    const submitSessionId = params.id
     try {
-      let sid = submitSessionId
+      let sid = params.id
       if (!sid) {
         const dir = homeDir()
         if (!dir) return
@@ -466,10 +528,8 @@ export default function PatternPage() {
       await sendMessage(sid, text)
     } catch (err) {
       console.error("[PatternPage] handleSubmit failed", err)
-    } finally {
-      if (!submitSessionId || params.id === submitSessionId) {
-        setSending(false)
-      }
+      setPhase("idle")
+      setSending(false)
     }
   }
 

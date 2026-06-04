@@ -48,6 +48,9 @@ import A2UiFunnelChart from "./FunnelChart/FunnelChart.vue"
 import A2UiHillChart from "./HillChart/HillChart.vue"
 import A2UiJadeJueChart from "./JadeJueChart/JadeJueChart.vue"
 import A2UiScatterChart from "./ScatterChart/ScatterChart.vue"
+import A2UiCircleProcessChart from "./CircleProcessChart/CircleProcessChart.vue"
+import A2UiPatGauge from "./PatGauge/PatGauge.vue"
+import A2UiPatStackedBar from "./PatStackedBar/PatStackedBar.vue"
 import { ComponentRegistry } from "../renderer"
 
 const catelog = {
@@ -98,6 +101,9 @@ const catelog = {
   HillChart: A2UiHillChart,
   JadeJueChart: A2UiJadeJueChart,
   ScatterChart: A2UiScatterChart,
+  CircleProcessChart: A2UiCircleProcessChart,
+  PatGauge: A2UiPatGauge,
+  PatStackedBar: A2UiPatStackedBar,
 }
 
 function initDefaultCatlog() {
