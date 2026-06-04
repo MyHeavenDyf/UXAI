@@ -236,6 +236,8 @@ createEffect(
       if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
       
       if (e.type === "message.part.delta") {
+        setLastDeltaTime(Date.now())
+        setBlockTime(0)
         setDeltaLog(prev => [
           ...prev.slice(-19),
           {
@@ -305,6 +307,26 @@ createEffect(
       setElapsedText("")
     }
     onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
+  })
+
+  // ── 阻塞检测计时器 ────────────────────────────────────────────
+  const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
+  const [blockTime, setBlockTime] = createSignal(0)
+  let blockTimer: ReturnType<typeof setInterval> | undefined
+  createEffect(() => {
+    if (isBusy()) {
+      blockTimer = setInterval(() => {
+        const blockedMs = Date.now() - lastDeltaTime()
+        if (blockedMs > 3000) {
+          setBlockTime(Math.floor(blockedMs / 1000))
+        }
+      }, 1000)
+    } else {
+      if (blockTimer) { clearInterval(blockTimer); blockTimer = undefined }
+      setLastDeltaTime(Date.now())
+      setBlockTime(0)
+    }
+    onCleanup(() => { if (blockTimer) clearInterval(blockTimer) })
   })
 
   const [prompt, setPrompt] = createSignal("")
@@ -728,9 +750,6 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   <Show when={isBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
-                      <Show when={elapsedText()}>
-                        <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>已执行 {elapsedText()}</span>
-                      </Show>
                     </div>
                   </Show>
                   <Show
@@ -906,6 +925,9 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         messageID={msg.id}
                         status={sessionStatus()}
                         active={isBusy()}
+                        elapsedText={elapsedText()}
+                        blockTime={blockTime()}
+                        onAbort={halt}
                         onOpenResult={handleOpenResult}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}

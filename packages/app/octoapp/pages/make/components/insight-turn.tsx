@@ -2,6 +2,7 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { Button } from "@opencode-ai/ui/button"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
@@ -203,6 +204,13 @@ function formatDeltaTime(ms: number): string {
   })
 }
 
+function formatBlockTime(secs: number): string {
+  if (secs < 60) return `${secs}秒`
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return `${m}分${s}秒`
+}
+
 // ── Internal: WaitingPill ──────────────────────────────────
 
 function WaitingPill(props: {
@@ -355,6 +363,9 @@ export function InsightTurn(props: {
   messageID: string
   status: SessionStatus
   active: boolean
+  elapsedText?: string
+  blockTime?: number
+  onAbort?: () => void
   onOpenResult: (card: OutputCard) => void
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
@@ -1197,6 +1208,47 @@ ${bodies}
           )
         }}
       </For>
+
+      {/* 已执行时间 — 仅在最新 turn 有生成中卡片时显示 */}
+      <Show when={showGenerating() && stableStreamingCards().length > 0 && props.elapsedText}>
+        <div class="mx-3 mb-3">
+          <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>
+            已执行 {props.elapsedText}
+          </span>
+        </div>
+      </Show>
+
+      {/* 阻塞提示 — 渐进式显示 */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 30}>
+        {(() => {
+          const bt = props.blockTime!
+          const isWarning = bt >= 60
+          return (
+            <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: isWarning ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
+              background: isWarning ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",
+            }}>
+              <span class="text-sm" style={{ color: isWarning ? "#b34700" : "#6e737a" }}>
+                {isWarning
+                  ? `模型超过 ${formatBlockTime(bt)} 没有响应，建议重新请求`
+                  : "模型响应较慢，请耐心等待..."
+                }
+              </span>
+              <Show when={isWarning && props.onAbort}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={props.onAbort}
+                  class="text-sm"
+                >
+                  中止对话
+                </Button>
+              </Show>
+            </div>
+          )
+        })()}
+      </Show>
     </div>
   )
 }
