@@ -1237,8 +1237,8 @@ ${bodies}
               </span>
               <Show when={isWarning && props.onAbort}>
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="secondary"
+                  size="small"
                   onClick={props.onAbort}
                   class="text-sm"
                 >
