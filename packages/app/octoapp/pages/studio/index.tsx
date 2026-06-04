@@ -2606,7 +2606,7 @@ function StudioCutoutEditor(props: {
           <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
           <button
             type="button"
-            class="studio-cutout-create"
+            class="studio-hd-create"
             disabled={props.busy}
             onClick={props.onSubmit}
           >
@@ -3013,7 +3013,7 @@ function StudioInpaintEditor(props: {
               type="button"
               disabled={!hasDrawing() || props.busy}
               onClick={submit}
-              class="studio-inpaint-create"
+              class="studio-hd-create"
             >
               一键生成
             </button>
@@ -3297,7 +3297,7 @@ function StudioOutpaintEditor(props: {
                 ratio: props.aspectRatio,
               },
             })}
-            class="studio-enlarging-create disabled:opacity-45"
+            class="studio-hd-create disabled:opacity-45"
           >
             一键生成
           </button>
