@@ -27,7 +27,9 @@ const channel = (() => {
 })()
 
 const getBase = (): Configuration => ({
+  // jk-j60099994-replace-with-electron-builder-config-2-start
   artifactName: "octo-desktop-${os}-${arch}.${ext}",
+  // jk-j60099994-replace-with-electron-builder-config-2-end
   directories: {
     output: "dist",
     buildResources: "resources",
