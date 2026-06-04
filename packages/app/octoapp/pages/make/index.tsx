@@ -8,6 +8,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -111,6 +112,19 @@ function MakeContent() {
     },
   )
 
+  const [overrideTitle, setOverrideTitle] = createSignal<string | null>(null)
+  createEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sessionID: string; title: string } | undefined
+      if (detail && detail.sessionID === params.id) {
+        setOverrideTitle(detail.title)
+      }
+      void Promise.resolve(refetchSession()).then(() => setOverrideTitle(null))
+    }
+    window.addEventListener("octo:make:session-renamed", handler)
+    onCleanup(() => window.removeEventListener("octo:make:session-renamed", handler))
+  })
+
   // 标题编辑状态
   const [titleState, setTitleState] = createStore({
     editing: false,
@@ -122,8 +136,8 @@ function MakeContent() {
 
   /** 打开标题编辑模式 */
   function openTitleEditor() {
-    const info = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
+    const sInfo = sessionInfo()
+    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? sInfo?.title ?? info()?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
@@ -157,7 +171,7 @@ function MakeContent() {
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
+    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -273,6 +287,8 @@ createEffect(
     if (!id) return []
     return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
+
+  const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -744,7 +760,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
             <Show when={hasContent()}>
               <div
                 class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff" }}
+                style={{ padding: "12px 24px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
@@ -774,7 +790,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(sessionInfo()?.title) ?? "Octo Make"}
+                      {sessionTitle(overrideTitle() ?? sessionInfo()?.title ?? info()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
@@ -785,12 +801,13 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   onOpenChange={(open) => setTitleState("menuOpen", open)}
                 >
                   <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="dot-grid"
-                    variant="ghost"
-                    class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
+                    as="button"
+                    class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
                     aria-label={language.t("common.moreOptions")}
-                  />
+                    style={{ color: "rgba(0,0,0,0.6)" }}
+                  >
+                    <Icon name="ellipsis" class="size-5" />
+                  </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
                       style={{ "min-width": "104px" }}
@@ -857,13 +874,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                     />
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <DesignSystemPicker
-                          selected={selectedDesignSystem()}
-                          onSelect={setSelectedDesignSystem}
-                        />
-                        <TemplatePicker
-                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                        />
+                        <span class="hidden">
+                          <DesignSystemPicker
+                            selected={selectedDesignSystem()}
+                            onSelect={setSelectedDesignSystem}
+                          />
+                        </span>
+                        <span class="hidden">
+                          <TemplatePicker
+                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                          />
+                        </span>
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -872,15 +893,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                           accept="*/*"
                           onChange={handleFileInputChange}
                         />
-                        <button
-                          type="button"
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          disabled={maxAttachments()}
-                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                          title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                        >
-                          <Icon name="plus" class="size-5" />
-                        </button>
+                        <Tooltip placement="top" value="添加附件">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            class="size-8 p-0"
+                            disabled={maxAttachments()}
+                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          >
+                            <Icon name="plus" class="size-5" />
+                          </Button>
+                        </Tooltip>
                         <ModelSelectorPopover
                           model={local.model}
                           triggerAs="button"
@@ -978,13 +1001,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <DesignSystemPicker
-                          selected={selectedDesignSystem()}
-                          onSelect={setSelectedDesignSystem}
-                        />
-                        <TemplatePicker
-                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                        />
+                         <span class="hidden">
+                          <DesignSystemPicker
+                            selected={selectedDesignSystem()}
+                            onSelect={setSelectedDesignSystem}
+                          />
+                        </span>
+                        <span class="hidden">
+                          <TemplatePicker
+                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                          />
+                        </span>
                       <input
                         ref={fileInputRef!}
                         type="file"
@@ -993,15 +1020,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         accept="*/*"
                         onChange={handleFileInputChange}
                       />
-                      <button
-                        type="button"
-                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                        disabled={maxAttachments()}
-                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                        title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                      >
-                        <Icon name="plus" class="size-5" />
-                      </button>
+                      <Tooltip placement="top" value="添加附件">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          class="size-8 p-0"
+                          disabled={maxAttachments()}
+                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        >
+                          <Icon name="plus" class="size-5" />
+                        </Button>
+                      </Tooltip>
                        <ModelSelectorPopover
                         model={local.model}
                         triggerAs="button"
@@ -1010,10 +1039,10 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                           "data-action": "prompt-model",
                         }}
                       >
-                        <span class="truncate">
+                        <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                           {currentModel()?.name ?? "选择模型"}
                         </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" />
+                        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                       </ModelSelectorPopover>
                     </div>
                     <IconButton
@@ -1116,7 +1145,7 @@ function ChatEmptyState(): JSX.Element {
     <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
       <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Make</div>
+        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Design</div>
         <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
           描述需求，开始生成原型
         </div>
@@ -1129,23 +1158,27 @@ function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDel
   const language = useLanguage()
   const dialog = useDialog()
   return (
-    <Dialog title={language.t("session.delete.title")} fit>
-      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-        <span class="text-14-regular text-text-strong">
-          {language.t("session.delete.confirm", { name: props.name })}
-        </span>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-          >
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
+    <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
+      <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+        {language.t("session.delete.confirm", { name: props.name })}
+      </span>
+      <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
+        <Button
+          variant="ghost"
+          size="large"
+          class="delete-dialog-btn"
+          onClick={() => dialog.close()}
+        >
+          {language.t("common.cancel")}
+        </Button>
+        <Button
+          variant="primary"
+          size="large"
+          class="delete-dialog-btn delete-dialog-btn-primary"
+          onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
+        >
+          {language.t("session.delete.button")}
+        </Button>
       </div>
     </Dialog>
   )
