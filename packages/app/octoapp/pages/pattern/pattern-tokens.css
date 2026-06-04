@@ -147,3 +147,40 @@
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.05);
 }
+
+.preview-action-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  color: #64748b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s;
+}
+.preview-action-btn:hover {
+  color: #2563eb;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.preview-iframe-wrapper {
+  position: absolute;
+  background: white;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  transform-origin: center center;
+  transition: width 0.4s ease, height 0.4s ease;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.preview-iframe-wrapper iframe {
+  width: 1920px;
+  height: 1280px;
+  border: none;
+  display: block;
+}
