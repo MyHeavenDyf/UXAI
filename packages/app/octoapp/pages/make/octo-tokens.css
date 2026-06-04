@@ -21,7 +21,7 @@
   --octo-text-strong:      #101828;
   --octo-text-primary:     #191919;
   --octo-text-tertiary:    #364153;  /* nav 分组标题 */
-  --octo-text-secondary:   #777777;  /* 辅助说明 */
+  --octo-text-secondary:   rgba(0,0,0,0.6);  /* 辅助说明 */
   --octo-text-placeholder: #9CA3AF;  /* 输入框 placeholder */
   --octo-text-disabled:    #BFBFBF;
 
@@ -329,4 +329,92 @@
 
 button[title="版本历史"] {
   display: none;
+}
+
+/* ── DropdownMenu (标题栏更多操作) ────────── */
+
+[data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
+  background-color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
+  border: none;
+  padding: 8px;
+  min-width: 132px !important;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {
+  height: 36px;
+  padding: 0 8px 0 12px;
+  font-size: 14px;
+  color: rgba(0,0,0,0.9);
+  line-height: 22px;
+  border-radius: 8px;
+  width: 100%;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"][data-highlighted],
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"]:hover {
+  background: #eee;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 4px -8px 4px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
+}
+
+/* ── Delete Dialog ────────────────────────── */
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
+  width: 436px;
+}
+
+.delete-dialog[data-slot="dialog-content"] {
+  border-radius: 20px;
+  box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
+  padding: 24px 32px;
+  background: #fff;
+  border: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
+  display: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
+  font-size: 20px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+  padding: 0;
+}
+
+.delete-dialog-btn {
+  width: 88px !important;
+  height: 32px !important;
+  border-radius: 4px !important;
+  font-size: 14px !important;
+  line-height: 22px !important;
+  padding: 0 !important;
+}
+
+button.delete-dialog-btn {
+  border: 1px solid rgba(201, 201, 201, 1);
+  background: #fff;
+  color: rgb(25, 25, 25);
+  cursor: pointer;
+}
+
+button.delete-dialog-btn-primary {
+  background: #0a59f7;
+  border-color: #0a59f7;
+  color: #fff;
 }
