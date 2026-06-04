@@ -4,6 +4,7 @@ import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { Button } from "@opencode-ai/ui/button"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 
@@ -374,6 +375,9 @@ export function InsightTurn(props: {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
   const msgStore = data.store.message as Record<string, Message[]>
+
+  // Lifted expand state for subtasks (persists across re-renders)
+  const [subtaskExpandState, setSubtaskExpandState] = createStore<Record<string, boolean>>({})
 
   const userText = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
@@ -995,14 +999,18 @@ ${bodies}
       {/* 子任务进度（Task tool 调用的子 agent 会话） */}
       <For each={subtasks()}>
         {(task) => {
-          const [expanded, setExpanded] = createSignal(true)
+          // Initialize expand state if not exists (defaults to true = expanded)
+          if (subtaskExpandState[task.subSessionID] === undefined) {
+            setSubtaskExpandState(task.subSessionID, true)
+          }
+          const expanded = () => subtaskExpandState[task.subSessionID] ?? true
           const hasContent = task.textParts.length > 0 || task.artifactOutputs.length > 0
           return (
             <div class="mx-3 mb-2" style={{ "border-radius": "var(--octo-radius-md)", border: "1px solid var(--octo-border-default)", background: "var(--octo-surface-page)" }}>
               {/* Header */}
               <button
                 type="button"
-                onClick={() => setExpanded(!expanded())}
+                onClick={() => setSubtaskExpandState(task.subSessionID, !expanded())}
                 class="w-full px-2.5 py-1.5 flex items-center gap-2 text-xs text-left"
                 style={{ background: "transparent" }}
               >
