@@ -136,6 +136,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         list: [] as StoredServer[],
         projects: {} as Record<string, StoredProject[]>,
         lastProject: {} as Record<string, string>,
+        lastProjectSelection: {} as Record<string, { domain?: { id: string; label: string }; productLine?: { id: string; domainId: string; label: string }; product?: { id: string; productLineId: string; label: string; closed?: boolean }; version?: { value: string; label: string } }>,
       }),
     )
 
@@ -227,6 +228,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     const origin = createMemo(() => projectsKey(state.active))
     const projectsList = createMemo(() => store.projects[origin()] ?? [])
     const lastProject = createMemo(() => store.lastProject[origin()])
+    const lastProjectSelection = createMemo(() => store.lastProjectSelection[origin()])
     const current: Accessor<ServerConnection.Any | undefined> = createMemo(
       () => allServers().find((s) => ServerConnection.key(s) === state.active) ?? allServers()[0],
     )
@@ -299,6 +301,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           setStore("projects", key, result)
         },
         last: lastProject,
+        lastSelection: lastProjectSelection,
+        saveSelection(data: { domain?: { id: string; label: string }; productLine?: { id: string; domainId: string; label: string }; product?: { id: string; productLineId: string; label: string; closed?: boolean }; version?: { value: string; label: string } }) {
+          setStore("lastProjectSelection", origin(), data)
+        },
         touch(directory: string) {
           if (!isValidUserPath(directory)) return  // 不存储无效路径
           setStore("lastProject", origin(), directory)

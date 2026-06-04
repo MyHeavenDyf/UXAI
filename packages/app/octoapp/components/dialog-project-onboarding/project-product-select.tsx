@@ -2,37 +2,30 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { ProjectProductSelectPanel } from "./project-product-select-panel"
 import type { Domain, ProductLine, Product } from "./project-product-select-panel"
 import { createSignal } from "solid-js"
-import { createEffect } from "solid-js"
 import type { JSX } from "solid-js"
 
 interface ProjectProductSelectProps {
-  defaultDomain?: Domain
-  defaultProductLine?: ProductLine
-  defaultProduct?: Product
-  onSelectionChange?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product }) => void
+  domain?: Domain
+  productLine?: ProductLine
+  product?: Product
+  onProductConfirm?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product }) => void
 }
 
 export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Element {
-  const [domain, setDomain] = createSignal(props.defaultDomain)
-  const [productLine, setProductLine] = createSignal(props.defaultProductLine)
-  const [product, setProduct] = createSignal(props.defaultProduct)
-  const [hideClosed, setHideClosed] = createSignal(false)
-  const [search, setSearch] = createSignal("")
-
-  createEffect(() => {
-    props.onSelectionChange?.({ domain: domain(), productLine: productLine(), product: product() })
-  })
+  const [popoverOpen, setPopoverOpen] = createSignal(false)
 
   const selectedLabel = () => {
     const parts = []
-    if (domain()) parts.push(domain()!.label)
-    if (productLine()) parts.push(productLine()!.label)
-    if (product()) parts.push(product()!.label)
+    if (props.domain) parts.push(props.domain.label)
+    if (props.productLine) parts.push(props.productLine.label)
+    if (props.product) parts.push(props.product.label)
     return parts.length ? parts.join("/") : "选择产品"
   }
 
   return (
     <Popover
+      open={popoverOpen()}
+      onOpenChange={setPopoverOpen}
       trigger={
         <>
           <span style={{ flex: "1", "text-align": "left", "min-width": "0", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{selectedLabel()}</span>
@@ -69,16 +62,13 @@ export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Elem
       }}
     >
       <ProjectProductSelectPanel
-        domain={domain()}
-        productLine={productLine()}
-        product={product()}
-        hideClosed={hideClosed()}
-        search={search()}
-        onDomainChange={setDomain}
-        onProductLineChange={setProductLine}
-        onProductChange={setProduct}
-        onHideClosedChange={setHideClosed}
-        onSearchChange={setSearch}
+        domain={props.domain}
+        productLine={props.productLine}
+        product={props.product}
+        onProductConfirm={(data) => {
+          props.onProductConfirm?.(data)
+          setPopoverOpen(false)
+        }}
       />
     </Popover>
   )

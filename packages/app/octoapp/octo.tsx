@@ -32,7 +32,7 @@ import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
-import { GlobalSDKProvider, useGlobalSDK } from "@/context/global-sdk"
+import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
@@ -291,7 +291,6 @@ function SessionProviders(props: ParentProps) {
 function OnboardingLayer() {
   const navigate = useNavigate()
   const server = useServer()
-  const globalSDK = useGlobalSDK()
   const layout = useLayout()
 
   const showOnboarding = createMemo(() => {
@@ -300,11 +299,7 @@ function OnboardingLayer() {
   })
 
   function handleOnboardingSelect(data: { directory: string }) {
-    layout.projects.open(data.directory)
-    server.projects.touch(data.directory)
     layout.onboarding.hide()
-    void globalSDK.createClient({ directory: data.directory }).session.list().catch(() => {})
-    navigate("/insight")
   }
 
   return (
@@ -317,7 +312,7 @@ function OnboardingLayer() {
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
 
-  const isCoworkPage = () => {
+  const isInsightPage = () => {
     const p = location.pathname
     return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/")
   }
@@ -341,8 +336,9 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                 <HighlightsProvider>
                   <Layout>
                     <OnboardingLayer />
-                    <Show when={isCoworkPage()}>
-                      <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+                    {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
+                    <Show when={isInsightPage()}>
+                      {props.children}
                     </Show>
                     <Show when={isMakePage()}>
                       <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
@@ -350,7 +346,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <Show when={isSkillsPage()}>
                       <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
                     </Show>
-                    <Show when={!isCoworkPage() && !isMakePage() && !isSkillsPage()}>
+                    <Show when={!isInsightPage() && !isMakePage() && !isSkillsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>

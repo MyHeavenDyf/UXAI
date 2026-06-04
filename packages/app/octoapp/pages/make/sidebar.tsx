@@ -21,7 +21,7 @@ import {
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
 } from "@/pages/_shell/icons"
-import { ProjectInfo } from "@/pages/cowork/components/project-info"
+import { ProjectInfo } from "@/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -137,6 +137,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
       class="shrink-0 flex flex-col h-full overflow-hidden"
       style={{
         width: `${props.width}px`,
+        "padding-top": "12px",
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
         "border-right": "1px solid var(--border-weak-base)",
       }}
