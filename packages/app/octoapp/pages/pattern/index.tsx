@@ -1,16 +1,16 @@
 import "./pattern-tokens.css"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session, SessionStatus, SnapshotFileDiff } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Binary } from "@opencode-ai/core/util/binary"
 import {
   batch,
   createEffect,
@@ -23,71 +23,90 @@ import {
   Show,
   type JSX,
 } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { SDKProvider, useSDK } from "@/context/sdk"
-import { SyncProvider, useSync } from "@/context/sync"
-import { LocalProvider, useLocal } from "@/context/local"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { ResultViewer } from "./components/result-viewer/index"
+import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
+import { IconAttach, IconSend } from "./icons"
+import { IllustrationInsightEmpty } from "./icons/illustrations"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useModels } from "@/context/models"
+import { useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { Persist, persisted } from "@/utils/persist"
 import { loadDesignSystem } from "./utils/design-system-loader"
-import { buildIntentPrompt, buildModulePrompt, detectCatalog, detectA2UIJson, extractIntentJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { buildPatternPrompt, detectCatalog, detectA2UIJson } from "./utils/a2ui-protocol"
 
+const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 const AGENT_NAME = "octo_pattern"
-const AGENT_INTENT = "octo_pattern_intent"
-const AGENT_MODULE = "octo_pattern_module"
 
-export default function PatternPage() {
-  const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
-
-  return (
-    <Show when={homeDir()} keyed>
-      {(dir) => (
-        <SDKProvider directory={() => dir}>
-          <SyncProvider>
-            <LocalProvider>
-              <PatternContent />
-            </LocalProvider>
-          </SyncProvider>
-        </SDKProvider>
-      )}
-    </Show>
-  )
+type DataStore = {
+  session: Session[]
+  session_status: { [sessionID: string]: SessionStatus }
+  session_diff: { [sessionID: string]: SnapshotFileDiff[] }
+  message: { [sessionID: string]: Message[] }
+  part: { [messageID: string]: Part[] }
 }
 
-function PatternContent() {
+export default function PatternPage() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const sdk = useSDK()
-  const sync = useSync()
+  const globalSDK = useGlobalSDK()
+  const globalSync = useGlobalSync()
   const layout = useLayout()
   const language = useLanguage()
   const dialog = useDialog()
-  const globalSync = useGlobalSync()
 
-  const local = useLocal()
-  const currentModel = () => local.model.current()
+  const homeDir = useProjectDir()
 
-  const activeModelKey = createMemo(() => {
-    const m = currentModel()
-    if (!m) return null
-    return { providerID: m.provider.id, modelID: m.id }
-  })
-
-  const configDir = () => {
-    const config = globalSync.data.path.config
-    return config ? octoSessionsDir(config) : ""
+  const models = useModels()
+  const [modelStore, setModelStore] = persisted(
+    Persist.workspace(homeDir() ?? "", "pattern-model"),
+    createStore<{ providerID: string; modelID: string } | Record<string, never>>({}),
+  )
+  const selectedModelKey = createMemo<{ providerID: string; modelID: string } | null>(
+    () => {
+      const s = modelStore
+      return "providerID" in s && "modelID" in s ? s as { providerID: string; modelID: string } : null
+    },
+  )
+  const modelState = {
+    list: () => models.list(),
+    visible: (key: { modelID: string; providerID: string }) => models.visible(key),
+    current: () => {
+      const key = selectedModelKey()
+      if (!key) return undefined
+      return models.find(key) ?? undefined
+    },
+    set: (key: { modelID: string; providerID: string } | undefined) => {
+      if (key) {
+        setModelStore(reconcile({ providerID: key.providerID, modelID: key.modelID }))
+      } else {
+        setModelStore(reconcile({}))
+      }
+    },
+    ready: models.ready,
+    recent: (() => []) as ReturnType<typeof useLocal>["model"]["recent"],
+    variant: {
+      configured: () => undefined as string | undefined,
+      selected: () => undefined as string | undefined,
+      current: () => undefined as string | undefined,
+      list: () => [] as string[],
+      set: (_value: string | undefined) => {},
+      cycle: () => {},
+    },
+    cycle: () => {},
+    setVisibility: models.setVisibility,
   }
 
   const [sessionInfo, { refetch: refetchSession }] = createResource(
@@ -95,7 +114,7 @@ function PatternContent() {
     async (id) => {
       if (!id) return null as Session | null
       try {
-        const result = await sdk.client.session.get({ sessionID: id })
+        const result = await globalSDK.client.session.get({ sessionID: id })
         return (result.data as Session | undefined) ?? null
       } catch {
         return null as Session | null
@@ -107,7 +126,6 @@ function PatternContent() {
     editing: false,
     draft: "",
     menuOpen: false,
-    pendingRename: false,
   })
   let titleRef: HTMLInputElement | undefined
 
@@ -123,7 +141,7 @@ function PatternContent() {
     const draft = titleState.draft.trim()
     if (!draft) { setTitleState("editing", false); return }
     try {
-      await sdk.client.session.update({ sessionID: id, title: draft })
+      await globalSDK.client.session.update({ sessionID: id, title: draft })
       void refetchSession()
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
@@ -133,7 +151,7 @@ function PatternContent() {
 
   async function deleteSession(sessionID: string) {
     try {
-      await sdk.client.session.delete({ sessionID })
+      await globalSDK.client.session.delete({ sessionID })
       navigate("/pattern")
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
@@ -146,14 +164,20 @@ function PatternContent() {
     dialog.show(() => <PatternDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Pattern"} onDelete={deleteSession} />)
   }
 
+  const [dataStore, setDataStore] = createStore<DataStore>({
+    session: [],
+    session_status: {},
+    session_diff: {},
+    message: {},
+    part: {},
+  })
+
   createEffect(
     on(
       () => params.id,
       (id) => {
-        if (id) layout.lastSessionPerTab.setPattern(id)
+        if (id) layout.lastSessionPerTab.setCowork(id, "pattern")
         setSending(false)
-        setPhase("idle")
-        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -161,57 +185,119 @@ function PatternContent() {
   createEffect(
     on(
       () => params.id,
-      (id) => {
+      async (id) => {
         if (!id) return
-        void sync.session.sync(id)
+        try {
+          const result = await globalSDK.client.session.messages({ sessionID: id })
+          const items = result.data ?? []
+          const msgs: Message[] = []
+          const partMap: { [msgId: string]: Part[] } = {}
+          for (const { info, parts } of items as { info: Message; parts: Part[] }[]) {
+            msgs.push(info)
+            const visible = parts.filter((p) => !SKIP_PART_TYPES.has(p.type))
+            if (visible.length > 0) partMap[info.id] = visible
+          }
+          batch(() => {
+            setDataStore("message", id, reconcile(msgs, { key: "id" }))
+            for (const [msgId, ps] of Object.entries(partMap)) {
+              setDataStore("part", msgId, reconcile(ps, { key: "id" }))
+            }
+          })
+        } catch (err) {
+          console.error("[PatternPage] messages load failed", err)
+        }
       },
     ),
   )
+
+  const unsub = globalSDK.event.listen((e) => {
+    const sessionId = params.id
+    if (!sessionId) return
+    const event = e.details
+
+    if (event.type === "message.updated") {
+      const info = event.properties.info
+      if (info.sessionID !== sessionId) return
+      const messages = dataStore.message[sessionId]
+      if (!messages) { setDataStore("message", sessionId, [info]); return }
+      const result = Binary.search(messages, info.id, (m) => m.id)
+      if (result.found) {
+        setDataStore("message", sessionId, result.index, reconcile(info))
+      } else {
+        setDataStore("message", sessionId, produce((d) => { d.splice(result.index, 0, info) }))
+      }
+      return
+    }
+
+    if (event.type === "message.part.updated") {
+      const part = event.properties.part
+      if (part.sessionID !== sessionId) return
+      if (SKIP_PART_TYPES.has(part.type)) return
+      const parts = dataStore.part[part.messageID]
+      if (!parts) { setDataStore("part", part.messageID, [part]); return }
+      const result = Binary.search(parts, part.id, (p) => p.id)
+      if (result.found) {
+        setDataStore("part", part.messageID, result.index, reconcile(part))
+      } else {
+        setDataStore("part", part.messageID, produce((d) => { d.splice(result.index, 0, part) }))
+      }
+      return
+    }
+
+    if (event.type === "session.status") {
+      const { sessionID, status } = event.properties
+      if (sessionID !== sessionId) return
+      setDataStore("session_status", sessionID, reconcile(status))
+      return
+    }
+
+    const raw = event as unknown as { type: string; properties: Record<string, unknown> }
+    if (raw.type === "message.part.delta") {
+      const { messageID, partID, field, delta } = raw.properties as {
+        messageID: string; partID: string; field: string; delta: string
+      }
+      const parts = dataStore.part[messageID]
+      if (!parts) return
+      const result = Binary.search(parts, partID, (p) => p.id)
+      if (!result.found) return
+      setDataStore("part", messageID, produce((d) => {
+        const p = d[result.index] as Record<string, unknown>
+        p[field] = ((p[field] as string) ?? "") + delta
+      }))
+    }
+  })
+  onCleanup(unsub)
 
   const userMessages = createMemo((): Message[] => {
     const id = params.id
     if (!id) return []
-    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+    return (dataStore.message[id] ?? []).filter((m) => m.role === "user")
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
-    return sync.data.session_status[id] ?? { type: "idle" }
+    return dataStore.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => {
-    if (sessionStatus().type !== "idle") return true
-    const id = params.id
-    if (!id) return false
-    const msgs = (sync.data.message[id] ?? []) as Message[]
-    const lastAssistant = msgs.findLast((m) => m.role === "assistant")
-    return !!lastAssistant && typeof lastAssistant.time.completed !== "number"
-  })
+  const isBusy = createMemo(() => sessionStatus().type === "busy")
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
-  const [phase, setPhase] = createSignal<"idle" | "intent" | "module">("idle")
-  const [detectedCatalog, setDetectedCatalog] = createSignal<ComponentCatalog>("desktop")
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
-  const hasContent = () => !!(params.id && userMessages().length > 0)
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
     const stored = localStorage.getItem(CHAT_WIDTH_KEY)
     if (stored) {
       const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 345 && n <= 720) return n
+      if (!isNaN(n) && n >= 240) return n
     }
-    return 460
+    return Math.max(360, Math.floor((window.innerWidth - 240) * 0.45))
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
-  const [focusMode, setFocusMode] = createSignal(false)
-
-  const MIN_CHAT = 345
-  const MAX_CHAT = 720
 
   let dragCleanup: (() => void) | null = null
 
@@ -229,7 +315,7 @@ function PatternContent() {
       dragCleanup = null
     }
     const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
+      setChatWidth(Math.max(240, Math.min(Math.floor(window.innerWidth * 0.45), startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
       resetBody()
@@ -248,6 +334,8 @@ function PatternContent() {
 
   onCleanup(() => { dragCleanup?.() })
 
+  const tabStore = createTabStore()
+
   const autoScroll = createAutoScroll({ working: isBusy })
 
   let previewIframeRef: HTMLIFrameElement | undefined
@@ -258,137 +346,118 @@ function PatternContent() {
   }
 
   createEffect(() => {
-    const id = params.id
-    if (!id) return
-    const messages = (sync.data.message[id] ?? []) as Message[]
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.role !== "assistant") continue
-      const parts = (sync.data.part[msg.id] ?? []) as Array<{ type: string; text?: string }>
-      for (const p of [...parts].reverse()) {
-        if (p.type !== "text") continue
-        const doc = detectA2UIJson(p.text ?? "")
-        if (doc) { sendToPreview(doc); return }
-      }
-    }
+    const tabs = tabStore.tabs()
+    const active = tabStore.activeId()
+    if (!active || tabs.length === 0) return
+    const tab = tabs.find((t) => t.id === active)
+    if (!tab) return
+    const doc = detectA2UIJson(tab.content)
+    if (doc) sendToPreview(doc)
   })
 
-  function findIntentFromMessages(sessionId: string): Record<string, unknown> | null {
-    const messages = (sync.data.message[sessionId] ?? []) as Message[]
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.role !== "assistant") continue
-      const parts = (sync.data.part[msg.id] ?? []) as Array<{ type: string; text?: string }>
-      for (const p of [...parts].reverse()) {
-        if (p.type !== "text") continue
-        const intent = extractIntentJson(p.text ?? "")
-        if (intent) return intent
-      }
-    }
-    return null
-  }
+  createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
 
-  createEffect(() => {
-    const status = sessionStatus().type
-    const currentPhase = phase()
-    if (status !== "idle" || currentPhase !== "intent") return
-    const sessionId = params.id
-    if (!sessionId) return
-    const timer = setTimeout(() => {
-      const intent = findIntentFromMessages(sessionId)
-      if (intent) {
-        void sendModulePrompt(sessionId, intent)
-      } else {
-        setPhase("idle")
-        setSending(false)
-      }
-    }, 800)
-    onCleanup(() => clearTimeout(timer))
-  })
-
-  createEffect(() => {
-    const status = sessionStatus().type
-    const currentPhase = phase()
-    if (status !== "idle" || currentPhase !== "module") return
-    setPhase("idle")
-    setSending(false)
-  })
-
-  async function sendIntentPrompt(sessionId: string, text: string) {
-    const catalog = detectCatalog(text)
-    setDetectedCatalog(catalog)
-    const intentPrompt = buildIntentPrompt({ query: text, catalog })
-    const fileParts: FilePartInput[] = attachments().map((a) => ({
-      type: "file",
-      mime: a.mime,
-      filename: a.filename,
-      url: a.dataUrl,
-    }))
-    const textPart: TextPartInput = { type: "text", text: intentPrompt }
-    const modelKey = activeModelKey()
-    if (!modelKey) return
-    await sdk.client.session.prompt({
-      sessionID: sessionId,
-      agent: AGENT_INTENT,
-      ...(modelKey ? { model: modelKey } : {}),
-      parts: [textPart, ...fileParts],
-    })
-    setAttachments([])
-  }
-
-  async function sendModulePrompt(sessionId: string, intentJson: Record<string, unknown>) {
-    setPhase("module")
-    let designPrompt: string | undefined
-    const dsId = selectedDesignSystem()
-    if (dsId) {
+  async function handleContentChange(tabId: string, content: string) {
+    tabStore.updateTabContent(tabId, content)
+    const tab = tabStore.tabs().find((t) => t.id === tabId)
+    if (tab?.filePath) {
       try {
-        const ds = await loadDesignSystem(dsId)
-        designPrompt = [
-          `## DESIGN.md (authoritative visual rules)`,
-          ds.design,
-          ``,
-          `## :root tokens (paste verbatim into <style>)`,
-          "```css",
-          ds.tokens,
-          "```",
-        ].join("\n")
+        const dir = homeDir()
+        if (dir) {
+          await fetch(`${globalSDK.url}/content`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "x-opencode-directory": dir,
+            },
+            body: JSON.stringify({ path: tab.filePath, content }),
+          })
+        }
       } catch (err) {
-        console.error("[PatternPage] design system load failed", err)
+        console.error("[PatternPage] failed to save file:", err)
       }
     }
-    const modulePromptText = buildModulePrompt({
-      intentJson,
-      catalog: detectedCatalog(),
-      designSystemPrompt: designPrompt,
-    })
-    const textPart: TextPartInput = { type: "text", text: modulePromptText }
-    const modelKey = activeModelKey()
-    if (!modelKey) return
-    await sdk.client.session.prompt({
-      sessionID: sessionId,
-      agent: AGENT_MODULE,
-      ...(modelKey ? { model: modelKey } : {}),
-      parts: [textPart],
-    })
+  }
+
+  async function createAndNavigate(): Promise<string | undefined> {
+    const dir = homeDir()
+    if (!dir) return
+    setSending(true)
+    try {
+      const result = await globalSDK.client.session.create({ directory: dir, agent: AGENT_NAME })
+      const session = result.data as Session | undefined
+      if (session) {
+        navigate(`/pattern/${session.id}`)
+        return session.id
+      }
+    } catch (err) {
+      console.error("[PatternPage] session.create failed", err)
+    } finally {
+      setSending(false)
+    }
+    return undefined
   }
 
   async function sendMessage(sessionId: string, text: string) {
-    setPhase("intent")
-    await sendIntentPrompt(sessionId, text)
+    try {
+      const fileParts: FilePartInput[] = attachments().map((a) => ({
+        type: "file",
+        mime: a.mime,
+        filename: a.filename,
+        url: a.dataUrl,
+      }))
+
+      let designPrompt: string | undefined
+      const dsId = selectedDesignSystem()
+      if (dsId) {
+        try {
+          const ds = await loadDesignSystem(dsId)
+          designPrompt = [
+            `## DESIGN.md (authoritative visual rules)`,
+            ds.design,
+            ``,
+            `## :root tokens (paste verbatim into <style>)`,
+            "```css",
+            ds.tokens,
+            "```",
+          ].join("\n")
+        } catch (err) {
+          console.error("[PatternPage] design system load failed", err)
+        }
+      }
+
+      const promptText = buildPatternPrompt({
+        query: text,
+        catalog: detectCatalog(text),
+        designSystemPrompt: designPrompt,
+      })
+
+      const textPart: TextPartInput = { type: "text", text: promptText }
+      const modelKey = selectedModelKey()
+      await globalSDK.client.session.prompt({
+        sessionID: sessionId,
+        agent: AGENT_NAME,
+        ...(modelKey ? { model: modelKey } : {}),
+        parts: [textPart, ...fileParts],
+      })
+      setAttachments([])
+    } catch (err) {
+      console.error("[PatternPage] prompt failed", err)
+    }
   }
 
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending() || !activeModelKey()) return
+    if (!text || sending()) return
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
     try {
       let sid = submitSessionId
       if (!sid) {
-        const dir = sdk.directory
+        const dir = homeDir()
         if (!dir) return
-        const result = await sdk.client.session.create({ directory: dir, agent: AGENT_NAME })
+        const result = await globalSDK.client.session.create({ directory: dir, agent: AGENT_NAME })
         const session = result.data as Session | undefined
         if (!session) return
         navigate(`/pattern/${session.id}`)
@@ -397,19 +466,11 @@ function PatternContent() {
       await sendMessage(sid, text)
     } catch (err) {
       console.error("[PatternPage] handleSubmit failed", err)
-      setPhase("idle")
-      setSending(false)
     } finally {
       if (!submitSessionId || params.id === submitSessionId) {
         setSending(false)
       }
     }
-  }
-
-  async function halt() {
-    const sid = params.id
-    if (!sid) return
-    await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -471,121 +532,33 @@ function PatternContent() {
     if (files.length > 0) addAttachments(files)
   }
 
-  function handleOpenResult(_card: OutputCard) {}
+  function handleOpenResult(card: OutputCard) {
+    tabStore.openTab(card)
+  }
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey()
+  const inputDisabled = () => sending() || isBusy()
   const maxAttachments = () => attachments().length >= 5
 
-  const inputBox = (rows: number | undefined) => (
-    <div
-      class="rounded-[16px] transition-all duration-300 relative group"
-      style={{
-        border: "1px solid transparent",
-        background: `
-          linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
-          linear-gradient(135deg,
-            rgba(0, 103, 209, 0.7) 1%,
-            rgba(46, 134, 222, 0.7) 22%,
-            rgba(0, 103, 209, 0.7) 54%,
-            rgba(0, 78, 168, 0.7) 87%,
-            rgba(0, 103, 209, 0.7) 92%) border-box`,
-        "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(0, 103, 209, 0.18), 0 0 20px rgba(0, 78, 168, 0.12)",
-        "margin-top": attachments().length > 0 ? "6px" : "0",
-        ...(rows === undefined ? { height: "150px" } : {}),
-      }}
-    >
-      <textarea
-        value={prompt()}
-        onInput={(e) => setPrompt(e.currentTarget.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="描述你想要的界面，按 Enter 生成 A2UI JSON…"
-        rows={rows}
-        disabled={inputDisabled()}
-        class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
-        style={{
-          "font-family": "var(--octo-font)",
-          ...(rows === undefined ? { flex: "1", "max-height": "none", "overflow-y": "auto" } : { "max-height": "120px", "overflow-y": "auto" }),
-        }}
-      />
-      <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
-        <div class="flex items-center gap-1 min-w-0">
-          <DesignSystemPicker
-            selected={selectedDesignSystem()}
-            onSelect={setSelectedDesignSystem}
-          />
-          <input
-            ref={fileInputRef!}
-            type="file"
-            multiple
-            class="hidden"
-            accept="*/*"
-            onChange={handleFileInputChange}
-          />
-          <button
-            type="button"
-            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-            disabled={maxAttachments()}
-            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-            title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-          >
-            <Icon name="plus" class="size-5" />
-          </button>
-          <ModelSelectorPopover
-            model={local.model}
-            triggerAs="button"
-            triggerProps={{
-              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
-              "data-action": "prompt-model",
-            }}
-          >
-            <span class="truncate">
-              {currentModel()?.name ?? "选择模型"}
-            </span>
-            <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
-          </ModelSelectorPopover>
-        </div>
-        <IconButton
-          data-action="prompt-submit"
-          type="submit"
-          icon={isBusy() ? "stop" : "arrow-up"}
-          class="size-8 flex-shrink-0"
-          onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-          disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-          aria-label={isBusy() ? "停止生成" : undefined}
-        />
-      </div>
-    </div>
-  )
-
   return (
-    <DataProvider data={sync.data} directory={sdk.directory || ""}>
-      <Toast.Region />
-      <div
-        class="octo-split bg-background-base"
-        data-focus={focusMode() ? "true" : undefined}
-        style={{
-          "grid-template-columns": !focusMode()
-            ? hasContent()
-              ? `${chatWidth()}px 8px minmax(400px, 1fr)`
-              : "1fr"
-            : undefined,
-        }}
-      >
-        <Show when={!focusMode()}>
-          <div
-            class="flex flex-col overflow-hidden"
-            style={{
-              background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
-              outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
-            }}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            <Show when={hasContent()}>
+    <DataProvider data={dataStore} directory={homeDir() || ""}>
+      <div class="size-full flex overflow-hidden relative">
+
+        <div
+          class="flex flex-col overflow-hidden flex-shrink-0"
+          style={{
+            width: `${chatWidth()}px`,
+            flex: "0 0 auto",
+            background: isDragOver() ? "var(--pattern-accent-a3)" : "var(--octo-shell-bg)",
+            outline: isDragOver() ? "inset 0 0 0 2px var(--pattern-accent-a25)" : "none",
+          }}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+            <Show when={params.id}>
               <div
-                class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff" }}
+                class="shrink-0 h-12 flex items-center justify-between px-4"
+                style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
@@ -611,8 +584,7 @@ function PatternContent() {
                     }
                   >
                     <h1
-                      class="truncate min-w-0"
-                      style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
+                      class="text-14-medium text-text-strong truncate min-w-0"
                       onDblClick={openTitleEditor}
                     >
                       {sessionTitle(sessionInfo()?.title) ?? "Pattern"}
@@ -634,7 +606,12 @@ function PatternContent() {
                   />
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content style={{ "min-width": "104px" }}>
-                      <DropdownMenu.Item onSelect={() => { setTitleState("menuOpen", false); openTitleEditor() }}>
+                      <DropdownMenu.Item
+                        onSelect={() => {
+                          setTitleState("menuOpen", false)
+                          openTitleEditor()
+                        }}
+                      >
                         <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
@@ -647,21 +624,15 @@ function PatternContent() {
               </div>
             </Show>
 
-            <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
-                <ChatEmptyState />
-                <div class="w-full max-w-[800px] px-8">
-                  <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                  {inputBox(undefined)}
-                </div>
-              </div>
-            }>
-              <ScrollView
-                class="flex-1 min-h-0"
-                style={{ background: "#fff" }}
-                viewportRef={autoScroll.scrollRef}
-                onScroll={autoScroll.handleScroll}
-                onMouseUp={autoScroll.handleInteraction}
+            <div
+              class="flex-1 overflow-y-auto min-h-0"
+              ref={autoScroll.scrollRef}
+              onScroll={autoScroll.handleScroll}
+              onMouseUp={autoScroll.handleInteraction}
+            >
+              <Show
+                when={params.id && userMessages().length > 0}
+                fallback={<ChatEmptyState />}
               >
                 <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
                   <For each={userMessages()}>
@@ -676,67 +647,123 @@ function PatternContent() {
                     )}
                   </For>
                 </div>
-              </ScrollView>
+              </Show>
+            </div>
 
-              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
-                <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                {inputBox(3)}
-              </div>
-            </Show>
-          </div>
-        </Show>
+            <div class="shrink-0 p-4">
+              <AttachmentBar
+                attachments={attachments()}
+                onRemove={removeAttachment}
+              />
 
-        <Show when={hasContent() && !focusMode()}>
-          <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
-        </Show>
+              <div
+                class="rounded-[var(--octo-radius-lg)] overflow-hidden"
+                style={{
+                  background: "var(--octo-surface-page)",
+                  "box-shadow": "0 2px 12px rgba(0, 0, 0, 0.08)",
+                  "margin-top": attachments().length > 0 ? "6px" : "0",
+                }}
+              >
+                <textarea
+                  value={prompt()}
+                  onInput={(e) => setPrompt(e.currentTarget.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="描述你想要的界面，按 Enter 生成 A2UI JSON…"
+                  rows={3}
+                  disabled={inputDisabled()}
+                  class="w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none"
+                  style={{
+                    color: inputDisabled() ? "var(--octo-text-disabled)" : "var(--octo-text-primary)",
+                    "font-family": "var(--octo-font)",
+                    "max-height": "120px",
+                    "overflow-y": "auto",
+                  }}
+                />
 
-        <Show when={hasContent()}>
-          <div class="flex flex-col overflow-hidden">
-            <div class="flex flex-1 min-h-0 overflow-scroll">
-              <div class="flex flex-col flex-1" style="min-width:800px">
-                <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
+                <div class="flex items-center justify-between px-2.5 pb-2.5">
+                  <div class="flex items-center gap-1">
+                    <DesignSystemPicker
+                      selected={selectedDesignSystem()}
+                      onSelect={setSelectedDesignSystem}
+                    />
+                    <input
+                      ref={fileInputRef!}
+                      type="file"
+                      multiple
+                      class="hidden"
+                      accept="*/*"
+                      onChange={handleFileInputChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                      disabled={maxAttachments()}
+                      class="flex items-center gap-1 px-2 py-1 text-xs transition-colors pattern-btn-attachment"
+                      title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
+                    >
+                      <IconAttach size={14} />
+                    </button>
+                    <ModelSelectorPopover
+                      model={modelState}
+                      triggerAs={Button}
+                      triggerProps={{
+                        variant: "ghost",
+                        size: "normal",
+                        class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
+                        "data-action": "prompt-model",
+                      }}
+                    >
+                      <span class="truncate">
+                        {modelState.current()?.name ?? "选择模型"}
+                      </span>
+                      <Icon name="chevron-down" size="small" class="shrink-0" />
+                    </ModelSelectorPopover>
+                  </div>
+
                   <button
                     type="button"
-                    class="octo-focus-btn"
-                    style={{
-                      display: "inline-flex",
-                      "align-items": "center",
-                      "justify-content": "center",
-                      width: "28px",
-                      height: "28px",
-                      "border-radius": "6px",
-                      border: "none",
-                      background: "transparent",
-                      color: "var(--octo-text-secondary)",
-                      cursor: "pointer",
-                    }}
-                    data-active={focusMode() ? "true" : undefined}
-                    onClick={() => setFocusMode(!focusMode())}
-                    title={focusMode() ? "退出焦点模式" : "焦点模式"}
+                    onClick={() => void handleSubmit()}
+                    disabled={!prompt().trim() || inputDisabled()}
+                    class="pattern-btn-send flex-shrink-0"
                   >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <Show when={focusMode()} fallback={
-                        <>
-                          <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                          <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                        </>
-                      }>
-                        <path d="M5 5h6M5 5v6M5 5L11 11" stroke-linecap="round" stroke-linejoin="round" />
-                      </Show>
-                    </svg>
+                    {sending() ? "…" : <IconSend size={14} />}
                   </button>
                 </div>
-                <iframe
-                  ref={(el) => { previewIframeRef = el }}
-                  src="http://127.0.0.1:8989"
-                  style={{ width: "100%", height: "100%", border: "none" }}
-                />
               </div>
             </div>
+
+        </div>
+
+        <div
+          class="absolute top-0 bottom-0 flex items-center justify-center group"
+          style={{ left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
+          onMouseDown={handleDividerMouseDown}
+        >
+          <div
+            class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+            style={{
+              width: "12px",
+              height: "36px",
+              "border-radius": "10px 0 0 10px",
+              "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
+              border: "1px solid var(--octo-border-divider)",
+              "border-right": "none",
+            }}
+          >
+            <div
+              class="w-[2px] h-[14px] rounded-full mr-[2px]"
+              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+            />
           </div>
-        </Show>
+        </div>
+
+        <div class="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ background: "var(--octo-surface-result)" }}>
+          <iframe
+            ref={(el) => { previewIframeRef = el }}
+            src="http://127.0.0.1:8989"
+            style={{ width: "100%", height: "100%", border: "none" }}
+          />
+        </div>
       </div>
     </DataProvider>
   )
@@ -744,19 +771,15 @@ function PatternContent() {
 
 function ChatEmptyState(): JSX.Element {
   return (
-    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
-      <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
-        <rect x="8" y="8" width="64" height="64" rx="16" stroke="var(--octo-brand-a40)" stroke-width="2" fill="none" />
-        <rect x="20" y="20" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="44" y="20" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="20" y="44" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="44" y="44" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-      </svg>
-      <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Pattern</div>
-        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
-          描述界面需求，生成 A2UI JSON
-        </div>
+    <div class="size-full flex flex-col items-center justify-center gap-3 text-center px-8">
+      <IllustrationInsightEmpty width={120} height={120} />
+      <div class="text-[15px] font-semibold" style={{ color: "var(--octo-text-strong)" }}>Pattern</div>
+      <div class="text-[13px] max-w-[200px] leading-relaxed" style={{ color: "var(--octo-text-secondary)" }}>
+        描述界面需求，生成 A2UI JSON
+      </div>
+      <div class="flex items-center gap-2 mt-1">
+        <span class="pattern-catalog-badge">自动 Desktop/Mobile</span>
+        <span class="text-[11px]" style={{ color: "var(--octo-text-disabled)" }}>含 13 种图表</span>
       </div>
     </div>
   )
