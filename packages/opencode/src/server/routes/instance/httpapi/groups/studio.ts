@@ -64,6 +64,8 @@ const StudioGenerationResult = Schema.Struct({
     Schema.Literal("inpainting"),
     Schema.Literal("outpainting"),
   ])),
+  taskType: Schema.optional(Schema.String),
+  task_type: Schema.optional(Schema.String),
   taskId: Schema.optional(Schema.String),
   model: Schema.String,
   aspectRatio: Schema.String,

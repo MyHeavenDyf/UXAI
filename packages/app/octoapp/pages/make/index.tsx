@@ -235,9 +235,9 @@ createEffect(
     if (sessionStatus().type !== "idle") return true
     const id = params.id
     if (!id) return false
-    return ((sync.data.message[id] ?? []) as Message[]).some(
-      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
-    )
+    const msgs = (sync.data.message[id] ?? []) as Message[]
+    const lastAssistant = msgs.findLast((m) => m.role === "assistant")
+    return !!lastAssistant && typeof lastAssistant.time.completed !== "number"
   })
   // ── 执行计时器 ────────────────────────────────────────────
   const [elapsedText, setElapsedText] = createSignal("")

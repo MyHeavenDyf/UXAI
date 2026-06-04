@@ -35,6 +35,8 @@ export type StudioGenerationResult = {
   prompt: string
   provider: StudioProvider
   toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+  taskType?: string
+  task_type?: string
   taskId?: string
   model: string
   aspectRatio: string
@@ -362,6 +364,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   console.log("[studio.service] generation tool result", {
     provider: output.provider,
     toolAction: output.toolAction ?? toolActionForCapability(input.capability),
+    taskType: typeof (output.request as Record<string, unknown> | undefined)?.task_type === "string" ? (output.request as Record<string, string>).task_type : undefined,
     taskId: output.taskId,
     model: output.model,
     statusCode: output.statusCode,
