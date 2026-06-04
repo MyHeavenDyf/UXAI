@@ -1105,7 +1105,7 @@ export function buildIntentPrompt(opts: {
 }
 
 export function buildModulePrompt(opts: {
-  intentJson: Record<string, unknown>
+  userInput: string
   catalog: ComponentCatalog
   designSystemPrompt?: string
 }): string {
@@ -1113,15 +1113,7 @@ export function buildModulePrompt(opts: {
   const components = componentCatalogList(opts.catalog)
   const designSystem = opts.catalog === "desktop" ? DESKTOP_DESIGN_SYSTEM : MOBILE_DESIGN_SYSTEM
 
-  const intent = opts.intentJson
-  const userInput = (intent.userInput as string) ?? "未提供"
-  const name = (intent.name as string) ?? ""
-  const description = (intent.description as string) ?? ""
-  const intentField = (intent.intent as string) ?? ""
-  const functionDesc = (intent.function as string) ?? ""
-  const elements = (intent.elements as string) ?? ""
-  const data = intent.data as Record<string, unknown> | undefined
-  const id = (intent.id as string) ?? "PatDefault"
+  const userInput = opts.userInput
 
   const parts = [
     `[Pattern Module Creation Mode]`,
@@ -1180,17 +1172,10 @@ export function buildModulePrompt(opts: {
   parts.push(
     `---`,
     ``,
-    `请为以下 Pattern 生成 A2UI JSON：`,
+    `请为以下需求生成 A2UI JSON：`,
     ``,
-    `【Pattern 蓝图】: ========================`,
-    `- 用户输入: ${userInput}`,
-    `- Pattern 名称: ${name}`,
-    `- Pattern 意图: ${intentField}`,
-    `- Pattern 功能: ${functionDesc}`,
-    `- Pattern 子模块描述: ${elements}`,
-    ``,
-    `【Mock 数据】: ========================`,
-    JSON.stringify(data ?? {}, null, 2),
+    `【用户需求】: ========================`,
+    userInput,
     ``,
     `【根节点 ID】: pattern_root`,
     `【模块内部元素 id 前缀】: ptn`,
