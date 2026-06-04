@@ -25,7 +25,7 @@ export function ProjectInfo(): JSX.Element {
           background: "rgba(0,0,0,0.03)",
           "border-radius": "12px",
           padding: "12px 16px",
-          "margin": "12px 4px",
+          "margin": "0 4px 12px 4px",
           cursor: "pointer",
         }}
         onClick={() => setVisible(true)}
@@ -37,10 +37,16 @@ export function ProjectInfo(): JSX.Element {
           </svg>
           <div style={{ flex: "1", "min-width": "0" }}>
             <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between" }}>
-              <div style={{ "font-size": "14px", "line-height": "22px", color: "#191919" }}>{productName()}</div>
-              <div style={{ display: "flex", "align-items": "center", "flex-shrink": "0", height: "22px" }}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M4.5 2.5L7.5 6L4.5 9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+              <div style={{ "font-size": "14px", "line-height": "22px", color: "#191919", "overflow": "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{productName()}</div>
+              <div style={{ display: "flex", "align-items": "center", "flex-shrink": "0", "margin-left": "2px" }}>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
+                  style={{
+                    transform: "rotate(-90deg)",
+                    transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
+                    "flex-shrink": "0",
+                  }}
+                >
+                  <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
                 </svg>
               </div>
             </div>
