@@ -145,6 +145,7 @@ function PatternContent() {
         if (id) layout.lastSessionPerTab.setPattern(id)
         setSending(false)
         setPhase("idle")
+        setIntentData(null)
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -189,6 +190,7 @@ function PatternContent() {
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
   const hasContent = () => !!(params.id && userMessages().length > 0)
+  const [intentData, setIntentData] = createSignal<Record<string, unknown> | null>(null)
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -288,6 +290,7 @@ function PatternContent() {
     const timer = setTimeout(() => {
       const intent = findIntentFromMessages(sessionId)
       if (intent) {
+        setIntentData(intent)
         void sendModulePrompt(sessionId, intent)
       } else {
         setPhase("idle")
@@ -661,6 +664,9 @@ function PatternContent() {
                       />
                     )}
                   </For>
+                  <Show when={intentData()}>
+                    {(data) => <IntentCard data={data()} phase={phase()} />}
+                  </Show>
                 </div>
               </ScrollView>
 
@@ -770,5 +776,123 @@ function PatternDialogDeleteSession(props: { sessionID: string; name: string; on
         </div>
       </div>
     </Dialog>
+  )
+}
+
+type IntentPhase = "idle" | "intent" | "module"
+
+function IntentCard(props: { data: Record<string, unknown>; phase: IntentPhase }): JSX.Element {
+  const d = () => props.data
+  const name = () => String(d().name ?? "")
+  const id = () => String(d().id ?? "")
+  const level = () => String(d().level ?? "section")
+  const description = () => String(d().description ?? "")
+  const intent = () => String(d().intent ?? "")
+  const fn = () => String(d().function ?? "")
+  const elements = () => String(d().elements ?? "")
+  const layout = () => String(d().layout ?? "")
+  const keywords = () => {
+    const kw = d().keywords
+    return Array.isArray(kw) ? kw.map(String) : []
+  }
+  const userInput = () => String(d().userInput ?? "")
+  const dataFields = () => {
+    const raw = d().data
+    if (!raw || typeof raw !== "object") return null
+    return Object.entries(raw as Record<string, unknown>)
+  }
+
+  const isGenerating = () => props.phase === "module"
+
+  const fieldRow = (label: string, value: string) => (
+    <div class="flex gap-2 py-1.5" style={{ "border-bottom": "1px solid rgba(0,0,0,0.04)" }}>
+      <span class="shrink-0 text-[11px] font-semibold" style={{ width: "56px", color: "var(--octo-text-secondary)", "line-height": "18px" }}>{label}</span>
+      <span class="text-[12px] min-w-0" style={{ color: "var(--octo-text-primary)", "line-height": "18px" }}>{value}</span>
+    </div>
+  )
+
+  return (
+    <div class="mx-6 my-2">
+      <div
+        class="rounded-[12px] overflow-hidden"
+        style={{
+          border: "1px solid var(--octo-border-default)",
+          background: "#fff",
+          "box-shadow": "0 1px 3px rgba(0,0,0,0.04)",
+        }}
+      >
+        <div class="flex items-center justify-between px-4 py-2.5" style={{ background: "linear-gradient(135deg, rgba(0,103,209,0.06) 0%, rgba(46,134,222,0.04) 100%)" }}>
+          <div class="flex items-center gap-2">
+            <div
+              class="flex items-center justify-center rounded-[6px]"
+              style={{ width: "24px", height: "24px", background: "var(--octo-brand-a8)" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="2" width="12" height="12" rx="2.5" stroke="var(--octo-brand)" stroke-width="1.3" />
+                <path d="M5 5h2v2H5zM9 5h2v2H9zM5 9h2v2H5zM9 9h2v2H9z" fill="var(--octo-brand)" opacity="0.6" />
+              </svg>
+            </div>
+            <div>
+              <div class="text-[13px] font-semibold" style={{ color: "var(--octo-text-strong)" }}>{name() || "Pattern"}</div>
+              <div class="text-[10px]" style={{ color: "var(--octo-text-secondary)" }}>{id()} · {level()}</div>
+            </div>
+          </div>
+          <Show when={isGenerating()} fallback={
+            <span class="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(16,185,129,0.1)", color: "#059669" }}>已完成</span>
+          }>
+            <span class="text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: "var(--octo-brand-a8)", color: "var(--octo-brand)" }}>
+              <Spinner class="size-3" /> 生成中
+            </span>
+          </Show>
+        </div>
+
+        <div class="px-4 py-2">
+          {fieldRow("意图", intent())}
+          {fieldRow("功能", fn())}
+          <Show when={elements()}>
+            {fieldRow("组件", elements())}
+          </Show>
+          <Show when={layout()}>
+            {fieldRow("布局", layout())}
+          </Show>
+          <Show when={description()}>
+            <div class="py-1.5">
+              <span class="text-[11px] font-semibold" style={{ color: "var(--octo-text-secondary)" }}>描述</span>
+              <p class="text-[12px] mt-0.5" style={{ color: "var(--octo-text-primary)", "line-height": "18px" }}>{description()}</p>
+            </div>
+          </Show>
+          <Show when={keywords().length > 0}>
+            <div class="py-1.5 flex items-center gap-1 flex-wrap">
+              <span class="shrink-0 text-[11px] font-semibold" style={{ color: "var(--octo-text-secondary)" }}>标签</span>
+              <For each={keywords()}>
+                {(kw) => (
+                  <span class="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,0,0,0.04)", color: "var(--octo-text-secondary)" }}>{kw}</span>
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={userInput()}>
+            <div class="py-1.5" style={{ "border-top": "1px solid rgba(0,0,0,0.04)" }}>
+              <span class="text-[11px] font-semibold" style={{ color: "var(--octo-text-secondary)" }}>原始需求</span>
+              <p class="text-[12px] mt-0.5" style={{ color: "var(--octo-text-secondary)", "line-height": "18px" }}>{userInput()}</p>
+            </div>
+          </Show>
+          <Show when={dataFields()}>
+            {(fields) => (
+              <div class="py-1.5" style={{ "border-top": "1px solid rgba(0,0,0,0.04)" }}>
+                <span class="text-[11px] font-semibold" style={{ color: "var(--octo-text-secondary)" }}>Mock 数据</span>
+                <div class="mt-1 flex flex-wrap gap-1">
+                  <For each={fields()}>
+                    {([key]) => (
+                      <span class="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,103,209,0.06)", color: "var(--octo-brand)" }}>{key}</span>
+                    )}
+                  </For>
+                </div>
+              </div>
+            )}
+          </Show>
+        </div>
+      </div>
+    </div>
   )
 }
