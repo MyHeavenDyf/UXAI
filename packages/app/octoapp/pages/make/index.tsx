@@ -22,9 +22,10 @@ import {
   Show,
   type JSX,
 } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
+import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
@@ -32,7 +33,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
+import { octoSessionsDir, useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
@@ -77,6 +78,9 @@ function MakeContent() {
   const language = useLanguage()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
+
+  const projectDir = useProjectDir()
 
   const configDir = () => {
     const config = globalSync.data.path.config
@@ -156,24 +160,67 @@ function MakeContent() {
     dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
   }
 
-createEffect(
+// 监听项目切换，清理不属于新项目的 session
+  createEffect(
     on(
-      () => params.id,
-      (id) => {
-        if (id) layout.lastSessionPerTab.setMake(id)
-        setSending(false)
-        setDeltaLog([])
-        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      projectDir,
+      (newDir, oldDir) => {
+        if (!newDir || !oldDir || newDir === oldDir) return
+        
+        const currentId = params.id
+        if (!currentId) return
+
+        // 检查当前 session 是否属于新项目
+        const client = globalSDK.createClient({ directory: newDir })
+        void client.session.list().then((result) => {
+          const sessions = (result.data ?? []) as Session[]
+          const belongsToNewProject = sessions.some(s => s.id === currentId && s.agent === "octo_make")
+          
+          if (!belongsToNewProject) {
+            // 清理旧 session 数据
+            const [store, setStore] = globalSync.child(sdk.directory)
+            dropSessionCaches(store, [currentId])
+            setStore(
+              produce((draft) => {
+                delete draft.message[currentId]
+                delete draft.session_status[currentId]
+              }),
+            )
+            
+            // 清除 lastSessionPerTab 记录，防止切换回来时恢复
+            layout.lastSessionPerTab.setMake("")
+            
+            // 导航到空态
+            navigate("/make")
+          }
+        })
       },
     ),
   )
 
-  createEffect(
+createEffect(
     on(
       () => params.id,
-      (id) => {
-        if (!id) return
-        void sync.session.sync(id)
+      (newId, oldId) => {
+        if (oldId && oldId !== newId) {
+          const [store, setStore] = globalSync.child(sdk.directory)
+          dropSessionCaches(store, [oldId])
+          setStore(
+            produce((draft) => {
+              delete draft.message[oldId]
+              delete draft.session_status[oldId]
+            }),
+          )
+        }
+
+        if (newId) {
+          layout.lastSessionPerTab.setMake(newId)
+          void sync.session.sync(newId)
+        }
+
+        setSending(false)
+        setDeltaLog([])
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -231,14 +278,7 @@ createEffect(
     return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => {
-    if (sessionStatus().type !== "idle") return true
-    const id = params.id
-    if (!id) return false
-    return ((sync.data.message[id] ?? []) as Message[]).some(
-      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
-    )
-  })
+  const isBusy = createMemo(() => sessionStatus().type !== "idle")
   // ── 执行计时器 ────────────────────────────────────────────
   const [elapsedText, setElapsedText] = createSignal("")
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
