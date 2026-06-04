@@ -20,7 +20,7 @@ import {
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
 } from "./icons"
-import { ProjectInfo } from "@/pages/cowork/components/project-info"
+import { ProjectInfo } from "@/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
