@@ -1,6 +1,10 @@
-import { Show, createResource, createEffect, For, on, onCleanup, createSignal, type JSX } from "solid-js"
+import { Show, createResource, createEffect, For, on, onCleanup, createSignal, createMemo, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
+import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { showToast } from "@opencode-ai/ui/toast"
 import { A, useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -67,29 +71,79 @@ export function Sidebar(props: {
   onCleanup(unsub)
   onCleanup(() => { clearTimeout(refetchTimer) })
 
-  async function archiveSession(session: Session) {
-    const [store, setStore] = globalSync.child(session.directory)
-    const sessions = store.session ?? []
-    const index = sessions.findIndex((s) => s.id === session.id)
-    const nextSession = sessions[index + 1] ?? sessions[index - 1]
-    const client = globalSDK.createClient({ directory: session.directory })
-    await client.session.update({
-      sessionID: session.id,
-      time: { archived: Date.now() },
-    })
-    setStore(
-      produce((draft: { session: Session[] }) => {
-        const match = Binary.search(draft.session, session.id, (s: Session) => s.id)
-        if (match.found) draft.session.splice(match.index, 1)
-      }),
-    )
-    if (session.id === params.id) {
-      if (nextSession) {
-        navigate(`/${params.dir}/chat/${nextSession.id}`)
-      } else {
-        navigate(`/${params.dir}/chat`)
-      }
+  const [contextMenu, setContextMenu] = createStore<{
+    show: boolean
+    x: number
+    y: number
+    session: Session | null
+    hasMessages: boolean
+  }>({ show: false, x: 0, y: 0, session: null, hasMessages: false })
+
+  function closeContextMenu() {
+    setContextMenu("show", false)
+  }
+
+  const [renamingId, setRenamingId] = createSignal<string | null>(null)
+  const [renameDraft, setRenameDraft] = createSignal("")
+  let renameInputRef: HTMLInputElement | undefined
+
+  function startRename(session: Session) {
+    setRenamingId(session.id)
+    setRenameDraft(sessionTitle(session.title) || "")
+    requestAnimationFrame(() => renameInputRef?.focus())
+  }
+
+  async function saveRename(session: Session) {
+    const draft = renameDraft().trim()
+    if (!draft || !session.id) { setRenamingId(null); return }
+    const idx = sessionList.findIndex((s) => s.id === session.id)
+    if (idx >= 0) setSessionList(idx, "title", draft)
+    setRenamingId(null)
+    try {
+      const client = globalSDK.createClient({ directory: session.directory })
+      await client.session.update({ sessionID: session.id, title: draft })
+      window.dispatchEvent(new CustomEvent("octo:session-renamed", { detail: { sessionID: session.id, title: draft } }))
+    } catch (err) {
+      showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
+      if (idx >= 0) setSessionList(idx, "title", session.title)
     }
+  }
+
+  async function deleteSession(sessionID: string, directory: string) {
+    const idx = sessionList.findIndex((s) => s.id === sessionID)
+    try {
+      const client = globalSDK.createClient({ directory })
+      await client.session.delete({ sessionID })
+      closeContextMenu()
+      if (params.id === sessionID) {
+        navigate(`/${params.dir}/chat`)
+      } else if (idx >= 0) {
+        setSessionList(sessionList.filter((s) => s.id !== sessionID))
+      }
+    } catch (err) {
+      showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  function handleContextMenuDelete() {
+    const session = contextMenu.session
+    if (!session) return
+    closeContextMenu()
+    dialog.show(() => (
+      <Dialog title="删除会话" fit class="delete-dialog">
+        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+          确定删除「{sessionTitle(session.title) || language.t("command.session.new")}」？
+        </span>
+        <div class="flex justify-end gap-2" style={{ "margin-top": "24px" }}>
+          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => { void deleteSession(session.id, session.directory).then(() => dialog.close()) }}>
+            {language.t("session.delete.button")}
+          </Button>
+        </div>
+      </Dialog>
+    ))
   }
 
   const openSettings = () => {
@@ -167,22 +221,58 @@ export function Sidebar(props: {
                   <For each={sessionList}>
                     {(session) => {
                       const isActive = () => params.id === session.id
+                      const hasMessages = createMemo(() => !!(session.time.updated && session.time.created && session.time.updated > session.time.created))
+                      const isRenaming = () => renamingId() === session.id
+                      const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
                       return (
                         <div class="group/item relative">
-                          <A
-                            href={`/${base64Encode(session.directory)}/chat/${session.id}`}
-                            activeClass=""
-                            class="flex items-center w-full rounded-[8px] transition-colors"
-                            style={{ height: "36px", padding: "0 24px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
-                            classList={{
-                              "bg-[rgba(10,89,247,0.08)]": isActive(),
-                              "hover:bg-surface-base-hover": !isActive(),
-                            }}
-                          >
-                            <span class="flex-1 min-w-0 truncate">
-                              {sessionTitle(session.title) ?? language.t("command.session.new")}
-                            </span>
-                          </A>
+                          <Show when={!isRenaming()} fallback={
+                            <div
+                              class="w-full rounded-[8px] flex items-center"
+                              style={{ height: "36px", padding: "0 24px 0 44px" }}
+                            >
+                              <input
+                                ref={renameInputRef}
+                                value={renameDraft()}
+                                onInput={(e) => setRenameDraft(e.currentTarget.value)}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation()
+                                  if (e.key === "Enter") { e.preventDefault(); void saveRename(session) }
+                                  if (e.key === "Escape") { e.preventDefault(); setRenamingId(null) }
+                                }}
+                                onBlur={() => void saveRename(session)}
+                                class="w-full text-[12px] leading-[20px]"
+                                style={{
+                                  color: isActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+                                  border: "1px solid #0a59f7",
+                                  "border-radius": "6px",
+                                  padding: "4px",
+                                  background: "transparent",
+                                  outline: "none",
+                                }}
+                              />
+                            </div>
+                          }>
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/${base64Encode(session.directory)}/chat/${session.id}`)}
+                              onContextMenu={(e) => {
+                                e.preventDefault()
+                                setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: hasMessages() })
+                              }}
+                              class="flex items-center w-full rounded-[8px] transition-colors text-left"
+                              style={{ height: "36px", padding: "0 24px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
+                              classList={{
+                                "bg-[rgba(10,89,247,0.08)]": isActive(),
+                                "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
+                                "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
+                              }}
+                            >
+                              <span class="flex-1 min-w-0 truncate text-left">
+                                {sessionTitle(session.title) ?? language.t("command.session.new")}
+                              </span>
+                            </button>
+                          </Show>
                           {/* Active right indicator bar */}
                           <Show when={isActive()}>
                             <span
@@ -196,23 +286,6 @@ export function Sidebar(props: {
                                 background: "#0A59F7",
                               }}
                             />
-                          </Show>
-                          {/* Archive on hover (non-active only) */}
-                          <Show when={!isActive()}>
-                            <div class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/item:opacity-100 transition-opacity pointer-events-none group-hover/item:pointer-events-auto" style="display: none">
-                              <button
-                                type="button"
-                                class="size-5 rounded flex items-center justify-center hover:bg-surface-raised-base-hover text-icon-weak"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  void archiveSession(session)
-                                }}
-                                aria-label={language.t("common.archive")}
-                              >
-                                <Icon name="archive" size="normal" />
-                              </button>
-                            </div>
                           </Show>
                         </div>
                       )
@@ -236,6 +309,51 @@ export function Sidebar(props: {
           <Icon name="settings-gear" size="small" class="shrink-0" />
           <span style={{ "line-height": "20px" }}>{language.t("sidebar.settings")}</span>
         </button>
+      </Show>
+      <Show when={contextMenu.show && contextMenu.session}>
+        <Portal>
+          <div
+            class="fixed inset-0 z-50"
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={closeContextMenu}
+            onKeyDown={(e) => { if (e.key === "Escape") closeContextMenu() }}
+            tabIndex={-1}
+            ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
+          >
+            <div
+              data-component="dropdown-menu-content"
+              style={{
+                position: "absolute",
+                left: `${contextMenu.x}px`,
+                top: `${contextMenu.y}px`,
+                transform: "translateX(12px)",
+                "min-width": "132px",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Show when={contextMenu.hasMessages}>
+                <button
+                  data-slot="dropdown-menu-item"
+                  onClick={() => {
+                    const s = contextMenu.session
+                    if (!s) return
+                    closeContextMenu()
+                    startRename(s)
+                  }}
+                >
+                  <span data-slot="dropdown-menu-item-label">重命名</span>
+                </button>
+                <div data-slot="dropdown-menu-separator" />
+              </Show>
+              <button
+                data-slot="dropdown-menu-item"
+                onClick={handleContextMenuDelete}
+              >
+                <span data-slot="dropdown-menu-item-label">删除</span>
+              </button>
+            </div>
+          </div>
+        </Portal>
       </Show>
     </div>
   )

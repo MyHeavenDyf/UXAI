@@ -1430,7 +1430,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 aria-label={language.t("prompt.action.attachFile")}
               >
-                <Icon name="plus" class="size-4.5" />
+                <Icon name="plus" class="size-5" />
               </Button>
             </TooltipKeybind>
           </div>
@@ -1508,7 +1508,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               class="min-w-0 max-w-[320px] text-13-regular text-text-base group focus-visible:outline-none"
                               style={control()}
                             >
-                              <span class="truncate">
+                              <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                                 {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                               </span>
                               <Icon class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" name="chevron-down" size="small" style="color: #000"/>
@@ -1535,7 +1535,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           }}
                           onClose={restoreFocus}
                         >
-                          <span class="truncate">
+                          <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                             {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                           </span>
                           <Icon class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" name="chevron-down" size="small" style="color: #000"/>
