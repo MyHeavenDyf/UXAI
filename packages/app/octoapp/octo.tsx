@@ -312,7 +312,7 @@ function OnboardingLayer() {
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
 
-  const isCoworkPage = () => {
+  const isInsightPage = () => {
     const p = location.pathname
     return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/")
   }
@@ -336,8 +336,9 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                 <HighlightsProvider>
                   <Layout>
                     <OnboardingLayer />
-                    <Show when={isCoworkPage()}>
-                      <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+                    {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
+                    <Show when={isInsightPage()}>
+                      {props.children}
                     </Show>
                     <Show when={isMakePage()}>
                       <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
@@ -345,7 +346,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <Show when={isSkillsPage()}>
                       <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
                     </Show>
-                    <Show when={!isCoworkPage() && !isMakePage() && !isSkillsPage()}>
+                    <Show when={!isInsightPage() && !isMakePage() && !isSkillsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>

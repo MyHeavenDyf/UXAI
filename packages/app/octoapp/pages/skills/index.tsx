@@ -161,12 +161,13 @@ export default function SkillsPage(): JSX.Element {
     if (!selected) return
     const result = await api?.addSkill?.(selected)
     if (result?.success) {
-      loadConfig()
-      const url = server.current?.http?.url
-      if (url) fetch(`${url}/skill/refresh`, { method: "POST" }).catch(() => {})
+      showToast({ variant: "success", icon: "circle-check", title: "添加成功", description: `已添加技能：${result.skillName ?? ""}` })
     } else if (result?.error) {
       showToast({ variant: "error", icon: "circle-x", title: "添加失败", description: result.error })
     }
+    await loadConfig()
+    const url = server.current?.http?.url
+    if (url) await fetch(`${url}/skill/refresh`, { method: "POST" }).catch(() => {})
   }
 
   return (
