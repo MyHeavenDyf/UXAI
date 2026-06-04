@@ -115,7 +115,7 @@ function MakeContent() {
       if (detail && detail.sessionID === params.id) {
         setOverrideTitle(detail.title)
       }
-      void Promise.resolve(refetchSession()).then(() => setOverrideTitle(null))
+      void refetchSession().then(() => setOverrideTitle(null))
     }
     window.addEventListener("octo:make:session-renamed", handler)
     onCleanup(() => window.removeEventListener("octo:make:session-renamed", handler))
