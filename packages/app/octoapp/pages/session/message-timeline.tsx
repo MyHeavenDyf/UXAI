@@ -24,11 +24,14 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
+import { useLayout } from "@/context/layout"
+import { decode64 } from "@/utils/base64"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
@@ -240,6 +243,7 @@ export function MessageTimeline(props: {
   const dialog = useDialog()
   const language = useLanguage()
   const { params, sessionKey } = useSessionKey()
+  const layout = useLayout()
   const platform = usePlatform()
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
@@ -497,6 +501,8 @@ export function MessageTimeline(props: {
       navigate(`/${params.dir}/chat/${nextSessionID}`)
       return
     }
+    const decoded = decode64(params.dir)
+    if (decoded) layout.lastSessionPerTab.setChat(decoded, "")
     navigate(`/${params.dir}/chat`)
   }
 
@@ -580,6 +586,7 @@ export function MessageTimeline(props: {
         }
 
         draft.session = draft.session.filter((s) => !removed.has(s.id))
+        dropSessionCaches(draft, removed)
       }),
     )
 
@@ -632,6 +639,7 @@ export function MessageTimeline(props: {
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
           classList={{
+            hidden: !!dialog.active,
             "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
             "opacity-0 translate-y-2 scale-95 pointer-events-none":
               !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
@@ -719,6 +727,9 @@ export function MessageTimeline(props: {
                   "pb-4": true,
                   "pl-2 pr-3 md:pl-4 md:pr-3": true,
                   "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+                }}
+                onMouseMove={(e) => {
+                  if (title.editing) e.stopPropagation()
                 }}
               >
                 <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>

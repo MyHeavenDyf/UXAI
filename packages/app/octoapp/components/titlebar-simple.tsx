@@ -16,18 +16,22 @@ import { octoSessionsDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
 
-type TabType = "chat" | "cowork" | "studio"
+type TabType = "chat" | "make" | "cowork" | "studio" | "pattern"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "chat", label: "Chat" },
-  { key: "cowork", label: "Cowork" },
+  { key: "cowork", label: "Insight" },
+  { key: "make", label: "Make" },
+  { key: "pattern", label: "Pattern" },
   { key: "studio", label: "Studio" },
 ]
 
-const TAB_ICON_MAP: Record<TabType, { default: string; selected: string }> = {
-  chat: { default: "/IconChat.svg", selected: "/IconChat1.svg" },
-  cowork: { default: "/IconCowork.svg", selected: "/IconCowork1.svg" },
-  studio: { default: "/IconStudio.svg", selected: "/IconStudio1.svg" },
+const TAB_ICON_MAP: Record<TabType, string> = {
+  chat: "/IconChat.svg",
+  make: "/makeTab.svg",
+  cowork: "/IconCowork.svg",
+  pattern: "/IconPattern.svg",
+  studio: "/IconStudio.svg",
 }
 
 type TauriDesktopWindow = {
@@ -84,13 +88,17 @@ export function TitlebarSimple() {
 
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
-    if (path === "/") return "cowork"
-    if (path === "/cowork" || path.startsWith("/insight") || path.startsWith("/make") || path === "/skills") return "cowork"
-    if (path === "/") return "chat"
+    if (path === "/" || path === "/cowork" || path.startsWith("/insight")) return "cowork"
+    if (path === "/make" || path.startsWith("/make/")) return "make"
+    if (path === "/pattern" || path.startsWith("/pattern/")) return "pattern"
+    if (path === "/skills") {
+      const source = layout.sidebarSource.get()
+      return source === "make" ? "make" : "cowork"
+    }
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
 
-    const tabMatch = path.match(/^\/[^/]+\/(chat|cowork|studio)/)
+    const tabMatch = path.match(/^\/[^/]+\/(chat|make|cowork|studio)/)
     if (tabMatch) return tabMatch[1] as TabType
 
     return "chat"
@@ -108,9 +116,29 @@ export function TitlebarSimple() {
     if (tab === "cowork") {
       const cowork = layout.lastSessionPerTab.cowork()
       if (cowork?.id) {
-        navigate(`/${cowork.type}/${cowork.id}`)
+        navigate(`/insight/${cowork.id}`)
       } else {
-        navigate("/cowork")
+        navigate("/insight")
+      }
+      return
+    }
+
+    if (tab === "make") {
+      const make = layout.lastSessionPerTab.make()
+      if (make?.id) {
+        navigate(`/make/${make.id}`)
+      } else {
+        navigate("/make")
+      }
+      return
+    }
+
+    if (tab === "pattern") {
+      const pattern = layout.lastSessionPerTab.pattern()
+      if (pattern?.id) {
+        navigate(`/pattern/${pattern.id}`)
+      } else {
+        navigate("/pattern")
       }
       return
     }
@@ -214,10 +242,22 @@ export function TitlebarSimple() {
                 if (hasActiveTab()) handleTabClick(item.key)
               }}
             >
-              <img
-                src={activeTab() === item.key ? TAB_ICON_MAP[item.key].selected : TAB_ICON_MAP[item.key].default}
-                alt=""
-                style={{ width: "18px", height: "18px", display: "block" }}
+              <span
+                style={{
+                  width: "18px",
+                  height: "18px",
+                  display: "block",
+                  "flex-shrink": "0",
+                  "background-color": activeTab() === item.key ? "#0A59F7" : "#666",
+                  "mask-image": `url(${TAB_ICON_MAP[item.key]})`,
+                  "-webkit-mask-image": `url(${TAB_ICON_MAP[item.key]})`,
+                  "mask-size": "contain",
+                  "-webkit-mask-size": "contain",
+                  "mask-repeat": "no-repeat",
+                  "-webkit-mask-repeat": "no-repeat",
+                  "mask-position": "center",
+                  "-webkit-mask-position": "center",
+                }}
               />
               <span>{item.label}</span>
             </button>

@@ -61,17 +61,24 @@ import { attached, inline, kind } from "./message-file"
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
   let valueRef: HTMLSpanElement | undefined
+  let widthAnimation: ReturnType<typeof animate> | undefined
+  let valueAnimation: ReturnType<typeof animate> | undefined
 
   onMount(() => {
     if (!props.animate) return
     requestAnimationFrame(() => {
       if (widthRef) {
-        animate(widthRef, { width: "auto" }, { type: "spring", visualDuration: 0.25, bounce: 0 })
+        widthAnimation = animate(widthRef, { width: "auto" }, { type: "spring", visualDuration: 0.25, bounce: 0 })
       }
       if (valueRef) {
-        animate(valueRef, { opacity: 1, filter: "blur(0px)" }, { duration: 0.32, ease: [0.16, 1, 0.3, 1] })
+        valueAnimation = animate(valueRef, { opacity: 1, filter: "blur(0px)" }, { duration: 0.32, ease: [0.16, 1, 0.3, 1] })
       }
     })
+  })
+
+  onCleanup(() => {
+    widthAnimation?.stop()
+    valueAnimation?.stop()
   })
 
   return (

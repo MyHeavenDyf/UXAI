@@ -164,6 +164,10 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
+  ipcMain.on("show-item-in-folder", (_event: IpcMainEvent, path: string) => {
+    shell.showItemInFolder(path)
+  })
+
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
     const res = await fetch(url)
     if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
@@ -186,6 +190,11 @@ export function registerIpcHandlers(deps: Deps) {
       return destPath
     },
   )
+
+  ipcMain.handle("write-file-buffer", async (_event: IpcMainInvokeEvent, path: string, buffer: ArrayBuffer) => {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, Buffer.from(buffer))
+  })
 
   ipcMain.handle("read-clipboard-image", () => {
     const image = clipboard.readImage()

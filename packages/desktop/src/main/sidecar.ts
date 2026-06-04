@@ -56,9 +56,10 @@ async function start(command: StartCommand) {
     prepareSidecarEnv(command.password, command.userDataPath)
     ensureLoopbackNoProxy()
     useSystemCertificates()
+    const { Database, JsonMigration, Log, Server, BuiltinMCP } = await import("virtual:opencode-server")
+    addMcpHostsToNoProxy(BuiltinMCP.BUILTIN_MCP_SERVERS)
     useEnvProxy()
-    const { Database, JsonMigration, Log, Server } = await import("virtual:opencode-server")
-    await Log.init({ level: "WARN" })
+    await Log.init({ level: "INFO" })
 
     if (command.needsMigration) {
       await JsonMigration.run(drizzle({ client: Database.Client().$client }), {
@@ -125,6 +126,24 @@ function ensureLoopbackNoProxy() {
 
   upsert("NO_PROXY")
   upsert("no_proxy")
+}
+
+function addMcpHostsToNoProxy(servers: Record<string, { url: string }>) {
+  const hosts = Object.values(servers)
+    .map((s) => { try { return new URL(s.url).hostname } catch { return undefined } })
+    .filter((h): h is string => !!h)
+  if (hosts.length === 0) return
+  for (const key of ["NO_PROXY", "no_proxy"]) {
+    const items = (process.env[key] ?? "")
+      .split(",")
+      .map((v: string) => v.trim())
+      .filter((v: string) => Boolean(v))
+    for (const host of hosts) {
+      if (items.some((v: string) => v.toLowerCase() === host)) continue
+      items.push(host)
+    }
+    process.env[key] = items.join(",")
+  }
 }
 
 function useSystemCertificates() {

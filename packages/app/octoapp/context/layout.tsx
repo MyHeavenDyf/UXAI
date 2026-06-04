@@ -1,5 +1,5 @@
 import { createStore, produce } from "solid-js/store"
-import { batch, createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { useGlobalSync } from "./global-sync"
@@ -52,13 +52,14 @@ type TabHandoff = {
 }
 
 type LastSessionPerTab = {
-  cowork?: {
-    id: string
-    type: "insight" | "make" | "pattern"
-  }
+  cowork?: { id: string }
+  make?: { id: string }
+  pattern?: { id: string }
   chat: Record<string, string>
   studio: Record<string, string>
 }
+
+type SidebarSource = "cowork" | "make"
 
 export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
 
@@ -274,9 +275,17 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     const [lastSessionPerTab, setLastSession] = createStore<LastSessionPerTab>({
       cowork: undefined,
+      make: undefined,
+      pattern: undefined,
       chat: {},
       studio: {},
     })
+
+    const [sidebarSource, setSidebarSource] = createStore<{ source: SidebarSource }>({
+      source: "cowork",
+    })
+
+    const [showOnboarding, setShowOnboarding] = createSignal(true)
 
     const MAX_SESSION_KEYS = 50
     const PENDING_MESSAGE_TTL_MS = 2 * 60 * 1000
@@ -559,6 +568,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     return {
       ready,
+      onboarding: {
+        show: showOnboarding,
+        hide() {
+          setShowOnboarding(false)
+        },
+      },
       handoff: {
         tabs: createMemo(() => store.handoff?.tabs),
         setTabs(dir: string, id: string) {
@@ -571,8 +586,16 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       },
       lastSessionPerTab: {
         cowork: createMemo(() => lastSessionPerTab.cowork),
-        setCowork(id: string, type: "insight" | "make" | "pattern") {
-          setLastSession("cowork", { id, type })
+        setCowork(id: string) {
+          setLastSession("cowork", { id })
+        },
+        make: createMemo(() => lastSessionPerTab.make),
+        setMake(id: string) {
+          setLastSession("make", { id })
+        },
+        pattern: createMemo(() => lastSessionPerTab.pattern),
+        setPattern(id: string) {
+          setLastSession("pattern", { id })
         },
         chat: (dir: string) => lastSessionPerTab.chat[dir],
         setChat(dir: string, id: string) {
@@ -581,6 +604,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         studio: (dir: string) => lastSessionPerTab.studio[dir],
         setStudio(dir: string, id: string) {
           setLastSession("studio", dir, id)
+        },
+      },
+      sidebarSource: {
+        get: createMemo(() => sidebarSource.source),
+        set(source: SidebarSource) {
+          setSidebarSource("source", source)
         },
       },
       projects: {

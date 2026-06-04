@@ -51,6 +51,57 @@
   --octo-dur-fast:   100ms;
   --octo-dur-normal: 200ms;
   --octo-ease:       cubic-bezier(0.4, 0, 0.2, 1);
+  --octo-ease-out:   cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes octo-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes octo-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.octo-split {
+  display: grid;
+  grid-template-columns: 460px 8px minmax(400px, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+.octo-split[data-focus="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.octo-split-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  position: relative;
+  user-select: none;
+}
+.octo-split-handle::after {
+  content: "";
+  position: absolute;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--octo-border-default) 15%,
+    var(--octo-border-default) 85%,
+    transparent 100%
+  );
+  transition: background var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-split-handle:hover::after {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--octo-brand-a40) 15%,
+    var(--octo-brand-a40) 85%,
+    transparent 100%
+  );
 }
 
 /* ── 组件覆盖 (Insight) ───────────────────────── */

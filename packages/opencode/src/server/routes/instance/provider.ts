@@ -32,10 +32,12 @@ export const ProviderRoutes = lazy(() =>
         jsonRequest("ProviderRoutes.list", c, function* () {
           const svc = yield* Provider.Service
           const connected = yield* svc.list()
+          const hasAuth = (p: Provider.Info) =>
+            Boolean(p.key) || p.source === "env" || p.source === "api" || Boolean((p.options as Record<string, unknown>)?.apiKey)
           return {
             all: Object.values(connected),
             default: Provider.defaultModelIDs(connected),
-            connected: Object.keys(connected),
+            connected: Object.keys(connected).filter((id) => hasAuth(connected[id as keyof typeof connected])),
           }
         }),
     )

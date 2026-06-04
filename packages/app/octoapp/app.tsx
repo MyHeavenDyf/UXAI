@@ -50,7 +50,6 @@ import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const ChatPage = lazy(() => import("@/pages/chat"))
-const CoworkPage = lazy(() => import("@/pages/cowork"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
@@ -79,7 +78,7 @@ const SessionRedirectRoute = () => {
   return <Navigate href={`../chat/${params.id ?? ""}`} />
 }
 const CoworkRedirectRoute = () => {
-  return <Navigate href="/cowork" />
+  return <Navigate href="/insight" />
 }
 
 function UiI18nBridge(props: ParentProps) {
@@ -416,7 +415,7 @@ export function AppInterface(props: {
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
                   <Route path="/" component={HomeRoute} />
-                  <Route path="/cowork" component={CoworkPage} />
+                  <Route path="/cowork" component={() => <Navigate href="/insight" />} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />

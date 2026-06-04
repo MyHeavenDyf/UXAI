@@ -461,6 +461,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const cfg = yield* config.get()
       const userMcpKeys = Object.keys(cfg.mcp ?? {}).filter((k) => !BuiltinMCP.BUILTIN_MCP_KEYS.has(k))
       const mcpTools = yield* mcp.toolsForAgent(input.agent.mcp, userMcpKeys)
+      yield* elog.info("mcp tools assembled", {
+        agent: input.agent.name,
+        agentMcp: input.agent.mcp,
+        userMcpKeys,
+        toolCount: Object.keys(mcpTools).length,
+        tools: Object.keys(mcpTools).join(","),
+      })
 
       for (const [key, item] of Object.entries(mcpTools)) {
         const execute = item.execute
