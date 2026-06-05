@@ -16,7 +16,6 @@ import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
-import PROMPT_OCTO_PATTERN from "./prompt/octo_pattern.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
@@ -261,24 +260,14 @@ export const layer = Layer.effect(
             native: false,
             skills: ["creative-assets"],
           },
-          octo_pattern: {
-            name: "octo_pattern",
-            description: "A2UI generative UI specialist. Produces structured A2UI JSON documents describing complete user interfaces.",
-            prompt: PROMPT_OCTO_PATTERN,
-            permission: Permission.merge(defaults, user),
-            options: {},
-            mode: "primary",
-            native: false,
-          },
           octo_pattern_intent: {
             name: "octo_pattern_intent",
-            description: "Pattern intent expansion agent. Analyzes user requirements and generates structured Pattern description blueprints.",
+            description: "A2UI generative UI specialist. Analyzes user requirements, expands into structured blueprints, and produces A2UI JSON documents.",
             prompt: PROMPT_OCTO_PATTERN_INTENT,
             permission: Permission.merge(defaults, user),
             options: {},
             mode: "primary",
             native: false,
-            hidden: true,
           },
           octo_pattern_module: {
             name: "octo_pattern_module",

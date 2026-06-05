@@ -66,7 +66,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
       const result = await client.session.list()
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       setPatternFetchedDir(d)
-      return data.filter(s => s.agent === "octo_pattern")
+      return data.filter(s => s.agent === "octo_pattern_intent")
     },
   )
 
@@ -108,7 +108,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "octo_pattern" }).then((result) => {
+    void client.session.create({ directory: dir, agent: "octo_pattern_intent" }).then((result) => {
       const session = result.data as Session | undefined
       if (session) navigate(`/pattern/${session.id}`)
     })

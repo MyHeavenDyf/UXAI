@@ -39,9 +39,9 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { loadDesignSystem } from "./utils/design-system-loader"
-import { buildModulePrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { buildIntentPrompt, buildModulePrompt, detectCatalog, detectA2UIJson, extractIntentJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 
-const AGENT_NAME = "octo_pattern"
+const AGENT_NAME = "octo_pattern_intent"
 const AGENT_MODULE = "octo_pattern_module"
 
 export default function PatternPage() {
@@ -182,7 +182,7 @@ function PatternContent() {
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
-  const [phase, setPhase] = createSignal<"idle" | "generating">("idle")
+  const [phase, setPhase] = createSignal<"idle" | "intent" | "module">("idle")
   const [detectedCatalog, setDetectedCatalog] = createSignal<ComponentCatalog>("desktop")
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
@@ -288,17 +288,70 @@ function PatternContent() {
     }
   })
 
+  function findIntentFromMessages(sessionId: string): Record<string, unknown> | null {
+    const messages = (sync.data.message[sessionId] ?? []) as Message[]
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.role !== "assistant") continue
+      const parts = (sync.data.part[msg.id] ?? []) as Array<{ type: string; text?: string }>
+      for (const p of [...parts].reverse()) {
+        if (p.type !== "text") continue
+        const intent = extractIntentJson(p.text ?? "")
+        if (intent) return intent
+      }
+    }
+    return null
+  }
+
   createEffect(() => {
     const status = sessionStatus().type
-    if (status !== "idle" || phase() !== "generating") return
+    const currentPhase = phase()
+    if (status !== "idle" || currentPhase !== "intent") return
+    const sessionId = params.id
+    if (!sessionId) return
+    const timer = setTimeout(() => {
+      const intent = findIntentFromMessages(sessionId)
+      if (intent) {
+        void sendModulePrompt(sessionId, intent)
+      } else {
+        setPhase("idle")
+        setSending(false)
+      }
+    }, 800)
+    onCleanup(() => clearTimeout(timer))
+  })
+
+  createEffect(() => {
+    const status = sessionStatus().type
+    if (status !== "idle" || phase() !== "module") return
     setPhase("idle")
     setSending(false)
   })
 
-  async function sendModulePrompt(sessionId: string, text: string) {
-    setPhase("generating")
+  async function sendIntentPrompt(sessionId: string, text: string) {
     const catalog = detectCatalog(text)
     setDetectedCatalog(catalog)
+    const intentPrompt = buildIntentPrompt({ query: text, catalog })
+    const fileParts: FilePartInput[] = attachments().map((a) => ({
+      type: "file",
+      mime: a.mime,
+      filename: a.filename,
+      url: a.dataUrl,
+    }))
+    const textPart: TextPartInput = { type: "text", text: intentPrompt }
+    const modelKey = activeModelKey()
+    if (!modelKey) return
+    await sdk.client.session.prompt({
+      sessionID: sessionId,
+      agent: AGENT_NAME,
+      ...(modelKey ? { model: modelKey } : {}),
+      parts: [textPart, ...fileParts],
+    })
+    setAttachments([])
+  }
+
+  async function sendModulePrompt(sessionId: string, intentJson: Record<string, unknown>) {
+    setPhase("module")
     let designPrompt: string | undefined
     const dsId = selectedDesignSystem()
     if (dsId) {
@@ -318,16 +371,10 @@ function PatternContent() {
       }
     }
     const modulePromptText = buildModulePrompt({
-      userInput: text,
-      catalog,
+      intentJson,
+      catalog: detectedCatalog(),
       designSystemPrompt: designPrompt,
     })
-    const fileParts: FilePartInput[] = attachments().map((a) => ({
-      type: "file",
-      mime: a.mime,
-      filename: a.filename,
-      url: a.dataUrl,
-    }))
     const textPart: TextPartInput = { type: "text", text: modulePromptText }
     const modelKey = activeModelKey()
     if (!modelKey) return
@@ -335,9 +382,8 @@ function PatternContent() {
       sessionID: sessionId,
       agent: AGENT_MODULE,
       ...(modelKey ? { model: modelKey } : {}),
-      parts: [textPart, ...fileParts],
+      parts: [textPart],
     })
-    setAttachments([])
   }
 
   async function handleSubmit() {
@@ -357,7 +403,8 @@ function PatternContent() {
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
-      await sendModulePrompt(sid, text)
+      setPhase("intent")
+      await sendIntentPrompt(sid, text)
     } catch (err) {
       console.error("[PatternPage] handleSubmit failed", err)
       setPhase("idle")
