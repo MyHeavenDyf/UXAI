@@ -350,6 +350,7 @@ button[title="版本历史"] {
   line-height: 22px;
   border-radius: 8px;
   width: 100%;
+  text-align: left;
 }
 
 [data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"][data-highlighted],

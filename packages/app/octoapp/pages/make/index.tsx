@@ -115,7 +115,7 @@ function MakeContent() {
       if (detail && detail.sessionID === params.id) {
         setOverrideTitle(detail.title)
       }
-      void refetchSession().then(() => setOverrideTitle(null))
+      void Promise.resolve(refetchSession()).then(() => setOverrideTitle(null))
     }
     window.addEventListener("octo:make:session-renamed", handler)
     onCleanup(() => window.removeEventListener("octo:make:session-renamed", handler))
@@ -133,7 +133,7 @@ function MakeContent() {
   /** 打开标题编辑模式 */
   function openTitleEditor() {
     const sInfo = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? sInfo?.title ?? info()?.title) ?? "" })
+    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
@@ -727,7 +727,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(overrideTitle() ?? sessionInfo()?.title ?? info()?.title) ?? "Octo Design"}
+                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfo()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
