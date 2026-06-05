@@ -1,7 +1,7 @@
 {
   "opencode": {
     "id": "opencode",
-    "name": "Octo AI",
+    "name": "Octo Agent",
     "env": ["OPENCODE_API_KEY"],
     "npm": "@ai-sdk/openai-compatible",
     "api": "http://octoai-llm.ucd.huawei.com/v1",

@@ -65,7 +65,7 @@ export function OctoTopbar(): JSX.Element {
         style={{ "min-width": "160px", "-webkit-app-region": "no-drag" }}
       >
         <img src="/OctoLogo.svg" alt="" style={{ width: "24px", height: "24px" }} />
-        <span class="font-semibold text-[17px] text-[#191919] leading-none select-none">Octo AI</span>
+        <span class="font-semibold text-[17px] text-[#191919] leading-none select-none">Octo Agent</span>
       </div>
 
       <div

@@ -92,7 +92,7 @@ export type Provider = Schema.Schema.Type<typeof Provider>
 export const OPENCODE_FALLBACK: Record<string, Provider> = {
   opencode: {
     id: "opencode",
-    name: "Octo AI",
+    name: "Octo Agent",
     env: ["OPENCODE_API_KEY"],
     npm: "@ai-sdk/openai-compatible",
     api: "http://octoai-llm.ucd.huawei.com/v1",

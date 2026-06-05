@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://opencode.ai/desktop-theme.json",
-  "title": "Octo AI Desktop Theme",
-  "description": "A theme definition for the Octo AI desktop application",
+  "title": "Octo Agent Desktop Theme",
+  "description": "A theme definition for the Octo Agent desktop application",
   "type": "object",
   "required": ["name", "id", "light", "dark"],
   "properties": {

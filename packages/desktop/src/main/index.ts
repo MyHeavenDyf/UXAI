@@ -21,9 +21,9 @@ try {
 process.env.OCTO_DISABLE_EMBEDDED_WEB_UI = "true"
 
 const APP_NAMES: Record<string, string> = {
-  dev: "Octo AI Dev",
-  beta: "Octo AI Beta",
-  prod: "Octo AI",
+  dev: "Octo Agent Dev",
+  beta: "Octo Agent Beta",
+  prod: "Octo Agent",
 }
 const APP_IDS: Record<string, string> = {
   dev: "ai.octo.desktop.dev",
@@ -33,7 +33,7 @@ const APP_IDS: Record<string, string> = {
 const TEST_ONBOARDING = process.env.OCTO_TEST_ONBOARDING === "1"
 const appId = app.isPackaged ? APP_IDS[CHANNEL] : "ai.octo.desktop.dev"
 const onboardingTestRoot = setupOnboardingTestEnv()
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Octo AI Dev")
+app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "Octo Agent Dev")
 app.setAppUserModelId(appId)
 app.setPath("userData", onboardingTestRoot ? join(onboardingTestRoot, "desktop") : join(app.getPath("appData"), appId))
 if (onboardingTestRoot) app.setPath("sessionData", join(onboardingTestRoot, "session"))

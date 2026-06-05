@@ -32,7 +32,7 @@ function tauriAppId() {
   return app.isPackaged ? TAURI_APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"
 }
 
-// Old appId values before rename to "Octo AI"
+// Old appId values before rename to "Octo Agent"
 const OLD_APP_IDS: Record<string, string> = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",

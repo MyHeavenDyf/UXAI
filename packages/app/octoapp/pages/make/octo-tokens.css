@@ -3,7 +3,7 @@
  * 与上游 opencode token 完全隔离，统一用 --octo- 前缀。
  * 所有 Octo 页面和 Shell 组件通过 var(--octo-*) 引用，不直接写颜色值。
  */
-:root {
+.octo-make {
   /* ── Brand ─────────────────────────────── */
   --octo-brand:        #0a59f7;
   --octo-brand-hover:  #0950de;

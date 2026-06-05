@@ -1,6 +1,6 @@
-# Octo AI Desktop
+# Octo Agent Desktop
 
-The Octo AI Desktop app, built with Electron (electron-vite + electron-builder).
+The Octo Agent Desktop app, built with Electron (electron-vite + electron-builder).
 
 ## IPC Handlers (`src/main/ipc.ts`)
 

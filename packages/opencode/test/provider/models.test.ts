@@ -147,7 +147,7 @@ describe("ModelsDev Service", () => {
       // ensureOpencode guarantees opencode always exists
       expect(result.opencode).toBeDefined()
       expect(result.opencode.id).toBe("opencode")
-      expect(result.opencode.name).toBe("Octo AI")
+      expect(result.opencode.name).toBe("Octo Agent")
       const final = yield* Ref.get(state)
       expect(final.calls).toEqual([])
     }),
