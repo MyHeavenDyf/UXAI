@@ -1,4 +1,4 @@
-import { createSignal, type JSX } from "solid-js"
+import { createSignal, Show, type JSX } from "solid-js"
 import { InsightSessionList } from "./components/session-list"
 
 /**
@@ -57,11 +57,16 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
         "border-right": "1px solid var(--octo-border-default, #E5E7EB)",
       }}
     >
-      {/* 顶部槽:项目/产品切换器(D5,留空待宿主注入) */}
-      {props.top}
+      {/* 顶部槽:项目/产品切换器(D5,留空待宿主注入)。
+          包同事 _shell/sidebar 的 shrink-0 px-[12px] pt-[12px] 排版,
+          与 make / _shell 视觉一致(ProjectInfo 与 新建按钮 横向对齐) */}
+      <Show when={props.top}>
+        <div class="shrink-0 flex flex-col px-[12px] pt-[12px]">{props.top}</div>
+      </Show>
 
-      {/* 会话列表 */}
-      <div class="flex-1 min-h-0 overflow-y-auto px-[12px] py-[6px]" style={{ "scrollbar-width": "none" }}>
+      {/* 会话列表 — px 与 top 槽对齐;去掉 py-[6px],由 InsightSessionList 内 新建 按钮的
+          margin-bottom 自然控制间距,避免与 ProjectInfo 自带 margin-bottom 叠加显得松 */}
+      <div class="flex-1 min-h-0 overflow-y-auto px-[12px]" style={{ "scrollbar-width": "none" }}>
         <InsightSessionList />
       </div>
 

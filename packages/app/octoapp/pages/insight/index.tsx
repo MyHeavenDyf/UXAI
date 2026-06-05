@@ -29,6 +29,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar } from "./sidebar"
+import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -964,7 +965,11 @@ function InsightContent() {
       <Toast.Region />
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
-        <InsightSidebar />
+        {/* top 槽注入 UXAI 自家的项目/产品切换器(走 ProjectInfo → DialogProjectOnboarding,
+            与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
+            octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
+            两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
+        <InsightSidebar top={<ProjectInfo />} />
 
         {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
         <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
