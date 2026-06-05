@@ -760,7 +760,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
             <Show when={hasContent()}>
               <div
                 class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
+                style={{ padding: "12px 24px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>

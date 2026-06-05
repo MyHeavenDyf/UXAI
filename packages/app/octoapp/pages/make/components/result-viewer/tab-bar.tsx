@@ -15,6 +15,7 @@ export function TabBar(props: {
       style={{
         "border-bottom": "1px solid var(--octo-border-divider)",
         "scrollbar-width": "none",
+        height: "56px",
         background: "var(--octo-surface-page)",
       }}
     >
