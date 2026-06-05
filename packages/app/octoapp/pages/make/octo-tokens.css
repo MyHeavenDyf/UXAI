@@ -92,30 +92,10 @@
   cursor: col-resize;
   position: relative;
   user-select: none;
+  background-color: #fff;
+  border-left: 1px solid rgba(0, 0, 0, 0.1);
 }
-.octo-split-handle::after {
-  content: "";
-  position: absolute;
-  width: 2px;
-  height: 100%;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    var(--octo-border-default) 15%,
-    var(--octo-border-default) 85%,
-    transparent 100%
-  );
-  transition: background var(--octo-dur-fast) var(--octo-ease);
-}
-.octo-split-handle:hover::after {
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    var(--octo-brand-a40) 15%,
-    var(--octo-brand-a40) 85%,
-    transparent 100%
-  );
-}
+
 
 /* ── Tab bar ────────────────────────────── */
 
