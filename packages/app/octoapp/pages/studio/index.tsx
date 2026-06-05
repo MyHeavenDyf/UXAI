@@ -56,7 +56,6 @@ const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
   "image.cutout",
   "image.inpaint",
   "image.outpaint",
-  "image.fusion",
 ])
 const STUDIO_GENERATION_TIMEOUT_MS = 180_000
 
@@ -243,6 +242,7 @@ export default function StudioPage() {
   let fileInputRef!: HTMLInputElement
   let conversationScrollRef!: HTMLDivElement
   let scrollFrame = 0
+  let pendingEditorSessionID: string | undefined
   const blobUrlCache = new Map<string, string>()
 
   function displayUrl(url: string) {
@@ -655,21 +655,25 @@ export default function StudioPage() {
     on(
       () => params.id,
       (id) => {
+        const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
+        if (preserveEditorEntry) pendingEditorSessionID = undefined
         if (!id && !sending() && !pendingResult()) {
           setStatus("idle")
           setPendingResult(undefined)
-          setEditEntryTurn(undefined)
-          setCapability("image.generate")
         }
         if (id && !sending()) {
           setStatus("idle")
           setPendingResult(undefined)
         }
+        if (!preserveEditorEntry) {
+          setEditEntryTurn(undefined)
+          setCapability("image.generate")
+        }
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
         setWorkspaceImage(undefined)
-        setWorkspaceUploadRequested(false)
-        setMode("preview")
+        setWorkspaceUploadRequested(preserveEditorEntry)
+        setMode(preserveEditorEntry ? mode() : "preview")
         setAssets([])
         setPrompt("")
       },
@@ -937,6 +941,7 @@ export default function StudioPage() {
     if (!nextMode) return
     batch(() => {
       setCapability(value)
+      setPrompt("")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(true)
       setSelectedResultId(undefined)
@@ -958,6 +963,7 @@ export default function StudioPage() {
         createdAt: Date.now(),
         isLatest: true,
       })
+      setPrompt("")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(true)
       setSelectedResultId(undefined)
@@ -968,6 +974,7 @@ export default function StudioPage() {
     createStudioSession(label)
       .then((sessionID) => {
         if (!sessionID) return
+        pendingEditorSessionID = sessionID
         navigate(`/${slug()}/studio/${sessionID}`)
         requestAnimationFrame(() => openEditorEntry(value))
       })
@@ -1962,6 +1969,7 @@ function StudioComposer(props: {
   let pointerDownOpenMenu: typeof props.openMenu = null
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
+  const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
 
   function handlePaste(event: ClipboardEvent) {
     if (!isImageGeneration()) return
@@ -2039,7 +2047,7 @@ function StudioComposer(props: {
             onPaste={handlePaste}
             placeholder="上传参考图、输入文字，描述你想生成的图片。"
             class="studio-composer-input"
-            disabled={props.status === "running" || props.status === "submitting"}
+            disabled={isEditingCapability() || props.status === "running" || props.status === "submitting"}
           />
         </div>
 
@@ -2358,28 +2366,27 @@ function StudioWorkspaceUpload(props: { onUpload: (files: File[]) => void }): JS
   let inputRef!: HTMLInputElement
 
   return (
-    <div class="studio-workspace-upload">
-      <button
-        type="button"
-        class="studio-workspace-upload-target"
-        onClick={() => inputRef.click()}
-        onDragOver={(event) => {
-          event.preventDefault()
-          event.currentTarget.classList.add("dragging")
-        }}
-        onDragLeave={(event) => {
-          event.currentTarget.classList.remove("dragging")
-        }}
-        onDrop={(event) => {
-          event.preventDefault()
-          event.currentTarget.classList.remove("dragging")
-          props.onUpload(Array.from(event.dataTransfer?.files ?? []))
-        }}
-      >
+    <div
+      class="studio-workspace-upload"
+      onClick={() => inputRef.click()}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.currentTarget.classList.add("dragging")
+      }}
+      onDragLeave={(event) => {
+        event.currentTarget.classList.remove("dragging")
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        event.currentTarget.classList.remove("dragging")
+        props.onUpload(Array.from(event.dataTransfer?.files ?? []))
+      }}
+    >
+      <div class="studio-workspace-upload-target">
         <span class="studio-workspace-upload-plus" />
         <span class="studio-workspace-upload-title">上传图片</span>
         <span class="studio-workspace-upload-copy">本地上传/拖拽图片上传</span>
-      </button>
+      </div>
       <input
         ref={inputRef!}
         type="file"
@@ -2606,7 +2613,7 @@ function StudioCutoutEditor(props: {
           <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
           <button
             type="button"
-            class="studio-cutout-create"
+            class="studio-hd-create"
             disabled={props.busy}
             onClick={props.onSubmit}
           >
@@ -3013,7 +3020,7 @@ function StudioInpaintEditor(props: {
               type="button"
               disabled={!hasDrawing() || props.busy}
               onClick={submit}
-              class="studio-inpaint-create"
+              class="studio-hd-create"
             >
               一键生成
             </button>
@@ -3297,7 +3304,7 @@ function StudioOutpaintEditor(props: {
                 ratio: props.aspectRatio,
               },
             })}
-            class="studio-enlarging-create disabled:opacity-45"
+            class="studio-hd-create disabled:opacity-45"
           >
             一键生成
           </button>
