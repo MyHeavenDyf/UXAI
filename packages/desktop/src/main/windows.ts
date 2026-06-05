@@ -86,7 +86,7 @@ export function createMainWindow() {
     minWidth: 1024,
     minHeight: 576,
     show: false,
-    title: "Octo Agent",
+    title: "Octo AI",
     icon: iconPath(),
     backgroundColor,
     ...(process.platform === "darwin"

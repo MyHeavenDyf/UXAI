@@ -11,12 +11,12 @@ export const dict = {
   "desktop.updater.checkFailed.title": "Update Check Failed",
   "desktop.updater.checkFailed.message": "Failed to check for updates",
   "desktop.updater.none.title": "No Update Available",
-  "desktop.updater.none.message": "You are already using the latest version of Octo Agent",
+  "desktop.updater.none.message": "You are already using the latest version of Octo AI",
   "desktop.updater.downloadFailed.title": "Update Failed",
   "desktop.updater.downloadFailed.message": "Failed to download update",
   "desktop.updater.downloaded.title": "Update Downloaded",
   "desktop.updater.downloaded.prompt":
-    "Version {{version}} of Octo Agent has been downloaded, would you like to install it and relaunch?",
+    "Version {{version}} of Octo AI has been downloaded, would you like to install it and relaunch?",
   "desktop.updater.installFailed.title": "Update Failed",
   "desktop.updater.installFailed.message": "Failed to install update",
 

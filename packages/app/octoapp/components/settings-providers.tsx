@@ -48,7 +48,7 @@ export const SettingsProviders: Component = () => {
     const ids = new Set(items.map((p) => p.id))
     for (const pid of ["opencode", "bpit"]) {
       if (!connectedIDs.has(pid) && !ids.has(pid)) {
-        items.push({ id: pid, name: pid === "opencode" ? "Octo Agent" : pid } as ProviderItem)
+        items.push({ id: pid, name: pid === "opencode" ? "Octo AI" : pid } as ProviderItem)
       }
     }
     items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))

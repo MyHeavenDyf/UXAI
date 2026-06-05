@@ -169,7 +169,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         Boolean(yield* dep.auth(input.id)) ||
         Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
 
-      input.name = "Octo Agent"
+      input.name = "Octo AI"
 
       // ===== 原硬编码方式（已注释，保留供参考） =====
       // const createModel = (id: string, name: string): Model => ({
@@ -1202,7 +1202,7 @@ const layer: Layer.Layer<
           // @ts-expect-error
           providers[providerID] = mergeDeep(match ?? {
             id: "opencode",
-            name: "Octo Agent",
+            name: "Octo AI",
             env: ["OPENCODE_API_KEY"],
             models: {},
           }, provider)
@@ -1403,7 +1403,7 @@ const layer: Layer.Layer<
           // For opencode/bpit, create minimal placeholder if missing from database
           const providerData = data ?? {
             id: providerID,
-            name: providerID === "opencode" ? "Octo Agent" : "BPIT",
+            name: providerID === "opencode" ? "Octo AI" : "BPIT",
             env: [providerID === "opencode" ? "OPENCODE_API_KEY" : "BPIT_API_KEY"],
             models: {},
           }
@@ -1545,7 +1545,7 @@ const layer: Layer.Layer<
         if (model.providerID === "opencode" && options["apiKey"] === undefined) {
           throw new AuthError({
             providerID: "opencode",
-            message: "Octo Agent 需要配置 API Key，请在设置中输入您的 API Key 后再使用。",
+            message: "Octo AI 需要配置 API Key，请在设置中输入您的 API Key 后再使用。",
           })
         }
         if (model.headers)

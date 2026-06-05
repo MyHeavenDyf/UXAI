@@ -133,7 +133,7 @@ function ResultViewerEmpty(): JSX.Element {
     <div class="flex flex-col items-center justify-center h-full text-center px-8">
       <img src={resultEmptyUrl} alt="" style={{ width: "200px", height: "200px", "margin-bottom": "48px" }} />
       <div style={{ "font-size": "20px", "font-weight": "700", color: "rgba(0,0,0,0.9)", "margin-bottom": "12px" }}>
-        Octo Agent
+        Octo AI
       </div>
       <div style={{ "font-size": "16px", color: "rgba(0,0,0,0.6)",  "line-height": "1.6" }}>
         告诉我您的目标，我将为您深度调研并一键生成设计方案。

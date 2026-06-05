@@ -1,4 +1,4 @@
-# 5月11日 Provider 替换为自建 Octo Agent
+# 5月11日 Provider 替换为自建 Octo AI
 
 **日期**: 2026-05-11
 **分支**: dev
@@ -7,12 +7,12 @@
 
 ## 一、目标
 
-将 opencode Provider 的默认免费模型替换为自建 Octo Agent 模型服务，要求：
+将 opencode Provider 的默认免费模型替换为自建 Octo AI 模型服务，要求：
 
 - 只显示 4 个预配置模型：GLM-5、MiniMax-M2.5、MiniMax-M2.5-W8A8、Qwen3.5-27B-Claude-4.6
 - 所有模型 API 请求发往 `http://octoai-llm.ucd.huawei.com/v1`
 - 用户需填写 API Key 后才能使用，Key 保存到全局配置文件持久化
-- 桌面端设置页可配置/修改/断开 Octo Agent 的 API Key
+- 桌面端设置页可配置/修改/断开 Octo AI 的 API Key
 - 不影响用户自行添加自定义 Provider 的能力
 
 ---
@@ -30,7 +30,7 @@
 
 ```typescript
 // 关键改动：
-input.name = "Octo Agent"
+input.name = "Octo AI"
 
 const createModel = (id: string, name: string): Model => ({
   id: ModelID.make(id),
@@ -69,7 +69,7 @@ return { autoload: true, options: {} }
 // 旧：
 const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro"]
 
-// 新：只保留 Octo Agent 的 4 个模型，排序适配 sortBy "desc" 方向（索引越大优先级越高）
+// 新：只保留 Octo AI 的 4 个模型，排序适配 sortBy "desc" 方向（索引越大优先级越高）
 const priority = ["MiniMax-M2.5-W", "Qwen3.5", "GLM-5", "MiniMax-M2.5"]
 ```
 
@@ -101,7 +101,7 @@ const priority = ["MiniMax-M2.5-W", "Qwen3.5", "GLM-5", "MiniMax-M2.5"]
 const connected = createMemo(() => providers.connected())
 ```
 
-**新增 Octo Agent 配置 UI：**
+**新增 Octo AI 配置 UI：**
 
 - `hasApiKey(providerID)` — 检查全局配置中是否已有 API Key
 - `disconnectOpencode()` — 断开时同时清除 auth store 和全局配置中的 apiKey
@@ -132,7 +132,7 @@ if (props.provider === "opencode") {
 
 ```typescript
 // 旧：显示 OpenCode Zen 相关说明和链接
-// 新：显示 Octo Agent 自建服务说明
+// 新：显示 Octo AI 自建服务说明
 <Match when={provider().id === "opencode"}>
   <div>{language.t("provider.connect.octoAi.description")}</div>
 </Match>
@@ -146,7 +146,7 @@ if (props.provider === "opencode") {
 
 | Key | 中文 | English |
 |-----|------|---------|
-| `provider.connect.octoAi.description` | Octo Agent 提供自建的高性能 AI 模型服务，输入你的 API 密钥即可开始使用。 | Octo Agent provides self-hosted high-performance AI model services. Enter your API key to get started. |
+| `provider.connect.octoAi.description` | Octo AI 提供自建的高性能 AI 模型服务，输入你的 API 密钥即可开始使用。 | Octo AI provides self-hosted high-performance AI model services. Enter your API key to get started. |
 
 ---
 
@@ -167,7 +167,7 @@ if (props.provider === "opencode") {
 
 ```
 用户首次使用（无 Key）:
-  1. Octo Agent 显示在"已连接"provider 列表
+  1. Octo AI 显示在"已连接"provider 列表
   2. 用户点击"连接" → DialogConnectProvider 弹出 API Key 输入框
   3. 输入 Key → globalSync.updateConfig() 保存到 ~/.config/opencode/opencode.json
   4. 保存格式: { "provider": { "opencode": { "options": { "apiKey": "sk-xxx" } } } }
@@ -175,12 +175,12 @@ if (props.provider === "opencode") {
   6. resolveSDK 使用 config 中的 apiKey 发起请求
 
 用户修改 Key:
-  1. 设置 → Providers → Octo Agent → 点击"编辑"
+  1. 设置 → Providers → Octo AI → 点击"编辑"
   2. DialogConnectProvider 弹出，输入新 Key
   3. updateConfig() 覆盖旧值
 
 用户断开:
-  1. 设置 → Providers → Octo Agent → 点击"断开连接"
+  1. 设置 → Providers → Octo AI → 点击"断开连接"
   2. 清除 auth store + 清除 config 中的 apiKey
   3. 服务端重载 → 无 Key → provider 显示但模型不可用
 ```
@@ -191,6 +191,6 @@ if (props.provider === "opencode") {
 
 - 类型检查: `bunx tsgo --noEmit` opencode + app 包均通过
 - 构建: `bun script/build-node.ts` 成功
-- API 验证: `/provider` 端点返回 Octo Agent + 4 个模型，API URL 均为 `http://octoai-llm.ucd.huawei.com/v1`
+- API 验证: `/provider` 端点返回 Octo AI + 4 个模型，API URL 均为 `http://octoai-llm.ucd.huawei.com/v1`
 - 用户自定义 provider（zhipu/myprovider 等）不受影响
-- 桌面端测试: Octo Agent 显示在"已连接"区域，可配置 API Key
+- 桌面端测试: Octo AI 显示在"已连接"区域，可配置 API Key

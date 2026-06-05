@@ -471,4 +471,4 @@ import { Foo } from "@/foo/foo"
 1. 在 `packages/opencode/package.json` 添加 `"predev": "bun script/generate.ts"`，确保 CLI dev 也先生成快照
 2. 在 `models.ts` `populate()` 和 `provider.ts` opencode custom loader 中添加 `api.json` 兜底：当快照不可用时直接 `import("../../api.json")` 读取模型定义
 
-**数据源**: `packages/opencode/api.json` 是 Octo Agent provider 的唯一模型数据源（4 个模型），不再从网络获取。
+**数据源**: `packages/opencode/api.json` 是 Octo AI provider 的唯一模型数据源（4 个模型），不再从网络获取。
