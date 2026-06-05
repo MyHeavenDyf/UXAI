@@ -8,8 +8,9 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   createEffect,
@@ -22,25 +23,25 @@ import {
   Show,
   type JSX,
 } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
+import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
-import { ModelsProvider, useModels } from "@/context/models"
+
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
+import { octoSessionsDir, useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
-import { IconSend } from "./icons"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -49,7 +50,6 @@ import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { Persist, persisted } from "@/utils/persist"
 
 export default function MakePage() {
   const globalSync = useGlobalSync()
@@ -60,11 +60,9 @@ export default function MakePage() {
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
-            <ModelsProvider>
-              <LocalProvider>
-                <MakeContent />
-              </LocalProvider>
-            </ModelsProvider>
+            <LocalProvider>
+              <MakeContent />
+            </LocalProvider>
           </SyncProvider>
         </SDKProvider>
       )}
@@ -81,52 +79,24 @@ function MakeContent() {
   const language = useLanguage()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
+
+  const projectDir = useProjectDir()
 
   const configDir = () => {
     const config = globalSync.data.path.config
     return config ? octoSessionsDir(config) : ""
   }
 
-  // ── 模型选择（与 Chat/Studio 隔离，workspace 级持久化） ────
-  const models = useModels()
-  const [modelStore, setModelStore] = persisted(
-    Persist.workspace(sdk.directory || "", "make-model"),
-    createStore<{ providerID: string; modelID: string } | Record<string, never>>({}),
-  )
-  const selectedModelKey = createMemo<{ providerID: string; modelID: string } | null>(
-    () => {
-      const s = modelStore
-      return "providerID" in s && "modelID" in s ? s as { providerID: string; modelID: string } : null
-    },
-  )
-  const modelState = {
-    list: () => models.list(),
-    visible: (key: { modelID: string; providerID: string }) => models.visible(key),
-    current: () => {
-      const key = selectedModelKey()
-      if (!key) return undefined
-      return models.find(key) ?? undefined
-    },
-    set: (key: { modelID: string; providerID: string } | undefined) => {
-      if (key) {
-        setModelStore(reconcile({ providerID: key.providerID, modelID: key.modelID }))
-      } else {
-        setModelStore(reconcile({}))
-      }
-    },
-    ready: models.ready,
-    recent: (() => []) as ReturnType<typeof useLocal>["model"]["recent"],
-    variant: {
-      configured: () => undefined as string | undefined,
-      selected: () => undefined as string | undefined,
-      current: () => undefined as string | undefined,
-      list: () => [] as string[],
-      set: (_value: string | undefined) => {},
-      cycle: () => {},
-    },
-    cycle: () => {},
-    setVisibility: models.setVisibility,
-  }
+  // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
+  const local = useLocal()
+  const currentModel = () => local.model.current()
+
+  const activeModelKey = createMemo(() => {
+    const m = currentModel()
+    if (!m) return null
+    return { providerID: m.provider.id, modelID: m.id }
+  })
 
   // 当前 session 元数据（标题等）
   const [sessionInfo, { refetch: refetchSession }] = createResource(
@@ -142,6 +112,19 @@ function MakeContent() {
     },
   )
 
+  const [overrideTitle, setOverrideTitle] = createSignal<string | null>(null)
+  createEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sessionID: string; title: string } | undefined
+      if (detail && detail.sessionID === params.id) {
+        setOverrideTitle(detail.title)
+      }
+      void Promise.resolve(refetchSession()).then(() => setOverrideTitle(null))
+    }
+    window.addEventListener("octo:make:session-renamed", handler)
+    onCleanup(() => window.removeEventListener("octo:make:session-renamed", handler))
+  })
+
   // 标题编辑状态
   const [titleState, setTitleState] = createStore({
     editing: false,
@@ -151,12 +134,14 @@ function MakeContent() {
   })
   let titleRef: HTMLInputElement | undefined
 
+  /** 打开标题编辑模式 */
   function openTitleEditor() {
-    const info = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
+    const sInfo = sessionInfo()
+    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? sInfo?.title ?? info()?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
+  /** 保存标题编辑 */
   async function saveTitleEditor() {
     const id = params.id
     if (!id) return
@@ -172,6 +157,7 @@ function MakeContent() {
   }
 
   // 删除对话
+  /** 删除会话 */
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
@@ -181,28 +167,74 @@ function MakeContent() {
     }
   }
 
+  /** 弹出删除确认弹框 */
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
+    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
   }
 
-createEffect(
+// 监听项目切换，清理不属于新项目的 session
+  createEffect(
     on(
-      () => params.id,
-      (id) => {
-        if (id) layout.lastSessionPerTab.setMake(id)
-        setSending(false)
+      projectDir,
+      (newDir, oldDir) => {
+        if (!newDir || !oldDir || newDir === oldDir) return
+        
+        const currentId = params.id
+        if (!currentId) return
+
+        // 检查当前 session 是否属于新项目
+        const client = globalSDK.createClient({ directory: newDir })
+        void client.session.list().then((result) => {
+          const sessions = (result.data ?? []) as Session[]
+          const belongsToNewProject = sessions.some(s => s.id === currentId && s.agent === "octo_make")
+          
+          if (!belongsToNewProject) {
+            // 清理旧 session 数据
+            const [store, setStore] = globalSync.child(sdk.directory)
+            dropSessionCaches(store, [currentId])
+            setStore(
+              produce((draft) => {
+                delete draft.message[currentId]
+                delete draft.session_status[currentId]
+              }),
+            )
+            
+            // 清除 lastSessionPerTab 记录，防止切换回来时恢复
+            layout.lastSessionPerTab.setMake("")
+            
+            // 导航到空态
+            navigate("/make")
+          }
+        })
       },
     ),
   )
 
-  createEffect(
+createEffect(
     on(
       () => params.id,
-      (id) => {
-        if (!id) return
-        void sync.session.sync(id)
+      (newId, oldId) => {
+        if (oldId && oldId !== newId) {
+          const [store, setStore] = globalSync.child(sdk.directory)
+          dropSessionCaches(store, [oldId])
+          setStore(
+            produce((draft) => {
+              delete draft.message[oldId]
+              delete draft.session_status[oldId]
+            }),
+          )
+        }
+
+        if (newId) {
+          layout.lastSessionPerTab.setMake(newId)
+          void sync.session.sync(newId)
+        }
+
+        setSending(false)
+        setDeltaLog([])
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -216,15 +248,33 @@ createEffect(
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
       if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
-      if (e.type === "message.part.delta") return
-      console.log(`[make:event] ${e.type}`, props)
+      
+      if (e.type === "message.part.delta") {
+        setLastDeltaTime(Date.now())
+        setBlockTime(0)
+        setDeltaLog(prev => [
+          ...prev.slice(-19),
+          {
+            timestamp: Date.now(),
+            eventType: e.type,
+            messageID: props?.messageID as string,
+            partID: props?.partID as string,
+            field: (props as Record<string, unknown>)?.field as string,
+            delta: (props as Record<string, unknown>)?.delta as string,
+          }
+        ])
+      } else {
+        console.log(`[make:event] ${e.type}`, props)
+      }
     })
     onCleanup(unsub)
   })
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
+  const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
 
+  /** 加载子会话数据 */
   function ensureChildSession(subSessionID: string) {
     if (!subSessionID || loadedChildSessions.has(subSessionID)) return
     loadedChildSessions.add(subSessionID)
@@ -238,20 +288,15 @@ createEffect(
     return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
+  const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
     return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => {
-    if (sessionStatus().type !== "idle") return true
-    const id = params.id
-    if (!id) return false
-    return ((sync.data.message[id] ?? []) as Message[]).some(
-      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
-    )
-  })
+  const isBusy = createMemo(() => sessionStatus().type !== "idle")
   // ── 执行计时器 ────────────────────────────────────────────
   const [elapsedText, setElapsedText] = createSignal("")
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
@@ -278,6 +323,26 @@ createEffect(
       setElapsedText("")
     }
     onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
+  })
+
+  // ── 阻塞检测计时器 ────────────────────────────────────────────
+  const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
+  const [blockTime, setBlockTime] = createSignal(0)
+  let blockTimer: ReturnType<typeof setInterval> | undefined
+  createEffect(() => {
+    if (isBusy()) {
+      blockTimer = setInterval(() => {
+        const blockedMs = Date.now() - lastDeltaTime()
+        if (blockedMs > 3000) {
+          setBlockTime(Math.floor(blockedMs / 1000))
+        }
+      }, 1000)
+    } else {
+      if (blockTimer) { clearInterval(blockTimer); blockTimer = undefined }
+      setLastDeltaTime(Date.now())
+      setBlockTime(0)
+    }
+    onCleanup(() => { if (blockTimer) clearInterval(blockTimer) })
   })
 
   const [prompt, setPrompt] = createSignal("")
@@ -344,34 +409,39 @@ createEffect(
 
   let dragCleanup: (() => void) | null = null
 
+  /** 聊天面板分隔线拖拽调整宽度 */
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
     const startX = e.clientX
     const startWidth = chatWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    document.body.style.overflow = "hidden"
-    const resetBody = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
-      dragCleanup = null
-    }
+    
+    const overlay = document.createElement("div")
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      cursor: col-resize;
+      background: transparent;
+    `
+    document.body.appendChild(overlay)
+    
     const onMove = (ev: MouseEvent) => {
       setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
-      resetBody()
+      overlay.remove()
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+      dragCleanup = null
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+    overlay.addEventListener("mousemove", onMove)
+    overlay.addEventListener("mouseup", onUp)
     dragCleanup = () => {
-      resetBody()
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      overlay.remove()
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+      dragCleanup = null
     }
   }
 
@@ -383,6 +453,7 @@ createEffect(
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
 
+  /** 刷新版本快照列表 */
   function refreshSnapshots() {
     setSnapshotList(snapshotStore.snapshots())
     setSnapshotVersion((v) => v + 1)
@@ -394,6 +465,7 @@ createEffect(
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
 
+  /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
@@ -417,6 +489,7 @@ createEffect(
 
   // ── session 操作 ──────────────────────────────────────────
 
+  /** 创建新 session 并导航 */
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = sdk.directory
     console.log("[MakePage] createAndNavigate dir:", dir)
@@ -438,6 +511,7 @@ createEffect(
     return undefined
   }
 
+  /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string) {
     try {
       const fileParts: FilePartInput[] = attachments().map((a) => ({
@@ -506,7 +580,8 @@ createEffect(
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
-      const modelKey = selectedModelKey()
+      const modelKey = activeModelKey()
+      if (!modelKey) return
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
@@ -519,9 +594,10 @@ createEffect(
     }
   }
 
+  /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending()) return
+    if (!text || sending() || !activeModelKey()) return
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
@@ -530,11 +606,15 @@ createEffect(
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
-        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
-        const session = result.data as Session | undefined
-        if (!session) return
-        navigate(`/make/${session.id}`)
-        sid = session.id
+const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+      const session = result.data as Session | undefined
+      if (!session) return
+      const dsId = selectedDesignSystem()
+      if (dsId) {
+        localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+      }
+      navigate(`/make/${session.id}`)
+      sid = session.id
       }
       await sendMessage(sid, text)
     } catch (err) {
@@ -547,12 +627,14 @@ createEffect(
     }
   }
 
+  /** 终止当前生成 */
   async function halt() {
     const sid = params.id
     if (!sid) return
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
+  /** Enter 发送，Shift+Enter 换行 */
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -564,6 +646,7 @@ createEffect(
 
   let fileInputRef!: HTMLInputElement
 
+  /** 添加文件附件（最多 5 个） */
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
@@ -585,10 +668,12 @@ createEffect(
     }
   }
 
+  /** 移除附件 */
   function removeAttachment(id: string) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  /** 文件选择回调 */
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
@@ -597,16 +682,19 @@ createEffect(
     }
   }
 
+  /** 拖拽悬停 */
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
+  /** 拖拽离开 */
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
+  /** 拖拽放置 → 添加文件附件 */
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
@@ -614,6 +702,7 @@ createEffect(
     if (files.length > 0) addAttachments(files)
   }
 
+  /** 打开结果到 ResultViewer（自动保存快照） */
   function handleOpenResult(card: OutputCard) {
     tabStore.openTab(card)
     // Auto-activate composed artifact tab (identifier ends with "-composed")
@@ -628,6 +717,7 @@ createEffect(
     }
   }
 
+  /** 继续生成（追加被截断的内容作为 prompt） */
   function handleContinue(card: OutputCard) {
     const sid = params.id
     if (!sid) return
@@ -636,11 +726,12 @@ createEffect(
     void handleSubmit()
   }
 
-  const inputDisabled = () => sending() || isBusy()
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey()
   const maxAttachments = () => attachments().length >= 5
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
+      <Toast.Region />
       <div
         class="octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
@@ -669,15 +760,12 @@ createEffect(
             <Show when={hasContent()}>
               <div
                 class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff" }}
+                style={{ padding: "12px 24px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
-                      <Show when={elapsedText()}>
-                        <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>已执行 {elapsedText()}</span>
-                      </Show>
                     </div>
                   </Show>
                   <Show
@@ -702,7 +790,7 @@ createEffect(
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(sessionInfo()?.title) ?? "Octo Make"}
+                      {sessionTitle(overrideTitle() ?? sessionInfo()?.title ?? info()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
@@ -713,12 +801,13 @@ createEffect(
                   onOpenChange={(open) => setTitleState("menuOpen", open)}
                 >
                   <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="dot-grid"
-                    variant="ghost"
-                    class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
+                    as="button"
+                    class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
                     aria-label={language.t("common.moreOptions")}
-                  />
+                    style={{ color: "rgba(0,0,0,0.6)" }}
+                  >
+                    <Icon name="ellipsis" class="size-5" />
+                  </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
                       style={{ "min-width": "104px" }}
@@ -783,19 +872,19 @@ createEffect(
                         "overflow-y": "auto",
                       }}
                     />
-                    <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                    <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <div class="flex-1 min-w-0">
+                        <span class="hidden">
                           <DesignSystemPicker
                             selected={selectedDesignSystem()}
                             onSelect={setSelectedDesignSystem}
                           />
-                        </div>
-                        <div class="flex-1 min-w-0">
+                        </span>
+                        <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
                           />
-                        </div>
+                        </span>
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -804,39 +893,40 @@ createEffect(
                           accept="*/*"
                           onChange={handleFileInputChange}
                         />
-                        <button
-                          type="button"
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          disabled={maxAttachments()}
-                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                          title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                        >
-                          <Icon name="plus" class="size-5" />
-                        </button>
+                        <Tooltip placement="top" value="添加附件">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            class="size-8 p-0"
+                            disabled={maxAttachments()}
+                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          >
+                            <Icon name="plus" class="size-5" />
+                          </Button>
+                        </Tooltip>
                         <ModelSelectorPopover
-                          model={modelState}
+                          model={local.model}
                           triggerAs="button"
                           triggerProps={{
-                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
-                            "data-action": "prompt-model",
-                          }}
+                             class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                             "data-action": "prompt-model",
+                           }}
                         >
                           <span class="truncate">
-                            {modelState.current()?.name ?? "选择模型"}
+                            {currentModel()?.name ?? "选择模型"}
                           </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
                       </div>
-                      <button
-                        type="button"
+                      <IconButton
+                        data-action="prompt-submit"
+                        type="submit"
+                        icon={isBusy() ? "stop" : "arrow-up"}
+                        class="size-8 flex-shrink-0"
                         onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                         disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                        class="octo-btn-send flex-shrink-0"
-                        classList={{ "octo-btn-stop": isBusy() }}
-                        title={isBusy() ? "停止生成" : undefined}
-                      >
-                        {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
-                      </button>
+                        aria-label={isBusy() ? "停止生成" : undefined}
+                      />
                     </div>
                   </div>
                 </div>
@@ -858,9 +948,13 @@ createEffect(
                         messageID={msg.id}
                         status={sessionStatus()}
                         active={isBusy()}
+                        elapsedText={elapsedText()}
+                        blockTime={blockTime()}
+                        onAbort={halt}
                         onOpenResult={handleOpenResult}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
+                        deltaLog={deltaLog()}
                       />
                     )}
                   </For>
@@ -905,19 +999,19 @@ createEffect(
                       "overflow-y": "auto",
                     }}
                   />
-                  <div class="flex items-center justify-between px-2.5 pb-2.5 relative z-10 overflow-hidden">
+                  <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <div class="flex-1 min-w-0">
+                         <span class="hidden">
                           <DesignSystemPicker
                             selected={selectedDesignSystem()}
                             onSelect={setSelectedDesignSystem}
                           />
-                        </div>
-                        <div class="flex-1 min-w-0">
+                        </span>
+                        <span class="hidden">
                           <TemplatePicker
                             onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
                           />
-                        </div>
+                        </span>
                       <input
                         ref={fileInputRef!}
                         type="file"
@@ -926,39 +1020,41 @@ createEffect(
                         accept="*/*"
                         onChange={handleFileInputChange}
                       />
-                      <button
-                        type="button"
-                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                        disabled={maxAttachments()}
-                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                        title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                      >
-                        <Icon name="plus" class="size-5" />
-                      </button>
-                      <ModelSelectorPopover
-                        model={modelState}
+                      <Tooltip placement="top" value="添加附件">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          class="size-8 p-0"
+                          disabled={maxAttachments()}
+                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        >
+                          <Icon name="plus" class="size-5" />
+                        </Button>
+                      </Tooltip>
+                       <ModelSelectorPopover
+                        model={local.model}
                         triggerAs="button"
                         triggerProps={{
-                          class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                          class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
                           "data-action": "prompt-model",
                         }}
                       >
-                        <span class="truncate">
-                          {modelState.current()?.name ?? "选择模型"}
+                        <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
+                          {currentModel()?.name ?? "选择模型"}
                         </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                       </ModelSelectorPopover>
                     </div>
-                    <button
-                      type="button"
+                    <IconButton
+                      data-action="prompt-submit"
+                      type="submit"
+                      icon={isBusy() ? "stop" : "arrow-up"}
+                      variant="primary"
+                      class="size-8 flex-shrink-0"
                       onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                       disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                      class="octo-btn-send flex-shrink-0"
-                      classList={{ "octo-btn-stop": isBusy() }}
-                      title={isBusy() ? "停止生成" : undefined}
-                    >
-                      {isBusy() ? <Icon name="stop" size="small" /> : (sending() ? "…" : <IconSend size={14} />)}
-                    </button>
+                      aria-label={isBusy() ? "停止生成" : undefined}
+                    />
                   </div>
                 </div>
               </div>
@@ -974,9 +1070,9 @@ createEffect(
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={hasContent()}>
-        <div class="flex flex-col min-w-0 overflow-hidden">
-          <div class="flex flex-1 min-h-0 overflow-hidden">
-            <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div class="flex flex-col overflow-hidden" >
+          <div class="flex flex-1 min-h-0 overflow-scroll">
+            <div class="flex flex-col flex-1" style="min-width:800px">
               {/* 焦点模式 + 版本历史 切换按钮 */}
               <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
                 <button
@@ -1047,9 +1143,9 @@ createEffect(
 function ChatEmptyState(): JSX.Element {
   return (
     <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Make</div>
+        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Design</div>
         <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
           描述需求，开始生成原型
         </div>
@@ -1062,23 +1158,27 @@ function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDel
   const language = useLanguage()
   const dialog = useDialog()
   return (
-    <Dialog title={language.t("session.delete.title")} fit>
-      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-        <span class="text-14-regular text-text-strong">
-          {language.t("session.delete.confirm", { name: props.name })}
-        </span>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-          >
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
+    <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
+      <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+        {language.t("session.delete.confirm", { name: props.name })}
+      </span>
+      <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
+        <Button
+          variant="ghost"
+          size="large"
+          class="delete-dialog-btn"
+          onClick={() => dialog.close()}
+        >
+          {language.t("common.cancel")}
+        </Button>
+        <Button
+          variant="primary"
+          size="large"
+          class="delete-dialog-btn delete-dialog-btn-primary"
+          onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
+        >
+          {language.t("session.delete.button")}
+        </Button>
       </div>
     </Dialog>
   )

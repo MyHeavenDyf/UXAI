@@ -27,7 +27,9 @@ const channel = (() => {
 })()
 
 const getBase = (): Configuration => ({
+  // jk-j60099994-replace-with-electron-builder-config-2-start
   artifactName: "octo-desktop-${os}-${arch}.${ext}",
+  // jk-j60099994-replace-with-electron-builder-config-2-end
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -104,7 +106,9 @@ function getConfig() {
         appId: "ai.octo.desktop.beta",
         productName: "Octo AI Beta",
         protocols: { name: "Octo AI Beta", schemes: ["opencode"] },
+        // jk-j60099994-replace-with-electron-builder-config-1-start
         publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
+        // jk-j60099994-replace-with-electron-builder-config-1-end
         rpm: { packageName: "opencode-beta" },
       }
     }

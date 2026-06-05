@@ -44,11 +44,12 @@ export const SettingsProviders: Component = () => {
       .popular()
       .filter((p) => !connectedIDs.has(p.id))
       .slice()
-    // When opencode is disabled it disappears from the backend provider list,
-    // so it won't appear in popular(). Add a synthetic entry so the user can reconnect.
+    // 预置供应商被 disable 后会从后端列表消失，补充合成条目让用户可以重新连接
     const ids = new Set(items.map((p) => p.id))
-    if (!connectedIDs.has("opencode") && !ids.has("opencode")) {
-      items.push({ id: "opencode", name: "Octo AI" } as ProviderItem)
+    for (const pid of ["opencode", "bpit"]) {
+      if (!connectedIDs.has(pid) && !ids.has(pid)) {
+        items.push({ id: pid, name: pid === "opencode" ? "Octo AI" : pid } as ProviderItem)
+      }
     }
     items.sort((a, b) => popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id))
     return items

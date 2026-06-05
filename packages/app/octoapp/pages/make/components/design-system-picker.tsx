@@ -1,6 +1,7 @@
-import { createSignal, createMemo, createEffect, For, Show, onCleanup } from "solid-js"
-import { Portal } from "solid-js/web"
+import { createSignal, createMemo, createEffect, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import { Popover as Kobalte } from "@kobalte/core/popover"
+import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { loadDesignSystemIndex, loadDesignSystemTokens, type DesignSystemEntry } from "../utils/design-system-loader"
 import { getDesignSystemPreviewHtml } from "../utils/design-system-preview"
@@ -17,7 +18,6 @@ export function DesignSystemPicker(props: {
   const [previewHtml, setPreviewHtml] = createSignal<string | null>(null)
   const [previewLoading, setPreviewLoading] = createSignal(false)
 
-  let triggerRef: HTMLButtonElement | undefined
   const previewCache = new Map<string, string>()
 
   createEffect(() => {
@@ -28,13 +28,11 @@ export function DesignSystemPicker(props: {
     }).catch(() => setSwatches([]))
   })
 
-  // Preview target: hovered item while open, or selected
   const previewTarget = createMemo(() => {
     if (!open()) return null
     return hoveredId() ?? props.selected
   })
 
-  // Load preview when target changes
   createEffect(() => {
     const target = previewTarget()
     if (!target) { setPreviewHtml(null); return }
@@ -50,39 +48,6 @@ export function DesignSystemPicker(props: {
       })
       .catch(() => setPreviewHtml(null))
       .finally(() => setPreviewLoading(false))
-  })
-
-  function getDropdownPos() {
-    if (!triggerRef) return { top: 0, left: 0 }
-    const rect = triggerRef.getBoundingClientRect()
-    const dropdownW = 520
-    const maxLeft = Math.max(0, window.innerWidth - dropdownW - 8)
-    return { top: rect.top - 4, left: Math.min(rect.left, maxLeft) }
-  }
-
-  createEffect(() => {
-    if (!open()) return
-    const onClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (!target.closest(".design-system-picker-root") && !target.closest(".design-system-picker-portal")) {
-        setOpen(false)
-      }
-    }
-    const onFocusOutside = (e: FocusEvent) => {
-      const target = e.target as HTMLElement
-      if (!triggerRef?.contains(target) && !target?.closest?.(".design-system-picker-portal")) {
-        setOpen(false)
-      }
-    }
-    const timer = setTimeout(() => {
-      document.addEventListener("mousedown", onClickOutside, true)
-      document.addEventListener("focusin", onFocusOutside, true)
-    }, 0)
-    onCleanup(() => {
-      clearTimeout(timer)
-      document.removeEventListener("mousedown", onClickOutside, true)
-      document.removeEventListener("focusin", onFocusOutside, true)
-    })
   })
 
   const loadIndex = async () => {
@@ -103,16 +68,20 @@ export function DesignSystemPicker(props: {
   })
 
   return (
-    <div class="relative design-system-picker-root">
-      <button
-        ref={triggerRef}
+    <Kobalte
+      open={open()}
+      onOpenChange={(next) => {
+        if (next) loadIndex()
+        setOpen(next)
+      }}
+      placement="top-start"
+      gutter={14}
+    >
+      <Kobalte.Trigger
+        as="button"
         type="button"
-        class="octo-ds-trigger"
+        class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium overflow-hidden group focus-visible:outline-none"
         data-picked={props.selected ? "true" : undefined}
-        onClick={() => {
-          if (!open()) loadIndex()
-          setOpen(!open())
-        }}
       >
         <Show when={swatches().length > 0}>
           <span class="flex items-center gap-[2px]">
@@ -122,103 +91,91 @@ export function DesignSystemPicker(props: {
           </span>
         </Show>
         <span class="truncate">{props.selected ? props.selected : "Design System"}</span>
-      </button>
-
-      <Show when={open()}>
-        <Portal>
-          {(() => {
-            const pos = getDropdownPos()
-            return (
-              <div
-                class="fixed rounded-xl shadow-lg overflow-hidden z-[9999] design-system-picker-portal"
+        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+      </Kobalte.Trigger>
+      <Kobalte.Portal>
+        <Kobalte.Content
+          class="p-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
+          style={{
+            width: "520px",
+            "box-shadow": "0 4px 12px rgba(0,0,0,0.16)",
+          }}
+          onPointerDownOutside={() => setOpen(false)}
+          onFocusOutside={() => setOpen(false)}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <div>
+            <input
+              type="text"
+              placeholder="Search..."
+              value={search()}
+              onInput={(e) => setSearch(e.currentTarget.value)}
+              class="w-full px-2 py-1 text-xs rounded-md border-0 outline-none"
+              style={{ background: "var(--octo-surface-selected)", color: "var(--octo-text-primary)" }}
+            />
+          </div>
+          <div class="flex" style={{ height: "280px" }}>
+            <ScrollView class="w-48 flex-shrink-0" style={{ "border-right": "1px solid var(--octo-border-divider)", "max-height": "280px" }}>
+              <button
+                type="button"
+                class="w-full text-left px-3 py-1.5 text-xs transition-colors"
                 style={{
-                  top: `${pos.top}px`,
-                  left: `${pos.left}px`,
-                  width: "520px",
-                  background: "var(--octo-surface-page)",
-                  border: "1px solid var(--octo-border-default)",
-                  transform: "translateY(-100%)",
-                  animation: "octo-pop-in 160ms var(--octo-ease-out)",
+                  background: !props.selected ? "var(--octo-brand-a8)" : "transparent",
+                  color: !props.selected ? "var(--octo-brand)" : "var(--octo-text-primary)",
                 }}
+                onClick={() => { props.onSelect(null); setOpen(false) }}
+                onMouseEnter={() => setHoveredId(null)}
               >
-                <div class="p-2">
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    value={search()}
-                    onInput={(e) => setSearch(e.currentTarget.value)}
-                    class="w-full px-2 py-1 text-xs rounded-md border-0 outline-none"
-                    style={{ background: "var(--octo-surface-selected)", color: "var(--octo-text-primary)" }}
+                None
+              </button>
+              <For each={filtered()}>
+                {(entry) => (
+                  <button
+                    type="button"
+                    class="w-full text-left px-3 py-1.5 text-xs transition-colors"
+                    style={{
+                      background: props.selected === entry.id ? "var(--octo-brand-a8)" : hoveredId() === entry.id ? "var(--octo-surface-hover)" : "transparent",
+                      color: props.selected === entry.id ? "var(--octo-brand)" : "var(--octo-text-primary)",
+                    }}
+                    onClick={() => { props.onSelect(entry.id); setOpen(false) }}
+                    onMouseEnter={() => setHoveredId(entry.id)}
+                  >
+                    <span class="font-medium truncate block">{entry.title}</span>
+                  </button>
+                )}
+              </For>
+            </ScrollView>
+            <div class="flex-1 min-w-0" style={{ background: "var(--octo-shell-bg)" }}>
+              <Show
+                when={previewTarget()}
+                fallback={<div class="flex items-center justify-center h-full text-xs" style={{ color: "var(--octo-text-disabled)" }}>悬停查看预览</div>}
+              >
+                <Show
+                  when={previewHtml()}
+                  fallback={
+                    <div class="flex items-center justify-center h-full text-xs" style={{ color: "var(--octo-text-disabled)" }}>
+                      {previewLoading() ? "加载中..." : "无预览"}
+                    </div>
+                  }
+                >
+                  <iframe
+                    srcdoc={previewHtml()!}
+                    sandbox="allow-same-origin"
+                    style={{
+                      width: "100%",
+                      height: "240px",
+                      border: "none",
+                      "border-radius": "var(--octo-radius-sm)",
+                      background: "white",
+                    }}
                   />
-                </div>
-                <div class="flex" style={{ height: "280px" }}>
-                  {/* List */}
-                  <ScrollView class="w-48 flex-shrink-0" style={{ "border-right": "1px solid var(--octo-border-divider)", "max-height": "280px" }}>
-                    <button
-                      type="button"
-                      class="w-full text-left px-3 py-1.5 text-xs transition-colors"
-                      style={{
-                        background: !props.selected ? "var(--octo-brand-a8)" : "transparent",
-                        color: !props.selected ? "var(--octo-brand)" : "var(--octo-text-primary)",
-                      }}
-                      onClick={() => { props.onSelect(null); setOpen(false) }}
-                      onMouseEnter={() => setHoveredId(null)}
-                    >
-                      None
-                    </button>
-                    <For each={filtered()}>
-                      {(entry) => (
-                        <button
-                          type="button"
-                          class="w-full text-left px-3 py-1.5 text-xs transition-colors"
-                          style={{
-                            background: props.selected === entry.id ? "var(--octo-brand-a8)" : hoveredId() === entry.id ? "var(--octo-surface-hover)" : "transparent",
-                            color: props.selected === entry.id ? "var(--octo-brand)" : "var(--octo-text-primary)",
-                          }}
-                          onClick={() => { props.onSelect(entry.id); setOpen(false) }}
-                          onMouseEnter={() => setHoveredId(entry.id)}
-                        >
-                          <span class="font-medium truncate block">{entry.title}</span>
-                        </button>
-                      )}
-                    </For>
-                  </ScrollView>
-
-                  {/* Preview panel */}
-                  <div class="flex-1 min-w-0" style={{ background: "var(--octo-shell-bg)" }}>
-                    <Show
-                      when={previewTarget()}
-                      fallback={<div class="flex items-center justify-center h-full text-xs" style={{ color: "var(--octo-text-disabled)" }}>悬停查看预览</div>}
-                    >
-                      <Show
-                        when={previewHtml()}
-                        fallback={
-                          <div class="flex items-center justify-center h-full text-xs" style={{ color: "var(--octo-text-disabled)" }}>
-                            {previewLoading() ? "加载中..." : "无预览"}
-                          </div>
-                        }
-                      >
-                        <iframe
-                          srcdoc={previewHtml()!}
-                          sandbox="allow-same-origin"
-                          style={{
-                            width: "100%",
-                            height: "240px",
-                            border: "none",
-                            "border-radius": "var(--octo-radius-sm)",
-                            background: "white",
-                          }}
-                        />
-                      </Show>
-                    </Show>
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
-        </Portal>
-      </Show>
-    </div>
+                </Show>
+              </Show>
+            </div>
+          </div>
+        </Kobalte.Content>
+      </Kobalte.Portal>
+    </Kobalte>
   )
 }
 

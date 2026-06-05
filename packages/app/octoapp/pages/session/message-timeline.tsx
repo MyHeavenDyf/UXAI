@@ -610,21 +610,17 @@ export function MessageTimeline(props: {
     }
 
     return (
-      <Dialog title={language.t("session.delete.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("session.delete.confirm", { name: name() })}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="large" onClick={handleDelete}>
-              {language.t("session.delete.button")}
-            </Button>
-          </div>
+      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
+        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+          {language.t("session.delete.confirm", { name: name() })}
+        </span>
+        <div class="flex justify-end gap-2" style={{ "margin-top": "24px" }}>
+          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
+            {language.t("session.delete.button")}
+          </Button>
         </div>
       </Dialog>
     )
@@ -639,6 +635,7 @@ export function MessageTimeline(props: {
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
           classList={{
+            hidden: !!dialog.active,
             "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
             "opacity-0 translate-y-2 scale-95 pointer-events-none":
               !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
@@ -726,6 +723,9 @@ export function MessageTimeline(props: {
                   "pb-4": true,
                   "pl-2 pr-3 md:pl-4 md:pr-3": true,
                   "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+                }}
+                onMouseMove={(e) => {
+                  if (title.editing) e.stopPropagation()
                 }}
               >
                 <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>
@@ -836,19 +836,16 @@ export function MessageTimeline(props: {
                             }}
                           >
                             <DropdownMenu.Trigger
-                              as={IconButton}
-                              icon="dot-grid"
-                              variant="ghost"
-                              class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
-                              classList={{
-                                "bg-surface-base-active": share.open || title.pendingShare,
-                              }}
+                              as="button"
+                              class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
                               aria-label={language.t("common.moreOptions")}
-                              aria-expanded={title.menuOpen || share.open || title.pendingShare}
+                              style={{ color: "rgba(0,0,0,0.6)" }}
                               ref={(el: HTMLButtonElement) => {
                                 more = el
                               }}
-                            />
+                            >
+                              <Icon name="ellipsis" class="size-5" />
+                            </DropdownMenu.Trigger>
                             <DropdownMenu.Portal>
                               <DropdownMenu.Content
                                 style={{ "min-width": "104px" }}

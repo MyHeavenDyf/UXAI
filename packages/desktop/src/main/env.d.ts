@@ -27,4 +27,5 @@ declare module "virtual:opencode-server" {
     export const run: typeof import("../../../opencode/dist/types/src/node").JsonMigration.run
   }
   export const bootstrap: typeof import("../../../opencode/dist/types/src/node").bootstrap
+  export const BuiltinMCP: typeof import("../../../opencode/dist/types/src/node").BuiltinMCP
 }

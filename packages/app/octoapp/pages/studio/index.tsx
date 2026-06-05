@@ -8,8 +8,14 @@ import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -48,6 +54,7 @@ const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
   "image.generate",
   "image.upscale",
   "image.cutout",
+  "image.inpaint",
   "image.outpaint",
   "image.fusion",
 ])
@@ -62,6 +69,52 @@ type DataStore = {
 
 type StudioPendingResult = StudioGenerationResult & {
   sourceImage?: string
+}
+
+type StudioHDMode = "restoration_8k" | "restoration" | "super_restoration"
+type StudioInpaintMode = "qwen_image_edit" | "erase"
+const STUDIO_HD_MODES = [
+  { label: "8k超清", value: "restoration_8k" },
+  { label: "4k清晰", value: "restoration" },
+  { label: "2k性能", value: "super_restoration" },
+] satisfies { label: string; value: StudioHDMode }[]
+
+function workspaceModeForCapability(capability: StudioCapability): Exclude<StudioMode, "preview"> | undefined {
+  if (capability === "image.upscale") return "hd"
+  if (capability === "image.cutout") return "cutout"
+  if (capability === "image.inpaint") return "inpaint"
+  if (capability === "image.outpaint") return "outpaint"
+  return undefined
+}
+
+function recordValue(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  return (value as Record<string, unknown>)[key]
+}
+
+function stringValue(value: unknown, key: string) {
+  const next = recordValue(value, key)
+  return typeof next === "string" ? next : undefined
+}
+
+function studioResultTaskType(result: StudioGenerationResult) {
+  return (
+    result.task_type ??
+    result.taskType ??
+    stringValue(result.request, "task_type") ??
+    stringValue(result.request, "taskType") ??
+    stringValue(recordValue(result.request, "body"), "task_type") ??
+    stringValue(recordValue(result.request, "body"), "taskType") ??
+    stringValue(result.response, "task_type") ??
+    stringValue(result.response, "taskType")
+  )
+}
+
+function isStudioEditResult(result: StudioGenerationResult) {
+  const taskType = studioResultTaskType(result)
+  if (taskType === "magnify" || taskType === "remove_bg" || taskType === "inpainting" || taskType === "outpainting") return true
+  if (result.capability === "image.upscale" || result.capability === "image.cutout" || result.capability === "image.inpaint" || result.capability === "image.outpaint") return true
+  return result.toolAction === "super_resolution" || result.toolAction === "cutout" || result.toolAction === "inpainting" || result.toolAction === "outpainting"
 }
 
 function formatStudioGenerationError(response: Response, bodyText: string) {
@@ -124,15 +177,20 @@ export default function StudioPage() {
   const language = useLanguage()
   const layout = useLayout()
   const server = useServer()
+  const dialog = useDialog()
 
   const projectDir = useProjectDir({ mode: "config" })
-  const [syncStore] = globalSync.child(projectDir(), { bootstrap: true })
+  const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
     const session = syncStore.session.find(s => s.id === sessionId)
     return session?.agent === "octo_studio"
   }
+  const activeStudioSession = createMemo(() => {
+    if (!params.id) return
+    return syncStore.session.find((session) => session.id === params.id && session.agent === "octo_studio")
+  })
 
   const slug = createMemo(() => base64Encode(projectDir()))
 
@@ -158,6 +216,9 @@ export default function StudioPage() {
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
+  const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
+  const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
+  const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | null>(null)
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
@@ -204,6 +265,37 @@ export default function StudioPage() {
     }
   }
 
+  function readWorkspaceImage(file: File) {
+    return new Promise<StudioImage>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result
+        if (typeof dataUrl !== "string") {
+          reject(new Error("Unable to read image file."))
+          return
+        }
+        const image = new Image()
+        image.onload = () => resolve({
+          id: crypto.randomUUID(),
+          url: displayUrl(dataUrl),
+          thumbnailUrl: displayUrl(dataUrl),
+          remoteUrl: dataUrl,
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+        })
+        image.onerror = () => resolve({
+          id: crypto.randomUUID(),
+          url: displayUrl(dataUrl),
+          thumbnailUrl: displayUrl(dataUrl),
+          remoteUrl: dataUrl,
+        })
+        image.src = dataUrl
+      }
+      reader.onerror = () => reject(reader.error ?? new Error("Unable to read image file."))
+      reader.readAsDataURL(file)
+    })
+  }
+
   function normalizeResultValue(value?: StudioGenerationResult): StudioGenerationResult | undefined {
     if (!value) return
     return {
@@ -226,6 +318,10 @@ export default function StudioPage() {
       if (image.thumbnailUrl?.startsWith("data:image/")) active.add(image.thumbnailUrl)
       if (image.remoteUrl?.startsWith("data:image/")) active.add(image.remoteUrl)
     }
+    const uploaded = workspaceImage()
+    if (uploaded?.url.startsWith("data:image/")) active.add(uploaded.url)
+    if (uploaded?.thumbnailUrl?.startsWith("data:image/")) active.add(uploaded.thumbnailUrl)
+    if (uploaded?.remoteUrl?.startsWith("data:image/")) active.add(uploaded.remoteUrl)
     for (const [source, objectUrl] of blobUrlCache) {
       if (active.has(source)) continue
       URL.revokeObjectURL(objectUrl)
@@ -419,6 +515,11 @@ export default function StudioPage() {
           result: normalizeResultValue(pending),
         }
       })
+      const entry = editEntryTurn()
+      if (entry) {
+        const withLatest = next.map((turn) => ({ ...turn, isLatest: false }))
+        return [...withLatest, { ...entry, isLatest: true }]
+      }
       if (!pending) return next
       const latest = next.at(-1)
       if (latest?.userText === pending.prompt && !latest.result?.images.length && latest.toolRunning) {
@@ -497,6 +598,7 @@ export default function StudioPage() {
     const images = result()?.images ?? []
     return images.find((item) => item.id === selectedImageId()) ?? images[0]
   })
+  const workspaceEditImage = createMemo(() => workspaceImage() ?? (workspaceUploadRequested() ? undefined : selectedImage()))
 
   createEffect(() => {
     const first = result()?.images[0]?.id
@@ -507,6 +609,8 @@ export default function StudioPage() {
     batch(() => {
       setSelectedResultId(input.resultID)
       setSelectedImageId(input.imageID)
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
       setMode("preview")
     })
   }
@@ -554,6 +658,8 @@ export default function StudioPage() {
         if (!id && !sending() && !pendingResult()) {
           setStatus("idle")
           setPendingResult(undefined)
+          setEditEntryTurn(undefined)
+          setCapability("image.generate")
         }
         if (id && !sending()) {
           setStatus("idle")
@@ -561,6 +667,8 @@ export default function StudioPage() {
         }
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
         setMode("preview")
         setAssets([])
         setPrompt("")
@@ -570,18 +678,145 @@ export default function StudioPage() {
   )
 
   const selectedCapabilityNeedsImage = createMemo(() =>
-    capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.outpaint",
+    capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.inpaint" || capability() === "image.outpaint",
   )
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isBusy() &&
-    (prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(selectedImage()))),
+    (prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(workspaceEditImage()))),
   )
+  const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
   const currentTitle = createMemo(() =>
-    result()?.prompt
+    sessionTitle(activeStudioSession()?.title) ??
+    (result()?.prompt
       ? buildStudioDisplayPrompt(result()!.prompt)
-      : studioTurn()?.userText || "Octo Studio",
+      : studioTurn()?.userText || "Octo Studio"),
   )
+  const [headerTitle, setHeaderTitle] = createStore({
+    draft: "",
+    editing: false,
+    menuOpen: false,
+    pendingRename: false,
+    saving: false,
+  })
+  let headerTitleRef: HTMLInputElement | undefined
+
+  const errorMessage = (err: unknown) => {
+    if (err && typeof err === "object" && "data" in err) {
+      const data = (err as { data?: { message?: string } }).data
+      if (data?.message) return data.message
+    }
+    if (err instanceof Error) return err.message
+    return language.t("common.requestFailed")
+  }
+
+  const openHeaderTitleEditor = () => {
+    const session = activeStudioSession()
+    if (!session) return
+    setHeaderTitle({ editing: true, draft: sessionTitle(session.title) ?? "" })
+    requestAnimationFrame(() => {
+      headerTitleRef?.focus()
+      headerTitleRef?.select()
+    })
+  }
+
+  const closeHeaderTitleEditor = () => {
+    if (headerTitle.saving) return
+    setHeaderTitle({ editing: false, draft: "" })
+  }
+
+  const saveHeaderTitleEditor = async () => {
+    const session = activeStudioSession()
+    if (!session || headerTitle.saving) return
+
+    const next = headerTitle.draft.trim()
+    if (!next || next === (sessionTitle(session.title) ?? "")) {
+      setHeaderTitle({ editing: false, draft: "" })
+      return
+    }
+
+    setHeaderTitle("saving", true)
+    await globalSDK.createClient({ directory: projectDir() }).session
+      .update({ sessionID: session.id, title: next })
+      .then(() => {
+        setSyncStore(
+          produce((draft) => {
+            const index = draft.session.findIndex((item) => item.id === session.id)
+            if (index !== -1) draft.session[index].title = next
+          }),
+        )
+        setHeaderTitle({ editing: false, draft: "" })
+      })
+      .catch((err) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: errorMessage(err),
+        })
+      })
+      .finally(() => setHeaderTitle("saving", false))
+  }
+
+  const deleteHeaderSession = async (session: Session) => {
+    const sessions = syncStore.session
+      .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
+      .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+    const index = sessions.findIndex((item) => item.id === session.id)
+    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
+    const result = await globalSDK.createClient({ directory: projectDir() }).session
+      .delete({ sessionID: session.id })
+      .then((x) => x.data)
+      .catch((err) => {
+        showToast({
+          title: language.t("session.delete.failed.title"),
+          description: errorMessage(err),
+        })
+        return false
+      })
+
+    if (!result) return false
+
+    setSyncStore(
+      produce((draft) => {
+        const index = draft.session.findIndex((item) => item.id === session.id)
+        if (index !== -1) draft.session.splice(index, 1)
+      }),
+    )
+    if (nextSession) {
+      navigate(`/${slug()}/studio/${nextSession.id}`)
+      return true
+    }
+    layout.lastSessionPerTab.setStudio(projectDir(), "")
+    navigate(`/${slug()}/studio`)
+    return true
+  }
+
+  function DialogDeleteHeaderSession(props: { session: Session }) {
+    const name = createMemo(() => sessionTitle(props.session.title) ?? language.t("command.session.new"))
+    const handleDelete = async () => {
+      await deleteHeaderSession(props.session)
+      dialog.close()
+    }
+
+    return (
+      <Dialog title={language.t("session.delete.title")} fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <div class="flex flex-col gap-1">
+            <span class="text-14-regular text-text-strong">
+              {language.t("session.delete.confirm", { name: name() })}
+            </span>
+          </div>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              {language.t("common.cancel")}
+            </Button>
+            <Button variant="primary" size="large" onClick={handleDelete}>
+              {language.t("session.delete.button")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    )
+  }
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
     const images = result()?.images ?? []
@@ -620,15 +855,36 @@ export default function StudioPage() {
     ),
   )
 
+  createEffect(
+    on(
+      capability,
+      (value) => {
+        const nextMode = workspaceModeForCapability(value)
+        if (!nextMode) {
+          batch(() => {
+            setWorkspaceImage(undefined)
+            setWorkspaceUploadRequested(false)
+            setMode("preview")
+          })
+          return
+        }
+        batch(() => {
+          setWorkspaceImage(undefined)
+          setWorkspaceUploadRequested(true)
+          setMode(nextMode)
+        })
+      },
+      { defer: true },
+    ),
+  )
+
   function addAssets(files: File[]) {
-    const slots = 5 - assets().length
-    files.slice(0, slots).map((file) => {
+    files.slice(0, 1).map((file) => {
       const reader = new FileReader()
       reader.onload = (event) => {
         const dataUrl = event.target?.result
         if (typeof dataUrl !== "string") return
-        setAssets((items) => [
-          ...items,
+        setAssets([
           {
             id: crypto.randomUUID(),
             name: file.name,
@@ -648,6 +904,90 @@ export default function StudioPage() {
     input.value = ""
   }
 
+  function handlePasteReferenceImage(files: File[]) {
+    addAssets(files.filter((file) => file.type.startsWith("image/")))
+  }
+
+  function uploadWorkspaceImage(files: File[]) {
+    const file = files.find((item) => item.type.startsWith("image/"))
+    if (!file) return
+    readWorkspaceImage(file)
+      .then((image) => {
+        batch(() => {
+          setWorkspaceImage(image)
+          setWorkspaceUploadRequested(false)
+          setSelectedResultId(undefined)
+          setSelectedImageId(undefined)
+        })
+      })
+      .catch((error) => console.error("[StudioPage] workspace image upload failed", error))
+  }
+
+  function deleteWorkspaceImage() {
+    batch(() => {
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(true)
+      setSelectedResultId(undefined)
+      setSelectedImageId(undefined)
+    })
+  }
+
+  function openEditorEntry(value: StudioCapability) {
+    const nextMode = workspaceModeForCapability(value)
+    if (!nextMode) return
+    batch(() => {
+      setCapability(value)
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(true)
+      setSelectedResultId(undefined)
+      setSelectedImageId(undefined)
+      setMode(nextMode)
+    })
+  }
+
+  function createEditorEntry(value: StudioCapability) {
+    const nextMode = workspaceModeForCapability(value)
+    if (!nextMode) return
+    const label = capabilityLabel(value)
+    batch(() => {
+      setEditEntryTurn({
+        id: `studio_edit_${value}_${Date.now()}`,
+        userText: label,
+        assistantText: "点击前往编辑区",
+        editCapability: value,
+        createdAt: Date.now(),
+        isLatest: true,
+      })
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(true)
+      setSelectedResultId(undefined)
+      setSelectedImageId(undefined)
+      setMode(nextMode)
+    })
+    if (params.id) return
+    createStudioSession(label)
+      .then((sessionID) => {
+        if (!sessionID) return
+        navigate(`/${slug()}/studio/${sessionID}`)
+        requestAnimationFrame(() => openEditorEntry(value))
+      })
+      .catch((error) => console.error("[StudioPage] editor session create failed", error))
+  }
+
+  function selectStudioCapability(value: StudioCapability) {
+    setCapability(value)
+    if (workspaceModeForCapability(value)) {
+      createEditorEntry(value)
+      return
+    }
+    batch(() => {
+      setEditEntryTurn(undefined)
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("preview")
+    })
+  }
+
   async function createStudioSession(title?: string) {
     const dir = projectDir()
     if (!dir) return
@@ -665,6 +1005,8 @@ export default function StudioPage() {
     const opening =
       input.capability === "image.upscale"
         ? "好的，我将提升当前图片的清晰度和细节。"
+        : input.capability === "image.inpaint"
+          ? "好的，我将根据涂抹区域局部重绘当前图片。"
         : input.capability === "image.outpaint"
           ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
           : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
@@ -686,6 +1028,7 @@ export default function StudioPage() {
     sessionID: string
     text: string
     capability: StudioCapability
+    referenceImages?: string[]
     sourceImage?: string
     extra?: Record<string, unknown>
   }) {
@@ -715,7 +1058,7 @@ export default function StudioPage() {
         aspectRatio: aspectRatio(),
         count: count(),
         imageTool: "internel",
-        referenceImages: assets().map((item) => item.dataUrl),
+        referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
         extra: input.extra,
       }),
@@ -734,14 +1077,18 @@ export default function StudioPage() {
         ? "将当前图片变清晰，提升分辨率和细节"
         : nextCapability === "image.cutout"
           ? "对当前图片进行抠图，移除背景并保留主体"
+          : nextCapability === "image.inpaint"
+            ? "重绘所选区域"
           : nextCapability === "image.outpaint"
             ? "保留主体和画面风格，扩展更大尺寸和更多环境内容"
             : ""
     )
     if (!text || isBusy()) return
     const previousPrompt = prompt()
+    const referenceImages = nextCapability === "image.generate" ? assets().map((item) => item.dataUrl) : []
     setOpenMenu(null)
     setMode("preview")
+    setEditEntryTurn(undefined)
     setSending(true)
     setStatus("submitting")
     setSelectedResultId(undefined)
@@ -758,6 +1105,7 @@ export default function StudioPage() {
       sourceImage: overrides?.sourceImage,
     })
     setPrompt("")
+    setAssets([])
     try {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
@@ -767,6 +1115,7 @@ export default function StudioPage() {
         sessionID,
         text,
         capability: nextCapability,
+        referenceImages,
         sourceImage: overrides?.sourceImage,
         extra: overrides?.extra,
       })
@@ -776,7 +1125,6 @@ export default function StudioPage() {
       })
       await loadSessionMessages(sessionID)
       setStatus("succeeded")
-      setAssets([])
     } catch (error) {
       console.error("[StudioPage] studio prompt failed", error)
       setPrompt(previousPrompt)
@@ -789,8 +1137,20 @@ export default function StudioPage() {
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
-    if (capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.outpaint") {
-      const image = selectedImage()
+    if (capability() === "image.upscale") {
+      setMode("hd")
+      return
+    }
+    if (capability() === "image.inpaint") {
+      setMode("inpaint")
+      return
+    }
+    if (capability() === "image.cutout") {
+      setMode("cutout")
+      return
+    }
+    if (capability() === "image.outpaint") {
+      const image = workspaceEditImage()
       if (!image) return
       void runGeneration({
         capability: capability(),
@@ -809,11 +1169,42 @@ export default function StudioPage() {
 
   function openOutpaint() {
     if (!selectedImage()) return
-    setMode("outpaint")
+    batch(() => {
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("outpaint")
+    })
+  }
+
+  function openHD() {
+    if (!selectedImage() || isBusy()) return
+    batch(() => {
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("hd")
+    })
+  }
+
+  function openCutout() {
+    if (!selectedImage() || isBusy()) return
+    batch(() => {
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("cutout")
+    })
+  }
+
+  function openInpaint() {
+    if (!selectedImage() || isBusy()) return
+    batch(() => {
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("inpaint")
+    })
   }
 
   function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
-    const image = selectedImage()
+    const image = workspaceEditImage()
     if (!image) return
     void runGeneration({
       capability: "image.outpaint",
@@ -823,18 +1214,41 @@ export default function StudioPage() {
     })
   }
 
-  function upscaleCurrentImage() {
-    const image = selectedImage()
+  function submitInpaint(input: {
+    prompt: string
+    mode: StudioInpaintMode
+    sourceImage: string
+    compositeImage: string
+    hasDrawing: boolean
+  }) {
+    if (isBusy() || !input.hasDrawing) return
+    void runGeneration({
+      capability: "image.inpaint",
+      sourceImage: input.sourceImage,
+      prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+      extra: {
+        generateMode: input.mode,
+        compositeImage: input.compositeImage,
+        hasDrawing: input.hasDrawing,
+      },
+    })
+  }
+
+  function submitHD(input: { mode: StudioHDMode }) {
+    const image = workspaceEditImage()
     if (!image || isBusy()) return
     void runGeneration({
       capability: "image.upscale",
       sourceImage: image.remoteUrl ?? image.url,
       prompt: "将当前图片变清晰，提升分辨率和细节",
+      extra: {
+        mode: input.mode,
+      },
     })
   }
 
-  function cutoutCurrentImage() {
-    const image = selectedImage()
+  function submitCutout() {
+    const image = workspaceEditImage()
     if (!image || isBusy()) return
     void runGeneration({
       capability: "image.cutout",
@@ -852,7 +1266,14 @@ export default function StudioPage() {
     })
   }
 
-  const hasStudioConversation = createMemo(() => turns().length > 0 || Boolean(pendingResult()) || sending())
+  const hasStudioConversation = createMemo(() =>
+    turns().length > 0 ||
+    Boolean(editEntryTurn()) ||
+    Boolean(pendingResult()) ||
+    sending() ||
+    isEditingWorkspaceMode() ||
+    Boolean(workspaceModeForCapability(capability())),
+  )
 
   const [hintVisible, setHintVisible] = createSignal(false)
 
@@ -906,7 +1327,7 @@ export default function StudioPage() {
                 openMenu={openMenu()}
                 canSubmit={canSubmit()}
                 onPrompt={setPrompt}
-                onCapability={setCapability}
+                onCapability={selectStudioCapability}
                 onStyleModel={setStyleModel}
                 onAspectRatio={setAspectRatio}
                 onCount={setCount}
@@ -914,6 +1335,7 @@ export default function StudioPage() {
                 onSubmit={handleSubmit}
                 onKeyDown={handleKeyDown}
                 onPickFile={() => fileInputRef.click()}
+                onPasteImage={handlePasteReferenceImage}
                 onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
               />
             </div>
@@ -923,19 +1345,93 @@ export default function StudioPage() {
       }>
         <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
           <div class="studio-center-header">
-            <div class="studio-center-title">{currentTitle()}</div>
+            <Show
+              when={headerTitle.editing}
+              fallback={<div class="studio-center-title">{currentTitle()}</div>}
+            >
+              <InlineInput
+                ref={(el) => {
+                  headerTitleRef = el
+                }}
+                value={headerTitle.draft}
+                disabled={headerTitle.saving}
+                class="studio-center-title studio-center-title-input"
+                onInput={(event) => setHeaderTitle("draft", event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  event.stopPropagation()
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    void saveHeaderTitleEditor()
+                    return
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    closeHeaderTitleEditor()
+                  }
+                }}
+                onBlur={() => void saveHeaderTitleEditor()}
+              />
+            </Show>
+            <Show when={activeStudioSession()} keyed>
+              {(session) => (
+                <DropdownMenu
+                  gutter={4}
+                  placement="bottom-end"
+                  open={headerTitle.menuOpen}
+                  onOpenChange={(open) => setHeaderTitle("menuOpen", open)}
+                >
+                  <DropdownMenu.Trigger
+                    as={IconButton}
+                    icon="dot-grid"
+                    variant="ghost"
+                    class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active"
+                    aria-label={language.t("common.moreOptions")}
+                    aria-expanded={headerTitle.menuOpen}
+                  />
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      style={{ "min-width": "104px" }}
+                      onCloseAutoFocus={(event) => {
+                        if (!headerTitle.pendingRename) return
+                        event.preventDefault()
+                        setHeaderTitle("pendingRename", false)
+                        openHeaderTitleEditor()
+                      }}
+                    >
+                      <DropdownMenu.Item
+                        onSelect={() => {
+                          setHeaderTitle({
+                            pendingRename: true,
+                            menuOpen: false,
+                          })
+                        }}
+                      >
+                        <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator />
+                      <DropdownMenu.Item
+                        onSelect={() => dialog.show(() => <DialogDeleteHeaderSession session={session} />)}
+                      >
+                        <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu>
+              )}
+            </Show>
           </div>
 
           <ScrollView
             viewportRef={(el) => { conversationScrollRef = el }}
             class="studio-center-scroll"
           >
-            <Show when={turns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
+            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
                 busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
                 onSelectImage={selectStudioImage}
+                onOpenEditor={openEditorEntry}
               />
             </Show>
           </ScrollView>
@@ -951,7 +1447,7 @@ export default function StudioPage() {
             openMenu={openMenu()}
             canSubmit={canSubmit()}
             onPrompt={setPrompt}
-            onCapability={setCapability}
+            onCapability={selectStudioCapability}
             onStyleModel={setStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
@@ -959,6 +1455,7 @@ export default function StudioPage() {
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
             onPickFile={() => fileInputRef.click()}
+            onPasteImage={handlePasteReferenceImage}
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
           />
         </section>
@@ -970,7 +1467,7 @@ export default function StudioPage() {
 
       <main class="studio-workspace">
         <section class="studio-canvas">
-          <Show when={mode() === "outpaint" && selectedImage()} fallback={
+          <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               status={effectiveStatus()}
               image={selectedImage()}
@@ -979,19 +1476,57 @@ export default function StudioPage() {
               onDownload={() => void downloadCurrentImage()}
             />
           }>
-            {(image) => (
-              <StudioOutpaintEditor
-                image={image()}
-                aspectRatio={aspectRatio()}
-                onAspectRatio={setAspectRatio}
-                onClose={() => setMode("preview")}
-                onSubmit={submitOutpaint}
-              />
-            )}
+            <Show when={!workspaceEditImage()}>
+              <StudioWorkspaceUpload onUpload={uploadWorkspaceImage} />
+            </Show>
+            <Show when={mode() === "hd" && workspaceEditImage()}>
+              {(image) => (
+                <StudioHDEditor
+                  image={image()}
+                  onClose={() => setMode("preview")}
+                  onDelete={deleteWorkspaceImage}
+                  onSubmit={submitHD}
+                />
+              )}
+            </Show>
+            <Show when={mode() === "cutout" && workspaceEditImage()}>
+              {(image) => (
+                <StudioCutoutEditor
+                  image={image()}
+                  busy={isBusy()}
+                  onClose={() => setMode("preview")}
+                  onDelete={deleteWorkspaceImage}
+                  onSubmit={submitCutout}
+                />
+              )}
+            </Show>
+            <Show when={mode() === "outpaint" && workspaceEditImage()}>
+              {(image) => (
+                <StudioOutpaintEditor
+                  image={image()}
+                  aspectRatio={aspectRatio()}
+                  onAspectRatio={setAspectRatio}
+                  onClose={() => setMode("preview")}
+                  onDelete={deleteWorkspaceImage}
+                  onSubmit={submitOutpaint}
+                />
+              )}
+            </Show>
+            <Show when={mode() === "inpaint" && workspaceEditImage()}>
+              {(image) => (
+                <StudioInpaintEditor
+                  image={image()}
+                  busy={isBusy()}
+                  onClose={() => setMode("preview")}
+                  onDelete={deleteWorkspaceImage}
+                  onSubmit={submitInpaint}
+                />
+              )}
+            </Show>
           </Show>
         </section>
 
-          <Show when={result()?.images.length}>
+          <Show when={!isEditingWorkspaceMode() && result()?.images.length}>
             <aside class="studio-details">
               <StudioDetails
                 result={result()!}
@@ -1001,15 +1536,16 @@ export default function StudioPage() {
                 regenerateDisabled={isBusy()}
                 onSelectImage={(id) => setSelectedImageId(id)}
                 onRegenerate={regenerateCurrentResult}
-                onUpscale={upscaleCurrentImage}
-                onCutout={cutoutCurrentImage}
+                onUpscale={openHD}
+                onCutout={openCutout}
+                onInpaint={openInpaint}
                 onOutpaint={openOutpaint}
               />
             </aside>
           </Show>
         </main>
       </Show>
-      <input ref={fileInputRef!} type="file" multiple accept="image/*" class="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef!} type="file" accept="image/*" class="hidden" onChange={handleFileChange} />
     </div>
   )
 }
@@ -1032,6 +1568,8 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
+  const navigate = useNavigate()
+  const layout = useLayout()
 
   const [sessions, { refetch }] = createResource(
     () => ({ dir: props.directory ?? "", id: props.activeSessionID }),
@@ -1063,6 +1601,136 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 
   const isLoading = createMemo(() => sessions.loading)
   const [collapsed, setCollapsed] = createSignal(false)
+  const [title, setTitle] = createStore({
+    draft: "",
+    editingID: "",
+    menuOpenID: "",
+    pendingRenameID: "",
+    savingID: "",
+  })
+  let titleRef: HTMLInputElement | undefined
+
+  const errorMessage = (err: unknown) => {
+    if (err && typeof err === "object" && "data" in err) {
+      const data = (err as { data?: { message?: string } }).data
+      if (data?.message) return data.message
+    }
+    if (err instanceof Error) return err.message
+    return language.t("common.requestFailed")
+  }
+
+  const openTitleEditor = (session: Session) => {
+    setTitle({
+      draft: sessionTitle(session.title) ?? "",
+      editingID: session.id,
+      pendingRenameID: "",
+    })
+    requestAnimationFrame(() => {
+      titleRef?.focus()
+      titleRef?.select()
+    })
+  }
+
+  const closeTitleEditor = () => {
+    if (title.savingID) return
+    setTitle({ editingID: "", draft: "" })
+  }
+
+  const saveTitleEditor = async (session: Session) => {
+    if (title.savingID) return
+
+    const next = title.draft.trim()
+    if (!next || next === (sessionTitle(session.title) ?? "")) {
+      setTitle({ editingID: "", draft: "" })
+      return
+    }
+
+    setTitle("savingID", session.id)
+    await globalSDK.createClient({ directory: props.directory }).session
+      .update({ sessionID: session.id, title: next })
+      .then(() => {
+        setSessionList(
+          produce((draft) => {
+            const index = draft.findIndex((item) => item.id === session.id)
+            if (index !== -1) draft[index].title = next
+          }),
+        )
+        setTitle({ editingID: "", draft: "" })
+      })
+      .catch((err) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: errorMessage(err),
+        })
+      })
+      .finally(() => setTitle("savingID", ""))
+  }
+
+  const navigateAfterSessionRemoval = (sessionID: string, nextSessionID?: string) => {
+    if (props.activeSessionID !== sessionID) return
+    if (nextSessionID) {
+      navigate(`/${base64Encode(props.directory)}/studio/${nextSessionID}`)
+      return
+    }
+    layout.lastSessionPerTab.setStudio(props.directory, "")
+    navigate(`/${base64Encode(props.directory)}/studio`)
+  }
+
+  const deleteSession = async (session: Session) => {
+    const sessions = sessionList.filter((item) => !item.time?.archived)
+    const index = sessions.findIndex((item) => item.id === session.id)
+    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
+
+    const result = await globalSDK.createClient({ directory: props.directory }).session
+      .delete({ sessionID: session.id })
+      .then((x) => x.data)
+      .catch((err) => {
+        showToast({
+          title: language.t("session.delete.failed.title"),
+          description: errorMessage(err),
+        })
+        return false
+      })
+
+    if (!result) return false
+
+    setSessionList(
+      produce((draft) => {
+        const index = draft.findIndex((item) => item.id === session.id)
+        if (index !== -1) draft.splice(index, 1)
+      }),
+    )
+    navigateAfterSessionRemoval(session.id, nextSession?.id)
+    return true
+  }
+
+  function DialogDeleteSession(props: { session: Session }) {
+    const name = createMemo(() => sessionTitle(props.session.title) ?? language.t("command.session.new"))
+    const handleDelete = async () => {
+      await deleteSession(props.session)
+      dialog.close()
+    }
+
+    return (
+      <Dialog title={language.t("session.delete.title")} fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <div class="flex flex-col gap-1">
+            <span class="text-14-regular text-text-strong">
+              {language.t("session.delete.confirm", { name: name() })}
+            </span>
+          </div>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              {language.t("common.cancel")}
+            </Button>
+            <Button variant="primary" size="large" onClick={handleDelete}>
+              {language.t("session.delete.button")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    )
+  }
 
   return (
     <div
@@ -1128,24 +1796,57 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                       const isActive = () => props.activeSessionID === session.id
                       return (
                         <div class="group/item relative">
-                          <a
-                            href={`/${base64Encode(props.directory)}/studio/${session.id}`}
-                            class="flex items-center w-full rounded-[8px] transition-colors"
-                            style={{ height: "36px", padding: "0 24px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
-                            classList={{
-                              "bg-[rgba(10,89,247,0.08)]": isActive(),
-                              "hover:bg-surface-base-hover": !isActive(),
-                            }}
+                          <Show
+                            when={title.editingID === session.id}
+                            fallback={
+                              <a
+                                href={`/${base64Encode(props.directory)}/studio/${session.id}`}
+                                class="flex items-center w-full rounded-[8px] transition-colors"
+                                style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
+                                classList={{
+                                  "bg-[rgba(10,89,247,0.08)]": isActive(),
+                                  "hover:bg-surface-base-hover": !isActive(),
+                                }}
+                              >
+                                <span class="flex-1 min-w-0 truncate">
+                                  {sessionTitle(session.title) ?? language.t("command.session.new")}
+                                </span>
+                              </a>
+                            }
                           >
-                            <span class="flex-1 min-w-0 truncate">
-                              {sessionTitle(session.title) ?? language.t("command.session.new")}
-                            </span>
-                          </a>
-                          <Show when={isActive()}>
+                            <div
+                              class="flex items-center w-full rounded-[8px]"
+                              style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined, background: isActive() ? "rgba(10,89,247,0.08)" : undefined }}
+                            >
+                              <InlineInput
+                                ref={(el) => {
+                                  titleRef = el
+                                }}
+                                value={title.draft}
+                                disabled={title.savingID === session.id}
+                                class="text-[12px] leading-[20px] flex-1 min-w-0 rounded-[6px]"
+                                onInput={(event) => setTitle("draft", event.currentTarget.value)}
+                                onKeyDown={(event) => {
+                                  event.stopPropagation()
+                                  if (event.key === "Enter") {
+                                    event.preventDefault()
+                                    void saveTitleEditor(session)
+                                    return
+                                  }
+                                  if (event.key === "Escape") {
+                                    event.preventDefault()
+                                    closeTitleEditor()
+                                  }
+                                }}
+                                onBlur={() => void saveTitleEditor(session)}
+                              />
+                            </div>
+                          </Show>
+                          <Show when={isActive() && title.editingID !== session.id}>
                             <span
                               class="absolute rounded-full pointer-events-none"
                               style={{
-                                right: "8px",
+                                right: "4px",
                                 top: "50%",
                                 transform: "translateY(-50%)",
                                 width: "4px",
@@ -1154,6 +1855,51 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
                               }}
                             />
                           </Show>
+                          <DropdownMenu
+                            gutter={4}
+                            placement="bottom-end"
+                            open={title.menuOpenID === session.id}
+                            onOpenChange={(open) => setTitle("menuOpenID", open ? session.id : "")}
+                          >
+                            <DropdownMenu.Trigger
+                              as={IconButton}
+                              icon="dot-grid"
+                              variant="ghost"
+                              class="absolute right-[10px] top-1/2 -translate-y-1/2 size-6 rounded-md opacity-0 group-hover/item:opacity-100 data-[expanded]:opacity-100 data-[expanded]:bg-surface-base-active"
+                              classList={{
+                                "opacity-100 bg-surface-base-active": title.menuOpenID === session.id,
+                              }}
+                              aria-label={language.t("common.moreOptions")}
+                              aria-expanded={title.menuOpenID === session.id}
+                            />
+                            <DropdownMenu.Portal>
+                              <DropdownMenu.Content
+                                style={{ "min-width": "104px" }}
+                                onCloseAutoFocus={(event) => {
+                                  if (title.pendingRenameID !== session.id) return
+                                  event.preventDefault()
+                                  openTitleEditor(session)
+                                }}
+                              >
+                                <DropdownMenu.Item
+                                  onSelect={() => {
+                                    setTitle({
+                                      pendingRenameID: session.id,
+                                      menuOpenID: "",
+                                    })
+                                  }}
+                                >
+                                  <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                                </DropdownMenu.Item>
+                                <DropdownMenu.Separator />
+                                <DropdownMenu.Item
+                                  onSelect={() => dialog.show(() => <DialogDeleteSession session={session} />)}
+                                >
+                                  <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
+                                </DropdownMenu.Item>
+                              </DropdownMenu.Content>
+                            </DropdownMenu.Portal>
+                          </DropdownMenu>
                         </div>
                       )
                     }}
@@ -1182,10 +1928,10 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="studio-intro-copy">
         <div class="studio-intro-title">Octo Studio</div>
-        <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
+        <div class="studio-intro-subtitle">一键创意落地，让视觉生产力触手可及</div>
       </div>
     </div>
   )
@@ -1210,12 +1956,27 @@ function StudioComposer(props: {
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
+  onPasteImage: (files: File[]) => void
   onRemoveAsset: (id: string) => void
 }): JSX.Element {
-  let composerRef!: HTMLDivElement
+  let pointerDownOpenMenu: typeof props.openMenu = null
+  const referenceAsset = createMemo(() => props.assets[0])
+  const isImageGeneration = createMemo(() => props.capability === "image.generate")
+
+  function handlePaste(event: ClipboardEvent) {
+    if (!isImageGeneration()) return
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (!files.length) return
+    event.preventDefault()
+    props.onPasteImage(files)
+  }
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
-    if (!props.openMenu || composerRef.contains(event.target as Node)) return
+    if (!props.openMenu) return
+    if (event.target instanceof Element && event.target.closest(".studio-menu")) return
     props.onOpenMenu(null)
   }
 
@@ -1223,14 +1984,14 @@ function StudioComposer(props: {
   onCleanup(() => document.removeEventListener("pointerdown", handleDocumentPointerDown))
 
   return (
-    <div ref={composerRef!} class="studio-composer-wrap relative shrink-0">
+    <div class="studio-composer-wrap relative shrink-0">
       <Show when={props.openMenu === "capability"}>
         <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
       </Show>
-      <Show when={props.openMenu === "style"}>
+      <Show when={isImageGeneration() && props.openMenu === "style"}>
         <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
       </Show>
-      <Show when={props.openMenu === "settings"}>
+      <Show when={isImageGeneration() && props.openMenu === "settings"}>
         <ImageSettings
           aspectRatio={props.aspectRatio}
           count={props.count}
@@ -1240,46 +2001,67 @@ function StudioComposer(props: {
       </Show>
 
       <div class="studio-composer">
-        <div class="studio-composer-input-row">
-          <button
-            type="button"
-            onClick={props.onPickFile}
-            class="studio-composer-ref-btn"
-            title="上传参考图"
-          />
+        <div class="studio-composer-input-row" classList={{ "with-reference": isImageGeneration() }}>
+          <Show when={isImageGeneration()}>
+            <div class="studio-composer-ref-slot" classList={{ filled: Boolean(referenceAsset()) }}>
+              <button
+                type="button"
+                onClick={props.onPickFile}
+                class="studio-composer-ref-btn"
+                title={referenceAsset() ? "替换参考图" : "上传参考图"}
+              >
+                <Show when={referenceAsset()}>
+                  {(asset) => <img src={asset().dataUrl} alt={asset().name} class="studio-composer-ref-image" />}
+                </Show>
+              </button>
+              <Show when={referenceAsset()}>
+                {(asset) => (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      props.onRemoveAsset(asset().id)
+                    }}
+                    class="studio-composer-ref-remove"
+                    aria-label="删除参考图"
+                    title="删除参考图"
+                  >
+                    ×
+                  </button>
+                )}
+              </Show>
+            </div>
+          </Show>
           <textarea
             value={props.prompt}
             onInput={(event) => props.onPrompt(event.currentTarget.value)}
             onKeyDown={props.onKeyDown}
+            onPaste={handlePaste}
             placeholder="上传参考图、输入文字，描述你想生成的图片。"
             class="studio-composer-input"
             disabled={props.status === "running" || props.status === "submitting"}
           />
         </div>
 
-        <Show when={props.assets.length > 0}>
-          <div class="flex gap-2 mt-3 overflow-x-auto">
-            <For each={props.assets}>
-              {(item) => (
-                <button
-                  type="button"
-                  onClick={() => props.onRemoveAsset(item.id)}
-                  class="relative w-[46px] h-[46px] shrink-0 overflow-hidden rounded-[8px] border border-[rgba(15,23,42,0.08)]"
-                  title={`${item.name}，点击移除`}
-                >
-                  <img src={item.dataUrl} class="w-full h-full object-cover" alt="" />
-                  <span class="absolute right-0 top-0 w-4 h-4 rounded-bl-[8px] bg-black/50 text-white text-[10px]">×</span>
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-
         <div class="studio-composer-toolbar">
-          <ToolButton label={capabilityLabel(props.capability)} onClick={() => props.onOpenMenu(props.openMenu === "capability" ? null : "capability")} />
-          <ToolButton label={styleModelLabel(props.styleModel)} onClick={() => props.onOpenMenu(props.openMenu === "style" ? null : "style")} />
-          <IconTool label="参数" onClick={() => props.onOpenMenu(props.openMenu === "settings" ? null : "settings")} />
-          <IconTool label="素材" onClick={props.onPickFile} />
+          <ToolButton
+            label={capabilityLabel(props.capability)}
+            onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+            onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
+          />
+          <Show when={isImageGeneration()}>
+            <ToolButton
+              label={styleModelLabel(props.styleModel)}
+              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
+            />
+            <IconTool
+              label="参数"
+              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+            />
+            <IconTool label="素材" />
+          </Show>
           <button
             type="button"
             onClick={props.onSubmit}
@@ -1293,19 +2075,20 @@ function StudioComposer(props: {
   )
 }
 
-function ToolButton(props: { label: string; onClick: () => void }): JSX.Element {
+function ToolButton(props: { label: string; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
-    <button type="button" onClick={props.onClick} class="studio-composer-tool-btn">
+    <button type="button" onPointerDown={props.onPointerDown} onClick={props.onClick} class="studio-composer-tool-btn">
       <span class="studio-composer-tool-label">{props.label}</span>
       <span class="studio-composer-tool-caret" />
     </button>
   )
 }
 
-function IconTool(props: { label: string; onClick: () => void }): JSX.Element {
+function IconTool(props: { label: string; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
     <button
       type="button"
+      onPointerDown={props.onPointerDown}
       onClick={props.onClick}
       class={`studio-composer-icon-tool ${props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"}`}
       title={props.label}
@@ -1427,6 +2210,7 @@ function StudioConversation(props: {
   turns: StudioTurnData[]
   busy: boolean
   onSelectImage: (input: { resultID: string; imageID: string }) => void
+  onOpenEditor: (capability: StudioCapability) => void
 }): JSX.Element {
   return (
     <div class="studio-conversation">
@@ -1436,56 +2220,70 @@ function StudioConversation(props: {
             <div class="studio-user-bubble">
               {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
             </div>
-            <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
-              {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+            <Show when={turn.editCapability} fallback={
+              <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
+                {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+              </Show>
+            }>
+              {(editCapability) => (
+                <button
+                  type="button"
+                  class="studio-assistant-editor-link"
+                  onClick={() => props.onOpenEditor(editCapability())}
+                >
+                  点击前往编辑区
+                </button>
+              )}
             </Show>
-            <div
-              class="studio-result-card"
-              classList={{
-                complete: Boolean(turn.result?.images.length),
-                generating: Boolean((props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length),
-                failed: Boolean(turn.toolError || turn.result?.error),
-              }}
-            >
-              <div class="studio-result-badge">
-                <span class="studio-result-badge-icon" />
-                {capabilityLabel(turn.result?.capability ?? props.result?.capability ?? "image.generate")}
+            <Show when={!turn.editCapability}>
+              <div
+                class="studio-result-card"
+                classList={{
+                  complete: Boolean(turn.result?.images.length),
+                  generating: Boolean((props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length),
+                  failed: Boolean(turn.toolError || turn.result?.error),
+                }}
+              >
+                <div class="studio-result-badge">
+                  <span class="studio-result-badge-icon" />
+                  {capabilityLabel(turn.result?.capability ?? props.result?.capability ?? "image.generate")}
+                </div>
+                <div class="studio-result-title">{turn.toolTitle ?? (turn.result?.images.length ? "图片生成完成" : "图片生成中")}</div>
+                <div class="studio-result-meta">
+                  创建时间：{formatTime(turn.createdAt)}
+                </div>
+                <Show when={turn.toolError}>
+                  <div class="studio-result-error">
+                    {turn.toolError}
+                  </div>
+                </Show>
+                <Show when={turn.result?.error}>
+                  <div class="studio-result-error">
+                    {turn.result?.error}
+                  </div>
+                </Show>
+                <Show when={(props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length} fallback={
+                  <div class="studio-result-grid">
+                    <For each={turn.result?.images ?? []}>
+                      {(image) => (
+                        <button
+                          type="button"
+                          onClick={() => turn.result && props.onSelectImage({ resultID: turn.result.id, imageID: image.id })}
+                          class="studio-result-thumb"
+                        >
+                          <img src={image.thumbnailUrl ?? image.url} alt="" />
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                }>
+                  <div class="studio-generation-skeleton">
+                    <div class="studio-generation-skeleton-shine" />
+                    <div class="studio-generation-skeleton-image" />
+                  </div>
+                </Show>
               </div>
-              <div class="studio-result-title">{turn.toolTitle ?? (turn.result?.images.length ? "图片生成完成" : "图片生成中")}</div>
-              <div class="studio-result-meta">
-                创建时间：{formatTime(turn.createdAt)}
-              </div>
-              <Show when={turn.toolError}>
-                <div class="studio-result-error">
-                  {turn.toolError}
-                </div>
-              </Show>
-              <Show when={turn.result?.error}>
-                <div class="studio-result-error">
-                  {turn.result?.error}
-                </div>
-              </Show>
-              <Show when={(props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length} fallback={
-                <div class="studio-result-grid">
-                  <For each={turn.result?.images ?? []}>
-                    {(image) => (
-                      <button
-                        type="button"
-                        onClick={() => turn.result && props.onSelectImage({ resultID: turn.result.id, imageID: image.id })}
-                        class="studio-result-thumb"
-                      >
-                        <img src={image.thumbnailUrl ?? image.url} alt="" />
-                      </button>
-                    )}
-                  </For>
-                </div>
-              }>
-                <div class="studio-generation-skeleton">
-                  <div class="studio-generation-skeleton-shine" />
-                  <div class="studio-generation-skeleton-image" />
-                </div>
-              </Show>
-            </div>
+            </Show>
           </div>
         )}
       </For>
@@ -1556,6 +2354,46 @@ function StudioResultCanvas(props: {
   )
 }
 
+function StudioWorkspaceUpload(props: { onUpload: (files: File[]) => void }): JSX.Element {
+  let inputRef!: HTMLInputElement
+
+  return (
+    <div class="studio-workspace-upload">
+      <button
+        type="button"
+        class="studio-workspace-upload-target"
+        onClick={() => inputRef.click()}
+        onDragOver={(event) => {
+          event.preventDefault()
+          event.currentTarget.classList.add("dragging")
+        }}
+        onDragLeave={(event) => {
+          event.currentTarget.classList.remove("dragging")
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          event.currentTarget.classList.remove("dragging")
+          props.onUpload(Array.from(event.dataTransfer?.files ?? []))
+        }}
+      >
+        <span class="studio-workspace-upload-plus" />
+        <span class="studio-workspace-upload-title">上传图片</span>
+        <span class="studio-workspace-upload-copy">本地上传/拖拽图片上传</span>
+      </button>
+      <input
+        ref={inputRef!}
+        type="file"
+        accept="image/*"
+        class="hidden"
+        onChange={(event) => {
+          if (event.currentTarget.files?.length) props.onUpload(Array.from(event.currentTarget.files))
+          event.currentTarget.value = ""
+        }}
+      />
+    </div>
+  )
+}
+
 function StudioDetails(props: {
   result: StudioGenerationResult
   image?: StudioImage
@@ -1566,8 +2404,10 @@ function StudioDetails(props: {
   onRegenerate: () => void
   onUpscale: () => void
   onCutout: () => void
+  onInpaint: () => void
   onOutpaint: () => void
 }): JSX.Element {
+  const isEditResult = createMemo(() => isStudioEditResult(props.result))
   return (
     <ScrollView class="studio-detail-panel">
       <div class="studio-detail-cover">
@@ -1599,16 +2439,18 @@ function StudioDetails(props: {
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
       </section>
       <section class="studio-detail-section">
-        <div class="studio-detail-section-title">提示词</div>
-        <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
-        <button
-          type="button"
-          onClick={props.onRegenerate}
-          disabled={props.regenerateDisabled}
-          class="studio-details-primary-action disabled:opacity-45 disabled:cursor-not-allowed"
-        >
-          再次生成
-        </button>
+        <Show when={!isEditResult()}>
+          <div class="studio-detail-section-title">提示词</div>
+          <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
+          <button
+            type="button"
+            onClick={props.onRegenerate}
+            disabled={props.regenerateDisabled}
+            class="studio-details-primary-action disabled:opacity-45 disabled:cursor-not-allowed"
+          >
+            再次生成
+          </button>
+        </Show>
         <div class="studio-detail-action-grid">
           <button
             type="button"
@@ -1626,7 +2468,12 @@ function StudioDetails(props: {
           >
             <span>抠图</span>
           </button>
-          <button type="button" class="studio-details-secondary-action studio-detail-action-inpaint">
+          <button
+            type="button"
+            onClick={props.onInpaint}
+            disabled={props.regenerateDisabled}
+            class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
+          >
             <span>局部重绘</span>
           </button>
           <button
@@ -1640,6 +2487,540 @@ function StudioDetails(props: {
         </div>
       </section>
     </ScrollView>
+  )
+}
+
+function StudioHDEditor(props: {
+  image: StudioImage
+  onClose: () => void
+  onDelete: () => void
+  onSubmit: (input: { mode: StudioHDMode }) => void
+}): JSX.Element {
+  const [selectedMode, setSelectedMode] = createSignal<StudioHDMode>("restoration_8k")
+  const [loadError, setLoadError] = createSignal("")
+
+  createEffect(
+    on(
+      () => props.image.id,
+      () => {
+        setLoadError("")
+        setSelectedMode("restoration_8k")
+      },
+    ),
+  )
+
+  return (
+    <div class="studio-hd">
+      <div class="studio-hd-header">
+        <div class="min-w-0">
+          <div class="studio-hd-title">变清晰</div>
+        </div>
+        <button type="button" onClick={props.onClose} class="studio-hd-close" aria-label="关闭变清晰" title="关闭变清晰" />
+      </div>
+      <div class="studio-hd-body">
+        <div class="studio-hd-canvas-wrap">
+          <img
+            class="studio-hd-image"
+            src={props.image.url}
+            alt="HD source"
+            onLoad={() => setLoadError("")}
+            onError={() => setLoadError("图片加载失败")}
+          />
+          <Show when={loadError()}>
+            {(message) => <div class="studio-hd-loading">{message()}</div>}
+          </Show>
+        </div>
+        <div class="studio-hd-controls">
+          <div class="studio-hd-mode-group" aria-label="放大模式">
+            <span class="studio-hd-mode-label">放大模式</span>
+            <For each={STUDIO_HD_MODES}>
+              {(option) => (
+                <button
+                  type="button"
+                  class="studio-hd-mode-option"
+                  classList={{ active: selectedMode() === option.value }}
+                  aria-pressed={selectedMode() === option.value}
+                  data-mode={option.value}
+                  onClick={() => setSelectedMode(option.value)}
+                >
+                  <span class="studio-hd-mode-dot" />
+                  <span class="studio-hd-mode-text">{option.label}</span>
+                </button>
+              )}
+            </For>
+          </div>
+          <div class="studio-editor-actions">
+            <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
+            <button
+              type="button"
+              class="studio-hd-create"
+              onClick={() => props.onSubmit({ mode: selectedMode() })}
+            >
+              一键生成
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StudioCutoutEditor(props: {
+  image: StudioImage
+  busy: boolean
+  onClose: () => void
+  onDelete: () => void
+  onSubmit: () => void
+}): JSX.Element {
+  const [loadError, setLoadError] = createSignal("")
+
+  createEffect(
+    on(
+      () => props.image.id,
+      () => setLoadError(""),
+    ),
+  )
+
+  return (
+    <div class="studio-cutout">
+      <div class="studio-cutout-header">
+        <div class="min-w-0">
+          <div class="studio-cutout-title">抠图</div>
+        </div>
+        <button type="button" onClick={props.onClose} class="studio-cutout-close" aria-label="关闭抠图" title="关闭抠图" />
+      </div>
+      <div class="studio-cutout-body">
+        <div class="studio-cutout-canvas-wrap">
+          <img
+            class="studio-cutout-image"
+            src={props.image.url}
+            alt="Cutout source"
+            onLoad={() => setLoadError("")}
+            onError={() => setLoadError("图片加载失败")}
+          />
+          <Show when={loadError()}>
+            {(message) => <div class="studio-cutout-loading">{message()}</div>}
+          </Show>
+        </div>
+        <div class="studio-cutout-controls">
+          <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
+          <button
+            type="button"
+            class="studio-cutout-create"
+            disabled={props.busy}
+            onClick={props.onSubmit}
+          >
+            一键生成
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StudioInpaintEditor(props: {
+  image: StudioImage
+  busy: boolean
+  onClose: () => void
+  onDelete: () => void
+  onSubmit: (input: {
+    prompt: string
+    mode: StudioInpaintMode
+    sourceImage: string
+    compositeImage: string
+    hasDrawing: boolean
+  }) => void
+}): JSX.Element {
+  const [editMode, setEditMode] = createSignal<StudioInpaintMode>("qwen_image_edit")
+  const [brushSize, setBrushSize] = createSignal(40)
+  const [editorPrompt, setEditorPrompt] = createSignal("")
+  const [sourceSize, setSourceSize] = createSignal({ width: props.image.width ?? 0, height: props.image.height ?? 0 })
+  const [displaySize, setDisplaySize] = createSignal({ width: 0, height: 0 })
+  const [undoList, setUndoList] = createSignal<string[]>([])
+  const [redoList, setRedoList] = createSignal<string[]>([])
+  const [hasDrawing, setHasDrawing] = createSignal(false)
+  const [loadError, setLoadError] = createSignal("")
+  const [cursor, setCursor] = createSignal({ x: 0, y: 0, visible: false })
+  const sourceMaskCanvas = document.createElement("canvas")
+  let sourceImage: HTMLImageElement | undefined
+  let canvasWrapRef!: HTMLDivElement
+  let maskCanvasRef!: HTMLCanvasElement
+  let drawing = false
+  let lastPoint: { x: number; y: number } | undefined
+
+  function renderMaskPreview() {
+    const context = maskCanvasRef?.getContext("2d")
+    if (!context) return
+    context.clearRect(0, 0, displaySize().width, displaySize().height)
+    if (!sourceMaskCanvas.width || !sourceMaskCanvas.height) return
+    context.drawImage(sourceMaskCanvas, 0, 0, displaySize().width, displaySize().height)
+  }
+
+  function resetMaskCanvas(width: number, height: number) {
+    sourceMaskCanvas.width = width
+    sourceMaskCanvas.height = height
+    const initialState = sourceMaskCanvas.toDataURL("image/png")
+    setUndoList([initialState])
+    setRedoList([])
+    setHasDrawing(false)
+    renderMaskPreview()
+  }
+
+  function updateHasDrawing() {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context || !sourceMaskCanvas.width || !sourceMaskCanvas.height) {
+      setHasDrawing(false)
+      return false
+    }
+    const pixels = context.getImageData(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height).data
+    const nextHasDrawing = pixels.some((value, index) => index % 4 === 3 && value > 0)
+    setHasDrawing(nextHasDrawing)
+    return nextHasDrawing
+  }
+
+  function restoreMaskState(state: string) {
+    const image = new Image()
+    image.onload = () => {
+      const context = sourceMaskCanvas.getContext("2d")
+      if (!context) return
+      context.clearRect(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
+      context.drawImage(image, 0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
+      updateHasDrawing()
+      renderMaskPreview()
+    }
+    image.src = state
+  }
+
+  function updateDisplaySize() {
+    const width = sourceSize().width
+    const height = sourceSize().height
+    if (!canvasWrapRef || !width || !height) return
+    const rect = canvasWrapRef.getBoundingClientRect()
+    const scale = Math.min(
+      Math.max(1, rect.width - 48) / width,
+      Math.max(1, rect.height - 48) / height,
+      1,
+    )
+    setDisplaySize({
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale)),
+    })
+  }
+
+  createEffect(
+    on(
+      () => `${props.image.id}:${props.image.url}`,
+      () => {
+        setLoadError("")
+        setEditorPrompt("")
+        setEditMode("qwen_image_edit")
+        const image = new Image()
+        if (/^https?:\/\//i.test(props.image.url)) image.crossOrigin = "anonymous"
+        image.onload = () => {
+          sourceImage = image
+          setSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
+          resetMaskCanvas(image.naturalWidth, image.naturalHeight)
+          requestAnimationFrame(updateDisplaySize)
+        }
+        image.onerror = () => setLoadError("图片加载失败")
+        image.src = props.image.url
+      },
+    ),
+  )
+
+  createEffect(() => {
+    const observer = new ResizeObserver(() => updateDisplaySize())
+    observer.observe(canvasWrapRef)
+    onCleanup(() => observer.disconnect())
+  })
+
+  createEffect(() => {
+    displaySize()
+    requestAnimationFrame(renderMaskPreview)
+  })
+
+  function toSourcePoint(event: PointerEvent) {
+    const rect = maskCanvasRef.getBoundingClientRect()
+    return {
+      x: clamp((event.clientX - rect.left) / rect.width * sourceMaskCanvas.width, 0, sourceMaskCanvas.width),
+      y: clamp((event.clientY - rect.top) / rect.height * sourceMaskCanvas.height, 0, sourceMaskCanvas.height),
+    }
+  }
+
+  function updateCursor(event: PointerEvent, visible: boolean) {
+    const rect = maskCanvasRef.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    setCursor({
+      x,
+      y,
+      visible: visible && x >= 0 && y >= 0 && x <= rect.width && y <= rect.height,
+    })
+  }
+
+  function drawDot(point: { x: number; y: number }) {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context) return
+    const scale = displaySize().width / sourceMaskCanvas.width
+    context.fillStyle = "rgba(137, 71, 213, 0.3)"
+    context.beginPath()
+    context.arc(point.x, point.y, brushSize() / Math.max(scale, 0.001) / 2, 0, Math.PI * 2)
+    context.fill()
+  }
+
+  function drawLine(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context) return
+    const scale = displaySize().width / sourceMaskCanvas.width
+    context.strokeStyle = "rgba(137, 71, 213, 0.3)"
+    context.lineCap = "round"
+    context.lineJoin = "round"
+    context.lineWidth = brushSize() / Math.max(scale, 0.001)
+    context.beginPath()
+    context.moveTo(from.x, from.y)
+    context.lineTo(to.x, to.y)
+    context.stroke()
+  }
+
+  function finishDrawing() {
+    if (!drawing) return
+    drawing = false
+    lastPoint = undefined
+    const nextState = sourceMaskCanvas.toDataURL("image/png")
+    setUndoList((items) => [...items, nextState])
+    setRedoList([])
+    updateHasDrawing()
+    renderMaskPreview()
+  }
+
+  function clearMask() {
+    const context = sourceMaskCanvas.getContext("2d")
+    if (!context) return
+    context.clearRect(0, 0, sourceMaskCanvas.width, sourceMaskCanvas.height)
+    const initialState = sourceMaskCanvas.toDataURL("image/png")
+    setUndoList([initialState])
+    setRedoList([])
+    setHasDrawing(false)
+    renderMaskPreview()
+  }
+
+  function undoMask() {
+    const current = undoList().at(-1)
+    const previous = undoList().at(-2)
+    if (!current || !previous) return
+    setUndoList((items) => items.slice(0, -1))
+    setRedoList((items) => [...items, current])
+    restoreMaskState(previous)
+  }
+
+  function redoMask() {
+    const next = redoList().at(-1)
+    if (!next) return
+    setRedoList((items) => items.slice(0, -1))
+    setUndoList((items) => [...items, next])
+    restoreMaskState(next)
+  }
+
+  function handlePointerDown(event: PointerEvent) {
+    if (!sourceMaskCanvas.width || !sourceMaskCanvas.height || props.busy) return
+    event.preventDefault()
+    maskCanvasRef.setPointerCapture(event.pointerId)
+    drawing = true
+    lastPoint = toSourcePoint(event)
+    drawDot(lastPoint)
+    updateCursor(event, true)
+    renderMaskPreview()
+  }
+
+  function handlePointerMove(event: PointerEvent) {
+    updateCursor(event, true)
+    if (!drawing || !lastPoint) return
+    const nextPoint = toSourcePoint(event)
+    drawLine(lastPoint, nextPoint)
+    lastPoint = nextPoint
+    renderMaskPreview()
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    updateCursor(event, true)
+    if (maskCanvasRef.hasPointerCapture(event.pointerId)) maskCanvasRef.releasePointerCapture(event.pointerId)
+    finishDrawing()
+  }
+
+  function createCompositeImage() {
+    if (!sourceImage) throw new Error("图片尚未加载完成")
+    const canvas = document.createElement("canvas")
+    canvas.width = sourceSize().width
+    canvas.height = sourceSize().height
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("无法创建局部重绘画布")
+    context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
+    context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL("image/png").split(",")[1] ?? ""
+  }
+
+  function submit() {
+    const nextHasDrawing = updateHasDrawing()
+    if (!nextHasDrawing || props.busy) return
+    try {
+      props.onSubmit({
+        prompt: editorPrompt().trim(),
+        mode: editMode(),
+        sourceImage: props.image.remoteUrl ?? props.image.url,
+        compositeImage: createCompositeImage(),
+        hasDrawing: nextHasDrawing,
+      })
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const promptPlaceholder = createMemo(() =>
+    editMode() === "erase"
+      ? "请输入想要消除的物体，可留空"
+      : hasDrawing()
+        ? "重绘所选区域：例如把花瓶改成台灯"
+        : "涂抹要修改的区域，并描述希望变成什么",
+  )
+
+  return (
+    <div class="studio-inpaint">
+      <div class="studio-inpaint-header">
+        <div class="min-w-0">
+          <div class="studio-inpaint-title">局部重绘</div>
+        </div>
+        <button type="button" onClick={props.onClose} class="studio-inpaint-close" aria-label="关闭局部重绘" title="关闭局部重绘" />
+      </div>
+      <div class="studio-inpaint-body">
+        <div ref={canvasWrapRef!} class="studio-inpaint-canvas-wrap">
+          <Show when={displaySize().width && displaySize().height} fallback={
+            <div class="studio-inpaint-loading">{loadError() || "图片加载中..."}</div>
+          }>
+            <div
+              class="studio-inpaint-stage"
+              style={{ width: `${displaySize().width}px`, height: `${displaySize().height}px` }}
+            >
+              <img
+                src={props.image.url}
+                class="studio-inpaint-image"
+                alt="Inpaint source"
+                draggable={false}
+              />
+              <canvas
+                ref={maskCanvasRef!}
+                class="studio-inpaint-mask"
+                width={displaySize().width}
+                height={displaySize().height}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onPointerLeave={(event) => {
+                  updateCursor(event, false)
+                  finishDrawing()
+                }}
+              />
+              <Show when={cursor().visible}>
+                <span
+                  class="studio-inpaint-cursor"
+                  style={{
+                    left: `${cursor().x}px`,
+                    top: `${cursor().y}px`,
+                    width: `${brushSize()}px`,
+                    height: `${brushSize()}px`,
+                  }}
+                />
+              </Show>
+            </div>
+          </Show>
+          <Show when={loadError()}>
+            {(message) => <div class="studio-inpaint-error">{message()}</div>}
+          </Show>
+        </div>
+        <div class="studio-inpaint-controls">
+          <div class="studio-inpaint-toolbar">
+            <div class="studio-inpaint-mode-group" aria-label="生成模式">
+              <span class="studio-inpaint-mode-label">生成模式</span>
+              <For each={[
+                { label: "重绘", value: "qwen_image_edit" },
+                { label: "消除", value: "erase" },
+              ] as const}>
+                {(option) => (
+                  <button
+                    type="button"
+                    class="studio-inpaint-mode-option"
+                    classList={{ active: editMode() === option.value }}
+                    aria-pressed={editMode() === option.value}
+                    onClick={() => setEditMode(option.value)}
+                  >
+                    <span class="studio-inpaint-mode-dot" />
+                    <span class="studio-inpaint-mode-text">{option.label}</span>
+                  </button>
+                )}
+              </For>
+            </div>
+            <div class="studio-inpaint-tool-group">
+              <div class="studio-inpaint-tool-row">
+                <button
+                  type="button"
+                  onClick={clearMask}
+                  disabled={!hasDrawing() || props.busy}
+                  class="studio-inpaint-tool studio-inpaint-tool-clean"
+                  aria-label="清空"
+                  title="清空"
+                />
+                <button
+                  type="button"
+                  onClick={undoMask}
+                  disabled={undoList().length < 2 || props.busy}
+                  class="studio-inpaint-tool studio-inpaint-tool-undo"
+                  aria-label="撤销"
+                  title="撤销"
+                />
+                <button
+                  type="button"
+                  onClick={redoMask}
+                  disabled={redoList().length === 0 || props.busy}
+                  class="studio-inpaint-tool studio-inpaint-tool-redo"
+                  aria-label="重做"
+                  title="重做"
+                />
+              </div>
+              <label class="studio-inpaint-brush">
+                <span>笔刷粗细</span>
+                <strong>{brushSize()}</strong>
+                <input
+                  type="range"
+                  min="10"
+                  max="126"
+                  value={brushSize()}
+                  onInput={(event) => setBrushSize(Number(event.currentTarget.value))}
+                />
+              </label>
+            </div>
+          </div>
+          <div class="studio-inpaint-prompt-row">
+            <textarea
+              class="studio-inpaint-prompt"
+              maxlength="2000"
+              placeholder={promptPlaceholder()}
+              value={editorPrompt()}
+              disabled={props.busy}
+              onInput={(event) => setEditorPrompt(event.currentTarget.value)}
+            />
+            <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
+            <button
+              type="button"
+              disabled={!hasDrawing() || props.busy}
+              onClick={submit}
+              class="studio-inpaint-create"
+            >
+              一键生成
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1712,17 +3093,34 @@ function StudioOutpaintEditor(props: {
   aspectRatio: StudioAspectRatio
   onAspectRatio: (value: StudioAspectRatio) => void
   onClose: () => void
+  onDelete: () => void
   onSubmit: (input: { prompt: string; extra: Record<string, unknown> }) => void
 }): JSX.Element {
   const [editorPrompt, setEditorPrompt] = createSignal("")
   const [stage, setStage] = createSignal({ width: 828, height: 420 })
   const [rect, setRect] = createSignal<OutpaintBox>()
+  const [imageSourceSize, setImageSourceSize] = createSignal({ width: props.image.width ?? 1024, height: props.image.height ?? 1024 })
   const ratios = ["1:1", "9:16", "16:9"] as StudioAspectRatio[]
   let stageRef!: HTMLDivElement
 
+  createEffect(
+    on(
+      () => `${props.image.id}:${props.image.url}:${props.image.width ?? ""}:${props.image.height ?? ""}`,
+      () => {
+        if (props.image.width && props.image.height) {
+          setImageSourceSize({ width: props.image.width, height: props.image.height })
+          return
+        }
+        const image = new Image()
+        image.onload = () => setImageSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
+        image.src = props.image.url
+      },
+    ),
+  )
+
   const imageBox = createMemo<OutpaintBox>(() => {
-    const sourceWidth = props.image.width ?? 1024
-    const sourceHeight = props.image.height ?? 1024
+    const sourceWidth = imageSourceSize().width
+    const sourceHeight = imageSourceSize().height
     const maxWidth = Math.min(320, stage().width * 0.42)
     const maxHeight = stage().height * 0.56
     const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight)
@@ -1751,7 +3149,7 @@ function StudioOutpaintEditor(props: {
 
   createEffect(
     on(
-      () => `${props.image.id}:${stage().width}:${stage().height}`,
+      () => `${props.image.id}:${stage().width}:${stage().height}:${imageSourceSize().width}:${imageSourceSize().height}`,
       () => setRect(imageBox()),
       { defer: true },
     ),
@@ -1787,7 +3185,7 @@ function StudioOutpaintEditor(props: {
 
   const outpaintMetrics = createMemo(() => {
     const current = rect() ?? imageBox()
-    const scale = imageBox().width / (props.image.width ?? 1024)
+    const scale = imageBox().width / imageSourceSize().width
     const left = Math.round((imageBox().x - current.x) / scale)
     const right = Math.round((current.x + current.width - imageBox().x - imageBox().width) / scale)
     const top = Math.round((imageBox().y - current.y) / scale)
@@ -1812,9 +3210,6 @@ function StudioOutpaintEditor(props: {
       <div class="studio-enlarging-header">
         <div class="min-w-0">
           <div class="studio-enlarging-title">扩图</div>
-          <div class="studio-enlarging-meta">
-            {currentImageName(props.image)} · {props.image.width ?? "-"} x {props.image.height ?? "-"} {"->"} {outpaintMetrics().realWidth} x {outpaintMetrics().realHeight}
-          </div>
         </div>
         <button type="button" onClick={props.onClose} class="studio-enlarging-close" aria-label="关闭扩图" title="关闭扩图" />
       </div>
@@ -1890,7 +3285,7 @@ function StudioOutpaintEditor(props: {
             value={editorPrompt()}
             onInput={(event) => setEditorPrompt(event.currentTarget.value)}
           />
-          <button type="button" onClick={() => setRect(imageBox())} class="studio-enlarging-reset">重置</button>
+          <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
           <button
             type="button"
             disabled={!canSubmit()}

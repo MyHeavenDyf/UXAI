@@ -8,11 +8,12 @@ import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
-import { IllustrationResultEmpty } from "../../icons/illustrations"
+import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
+import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 
 // ── 源码渲染器 ──────────────────────────────────────────────────
 // 复用上游 <Markdown> 的 shiki 高亮:把内容包成 ```lang fence 喂给它,
@@ -60,7 +61,7 @@ export function ResultViewer(props: {
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
-      style={{ background: "var(--octo-surface-result)" }}
+      style={{ background: "var(--octo-surface-result)", "border-left": "1px solid var(--octo-border-divider)" }}
     >
       <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
         <TabBar
@@ -240,8 +241,25 @@ function ResourceErrorFallback(props: {
   )
 }
 
-// 二进制 / 未识别 mimeType:不在内嵌渲染,提供「用本地应用打开 + 下载到本地」双按钮。
+// 二进制 / 未识别 mimeType:不在内嵌渲染,提供三按钮(用本地应用打开 / 在文件夹中打开 / 另存为)。
 // spec: docs/specs/ui/output-renderers.md §6.A,决策: ADR-009。
+//
+// 返回桌面壳缺失的 API 方法名列表(便于 toast 给用户精确报错 + 知会开发团队补壳)。
+// SOT: packages/app/src/pages/insight/lib/electron-api.ts;handoff 同步清单见 docs/intranet-handoff.md §1.6。
+type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder"
+function missingDesktopApi(required: ApiKey[]): string[] {
+  const api = getDesktopApi()
+  if (!api) return required.slice()
+  return required.filter((k) => typeof (api as Record<string, unknown>)[k] !== "function")
+}
+function notifyMissingApi(missing: string[]): void {
+  showToast({
+    title: "桌面端能力缺失",
+    description: `缺少 window.api.${missing.join(" / ")},请联系开发团队补齐桌面壳`,
+    variant: "error",
+  })
+}
+
 function FileFallback(props: { tab: ResultTab }): JSX.Element {
   const [openBusy, setOpenBusy] = createSignal(false)
   const [downloadBusy, setDownloadBusy] = createSignal(false)
@@ -265,11 +283,12 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
 
   async function handleOpenInApp() {
     if (!props.tab.uri || openBusy()) return
-    const api = getDesktopApi()
-    if (!api || !api.downloadResourceToTemp || !api.openPath || !api.downloadResource || !api.saveFilePicker) {
-      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+    const missing = missingDesktopApi(["downloadResourceToTemp", "openPath"])
+    if (missing.length > 0) {
+      notifyMissingApi(missing)
       return
     }
+    const api = getDesktopApi()!
     setOpenBusy(true)
     const fname = defaultFilename()
     console.log("[octo:office] download-start", {
@@ -280,12 +299,12 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       mode: "to-temp",
     })
     try {
-      const localPath = await api.downloadResourceToTemp(props.tab.uri, props.tab.id, fname)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname)
       console.log("[octo:office] download-ok", { localPath })
       console.log("[octo:office] open-path", { localPath })
       // shell.openPath 返回值约定: 空字符串 = 成功,非空 = 错误说明。
       // preload types 声明为 Promise<void>,但实际透传 string;运行时按 string 处理。
-      const openResult = (await api.openPath(localPath)) as unknown as string | undefined
+      const openResult = (await api.openPath!(localPath)) as unknown as string | undefined
       if (typeof openResult === "string" && openResult.length > 0) {
         console.error("[octo:office] open-failed", { localPath, reason: openResult })
         showToast({
@@ -308,20 +327,21 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
 
   async function handleSaveAs() {
     if (!props.tab.uri || downloadBusy()) return
-    const api = getDesktopApi()
-    if (!api || !api.downloadResourceToTemp || !api.openPath || !api.downloadResource || !api.saveFilePicker) {
-      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+    const missing = missingDesktopApi(["saveFilePicker", "downloadResource"])
+    if (missing.length > 0) {
+      notifyMissingApi(missing)
       return
     }
+    const api = getDesktopApi()!
     setDownloadBusy(true)
     try {
-      const chosen = await api.saveFilePicker({ defaultPath: defaultFilename() })
+      const chosen = await api.saveFilePicker!({ defaultPath: defaultFilename() })
       if (!chosen) {
         setDownloadBusy(false)
         return
       }
       console.log("[octo:office] saveas-start", { uri: props.tab.uri, destPath: chosen })
-      await api.downloadResource(props.tab.uri, chosen)
+      await api.downloadResource!(props.tab.uri, chosen)
       console.log("[octo:office] saveas-ok", { destPath: chosen })
       showToast({ description: "已另存", variant: "success", duration: 2000 })
     } catch (err) {
@@ -340,18 +360,19 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   // 微信桌面端模式:让用户能找到打开过 / 改过的本地文件,自己 cp 到正式位置。
   async function handleRevealInFolder() {
     if (!props.tab.uri || revealBusy()) return
-    const api = getDesktopApi()
-    if (!api || !api.downloadResourceToTemp || !api.showItemInFolder) {
-      showToast({ description: "桌面 API 不可用(非 Electron 环境)", variant: "error" })
+    const missing = missingDesktopApi(["downloadResourceToTemp", "showItemInFolder"])
+    if (missing.length > 0) {
+      notifyMissingApi(missing)
       return
     }
+    const api = getDesktopApi()!
     setRevealBusy(true)
     const fname = defaultFilename()
     console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.id, filename: fname })
     try {
-      const localPath = await api.downloadResourceToTemp(props.tab.uri, props.tab.id, fname)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname)
       console.log("[octo:office] reveal-show", { localPath })
-      api.showItemInFolder(localPath)
+      api.showItemInFolder!(localPath)
     } catch (err) {
       console.error("[octo:office] reveal-failed", { uri: props.tab.uri, err })
       showToast({
@@ -364,49 +385,68 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     }
   }
 
+  const iconUrl = () => fileTypeIconUrl(props.tab.fileName ?? "", props.tab.mimeType ?? "")
+  const displayName = () => props.tab.fileName || props.tab.title || "文件"
+
   return (
-    <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
-      <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>
-        {props.tab.fileName || "文件"}
-      </div>
-      <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>
-        {props.tab.mimeType || "未知类型"} · 该格式不在应用内预览
-      </div>
-      <Show when={props.tab.uri} fallback={
-        <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>无远程地址,无法打开 / 下载</div>
-      }>
-        <div class="flex items-center gap-2 mt-1 flex-wrap justify-center">
-          <button
-            type="button"
-            onClick={() => void handleOpenInApp()}
-            disabled={openBusy()}
-            class="px-3 py-1 text-xs rounded disabled:opacity-50"
-            style={{ border: "1px solid var(--octo-brand)", color: "var(--octo-brand)", background: "var(--octo-surface-page)" }}
-          >
-            {openBusy() ? "打开中…" : "用本地应用打开"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleRevealInFolder()}
-            disabled={revealBusy()}
-            class="px-3 py-1 text-xs rounded disabled:opacity-50"
-            style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
-            title="在 Finder / Explorer 中定位本地副本(可手动 cp 或保留编辑后内容)"
-          >
-            {revealBusy() ? "定位中…" : "在文件夹中打开"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSaveAs()}
-            disabled={downloadBusy()}
-            class="px-3 py-1 text-xs rounded disabled:opacity-50"
-            style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
-            title="重新从源 URL 下载一份到你选择的位置(不含本地编辑改动)"
-          >
-            {downloadBusy() ? "保存中…" : "另存为"}
-          </button>
+    <div
+      class="relative flex flex-col items-center justify-center h-full overflow-hidden"
+      style={{ background: "var(--octo-surface-result)" }}
+    >
+      <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "max-width": "calc(100% - 48px)" }}>
+        <img src={iconUrl()} width={72} height={72} alt="" aria-hidden="true" style={{ "margin-bottom": "20px" }} />
+
+        <div style={{ "font-size": "20px", "font-weight": 700, color: "var(--octo-text-strong, #0a0a0a)", "line-height": 1.4, "text-align": "center", "word-break": "break-all", "margin-bottom": "8px", "max-width": "500px" }}>
+          {displayName()}
         </div>
-      </Show>
+
+        <div style={{ "font-size": "14px", color: "var(--octo-text-secondary, #6b7280)", "margin-bottom": "20px", "text-align": "center" }}>
+          文档已生成完成，可选择以下方式查看
+        </div>
+
+        <div style={{ width: "100%", "max-width": "400px", height: "1px", background: "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.07) 50%, transparent 100%)", "margin-bottom": "20px" }} />
+
+        <Show when={props.tab.uri} fallback={
+          <div style={{ "font-size": "13px", color: "var(--octo-text-disabled)" }}>无远程地址，无法打开 / 下载</div>
+        }>
+          <div style={{ display: "flex", gap: "12px", "flex-wrap": "wrap", "justify-content": "center" }}>
+            <button
+              type="button"
+              onClick={() => void handleOpenInApp()}
+              disabled={openBusy()}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "none", background: "rgb(10,89,247)", color: "#fff", "font-size": "13px", "font-weight": 500, cursor: openBusy() ? "not-allowed" : "pointer", opacity: openBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="#fff" stroke-width="1.4"/>
+                <path d="M5.5 14.5h5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+                <path d="M8 12v2.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+              {openBusy() ? "打开中…" : "本地打开"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRevealInFolder()}
+              disabled={revealBusy()}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: revealBusy() ? "not-allowed" : "pointer", opacity: revealBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+            >
+              <img src={folderBlueUrl} width={14} height={12} alt="" aria-hidden="true" />
+              {revealBusy() ? "定位中…" : "文件夹打开"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSaveAs()}
+              disabled={downloadBusy()}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              {downloadBusy() ? "保存中…" : "下载"}
+            </button>
+          </div>
+        </Show>
+      </div>
     </div>
   )
 }

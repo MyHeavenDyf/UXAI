@@ -234,6 +234,28 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         options: {},
       }
     }),
+    bpit: Effect.fnUntraced(function* (input: Info) {
+      input.name = "BPIT"
+
+      const snapshot = yield* Effect.tryPromise({
+        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
+        catch: () => undefined,
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+
+      const bpitProvider = snapshot?.["bpit"]
+      if (bpitProvider) {
+        const models: Record<string, Model> = {}
+        for (const [key, model] of Object.entries(bpitProvider.models)) {
+          models[key] = fromModelsDevModel(bpitProvider, model)
+        }
+        input.models = models
+      }
+
+      return {
+        autoload: true,
+        options: {},
+      }
+    }),
     openai: () =>
       Effect.succeed({
         autoload: false,
@@ -1176,7 +1198,7 @@ const layer: Layer.Layer<
           const match = database[providerID]
           // Special case: allow opencode to merge even without database entry
           // (custom loader self-constructs model data)
-          if (!match && providerID !== "opencode") return
+          if (!match && providerID !== "opencode" && providerID !== "bpit") return
           // @ts-expect-error
           providers[providerID] = mergeDeep(match ?? {
             id: "opencode",
@@ -1371,18 +1393,18 @@ const layer: Layer.Layer<
           if (disabled.has(providerID)) continue
           const data = database[providerID]
 
-          // Special case: opencode custom loader can run without database entry
+          // Special case: opencode/bpit custom loader can run without database entry
           // because it self-constructs all model data
-          if (!data && providerID !== "opencode") {
+          if (!data && providerID !== "opencode" && providerID !== "bpit") {
             log.error("Provider does not exist in model list " + providerID)
             continue
           }
 
-          // For opencode, create minimal placeholder if missing from database
+          // For opencode/bpit, create minimal placeholder if missing from database
           const providerData = data ?? {
-            id: "opencode",
-            name: "Octo AI",
-            env: ["OPENCODE_API_KEY"],
+            id: providerID,
+            name: providerID === "opencode" ? "Octo AI" : "BPIT",
+            env: [providerID === "opencode" ? "OPENCODE_API_KEY" : "BPIT_API_KEY"],
             models: {},
           }
 

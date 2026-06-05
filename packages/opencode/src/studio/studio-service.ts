@@ -34,7 +34,9 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   provider: StudioProvider
-  toolAction?: "generate_image" | "super_resolution" | "cutout" | "outpainting"
+  toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+  taskType?: string
+  task_type?: string
   taskId?: string
   model: string
   aspectRatio: string
@@ -56,6 +58,7 @@ function resolveProvider(input: StudioGenerationRequest): StudioProvider {
 function toolActionForCapability(capability: StudioCapability) {
   if (capability === "image.upscale") return "super_resolution"
   if (capability === "image.cutout") return "cutout"
+  if (capability === "image.inpaint") return "inpainting"
   if (capability === "image.outpaint") return "outpainting"
   return "generate_image"
 }
@@ -361,6 +364,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   console.log("[studio.service] generation tool result", {
     provider: output.provider,
     toolAction: output.toolAction ?? toolActionForCapability(input.capability),
+    taskType: typeof (output.request as Record<string, unknown> | undefined)?.task_type === "string" ? (output.request as Record<string, string>).task_type : undefined,
     taskId: output.taskId,
     model: output.model,
     statusCode: output.statusCode,

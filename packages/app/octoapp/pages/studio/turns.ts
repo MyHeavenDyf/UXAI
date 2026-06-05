@@ -7,6 +7,7 @@ export type StudioTurnData = {
   id: string
   userText: string
   assistantText: string
+  editCapability?: StudioCapability
   toolTitle?: string
   toolError?: string
   toolName?: string
@@ -231,6 +232,7 @@ function buildResult(input: {
           prompt: extractUserDemand(input.userText),
           provider: resolveProvider(completed?.tool),
           toolAction: stringField(output, "toolAction") as StudioGenerationResult["toolAction"],
+          taskType: stringField(output, "taskType") ?? stringField(output, "task_type") ?? stringField(inputRecord, "task_type") ?? stringField(inputRecord, "taskType"),
           taskId: stringField(output, "taskId"),
           model,
           aspectRatio,

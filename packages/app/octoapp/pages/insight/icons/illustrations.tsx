@@ -2,6 +2,35 @@ import type { JSX } from "solid-js"
 import insightEmptyUrl from "./IllustrationInsightEmpty.svg?url"
 import resultEmptyUrl from "./IllustrationResultEmpty.svg?url"
 import iconSendBlueUrl from "./IconSend.svg?url"
+import iconStopBlueUrl from "./IconStopBlue.svg?url"
+import iconFileDocUrl from "./IconFileDoc.svg?url"
+import iconFilePptUrl from "./IconFilePpt.svg?url"
+import iconFilePdfUrl from "./IconFilePdf.svg?url"
+import iconFileExcelUrl from "./IconFileExcel.svg?url"
+import iconFileHtmlUrl from "./IconFileHtml.svg?url"
+import iconFileMarkdownUrl from "./IconFileMarkdown.svg?url"
+import iconFileMindmapUrl from "./IconFileMindmap.svg?url"
+import iconFileVideoUrl from "./IconFileVideo.svg?url"
+import iconFileImageUrl from "./IconFileImage.svg?url"
+import iconFileCodeUrl from "./IconFileCode.svg?url"
+import iconFileOtherUrl from "./IconFileOther.svg?url"
+
+/** 按 fileName 扩展名 / mimeType 选文件类型图标 URL（用于 FileFallback 大图标）。*/
+export function fileTypeIconUrl(fileName?: string, mimeType?: string): string {
+  const ext = fileName?.split(".").pop()?.toLowerCase() ?? ""
+  const mime = mimeType?.toLowerCase() ?? ""
+  if (ext === "doc" || ext === "docx" || mime.includes("wordprocessingml") || mime.includes("msword")) return iconFileDocUrl
+  if (ext === "xls" || ext === "xlsx" || mime.includes("spreadsheetml") || mime.includes("ms-excel")) return iconFileExcelUrl
+  if (ext === "ppt" || ext === "pptx" || mime.includes("presentationml") || mime.includes("ms-powerpoint")) return iconFilePptUrl
+  if (ext === "pdf" || mime === "application/pdf") return iconFilePdfUrl
+  if (ext === "html" || ext === "htm" || mime.includes("html")) return iconFileHtmlUrl
+  if (ext === "md" || ext === "markdown" || mime.includes("markdown")) return iconFileMarkdownUrl
+  if (ext === "json" && mime.includes("mindmap")) return iconFileMindmapUrl
+  if (["mp4","mov","avi","mkv","webm","flv"].includes(ext) || mime.startsWith("video/")) return iconFileVideoUrl
+  if (["jpg","jpeg","png","gif","webp","svg","bmp"].includes(ext) || mime.startsWith("image/")) return iconFileImageUrl
+  if (["js","ts","jsx","tsx","py","java","go","rs","c","cpp","cs","rb","php","sh"].includes(ext) || mime.includes("javascript") || mime.includes("typescript")) return iconFileCodeUrl
+  return iconFileOtherUrl
+}
 
 type IllustrationProps = { width?: number; height?: number; class?: string }
 
@@ -19,24 +48,17 @@ export function IconSendBlue(props: IllustrationProps): JSX.Element {
   )
 }
 
-/**
- * 停止按钮图标：蓝色圆 + 白色圆角方块（⏹）。
- * 圆直径 25 / 画布 40 ≈ 62.5%，与 IconSendBlue（圆 32 / 画布 51.5）留白比例一致。
- */
+/** 停止按钮图标：蓝色渐变圆 + 白色方块（设计稿成品 SVG）。*/
 export function IconStopBlue(props: IllustrationProps): JSX.Element {
   return (
-    <svg
+    <img
+      src={iconStopBlueUrl}
       width={props.width ?? 40}
       height={props.height ?? 40}
-      viewBox="0 0 40 40"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+      alt=""
       aria-hidden="true"
       class={props.class}
-    >
-      <circle cx="20" cy="16" r="12.5" fill="#0067D1" />
-      <rect x="15.5" y="11.5" width="9" height="9" rx="1.5" fill="white" />
-    </svg>
+    />
   )
 }
 
