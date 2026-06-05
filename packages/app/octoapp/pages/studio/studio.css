@@ -934,6 +934,7 @@
   display: grid;
   place-items: center;
   background: #f0f0f0;
+  cursor: pointer;
 }
 
 .studio-workspace-upload-target {
@@ -945,24 +946,22 @@
   align-content: center;
   gap: 12px;
   padding: 20px 12px;
-  border: 2px dotted #2f73ff;
   background: transparent;
   color: #191919;
   text-align: center;
+  pointer-events: none;
   transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
 }
 
-.studio-workspace-upload-target:hover,
-.studio-workspace-upload-target.dragging {
-  border-color: #0a59f7;
-  background: rgba(255, 255, 255, 0.44);
+.studio-workspace-upload:hover .studio-workspace-upload-target,
+.studio-workspace-upload.dragging .studio-workspace-upload-target {
   transform: translateY(-1px);
 }
 
 .studio-workspace-upload-plus {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 20px;
+  height: 20px;
 }
 
 .studio-workspace-upload-plus::before,
@@ -971,28 +970,23 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 39px;
-  height: 3px;
+  width: 20px;
+  height: 1.5px;
   border-radius: 999px;
   background: #191919;
   transform: translate(-50%, -50%);
 }
 
 .studio-workspace-upload-plus::after {
-  width: 3px;
-  height: 39px;
+  width: 1.5px;
+  height: 20px;
 }
 
 .studio-workspace-upload-title,
 .studio-workspace-upload-copy {
   color: #191919;
-  font-size: 28px;
-  line-height: 36px;
-}
-
-.studio-workspace-upload-copy {
-  text-decoration-line: underline;
-  text-underline-offset: 4px;
+  font-size: 14px;
+  line-height: 100%;
 }
 
 .studio-hd {
@@ -1276,6 +1270,7 @@
   flex: 0 0 32px;
   border-radius: 999px;
   background: rgba(25, 25, 25, 0.06);
+  transition: background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 .studio-cutout-close::before {
@@ -1287,6 +1282,21 @@
   background: rgba(25, 25, 25, 0.74);
   mask: url("/studio/xmark.svg") center / contain no-repeat;
   -webkit-mask: url("/studio/xmark.svg") center / contain no-repeat;
+}
+
+.studio-cutout-close:hover {
+  background: rgba(25, 25, 25, 0.12);
+}
+
+.studio-cutout-close:active {
+  background: rgba(18, 103, 255, 0.14);
+  transform: scale(0.96);
+}
+
+.studio-cutout-close:focus-visible {
+  background: rgba(18, 103, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(18, 103, 255, 0.18);
+  outline: none;
 }
 
 .studio-cutout-body {
@@ -1634,12 +1644,13 @@
 
 .studio-inpaint-prompt-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px 112px;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
   align-items: stretch;
   gap: 12px;
 }
 
 .studio-inpaint-prompt {
+  min-width: 0;
   width: 100%;
   height: 40px;
   min-height: 40px;
@@ -2051,12 +2062,13 @@
 
 .studio-enlarging-prompt-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 88px 112px;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
   align-items: stretch;
   gap: 12px;
 }
 
 .studio-enlarging-prompt {
+  min-width: 0;
   width: 100%;
   height: 40px;
   min-height: 40px;
