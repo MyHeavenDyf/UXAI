@@ -246,26 +246,27 @@ function WaitingPill(props: {
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    return textPart?.text ?? ""
-  })
-
-  const filteredDeltaLog = createMemo(() => {
-    if (!props.messageID) return []
-    return props.deltaLog
-      .filter((entry) => entry.messageID === props.messageID)
-      .slice(-20)
+    if (!textPart?.text) return ""
+    
+    const parser = createArtifactParser()
+    let artifactContent = ""
+    for (const ev of parser.feed(textPart.text)) {
+      if (ev.type === "artifact:chunk") {
+        artifactContent += ev.delta
+      }
+    }
+    for (const ev of parser.flush()) {
+      if (ev.type === "artifact:chunk") {
+        artifactContent += ev.delta
+      }
+    }
+    return artifactContent
   })
 
   let contentRef: HTMLDivElement | undefined
 
   createEffect(() => {
     if (accumulatedText() && contentRef) {
-      contentRef.scrollTop = contentRef.scrollHeight
-    }
-  })
-
-  createEffect(() => {
-    if (!accumulatedText() && filteredDeltaLog().length > 0 && contentRef) {
       contentRef.scrollTop = contentRef.scrollHeight
     }
   })
@@ -290,31 +291,7 @@ function WaitingPill(props: {
           {statusLabel()}…
         </span>
       </div>
-      <Show when={accumulatedText().length > 0} fallback={
-        <Show when={filteredDeltaLog().length > 0}>
-          <div
-            ref={(el) => { contentRef = el }}
-            class="px-3 pb-2"
-            style={{
-              "max-height": "120px",
-              overflow: "auto",
-              "font-size": "11px",
-              "font-family": "'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace",
-              color: "var(--octo-text-primary)",
-            }}
-          >
-            <For each={filteredDeltaLog()}>
-              {(entry) => (
-                <div style={{ padding: "2px 0", "border-bottom": "1px dashed #ddd" }}>
-                  <span style={{ color: "#888", "font-size": "10px" }}>{formatDeltaTime(entry.timestamp)}</span>
-                  <span style={{ color: "#3b82f6", "font-weight": "600", "margin-left": "8px" }}>{entry.field}</span>
-                  <span style={{ "margin-left": "8px" }}>{entry.delta.slice(0, 50)}{entry.delta.length > 50 ? "…" : ""}</span>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      }>
+      <Show when={accumulatedText().length > 0}>
         <div
           ref={(el) => { contentRef = el }}
           class="px-3 pb-2"
