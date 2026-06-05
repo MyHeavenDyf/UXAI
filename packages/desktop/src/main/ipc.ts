@@ -178,10 +178,23 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "download-resource-to-temp",
-    async (_event: IpcMainInvokeEvent, url: string, namespace: string, filename: string) => {
+    async (
+      _event: IpcMainInvokeEvent,
+      url: string,
+      namespace: string,
+      filename: string,
+      baseDir?: string,
+    ) => {
       const safeNs = namespace.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default"
       const safeName = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
-      const destPath = join(app.getPath("temp"), "octo", safeNs, safeName)
+      // baseDir 提供时:文件落到 <baseDir>/.octo/downloads/<ns>/<name>(用户选了项目目录后,
+      // MCP 工具产物/"打开"/"在文件夹定位"全部进项目内,持久可查、可备份);
+      // 不传时 fallback 老逻辑走 OS 临时目录(无项目场景或纯一次性预览)。
+      const root =
+        baseDir && baseDir.length > 0
+          ? join(baseDir, ".octo", "downloads")
+          : join(app.getPath("temp"), "octo")
+      const destPath = join(root, safeNs, safeName)
       const res = await fetch(url)
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
