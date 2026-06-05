@@ -1179,18 +1179,20 @@ ${bodies}
                               type="button"
                               onClick={() => props.onOpenResult(outputCard)}
                               class="px-2 py-1.5 rounded text-xs text-left w-full transition-all"
-                              style={{ background: "var(--octo-brand-a3)", border: "1px solid var(--octo-brand-a8)", color: "var(--octo-text-primary)" }}
+                              style={{ background: "var(--octo-brand-a3)", "border-radius": "8px", border: "1px solid var(--octo-brand-a8)", color: "var(--octo-text-primary)" }}
                               onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand)" }}
                               onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand-a8)" }}
                             >
-                              <div class="flex items-center" style={{ gap: "12px" }}>
-                                <span class="flex-shrink-0">
+                              <div class="flex" style={{ gap: "12px" }}>
+                                <span class="flex-shrink-0 flex items-center">
                                   <img src={cardTypeIconSrc("html")} width={28} height={28} alt="" />
                                 </span>
-                                <span class="font-medium truncate flex-1 min-w-0" style={{ "font-size": "12px", "line-height": "22px", color: "#000" }}>{artifact.title}</span>
-                              </div>
-                              <div class="text-xs mt-0.5 truncate" style={{ color: "#000", "line-height": "22px", "padding-left": "40px" }}>
-                                {artifact.content.replace(/<[^>]+>/g, "").slice(0, 80)}{artifact.content.length > 80 ? "…" : ""}
+                                <div class="flex flex-col min-w-0 flex-1">
+                                  <span class="font-medium truncate" style={{ "font-size": "12px", "line-height": "22px", color: "#000" }}>{artifact.title}</span>
+                                  <div class="text-xs truncate" style={{ color: "#000", "line-height": "22px" }}>
+                                    {artifact.content.replace(/<[^>]+>/g, "").slice(0, 80)}{artifact.content.length > 80 ? "…" : ""}
+                                  </div>
+                                </div>
                               </div>
                             </button>
                           )
