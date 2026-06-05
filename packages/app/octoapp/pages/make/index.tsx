@@ -872,7 +872,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               {/* 消息列表 */}
               <ScrollView
                 class="flex-1 min-h-0"
-                style={{ background: "#fff" }}
+                style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
