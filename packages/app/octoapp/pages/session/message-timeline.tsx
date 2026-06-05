@@ -614,7 +614,7 @@ export function MessageTimeline(props: {
         <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
           {language.t("session.delete.confirm", { name: name() })}
         </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "24px" }}>
+        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
           <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
             {language.t("common.cancel")}
           </Button>

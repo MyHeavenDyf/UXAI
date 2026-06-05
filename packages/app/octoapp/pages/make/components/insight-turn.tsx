@@ -126,6 +126,10 @@ function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
   }
 }
 
+function cardTypeIconSrc(_type: OutputCardType): string {
+  return "/AI_doc_plaintext.svg"
+}
+
 function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "createdAt">[] {
   if (!text.includes("<artifact")) return []
   const results: Omit<OutputCard, "id" | "createdAt">[] = []
@@ -357,6 +361,78 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
   )
 }
 
+// ── Internal: ReasoningCollapsed ───────────────────────────
+
+function ReasoningCollapsed(props: { texts: string[]; duration: string }): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  return (
+    <div style={{ width: "100%", "margin-bottom": "8px" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open())}
+        style={{
+          display: "inline-flex",
+          "align-items": "center",
+          gap: "2px",
+          padding: "0",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: "#191919",
+          "font-size": "12px",
+          "line-height": "18px",
+          "user-select": "none",
+          "text-align": "left",
+        }}
+      >
+        <span style={{ "flex-shrink": 0 }}>已深度思考</span>
+        <Show when={props.duration}>
+          <span style={{ "flex-shrink": 0, color: "#191919" }}>（用时{props.duration}）</span>
+        </Show>
+        <span
+          style={{
+            "flex-shrink": 0,
+            display: "inline-flex",
+            "align-items": "center",
+            color: "var(--icon-base, #777)",
+            transition: "transform 0.2s ease",
+            transform: open() ? "rotate(180deg)" : "rotate(0deg)",
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+          </svg>
+        </span>
+      </button>
+      <Show when={open()}>
+        <div
+          style={{
+            "margin-top": "20px",
+            "padding-left": "12px",
+            "border-left": "1px solid rgba(0,0,0,0.08)",
+            "font-size": "12px",
+            "line-height": "18px",
+            color: "#777",
+            "max-height": "300px",
+            overflow: "auto",
+          }}
+        >
+          <For each={props.texts}>
+            {(text, i) => (
+              <>
+                <Show when={i() > 0}>
+                  <div class="my-1.5" style={{ "border-top": "1px dashed rgba(0,0,0,0.08)" }} />
+                </Show>
+                <div class="whitespace-pre-wrap" style={{ "user-select": "text" }}>{text}</div>
+              </>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
 // ── Main: InsightTurn ──────────────────────────────────────
 
 export function InsightTurn(props: {
@@ -459,6 +535,21 @@ export function InsightTurn(props: {
   })
 
   const showGenerating = createMemo(() => props.active && isLatestTurn())
+
+  const reasoningDuration = createMemo(() => {
+    const msgs = assistantMsgs()
+    if (msgs.length === 0) return ""
+    const lastMsg = msgs[msgs.length - 1] as AssistantMessage
+    const completed = lastMsg.time?.completed
+    const created = lastMsg.time?.created
+    if (typeof completed !== "number" || typeof created !== "number") return ""
+    const secs = Math.round((completed - created) / 1000)
+    if (secs <= 0) return ""
+    if (secs < 60) return `${secs}s`
+    const m = Math.floor(secs / 60)
+    const s = secs % 60
+    return s > 0 ? `${m}m ${s}s` : `${m}m`
+  })
 
   // ── NEW: tool calls ──
   const toolCalls = createMemo((): ToolCallInfo[] => {
@@ -957,34 +1048,43 @@ ${bodies}
 
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
-        <div class="mx-3 mb-1" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
-          <div
-            class="overflow-auto"
-            style={{
-              color: "#777",
-              "font-size": "12px",
-              "line-height": "18px",
-              "max-height": "300px",
-            }}
-          >
-            <For each={reasoningTexts()}>
-              {(text, i) => (
-                <>
-                  <Show when={i() > 0}>
-                    <div class="my-1.5" style={{ "border-top": "1px dashed rgba(0,0,0,0.08)" }} />
-                  </Show>
-                  <div class="whitespace-pre-wrap" style={{ "user-select": "text" }}>{text}</div>
-                </>
-              )}
-            </For>
+        <Show when={showGenerating()} fallback={
+          <div class="mx-3 mb-1">
+            <ReasoningCollapsed
+              texts={reasoningTexts()}
+              duration={reasoningDuration()}
+            />
           </div>
-        </div>
+        }>
+          <div class="mx-3 mb-1" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
+            <div
+              class="overflow-auto"
+              style={{
+                color: "#777",
+                "font-size": "12px",
+                "line-height": "18px",
+                "max-height": "300px",
+              }}
+            >
+              <For each={reasoningTexts()}>
+                {(text, i) => (
+                  <>
+                    <Show when={i() > 0}>
+                      <div class="my-1.5" style={{ "border-top": "1px dashed rgba(0,0,0,0.08)" }} />
+                    </Show>
+                    <div class="whitespace-pre-wrap" style={{ "user-select": "text" }}>{text}</div>
+                  </>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
       </Show>
 
       {/* AI 文字回复（proseText 已剥离 artifact 内容，始终显示） */}
       <Show when={proseText().length > 0}>
         <div
-          class="mx-3 mb-2 px-3 py-2"
+          class="mb-2 px-3 py-2"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <Markdown text={proseText()} />
@@ -1083,12 +1183,13 @@ ${bodies}
                               onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand)" }}
                               onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand-a8)" }}
                             >
-                              <div class="flex items-center gap-1.5">
-                                <span class="flex-shrink-0"><CardTypeIcon type="html" /></span>
-                                <span class="font-medium truncate flex-1 min-w-0">{artifact.title}</span>
-                                <span class="text-[10px] flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
+                              <div class="flex items-center" style={{ gap: "12px" }}>
+                                <span class="flex-shrink-0">
+                                  <img src={cardTypeIconSrc("html")} width={28} height={28} alt="" />
+                                </span>
+                                <span class="font-medium truncate flex-1 min-w-0" style={{ "font-size": "12px", "line-height": "22px", color: "#000" }}>{artifact.title}</span>
                               </div>
-                              <div class="text-[10px] mt-0.5 truncate" style={{ color: "var(--octo-text-disabled)" }}>
+                              <div class="text-xs mt-0.5 truncate" style={{ color: "#000", "line-height": "22px", "padding-left": "40px" }}>
                                 {artifact.content.replace(/<[^>]+>/g, "").slice(0, 80)}{artifact.content.length > 80 ? "…" : ""}
                               </div>
                             </button>
@@ -1139,12 +1240,14 @@ ${bodies}
       <For each={outputCards()}>
         {(capturedCard) => (
           <div
-            class="mx-3 mb-3 p-3"
+            class="mb-3"
             style={{
-              "border-radius": "var(--octo-radius-md)",
+              "border-radius": "12px",
+              padding: "16px 20px",
+              "margin-left": "12px",
+              "margin-right": "12px",
+              background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%)",
               border: capturedCard.truncated ? "1px solid rgba(234,179,8,0.3)" : "1px solid var(--octo-border-default)",
-              background: "var(--octo-surface-page)",
-              width: "calc(100% - 1.5rem)",
             }}
           >
             <button
@@ -1153,16 +1256,16 @@ ${bodies}
               class="w-full text-left transition-all"
               style={{ background: "transparent" }}
             >
-              <div class="flex items-center gap-2">
-                <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
+              <div class="flex items-center" style={{ gap: "12px" }}>
+                <span class="flex-shrink-0 flex items-center">
+                  <img src={cardTypeIconSrc(capturedCard.type)} width={28} height={28} alt="" />
+                </span>
+                <div class="flex flex-col min-w-0 flex-1" style={{ gap: "0" }}>
+                  <span class="truncate" style={{ color: "#000", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{capturedCard.title}</span>
+                  <span style={{ color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "22px" }}>{formatTime(capturedCard.createdAt)}</span>
                 </div>
-                <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
               </div>
             </button>
-            {/* 续写功能暂时屏蔽 — truncated 检测逻辑尚未完善 */}
           </div>
         )}
       </For>
@@ -1188,19 +1291,21 @@ ${bodies}
           const isPartial = genCard.content.length === 0
           return (
             <div
-              class="mx-3 mb-3 p-3"
+              class="mb-3"
               style={{
-                "border-radius": "var(--octo-radius-md)",
+                "border-radius": "12px",
+                padding: "16px 20px",
+                background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%)",
                 border: "1px dashed var(--octo-brand-a25)",
-                background: "var(--octo-surface-page)",
-                width: "calc(100% - 1.5rem)",
               }}
             >
-              <div class="flex items-center gap-2">
-                <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={genCard.type} /></span>
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{genCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
+              <div class="flex items-center" style={{ gap: "12px" }}>
+                <span class="flex-shrink-0 flex items-center">
+                  <img src={cardTypeIconSrc(genCard.type)} width={28} height={28} alt="" />
+                </span>
+                <div class="flex flex-col min-w-0 flex-1" style={{ gap: "0" }}>
+                  <span class="truncate" style={{ color: "#000", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{genCard.title}</span>
+                  <span style={{ color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "22px" }}>
                     {isPartial ? "等待内容…" : "生成中…"}
                   </span>
                 </div>

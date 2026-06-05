@@ -137,7 +137,7 @@ function MakeContent() {
   /** 打开标题编辑模式 */
   function openTitleEditor() {
     const sInfo = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? sInfo?.title ?? info()?.title) ?? "" })
+    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
@@ -790,7 +790,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(overrideTitle() ?? sessionInfo()?.title ?? info()?.title) ?? "Octo Design"}
+                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfo()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
@@ -935,7 +935,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               {/* 消息列表 */}
               <ScrollView
                 class="flex-1 min-h-0"
-                style={{ background: "#fff" }}
+                style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
