@@ -87,7 +87,7 @@ async function request<T>(url: string): Promise<T> {
     return data.content as T
   } catch (error) {
     console.error(`Failed to fetch ${url}:`, error)
-    // throw error
+    throw error
   }
 }
 
