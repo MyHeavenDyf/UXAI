@@ -461,14 +461,6 @@ function InsightContent() {
           sdkDirectory: sync.directory,
           sessionID: session.id,
         })
-        // 预置空消息数组,阻止下方 auto-sync effect(L163)对刚建会话发起一次"早到的" server 拉取。
-        // 该会话刚 create、服务端还没任何消息,[] 即准确事实。若不预置:message[新id]===undefined
-        // 会触发 sync.session.sync → loadMessages 发出一个慢请求,请求时刻服务端内容尚未生成,
-        // 等它迟迟 resolve 时用 reconcile 全量替换 message[id],把这期间 SSE 落进来的 busy 状态 /
-        // 流式 part 冲掉,导致新建对话"发完白屏、刷新才出现"(内网弱模型放大了这个竞态窗口)。
-        // 预置后该会话走与现有会话发送完全一致的 optimistic + SSE 路径;日后被淘汰成 undefined
-        // 时 effect 仍会按原逻辑重新拉取,自愈不受影响。
-        sync.set("message", session.id, [])
         navigate(`/insight/${session.id}`)
         return session.id
       }
