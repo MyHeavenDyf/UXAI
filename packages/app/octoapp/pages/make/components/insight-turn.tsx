@@ -339,7 +339,7 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
         style={{
           "border-radius": "var(--octo-radius-md)",
           background: "var(--octo-surface-page)",
-          border: "1px solid var(--octo-border-default)",
+          border: "1px solid rgba(0,0,0,0.1)",
         }}
       >
         <div class="text-[11px]" style={{ color: "var(--octo-text-secondary)" }}>
@@ -1106,7 +1106,7 @@ ${bodies}
           const expanded = () => subtaskExpandState[task.subSessionID] ?? true
           const hasContent = task.textParts.length > 0 || task.artifactOutputs.length > 0
           return (
-            <div class="mx-3 mb-2" style={{ "border-radius": "var(--octo-radius-md)", border: "1px solid var(--octo-border-default)", background: "var(--octo-surface-page)" }}>
+            <div class="mx-3 mb-2" style={{ "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "var(--octo-surface-page)" }}>
               {/* Header */}
               <button
                 type="button"
@@ -1179,18 +1179,20 @@ ${bodies}
                               type="button"
                               onClick={() => props.onOpenResult(outputCard)}
                               class="px-2 py-1.5 rounded text-xs text-left w-full transition-all"
-                              style={{ background: "var(--octo-brand-a3)", border: "1px solid var(--octo-brand-a8)", color: "var(--octo-text-primary)" }}
+                              style={{ background: "var(--octo-brand-a3)", "border-radius": "8px", border: "1px solid var(--octo-brand-a8)", color: "var(--octo-text-primary)" }}
                               onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand)" }}
                               onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--octo-brand-a8)" }}
                             >
-                              <div class="flex items-center" style={{ gap: "12px" }}>
-                                <span class="flex-shrink-0">
+                              <div class="flex" style={{ gap: "12px" }}>
+                                <span class="flex-shrink-0 flex items-center">
                                   <img src={cardTypeIconSrc("html")} width={28} height={28} alt="" />
                                 </span>
-                                <span class="font-medium truncate flex-1 min-w-0" style={{ "font-size": "12px", "line-height": "22px", color: "#000" }}>{artifact.title}</span>
-                              </div>
-                              <div class="text-xs mt-0.5 truncate" style={{ color: "#000", "line-height": "22px", "padding-left": "40px" }}>
-                                {artifact.content.replace(/<[^>]+>/g, "").slice(0, 80)}{artifact.content.length > 80 ? "…" : ""}
+                                <div class="flex flex-col min-w-0 flex-1">
+                                  <span class="font-medium truncate" style={{ "font-size": "12px", "line-height": "22px", color: "rgb(25,25,25)" }}>{artifact.title}</span>
+                                  <div class="text-xs truncate" style={{ color: "rgb(25,25,25)", "line-height": "22px" }}>
+                                    {artifact.content.replace(/<[^>]+>/g, "").slice(0, 80)}{artifact.content.length > 80 ? "…" : ""}
+                                  </div>
+                                </div>
                               </div>
                             </button>
                           )
@@ -1247,7 +1249,7 @@ ${bodies}
               "margin-left": "12px",
               "margin-right": "12px",
               background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%)",
-              border: capturedCard.truncated ? "1px solid rgba(234,179,8,0.3)" : "1px solid var(--octo-border-default)",
+              border: capturedCard.truncated ? "1px solid rgba(234,179,8,0.3)" : "1px solid rgba(0,0,0,0.1)",
             }}
           >
             <button
@@ -1261,8 +1263,8 @@ ${bodies}
                   <img src={cardTypeIconSrc(capturedCard.type)} width={28} height={28} alt="" />
                 </span>
                 <div class="flex flex-col min-w-0 flex-1" style={{ gap: "0" }}>
-                  <span class="truncate" style={{ color: "#000", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{capturedCard.title}</span>
-                  <span style={{ color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "22px" }}>{formatTime(capturedCard.createdAt)}</span>
+                  <span class="truncate" style={{ color: "rgb(25,25,25)", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{capturedCard.title}</span>
+                  <span style={{ color: "#777", "font-size": "12px", "line-height": "22px" }}>{formatTime(capturedCard.createdAt)}</span>
                 </div>
               </div>
             </button>
@@ -1304,8 +1306,8 @@ ${bodies}
                   <img src={cardTypeIconSrc(genCard.type)} width={28} height={28} alt="" />
                 </span>
                 <div class="flex flex-col min-w-0 flex-1" style={{ gap: "0" }}>
-                  <span class="truncate" style={{ color: "#000", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{genCard.title}</span>
-                  <span style={{ color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "22px" }}>
+                  <span class="truncate" style={{ color: "rgb(25,25,25)", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{genCard.title}</span>
+                  <span style={{ color: "#777", "font-size": "12px", "line-height": "22px" }}>
                     {isPartial ? "等待内容…" : "生成中…"}
                   </span>
                 </div>
