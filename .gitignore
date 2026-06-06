@@ -28,6 +28,7 @@ opencode-dev
 UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
+CLAUDE.md
 tsconfig.tsbuildinfo
 
 bun.lock
