@@ -14,10 +14,12 @@ export type StudioGenerationStatus = "idle" | "submitting" | "running" | "succee
 
 export type StudioImage = {
   id: string
+  kind?: "image" | "video"
   url: string
   thumbnailUrl?: string
   width?: number
   height?: number
+  duration?: number
   remoteUrl?: string
   localPath?: string
 }
@@ -40,12 +42,15 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   provider: "mock" | "jimeng" | "internel"
-  toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+  toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string
   task_type?: string
   taskId?: string
   model: string
   aspectRatio: StudioAspectRatio
+  videoMode?: "text" | "first_last_frame"
+  duration?: "5" | "10"
+  videoQualityMode?: "std" | "pro"
   images: StudioImage[]
   createdAt: number
   completedAt?: number

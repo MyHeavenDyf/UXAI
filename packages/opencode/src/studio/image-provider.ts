@@ -22,9 +22,9 @@ export type ImageGenerateOutput = {
   provider: "jimeng" | "internel"
   model: string
   capability?: StudioCapability
-  toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+  toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskId?: string
-  images: { url: string; width?: number; height?: number }[]
+  images: { kind?: "image" | "video"; url: string; thumbnailUrl?: string; width?: number; height?: number; duration?: number }[]
   request?: unknown
   statusCode?: number
   rawBody?: string

@@ -44,11 +44,13 @@ export const StudioGenerationPayload = Schema.Struct({
 
 const StudioGenerationImage = Schema.Struct({
   id: Schema.String,
+  kind: Schema.optional(Schema.Union([Schema.Literal("image"), Schema.Literal("video")])),
   url: Schema.String,
   thumbnailUrl: Schema.optional(Schema.String),
   remoteUrl: Schema.optional(Schema.String),
   width: Schema.optional(Schema.Number),
   height: Schema.optional(Schema.Number),
+  duration: Schema.optional(Schema.Number),
 })
 
 const StudioGenerationResult = Schema.Struct({
@@ -59,6 +61,7 @@ const StudioGenerationResult = Schema.Struct({
   provider: Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")]),
   toolAction: Schema.optional(Schema.Union([
     Schema.Literal("generate_image"),
+    Schema.Literal("generate_video"),
     Schema.Literal("super_resolution"),
     Schema.Literal("cutout"),
     Schema.Literal("inpainting"),
@@ -69,6 +72,9 @@ const StudioGenerationResult = Schema.Struct({
   taskId: Schema.optional(Schema.String),
   model: Schema.String,
   aspectRatio: Schema.String,
+  videoMode: Schema.optional(Schema.Union([Schema.Literal("text"), Schema.Literal("first_last_frame")])),
+  duration: Schema.optional(Schema.Union([Schema.Literal("5"), Schema.Literal("10")])),
+  videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("std"), Schema.Literal("pro")])),
   images: Schema.Array(StudioGenerationImage),
   request: Schema.optional(Schema.Unknown),
   response: Schema.optional(Schema.Unknown),
