@@ -38,6 +38,37 @@ const log = Log.create({ service: "mcp" })
 const elog = EffectLogger.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
 
+const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] as const
+
+function noProxyFetch(url: string | URL, init?: RequestInit): Promise<Response> {
+  const saved = Object.fromEntries(PROXY_ENV_KEYS.map((k) => [k, process.env[k]]))
+  for (const k of PROXY_ENV_KEYS) delete process.env[k]
+  return globalThis.fetch(url, init).finally(() => {
+    for (const k of PROXY_ENV_KEYS) {
+      if (saved[k] !== undefined) process.env[k] = saved[k]
+    }
+  })
+}
+
+function isPrivateUrl(url: URL): boolean {
+  const host = url.hostname
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true
+  const match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host)
+  if (match) {
+    const [, a, b] = match.map(Number)
+    if (a === 10) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+  }
+  return false
+}
+
+function mcpFetch(proxy: boolean | undefined, url: URL): (url: string | URL, init?: RequestInit) => Promise<Response> {
+  if (proxy === true) return globalThis.fetch
+  if (proxy === false) return noProxyFetch
+  return isPrivateUrl(url) ? noProxyFetch : globalThis.fetch
+}
+
 export const Resource = Schema.Struct({
   name: Schema.String,
   uri: Schema.String,
@@ -315,12 +346,15 @@ export const layer = Layer.effect(
         )
       }
 
+      const fetchFn = mcpFetch(mcp.proxy, url)
+
       const transports: Array<{ name: string; transport: TransportWithAuth }> = [
         {
           name: "StreamableHTTP",
           transport: new StreamableHTTPClientTransport(url, {
             authProvider,
             requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+            fetch: fetchFn,
           }),
         },
         {
@@ -328,6 +362,7 @@ export const layer = Layer.effect(
           transport: new SSEClientTransport(url, {
             authProvider,
             requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+            fetch: fetchFn,
           }),
         },
       ]
@@ -852,7 +887,8 @@ export const layer = Layer.effect(
         auth,
       )
 
-      const transport = new StreamableHTTPClientTransport(url, { authProvider })
+      const fetchFn = mcpFetch(mcpConfig.proxy, url)
+      const transport = new StreamableHTTPClientTransport(url, { authProvider, fetch: fetchFn })
 
       return yield* Effect.tryPromise({
         try: () => {
