@@ -605,9 +605,11 @@
   backdrop-filter: blur(18px);
   border-radius: 12px;
 }
-
+.studio-menu-model {
+  left:140px;
+}
 .studio-image-settings-menu {
-  left: 16px;
+  left: 220px;
   width: 532px;
   padding: 16px;
 }
@@ -2049,11 +2051,51 @@
   margin-top: 0;
 }
 
+.studio-loader-cluster {
+  position: relative;
+  width: 80px;
+  height: 72px;
+}
+
 .studio-loader-dot {
+  position: absolute;
+  border-radius: 999px;
+}
+
+.studio-loader-dot-1 {
+  width: 10px;
+  height: 10px;
+  background: #5ecb6b;
+  top: 0;
+  left: 28px;
+  animation: studio-float-1 2s ease-in-out infinite;
+}
+
+.studio-loader-dot-2 {
   width: 14px;
   height: 14px;
-  border-radius: 999px;
-  animation: studio-pulse 1.2s ease-in-out infinite;
+  background: #45bcc9;
+  top: 24px;
+  left: 0;
+  animation: studio-float-2 2s ease-in-out infinite 0.35s;
+}
+
+.studio-loader-dot-3 {
+  width: 22px;
+  height: 22px;
+  background: #2e9dfb;
+  top: 18px;
+  left: 40px;
+  animation: studio-float-3 2s ease-in-out infinite 0.7s;
+}
+
+.studio-loader-dot-4 {
+  width: 16px;
+  height: 16px;
+  background: #7c5cef;
+  top: 50px;
+  left: 20px;
+  animation: studio-float-4 2s ease-in-out infinite 1.05s;
 }
 
 .studio-enlarging {
@@ -2281,15 +2323,24 @@
   color: rgba(25, 25, 25, 0.42);
 }
 
-@keyframes studio-pulse {
-  0%, 100% {
-    transform: translateY(0) scale(1);
-    opacity: 0.55;
-  }
-  50% {
-    transform: translateY(-10px) scale(1.08);
-    opacity: 1;
-  }
+@keyframes studio-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.7; }
+  50% { transform: translate(-3px, -8px) scale(1.12); opacity: 1; }
+}
+
+@keyframes studio-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.65; }
+  50% { transform: translate(-5px, -6px) scale(1.07); opacity: 1; }
+}
+
+@keyframes studio-float-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.75; }
+  50% { transform: translate(4px, -9px) scale(1.08); opacity: 1; }
+}
+
+@keyframes studio-float-4 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.7; }
+  50% { transform: translate(2px, 6px) scale(1.06); opacity: 1; }
 }
 
 @media (max-width: 1200px) {
@@ -2456,4 +2507,118 @@
 
 .studio-composer-toolbar > button {
   transition: background-color 0.15s ease;
+}
+
+.studio-material-menu {
+  right: auto;
+  left: 260px;
+  width: 431px;
+  height: 236px;
+  padding: 14px 16px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.studio-material-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+  color: #191919;
+  margin-bottom: 8px;
+}
+
+.studio-material-categories {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  margin-bottom: 8px;
+}
+
+.studio-material-cat-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: #858587;
+  padding: 0 10px;
+  height: 18px;
+  line-height: 18px;
+  border-radius: 3px;
+  transition: color 0.15s;
+  white-space: nowrap;
+}
+
+.studio-material-cat-btn:first-child {
+  padding-left: 0;
+}
+
+.studio-material-cat-btn.active {
+  color: #191919;
+  font-weight: 650;
+}
+
+.studio-material-cat-btn:hover:not(.active) {
+  color: #333;
+}
+
+.studio-material-section-label {
+  font-size: 11px;
+  line-height: 16px;
+  color: #858587;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.studio-material-subcategories {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.studio-material-sub-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: #858587;
+  padding: 0 12px;
+  height: 26px;
+  line-height: 26px;
+  border-radius: 100px;
+  background: #f4f4f5;
+  transition: background 0.15s, color 0.15s;
+}
+
+.studio-material-sub-btn.active {
+  background: #191919;
+  color: #fff;
+}
+
+.studio-material-sub-btn:hover:not(.active) {
+  background: #e8e8e9;
+  color: #333;
+}
+
+.studio-material-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: hidden;
+  max-height: 91px;
+}
+
+.studio-material-tag-btn {
+  font-size: 12px;
+  font-weight: 400;
+  color: #191919;
+  padding: 0 10px;
+  height: 28px;
+  line-height: 28px;
+  border-radius: 6px;
+  background: #f4f4f5;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.studio-material-tag-btn:hover {
+  background: #e4e2ff;
+  color: #5e3bff;
 }

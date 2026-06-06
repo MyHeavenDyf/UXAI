@@ -1,4 +1,5 @@
 import "./studio.css"
+import { MaterialMenu } from "./MaterialMenu"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
@@ -27,6 +28,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
 import { useServer } from "@/context/server"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
+import IllustrationInsightEmpty from "./IllustrationInsightEmpty.svg"
 import {
   STUDIO_ASPECT_RATIOS,
   STUDIO_CAPABILITIES,
@@ -99,6 +101,11 @@ function recordValue(value: unknown, key: string): unknown {
 function stringValue(value: unknown, key: string) {
   const next = recordValue(value, key)
   return typeof next === "string" ? next : undefined
+}
+
+function uiplusUserAccount() {
+  const account = recordValue(JSON.parse(localStorage.getItem("uiplusUser") || "{}"), "account")
+  return typeof account === "string" ? account : undefined
 }
 
 function studioResultTaskType(result: StudioGenerationResult) {
@@ -243,7 +250,7 @@ export default function StudioPage() {
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
-  const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | null>(null)
+  const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
@@ -1188,7 +1195,10 @@ export default function StudioPage() {
         imageTool: "internel",
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
-        extra: input.extra,
+        extra: {
+          ...input.extra,
+          userIdx: uiplusUserAccount(),
+        },
       }),
     }).finally(() => clearTimeout(timeout))
     const bodyText = await response.text()
@@ -2136,16 +2146,16 @@ function StudioComposer(props: {
   videoQualityMode: StudioVideoQualityMode
   videoQualityLocked: boolean
   status: StudioGenerationStatus
-  openMenu: "capability" | "style" | "settings" | null
+  openMenu: "capability" | "style" | "settings" | "material" | null
   canSubmit: boolean
   onPrompt: (value: string) => void
   onCapability: (value: StudioCapability) => void
   onStyleModel: (value: string) => void
   onAspectRatio: (value: StudioAspectRatio) => void
   onCount: (value: 1 | 2 | 3 | 4) => void
+  onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
-  onOpenMenu: (value: "capability" | "style" | "settings" | null) => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
@@ -2188,6 +2198,9 @@ function StudioComposer(props: {
       </Show>
       <Show when={isImageGeneration() && props.openMenu === "style"}>
         <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
+      </Show>
+      <Show when={isImageGeneration() && props.openMenu === "material"}>
+        <MaterialMenu onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
       </Show>
       <Show when={isImageGeneration() && props.openMenu === "settings"}>
         <ImageSettings
@@ -2288,7 +2301,11 @@ function StudioComposer(props: {
               onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
               onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
             />
-            <IconTool label="素材" />
+            <IconTool
+              label="素材"
+              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+            />
           </Show>
           <Show when={isVideoGeneration()}>
             <IconTool
@@ -2401,7 +2418,7 @@ function CapabilityMenu(props: { value: StudioCapability; onSelect: (value: Stud
 
 function StyleMenu(props: { value: string; onSelect: (value: string) => void }): JSX.Element {
   return (
-    <div class="studio-menu w-[414px] p-4 left-[118px]">
+    <div class="studio-menu studio-menu-model w-[414px] p-4 left-[118px]">
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3">
         <For each={STUDIO_STYLE_MODELS}>
@@ -2694,9 +2711,8 @@ function StudioResultCanvas(props: {
         <Show when={props.status === "running" || props.status === "submitting"} fallback={
           <Show when={props.status === "failed" && props.result?.error} fallback={
           <>
-            <StudioGlassSphere />
-            <div class="mt-8 text-[28px] font-bold">Octo Studio</div>
-            <div class="mt-2 text-[15px] text-[var(--studio-muted)]">输入你的想法，创意无限可能</div>
+            <img src={IllustrationInsightEmpty} width={210} height={210} alt="" aria-hidden="true" />
+            <div class="absolute bottom-[130px] text-[14px] font-bold">生成中...</div>
           </>
           }>
             <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
@@ -2707,13 +2723,8 @@ function StudioResultCanvas(props: {
             </div>
           </Show>
         }>
-          <div class="flex items-end gap-4 mb-8">
-            <span class="studio-loader-dot bg-[#2e9dfb]" />
-            <span class="studio-loader-dot bg-[#45bcc9]" style={{ "animation-delay": "120ms" }} />
-            <span class="studio-loader-dot bg-[#704cff]" style={{ "animation-delay": "240ms" }} />
-            <span class="studio-loader-dot bg-[#d100d8]" style={{ "animation-delay": "360ms" }} />
-          </div>
-          <div class="text-[14px] font-medium">生成中...</div>
+          <img src={IllustrationInsightEmpty} width={210} height={210} alt="" aria-hidden="true" />
+          <div class="absolute bottom-[130px] text-[14px] font-bold">生成中...</div>
         </Show>
       </div>
     }>
