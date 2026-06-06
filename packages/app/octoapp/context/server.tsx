@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { useCheckServerHealth } from "@/utils/server-health"
 import { isValidUserPath } from "@/utils/path-valid"
+import type { Domain, ProductLine, Product, Version } from "@/components/dialog-project-onboarding/project-product-select-api"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
@@ -136,7 +137,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         list: [] as StoredServer[],
         projects: {} as Record<string, StoredProject[]>,
         lastProject: {} as Record<string, string>,
-        lastProjectSelection: {} as Record<string, { domain?: { id: string; label: string }; productLine?: { id: string; domainId: string; label: string }; product?: { id: string; productLineId: string; label: string; closed?: boolean }; version?: { value: string; label: string } }>,
+        lastProjectSelection: {} as Record<string, { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }>,
       }),
     )
 
@@ -302,7 +303,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         },
         last: lastProject,
         lastSelection: lastProjectSelection,
-        saveSelection(data: { domain?: { id: string; label: string }; productLine?: { id: string; domainId: string; label: string }; product?: { id: string; productLineId: string; label: string; closed?: boolean }; version?: { value: string; label: string } }) {
+        saveSelection(data: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) {
           setStore("lastProjectSelection", origin(), data)
         },
         touch(directory: string) {

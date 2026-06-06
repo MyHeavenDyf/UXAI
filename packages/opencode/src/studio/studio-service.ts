@@ -34,13 +34,16 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   provider: StudioProvider
-  toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+  toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string
   task_type?: string
   taskId?: string
   model: string
   aspectRatio: string
-  images: { id: string; url: string; thumbnailUrl?: string; remoteUrl?: string; width?: number; height?: number }[]
+  videoMode?: "text" | "first_last_frame"
+  duration?: "5" | "10"
+  videoQualityMode?: "std" | "pro"
+  images: { id: string; kind?: "image" | "video"; url: string; thumbnailUrl?: string; remoteUrl?: string; width?: number; height?: number; duration?: number }[]
   request?: unknown
   response?: unknown
   rawBody?: string
@@ -56,6 +59,7 @@ function resolveProvider(input: StudioGenerationRequest): StudioProvider {
 }
 
 function toolActionForCapability(capability: StudioCapability) {
+  if (capability === "video.generate") return "generate_video"
   if (capability === "image.upscale") return "super_resolution"
   if (capability === "image.cutout") return "cutout"
   if (capability === "image.inpaint") return "inpainting"
@@ -63,7 +67,36 @@ function toolActionForCapability(capability: StudioCapability) {
   return "generate_image"
 }
 
+function isVideoKind(kind?: string) {
+  return kind === "video"
+}
+
+function videoMode(input: StudioGenerationRequest) {
+  const value = input.extra?.videoMode
+  if (value === "text" || value === "first_last_frame") return value
+  return (input.referenceImages?.length ?? 0) > 0 ? "first_last_frame" : "text"
+}
+
+function videoDuration(input: StudioGenerationRequest) {
+  const value = input.extra?.duration
+  return value === "10" ? "10" : "5"
+}
+
+function videoQualityMode(input: StudioGenerationRequest) {
+  const value = input.extra?.mode
+  return value === "pro" ? "pro" : "std"
+}
+
 function buildAssistantText(input: StudioGenerationRequest) {
+  if (input.capability === "video.generate") {
+    return [
+      `我将为您创作${input.prompt}。`,
+      input.aspectRatio ? `画幅比例设为 ${input.aspectRatio}` : undefined,
+      "。",
+    ]
+      .filter((item): item is string => Boolean(item))
+      .join("")
+  }
   return [
     `我将为您创作${input.prompt}。`,
     input.styleModel ? `采用“${input.styleModel}”风格` : undefined,
@@ -229,11 +262,16 @@ function completeStudioSession(input: {
           taskId: input.result.taskId,
           model: input.result.model,
           aspectRatio: input.result.aspectRatio,
+          videoMode: input.result.videoMode,
+          duration: input.result.duration,
+          videoQualityMode: input.result.videoQualityMode,
           width: input.result.images[0]?.width,
           height: input.result.images[0]?.height,
           imageCount: input.result.images.length,
-          images: input.result.images.map((image) => image.remoteUrl ?? image.url),
-          primaryImage: input.result.images[0]?.remoteUrl ?? input.result.images[0]?.url ?? null,
+          images: input.result.images.filter((image) => !isVideoKind(image.kind)).map((image) => image.remoteUrl ?? image.url),
+          videos: input.result.images.filter((image) => isVideoKind(image.kind)).map((image) => image.remoteUrl ?? image.url),
+          primaryImage: input.result.images.find((image) => !isVideoKind(image.kind))?.remoteUrl ?? input.result.images.find((image) => !isVideoKind(image.kind))?.url ?? null,
+          primaryVideo: input.result.images.find((image) => isVideoKind(image.kind))?.remoteUrl ?? input.result.images.find((image) => isVideoKind(image.kind))?.url ?? null,
           response: input.result.response,
         },
         null,
@@ -253,8 +291,8 @@ function completeStudioSession(input: {
         sessionID: input.sessionID,
         messageID: input.turn.toolPart.messageID,
         type: "file" as const,
-        mime: "image/png",
-        filename: `${input.result.prompt.slice(0, 24).replace(/[\\/:*?"<>|]/g, "-") || "studio-image"}-${index + 1}.png`,
+        mime: isVideoKind(image.kind) ? "video/mp4" : "image/png",
+        filename: `${input.result.prompt.slice(0, 24).replace(/[\\/:*?"<>|]/g, "-") || (isVideoKind(image.kind) ? "studio-video" : "studio-image")}-${index + 1}.${isVideoKind(image.kind) ? "mp4" : "png"}`,
         url: image.remoteUrl ?? image.url,
       })),
     },
@@ -369,6 +407,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
     model: output.model,
     statusCode: output.statusCode,
     imageCount: output.images.length,
+    videoCount: output.images.filter((image) => isVideoKind(image.kind)).length,
   })
 
   if (output.images.length === 0) {
@@ -399,13 +438,22 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
     taskId: output.taskId,
     model: output.model,
     aspectRatio: input.aspectRatio ?? "3:4",
+    ...(input.capability === "video.generate"
+      ? {
+          videoMode: videoMode(input),
+          duration: videoDuration(input),
+          videoQualityMode: videoQualityMode(input),
+        }
+      : {}),
     images: output.images.map((image, index) => ({
       id: `studio_img_${createdAt}_${index}`,
+      ...(image.kind ? { kind: image.kind } : {}),
       url: image.url,
-      thumbnailUrl: image.url,
+      thumbnailUrl: image.thumbnailUrl ?? image.url,
       remoteUrl: image.url,
       ...(image.width !== undefined ? { width: image.width } : {}),
       ...(image.height !== undefined ? { height: image.height } : {}),
+      ...(image.duration !== undefined ? { duration: image.duration } : {}),
     })),
     request: stripUndefined(output.request),
     response: stripUndefined(resultSummary({ provider, raw: output.raw, rawBody: output.rawBody })),

@@ -1218,14 +1218,14 @@ const layer: Layer.Layer<
             return
           }
           const match = database[providerID]
-          // Special case: allow opencode to merge even without database entry
+          // Special case: allow opencode/bpit/bpit-beta to merge even without database entry
           // (custom loader self-constructs model data)
           if (!match && providerID !== "opencode" && providerID !== "bpit" && providerID !== "bpit-beta") return
           // @ts-expect-error
           providers[providerID] = mergeDeep(match ?? {
-            id: "opencode",
-            name: "Octo AI",
-            env: ["OPENCODE_API_KEY"],
+            id: providerID,
+            name: providerID === "opencode" ? "Octo AI" : providerID === "bpit-beta" ? "BPIT Beta" : "BPIT",
+            env: [providerID === "opencode" ? "OPENCODE_API_KEY" : providerID === "bpit-beta" ? "BPIT_BETA_API_KEY" : "BPIT_API_KEY"],
             models: {},
           }, provider)
         }

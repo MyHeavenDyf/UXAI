@@ -26,8 +26,73 @@ const StudioGenerationInput = z.object({
   extra: z.record(z.string(), z.unknown()).optional(),
 })
 
+const STUDIO_MATERIALS = [
+  {
+    category: "人物",
+    subcategories: [
+      { label: "身份", tags: ["女人", "男人", "科学家", "运动员", "职场女性", "学生", "老师", "诗人", "黑客"] },
+      { label: "身材", tags: ["苗条", "健壮", "丰满", "纤细", "高挑", "娇小"] },
+    ],
+  },
+  {
+    category: "服饰",
+    subcategories: [
+      { label: "风格", tags: ["休闲", "正式", "运动", "复古", "时尚", "街头", "优雅", "朋克"] },
+      { label: "颜色", tags: ["红色", "蓝色", "黑色", "白色", "米白", "深色", "浅色", "彩色"] },
+    ],
+  },
+  {
+    category: "表情动作",
+    subcategories: [
+      { label: "表情", tags: ["微笑", "大笑", "严肃", "思考", "惊讶", "开心", "忧郁", "自信"] },
+      { label: "动作", tags: ["站立", "坐着", "奔跑", "舞蹈", "跳跃", "拥抱", "回眸"] },
+    ],
+  },
+  {
+    category: "画面",
+    subcategories: [
+      { label: "构图", tags: ["全身", "半身", "特写", "俯视", "仰视", "侧面", "背影"] },
+      { label: "风格", tags: ["写实", "插画", "油画", "水彩", "素描", "动漫", "摄影"] },
+    ],
+  },
+  {
+    category: "物体",
+    subcategories: [
+      { label: "类型", tags: ["花朵", "书本", "乐器", "食物", "科技", "植物", "宠物"] },
+      { label: "材质", tags: ["金属", "木质", "玻璃", "布料", "皮革", "陶瓷"] },
+    ],
+  },
+  {
+    category: "环境",
+    subcategories: [
+      { label: "场景", tags: ["室内", "户外", "城市", "自然", "海边", "森林", "山间", "街道"] },
+      { label: "时间", tags: ["白天", "夜晚", "黎明", "黄昏", "午后", "深夜"] },
+    ],
+  },
+]
+
 export const StudioRoutes = lazy(() =>
-  new Hono().post(
+  new Hono()
+    .get(
+      "/materials",
+      describeRoute({
+        summary: "Get Studio material categories",
+        description: "Returns the list of material categories with model associations and bilingual tags.",
+        operationId: "studio.materials.list",
+        responses: {
+          200: {
+            description: "Studio materials list",
+            content: {
+              "application/json": {
+                schema: resolver(z.unknown()),
+              },
+            },
+          },
+        },
+      }),
+      (c) => c.json(STUDIO_MATERIALS),
+    )
+    .post(
     "/generations",
     describeRoute({
       summary: "Create Studio image generation",
