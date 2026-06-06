@@ -598,18 +598,15 @@
 .studio-menu {
   position: absolute;
   z-index: 30;
-  bottom: 78px;
-  left: 16px;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: auto;
   background: rgba(255, 255, 255, 1);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px);
   border-radius: 12px;
 }
-.studio-menu-model {
-  left:140px;
-}
 .studio-image-settings-menu {
-  left: 220px;
   width: 532px;
   padding: 16px;
 }
@@ -2501,17 +2498,12 @@
   height: 36px;
 }
 
-.studio-empty-stack .studio-menu {
-  bottom: 56px;
-}
 
 .studio-composer-toolbar > button {
   transition: background-color 0.15s ease;
 }
 
 .studio-material-menu {
-  right: auto;
-  left: 260px;
   width: 431px;
   height: 236px;
   padding: 14px 16px;

@@ -2193,37 +2193,6 @@ function StudioComposer(props: {
 
   return (
     <div class="studio-composer-wrap relative shrink-0">
-      <Show when={props.openMenu === "capability"}>
-        <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
-      </Show>
-      <Show when={isImageGeneration() && props.openMenu === "style"}>
-        <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
-      </Show>
-      <Show when={isImageGeneration() && props.openMenu === "material"}>
-        <MaterialMenu onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
-      </Show>
-      <Show when={isImageGeneration() && props.openMenu === "settings"}>
-        <ImageSettings
-          aspectRatio={props.aspectRatio}
-          count={props.count}
-          onAspectRatio={props.onAspectRatio}
-          onCount={props.onCount}
-        />
-      </Show>
-      <Show when={isVideoGeneration() && props.openMenu === "settings"}>
-        <VideoSettings
-          aspectRatio={props.aspectRatio}
-          count={props.count}
-          duration={props.videoDuration}
-          qualityMode={props.videoQualityMode}
-          qualityLocked={props.videoQualityLocked}
-          onAspectRatio={props.onAspectRatio}
-          onCount={props.onCount}
-          onDuration={props.onVideoDuration}
-          onQualityMode={props.onVideoQualityMode}
-        />
-      </Show>
-
       <div class="studio-composer" classList={{ video: isVideoGeneration() }}>
         <Show when={isVideoGeneration()}>
           <div class="studio-composer-video-frames">
@@ -2285,34 +2254,74 @@ function StudioComposer(props: {
         </div>
 
         <div class="studio-composer-toolbar">
-          <ToolButton
-            label={capabilityLabel(props.capability)}
-            onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-            onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
-          />
-          <Show when={isImageGeneration()}>
+          <div class="relative">
+            <Show when={props.openMenu === "capability"}>
+              <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
+            </Show>
             <ToolButton
-              label={styleModelLabel(props.styleModel)}
+              label={capabilityLabel(props.capability)}
               onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
+              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
             />
-            <IconTool
-              label="参数"
-              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
-            />
-            <IconTool
-              label="素材"
-              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
-            />
+          </div>
+          <Show when={isImageGeneration()}>
+            <div class="relative">
+              <Show when={props.openMenu === "style"}>
+                <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
+              </Show>
+              <ToolButton
+                label={styleModelLabel(props.styleModel)}
+                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
+              />
+            </div>
+            <div class="relative">
+              <Show when={props.openMenu === "settings"}>
+                <ImageSettings
+                  aspectRatio={props.aspectRatio}
+                  count={props.count}
+                  onAspectRatio={props.onAspectRatio}
+                  onCount={props.onCount}
+                />
+              </Show>
+              <IconTool
+                label="参数"
+                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+              />
+            </div>
+            <div class="relative">
+              <Show when={props.openMenu === "material"}>
+                <MaterialMenu onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
+              </Show>
+              <IconTool
+                label="素材"
+                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+              />
+            </div>
           </Show>
           <Show when={isVideoGeneration()}>
-            <IconTool
-              label="参数"
-              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
-            />
+            <div class="relative">
+              <Show when={props.openMenu === "settings"}>
+                <VideoSettings
+                  aspectRatio={props.aspectRatio}
+                  count={props.count}
+                  duration={props.videoDuration}
+                  qualityMode={props.videoQualityMode}
+                  qualityLocked={props.videoQualityLocked}
+                  onAspectRatio={props.onAspectRatio}
+                  onCount={props.onCount}
+                  onDuration={props.onVideoDuration}
+                  onQualityMode={props.onVideoQualityMode}
+                />
+              </Show>
+              <IconTool
+                label="参数"
+                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+              />
+            </div>
           </Show>
           <button
             type="button"
@@ -2418,7 +2427,7 @@ function CapabilityMenu(props: { value: StudioCapability; onSelect: (value: Stud
 
 function StyleMenu(props: { value: string; onSelect: (value: string) => void }): JSX.Element {
   return (
-    <div class="studio-menu studio-menu-model w-[414px] p-4 left-[118px]">
+    <div class="studio-menu studio-menu-model w-[414px] p-4">
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3">
         <For each={STUDIO_STYLE_MODELS}>
