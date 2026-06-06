@@ -129,6 +129,13 @@ function InsightContent() {
 
   const projectDir = useProjectDir()
 
+  // 临时诊断(白屏排查):projectDir 是响应式的(server.projects.last() 会变)。若它在一次发送
+  // 流程里漂移(prev → dir 变化),会让 <Show keyed> 重挂、child store key 与会话/事件所属目录
+  // 对不上 → 坐实 M2(响应式重挂导致事件被丢)。defer 关:首帧也打一次初值便于对照。定位完删除。
+  createEffect(on(projectDir, (dir, prev) => {
+    console.log("[octo:dir] projectDir", { dir, prev, sdkDirectory: sync.directory })
+  }))
+
   // ── 刷新保路由 ─────────────────────────────────────────────
   // bootSavedId:在下方 save effect 覆盖前,同步捕获"刷新前"存的对话 id。
   const bootSavedId = localStorage.getItem(LAST_SESSION_KEY)
@@ -444,6 +451,16 @@ function InsightContent() {
       const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
+        // 临时诊断(白屏排查):对比"发出去的目录"与"服务端回存的目录"。
+        // sessionDir !== sentDir(尤其大小写/路径形态不同)→ 坐实 M1:服务端规范化了目录,
+        // 导致后续 event.directory 与客户端 child store key(按 sentDir 算)对不上、事件被丢。
+        // 同时打 sdkDirectory(child store 实际目录)便于三方对照。定位完删除本段。
+        console.log("[octo:dir] session-created", {
+          sentDir: dir,
+          sessionDir: (session as { directory?: string }).directory,
+          sdkDirectory: sync.directory,
+          sessionID: session.id,
+        })
         // 预置空消息数组,阻止下方 auto-sync effect(L163)对刚建会话发起一次"早到的" server 拉取。
         // 该会话刚 create、服务端还没任何消息,[] 即准确事实。若不预置:message[新id]===undefined
         // 会触发 sync.session.sync → loadMessages 发出一个慢请求,请求时刻服务端内容尚未生成,

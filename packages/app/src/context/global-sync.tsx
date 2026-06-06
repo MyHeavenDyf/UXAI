@@ -330,6 +330,12 @@ function createGlobalSync() {
     return promise
   }
 
+  // ── 临时诊断(insight 内网白屏排查)──────────────────────────
+  // 事件按 directoryKey(event.directory) 严格匹配 child store,匹配不上就在下方
+  // `if (!existing) return` 静默丢弃。怀疑 insight 改用 server.projects.last() 后,
+  // 其目录 key 与服务端 event.directory 规范化后对不上 → 事件被丢 → 永久白屏。
+  // 这里把"被丢的事件 + 当前所有 child key"打出来(按目录去重),定位完即可删。
+  const droppedDirsLogged = new Set<string>()
   const unsub = globalSDK.event.listen((e) => {
     const directory = e.name
     const key = directoryKey(directory)
@@ -356,7 +362,21 @@ function createGlobalSync() {
     }
 
     const existing = children.children[key]
-    if (!existing) return
+    if (!existing) {
+      // 临时诊断:事件因找不到对应目录的 child store 被丢弃。按目录去重打一次,
+      // 对比 droppedDirectory 与 existingChildKeys 即可看出是 key 形态/大小写对不上,
+      // 还是该目录的 child 压根没注册。定位完删除本块即可。
+      if (!droppedDirsLogged.has(key)) {
+        droppedDirsLogged.add(key)
+        console.warn("[octo:event-drop] 事件无匹配 child store,被丢弃", {
+          droppedDirectory: directory,
+          droppedKey: key,
+          eventType: event.type,
+          existingChildKeys: Object.keys(children.children),
+        })
+      }
+      return
+    }
     children.mark(key)
     const [store, setStore] = existing
     applyDirectoryEvent({
