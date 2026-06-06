@@ -41,7 +41,7 @@
   "bpit-beta": {
     "id": "bpit-beta",
     "name": "BPIT Beta",
-    "env": ["BPIT_API_KEY"],
+    "env": ["BPIT_BETA_API_KEY"],
     "npm": "@ai-sdk/openai-compatible",
     "api": "http://aigateway.his-beta.huawei.com/v1",
     "models": {
@@ -82,7 +82,7 @@
   "bpit": {
     "id": "bpit",
     "name": "BPIT",
-    "env": ["BPIT_BETA_API_KEY"],
+    "env": ["BPIT_API_KEY"],
     "npm": "@ai-sdk/openai-compatible",
     "api": "http://aigateway.huawei.com/v1",
     "models": {
