@@ -44,6 +44,12 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     }
   }
 
+  const emptyVersionContent = (
+    <div style={{ padding: "12px 16px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" }}>
+      无数据
+    </div>
+  )
+
   return (
     <div style={{ width: "100%", height: "40px", display: "flex", gap: "4px", "align-items": "center" }}>
       <ProjectProductSelect
@@ -61,6 +67,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           class="version-select-content"
           options={[]}
           placeholder="选择版本"
+          emptyContent={emptyVersionContent}
           triggerStyle={{
             width: "110px",
             height: "40px",
@@ -79,6 +86,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
             class="version-select-content"
             options={[]}
             placeholder="选择版本"
+            emptyContent={emptyVersionContent}
             triggerStyle={{
               width: "110px",
               height: "40px",
@@ -99,6 +107,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
             value={(o) => String(o.id)}
             label={(o) => o.name}
             placeholder="选择版本"
+            emptyContent={emptyVersionContent}
             triggerStyle={{
               width: "110px",
               height: "40px",

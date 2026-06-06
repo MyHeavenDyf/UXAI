@@ -89,7 +89,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   createEffect(() => {
     const list = productLines()
     if (!list?.length) return
-    if (!selectedProductLineId()) setSelectedProductLineId(list[0].id)
+    if (!list.some(item => item.id === selectedProductLineId())) setSelectedProductLineId(list[0].id)
   })
 
   const filteredProducts = () => {
@@ -178,8 +178,8 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
         </div>
       </div>
       <ErrorBoundary fallback={() => <ErrorContent onRetry={() => refetchDomains()} />}>
-        <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
-          <Show when={isSearching()}>
+        <Show when={isSearching()}>
+          <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
             <Show when={safeSearchResults().length > 0} fallback={<div style={emptyHintStyle}>未找到匹配的产品</div>}>
               <div style={{ padding: "12px 8px", "max-height": "280px", overflow: "auto" }}>
                 <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>搜索结果</div>
@@ -208,12 +208,14 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                 </For>
               </div>
             </Show>
-          </Show>
-          <Show when={!isSearching()}>
-            <Show when={hasError()} fallback={
-              <div style={{ display: "flex" }}>
-                <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
-                  <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>领域</div>
+          </Suspense>
+        </Show>
+        <Show when={!isSearching()}>
+          <Show when={hasError()} fallback={
+            <div style={{ display: "flex" }}>
+              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
+                <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>领域</div>
+                <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
                   <Show when={safeDomains().length > 0} fallback={<div style={emptyHintStyle}>暂无领域数据</div>}>
                     <div style={{ "max-height": "240px", overflow: "auto" }}>
                       <For each={safeDomains()}>
@@ -233,10 +235,12 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                       </For>
                     </div>
                   </Show>
-                </div>
-                <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
-                  <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品线</div>
-                  <Show when={selectedDomainId()} fallback={<div style={emptyHintStyle}>请先选择领域</div>}>
+                </Suspense>
+              </div>
+              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
+                <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品线</div>
+                <Show when={selectedDomainId()} fallback={<div style={emptyHintStyle}>请先选择领域</div>}>
+                  <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
                     <Show when={safeProductLines().length > 0} fallback={<div style={emptyHintStyle}>暂无产品线数据</div>}>
                       <div style={{ "max-height": "240px", overflow: "auto" }}>
                         <For each={safeProductLines()}>
@@ -255,11 +259,13 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                         </For>
                       </div>
                     </Show>
-                  </Show>
-                </div>
-                <div style={{ flex: "1", padding: "12px 8px" }}>
-                  <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品</div>
-                  <Show when={selectedProductLineId()} fallback={<div style={emptyHintStyle}>请先选择产品线</div>}>
+                  </Suspense>
+                </Show>
+              </div>
+              <div style={{ flex: "1", padding: "12px 8px" }}>
+                <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品</div>
+                <Show when={selectedProductLineId()} fallback={<div style={emptyHintStyle}>请先选择产品线</div>}>
+                  <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
                     <Show when={safeAllProducts().length > 0 || filteredProducts().length > 0} fallback={<div style={emptyHintStyle}>暂无产品数据</div>}>
                       <div style={{ "max-height": "240px", overflow: "auto" }}>
                         <For each={filteredProducts()}>
@@ -283,14 +289,14 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                         </For>
                       </div>
                     </Show>
-                  </Show>
-                </div>
+                  </Suspense>
+                </Show>
               </div>
-            }>
-              <ErrorContent onRetry={() => refetchDomains()} />
-            </Show>
+            </div>
+          }>
+            <ErrorContent onRetry={() => refetchDomains()} />
           </Show>
-        </Suspense>
+        </Show>
       </ErrorBoundary>
     </div>
   )

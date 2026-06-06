@@ -58,9 +58,23 @@ export const MOCK_VERSIONS: Record<number, any[]> = {
   ],
   211: [
     { id: 2111, name: "v5.0", productId: 211, productName: "ECS", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 300, userTeamType: null, workflowRoleList: [1, 2, 3] },
+    { id: 2112, name: "v4.0", productId: 211, productName: "ECS", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 301, userTeamType: null, workflowRoleList: [1] },
+  ],
+  212: [
+    { id: 2121, name: "v3.0", productId: 212, productName: "OBS", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 302, userTeamType: null, workflowRoleList: [1, 2] },
+  ],
+  221: [
+    { id: 2211, name: "v1.28", productId: 221, productName: "Kubernetes", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 303, userTeamType: 2, workflowRoleList: [2, 3] },
   ],
   311: [
     { id: 3111, name: "v1.0", productId: 311, productName: "推理服务", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 400, userTeamType: null, workflowRoleList: [1] },
+    { id: 3112, name: "v0.9", productId: 311, productName: "推理服务", deliveryTypeId: 1, industryId: null, isEnd: true, isTop: false, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 2, spaceId: 401, userTeamType: null, workflowRoleList: [1] },
+  ],
+  312: [
+    { id: 3121, name: "v2.0", productId: 312, productName: "训练平台", deliveryTypeId: 1, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 0, sort: 1, spaceId: 402, userTeamType: null, workflowRoleList: [2] },
+  ],
+  321: [
+    { id: 3211, name: "v3.5", productId: 321, productName: "NLP引擎", deliveryTypeId: 2, industryId: null, isEnd: false, isTop: true, modelId: 0, permissionFlag: true, baseTeam: 1, sort: 1, spaceId: 500, userTeamType: 3, workflowRoleList: [1, 3] },
   ],
 }
 
