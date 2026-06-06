@@ -1422,11 +1422,11 @@ const layer: Layer.Layer<
             continue
           }
 
-          // For opencode/bpit, create minimal placeholder if missing from database
+          // For opencode/bpit/bpit-beta, create minimal placeholder if missing from database
           const providerData = data ?? {
             id: providerID,
-            name: providerID === "opencode" ? "Octo AI" : "BPIT",
-            env: [providerID === "opencode" ? "OPENCODE_API_KEY" : "BPIT_API_KEY"],
+            name: providerID === "opencode" ? "Octo AI" : providerID === "bpit-beta" ? "BPIT Beta" : "BPIT",
+            env: [providerID === "opencode" ? "OPENCODE_API_KEY" : providerID === "bpit-beta" ? "BPIT_BETA_API_KEY" : "BPIT_API_KEY"],
             models: {},
           }
 
