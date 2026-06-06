@@ -1,4 +1,4 @@
-const BASE_URL = "https://octo.hdesign.huawei.com/pipeline/rest.root/workflow"
+const BASE_URL = "/pipeline/rest.root/workflow"
 
 export type Domain = {
   id: number
@@ -85,7 +85,7 @@ async function request<T>(url: string): Promise<T> {
     if (!data) throw new Error("API response missing data field")
     if (data.errorCode !== 0) throw new Error(`API error: ${data.errorCode} - ${data.errorMessage}`)
     return data.content as T
-  } catch (error) {
+} catch (error) {
     console.error(`Failed to fetch ${url}:`, error)
     throw error
   }
