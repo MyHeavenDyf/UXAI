@@ -6892,17 +6892,24 @@ export type StudioGenerationsCreateResponses = {
       | "image.fusion"
     prompt: string
     provider: "jimeng" | "internel"
-    toolAction?: "generate_image" | "super_resolution" | "cutout" | "outpainting"
+    toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+    taskType?: string
+    task_type?: string
     taskId?: string
     model: string
     aspectRatio: string
+    videoMode?: "text" | "first_last_frame"
+    duration?: "5" | "10"
+    videoQualityMode?: "std" | "pro"
     images: Array<{
       id: string
+      kind?: "image" | "video"
       url: string
       thumbnailUrl?: string
       remoteUrl?: string
       width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      duration?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     }>
     request?: unknown
     response?: unknown

@@ -32,7 +32,7 @@ import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
-import { GlobalSDKProvider, useGlobalSDK } from "@/context/global-sdk"
+import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
@@ -56,7 +56,6 @@ import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
-const CoworkPage = lazy(() => import("@/pages/cowork"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
@@ -81,7 +80,7 @@ const SessionRedirectRoute = () => {
   return <Navigate href={`../chat/${params.id ?? ""}`} />
 }
 const CoworkRedirectRoute = () => {
-  return <Navigate href="/cowork" />
+  return <Navigate href="/insight" />
 }
 
 function UiI18nBridge(props: ParentProps) {
@@ -290,19 +289,17 @@ function SessionProviders(props: ParentProps) {
 }
 
 function OnboardingLayer() {
-  const location = useLocation()
   const navigate = useNavigate()
   const server = useServer()
-  const globalSDK = useGlobalSDK()
   const layout = useLayout()
 
-  const showOnboarding = createMemo(() => location.pathname === "/")
+  const showOnboarding = createMemo(() => {
+    if (!server.ready()) return false
+    return layout.onboarding.show()
+  })
 
   function handleOnboardingSelect(data: { directory: string }) {
-    layout.projects.open(data.directory)
-    server.projects.touch(data.directory)
-    void globalSDK.createClient({ directory: data.directory }).session.list().catch(() => {})
-    navigate("/cowork")
+    layout.onboarding.hide()
   }
 
   return (
@@ -315,7 +312,7 @@ function OnboardingLayer() {
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
 
-  const isCoworkPage = () => {
+  const isInsightPage = () => {
     const p = location.pathname
     return p === "/" || p === "/cowork" || p === "/insight" || p.startsWith("/insight/")
   }
@@ -339,8 +336,9 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                 <HighlightsProvider>
                   <Layout>
                     <OnboardingLayer />
-                    <Show when={isCoworkPage()}>
-                      <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+                    {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
+                    <Show when={isInsightPage()}>
+                      {props.children}
                     </Show>
                     <Show when={isMakePage()}>
                       <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
@@ -348,7 +346,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <Show when={isSkillsPage()}>
                       <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
                     </Show>
-                    <Show when={!isCoworkPage() && !isMakePage() && !isSkillsPage()}>
+                    <Show when={!isInsightPage() && !isMakePage() && !isSkillsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>
@@ -547,8 +545,8 @@ export function AppInterface(props: {
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
-                  <Route path="/" component={CoworkPage} />
-                  <Route path="/cowork" component={CoworkPage} />
+                  <Route path="/" component={() => <Navigate href="/insight" />} />
+                  <Route path="/cowork" component={() => <Navigate href="/insight" />} />
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />

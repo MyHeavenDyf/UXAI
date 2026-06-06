@@ -35,7 +35,29 @@ function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
 function isRenderableImageUrl(url: string) {
   if (!url) return false
   if (url.includes("visual.volcengineapi.com?Action=CVProcess&Version=2022-08-31")) return false
+  if (isRenderableVideoUrl(url)) return false
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
+}
+
+function isRenderableVideoUrl(url: string) {
+  if (!url) return false
+  if (/^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(url)) return true
+  return /^https?:\/\/\S+/i.test(url) && (
+    /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url) ||
+    /(?:video|mp4|mov|webm)/i.test(url)
+  )
+}
+
+function collectDirectVideoUrls(value: unknown): string[] {
+  if (!value) return []
+  if (typeof value === "string") {
+    const normalized = value.replaceAll("\\/", "/").trim().replace(/[,.，。]+$/, "")
+    return /^https?:\/\/\S+$/i.test(normalized) || /^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(normalized)
+      ? [normalized]
+      : []
+  }
+  if (Array.isArray(value)) return Array.from(new Set(value.flatMap((item) => collectDirectVideoUrls(item))))
+  return []
 }
 
 function collectImageUrls(value: unknown): string[] {
@@ -61,6 +83,31 @@ function collectImageUrls(value: unknown): string[] {
   if (Array.isArray(value)) return Array.from(new Set(value.flatMap((item) => collectImageUrls(item))))
   if (typeof value !== "object") return []
   return Array.from(new Set(Object.values(value as Record<string, unknown>).flatMap((item) => collectImageUrls(item))))
+}
+
+function collectVideoUrls(value: unknown): string[] {
+  if (!value) return []
+  if (typeof value === "string") {
+    const normalized = value.replaceAll("\\/", "/")
+    const parsed = (() => {
+      try {
+        return JSON.parse(normalized) as unknown
+      } catch {
+        return undefined
+      }
+    })()
+    const direct = isRenderableVideoUrl(normalized) ? [normalized] : []
+    const embedded = [
+      ...(normalized.match(/https?:\/\/[^\s"'<>\\)]+/g) ?? []),
+      ...(normalized.match(/data:video\/[a-z0-9.+-]+;base64,[^\s"'<>\\)]+/gi) ?? []),
+    ].filter(isRenderableVideoUrl)
+    return Array.from(new Set([...direct, ...embedded, ...collectVideoUrls(parsed)])).map((url) =>
+      url.replace(/[,.，。]+$/, ""),
+    )
+  }
+  if (Array.isArray(value)) return Array.from(new Set(value.flatMap((item) => collectVideoUrls(item))))
+  if (typeof value !== "object") return []
+  return Array.from(new Set(Object.values(value as Record<string, unknown>).flatMap((item) => collectVideoUrls(item))))
 }
 
 function parseToolImages(output: string) {
@@ -89,6 +136,31 @@ function parseToolImages(output: string) {
     return collectImageUrls(parsed).filter(isRenderableImageUrl)
   } catch {
     return collectImageUrls(output).filter(isRenderableImageUrl)
+  }
+}
+
+function parseToolVideos(output: string) {
+  try {
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    const direct = [
+      ...collectDirectVideoUrls(parsed.videos),
+      ...collectDirectVideoUrls(parsed.primaryVideo),
+      ...collectDirectVideoUrls(parsed.primary_video),
+    ]
+    if (direct.length > 0) return Array.from(new Set(direct))
+    const response = parsed.response
+    if (response && typeof response === "object" && !Array.isArray(response)) {
+      const record = response as Record<string, unknown>
+      const nested = [
+        ...collectDirectVideoUrls(record.videos),
+        ...collectDirectVideoUrls(record.primaryVideo),
+        ...collectDirectVideoUrls(record.primary_video),
+      ]
+      if (nested.length > 0) return Array.from(new Set(nested))
+    }
+    return collectVideoUrls(parsed).filter(isRenderableVideoUrl)
+  } catch {
+    return collectVideoUrls(output).filter(isRenderableVideoUrl)
   }
 }
 
@@ -158,9 +230,9 @@ function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
           : typeof record.uri === "string"
             ? record.uri
             : undefined
-      return url ? [url] : []
+      return url ? [{ url, kind: (typeof record.mime === "string" && record.mime.startsWith("video/")) || isRenderableVideoUrl(url) ? "video" as const : "image" as const }] : []
     })
-    .filter(isRenderableImageUrl)
+    .filter((item) => item.kind === "video" ? isRenderableVideoUrl(item.url) : isRenderableImageUrl(item.url))
 }
 
 function extractUserDemand(text: string) {
@@ -198,7 +270,7 @@ function buildResult(input: {
   const completed = [...input.tools]
     .reverse()
     .find((part): part is Extract<Part, { type: "tool" }> & { state: Extract<Extract<Part, { type: "tool" }>["state"], { status: "completed" }> } =>
-      part.state.status === "completed" && (parseToolAttachments(part).length > 0 || parseToolImages(part.state.output).length > 0),
+      part.state.status === "completed" && (parseToolAttachments(part).length > 0 || parseToolImages(part.state.output).length > 0 || parseToolVideos(part.state.output).length > 0),
     )
   const running = [...input.tools]
     .reverse()
@@ -210,7 +282,13 @@ function buildResult(input: {
     .find((part): part is Extract<Part, { type: "tool" }> & { state: Extract<Extract<Part, { type: "tool" }>["state"], { status: "error" }> } =>
       part.state.status === "error",
     )
-  const images = completed ? Array.from(new Set([...parseToolAttachments(completed), ...parseToolImages(completed.state.output)])) : []
+  const media = completed
+    ? [
+        ...parseToolAttachments(completed),
+        ...parseToolVideos(completed.state.output).map((url) => ({ kind: "video" as const, url })),
+        ...parseToolImages(completed.state.output).map((url) => ({ kind: "image" as const, url })),
+      ].filter((item, index, list) => list.findIndex((entry) => entry.url === item.url) === index)
+    : []
   const output = parseToolOutput(completed?.state.output)
   const inputRecord = toolInput(completed)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
@@ -220,11 +298,17 @@ function buildResult(input: {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
     assistantText: input.assistantText,
-    toolTitle: images.length > 0 ? "图片生成完成" : running ? "图片生成中" : completed ? "图片生成完成" : undefined,
+    toolTitle: media.length > 0
+      ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
+      : running
+        ? capability === "video.generate" ? "视频生成中" : "图片生成中"
+        : completed
+          ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
+          : undefined,
     toolError: errored?.state.error,
     toolName: completed?.tool ?? input.tools[0]?.tool,
     toolRunning: Boolean(running),
-    result: images.length
+    result: media.length
       ? {
           id: `studio_${completed?.id ?? input.messageID}`,
           status: "succeeded",
@@ -236,11 +320,15 @@ function buildResult(input: {
           taskId: stringField(output, "taskId"),
           model,
           aspectRatio,
-          images: images.map((url, index) => ({
+          videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
+          duration: stringField(output, "duration") as StudioGenerationResult["duration"],
+          videoQualityMode: stringField(output, "videoQualityMode") as StudioGenerationResult["videoQualityMode"],
+          images: media.map((item, index) => ({
             id: `studio_img_${completed?.id ?? input.messageID}_${index}`,
-            url,
-            thumbnailUrl: url,
-            remoteUrl: url,
+            kind: item.kind,
+            url: item.url,
+            thumbnailUrl: item.url,
+            remoteUrl: item.url,
             width: numberField(output, "width"),
             height: numberField(output, "height"),
           })),
@@ -321,7 +409,7 @@ export function buildStudioTurnSummary(turn: StudioTurnData) {
   return [
     `上一轮用户需求：${turn.userText}`,
     turn.assistantText ? `上一轮助手说明：${turn.assistantText}` : undefined,
-    turn.result ? `上一轮生成结果：模型 ${turn.result.model}，比例 ${turn.result.aspectRatio}，${turn.result.images.length} 张图` : undefined,
+    turn.result ? `上一轮生成结果：模型 ${turn.result.model}，比例 ${turn.result.aspectRatio}，${turn.result.images.length} ${turn.result.capability === "video.generate" ? "个视频" : "张图"}` : undefined,
     turn.toolName ? `上一轮工具：${turn.toolName}` : undefined,
   ]
     .filter((item): item is string => Boolean(item))

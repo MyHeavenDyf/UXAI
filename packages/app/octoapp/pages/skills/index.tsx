@@ -1,6 +1,7 @@
 import { createSignal, createMemo, For, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useServer } from "@/context/server"
+import { showToast } from "@opencode-ai/ui/toast"
 
 type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 type SkillsConfig = Record<string, SkillConfigEntry>
@@ -149,6 +150,26 @@ export default function SkillsPage(): JSX.Element {
     api?.openSkillFolder?.()
   }
 
+  async function handleAddSkill() {
+    const api = (window as unknown as {
+      api?: {
+        openDirectoryPicker?: (opts?: { title?: string }) => Promise<string | null>
+        addSkill?: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
+      }
+    }).api
+    const selected = await api?.openDirectoryPicker?.({ title: "选择技能文件夹（包含 SKILL.md）" })
+    if (!selected) return
+    const result = await api?.addSkill?.(selected)
+    if (result?.success) {
+      showToast({ variant: "success", icon: "circle-check", title: "添加成功", description: `已添加技能：${result.skillName ?? ""}` })
+    } else if (result?.error) {
+      showToast({ variant: "error", icon: "circle-x", title: "添加失败", description: result.error })
+    }
+    await loadConfig()
+    const url = server.current?.http?.url
+    if (url) await fetch(`${url}/skill/refresh`, { method: "POST" }).catch(() => {})
+  }
+
   return (
     <div class="h-full overflow-y-auto" style={{ background: "var(--octo-shell-bg)" }}>
       <div class="max-w-[640px] mx-auto px-6 py-6 flex flex-col gap-4">
@@ -157,14 +178,24 @@ export default function SkillsPage(): JSX.Element {
             <h1 class="text-lg font-semibold" style={{ color: "var(--octo-text-primary)" }}>技能库</h1>
             <p class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>管理各 Agent 的技能</p>
           </div>
-          <button
-            type="button"
-            onClick={handleOpenFolder}
-            class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors hover:bg-blue-600"
-            style={{ background: "#0A59F7", color: "#fff" }}
-          >
-            + 添加技能
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenFolder}
+              class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+              style={{ background: "rgba(0,0,0,0.06)", color: "var(--octo-text-secondary)" }}
+            >
+              打开文件夹
+            </button>
+            <button
+              type="button"
+              onClick={handleAddSkill}
+              class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors hover:bg-blue-600"
+              style={{ background: "#0A59F7", color: "#fff" }}
+            >
+              + 添加技能
+            </button>
+          </div>
         </div>
 
         <Show when={!loaded()}>

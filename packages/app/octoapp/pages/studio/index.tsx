@@ -54,6 +54,7 @@ import {
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
   "image.generate",
+  "video.generate",
   "image.upscale",
   "image.cutout",
   "image.inpaint",
@@ -74,11 +75,15 @@ type StudioPendingResult = StudioGenerationResult & {
 
 type StudioHDMode = "restoration_8k" | "restoration" | "super_restoration"
 type StudioInpaintMode = "qwen_image_edit" | "erase"
+type StudioVideoDuration = "5" | "10"
+type StudioVideoQualityMode = "std" | "pro"
+type StudioVideoFrameSlot = "first" | "last"
 const STUDIO_HD_MODES = [
   { label: "8k超清", value: "restoration_8k" },
   { label: "4k清晰", value: "restoration" },
   { label: "2k性能", value: "super_restoration" },
 ] satisfies { label: string; value: StudioHDMode }[]
+const STUDIO_VIDEO_ASPECT_RATIOS = ["1:1", "9:16", "16:9"] as const
 
 function workspaceModeForCapability(capability: StudioCapability): Exclude<StudioMode, "preview"> | undefined {
   if (capability === "image.upscale") return "hd"
@@ -96,6 +101,11 @@ function recordValue(value: unknown, key: string): unknown {
 function stringValue(value: unknown, key: string) {
   const next = recordValue(value, key)
   return typeof next === "string" ? next : undefined
+}
+
+function uiplusUserAccount() {
+  const account = recordValue(JSON.parse(localStorage.getItem("uiplusUser") || "{}"), "account")
+  return typeof account === "string" ? account : undefined
 }
 
 function studioResultTaskType(result: StudioGenerationResult) {
@@ -116,6 +126,13 @@ function isStudioEditResult(result: StudioGenerationResult) {
   if (taskType === "magnify" || taskType === "remove_bg" || taskType === "inpainting" || taskType === "outpainting") return true
   if (result.capability === "image.upscale" || result.capability === "image.cutout" || result.capability === "image.inpaint" || result.capability === "image.outpaint") return true
   return result.toolAction === "super_resolution" || result.toolAction === "cutout" || result.toolAction === "inpainting" || result.toolAction === "outpainting"
+}
+
+function studioGenerationTitle(capability: StudioCapability | undefined, status: "running" | "succeeded" | "failed") {
+  const label = capability === "video.generate" ? "视频生成" : "图片生成"
+  if (status === "failed") return `${label}失败`
+  if (status === "succeeded") return `${label}完成`
+  return `${label}中`
 }
 
 function formatStudioGenerationError(response: Response, bodyText: string) {
@@ -157,6 +174,16 @@ function createBlobUrlFromDataUrl(url: string) {
     bytes[index] = binary.charCodeAt(index)
   }
   return URL.createObjectURL(new Blob([bytes], { type: mime }))
+}
+
+function isVideoMedia(image?: StudioImage) {
+  if (!image) return false
+  if (image.kind === "video") return true
+  return /^data:video\//i.test(image.url) || /\.(mp4|mov|webm)(?:[?#]|$)/i.test(image.url)
+}
+
+function hasVideoFrameAssets(frames: { first?: StudioAsset; last?: StudioAsset }) {
+  return Boolean(frames.first || frames.last)
 }
 
 function triggerBrowserDownload(url: string, filename: string) {
@@ -213,6 +240,9 @@ export default function StudioPage() {
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
+  const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
+  const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
+  const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
@@ -242,13 +272,23 @@ export default function StudioPage() {
     part: {},
   })
   let fileInputRef!: HTMLInputElement
+  let videoFrameInputRef!: HTMLInputElement
+  let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
   let conversationScrollRef!: HTMLDivElement
   let scrollFrame = 0
   let pendingEditorSessionID: string | undefined
   const blobUrlCache = new Map<string, string>()
 
+  function replaceVideoFrames(frames: { first?: StudioAsset; last?: StudioAsset }) {
+    setVideoFrames(reconcile(frames))
+  }
+
+  function clearVideoFrames() {
+    replaceVideoFrames({})
+  }
+
   function displayUrl(url: string) {
-    if (!url.startsWith("data:image/")) return url
+    if (!url.startsWith("data:image/") && !url.startsWith("data:video/")) return url
     const cached = blobUrlCache.get(url)
     if (cached) return cached
     const next = createBlobUrlFromDataUrl(url)
@@ -261,6 +301,7 @@ export default function StudioPage() {
     const thumbnailSource = image.thumbnailUrl ?? image.url
     return {
       ...image,
+      kind: image.kind ?? (isVideoMedia(image) ? "video" : "image"),
       url: displayUrl(image.url),
       thumbnailUrl: displayUrl(thumbnailSource),
       remoteUrl,
@@ -308,22 +349,27 @@ export default function StudioPage() {
 
   createEffect(() => {
     const active = new Set<string>()
+    const addActive = (url?: string) => {
+      if (url?.startsWith("data:image/") || url?.startsWith("data:video/")) active.add(url)
+    }
     for (const turn of turns()) {
       for (const image of turn.result?.images ?? []) {
-        if (image.url.startsWith("data:image/")) active.add(image.url)
-        if (image.thumbnailUrl?.startsWith("data:image/")) active.add(image.thumbnailUrl)
-        if (image.remoteUrl?.startsWith("data:image/")) active.add(image.remoteUrl)
+        addActive(image.url)
+        addActive(image.thumbnailUrl)
+        addActive(image.remoteUrl)
       }
     }
     for (const image of pendingResult()?.images ?? []) {
-      if (image.url.startsWith("data:image/")) active.add(image.url)
-      if (image.thumbnailUrl?.startsWith("data:image/")) active.add(image.thumbnailUrl)
-      if (image.remoteUrl?.startsWith("data:image/")) active.add(image.remoteUrl)
+      addActive(image.url)
+      addActive(image.thumbnailUrl)
+      addActive(image.remoteUrl)
     }
     const uploaded = workspaceImage()
-    if (uploaded?.url.startsWith("data:image/")) active.add(uploaded.url)
-    if (uploaded?.thumbnailUrl?.startsWith("data:image/")) active.add(uploaded.thumbnailUrl)
-    if (uploaded?.remoteUrl?.startsWith("data:image/")) active.add(uploaded.remoteUrl)
+    addActive(uploaded?.url)
+    addActive(uploaded?.thumbnailUrl)
+    addActive(uploaded?.remoteUrl)
+    addActive(videoFrames.first?.dataUrl)
+    addActive(videoFrames.last?.dataUrl)
     for (const [source, objectUrl] of blobUrlCache) {
       if (active.has(source)) continue
       URL.revokeObjectURL(objectUrl)
@@ -511,7 +557,7 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: pending.status === "failed" ? "图片生成失败" : pending.status === "succeeded" ? "图片生成完成" : "图片生成中",
+          toolTitle: studioGenerationTitle(pending.capability, pending.status === "failed" ? "failed" : pending.status === "succeeded" ? "succeeded" : "running"),
           toolName: `内部 · ${pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "running",
           result: normalizeResultValue(pending),
@@ -530,7 +576,7 @@ export default function StudioPage() {
             ...next.slice(0, -1),
             {
               ...latest,
-              toolTitle: "图片生成失败",
+              toolTitle: studioGenerationTitle(pending.capability, "failed"),
               toolName: "内部 · 失败",
               toolRunning: false,
               result: normalizeResultValue(pending),
@@ -547,7 +593,7 @@ export default function StudioPage() {
               capability: pending.capability,
               sourceImage: pending.sourceImage,
             }),
-            toolTitle: "图片生成完成",
+            toolTitle: studioGenerationTitle(pending.capability, "succeeded"),
             toolName: "内部 · 完成",
             toolRunning: false,
             result: normalizeResultValue(pending),
@@ -566,7 +612,7 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: pending.status === "failed" ? "图片生成失败" : "图片生成中",
+          toolTitle: studioGenerationTitle(pending.capability, pending.status === "failed" ? "failed" : "running"),
           toolName: `内部 · ${pending.status === "failed" ? "失败" : "生成中"}`,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
@@ -677,6 +723,7 @@ export default function StudioPage() {
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
         setAssets([])
+        clearVideoFrames()
         setPrompt("")
       },
       { defer: true },
@@ -686,10 +733,19 @@ export default function StudioPage() {
   const selectedCapabilityNeedsImage = createMemo(() =>
     capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.inpaint" || capability() === "image.outpaint",
   )
+  const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
+  const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
+  createEffect(() => {
+    if (videoQualityLocked()) setVideoQualityMode("pro")
+  })
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isBusy() &&
-    (prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(workspaceEditImage()))),
+    (
+      capability() === "video.generate"
+        ? prompt().trim().length > 0 || hasVideoFrames()
+        : prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(workspaceEditImage()))
+    ),
   )
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
   const currentTitle = createMemo(() =>
@@ -827,8 +883,9 @@ export default function StudioPage() {
     const image = selectedImage()
     const images = result()?.images ?? []
     const index = image ? images.findIndex((item) => item.id === image.id) + 1 : 1
-    const prefix = currentTitle() === "Octo Studio" ? "studio-image" : currentTitle().replace(/[\\/:*?\"<>|]/g, "-").slice(0, 24)
-    return `${prefix}-${Math.max(index, 1)}.png`
+    const video = isVideoMedia(image)
+    const prefix = currentTitle() === "Octo Studio" ? (video ? "studio-video" : "studio-image") : currentTitle().replace(/[\\/:*?\"<>|]/g, "-").slice(0, 24)
+    return `${prefix}-${Math.max(index, 1)}.${video ? "mp4" : "png"}`
   })
 
   async function downloadCurrentImage() {
@@ -884,24 +941,76 @@ export default function StudioPage() {
     ),
   )
 
-  function addAssets(files: File[]) {
-    files.slice(0, 1).map((file) => {
+  function readStudioAsset(file: File) {
+    return new Promise<StudioAsset>((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = (event) => {
         const dataUrl = event.target?.result
-        if (typeof dataUrl !== "string") return
-        setAssets([
-          {
-            id: crypto.randomUUID(),
-            name: file.name,
-            mime: file.type || "application/octet-stream",
-            dataUrl,
-          },
-        ])
+        if (typeof dataUrl !== "string") {
+          reject(new Error("Unable to read image file."))
+          return
+        }
+        resolve({
+          id: crypto.randomUUID(),
+          name: file.name,
+          mime: file.type || "application/octet-stream",
+          dataUrl,
+        })
       }
+      reader.onerror = () => reject(reader.error ?? new Error("Unable to read image file."))
       reader.readAsDataURL(file)
-      return file.name
     })
+  }
+
+  async function validateVideoFrame(file: File) {
+    if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
+    if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
+    const asset = await readStudioAsset(file)
+    await new Promise<void>((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => {
+        const minSide = Math.min(image.naturalWidth, image.naturalHeight)
+        const maxSide = Math.max(image.naturalWidth, image.naturalHeight)
+        if (minSide < 300) {
+          reject(new Error("图片最小边不能小于 300px。"))
+          return
+        }
+        if (maxSide / minSide > 2.5) {
+          reject(new Error("图片长短边比例不能超过 2.5。"))
+          return
+        }
+        resolve()
+      }
+      image.onerror = () => reject(new Error("无法读取图片尺寸。"))
+      image.src = asset.dataUrl
+    })
+    return asset
+  }
+
+  function addAssets(files: File[]) {
+    const file = files.find((item) => item.type.startsWith("image/"))
+    if (!file) return
+    readStudioAsset(file)
+      .then((asset) => setAssets([asset]))
+      .catch((error) => {
+        showToast({
+          title: "上传失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
+  }
+
+  function addVideoFrame(slot: StudioVideoFrameSlot, files: File[]) {
+    const file = files.find((item) => item.type.startsWith("image/"))
+    if (!file) return
+    validateVideoFrame(file)
+      .then((asset) => setVideoFrames(slot, asset))
+      .catch((error) => {
+        showToast({
+          title: "上传失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   function handleFileChange(event: Event) {
@@ -910,7 +1019,17 @@ export default function StudioPage() {
     input.value = ""
   }
 
+  function handleVideoFrameFileChange(event: Event) {
+    const input = event.currentTarget as HTMLInputElement
+    if (input.files?.length) addVideoFrame(pendingVideoFrameSlot, Array.from(input.files))
+    input.value = ""
+  }
+
   function handlePasteReferenceImage(files: File[]) {
+    if (capability() === "video.generate") {
+      addVideoFrame(videoFrames.first ? "last" : "first", files)
+      return
+    }
     addAssets(files.filter((file) => file.type.startsWith("image/")))
   }
 
@@ -985,6 +1104,11 @@ export default function StudioPage() {
 
   function selectStudioCapability(value: StudioCapability) {
     setCapability(value)
+    if (value === "video.generate" && !STUDIO_VIDEO_ASPECT_RATIOS.includes(aspectRatio() as (typeof STUDIO_VIDEO_ASPECT_RATIOS)[number])) {
+      setAspectRatio("16:9")
+    }
+    if (value !== "video.generate") clearVideoFrames()
+    if (value !== "image.generate") setAssets([])
     if (workspaceModeForCapability(value)) {
       createEditorEntry(value)
       return
@@ -1018,10 +1142,12 @@ export default function StudioPage() {
           ? "好的，我将根据涂抹区域局部重绘当前图片。"
         : input.capability === "image.outpaint"
           ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
+          : input.capability === "video.generate"
+            ? `好的，我将为您生成一段${aspectRatio()}比例的视频。`
           : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
     return [
       opening,
-      `风格模型：${styleModelLabel(styleModel())}`,
+      input.capability === "video.generate" ? undefined : `风格模型：${styleModelLabel(styleModel())}`,
       `画幅比例：${aspectRatio()}`,
       `生成数量：${count()}`,
       input.sourceImage
@@ -1063,13 +1189,16 @@ export default function StudioPage() {
         sessionID: input.sessionID,
         capability: input.capability,
         prompt: input.text,
-        styleModel: styleModelLabel(styleModel()),
+        styleModel: input.capability === "video.generate" ? undefined : styleModelLabel(styleModel()),
         aspectRatio: aspectRatio(),
         count: count(),
         imageTool: "internel",
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
-        extra: input.extra,
+        extra: {
+          ...input.extra,
+          userIdx: uiplusUserAccount(),
+        },
       }),
     }).finally(() => clearTimeout(timeout))
     const bodyText = await response.text()
@@ -1081,6 +1210,8 @@ export default function StudioPage() {
 
   async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string; extra?: Record<string, unknown> }) {
     const nextCapability = overrides?.capability ?? capability()
+    const nextVideoFrames = videoFrames
+    const nextHasVideoFrames = nextCapability === "video.generate" && hasVideoFrameAssets(nextVideoFrames)
     const text = (overrides?.prompt ?? prompt()).trim() || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
@@ -1090,11 +1221,23 @@ export default function StudioPage() {
             ? "重绘所选区域"
           : nextCapability === "image.outpaint"
             ? "保留主体和画面风格，扩展更大尺寸和更多环境内容"
+            : nextCapability === "video.generate" && nextHasVideoFrames
+              ? "根据首尾帧生成自然连贯的视频"
             : ""
     )
     if (!text || isBusy()) return
     const previousPrompt = prompt()
-    const referenceImages = nextCapability === "image.generate" ? assets().map((item) => item.dataUrl) : []
+    const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
+    const videoReferenceImages = [
+      nextVideoFrames.first?.dataUrl ?? nextVideoFrames.last?.dataUrl,
+      nextVideoFrames.first ? nextVideoFrames.last?.dataUrl : undefined,
+    ].filter((item): item is string => Boolean(item))
+    const referenceImages =
+      nextCapability === "image.generate"
+        ? assets().map((item) => item.dataUrl)
+        : nextCapability === "video.generate"
+          ? videoReferenceImages
+          : []
     setOpenMenu(null)
     setMode("preview")
     setEditEntryTurn(undefined)
@@ -1112,9 +1255,17 @@ export default function StudioPage() {
       images: [],
       createdAt: Date.now(),
       sourceImage: overrides?.sourceImage,
+      ...(nextCapability === "video.generate"
+        ? {
+            videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+            duration: videoDuration(),
+            videoQualityMode: videoQualityMode(),
+          }
+        : {}),
     })
     setPrompt("")
     setAssets([])
+    if (nextCapability === "video.generate") clearVideoFrames()
     try {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
@@ -1126,7 +1277,18 @@ export default function StudioPage() {
         capability: nextCapability,
         referenceImages,
         sourceImage: overrides?.sourceImage,
-        extra: overrides?.extra,
+        extra: {
+          ...(overrides?.extra ?? {}),
+          ...(nextCapability === "video.generate"
+            ? {
+                videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+                duration: videoDuration(),
+                mode: videoQualityMode(),
+                firstFrame: nextVideoFrames.first?.dataUrl ?? nextVideoFrames.last?.dataUrl,
+                lastFrame: nextVideoFrames.first ? nextVideoFrames.last?.dataUrl : undefined,
+              }
+            : {}),
+        },
       })
       setPendingResult({
         ...generation,
@@ -1137,6 +1299,7 @@ export default function StudioPage() {
     } catch (error) {
       console.error("[StudioPage] studio prompt failed", error)
       setPrompt(previousPrompt)
+      if (nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
       setStatus("failed")
       setPendingResult((item) => item ? { ...item, status: "failed", error: error instanceof Error ? error.message : String(error) } : item)
     } finally {
@@ -1177,7 +1340,7 @@ export default function StudioPage() {
   }
 
   function openOutpaint() {
-    if (!selectedImage()) return
+    if (!selectedImage() || isVideoMedia(selectedImage())) return
     batch(() => {
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
@@ -1186,7 +1349,7 @@ export default function StudioPage() {
   }
 
   function openHD() {
-    if (!selectedImage() || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
@@ -1195,7 +1358,7 @@ export default function StudioPage() {
   }
 
   function openCutout() {
-    if (!selectedImage() || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
@@ -1204,7 +1367,7 @@ export default function StudioPage() {
   }
 
   function openInpaint() {
-    if (!selectedImage() || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
@@ -1327,26 +1490,38 @@ export default function StudioPage() {
                 </Show>
                 <StudioComposer
                   prompt={prompt()}
-                capability={capability()}
-                styleModel={styleModel()}
-                aspectRatio={aspectRatio()}
-                count={count()}
-                assets={assets()}
-                status={effectiveStatus()}
-                openMenu={openMenu()}
-                canSubmit={canSubmit()}
-                onPrompt={setPrompt}
-                onCapability={selectStudioCapability}
-                onStyleModel={setStyleModel}
-                onAspectRatio={setAspectRatio}
-                onCount={setCount}
-                onOpenMenu={setOpenMenu}
-                onSubmit={handleSubmit}
-                onKeyDown={handleKeyDown}
-                onPickFile={() => fileInputRef.click()}
-                onPasteImage={handlePasteReferenceImage}
-                onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
-              />
+                  capability={capability()}
+                  styleModel={styleModel()}
+                  aspectRatio={aspectRatio()}
+                  count={count()}
+                  assets={assets()}
+                  videoFrames={videoFrames}
+                  videoDuration={videoDuration()}
+                  videoQualityMode={videoQualityMode()}
+                  videoQualityLocked={videoQualityLocked()}
+                  status={effectiveStatus()}
+                  openMenu={openMenu()}
+                  canSubmit={canSubmit()}
+                  onPrompt={setPrompt}
+                  onCapability={selectStudioCapability}
+                  onStyleModel={setStyleModel}
+                  onAspectRatio={setAspectRatio}
+                  onCount={setCount}
+                  onVideoDuration={setVideoDuration}
+                  onVideoQualityMode={setVideoQualityMode}
+                  onOpenMenu={setOpenMenu}
+                  onSubmit={handleSubmit}
+                  onKeyDown={handleKeyDown}
+                  onPickFile={() => fileInputRef.click()}
+                  onPickVideoFrame={(slot) => {
+                    pendingVideoFrameSlot = slot
+                    videoFrameInputRef.click()
+                  }}
+                  onPasteImage={handlePasteReferenceImage}
+                  onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
+                  onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
+                  onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
+                />
             </div>
           </div>
         </div>
@@ -1452,6 +1627,10 @@ export default function StudioPage() {
             aspectRatio={aspectRatio()}
             count={count()}
             assets={assets()}
+            videoFrames={videoFrames}
+            videoDuration={videoDuration()}
+            videoQualityMode={videoQualityMode()}
+            videoQualityLocked={videoQualityLocked()}
             status={effectiveStatus()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
@@ -1460,12 +1639,20 @@ export default function StudioPage() {
             onStyleModel={setStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
+            onVideoDuration={setVideoDuration}
+            onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
             onPickFile={() => fileInputRef.click()}
+            onPickVideoFrame={(slot) => {
+              pendingVideoFrameSlot = slot
+              videoFrameInputRef.click()
+            }}
             onPasteImage={handlePasteReferenceImage}
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
+            onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
+            onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
           />
         </section>
         <div
@@ -1555,6 +1742,7 @@ export default function StudioPage() {
         </main>
       </Show>
       <input ref={fileInputRef!} type="file" accept="image/*" class="hidden" onChange={handleFileChange} />
+      <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
     </div>
   )
 }
@@ -1937,10 +2125,10 @@ function StudioHistory(props: { directory: string; activeSessionID?: string; onN
 function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <img src={IconHost} width={120} height={120} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="studio-intro-copy">
         <div class="studio-intro-title">Octo Studio</div>
-        <div class="studio-intro-subtitle">有任何想法您都可以通过下方输入框输入</div>
+        <div class="studio-intro-subtitle">一键创意落地，让视觉生产力触手可及</div>
       </div>
     </div>
   )
@@ -1953,6 +2141,10 @@ function StudioComposer(props: {
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
   assets: StudioAsset[]
+  videoFrames: { first?: StudioAsset; last?: StudioAsset }
+  videoDuration: StudioVideoDuration
+  videoQualityMode: StudioVideoQualityMode
+  videoQualityLocked: boolean
   status: StudioGenerationStatus
   openMenu: "capability" | "style" | "settings" | "material" | null
   canSubmit: boolean
@@ -1965,16 +2157,20 @@ function StudioComposer(props: {
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
+  onPickVideoFrame: (slot: StudioVideoFrameSlot) => void
   onPasteImage: (files: File[]) => void
   onRemoveAsset: (id: string) => void
+  onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
+  onSwapVideoFrames: () => void
 }): JSX.Element {
   let pointerDownOpenMenu: typeof props.openMenu = null
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
+  const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
 
   function handlePaste(event: ClipboardEvent) {
-    if (!isImageGeneration()) return
+    if (!isImageGeneration() && !isVideoGeneration()) return
     const files = Array.from(event.clipboardData?.items ?? [])
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -2012,8 +2208,38 @@ function StudioComposer(props: {
           onCount={props.onCount}
         />
       </Show>
+      <Show when={isVideoGeneration() && props.openMenu === "settings"}>
+        <VideoSettings
+          aspectRatio={props.aspectRatio}
+          count={props.count}
+          duration={props.videoDuration}
+          qualityMode={props.videoQualityMode}
+          qualityLocked={props.videoQualityLocked}
+          onAspectRatio={props.onAspectRatio}
+          onCount={props.onCount}
+          onDuration={props.onVideoDuration}
+          onQualityMode={props.onVideoQualityMode}
+        />
+      </Show>
 
-      <div class="studio-composer">
+      <div class="studio-composer" classList={{ video: isVideoGeneration() }}>
+        <Show when={isVideoGeneration()}>
+          <div class="studio-composer-video-frames">
+            <VideoFrameButton
+              label="首帧"
+              asset={props.videoFrames.first}
+              onPick={() => props.onPickVideoFrame("first")}
+              onRemove={() => props.onRemoveVideoFrame("first")}
+            />
+            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} aria-label="交换首尾帧" title="交换首尾帧" />
+            <VideoFrameButton
+              label="尾帧"
+              asset={props.videoFrames.last}
+              onPick={() => props.onPickVideoFrame("last")}
+              onRemove={() => props.onRemoveVideoFrame("last")}
+            />
+          </div>
+        </Show>
         <div class="studio-composer-input-row" classList={{ "with-reference": isImageGeneration() }}>
           <Show when={isImageGeneration()}>
             <div class="studio-composer-ref-slot" classList={{ filled: Boolean(referenceAsset()) }}>
@@ -2050,7 +2276,7 @@ function StudioComposer(props: {
             onInput={(event) => props.onPrompt(event.currentTarget.value)}
             onKeyDown={props.onKeyDown}
             onPaste={handlePaste}
-            placeholder="上传参考图、输入文字，描述你想生成的图片。"
+            placeholder={isVideoGeneration() ? "请描述你想生成的视频内容，或使用反推描述图片，也可查看使用指南提升生成效果。" : "上传参考图、输入文字，描述你想生成的图片。"}
             class="studio-composer-input"
             disabled={isEditingCapability() || props.status === "running" || props.status === "submitting"}
           />
@@ -2077,6 +2303,13 @@ function StudioComposer(props: {
               label="素材"
               onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
               onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+            />
+          </Show>
+          <Show when={isVideoGeneration()}>
+            <IconTool
+              label="参数"
+              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
             />
           </Show>
           <button
@@ -2111,6 +2344,43 @@ function IconTool(props: { label: string; onClick?: () => void; onPointerDown?: 
       title={props.label}
       aria-label={props.label}
     />
+  )
+}
+
+function VideoFrameButton(props: { label: string; asset?: StudioAsset; onPick: () => void; onRemove: () => void }): JSX.Element {
+  return (
+    <div class="studio-composer-video-frame-wrap">
+      <button
+        type="button"
+        onClick={props.onPick}
+        class="studio-composer-video-frame"
+        classList={{ filled: Boolean(props.asset) }}
+        title={props.asset ? `替换${props.label}` : `上传${props.label}`}
+      >
+        <Show when={props.asset} fallback={
+          <>
+            <span class="studio-composer-video-plus" />
+            <span class="studio-composer-video-label">{props.label}</span>
+          </>
+        }>
+          {(asset) => <img src={asset().dataUrl} alt={asset().name} class="studio-composer-video-image" />}
+        </Show>
+      </button>
+      <Show when={props.asset}>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            props.onRemove()
+          }}
+          class="studio-composer-video-remove"
+          aria-label={`删除${props.label}`}
+          title={`删除${props.label}`}
+        >
+          ×
+        </button>
+      </Show>
+    </div>
   )
 }
 
@@ -2222,6 +2492,99 @@ function ImageSettings(props: {
   )
 }
 
+function VideoSettings(props: {
+  aspectRatio: StudioAspectRatio
+  count: 1 | 2 | 3 | 4
+  duration: StudioVideoDuration
+  qualityMode: StudioVideoQualityMode
+  qualityLocked: boolean
+  onAspectRatio: (value: StudioAspectRatio) => void
+  onCount: (value: 1 | 2 | 3 | 4) => void
+  onDuration: (value: StudioVideoDuration) => void
+  onQualityMode: (value: StudioVideoQualityMode) => void
+}): JSX.Element {
+  return (
+    <div class="studio-menu studio-image-settings-menu studio-video-settings-menu">
+      <div class="studio-image-settings-title">视频设置</div>
+      <div class="studio-image-settings-label">选择比例</div>
+      <div class="studio-image-settings-ratios studio-video-settings-ratios">
+        <For each={STUDIO_VIDEO_ASPECT_RATIOS}>
+          {(item) => (
+            <button
+              type="button"
+              onClick={() => props.onAspectRatio(item)}
+              class="studio-image-settings-ratio"
+              classList={{ active: item === props.aspectRatio }}
+              aria-pressed={item === props.aspectRatio}
+            >
+              <span
+                class="studio-image-settings-ratio-icon"
+                style={{
+                  "aspect-ratio": item.replace(":", " / "),
+                  width: item === "1:1" ? "22px" : item === "9:16" ? "14px" : "28px",
+                }}
+              />
+              <span class="studio-image-settings-ratio-text">{item}</span>
+            </button>
+          )}
+        </For>
+      </div>
+      <div class="studio-image-settings-label">视频时长</div>
+      <div class="studio-image-settings-counts studio-video-settings-duration">
+        <For each={["5", "10"] as const}>
+          {(item) => (
+            <button
+              type="button"
+              onClick={() => props.onDuration(item)}
+              class="studio-image-settings-count"
+              classList={{ active: item === props.duration }}
+              aria-pressed={item === props.duration}
+            >
+              {item}秒
+            </button>
+          )}
+        </For>
+      </div>
+      <div class="studio-image-settings-label">视频数量</div>
+      <div class="studio-image-settings-counts studio-video-settings-count">
+        <For each={[1, 2, 3, 4] as const}>
+          {(item) => (
+            <button
+              type="button"
+              onClick={() => props.onCount(item)}
+              class="studio-image-settings-count"
+              classList={{ active: item === props.count }}
+              aria-pressed={item === props.count}
+            >
+              {item}个
+            </button>
+          )}
+        </For>
+      </div>
+      <div class="studio-image-settings-label">生成模式</div>
+      <div class="studio-image-settings-counts studio-video-settings-quality">
+        <For each={[
+          { label: "标准", value: "std" },
+          { label: "高质量", value: "pro" },
+        ] as const}>
+          {(item) => (
+            <button
+              type="button"
+              onClick={() => props.onQualityMode(item.value)}
+              disabled={props.qualityLocked}
+              class="studio-image-settings-count"
+              classList={{ active: item.value === props.qualityMode }}
+              aria-pressed={item.value === props.qualityMode}
+            >
+              {item.label}
+            </button>
+          )}
+        </For>
+      </div>
+    </div>
+  )
+}
+
 function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
@@ -2265,7 +2628,7 @@ function StudioConversation(props: {
                   <span class="studio-result-badge-icon" />
                   {capabilityLabel(turn.result?.capability ?? props.result?.capability ?? "image.generate")}
                 </div>
-                <div class="studio-result-title">{turn.toolTitle ?? (turn.result?.images.length ? "图片生成完成" : "图片生成中")}</div>
+                <div class="studio-result-title">{turn.toolTitle ?? studioGenerationTitle(turn.result?.capability ?? props.result?.capability, turn.result?.images.length ? "succeeded" : "running")}</div>
                 <div class="studio-result-meta">
                   创建时间：{formatTime(turn.createdAt)}
                 </div>
@@ -2288,7 +2651,7 @@ function StudioConversation(props: {
                           onClick={() => turn.result && props.onSelectImage({ resultID: turn.result.id, imageID: image.id })}
                           class="studio-result-thumb"
                         >
-                          <img src={image.thumbnailUrl ?? image.url} alt="" />
+                          <StudioMediaPreview image={image} class="studio-result-thumb-media" />
                         </button>
                       )}
                     </For>
@@ -2314,6 +2677,23 @@ function sanitizeStudioAssistantText(text?: string) {
     .filter((line) => !line.includes("当前选中的生图工具") && !line.includes("内部模型"))
     .join("\n")
     .trim()
+}
+
+function StudioMediaPreview(props: { image: StudioImage; class?: string; controls?: boolean }): JSX.Element {
+  return (
+    <Show when={isVideoMedia(props.image)} fallback={
+      <img src={props.image.thumbnailUrl ?? props.image.url} class={props.class} alt="" />
+    }>
+      <video
+        src={props.image.remoteUrl ?? props.image.url}
+        class={props.class}
+        controls={props.controls}
+        muted={!props.controls}
+        playsinline
+        preload="metadata"
+      />
+    </Show>
+  )
 }
 
 function StudioResultCanvas(props: {
@@ -2354,7 +2734,7 @@ function StudioResultCanvas(props: {
             </span>
           </div>
           <div class="studio-canvas-stage">
-            <img src={image().url} class="studio-canvas-image" alt="Studio generated result" />
+            <StudioMediaPreview image={image()} class="studio-canvas-image" controls={isVideoMedia(image())} />
           </div>
           <div class="studio-canvas-floating-actions">
             <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
@@ -2418,6 +2798,7 @@ function StudioDetails(props: {
   onOutpaint: () => void
 }): JSX.Element {
   const isEditResult = createMemo(() => isStudioEditResult(props.result))
+  const isVideoResult = createMemo(() => props.result.capability === "video.generate" || isVideoMedia(props.image))
   return (
     <ScrollView class="studio-detail-panel">
       <div class="studio-detail-cover">
@@ -2429,7 +2810,7 @@ function StudioDetails(props: {
               class="studio-detail-preview-button"
               classList={{ active: image.id === (props.selectedImageId ?? props.result.images[0]?.id) }}
             >
-              <img src={image.thumbnailUrl ?? image.url} class="studio-detail-preview-image" alt="" />
+              <StudioMediaPreview image={image} class="studio-detail-preview-image" />
             </button>
           )}
         </For>
@@ -2444,7 +2825,13 @@ function StudioDetails(props: {
         <div class="studio-detail-section-title">生成信息</div>
         <InfoRow label="模型" value={props.result.model} />
         <InfoRow label="比例" value={props.result.aspectRatio} />
-        <InfoRow label="分辨率" value={props.image?.width && props.image.height ? `${props.image.width} x ${props.image.height}` : "-"} />
+        <Show when={isVideoResult()}>
+          <InfoRow label="类型" value={props.result.videoMode === "first_last_frame" ? "首尾帧生成" : "文生视频"} />
+          <InfoRow label="时长" value={props.result.duration ? `${props.result.duration}秒` : "-"} />
+        </Show>
+        <Show when={!isVideoResult()}>
+          <InfoRow label="分辨率" value={props.image?.width && props.image.height ? `${props.image.width} x ${props.image.height}` : "-"} />
+        </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
       </section>
@@ -2461,40 +2848,42 @@ function StudioDetails(props: {
             再次生成
           </button>
         </Show>
-        <div class="studio-detail-action-grid">
-          <button
-            type="button"
-            onClick={props.onUpscale}
-            disabled={props.regenerateDisabled}
-            class="studio-details-secondary-action studio-detail-action-upscale disabled:opacity-45 disabled:cursor-not-allowed"
-          >
-            <span>变清晰</span>
-          </button>
-          <button
-            type="button"
-            onClick={props.onCutout}
-            disabled={props.regenerateDisabled}
-            class="studio-details-secondary-action studio-detail-action-cutout disabled:opacity-45 disabled:cursor-not-allowed"
-          >
-            <span>抠图</span>
-          </button>
-          <button
-            type="button"
-            onClick={props.onInpaint}
-            disabled={props.regenerateDisabled}
-            class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
-          >
-            <span>局部重绘</span>
-          </button>
-          <button
-            type="button"
-            onClick={props.onOutpaint}
-            disabled={props.regenerateDisabled}
-            class="studio-details-secondary-action studio-detail-action-outpaint disabled:opacity-45 disabled:cursor-not-allowed"
-          >
-            <span>扩图</span>
-          </button>
-        </div>
+        <Show when={!isVideoResult()}>
+          <div class="studio-detail-action-grid">
+            <button
+              type="button"
+              onClick={props.onUpscale}
+              disabled={props.regenerateDisabled}
+              class="studio-details-secondary-action studio-detail-action-upscale disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              <span>变清晰</span>
+            </button>
+            <button
+              type="button"
+              onClick={props.onCutout}
+              disabled={props.regenerateDisabled}
+              class="studio-details-secondary-action studio-detail-action-cutout disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              <span>抠图</span>
+            </button>
+            <button
+              type="button"
+              onClick={props.onInpaint}
+              disabled={props.regenerateDisabled}
+              class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              <span>局部重绘</span>
+            </button>
+            <button
+              type="button"
+              onClick={props.onOutpaint}
+              disabled={props.regenerateDisabled}
+              class="studio-details-secondary-action studio-detail-action-outpaint disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              <span>扩图</span>
+            </button>
+          </div>
+        </Show>
       </section>
     </ScrollView>
   )

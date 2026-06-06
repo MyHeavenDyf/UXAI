@@ -1,6 +1,6 @@
 import { Switch } from "@opencode-ai/ui/switch"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { For, Show, createSignal, createResource, type JSX } from "solid-js"
+import { For, Show, createSignal, createResource, createEffect, type JSX } from "solid-js"
 import { fetchDomains, fetchProductLines, fetchProducts, searchProducts } from "./project-product-select-api"
 
 export type Domain = { id: string; label: string }
@@ -15,62 +15,43 @@ export interface ProjectSelection {
   version?: Version
 }
 
-const CACHE_KEY = "octo-project-selection"
-
-export function saveCachedSelection(data: ProjectSelection) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(data))
-  } catch {}
-}
-
-export function loadCachedSelection(): ProjectSelection | undefined {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    if (!raw) return undefined
-    return JSON.parse(raw) as ProjectSelection
-  } catch {
-    return undefined
-  }
-}
-
-function autoSelect<T extends { id: string }>(list: T[] | undefined, prevId: string | undefined, fallback: T | undefined): T | undefined {
-  if (!list?.length) return undefined
-  if (prevId) {
-    const prev = list.find((x) => x.id === prevId)
-    if (prev) return prev
-  }
-  return fallback ?? list[0]
-}
-
 interface PanelProps {
   domain?: Domain
   productLine?: ProductLine
   product?: Product
-  hideClosed: boolean
-  search: string
-  onDomainChange: (v: Domain | undefined) => void
-  onProductLineChange: (v: ProductLine | undefined) => void
-  onProductChange: (v: Product | undefined) => void
-  onHideClosedChange: (v: boolean) => void
-  onSearchChange: (v: string) => void
+  onProductConfirm: (data: { domain?: Domain; productLine?: ProductLine; product?: Product }) => void
 }
 
 export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [selectedDomainId, setSelectedDomainId] = createSignal(props.domain?.id)
   const [selectedProductLineId, setSelectedProductLineId] = createSignal(props.productLine?.id)
   const [selectedProductId, setSelectedProductId] = createSignal(props.product?.id)
+  const [hideClosed, setHideClosed] = createSignal(false)
+  const [search, setSearch] = createSignal("")
 
-  const [searchResults] = createResource(() => props.search, searchProducts)
-  const isSearching = () => !!props.search
+  const [searchResults] = createResource(() => search(), searchProducts)
+  const isSearching = () => !!search()
 
   const [domains] = createResource(fetchDomains)
   const [productLines] = createResource(() => selectedDomainId(), fetchProductLines)
   const [allProducts] = createResource(() => selectedProductLineId(), fetchProducts)
 
+  createEffect(() => {
+    const list = domains()
+    if (!list?.length) return
+    if (!selectedDomainId()) setSelectedDomainId(list[0].id)
+  })
+
+  createEffect(() => {
+    const list = productLines()
+    if (!list?.length) return
+    if (!selectedProductLineId()) setSelectedProductLineId(list[0].id)
+  })
+
   const filteredProducts = () => {
     const list = allProducts() ?? []
     let result = list
-    if (props.hideClosed) result = result.filter((x) => !x.closed)
+    if (hideClosed()) result = result.filter((x) => !x.closed)
     return result
   }
 
@@ -94,8 +75,8 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
           <span style={{ "font-size": "12px", color: "rgba(0,0,0,0.5)" }}>隐藏已结项</span>
           <div class="panel-switch">
             <Switch
-              checked={props.hideClosed}
-              onChange={props.onHideClosedChange}
+              checked={hideClosed()}
+              onChange={setHideClosed}
               hideLabel
             />
           </div>
@@ -103,8 +84,8 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
         <div style={{ width: "160px", "margin-left": "auto", position: "relative" }}>
           <InlineInput
             placeholder="搜索项目"
-            value={props.search}
-            onInput={(e) => props.onSearchChange(e.currentTarget.value)}
+            value={search()}
+            onInput={(e) => setSearch(e.currentTarget.value)}
             style={{
               width: "100%",
               "font-size": "12px",
@@ -116,7 +97,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
               outline: "none",
             }}
           />
-          <Show when={props.search} fallback={
+          <Show when={search()} fallback={
             <svg style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", "pointer-events": "none" }} width="14" height="14" viewBox="0 0 16 16" fill="none">
               <circle cx="7" cy="7" r="5" stroke="rgba(0,0,0,0.3)" stroke-width="1.5" />
               <path d="M11 11L14 14" stroke="rgba(0,0,0,0.3)" stroke-width="1.5" stroke-linecap="round" />
@@ -130,7 +111,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
               fill="none"
               onClick={(e) => {
                 e.stopPropagation()
-                props.onSearchChange("")
+                setSearch("")
               }}
             >
               <path d="M4 4L12 12M12 4L4 12" stroke="rgba(0,0,0,0.4)" stroke-width="1.5" stroke-linecap="round" />
@@ -152,10 +133,6 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                       if (item.id === selectedDomainId()) return
                       setSelectedDomainId(item.id)
                       setSelectedProductLineId(undefined)
-                      setSelectedProductId(undefined)
-                      props.onDomainChange(item)
-                      props.onProductLineChange(undefined)
-                      props.onProductChange(undefined)
                     }}
                   >
                     {item.label}
@@ -175,9 +152,6 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                       e.stopPropagation()
                       if (item.id === selectedProductLineId()) return
                       setSelectedProductLineId(item.id)
-                      setSelectedProductId(undefined)
-                      props.onProductLineChange(item)
-                      props.onProductChange(undefined)
                     }}
                   >
                     {item.label}
@@ -195,9 +169,13 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                     classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductId() }}
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (item.id === selectedProductId()) return
-                      setSelectedProductId(item.id)
-                      props.onProductChange(item)
+                      const domainItem = (domains() ?? []).find((d) => d.id === selectedDomainId())
+                      const productLineItem = (productLines() ?? []).find((pl) => pl.id === selectedProductLineId())
+                      props.onProductConfirm({
+                        domain: domainItem,
+                        productLine: productLineItem,
+                        product: item,
+                      })
                     }}
                   >
                     {item.label}
@@ -216,12 +194,13 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                 classList={{ "panel-item": true, "panel-item-selected": result.product.id === selectedProductId() }}
                 onClick={(e) => {
                   e.stopPropagation()
-                  props.onDomainChange(result.domain)
                   setSelectedDomainId(result.domain.id)
-                  props.onProductLineChange(result.productLine)
                   setSelectedProductLineId(result.productLine.id)
-                  props.onProductChange(result.product)
-                  setSelectedProductId(result.product.id)
+                  props.onProductConfirm({
+                    domain: result.domain,
+                    productLine: result.productLine,
+                    product: result.product,
+                  })
                 }}
               >
                 <span style={{ color: "rgba(0,0,0,0.4)", "font-size": "12px" }}>{result.domain.label}</span>

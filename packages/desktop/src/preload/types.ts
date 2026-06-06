@@ -68,7 +68,7 @@ export type ElectronAPI = {
   openPath: (path: string, app?: string) => Promise<void>
   showItemInFolder: (path: string) => void
   downloadResource: (url: string, destPath: string) => Promise<void>
-  downloadResourceToTemp: (url: string, namespace: string, filename: string) => Promise<string>
+  downloadResourceToTemp: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
   readClipboardImage: () => Promise<{ buffer: ArrayBuffer; width: number; height: number } | null>
   showNotification: (title: string, body?: string) => void
   getWindowFocused: () => Promise<boolean>
@@ -90,4 +90,5 @@ export type ElectronAPI = {
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   openSkillFolder: () => Promise<void>
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
+  writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
 }
