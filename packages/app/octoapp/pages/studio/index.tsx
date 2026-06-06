@@ -101,6 +101,11 @@ function stringValue(value: unknown, key: string) {
   return typeof next === "string" ? next : undefined
 }
 
+function uiplusUserAccount() {
+  const account = recordValue(JSON.parse(localStorage.getItem("uiplusUser") || "{}"), "account")
+  return typeof account === "string" ? account : undefined
+}
+
 function studioResultTaskType(result: StudioGenerationResult) {
   return (
     result.task_type ??
@@ -1188,7 +1193,10 @@ export default function StudioPage() {
         imageTool: "internel",
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
-        extra: input.extra,
+        extra: {
+          ...input.extra,
+          userIdx: uiplusUserAccount(),
+        },
       }),
     }).finally(() => clearTimeout(timeout))
     const bodyText = await response.text()
