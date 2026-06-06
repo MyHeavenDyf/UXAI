@@ -152,12 +152,165 @@
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
 }
 
+.studio-composer.video {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 14px;
+  align-items: start;
+}
+
+.studio-composer-video-frames {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.studio-composer-video-frame-wrap {
+  position: relative;
+  width: 48px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+}
+
+.studio-composer-video-frame {
+  width: 48px;
+  height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 3px;
+  background: #f2f3f5;
+  color: rgba(15, 23, 42, 0.62);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  transform: rotate(-4deg);
+}
+
+.studio-composer-video-frame-wrap:nth-child(3) .studio-composer-video-frame {
+  transform: rotate(4deg);
+}
+
+.studio-composer-video-frame.filled {
+  background: #0f172a;
+}
+
+.studio-composer-video-plus {
+  width: 20px;
+  height: 20px;
+  position: relative;
+}
+
+.studio-composer-video-plus::before,
+.studio-composer-video-plus::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.45);
+  transform: translate(-50%, -50%);
+}
+
+.studio-composer-video-plus::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.studio-composer-video-label {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.studio-composer-video-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.studio-composer-video-remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(8, 12, 20, 0.94);
+  color: #fff;
+  font-size: 15px;
+  line-height: 15px;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 2;
+}
+
+.studio-composer-video-frame-wrap:hover .studio-composer-video-remove,
+.studio-composer-video-remove:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.studio-composer-video-swap {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  position: relative;
+}
+
+.studio-composer-video-swap::before,
+.studio-composer-video-swap::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  height: 2px;
+  border-radius: 999px;
+  background: #191919;
+}
+
+.studio-composer-video-swap::before {
+  top: 8px;
+  transform: rotate(180deg);
+}
+
+.studio-composer-video-swap::after {
+  top: 15px;
+}
+
+.studio-composer-video-swap:hover::before,
+.studio-composer-video-swap:hover::after {
+  background: #0a59f7;
+}
+
 .studio-composer-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   min-height: 64px;
+}
+
+.studio-composer.video .studio-composer-input-row {
+  min-height: 60px;
+}
+
+.studio-composer.video .studio-composer-toolbar {
+  grid-column: 1 / -1;
+  margin-top: 0;
 }
 
 .studio-composer-input-row.with-reference {
@@ -536,6 +689,25 @@
   line-height: 18px;
 }
 
+.studio-video-settings-ratios {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.studio-video-settings-duration,
+.studio-video-settings-quality {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.studio-video-settings-count {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.studio-video-settings-quality {
+  margin-bottom: 0;
+}
+
 .studio-capability-option {
   width: 100%;
   height: 36px;
@@ -776,11 +948,20 @@
   box-shadow: 0 8px 18px rgba(17, 24, 39, 0.08);
 }
 
-.studio-result-thumb img {
+.studio-result-thumb img,
+.studio-result-thumb video,
+.studio-result-thumb-media {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+.studio-result-thumb video,
+.studio-detail-preview-button video {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(37, 99, 235, 0.76)),
+    #111827;
 }
 
 .studio-generation-skeleton {
@@ -915,6 +1096,7 @@
   object-fit: contain;
   border-radius: 6px;
   box-shadow: 0 12px 34px rgba(17, 24, 39, 0.14);
+  background: #0f172a;
 }
 
 .studio-canvas-floating-actions {
@@ -2208,8 +2390,20 @@
   flex-direction: column;
 }
 
+.studio-empty-stack .studio-composer.video {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 14px;
+  align-items: start;
+}
+
 .studio-empty-stack .studio-composer-input-row {
   min-height: 64px;
+}
+
+.studio-empty-stack .studio-composer.video .studio-composer-input-row {
+  min-height: 60px;
 }
 
 .studio-empty-stack .studio-composer-input {
@@ -2226,6 +2420,11 @@
 
 .studio-empty-stack .studio-composer-toolbar {
   margin-top: auto;
+}
+
+.studio-empty-stack .studio-composer.video .studio-composer-toolbar {
+  grid-column: 1 / -1;
+  margin-top: 0;
 }
 
 .studio-empty-stack .studio-composer-tool-btn {

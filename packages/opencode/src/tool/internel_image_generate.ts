@@ -13,7 +13,7 @@ const DEFAULT_TIMEOUT_MS = 120_000
 
 type JsonRecord = Record<string, unknown>
 type InternalTaskType = "txt2img" | "img2img"
-type InternalToolAction = "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+type InternalToolAction = "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
 type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
 type InternalStyleConfig = {
   taskType: string
@@ -317,6 +317,76 @@ function isRenderableImageUrl(url: string) {
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
 }
 
+function isRenderableVideoUrl(url: string) {
+  if (!url) return false
+  if (/^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(url)) return true
+  return /^https?:\/\/\S+/i.test(url) && (
+    /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url) ||
+    /(?:video|mp4|mov|webm)/i.test(url)
+  )
+}
+
+function collectDirectVideoUrls(value: unknown): string[] {
+  if (!value) return []
+  if (typeof value === "string") {
+    const normalized = value.replaceAll("\\/", "/").trim().replace(/[,.，。]+$/, "")
+    return /^https?:\/\/\S+$/i.test(normalized) || /^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(normalized)
+      ? [normalized]
+      : []
+  }
+  if (Array.isArray(value)) return Array.from(new Set(value.flatMap((item) => collectDirectVideoUrls(item))))
+  return []
+}
+
+function collectVideoUrls(value: unknown): string[] {
+  if (!value) return []
+  if (typeof value === "string") {
+    const normalized = value.replaceAll("\\/", "/").trim()
+    const parsed = (() => {
+      try {
+        return JSON.parse(normalized) as unknown
+      } catch {
+        return undefined
+      }
+    })()
+    const direct = isRenderableVideoUrl(normalized) ? [normalized] : []
+    const embedded = [
+      ...(normalized.match(/https?:\/\/[^\s"'<>\\)]+/g) ?? []),
+      ...(normalized.match(/data:video\/[a-z0-9.+-]+;base64,[^\s"'<>\\)]+/gi) ?? []),
+    ].filter(isRenderableVideoUrl)
+    return Array.from(new Set([...direct, ...embedded, ...collectVideoUrls(parsed)])).map((url) =>
+      url.replace(/[,.，。]+$/, ""),
+    )
+  }
+  if (Array.isArray(value)) return Array.from(new Set(value.flatMap((item) => collectVideoUrls(item))))
+  if (typeof value !== "object") return []
+
+  const record = value as JsonRecord
+  const direct = [
+    "videos",
+    "video",
+    "video_url",
+    "videoUrl",
+    "result_video",
+    "result_videos",
+    "results",
+    "urls",
+    "primaryVideo",
+    "primary_video",
+  ].flatMap((key) => collectDirectVideoUrls(record[key]))
+  const nested = [
+    record.result,
+    record.data,
+    record.output,
+    record.result && typeof record.result === "object" ? (record.result as JsonRecord).result : undefined,
+    record.result && typeof record.result === "object" ? (record.result as JsonRecord).data : undefined,
+    record.data && typeof record.data === "object" ? (record.data as JsonRecord).result : undefined,
+    record.data && typeof record.data === "object" ? (record.data as JsonRecord).data : undefined,
+  ].flatMap((item) => collectVideoUrls(item))
+
+  return Array.from(new Set([...direct, ...nested]))
+}
+
 export function extractInternalImages(response: QueryTaskResponse) {
   const directResults = Array.isArray(response.result?.results)
     ? response.result.results.filter((item): item is string => typeof item === "string" && item.length > 0)
@@ -334,6 +404,14 @@ export function extractInternalImages(response: QueryTaskResponse) {
   return Array.from(new Set([...imageUrls, ...binaryImages]))
 }
 
+export function extractInternalVideos(response: QueryTaskResponse) {
+  const versionedResults = Array.isArray(response.result?.results_v2)
+    ? response.result.results_v2
+        .flatMap((item) => collectVideoUrls(item.output))
+    : []
+  return Array.from(new Set([...versionedResults, ...collectVideoUrls(response)]))
+}
+
 export function summarizeInternalOutput(raw: unknown, bodyText = "") {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { bodyBytes: bodyText.length }
@@ -348,6 +426,7 @@ export function summarizeInternalOutput(raw: unknown, bodyText = "") {
     requestId: record.request_id,
     timeElapsed: record.time_elapsed,
     imageUrlCount: collectImageUrls(raw).length,
+    videoUrlCount: collectVideoUrls(raw).length,
     binaryImageCount: base64Images.length,
     binaryImageBytes: base64Images.map((item) => item.length),
     bodyBytes: bodyText.length,
@@ -798,6 +877,7 @@ export function getTaskType(input: { generationMode: InternalTaskType; taskType?
 }
 
 function toolActionForCapability(capability: StudioCapability): InternalToolAction {
+  if (capability === "video.generate") return "generate_video"
   if (capability === "image.upscale") return "super_resolution"
   if (capability === "image.cutout") return "cutout"
   if (capability === "image.inpaint") return "inpainting"
@@ -892,6 +972,63 @@ function extraString(input: ImageGenerateInput, key: string) {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
+function getVideoDuration(input: ImageGenerateInput) {
+  const value = extraString(input, "duration")
+  return value === "10" ? "10" : "5"
+}
+
+function getVideoMode(input: ImageGenerateInput) {
+  const value = extraString(input, "mode")
+  return value === "pro" ? "pro" : "std"
+}
+
+function getVideoAspectRatio(input: ImageGenerateInput) {
+  const aspectRatio = getStudioAspectRatio(input)
+  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9") return aspectRatio
+  return "16:9"
+}
+
+function getVideoFrames(input: ImageGenerateInput) {
+  const referenceImages = (input.referenceImages ?? []).filter((item) => item.startsWith("data:image/") && Boolean(dataUrlToBase64(item)))
+  const firstFrame = extraString(input, "firstFrame")
+  const lastFrame = extraString(input, "lastFrame")
+  return {
+    firstFrame: firstFrame ?? referenceImages[0] ?? referenceImages[1],
+    lastFrame: lastFrame ?? (firstFrame ? referenceImages[1] : undefined),
+  }
+}
+
+function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const frames = getVideoFrames(input)
+  const baseArgs = {
+    prompt: input.prompt,
+    aspect_ratio: getVideoAspectRatio(input),
+    duration: getVideoDuration(input),
+    count: getStudioCount(input),
+    mode: getVideoMode(input),
+  }
+  if (!frames.firstFrame) {
+    return {
+      user: { idx: context.userIdx },
+      task_type: "t2v_kl",
+      args: {
+        tag_name: "文生视频",
+        ...baseArgs,
+      },
+    }
+  }
+  return {
+    user: { idx: context.userIdx },
+    task_type: "i2v_kl",
+    args: {
+      tag_name: "图生视频",
+      ...baseArgs,
+      image: dataUrlToBase64(frames.firstFrame),
+      ...(frames.lastFrame ? { image_tail: dataUrlToBase64(frames.lastFrame) } : {}),
+    },
+  }
+}
+
 function buildInpaintRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
   const compositeImage = extraString(input, "compositeImage")
   if (!compositeImage) throw new Error("Inpaint requires a composite image base64.")
@@ -932,6 +1069,7 @@ async function buildOutpaintRequestBody(input: ImageGenerateInput, context: Inte
 
 async function buildInternalRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
   const capability = getStudioCapability(input)
+  if (capability === "video.generate") return buildVideoRequestBody(input, context)
   if (capability === "image.upscale") return buildUpscaleRequestBody(input, context)
   if (capability === "image.cutout") return buildCutoutRequestBody(input, context)
   if (capability === "image.inpaint") return buildInpaintRequestBody(input, context)
@@ -996,14 +1134,18 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     const progress = getTaskProgress(queryJson)
 
     if (isSuccessResponse(queryJson)) {
-      const images = extractInternalImages(queryJson)
+      const videos = capability === "video.generate" ? extractInternalVideos(queryJson) : []
+      const images = extractInternalImages(queryJson).filter((url) => capability !== "video.generate" || !isRenderableVideoUrl(url) && !videos.includes(url))
       return {
         provider: "internel",
         model: requestTaskType,
         capability,
         toolAction,
         taskId,
-        images: images.map((url) => ({ url })),
+        images: [
+          ...images.map((url) => ({ kind: "image" as const, url })),
+          ...videos.map((url) => ({ kind: "video" as const, url })),
+        ],
         request: requestBody,
         raw: queryJson,
       }
