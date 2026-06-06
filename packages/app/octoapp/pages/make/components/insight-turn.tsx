@@ -1297,6 +1297,8 @@ ${bodies}
               style={{
                 "border-radius": "12px",
                 padding: "16px 20px",
+                "margin-left": "12px",
+                "margin-right": "12px",
                 background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%)",
                 border: "1px dashed var(--octo-brand-a25)",
               }}
