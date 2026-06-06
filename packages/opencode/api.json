@@ -38,7 +38,7 @@
       }
     }
   },
-  "bpit": {
+  "bpit-beta": {
     "id": "bpit",
     "name": "BPIT",
     "env": ["BPIT_API_KEY"],
@@ -79,7 +79,7 @@
       }
     }
   },
-  "bpit-beta": {
+  "bpit": {
     "id": "bpit-beta",
     "name": "BPIT Beta",
     "env": ["BPIT_BETA_API_KEY"],
