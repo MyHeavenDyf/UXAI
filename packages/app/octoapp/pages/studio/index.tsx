@@ -2154,6 +2154,8 @@ function StudioComposer(props: {
   onAspectRatio: (value: StudioAspectRatio) => void
   onCount: (value: 1 | 2 | 3 | 4) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
+  onVideoDuration: (value: StudioVideoDuration) => void
+  onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
