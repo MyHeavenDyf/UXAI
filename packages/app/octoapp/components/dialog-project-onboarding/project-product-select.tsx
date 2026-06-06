@@ -1,6 +1,6 @@
 import { Popover } from "@opencode-ai/ui/popover"
 import { ProjectProductSelectPanel } from "./project-product-select-panel"
-import type { Domain, ProductLine, Product } from "./project-product-select-panel"
+import type { Domain, ProductLine, Product } from "./project-product-select-api"
 import { createSignal } from "solid-js"
 import type { JSX } from "solid-js"
 
@@ -16,9 +16,9 @@ export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Elem
 
   const selectedLabel = () => {
     const parts = []
-    if (props.domain) parts.push(props.domain.label)
-    if (props.productLine) parts.push(props.productLine.label)
-    if (props.product) parts.push(props.product.label)
+    if (props.domain && props.domain.name) parts.push(props.domain.name)
+    if (props.productLine && props.productLine.name) parts.push(props.productLine.name)
+    if (props.product && props.product.name) parts.push(props.product.name)
     return parts.length ? parts.join("/") : "选择产品"
   }
 

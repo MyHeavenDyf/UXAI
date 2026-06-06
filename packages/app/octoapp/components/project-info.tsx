@@ -8,15 +8,15 @@ export function ProjectInfo(): JSX.Element {
   const [visible, setVisible] = createSignal(false)
 
   const selection = () => server.projects.lastSelection()
-  const productName = () => selection()?.product?.label ?? ""
+  const productName = () => selection()?.product?.name ?? ""
   const domainProductLine = () => {
     const s = selection()
     const parts = []
-    if (s?.domain) parts.push(s.domain.label)
-    if (s?.productLine) parts.push(s.productLine.label)
+    if (s?.domain) parts.push(s.domain.name)
+    if (s?.productLine) parts.push(s.productLine.name)
     return parts.join("/")
   }
-  const versionLabel = () => selection()?.version?.label ?? ""
+  const versionLabel = () => selection()?.version?.name ?? ""
 
   return (
     <>
