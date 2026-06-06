@@ -918,15 +918,15 @@ const stateStatus = state.status as string | undefined
         // Before falling back to markdown, check if subtask artifacts exist for assembly
         const stForText = subtasks()
         const subArtForText = stForText.flatMap((t) => t.artifactOutputs)
-        if (subArtForText.length === 0) {
-          return [{
-            id: `card-${props.messageID}-text`,
-            title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
-            type: "markdown",
-            content: lastTextPart.text,
-            createdAt: new Date(ts),
-          }]
-        }
+        // if (subArtForText.length === 0) {
+        //   return [{
+        //     id: `card-${props.messageID}-text`,
+        //     title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
+        //     type: "markdown",
+        //     content: lastTextPart.text,
+        //     createdAt: new Date(ts),
+        //   }]
+        // }
       }
     }
 
