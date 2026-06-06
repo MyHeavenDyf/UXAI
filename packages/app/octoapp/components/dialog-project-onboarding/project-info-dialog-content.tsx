@@ -1,23 +1,25 @@
 import { ProjectProductSelect } from "./project-product-select"
 import { Select } from "@opencode-ai/ui/select"
 import { createStore } from "solid-js/store"
-import { createEffect } from "solid-js"
-import { createResource } from "solid-js"
+import { createEffect, createResource } from "solid-js"
 import type { JSX } from "solid-js"
 import type { Domain, ProductLine, Product, Version } from "./project-product-select-panel"
 import { fetchVersions } from "./project-product-select-api"
 
 interface ProjectInfoDialogContentProps {
-  defaults?: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }
+  domain?: Domain
+  productLine?: ProductLine
+  product?: Product
+  version?: Version
   onSelectionChange?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
 
 export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): JSX.Element {
   const [store, setStore] = createStore({
-    domain: props.defaults?.domain,
-    productLine: props.defaults?.productLine,
-    product: props.defaults?.product,
-    version: props.defaults?.version,
+    domain: props.domain,
+    productLine: props.productLine,
+    product: props.product,
+    version: props.version,
   })
 
   const [versionOptions] = createResource(() => store.product?.id, fetchVersions)
@@ -38,10 +40,10 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   return (
     <div style={{ width: "100%", height: "40px", display: "flex", gap: "4px", "align-items": "center" }}>
       <ProjectProductSelect
-        defaultDomain={props.defaults?.domain}
-        defaultProductLine={props.defaults?.productLine}
-        defaultProduct={props.defaults?.product}
-        onSelectionChange={(data) => {
+        domain={store.domain}
+        productLine={store.productLine}
+        product={store.product}
+        onProductConfirm={(data) => {
           setStore("domain", data.domain)
           setStore("productLine", data.productLine)
           setStore("product", data.product)

@@ -9,6 +9,15 @@
     background-color: transparent;
 }
 
+[data-dock-surface="shell"] [data-action="prompt-submit"]:disabled {
+  opacity: 0.6;
+}
+
+[data-dock-surface="shell"] [data-action="prompt-submit"][data-icon="stop"] {
+  background-image: url(/pauseIcon.svg);
+  opacity: 1;
+}
+
 [data-dock-surface="shell"] [data-action="prompt-submit"] [data-slot="icon-svg"] {
   display: none;
 }

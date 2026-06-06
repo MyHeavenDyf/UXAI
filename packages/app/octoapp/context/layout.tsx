@@ -1,5 +1,5 @@
 import { createStore, produce } from "solid-js/store"
-import { batch, createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { useGlobalSync } from "./global-sync"
@@ -283,6 +283,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       source: "cowork",
     })
 
+    const [showOnboarding, setShowOnboarding] = createSignal(true)
+
     const MAX_SESSION_KEYS = 50
     const PENDING_MESSAGE_TTL_MS = 2 * 60 * 1000
     const usage = {
@@ -564,6 +566,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     return {
       ready,
+      onboarding: {
+        show: showOnboarding,
+        hide() {
+          setShowOnboarding(false)
+        },
+      },
       handoff: {
         tabs: createMemo(() => store.handoff?.tabs),
         setTabs(dir: string, id: string) {

@@ -11,11 +11,11 @@ export function TabBar(props: {
 }): JSX.Element {
   return (
     <div
-      class="flex items-center overflow-x-auto shrink-0 gap-[4px] px-3"
+      class="flex items-center overflow-x-auto shrink-0 gap-2 px-6 py-3"
       style={{
         "border-bottom": "1px solid var(--octo-border-divider)",
-        "min-height": "40px",
         "scrollbar-width": "none",
+        height: "56px",
         background: "var(--octo-surface-page)",
       }}
     >
@@ -37,7 +37,7 @@ export function TabBar(props: {
                   props.onClose(tab.id)
                 }}
               >
-                <IconTabClose size={9} />
+                <IconTabClose size={16} />
               </button>
             </div>
           )

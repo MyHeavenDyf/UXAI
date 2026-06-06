@@ -21,15 +21,15 @@ type TabType = "chat" | "make" | "cowork" | "studio"
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "chat", label: "Chat" },
   { key: "cowork", label: "Insight" },
-  { key: "make", label: "Make" },
+  { key: "make", label: "Design" },
   { key: "studio", label: "Studio" },
 ]
 
-const TAB_ICON_MAP: Record<TabType, { default: string; selected: string }> = {
-  chat: { default: "/IconChat.svg", selected: "/IconChat1.svg" },
-  make: { default: "/IconMake.svg", selected: "/IconMake1.svg" },
-  cowork: { default: "/IconCowork.svg", selected: "/IconCowork1.svg" },
-  studio: { default: "/IconStudio.svg", selected: "/IconStudio1.svg" },
+const TAB_ICON_MAP: Record<TabType, string> = {
+  chat: "/IconChat.svg",
+  make: "/makeTab.svg",
+  cowork: "/IconCowork.svg",
+  studio: "/IconStudio.svg",
 }
 
 type TauriDesktopWindow = {
@@ -115,7 +115,7 @@ export function TitlebarSimple() {
       if (cowork?.id) {
         navigate(`/insight/${cowork.id}`)
       } else {
-        navigate("/cowork")
+        navigate("/insight")
       }
       return
     }
@@ -229,10 +229,22 @@ export function TitlebarSimple() {
                 if (hasActiveTab()) handleTabClick(item.key)
               }}
             >
-              <img
-                src={activeTab() === item.key ? TAB_ICON_MAP[item.key].selected : TAB_ICON_MAP[item.key].default}
-                alt=""
-                style={{ width: "18px", height: "18px", display: "block" }}
+              <span
+                style={{
+                  width: "18px",
+                  height: "18px",
+                  display: "block",
+                  "flex-shrink": "0",
+                  "background-color": activeTab() === item.key ? "#0A59F7" : "#666",
+                  "mask-image": `url(${TAB_ICON_MAP[item.key]})`,
+                  "-webkit-mask-image": `url(${TAB_ICON_MAP[item.key]})`,
+                  "mask-size": "contain",
+                  "-webkit-mask-size": "contain",
+                  "mask-repeat": "no-repeat",
+                  "-webkit-mask-repeat": "no-repeat",
+                  "mask-position": "center",
+                  "-webkit-mask-position": "center",
+                }}
               />
               <span>{item.label}</span>
             </button>

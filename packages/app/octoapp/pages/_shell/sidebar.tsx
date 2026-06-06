@@ -20,7 +20,7 @@ import {
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
 } from "./icons"
-import { ProjectInfo } from "@/pages/cowork/components/project-info"
+import { ProjectInfo } from "@/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -105,11 +105,12 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
   const layout = useLayout()
 
   const projectDir = useProjectDir()
-  const isOnboarding = createMemo(() => location.pathname === "/")
 
   // Resolved directory signal — the single source of truth for session loading.
   // Populated by two effects from different reliable reactive sources.
   const [resolvedDir, setResolvedDir] = createSignal<string>()
+
+  const isOnboarding = createMemo(() => !resolvedDir())
 
   // Track which directory the fetched data came from, so we only show content
   // when the data matches the current directory (prevents flicker when dir changes from home → project)
@@ -192,6 +193,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       class="shrink-0 flex flex-col h-full overflow-hidden"
       style={{
         width: `${props.width}px`,
+        "padding-top": "12px",
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
         "border-right": "1px solid var(--border-weak-base)",
       }}

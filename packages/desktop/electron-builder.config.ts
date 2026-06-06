@@ -27,7 +27,9 @@ const channel = (() => {
 })()
 
 const getBase = (): Configuration => ({
+  // jk-j60099994-replace-with-electron-builder-config-2-start
   artifactName: "octo-desktop-${os}-${arch}.${ext}",
+  // jk-j60099994-replace-with-electron-builder-config-2-end
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -62,8 +64,8 @@ const getBase = (): Configuration => ({
     sign: true,
   },
   protocols: {
-    name: "Octo AI",
-    schemes: ["opencode"],
+    name: "Octo Agent",
+    schemes: ["octo agent"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -78,6 +80,9 @@ const getBase = (): Configuration => ({
     perMachine: false,
     installerIcon: `resources/icons/icon.ico`,
     installerHeaderIcon: `resources/icons/icon.ico`,
+    shortcutName: "Octo Agent",
+    uninstallDisplayName: "Octo Agent",
+    guid: "cf72eba9-3682-4bca-bf7b-6c8053afd856"
   },
   linux: {
     icon: `resources/icons`,
@@ -94,27 +99,29 @@ function getConfig() {
       return {
         ...base,
         appId: "ai.octo.desktop.dev",
-        productName: "Octo AI Dev",
+        productName: "Octo Agent Dev",
         rpm: { packageName: "opencode-dev" },
       }
     }
     case "beta": {
       return {
         ...base,
-        appId: "ai.octo.desktop.beta",
-        productName: "Octo AI Beta",
-        protocols: { name: "Octo AI Beta", schemes: ["opencode"] },
+        appId: "com.huawei.octoagent.beta",
+        productName: "Octo Agent Beta",
+        protocols: { name: "Octo Agent Beta", schemes: ["oc"] },
+        // jk-j60099994-replace-with-electron-builder-config-1-start
         publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
-        rpm: { packageName: "opencode-beta" },
+        // jk-j60099994-replace-with-electron-builder-config-1-end
+        rpm: { packageName: "octo-agent-beta" },
       }
     }
     case "prod": {
       return {
         ...base,
         appId: "ai.octo.desktop",
-        productName: "Octo AI",
-        protocols: { name: "Octo AI", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
+        productName: "Octo Agent",
+        protocols: { name: "Octo Agent", schemes: ["octo-agent"] },
+        publish: { provider: "github", owner: "anomalyco", repo: "octo-agent", channel: "latest" },
         rpm: { packageName: "opencode" },
       }
     }

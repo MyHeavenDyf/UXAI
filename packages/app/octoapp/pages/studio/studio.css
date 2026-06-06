@@ -450,6 +450,12 @@
   height: 16px;
   flex: 0 0 16px;
   background: url("/studio/chevron_down.svg") center / contain no-repeat;
+  opacity: 0.6;
+  transition: transform 0.15s;
+}
+
+.studio-composer-tool-btn[data-active] .studio-composer-tool-caret {
+  transform: rotate(-180deg);
 }
 
 .studio-composer-icon-tool {

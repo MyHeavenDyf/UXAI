@@ -32,6 +32,7 @@ type PromptAttachmentsInput = {
   focusEditor: () => void
   addPart: (part: ContentPart) => boolean
   readClipboardImage?: () => Promise<File | null>
+  disabled?: () => boolean
 }
 
 export function createPromptAttachments(input: PromptAttachmentsInput) {
@@ -91,6 +92,11 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
   }
 
   const handlePaste = async (event: ClipboardEvent) => {
+    if (input.disabled?.()) {
+      event.preventDefault()
+      return
+    }
+
     const clipboardData = event.clipboardData
     if (!clipboardData) return
 

@@ -13,6 +13,9 @@ const OPENCODE_SERVER_DIST = "../opencode/dist/node"
 
 const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 
+// jk-j60099994-replace-with-electron-vite-config-1-start
+// jk-j60099994-replace-with-electron-vite-config-1-end
+
 const sentry =
   process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
     ? sentryVitePlugin({
@@ -84,6 +87,8 @@ export default defineConfig({
     root: "src/renderer",
     define: {
       "import.meta.env.VITE_OCTO_CHANNEL": JSON.stringify(channel),
+      // jk-j60099994-replace-with-electron-vite-config-2-start
+      // jk-j60099994-replace-with-electron-vite-config-2-end
     },
     build: {
       sourcemap: true,
