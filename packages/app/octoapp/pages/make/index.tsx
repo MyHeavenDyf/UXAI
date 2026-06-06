@@ -50,6 +50,7 @@ import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 
 export default function MakePage() {
   const globalSync = useGlobalSync()
@@ -238,6 +239,49 @@ createEffect(
       },
     ),
   )
+
+  // ── Annotation event listener (from DrawOverlay) ────────────────────────────────
+  createEffect(() => {
+    const handleAnnotation = (e: CustomEvent<AnnotationEventDetail>) => {
+      const detail = e.detail
+      
+      // Convert File to Attachment
+      if (detail.file) {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const att: Attachment = {
+            id: crypto.randomUUID(),
+            filename: detail.file!.name,
+            mime: 'image/png',
+            dataUrl: reader.result as string
+          }
+          setAttachments(prev => [...prev, att])
+        }
+        reader.readAsDataURL(detail.file)
+      }
+      
+      // Append note to prompt
+      if (detail.note) {
+        setPrompt(prev => prev ? `${prev}\n${detail.note}` : detail.note)
+      }
+      
+      // Send immediately if requested and not busy
+      if (detail.action === 'send' && !sending()) {
+        const sessionId = params.id
+        if (sessionId) {
+          sendMessage(sessionId, prompt())
+        }
+      }
+      
+      // Acknowledge success
+      if (detail.ack) {
+        detail.ack({ ok: true })
+      }
+    }
+    
+    window.addEventListener(ANNOTATION_EVENT, handleAnnotation as EventListener)
+    onCleanup(() => window.removeEventListener(ANNOTATION_EVENT, handleAnnotation as EventListener))
+  })
 
   // 调试日志：打印当前 session 相关的 SSE 事件
   createEffect(() => {
@@ -469,18 +513,17 @@ createEffect(
   async function handleContentChange(tabId: string, content: string) {
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
-    if (tab?.filePath) {
+    
+    if (tab?.filePath && sdk.directory) {
       try {
-        if (sdk.directory) {
-          await fetch(`${sdk.url}/content`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              "x-opencode-directory": sdk.directory,
-            },
-            body: JSON.stringify({ path: tab.filePath, content }),
-          })
-        }
+        await fetch(`${sdk.url}/file/content`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "x-opencode-directory": sdk.directory,
+          },
+          body: JSON.stringify({ path: tab.filePath, content }),
+        })
       } catch (err) {
         console.error("[MakePage] failed to save file:", err)
       }
@@ -703,13 +746,29 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
   }
 
   /** 打开结果到 ResultViewer（自动保存快照） */
-  function handleOpenResult(card: OutputCard) {
+  async function handleOpenResult(card: OutputCard) {
+    if (card.filePath) {
+      try {
+        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
+          headers: {
+            "x-opencode-directory": sdk.directory || "",
+          },
+        })
+        if (response.ok) {
+          const data = await response.json()
+          if (data.content && typeof data.content === "string") {
+            card = { ...card, content: data.content }
+          }
+        }
+      } catch (err) {
+        console.error("[MakePage] Failed to load file content:", err)
+      }
+    }
+    
     tabStore.openTab(card)
-    // Auto-activate composed artifact tab (identifier ends with "-composed")
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
     }
-    // Auto-save snapshot when a new result is opened
     const tab = tabStore.tabs().find((t) => t.id === card.id)
     if (tab) {
       snapshotStore.save(tab)

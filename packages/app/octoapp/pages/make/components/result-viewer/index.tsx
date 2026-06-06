@@ -2,7 +2,7 @@ import { createMemo, createSignal, Show, Switch, Match } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import type { ResultTab } from "./tab-store"
-import type { ViewportPreset, PaletteId } from "./html-renderer"
+import type { ViewportPreset, PaletteId, InspectTarget } from "./html-renderer"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
@@ -12,12 +12,13 @@ import { SvgRenderer } from "./svg-renderer"
 import { ReactComponentRenderer } from "./react-component-renderer"
 import { DiagramRenderer } from "./diagram-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
+import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 
 function extractCodeBlock(text: string, lang: string): string {
-  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
-  const m = text.match(re)
-  return m ? m[1].trim() : text.trim()
-}
+    const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+    const m = text.match(re)
+    return m ? m[1].trim() : text.trim()
+  }
 
 function JsonRenderer(props: { content: string }): JSX.Element {
   const code = createMemo(() => {
@@ -63,6 +64,9 @@ export function ResultViewer(props: {
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
   const [palette, setPalette] = createSignal<PaletteId | null>(null)
   const [inspecting, setInspecting] = createSignal(false)
+  const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
+  const [editing, setEditing] = createSignal(false)
+  const [drawing, setDrawing] = createSignal(false)
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
 
@@ -72,6 +76,37 @@ export function ResultViewer(props: {
   }
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
+
+const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
+    const tab = props.tabs.find(t => t.id === tabId)
+    if (!tab || overrides.length === 0) return
+
+    const rawContent = tab.content
+    const htmlContent = extractCodeBlock(rawContent, "html")
+    const isMarkdown = rawContent.includes("```html")
+
+    const annotatedHtml = annotateElementsWithIds(htmlContent)
+
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(annotatedHtml, "text/html")
+
+    for (const { elementId, prop, value } of overrides) {
+      const el = doc.querySelector(`[data-od-id="${elementId}"]`)
+      if (el && el instanceof HTMLElement) {
+        el.style.setProperty(prop, value, "important")
+      }
+    }
+
+    const isFullDocument = htmlContent.includes("<html") || htmlContent.includes("<body")
+    const updatedHtml = isFullDocument 
+      ? doc.documentElement.outerHTML 
+      : doc.body.innerHTML
+    const finalContent = isMarkdown
+      ? "```html\n" + updatedHtml + "\n```"
+      : updatedHtml
+    
+    props.onContentChange?.(tabId, finalContent)
+}
 
   return (
     <div
@@ -97,7 +132,38 @@ export function ResultViewer(props: {
                 palette={palette()}
                 onPaletteChange={setPalette}
                 inspecting={inspecting()}
-                onInspectToggle={() => setInspecting((v) => !v)}
+                onInspectToggle={() => {
+                  const nextInspecting = !inspecting()
+                  setInspecting(nextInspecting)
+                  if (nextInspecting && editing()) {
+                    setEditing(false)
+                  }
+                  if (nextInspecting && drawing()) {
+                    setDrawing(false)
+                  }
+                }}
+                editing={editing()}
+                onEditToggle={() => {
+                  const nextEditing = !editing()
+                  setEditing(nextEditing)
+                  if (nextEditing && inspecting()) {
+                    setInspecting(false)
+                  }
+                  if (nextEditing && drawing()) {
+                    setDrawing(false)
+                  }
+                }}
+                drawing={drawing()}
+                onDrawToggle={() => {
+                  const nextDrawing = !drawing()
+                  setDrawing(nextDrawing)
+                  if (nextDrawing && inspecting()) {
+                    setInspecting(false)
+                  }
+                  if (nextDrawing && editing()) {
+                    setEditing(false)
+                  }
+                }}
               />
               <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch
@@ -126,6 +192,12 @@ export function ResultViewer(props: {
                       viewport={viewport()}
                       palette={palette()}
                       inspecting={inspecting()}
+                      editing={editing()}
+                      drawing={drawing()}
+                      onDrawActiveChange={setDrawing}
+                      inspectPanel={true}
+                      onInspectTarget={setInspectTarget}
+                      onSaveOverrides={(overrides) => applyInspectOverrides(tab().id, overrides)}
                       onContentChange={(content) => props.onContentChange?.(tab().id, content)}
                     />
                   </Match>

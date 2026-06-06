@@ -212,16 +212,20 @@ function exportDeckAsPDF(content: string, title: string) {
 }
 
 export function ActionBar(props: {
-  tab: ResultTab
-  mode?: "preview" | "edit"
-  viewport?: ViewportPreset
-  palette?: PaletteId | null
-  inspecting?: boolean
-  onModeChange?: () => void
-  onViewportChange?: (vp: ViewportPreset) => void
-  onPaletteChange?: (palette: PaletteId | null) => void
-  onInspectToggle?: () => void
-}): JSX.Element {
+    tab: ResultTab
+    mode?: "preview" | "edit"
+    viewport?: ViewportPreset
+    palette?: PaletteId | null
+    inspecting?: boolean
+    editing?: boolean
+    drawing?: boolean
+    onModeChange?: () => void
+    onViewportChange?: (vp: ViewportPreset) => void
+    onPaletteChange?: (palette: PaletteId | null) => void
+    onInspectToggle?: () => void
+    onEditToggle?: () => void
+    onDrawToggle?: () => void
+  }): JSX.Element {
   async function handleDownload() {
     if (props.tab.type === "deck") {
       exportDeckAsPDF(props.tab.content, props.tab.title)
@@ -309,6 +313,29 @@ export function ActionBar(props: {
             title="元素检查"
           >
             <IconInspect size={13} />
+          </button>
+        )}
+        {showViewport && props.onDrawToggle && (
+          <button
+            type="button"
+            class="octo-viewport-btn"
+            classList={{ "octo-viewport-btn-active": !!props.drawing }}
+            onClick={props.onDrawToggle}
+            title="标注绘图"
+          >
+            <span style={{ "font-size": "13px" }}>✎</span>
+          </button>
+        )}
+        {showViewport && props.onEditToggle && (
+          <button
+            type="button"
+            class="octo-action-btn"
+            classList={{ "octo-viewport-btn-active": !!props.editing }}
+            onClick={props.onEditToggle}
+            title="可视化元素编辑（文本、链接、图片、样式）"
+          >
+            <IconActionEdit size={13} />
+            <span>元素编辑</span>
           </button>
         )}
         {canToggleMode && props.onModeChange && (
