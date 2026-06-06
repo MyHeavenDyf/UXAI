@@ -52,6 +52,9 @@ export const Remote = Schema.Struct({
   timeout: Schema.optional(PositiveInt).annotate({
     description: "Timeout in ms for MCP server requests. Defaults to 5000 (5 seconds) if not specified.",
   }),
+  proxy: Schema.optional(Schema.Boolean).annotate({
+    description: "Force proxy usage (true) or bypass proxy (false). Auto-detected from URL if not set.",
+  }),
 })
   .annotate({ identifier: "McpRemoteConfig" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
