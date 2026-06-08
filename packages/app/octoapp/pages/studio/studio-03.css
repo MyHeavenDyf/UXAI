@@ -4,8 +4,8 @@
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
-  border: 1.5px solid currentColor;
-  border-radius: 4px;
+  border: 0;
+  border-radius: 0;
 }
 
 .studio-result-progress-status {
@@ -32,7 +32,7 @@
 }
 
 .studio-result-progress-track {
-  grid-column: 1 / 3;
+  min-width: 0;
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
@@ -51,7 +51,6 @@
 }
 
 .studio-result-progress-percent {
-  grid-column: 3;
   color: #191919;
   font-size: 16px;
   line-height: 24px;
@@ -60,8 +59,6 @@
 }
 
 .studio-result-cancel {
-  grid-column: 3;
-  grid-row: 1;
   padding: 0;
   border: 0;
   background: transparent;

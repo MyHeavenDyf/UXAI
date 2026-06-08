@@ -572,9 +572,10 @@
 
 .studio-result-progress-header {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  grid-template-columns: max-content max-content minmax(96px, 1fr) max-content max-content;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .studio-result-progress-title {

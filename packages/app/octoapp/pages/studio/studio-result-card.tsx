@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js"
-import { capabilityLabel } from "./data"
+import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
 import { isVideoMedia } from "./studio-shared"
 import type { StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
@@ -29,6 +29,10 @@ function StudioMediaPreview(props: { image: StudioImage }) {
 
 export function StudioResultCard(props: StudioResultCardProps) {
   const capability = () => props.turn.result?.capability ?? props.fallbackCapability ?? "image.generate"
+  const capabilityIconClass = () => {
+    const index = STUDIO_CAPABILITIES.findIndex((item) => item.id === capability())
+    return index <= 0 ? "studio-capability-icon" : `studio-capability-icon studio-capability-icon-${index + 1}`
+  }
   const status = (): StudioGenerationStatus => {
     if (props.turn.toolError || props.turn.result?.error) return "failed"
     if (props.turn.result?.images.length) return "succeeded"
@@ -62,7 +66,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     >
       <div class="studio-result-progress-header">
         <div class="studio-result-progress-title">
-          <span class="studio-result-progress-icon" />
+          <span class={`studio-result-progress-icon ${capabilityIconClass()}`} />
           <span>{mediaLabel()}</span>
         </div>
         <span class="studio-result-progress-status">{statusLabel()}</span>

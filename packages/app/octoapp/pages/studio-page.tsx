@@ -1008,6 +1008,10 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
+  function isStudioGenerationID(id: string) {
+    return id.startsWith("studio_gen")
+  }
+
   async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string; extra?: Record<string, unknown> }) {
     const nextCapability = overrides?.capability ?? capability()
     const nextVideoFrames = videoFrames
@@ -1111,6 +1115,7 @@ export default function StudioPage() {
     const active = pendingResult() ?? studioTurn()?.result
     if (!active || active.status !== "queued" && active.status !== "running") return
     if (active.id.startsWith("studio_pending_")) return
+    if (!isStudioGenerationID(active.id)) return
     const id = active.id
     const refresh = () => {
       getStudioGeneration(id)
@@ -1131,7 +1136,18 @@ export default function StudioPage() {
           const sessionID = generation.sessionID ?? params.id
           if (generation.status === "succeeded" && sessionID) return loadSessionMessages(sessionID)
         })
-        .catch((error) => console.error("[StudioPage] generation status load failed", error))
+        .catch((error) => {
+          console.error("[StudioPage] generation status load failed", error)
+          const message = error instanceof Error ? error.message : String(error)
+          const current = pendingResult()
+          if (current && current.id !== id) return
+          setStatus("failed")
+          setPendingResult({
+            ...(current ?? active),
+            status: "failed",
+            error: message,
+          })
+        })
     }
     void refresh()
     const timer = setInterval(refresh, STUDIO_GENERATION_STATUS_INTERVAL_MS)

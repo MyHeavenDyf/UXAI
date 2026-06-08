@@ -518,13 +518,13 @@ function getTaskOrder(response: QueryTaskResponse) {
 }
 
 function isSuccessResponse(response: QueryTaskResponse): boolean {
-  return response.resp_code === 200 && Number(getTaskStatus(response)) === 2 && getTaskProgress(response) >= 100
+  return response.resp_code === 200 && Number(getTaskStatus(response)) === 2
 }
 
 function isFailureResponse(response: QueryTaskResponse): boolean {
   const status = Number(getTaskStatus(response))
   if (response.resp_code !== undefined && response.resp_code !== 200) return true
-  return [3, 4, -1].includes(status)
+  return ![0, 1, 2, 6].includes(status)
 }
 
 function normalizeTaskStatus(response: QueryTaskResponse): ImageGenerationQuery["status"] {
@@ -988,7 +988,7 @@ async function buildUpscaleRequestBody(input: ImageGenerateInput, context: Inter
     task_type: "magnify",
     args: {
       mode:
-        mode === "restoration_8k" || mode === "restoration" || mode === "super_restoration"
+        mode === "restoration_8k" || mode === "restoration" || mode === "super_resolution"
           ? mode
           : "restoration",
       image_base64: await getSourceImageDataUrl(input),

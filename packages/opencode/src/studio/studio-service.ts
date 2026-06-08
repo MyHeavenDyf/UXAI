@@ -68,7 +68,7 @@ export type StudioGenerationResult = {
 
 export type StudioGenerationAccepted = Pick<
   StudioGenerationResult,
-  "id" | "status" | "capability" | "prompt" | "provider" | "model" | "aspectRatio" | "images" | "progress" | "order" | "rawStatus" | "createdAt" | "updatedAt"
+  "id" | "status" | "capability" | "prompt" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "createdAt" | "updatedAt"
 > & {
   sessionID: string
 }
@@ -423,8 +423,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     capability: record.capability,
     prompt: data.input.prompt,
     provider: record.provider,
-    model: result?.model ?? data.input.styleModel ?? "internel",
+    model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
     aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
+    taskId: result?.taskId ?? data.task?.taskId ?? record.provider_task_id ?? undefined,
     images: result?.images ?? [],
     progress: record.progress,
     order: record.queue_order ?? undefined,
@@ -540,6 +541,7 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
         raw_status: String(result.rawStatus ?? 2),
         progress: 100,
         queue_order: null,
+        error: null,
         result: result as unknown as Record<string, unknown>,
         completed_at: result.completedAt,
         next_poll_at: Number.MAX_SAFE_INTEGER,
@@ -573,17 +575,9 @@ async function processGeneration(record: StudioGenerationRecord) {
       return
     }
 
-    const task = data.task ?? await createInternalGeneration({
-      capability: data.input.capability,
-      prompt: data.input.prompt,
-      styleModel: data.input.styleModel,
-      aspectRatio: data.input.aspectRatio,
-      count: data.input.count,
-      referenceImages: data.input.referenceImages,
-      sourceImage: data.input.sourceImage,
-      extra: data.input.extra,
-    })
-    if (!data.task) {
+    const task = data.task
+    if (!task) throw new Error(`Studio generation ${record.id} has no provider task id.`)
+    if (!record.provider_task_id) {
       Database.use((db) =>
         db
           .update(StudioGenerationTable)
@@ -614,6 +608,7 @@ async function processGeneration(record: StudioGenerationRecord) {
           raw_status: String(query.rawStatus),
           progress: query.progress,
           queue_order: query.order,
+          error: null,
           poll_attempts: record.poll_attempts + 1,
           next_poll_at: Date.now() + (query.status === "queued" ? 4000 : 2500),
           time_updated: Date.now(),
@@ -643,6 +638,20 @@ async function processGeneration(record: StudioGenerationRecord) {
     }
     await failGeneration(record, error)
   }
+}
+
+async function createProviderTask(input: StudioGenerationRequest, provider: StudioProvider) {
+  if (provider !== "internel") return
+  return createInternalGeneration({
+    capability: input.capability,
+    prompt: input.prompt,
+    styleModel: input.styleModel,
+    aspectRatio: input.aspectRatio,
+    count: input.count,
+    referenceImages: input.referenceImages,
+    sourceImage: input.sourceImage,
+    extra: input.extra,
+  })
 }
 
 const workerTimers = new Map<string, ReturnType<typeof setInterval>>()
@@ -719,6 +728,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
   const provider = resolveProvider(input)
+  const task = await createProviderTask(input, provider)
   const turn = persistStudioSession({
     generationID: id,
     sessionID,
@@ -735,10 +745,11 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       assistant_message_id: turn.assistantInfo.id,
       tool_part_id: turn.toolPart.id,
       provider,
+      provider_task_id: task?.taskId,
       capability: input.capability,
-      status: "queued",
+      status: task ? "running" : "queued",
       progress: 0,
-      request: stripUndefined({ input }) as Record<string, unknown>,
+      request: stripUndefined({ input, task }) as Record<string, unknown>,
       next_poll_at: createdAt,
       time_created: createdAt,
       time_updated: createdAt,

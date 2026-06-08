@@ -374,9 +374,9 @@ function buildResult(input: {
           updatedAt: completed?.state.time.end,
           completedAt: completed?.state.time.end,
         }
-      : running
+      : running && progress.generationID
         ? {
-            id: progress.generationID ?? `studio_${running.id}`,
+            id: progress.generationID,
             status: progress.status,
             capability,
             prompt: extractUserDemand(input.userText),
