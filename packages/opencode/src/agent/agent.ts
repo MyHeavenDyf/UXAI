@@ -20,6 +20,15 @@ import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
+import {
+  PROMPT_PROTO_INTENT,
+  PROMPT_PROTO_INTENT_AUDIT,
+  PROMPT_PROTO_MODULE_CREATE,
+  PROMPT_PROTO_MODULE_MODIFY,
+  PROMPT_PROTO_PLANNER_CREATE,
+  PROMPT_PROTO_PLANNER_MODIFY,
+  PROMPT_PROTO_TRIAGE,
+} from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -324,6 +333,69 @@ export const layer = Layer.effect(
               user,
             ),
             prompt: PROMPT_SUMMARY,
+          },
+          proto_intent: {
+            name: "proto_intent",
+            description: "Proto intent specialist agent.",
+            prompt: PROMPT_PROTO_INTENT,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+          },
+          proto_intent_audit: {
+            name: "proto_intent_audit",
+            description: "Proto intent audit agent.",
+            prompt: PROMPT_PROTO_INTENT_AUDIT,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+          },
+          proto_module_create: {
+            name: "proto_module_create",
+            description: "Proto module create agent.",
+            prompt: PROMPT_PROTO_MODULE_CREATE,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+          },
+          proto_module_modify: {
+            name: "proto_module_modify",
+            description: "Proto module modify agent.",
+            prompt: PROMPT_PROTO_MODULE_MODIFY,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+          },
+          proto_planner_create: {
+            name: "proto_planner_create",
+            description: "Proto planner create agent.",
+            prompt: PROMPT_PROTO_PLANNER_CREATE,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+          },
+          proto_planner_modify: {
+            name: "proto_planner_modify",
+            description: "Proto planner modify agent.",
+            prompt: PROMPT_PROTO_PLANNER_MODIFY,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+          },
+          proto_triage: {
+            name: "proto_triage",
+            description: "Proto triage agent.",
+            prompt: PROMPT_PROTO_TRIAGE,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
           },
         }
 
