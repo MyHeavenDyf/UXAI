@@ -424,7 +424,7 @@ export function SessionTurn(
                   </Show>
                 </div>
               </Show>
-              <SessionRetry status={status()} show={active()} />
+              <SessionRetry status={status()} show={active() || status().type === "retry"} />
               <Show when={edited() > 0 && !working()}>
                 <div
                   data-slot="session-turn-diffs"
