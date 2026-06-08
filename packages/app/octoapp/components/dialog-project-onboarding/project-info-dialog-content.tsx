@@ -11,6 +11,7 @@ interface ProjectInfoDialogContentProps {
   productLine?: ProductLine
   product?: Product
   version?: Version
+  disabled?: boolean
   onSelectionChange?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
 
@@ -103,8 +104,9 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     "font-size": "14px",
     "line-height": "22px",
     border: "1px solid rgba(0,0,0,0.15)",
-    background: "white",
-    color: "#191919",
+    background: props.disabled ? "rgba(0,0,0,0.04)" : "white",
+    color: props.disabled ? "rgba(0,0,0,0.3)" : "#191919",
+    cursor: props.disabled ? "not-allowed" : "pointer",
   }
 
   return (
@@ -113,18 +115,20 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         domain={store.domain}
         productLine={store.productLine}
         product={store.product}
+        disabled={props.disabled}
         onProductConfirm={(data) => {
           setStore("domain", data.domain)
           setStore("productLine", data.productLine)
           setStore("product", data.product)
         }}
       />
-      <ErrorBoundary fallback={() => (
+<ErrorBoundary fallback={() => (
         <Select
           class="version-select-content"
           options={[]}
           placeholder="选择版本"
           emptyContent={emptyVersionContent}
+          disabled={props.disabled}
           triggerStyle={versionSelectTriggerStyle}
           triggerProps={{ class: "version-select-trigger" }}
         />
@@ -135,6 +139,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
             options={[]}
             placeholder="选择版本"
             emptyContent={emptyVersionContent}
+            disabled={props.disabled}
             triggerStyle={versionSelectTriggerStyle}
             triggerProps={{ class: "version-select-trigger" }}
           />
@@ -148,11 +153,13 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
             children={versionItemContent}
             placeholder="选择版本"
             emptyContent={emptyVersionContent}
+            disabled={props.disabled}
             triggerStyle={versionSelectTriggerStyle}
             triggerProps={{ class: "version-select-trigger" }}
             open={versionPopoverOpen()}
             onOpenChange={(open) => {
               if (pinActionActive && !open) return
+              if (props.disabled) return
               setVersionPopoverOpen(open)
             }}
             onSelect={(o) => {
