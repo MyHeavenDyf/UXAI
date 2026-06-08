@@ -473,6 +473,7 @@ function InsightContent() {
       const result = await sdk.client.session.create({ agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
+        local.session.promote(dir, session.id)
         navigate(`/insight/${session.id}`)
         return session.id
       }
