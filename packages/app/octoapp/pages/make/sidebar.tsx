@@ -244,7 +244,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
             <span>新建</span>
           </button>
         </div>
-        <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
+        <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", "margin-bottom": "8px" }} />
       </div>
 
       <div

@@ -25,7 +25,6 @@ import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { ModelsProvider } from "@/context/models"
 import { LocalProvider, useLocal } from "@/context/local"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { useProjectDir } from "@/hooks/use-project-dir"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar } from "./sidebar"
@@ -50,18 +49,22 @@ import { showToast, Toast } from "@opencode-ai/ui/toast"
  * 不再自建本地 dataStore + SSE listener。详见 SPEC-INS-005
  * (docs/specs/ui/insight-data-layer-reuse.md)。
  *
- * 外层 InsightPage：负责拼装 SDKProvider + SyncProvider（依赖 projectDir 就绪）。
+ * 外层 InsightPage：负责拼装 SDKProvider + SyncProvider（依赖 homeDir 就绪）。
  * 内层 InsightContent：所有业务逻辑，可读写 useSync() / useSDK()。
  */
 export default function InsightPage() {
-  // useProjectDir() 走全栈统一抽象:路由 :dir → server.projects.last() → globalSync.data.path.home 兜底。
-  // 这层与 _shell/sidebar.tsx / make / studio 完全一致,避免"insight 自己读 home,别处读 selection"的目录飘移。
-  const projectDir = useProjectDir()
+  // 数据/事件层必须用 home（= 服务端解析出的 VCS worktree 根，事件 event.directory 就是它）。
+  // 不能用 server.projects.last()（用户选的子目录，如 .../Downloads/agent-test）：服务端会把该
+  // 会话的事件按 worktree 根（如 /Users/xxx）投递，若数据层 child store 按子目录建，key 对不上、
+  // 事件全被 apply 到 worktree 的 store，insight 读子目录 store → 永远收不到 → 白屏（与 chat/make
+  // 不同，它们数据层本就用 home）。"目录跟随"属列表层职责（session-list 按目录字段过滤），与此解耦。
+  const globalSync = useGlobalSync()
+  const homeDir = () => globalSync.data.path.home
 
-  // projectDir 异步就绪。等就绪再挂 SDK/Sync providers，否则 useSDK 拿到空字符串 directory 会异常。
+  // homeDir 异步就绪。等就绪再挂 SDK/Sync providers，否则 useSDK 拿到空字符串 directory 会异常。
   // keyed: dir 变化时整体重挂，确保 SyncProvider 内部状态干净。
   return (
-    <Show when={projectDir()} keyed>
+    <Show when={homeDir()} keyed>
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
@@ -127,7 +130,8 @@ function InsightContent() {
     onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
   })
 
-  const projectDir = useProjectDir()
+  // 数据/事件层目录:用 home(= worktree 根,事件就挂在它下面)。见 InsightPage 顶部注释。
+  const homeDir = () => globalSync.data.path.home
 
   // ── 刷新保路由 ─────────────────────────────────────────────
   // bootSavedId:在下方 save effect 覆盖前,同步捕获"刷新前"存的对话 id。
@@ -138,7 +142,7 @@ function InsightContent() {
     // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
     // 若上次就在新建空态(bootSavedId 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
     if (params.id || !bootSavedId) return
-    const dir = projectDir() // InsightContent 仅在 projectDir 就绪后挂载,理论恒有值
+    const dir = homeDir() // InsightContent 仅在 homeDir 就绪后挂载,理论恒有值
     if (!dir) return
     // 先校验上次会话仍存在再跳(replace 不污染历史):避免跳到已删会话卡在加载态。
     void globalSDK.client.session
@@ -438,7 +442,7 @@ function InsightContent() {
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = projectDir()
+    const dir = homeDir()
     if (!dir) return
     try {
       const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
@@ -528,7 +532,7 @@ function InsightContent() {
     } : undefined
 
     // optimistic user message —— 立即写入 sync.data,UI 瞬时反馈
-    // directory 不传 → 默认走 SDKProvider 注入的 projectDir;model 不传 → 服务端按 agent 默认配置
+    // directory 不传 → 默认走 SDKProvider 注入的 homeDir;model 不传 → 服务端按 agent 默认配置
     const optimisticMessage: Message = {
       id: messageID,
       sessionID: sessionId,
@@ -958,7 +962,7 @@ function InsightContent() {
   return (
     <DataProvider
       data={sync.data}
-      directory={projectDir() || ""}
+      directory={homeDir() || ""}
       onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
