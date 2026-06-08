@@ -12,6 +12,8 @@ import { ShareNext } from "@/share/share-next"
 import { Effect, Layer } from "effect"
 import { Config } from "@/config/config"
 import { Service } from "./bootstrap-service"
+import { startStudioGenerationWorker } from "@/studio/studio-service"
+import { Instance } from "./instance"
 
 export { Service } from "./bootstrap-service"
 export type { Interface } from "./bootstrap-service"
@@ -47,6 +49,7 @@ export const layer = Layer.effect(
         (s) => s.init().pipe(Effect.catchCause((cause) => Effect.logWarning("init failed", { cause }))),
         { concurrency: "unbounded", discard: true },
       ).pipe(Effect.withSpan("InstanceBootstrap.init"))
+      yield* Effect.sync(() => Instance.restore(ctx, startStudioGenerationWorker))
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 
     return Service.of({ run })

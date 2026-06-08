@@ -9,9 +9,10 @@ import { createEffect, createMemo, createSignal, Show } from "solid-js"
 import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
+import type { Domain, ProductLine, Product, Version } from "./project-product-select-api"
 
 interface DialogProjectOnboardingProps {
-  onSelect: (data: { directory: string; domain?: { id: string; label: string }; productLine?: { id: string; domainId: string; label: string }; product?: { id: string; productLineId: string; label: string; closed?: boolean }; version?: { value: string; label: string } }) => void
+  onSelect: (data: { directory: string; domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
 
 export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {

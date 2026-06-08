@@ -50,15 +50,15 @@ import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { autoSaveArtifact } from "./utils/artifact-auto-save"
 
 export default function MakePage() {
-  const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
+  const dir = useProjectDir()
 
   return (
-    <Show when={homeDir()} keyed>
-      {(dir) => (
-        <SDKProvider directory={() => dir}>
+    <Show when={dir()} keyed>
+      {(directory) => (
+        <SDKProvider directory={() => directory}>
           <SyncProvider>
             <LocalProvider>
               <MakeContent />
@@ -137,7 +137,7 @@ function MakeContent() {
   /** 打开标题编辑模式 */
   function openTitleEditor() {
     const sInfo = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? sInfo?.title ?? info()?.title) ?? "" })
+    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
@@ -331,6 +331,7 @@ createEffect(
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     if (isBusy()) {
+      setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
         if (blockedMs > 3000) {
@@ -715,6 +716,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       snapshotStore.save(tab)
       refreshSnapshots()
     }
+
+    if (projectDir()) {
+      autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
+        console.error("[MakePage] auto-save artifact failed:", err)
+      })
+    }
   }
 
   /** 继续生成（追加被截断的内容作为 prompt） */
@@ -733,7 +740,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
       <Toast.Region />
       <div
-        class="octo-split bg-background-base"
+        class="octo-make octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
         style={{
           "grid-template-columns": !focusMode()
@@ -760,7 +767,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
             <Show when={hasContent()}>
               <div
                 class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
+                style={{ padding: "12px 24px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
               >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
@@ -790,7 +797,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(overrideTitle() ?? sessionInfo()?.title ?? info()?.title) ?? "Octo Design"}
+                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfo()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
@@ -836,7 +843,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
             <Show when={hasContent()} fallback={
               <div class="flex-1 flex flex-col items-center justify-center min-h-0">
                 <ChatEmptyState />
-                <div class="w-full max-w-[800px] px-8">
+                <div class="w-full max-w-[800px]">
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
@@ -935,7 +942,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               {/* 消息列表 */}
               <ScrollView
                 class="flex-1 min-h-0"
-                style={{ background: "#fff" }}
+                style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
@@ -1071,10 +1078,10 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={hasContent()}>
         <div class="flex flex-col overflow-hidden" >
-          <div class="flex flex-1 min-h-0 overflow-scroll">
+          <div class="flex flex-1 min-h-0 overflow-auto">
             <div class="flex flex-col flex-1" style="min-width:800px">
               {/* 焦点模式 + 版本历史 切换按钮 */}
-              <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
+              <div class="flex hidden items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
                 <button
                   type="button"
                   class="octo-focus-btn"
@@ -1142,11 +1149,11 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 
 function ChatEmptyState(): JSX.Element {
   return (
-    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
+    <div class="flex flex-col items-center gap-6 text-center pb-20 px-6">
       <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Design</div>
-        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
+        <div style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "36px", "font-weight": "600", "line-height": "42px" }}>Octo Design</div>
+        <div style={{ color: "rgba(0, 0, 0, 0.6)", "font-size": "16px", "line-height": "24px" }}>
           描述需求，开始生成原型
         </div>
       </div>

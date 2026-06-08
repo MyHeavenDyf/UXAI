@@ -2,7 +2,8 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { createGeneration } from "@/studio/studio-service"
+import { createGeneration, getGeneration } from "@/studio/studio-service"
+import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 
 const StudioGenerationInput = z.object({
@@ -27,15 +28,35 @@ const StudioGenerationInput = z.object({
 })
 
 export const StudioRoutes = lazy(() =>
-  new Hono().post(
+  new Hono()
+    .get(
+      "/prompt-tags",
+      describeRoute({
+        summary: "Get prompt tags",
+        description: "Returns prompt tag categories from the internal image API.",
+        operationId: "studio.prompt-tags.list",
+        responses: {
+          200: {
+            description: "Prompt tags list",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(502),
+        },
+      }),
+      async (c) => {
+        const data = await fetchPromptTags()
+        return c.json(data)
+      },
+    )
+    .post(
     "/generations",
     describeRoute({
       summary: "Create Studio image generation",
       description: "Generate images using the built-in Studio image generation tool.",
       operationId: "studio.generations.create",
       responses: {
-        200: {
-          description: "Studio generation result",
+        202: {
+          description: "Studio generation accepted",
           content: {
             "application/json": {
               schema: resolver(z.unknown()),
@@ -59,7 +80,8 @@ export const StudioRoutes = lazy(() =>
         referenceImageCount: input.referenceImages?.length ?? 0,
         hasSourceImage: Boolean(input.sourceImage),
       })
-      return c.json(await createGeneration(input))
+      return c.json(await createGeneration(input), 202)
     },
-  ),
+  )
+  .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID")))),
 )

@@ -38,10 +38,11 @@
       }
     }
   },
-  "bpit": {
-    "id": "bpit",
-    "name": "BPIT",
-    "env": ["BPIT_API_KEY"],
+  "bpit-beta": {
+    "id": "bpit-beta",
+    "name": "BPIT Beta",
+    "env": ["BPIT_BETA_API_KEY"],
+    "excludeFrom": ["prod"],
     "npm": "@ai-sdk/openai-compatible",
     "api": "http://aigateway.his-beta.huawei.com/v1",
     "models": {
@@ -63,7 +64,8 @@
         "reasoning": false,
         "temperature": true,
         "tool_call": true,
-        "limit": { "context": 128000, "output": 128000 }
+        "limit": { "context": 128000, "output": 128000 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
       },
       "Qwen-V3-VL-32B-Instruct": {
         "id": "Qwen-V3-VL-32B-Instruct",
@@ -73,7 +75,70 @@
         "reasoning": false,
         "temperature": true,
         "tool_call": true,
+        "limit": { "context": 128000, "output": 128000 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
+      }
+    }
+  },
+  "bpit": {
+    "id": "bpit",
+    "name": "BPIT",
+    "env": ["BPIT_API_KEY"],
+    "npm": "@ai-sdk/openai-compatible",
+    "api": "http://aigateway.huawei.com/v1",
+    "models": {
+      "DeepSeek-V4-Flash": {
+        "id": "DeepSeek-V4-Flash",
+        "name": "DeepSeek V4 Flash",
+        "release_date": "2025-01-01",
+        "attachment": false,
+        "reasoning": false,
+        "temperature": true,
+        "tool_call": true,
         "limit": { "context": 128000, "output": 128000 }
+      },
+      "Qwen-V35-27B-VL": {
+        "id": "Qwen-V35-27B-VL",
+        "name": "Qwen V3.5 27B VL",
+        "release_date": "2025-01-01",
+        "attachment": true,
+        "reasoning": false,
+        "temperature": true,
+        "tool_call": true,
+        "limit": { "context": 128000, "output": 128000 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
+      },
+      "GLM-V5": {
+        "id": "GLM-V5",
+        "name": "GLM V5",
+        "release_date": "2025-01-01",
+        "attachment": true,
+        "reasoning": false,
+        "temperature": true,
+        "tool_call": true,
+        "limit": { "context": 128000, "output": 128000 }
+      },
+      "Qwen-V3-VL-30B-A3B-Instruct": {
+        "id": "Qwen-V3-VL-30B-A3B-Instruct",
+        "name": "Qwen V3 VL 30B A3B Instruct",
+        "release_date": "2025-01-01",
+        "attachment": true,
+        "reasoning": false,
+        "temperature": true,
+        "tool_call": true,
+        "limit": { "context": 128000, "output": 128000 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
+      },
+      "Qwen-V3-VL-32B-Instruct": {
+        "id": "Qwen-V3-VL-32B-Instruct",
+        "name": "Qwen V3 VL 32B Instruct",
+        "release_date": "2025-01-01",
+        "attachment": true,
+        "reasoning": false,
+        "temperature": true,
+        "tool_call": true,
+        "limit": { "context": 128000, "output": 128000 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
       }
     }
   }
