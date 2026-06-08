@@ -20,7 +20,6 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
 export const StudioPaths = {
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
-  materials: `${root}/materials`,
   promptTags: `${root}/prompt-tags`,
 } as const
 
@@ -101,15 +100,6 @@ export const StudioApi = HttpApi.make("studio")
   .add(
     HttpApiGroup.make("studio")
       .add(
-        HttpApiEndpoint.get("listMaterials", StudioPaths.materials, {
-          success: described(Schema.Unknown, "Studio materials list"),
-        }).annotateMerge(
-          OpenApi.annotations({
-            identifier: "studio.materials.list",
-            summary: "Get Studio material categories",
-            description: "Returns the list of material categories with bilingual tags.",
-          }),
-        ),
         HttpApiEndpoint.get("listPromptTags", StudioPaths.promptTags, {
           success: described(Schema.Unknown, "Prompt tags list"),
           error: ApiStudioGenerationError,
