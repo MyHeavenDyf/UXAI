@@ -199,29 +199,33 @@ export function ManualEditPanel(props: {
 
         <div class="manual-edit-scroll">
           <Show when={props.selectedTarget}>
-            {/* TEXT Section for text/link/mixed elements */}
-            <Show when={props.selectedTarget!.kind === 'text' || props.selectedTarget!.kind === 'link' || props.selectedTarget!.kind === 'mixed'}>
+            {/* ★ Href input for link elements (separate from TEXT section) */}
+            <Show when={props.selectedTarget!.kind === 'link'}>
+              <Section title="LINK">
+                <label class="cc-row">
+                  <span class="cc-label">Href</span>
+                  <input
+                    type="url"
+                    class="cc-input-url"
+                    value={props.draft.href}
+                    onInput={(e) => props.onDraftChange({ ...props.draft, href: e.currentTarget.value })}
+                    placeholder="https://..."
+                    autocomplete="off"
+                  />
+                </label>
+              </Section>
+            </Show>
+            
+            {/* ★ TEXT Section only for mixed elements (not text/link - those use in-place editing) */}
+            <Show when={props.selectedTarget!.kind === 'mixed'}>
               <Section title="TEXT">
                 <textarea
                   class="cc-textarea"
                   value={props.draft.text}
                   onInput={(e) => props.onDraftChange({ ...props.draft, text: e.currentTarget.value })}
-                  placeholder="Enter text content..."
+                  placeholder="Enter text content (mixed elements only)..."
                   rows={3}
                 />
-                <Show when={props.selectedTarget!.kind === 'link'}>
-                  <label class="cc-row">
-                    <span class="cc-label">Href</span>
-                    <input
-                      type="url"
-                      class="cc-input-url"
-                      value={props.draft.href}
-                      onInput={(e) => props.onDraftChange({ ...props.draft, href: e.currentTarget.value })}
-                      placeholder="https://..."
-                      autocomplete="off"
-                    />
-                  </label>
-                </Show>
               </Section>
             </Show>
             

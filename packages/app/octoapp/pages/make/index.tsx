@@ -54,6 +54,7 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { autoSaveArtifact } from "./utils/artifact-auto-save"
+import { persistTabChanges } from "./utils/tab-persistence"
 
 export default function MakePage() {
   const globalSync = useGlobalSync()
@@ -517,19 +518,15 @@ createEffect(
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
     
-    if (tab?.filePath && sdk.directory) {
-      try {
-        await fetch(`${sdk.url}/file/content`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "x-opencode-directory": sdk.directory,
-          },
-          body: JSON.stringify({ path: tab.filePath, content }),
-        })
-      } catch (err) {
-        console.error("[MakePage] failed to save file:", err)
-      }
+    if (tab) {
+      await persistTabChanges(tab, {
+        sessionId: params.id!,
+        projectDir: projectDir(),
+        sdkUrl: sdk.url,
+        sdkDirectory: sdk.directory || "",
+        snapshotStore: snapshotStore,
+        refreshSnapshots: refreshSnapshots,
+      })
     }
   }
 
@@ -748,9 +745,26 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
     if (files.length > 0) addAttachments(files)
   }
 
-  /** 打开结果到 ResultViewer（自动保存快照） */
+  /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
-    if (card.filePath) {
+    // ★ Step 1: Check localStorage snapshot (edited version - highest priority)
+    const snapshots = snapshotStore.snapshots()
+    const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
+    
+    if (latestSnapshot) {
+      // Use edited version from localStorage
+      card = {
+        id: latestSnapshot.tab.id,
+        title: latestSnapshot.tab.title,
+        type: latestSnapshot.tab.type,
+        content: latestSnapshot.tab.content,
+        filePath: latestSnapshot.tab.filePath,
+        artifactIdentifier: latestSnapshot.tab.artifactIdentifier,
+        createdAt: new Date(latestSnapshot.timestamp),
+      }
+      console.log("[MakePage] Restored edited version from localStorage:", card.id)
+    } else if (card.filePath) {
+      // ★ Step 2: Load from file (original version - fallback)
       try {
         const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
           headers: {
@@ -761,6 +775,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
           const data = await response.json()
           if (data.content && typeof data.content === "string") {
             card = { ...card, content: data.content }
+            console.log("[MakePage] Loaded from file:", card.filePath)
           }
         }
       } catch (err) {
@@ -773,14 +788,15 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       tabStore.activate(card.id)
     }
     const tab = tabStore.tabs().find((t) => t.id === card.id)
+    
     if (tab) {
-      snapshotStore.save(tab)
-      refreshSnapshots()
-    }
-
-    if (projectDir()) {
-      autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
-        console.error("[MakePage] auto-save artifact failed:", err)
+      await persistTabChanges(tab, {
+        sessionId: params.id!,
+        projectDir: projectDir(),
+        sdkUrl: sdk.url,
+        sdkDirectory: sdk.directory || "",
+        snapshotStore: snapshotStore,
+        refreshSnapshots: refreshSnapshots,
       })
     }
   }

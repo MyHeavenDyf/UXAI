@@ -409,6 +409,42 @@ createEffect(() => {
       const d = e.data
       if (!d || typeof d !== "object") return
 
+      // ★ Handle in-place text edit commit
+      if (d.type === "od-edit-text-commit") {
+        const id = String(d.id)
+        const value = String(d.value)
+        
+        // ★ Use cached annotated HTML (match iframe element IDs)
+        const annotatedHtml = annotatedHtmlCache()
+        
+        // Apply text patch
+        const result = applyManualEditPatch(annotatedHtml, {
+          id: id,
+          kind: 'set-text',
+          value: value
+        })
+        
+        if (result.ok) {
+          // Remove data-od-id and save
+          const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
+          props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+          pushHistory(cleanSource, `Edit text in-place`)
+          console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
+        } else {
+          console.error("[Edit] In-place text edit failed:", result.error)
+        }
+        return
+      }
+
+      // ★ Handle focus transfer request from in-place editing
+      if (d.type === "od:edit-focus-transfer") {
+        // Move focus to outer document (enable HTML undo/redo)
+        iframeRef?.blur()
+        window.focus()
+        console.log('[Edit] Focus transferred to parent window')
+        return
+      }
+
       if (d.type === "od:edit-selected") {
         const target: ManualEditTarget = d.target
         

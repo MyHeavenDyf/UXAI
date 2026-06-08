@@ -122,6 +122,9 @@ export function DrawOverlay(props: Props): JSX.Element {
 
   createEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // ★ Only handle shortcuts when DrawOverlay is active
+      if (!props.active) return
+      
       if (e.key === 'Escape') {
         props.onActiveChange?.(false)
         return

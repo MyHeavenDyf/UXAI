@@ -636,29 +636,101 @@ var lastSelectedId = null;
 var TEXT_PROPS=['textContent'];
 var ATTR_PROPS=['href','src','alt'];
 
+// ★ In-place text editing (Open Design style)
+function caretRangeFromClick(ev){
+  try{
+    if(document.caretPositionFromPoint){
+      var pos=document.caretPositionFromPoint(ev.clientX,ev.clientY);
+      if(!pos)return null;
+      var r=document.createRange();
+      r.setStart(pos.offsetNode,pos.offset);
+      r.collapse(true);
+      return r;
+    }
+    if(document.caretRangeFromPoint)return document.caretRangeFromPoint(ev.clientX,ev.clientY);
+  }catch(e){}
+  return null;
+}
+
+function placeCaretFromClick(ev,el){
+  var r=caretRangeFromClick(ev);
+  if(!r){
+    r=document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+  }
+  try{
+    var s=window.getSelection();
+    if(s){s.removeAllRanges();s.addRange(r);}
+  }catch(e){}
+}
+
+function makeEditable(el,ev){
+  if(!el||el.getAttribute('contenteditable')==='true')return;
+  var orig=el.textContent||'';
+  clearSelectedTarget();
+  el.setAttribute('contenteditable','plaintext-only');
+  el.setAttribute('data-od-editing','true');
+  try{el.focus();}catch(e){}
+  placeCaretFromClick(ev,el);
+  
+  function finish(commit){
+    el.removeAttribute('contenteditable');
+    el.removeAttribute('data-od-editing');
+    el.removeEventListener('blur',onBlur);
+    el.removeEventListener('keydown',onKey);
+    var v=(el.textContent||'').trim();
+    if(commit&&v!==orig.trim()){
+      window.parent.postMessage({type:'od-edit-text-commit',id:el.getAttribute('data-od-id'),value:v},'*');
+    }else if(!commit)el.textContent=orig;
+  }
+  function onBlur(){
+    finish(true);
+    // ★ Notify parent to move focus (sandbox iframe cannot call parent.focus())
+    window.parent.postMessage({type:'od:edit-focus-transfer'},'*');
+  }
+  function onKey(e){
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();finish(true);try{el.blur();}catch(e){}}
+    if(e.key==='Escape'){e.preventDefault();finish(false);try{el.blur();}catch(e){}}
+  }
+  el.addEventListener('blur',onBlur);
+el.addEventListener('keydown',onKey);
+}
+
 function getManualEditTarget(el) {
   if (!el || !el.getAttribute) return null;
   var id = el.getAttribute('data-od-id');
   if (!id) return null;
   
   var tag = el.tagName.toLowerCase();
-  var text = el.textContent || '';
   var rect = el.getBoundingClientRect();
   var computed = window.getComputedStyle(el);
+  
+  // Extract direct text only (not nested in child elements)
+  var directTextParts = [];
+  for (var i = 0; i < el.childNodes.length; i++) {
+    var node = el.childNodes[i];
+    if (node.nodeType === 3 && node.textContent && node.textContent.trim()) {
+      directTextParts.push(node.textContent.trim());
+    }
+  }
+  var directText = directTextParts.join(' ');
+  var allText = el.textContent || '';
   
   // Determine element kind
   var kind = 'container';
   if (tag === 'a') kind = 'link';
   else if (tag === 'img') kind = 'image';
-  else if (text && text.trim() && el.children.length === 0) kind = 'text';
-  else if (['label', 'button', 'span', 'p', 'div'].indexOf(tag) >= 0 && text && text.trim()) {
-    // Mixed containers: have children but also direct text content
+  else if (allText.trim() && el.children.length === 0) kind = 'text';
+  else if (['label', 'button', 'span', 'p', 'div'].indexOf(tag) >= 0 && directText.trim()) {
+    // Mixed containers: have children AND direct text content (not nested)
     kind = 'mixed';
   }
   
   // Extract fields
   var fields = {};
-  if (kind === 'text' || kind === 'link' || kind === 'mixed') fields.text = text.trim().slice(0, 200);
+  if (kind === 'text' || kind === 'link') fields.text = allText.trim().slice(0, 200);
+  if (kind === 'mixed') fields.text = directText.trim().slice(0, 200);
   if (kind === 'link') fields.href = el.getAttribute('href') || '';
   if (kind === 'image') {
     fields.src = el.getAttribute('src') || '';
@@ -695,7 +767,7 @@ function getManualEditTarget(el) {
     label: tag + (fields.text ? ': ' + fields.text.slice(0, 50) : ''),
     tagName: tag,
     className: el.getAttribute('class') || '',
-    text: text.trim().slice(0, 200),
+    text: (kind === 'mixed' ? directText : allText).trim().slice(0, 200),
     rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
     fields: fields,
     attributes: attributes,
@@ -727,9 +799,11 @@ window.addEventListener('message',function(ev){
     editEnabled = d.enabled;
     document.documentElement.toggleAttribute('data-od-edit-mode', editEnabled);
     if(editEnabled){
-      document.body.addEventListener('click',handleEditClick,true);
+      document.body.addEventListener('click',handleEditSingleClick,true);
+      document.body.addEventListener('dblclick',handleEditDoubleClick,true);
     } else {
-      document.body.removeEventListener('click',handleEditClick,true);
+      document.body.removeEventListener('click',handleEditSingleClick,true);
+      document.body.removeEventListener('dblclick',handleEditDoubleClick,true);
       clearSelectedTarget();
     }
     return;
@@ -787,23 +861,41 @@ window.addEventListener('message',function(ev){
   }
 });
 
-function handleEditClick(ev){
+function handleEditSingleClick(ev){
   if(!editEnabled)return;
+  if(ev.target&&ev.target.closest&&ev.target.closest('[data-od-editing="true"]'))return;
   ev.preventDefault();
   ev.stopPropagation();
   
-  var el = ev.target;
-  while (el && el !== document.documentElement) {
-    var target = getManualEditTarget(el);
-    if (target) {
+  var el=ev.target;
+  while(el&&el!==document.documentElement){
+    var target=getManualEditTarget(el);
+    if(target){
       setSelectedTarget(target.id);
-      window.parent.postMessage({
-        type: 'od:edit-selected',
-        target: target
-      }, '*');
+      window.parent.postMessage({type:'od:edit-selected',target:target},'*');
       return;
     }
-    el = el.parentElement;
+    el=el.parentElement;
+  }
+}
+
+function handleEditDoubleClick(ev){
+  if(!editEnabled)return;
+  if(ev.target&&ev.target.closest&&ev.target.closest('[data-od-editing="true"]'))return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  
+  var el=ev.target;
+  while(el&&el!==document.documentElement){
+    var target=getManualEditTarget(el);
+    if(target){
+      // ★ text/link → in-place editing (not mixed)
+      if(target.kind==='text'||target.kind==='link'){
+        makeEditable(el,ev);
+      }
+      return;
+    }
+    el=el.parentElement;
   }
 }
 
