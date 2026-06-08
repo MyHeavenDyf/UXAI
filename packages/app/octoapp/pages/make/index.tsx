@@ -320,6 +320,7 @@ createEffect(
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     if (isBusy()) {
+      setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
         if (blockedMs > 3000) {
