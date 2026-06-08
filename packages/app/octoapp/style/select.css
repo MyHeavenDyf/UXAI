@@ -35,8 +35,7 @@
 
 .version-select-content [data-slot="select-select-item"][data-highlighted],
 .version-select-content [data-slot="select-select-item"]:hover {
-  background: rgba(37, 99, 235, 0.08) !important;
-  color: #2563EB !important;
+  background: #f3f3f3 !important;
 }
 
 .version-select-content [data-slot="select-select-item"][data-selected] {
@@ -44,6 +43,43 @@
   color: #2563EB !important;
 }
 
+.version-select-content [data-slot="select-select-item"][data-selected][data-highlighted],
+.version-select-content [data-slot="select-select-item"][data-selected]:hover {
+  background: rgba(37, 99, 235, 0.08) !important;
+  color: #2563EB !important;
+}
+
 .version-select-content [data-slot="select-select-item"] [data-slot="select-select-item-indicator"] {
   display: none;
+}
+
+.version-select-content [data-slot="select-select-item-label"] {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  width: 100% !important;
+}
+
+.version-select-content .closed-label {
+  font-size: 11px !important;
+  color: rgba(0,0,0,0.45) !important;
+  background: rgba(0,0,0,0.04) !important;
+  padding: 0 4px !important;
+  border-radius: 2px !important;
+  line-height: 18px !important;
+  flex-shrink: 0 !important;
+}
+
+.version-select-content .pin-action-icon {
+  visibility: hidden;
+  margin-left: auto !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.version-select-content [data-slot="select-select-item"][data-highlighted] .pin-action-icon,
+.version-select-content [data-slot="select-select-item"]:hover .pin-action-icon {
+  visibility: visible !important;
 }
