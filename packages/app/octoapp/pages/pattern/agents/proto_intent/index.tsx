@@ -102,3 +102,90 @@ function extractJsonFromText(text: string): Record<string, unknown> | null {
   } catch {}
   return null
 }
+
+
+// 1. 定义数据类型 (根据你的 Python 代码推断)
+
+interface SectionDetail {
+  id: string | number; // 根据你的实际业务调整为 string 或 number
+  intent?: string;
+  function?: string;
+  [key: string]: any; // 允许存在其他我们不需要提取的字段
+}
+
+interface Section {
+  id: string | number;
+  name?: string;
+  [key: string]: any;
+}
+
+interface ComplexData {
+  intentAnalysis?: string;
+  layoutDescription?: string;
+  sectionDetailList?: SectionDetail[];
+  sections?: Section[];
+}
+
+interface SimplifiedSection {
+  id: string | number;
+  name: string;
+  intent: string;
+  function: string; 
+}
+
+interface SimplifiedData {
+  pageDescription: string;
+  layoutDescription: string;
+  sections: SimplifiedSection[];
+}
+
+// 2. 实现转换函数
+
+export function simplifyData(complexData: ComplexData | null | undefined): SimplifiedData {
+  /**
+   * 将复杂的 intent_description 数据转换为精简版 intent_page
+   */
+  
+  // 1. 提取并重命名基础字段
+  // 使用 ?. (可选链) 防止对象为空报错，使用 ?? (空值合并) 提供默认值 ""
+  const pageDescription = complexData?.intentAnalysis ?? "";
+  const layoutDescription = complexData?.layoutDescription ?? "";
+
+  // 2. 将 sectionDetailList 转为字典，方便按 id 快速查找
+  // Python 的字典推导式在这里用数组的 reduce 方法实现
+  const sectionDetailList = complexData?.sectionDetailList ?? [];
+  const detailMap = sectionDetailList.reduce((acc, detail) => {
+    acc[detail.id] = detail;
+    return acc;
+  }, {} as Record<string | number, SectionDetail>);
+
+  // 3. 重新整理 sections
+  // Python 的 for...in 循环在这里用数组的 map 方法更符合前端函数式编程习惯
+  const originalSections = complexData?.sections ?? [];
+  const newSections: SimplifiedSection[] = originalSections.map((section) => {
+    const sectionId = section.id;
+    const sectionName = section.name ?? "";
+
+    // 获取对应的详情信息
+    const detail = detailMap[sectionId] ?? {};
+    const intent = detail.intent ?? "";
+    const func = detail.function ?? ""; // 注意：JS中 'function' 是关键字，作为变量名建议用 func，但作为对象属性名不受影响
+
+    // 构建新的 section 对象
+    return {
+      id: sectionId,
+      name: sectionName,
+      intent: intent,
+      function: func,
+    };
+  });
+
+  // 4. 构建并返回最终的简单数据结构
+  const simplifiedData: SimplifiedData = {
+    pageDescription,
+    layoutDescription,
+    sections: newSections,
+  };
+
+  return simplifiedData;
+}
