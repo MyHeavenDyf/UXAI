@@ -7,7 +7,7 @@
 - 点击后仍然走现有 Studio 生图对话流程。
 - 左侧生图对话中需要出现本轮“生成中”的 pending 效果。
 - 后端调用内部生图接口时，针对“变清晰”构造专用 requestBody。
-- 方案要便于后续扩展抠图、局部重绘、扩图等其它能力。
+- 方案要便于后续扩展抠图、智能重绘、扩图等其它能力。
 
 ## 前端改动
 
@@ -155,7 +155,7 @@ async function getSourceImageBase64(input: ImageGenerateInput) {
 
 不要在 `executeInternelImageGenerate()` 中使用 `isUpscale ? A : B` 这种三目分支。
 
-考虑后续还会扩展抠图、局部重绘、扩图等能力，应把不同能力的 requestBody 构建拆成独立 builder。
+考虑后续还会扩展抠图、智能重绘、扩图等能力，应把不同能力的 requestBody 构建拆成独立 builder。
 
 ### 1. 统一构建入口
 

@@ -1,19 +1,29 @@
 import { executeJimengImageGenerate, summarizeJimengOutput } from "@/tool/jimeng_image_generate"
-import { executeInternelImageGenerate, summarizeInternalOutput } from "@/tool/internel_image_generate"
+import {
+  createInternalGeneration,
+  queryInternalGeneration,
+  summarizeInternalOutput,
+} from "@/tool/internel_image_generate"
 import * as Database from "@/storage/db"
-import { eq } from "@/storage/db"
+import { and, eq, inArray, lte } from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
 import { MessageID, PartID, SessionID } from "@/session/schema"
-import { SessionTable } from "@/session/session.sql"
+import { MessageTable, PartTable, SessionTable } from "@/session/session.sql"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { SyncEvent } from "@/sync"
-import type { StudioCapability } from "./image-provider"
+import { Identifier } from "@/id/id"
+import { Instance } from "@/project/instance"
+import { registerDisposer } from "@/effect/instance-registry"
+import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
+import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 
 type StudioProvider = "jimeng" | "internel"
 type StudioPersistedTurn = {
   assistantInfo: MessageV2.Assistant
   toolPart: MessageV2.ToolPart & { state: MessageV2.ToolStateRunning }
 }
+
+type StudioGenerationRecord = typeof StudioGenerationTable.$inferSelect
 
 export type StudioGenerationRequest = {
   sessionID?: string
@@ -30,7 +40,7 @@ export type StudioGenerationRequest = {
 
 export type StudioGenerationResult = {
   id: string
-  status: "succeeded"
+  status: StudioGenerationStatus
   capability: StudioCapability
   prompt: string
   provider: StudioProvider
@@ -47,8 +57,20 @@ export type StudioGenerationResult = {
   request?: unknown
   response?: unknown
   rawBody?: string
+  error?: string
   createdAt: number
-  completedAt: number
+  progress: number
+  order?: number
+  rawStatus?: number | string
+  updatedAt: number
+  completedAt?: number
+}
+
+export type StudioGenerationAccepted = Pick<
+  StudioGenerationResult,
+  "id" | "status" | "capability" | "prompt" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "createdAt" | "updatedAt"
+> & {
+  sessionID: string
 }
 
 function resolveProvider(input: StudioGenerationRequest): StudioProvider {
@@ -128,6 +150,7 @@ function stripUndefined(value: unknown): unknown {
 }
 
 function persistStudioSession(input: {
+  generationID: string
   sessionID: SessionID
   request: StudioGenerationRequest
   provider: StudioProvider
@@ -217,15 +240,22 @@ function persistStudioSession(input: {
         extra: input.request.extra,
       },
       title: "图片生成",
+      metadata: {
+        studio: {
+          generationID: input.generationID,
+          status: "queued",
+          progress: 0,
+        },
+      },
       time: { start: input.createdAt },
     },
   }
 
-  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: userInfo }, { publish: false })
-  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo }, { publish: false })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: userTextPart, time: input.createdAt }, { publish: false })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: assistantTextPart, time: input.createdAt }, { publish: false })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.createdAt }, { publish: false })
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: userInfo })
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: userTextPart, time: input.createdAt })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: assistantTextPart, time: input.createdAt })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.createdAt })
   Database.use((db) =>
     db.update(SessionTable).set({ time_updated: input.createdAt }).where(eq(SessionTable.id, input.sessionID)).run(),
   )
@@ -238,7 +268,7 @@ function persistStudioSession(input: {
 function completeStudioSession(input: {
   sessionID: SessionID
   turn: StudioPersistedTurn
-  result: StudioGenerationResult
+  result: StudioGenerationResult & { completedAt: number }
 }) {
   const assistantInfo: MessageV2.Assistant = {
     ...input.turn.assistantInfo,
@@ -272,6 +302,9 @@ function completeStudioSession(input: {
           videos: input.result.images.filter((image) => isVideoKind(image.kind)).map((image) => image.remoteUrl ?? image.url),
           primaryImage: input.result.images.find((image) => !isVideoKind(image.kind))?.remoteUrl ?? input.result.images.find((image) => !isVideoKind(image.kind))?.url ?? null,
           primaryVideo: input.result.images.find((image) => isVideoKind(image.kind))?.remoteUrl ?? input.result.images.find((image) => isVideoKind(image.kind))?.url ?? null,
+          progress: input.result.progress,
+          order: input.result.order,
+          rawStatus: input.result.rawStatus,
           response: input.result.response,
         },
         null,
@@ -281,6 +314,12 @@ function completeStudioSession(input: {
         request: input.result.request,
         response: input.result.response,
         statusCode: 200,
+        studio: {
+          generationID: input.result.id,
+          status: "succeeded",
+          rawStatus: input.result.rawStatus,
+          progress: 100,
+        },
       }) as Record<string, unknown>,
       time: {
         start: input.turn.toolPart.state.time.start,
@@ -297,8 +336,8 @@ function completeStudioSession(input: {
       })),
     },
   }
-  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo }, { publish: false })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.result.completedAt }, { publish: false })
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: input.result.completedAt })
   Database.use((db) =>
     db.update(SessionTable).set({ time_updated: input.result.completedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
   )
@@ -325,112 +364,111 @@ function failStudioSession(input: {
       status: "error",
       input: input.turn.toolPart.state.input,
       error: message,
-      metadata: { statusCode: 500 },
+      metadata: {
+        ...input.turn.toolPart.state.metadata,
+        statusCode: 500,
+        studio: {
+          ...((input.turn.toolPart.state.metadata?.studio as Record<string, unknown> | undefined) ?? {}),
+          status: "failed",
+        },
+      },
       time: {
         start: input.turn.toolPart.state.time.start,
         end: completedAt,
       },
     },
   }
-  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo }, { publish: false })
-  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: completedAt }, { publish: false })
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: assistantInfo })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID: input.sessionID, part: toolPart, time: completedAt })
   Database.use((db) =>
     db.update(SessionTable).set({ time_updated: completedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
   )
 }
 
-export async function createGeneration(input: StudioGenerationRequest): Promise<StudioGenerationResult> {
-  const createdAt = Date.now()
-  const provider = resolveProvider(input)
-  const sessionID = input.sessionID ? SessionID.zod.parse(input.sessionID) : undefined
-  const persistedTurn = sessionID
-    ? persistStudioSession({
-        sessionID,
-        request: input,
-        provider,
-        createdAt,
-      })
-    : undefined
-  console.log("[studio.service] create generation", {
-    sessionID: input.sessionID,
-    capability: input.capability,
-    prompt: input.prompt,
-    styleModel: input.styleModel,
-    aspectRatio: input.aspectRatio,
-    count: input.count,
-    provider,
-    referenceImageCount: input.referenceImages?.length ?? 0,
-    hasSourceImage: Boolean(input.sourceImage),
-  })
+function generationRequest(record: StudioGenerationRecord) {
+  const data = record.request as { input?: StudioGenerationRequest; task?: ImageGenerationTask }
+  if (!data.input) throw new Error(`Studio generation ${record.id} has no request input.`)
+  return data as { input: StudioGenerationRequest; task?: ImageGenerationTask }
+}
 
-  const output = await (async () => {
-    try {
-      return provider === "internel"
-        ? await executeInternelImageGenerate({
-            capability: input.capability,
-            prompt: input.prompt,
-            styleModel: input.styleModel,
-            aspectRatio: input.aspectRatio,
-            count: input.count,
-            referenceImages: input.referenceImages,
-            sourceImage: input.sourceImage,
-            extra: input.extra,
-          })
-        : await executeJimengImageGenerate({
-            capability: input.capability,
-            prompt: input.prompt,
-            styleModel: input.styleModel,
-            aspectRatio: input.aspectRatio,
-            count: input.count,
-            referenceImages: input.referenceImages,
-            sourceImage: input.sourceImage,
-            extra: input.extra,
-          })
-    } catch (error) {
-      if (sessionID && persistedTurn) {
-        failStudioSession({
-          sessionID,
-          turn: persistedTurn,
-          error,
-        })
-      }
-      throw error
-    }
-  })()
-  
-  console.log("[studio.service] ret: ", output)
-  console.log("[studio.service] generation tool result", {
-    provider: output.provider,
-    toolAction: output.toolAction ?? toolActionForCapability(input.capability),
-    taskType: typeof (output.request as Record<string, unknown> | undefined)?.task_type === "string" ? (output.request as Record<string, string>).task_type : undefined,
-    taskId: output.taskId,
-    model: output.model,
-    statusCode: output.statusCode,
-    imageCount: output.images.length,
-    videoCount: output.images.filter((image) => isVideoKind(image.kind)).length,
-  })
-
-  if (output.images.length === 0) {
-    const error = new Error(
-      [
-        `${provider} image generation returned no image URLs.`,
-        `request=${JSON.stringify(output.request)}`,
-        `response=${JSON.stringify(resultSummary({ provider, raw: output.raw, rawBody: output.rawBody }))}`,
-      ].join("\n"),
-    )
-    if (sessionID && persistedTurn) {
-      failStudioSession({
-        sessionID,
-        turn: persistedTurn,
-        error,
-      })
-    }
-    throw error
+function loadPersistedTurn(record: StudioGenerationRecord): StudioPersistedTurn {
+  const assistant = Database.use((db) =>
+    db.select({ data: MessageTable.data }).from(MessageTable).where(eq(MessageTable.id, record.assistant_message_id)).get(),
+  )
+  const part = Database.use((db) =>
+    db.select({ data: PartTable.data }).from(PartTable).where(eq(PartTable.id, record.tool_part_id)).get(),
+  )
+  if (!assistant || !part) throw new Error(`Studio generation ${record.id} session turn is missing.`)
+  const assistantInfo = { ...assistant.data, id: record.assistant_message_id, sessionID: record.session_id } as MessageV2.Assistant
+  const toolPart = {
+    ...part.data,
+    id: record.tool_part_id,
+    sessionID: record.session_id,
+    messageID: record.assistant_message_id,
+  } as MessageV2.ToolPart
+  if (toolPart.state.status !== "running") throw new Error(`Studio generation ${record.id} tool part is not running.`)
+  return {
+    assistantInfo,
+    toolPart: toolPart as MessageV2.ToolPart & { state: MessageV2.ToolStateRunning },
   }
+}
 
-  const result = stripUndefined({
-    id: `studio_gen_${createdAt}`,
-    status: "succeeded" as const,
+function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAccepted {
+  const data = generationRequest(record)
+  const result = record.result as StudioGenerationResult | undefined
+  return {
+    id: record.id,
+    sessionID: record.session_id,
+    status: record.status,
+    capability: record.capability,
+    prompt: data.input.prompt,
+    provider: record.provider,
+    model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
+    aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
+    taskId: result?.taskId ?? data.task?.taskId ?? record.provider_task_id ?? undefined,
+    images: result?.images ?? [],
+    progress: record.progress,
+    order: record.queue_order ?? undefined,
+    rawStatus: record.raw_status ?? undefined,
+    createdAt: record.time_created,
+    updatedAt: record.time_updated,
+  }
+}
+
+function updateStudioGenerationProgress(record: StudioGenerationRecord, query: ImageGenerationQuery) {
+  const turn = loadPersistedTurn(record)
+  const toolPart: MessageV2.ToolPart = {
+    ...turn.toolPart,
+    state: {
+      ...turn.toolPart.state,
+      metadata: {
+        ...turn.toolPart.state.metadata,
+        studio: {
+          generationID: record.id,
+          status: query.status,
+          rawStatus: query.rawStatus,
+          progress: query.progress,
+          order: query.order,
+        },
+      },
+    },
+  }
+  SyncEvent.run(MessageV2.Event.PartUpdated, {
+    sessionID: record.session_id,
+    part: toolPart,
+    time: Date.now(),
+  })
+}
+
+function buildGenerationResult(
+  record: StudioGenerationRecord,
+  output: ImageGenerationQuery | ImageGenerateOutput,
+) {
+  const input = generationRequest(record).input
+  const completedAt = Date.now()
+  return stripUndefined({
+    id: record.id,
+    status: "succeeded",
     capability: input.capability,
     prompt: input.prompt,
     provider: output.provider,
@@ -446,7 +484,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
         }
       : {}),
     images: output.images.map((image, index) => ({
-      id: `studio_img_${createdAt}_${index}`,
+      id: `studio_img_${record.id}_${index}`,
       ...(image.kind ? { kind: image.kind } : {}),
       url: image.url,
       thumbnailUrl: image.thumbnailUrl ?? image.url,
@@ -456,40 +494,299 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       ...(image.duration !== undefined ? { duration: image.duration } : {}),
     })),
     request: stripUndefined(output.request),
-    response: stripUndefined(resultSummary({ provider, raw: output.raw, rawBody: output.rawBody })),
-    createdAt,
-    completedAt: Date.now(),
-  }) as StudioGenerationResult
-  if (sessionID && persistedTurn) {
-    try {
-      completeStudioSession({
-        sessionID,
-        turn: persistedTurn,
-        result,
-      })
-    } catch (error) {
-      console.error("[studio.service] persist generated result failed", {
-        sessionID: input.sessionID,
-        resultID: result.id,
-        taskId: result.taskId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      try {
-        failStudioSession({
-          sessionID,
-          turn: persistedTurn,
-          error,
-        })
-      } catch (failError) {
-        console.error("[studio.service] mark generated result failed failed", {
-          sessionID: input.sessionID,
-          resultID: result.id,
-          error: failError instanceof Error ? failError.message : String(failError),
-        })
-      }
-      throw error
-    }
-  }
+    response: stripUndefined(resultSummary({ provider: record.provider, raw: output.raw, rawBody: output.rawBody })),
+    progress: 100,
+    rawStatus: "rawStatus" in output ? output.rawStatus : 2,
+    createdAt: record.time_created,
+    updatedAt: completedAt,
+    completedAt,
+  }) as StudioGenerationResult & { completedAt: number }
+}
 
-  return result
+async function failGeneration(record: StudioGenerationRecord, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        status: "failed",
+        error: message,
+        completed_at: Date.now(),
+        next_poll_at: Number.MAX_SAFE_INTEGER,
+        time_updated: Date.now(),
+      })
+      .where(eq(StudioGenerationTable.id, record.id))
+      .run(),
+  )
+  failStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), error })
+}
+
+async function completeGeneration(record: StudioGenerationRecord, output: ImageGenerationQuery | ImageGenerateOutput) {
+  if (output.images.length === 0) {
+    throw new Error(
+      [
+        `${record.provider} image generation returned no image URLs.`,
+        `request=${JSON.stringify(output.request)}`,
+        `response=${JSON.stringify(resultSummary({ provider: record.provider, raw: output.raw, rawBody: output.rawBody }))}`,
+      ].join("\n"),
+    )
+  }
+  const result = buildGenerationResult(record, output)
+  completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
+  Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        status: "succeeded",
+        raw_status: String(result.rawStatus ?? 2),
+        progress: 100,
+        queue_order: null,
+        error: null,
+        result: result as unknown as Record<string, unknown>,
+        completed_at: result.completedAt,
+        next_poll_at: Number.MAX_SAFE_INTEGER,
+        time_updated: result.completedAt,
+      })
+      .where(eq(StudioGenerationTable.id, record.id))
+      .run(),
+  )
+}
+
+async function processGeneration(record: StudioGenerationRecord) {
+  try {
+    if (Date.now() - record.time_created > 30 * 60_000) {
+      throw new Error(`Studio generation timed out after 30 minutes. id=${record.id}`)
+    }
+    const data = generationRequest(record)
+    if (record.provider === "jimeng") {
+      await completeGeneration(
+        record,
+        await executeJimengImageGenerate({
+          capability: data.input.capability,
+          prompt: data.input.prompt,
+          styleModel: data.input.styleModel,
+          aspectRatio: data.input.aspectRatio,
+          count: data.input.count,
+          referenceImages: data.input.referenceImages,
+          sourceImage: data.input.sourceImage,
+          extra: data.input.extra,
+        }),
+      )
+      return
+    }
+
+    const task = data.task
+    if (!task) throw new Error(`Studio generation ${record.id} has no provider task id.`)
+    if (!record.provider_task_id) {
+      Database.use((db) =>
+        db
+          .update(StudioGenerationTable)
+          .set({
+            provider_task_id: task.taskId,
+            request: stripUndefined({ input: data.input, task }) as Record<string, unknown>,
+            status: "running",
+            time_updated: Date.now(),
+          })
+          .where(eq(StudioGenerationTable.id, record.id))
+          .run(),
+      )
+    }
+    const query = await queryInternalGeneration(task)
+    updateStudioGenerationProgress(record, query)
+    if (query.status === "succeeded") {
+      await completeGeneration(record, query)
+      return
+    }
+    if (query.status === "failed") {
+      throw new Error(`query_task returned failure. taskId=${task.taskId} status=${query.rawStatus}`)
+    }
+    Database.use((db) =>
+      db
+        .update(StudioGenerationTable)
+        .set({
+          status: query.status,
+          raw_status: String(query.rawStatus),
+          progress: query.progress,
+          queue_order: query.order,
+          error: null,
+          poll_attempts: record.poll_attempts + 1,
+          next_poll_at: Date.now() + (query.status === "queued" ? 4000 : 2500),
+          time_updated: Date.now(),
+        })
+        .where(eq(StudioGenerationTable.id, record.id))
+        .run(),
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (
+      Date.now() - record.time_created < 30 * 60_000 &&
+      (/network failed/i.test(message) || /status=(408|409|425|429|500|502|503|504)/.test(message))
+    ) {
+      Database.use((db) =>
+        db
+          .update(StudioGenerationTable)
+          .set({
+            error: message,
+            poll_attempts: record.poll_attempts + 1,
+            next_poll_at: Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(record.poll_attempts, 5)),
+            time_updated: Date.now(),
+          })
+          .where(eq(StudioGenerationTable.id, record.id))
+          .run(),
+      )
+      return
+    }
+    await failGeneration(record, error)
+  }
+}
+
+async function createProviderTask(input: StudioGenerationRequest, provider: StudioProvider) {
+  if (provider !== "internel") return
+  return createInternalGeneration({
+    capability: input.capability,
+    prompt: input.prompt,
+    styleModel: input.styleModel,
+    aspectRatio: input.aspectRatio,
+    count: input.count,
+    referenceImages: input.referenceImages,
+    sourceImage: input.sourceImage,
+    extra: input.extra,
+  })
+}
+
+const workerTimers = new Map<string, ReturnType<typeof setInterval>>()
+const activeGenerations = new Set<string>()
+
+async function tickStudioGenerationWorker(directory: string) {
+  const now = Date.now()
+  const records = Database.use((db) =>
+    db
+      .select()
+      .from(StudioGenerationTable)
+      .where(
+        and(
+          eq(StudioGenerationTable.directory, directory),
+          inArray(StudioGenerationTable.status, ["queued", "running"]),
+          lte(StudioGenerationTable.next_poll_at, now),
+        ),
+      )
+      .limit(4)
+      .all(),
+  )
+  await Promise.all(
+    records
+      .filter((record) => !activeGenerations.has(record.id))
+      .map(async (record) => {
+        const claimed = Database.transaction(
+          (db) => {
+            const current = db
+              .select({ next_poll_at: StudioGenerationTable.next_poll_at })
+              .from(StudioGenerationTable)
+              .where(eq(StudioGenerationTable.id, record.id))
+              .get()
+            if (!current || current.next_poll_at > now) return false
+            db
+              .update(StudioGenerationTable)
+              .set({ next_poll_at: now + 60_000, time_updated: now })
+              .where(eq(StudioGenerationTable.id, record.id))
+              .run()
+            return true
+          },
+          { behavior: "immediate" },
+        )
+        if (!claimed) return
+        activeGenerations.add(record.id)
+        await processGeneration(record).finally(() => activeGenerations.delete(record.id))
+      }),
+  )
+}
+
+export function startStudioGenerationWorker() {
+  const directory = Instance.directory
+  if (workerTimers.has(directory)) return
+  const tick = Instance.bind(() => tickStudioGenerationWorker(directory).catch((error) => {
+    console.error("[studio.worker] tick failed", error)
+  }))
+  workerTimers.set(directory, setInterval(tick, 1000))
+  void tick()
+}
+
+registerDisposer(async (directory) => {
+  const timer = workerTimers.get(directory)
+  if (!timer) return
+  clearInterval(timer)
+  workerTimers.delete(directory)
+})
+
+export async function createGeneration(input: StudioGenerationRequest): Promise<StudioGenerationAccepted> {
+  const sessionID = SessionID.zod.parse(input.sessionID)
+  const session = Database.use((db) =>
+    db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
+  )
+  if (!session) throw new Error(`Studio session not found: ${sessionID}`)
+  if (session.directory !== Instance.directory) throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
+  const createdAt = Date.now()
+  const id = Identifier.create("studio_gen", "ascending")
+  const provider = resolveProvider(input)
+  const task = await createProviderTask(input, provider)
+  const turn = persistStudioSession({
+    generationID: id,
+    sessionID,
+    request: input,
+    provider,
+    createdAt,
+  })
+  if (!turn) throw new Error(`Unable to create Studio session turn: ${sessionID}`)
+  Database.use((db) =>
+    db.insert(StudioGenerationTable).values({
+      id,
+      session_id: sessionID,
+      directory: session.directory,
+      assistant_message_id: turn.assistantInfo.id,
+      tool_part_id: turn.toolPart.id,
+      provider,
+      provider_task_id: task?.taskId,
+      capability: input.capability,
+      status: task ? "running" : "queued",
+      progress: 0,
+      request: stripUndefined({ input, task }) as Record<string, unknown>,
+      next_poll_at: createdAt,
+      time_created: createdAt,
+      time_updated: createdAt,
+    }).run(),
+  )
+  startStudioGenerationWorker()
+  const record = Database.use((db) =>
+    db
+      .select()
+      .from(StudioGenerationTable)
+      .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
+      .get(),
+  )
+  if (!record) throw new Error(`Unable to load Studio generation: ${id}`)
+  return generationSnapshot(record)
+}
+
+export async function getGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+  const record = Database.use((db) =>
+    db
+      .select()
+      .from(StudioGenerationTable)
+      .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
+      .get(),
+  )
+  if (!record) throw new Error(`Studio generation not found: ${id}`)
+  const snapshot = generationSnapshot(record)
+  return {
+    ...snapshot,
+    ...(record.result as StudioGenerationResult | undefined),
+    sessionID: record.session_id,
+    status: record.status,
+    progress: record.progress,
+    order: record.queue_order ?? undefined,
+    rawStatus: record.raw_status ?? undefined,
+    error: record.error ?? undefined,
+    updatedAt: record.time_updated,
+    completedAt: record.completed_at ?? undefined,
+  }
 }
