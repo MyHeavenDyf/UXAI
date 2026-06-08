@@ -888,36 +888,36 @@ const stateStatus = state.status as string | undefined
     // ── 优先级 2：text parts（含 artifact 标签，支持多个） ──
     // 多条 assistant 消息时，HTML artifact 可能不在最后一个 text part，
     // 所以要先扫描所有 text part 找 artifact 标签
-    const allTextParts = parts.filter((p) => p.type === "text") as Array<{ type: "text"; text?: string }>
+    // const allTextParts = parts.filter((p) => p.type === "text") as Array<{ type: "text"; text?: string }>
 
     // 优先从所有 text part 中找 artifact 标签（按 reverse 顺序，最近的优先）
-    for (const textPart of [...allTextParts].reverse()) {
-      if (typeof textPart.text !== "string") continue
-      const text = textPart.text.trim()
-      if (text.length === 0) continue
-      const artifacts = parseAllArtifactsFromText(text)
-      if (artifacts.length > 0) {
-        const ts = getTextPartTime(textPart as Record<string, unknown>)
-        return artifacts.map((a, i) => ({
-          ...a,
-          id: `card-${props.messageID}-artifact-${i}`,
-          createdAt: new Date(ts),
-        }))
-      }
-    }
+    // for (const textPart of [...allTextParts].reverse()) {
+    //   if (typeof textPart.text !== "string") continue
+    //   const text = textPart.text.trim()
+    //   if (text.length === 0) continue
+    //   const artifacts = parseAllArtifactsFromText(text)
+    //   if (artifacts.length > 0) {
+    //     const ts = getTextPartTime(textPart as Record<string, unknown>)
+    //     return artifacts.map((a, i) => ({
+    //       ...a,
+    //       id: `card-${props.messageID}-artifact-${i}`,
+    //       createdAt: new Date(ts),
+    //     }))
+    //   }
+    // }
 
     // 没有 artifact 标签，fallback 到最后一个 text part 用 detectCard 检测
-    const lastTextPart = allTextParts[allTextParts.length - 1]
-    if (lastTextPart && typeof lastTextPart.text === "string") {
-      const text = lastTextPart.text.trim()
-      if (text.length > 0) {
-        const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
-        const info = detectCard(text)
-        if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
+    // const lastTextPart = allTextParts[allTextParts.length - 1]
+    // if (lastTextPart && typeof lastTextPart.text === "string") {
+    //   const text = lastTextPart.text.trim()
+    //   if (text.length > 0) {
+    //     const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
+    //     const info = detectCard(text)
+    //     if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
 
-        // Before falling back to markdown, check if subtask artifacts exist for assembly
-        const stForText = subtasks()
-        const subArtForText = stForText.flatMap((t) => t.artifactOutputs)
+    //     // Before falling back to markdown, check if subtask artifacts exist for assembly
+    //     const stForText = subtasks()
+    //     const subArtForText = stForText.flatMap((t) => t.artifactOutputs)
         // if (subArtForText.length === 0) {
         //   return [{
         //     id: `card-${props.messageID}-text`,
@@ -927,8 +927,8 @@ const stateStatus = state.status as string | undefined
         //     createdAt: new Date(ts),
         //   }]
         // }
-      }
-    }
+    //   }
+    // }
 
     // ── 优先级 3：任何 tool output（聚合所有 tool 输出） ──
     const allToolOutput: string[] = []
