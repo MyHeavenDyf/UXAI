@@ -123,7 +123,7 @@ export function createBlobUrlFromDataUrl(url: string) {
 
 export function isVideoMedia(image?: StudioImage) {
   if (!image) return false
-  if (image.kind === "video") return true
+  if (image.kind) return image.kind === "video"
   return /^data:video\//i.test(image.url) || /\.(mp4|mov|webm)(?:[?#]|$)/i.test(image.url)
 }
 

@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js"
-import { capabilityLabel } from "./data"
+import { isVideoMedia } from "./studio-shared"
 import type { StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
 
@@ -10,13 +10,9 @@ type StudioResultCardProps = {
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
-function isVideo(image: StudioImage) {
-  return image.kind === "video" || /^data:video\//i.test(image.url) || /\.(mp4|mov|webm)(?:[?#]|$)/i.test(image.url)
-}
-
 function StudioMediaPreview(props: { image: StudioImage }) {
   return (
-    <Show when={isVideo(props.image)} fallback={
+    <Show when={isVideoMedia(props.image)} fallback={
       <img src={props.image.thumbnailUrl ?? props.image.url} class="studio-result-thumb-media" alt="" />
     }>
       <video
@@ -30,10 +26,6 @@ function StudioMediaPreview(props: { image: StudioImage }) {
   )
 }
 
-function formatTime(value: number) {
-  return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
-}
-
 export function StudioResultCard(props: StudioResultCardProps) {
   const capability = () => props.turn.result?.capability ?? props.fallbackCapability ?? "image.generate"
   const status = (): StudioGenerationStatus => {
@@ -43,8 +35,11 @@ export function StudioResultCard(props: StudioResultCardProps) {
     if (props.busy || props.turn.toolRunning) return "running"
     return "failed"
   }
-  const progress = () => Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
   const generating = () => status() === "queued" || status() === "running"
+  const progress = () => {
+    if (status() === "succeeded") return 100
+    return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
+  }
   const mediaLabel = () => capability() === "video.generate" ? "视频生成" : "图片生成"
   const statusLabel = () => {
     if (status() === "queued") {
@@ -64,17 +59,36 @@ export function StudioResultCard(props: StudioResultCardProps) {
         failed: status() === "failed",
       }}
     >
-      <Show when={generating()} fallback={
-        <>
-          <div class="studio-result-badge">
-            <span class="studio-result-badge-icon" />
-            {capabilityLabel(capability())}
+      <div class="studio-result-progress-header">
+        <div class="studio-result-progress-title">
+          <span class="studio-result-progress-icon" />
+          <span>{mediaLabel()}</span>
+        </div>
+        <span class="studio-result-progress-status">{statusLabel()}</span>
+        <div
+          class="studio-result-progress-track"
+          role="progressbar"
+          aria-label={`${mediaLabel()}${statusLabel()}`}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={progress()}
+        >
+          <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
+        </div>
+        <span class="studio-result-progress-percent">{progress()}%</span>
+        <Show when={generating()}>
+          <button type="button" class="studio-result-cancel" disabled>
+            取消生成
+          </button>
+        </Show>
+      </div>
+      <div class="studio-result-progress-preview">
+        <Show when={status() === "failed"}>
+          <div class="studio-result-error">
+            {props.turn.toolError ?? props.turn.result?.error ?? "生成失败"}
           </div>
-          <div class="studio-result-title">{props.turn.toolTitle ?? statusLabel()}</div>
-          <div class="studio-result-meta">创建时间：{formatTime(props.turn.createdAt)}</div>
-          <Show when={props.turn.toolError ?? props.turn.result?.error}>
-            {(error) => <div class="studio-result-error">{error()}</div>}
-          </Show>
+        </Show>
+        <Show when={status() === "succeeded" && props.turn.result?.images.length}>
           <div class="studio-result-grid">
             <For each={props.turn.result?.images ?? []}>
               {(image) => (
@@ -88,31 +102,8 @@ export function StudioResultCard(props: StudioResultCardProps) {
               )}
             </For>
           </div>
-        </>
-      }>
-        <div class="studio-result-progress-header">
-          <div class="studio-result-progress-title">
-            <span class="studio-result-progress-icon" />
-            <span>{mediaLabel()}</span>
-          </div>
-          <span class="studio-result-progress-status">{statusLabel()}</span>
-          <div
-            class="studio-result-progress-track"
-            role="progressbar"
-            aria-label={`${mediaLabel()}${statusLabel()}`}
-            aria-valuemin="0"
-            aria-valuemax="100"
-            aria-valuenow={progress()}
-          >
-            <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
-          </div>
-          <span class="studio-result-progress-percent">{progress()}%</span>
-          <button type="button" class="studio-result-cancel" disabled>
-            取消生成
-          </button>
-        </div>
-        <div class="studio-result-progress-preview" />
-      </Show>
+        </Show>
+      </div>
     </div>
   )
 }

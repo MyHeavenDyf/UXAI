@@ -358,10 +358,8 @@ function isRenderableImageUrl(url: string) {
 function isRenderableVideoUrl(url: string) {
   if (!url) return false
   if (/^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(url)) return true
-  return /^https?:\/\/\S+/i.test(url) && (
-    /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url) ||
-    /(?:video|mp4|mov|webm)/i.test(url)
-  )
+  if (!/^https?:\/\/\S+/i.test(url)) return false
+  return /\.(mp4|mov|webm)$/i.test(url.split(/[?#]/)[0] ?? "")
 }
 
 function collectDirectVideoUrls(value: unknown): string[] {

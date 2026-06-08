@@ -42,10 +42,24 @@ function isRenderableImageUrl(url: string) {
 function isRenderableVideoUrl(url: string) {
   if (!url) return false
   if (/^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(url)) return true
-  return /^https?:\/\/\S+/i.test(url) && (
-    /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url) ||
-    /(?:video|mp4|mov|webm)/i.test(url)
-  )
+  if (!/^https?:\/\/\S+/i.test(url)) return false
+  return /\.(mp4|mov|webm)$/i.test(url.split(/[?#]/)[0] ?? "")
+}
+
+function isRenderableVideoAttachmentUrl(url: string) {
+  return /^https?:\/\/\S+/i.test(url) || /^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
+}
+
+function mediaKindForAttachment(url: string, mime?: string): "image" | "video" {
+  if (mime?.startsWith("video/")) return "video"
+  if (mime?.startsWith("image/")) return "image"
+  return isRenderableVideoUrl(url) ? "video" : "image"
+}
+
+function isRenderableAttachment(item: { url: string; kind: "image" | "video"; mime?: string }) {
+  if (item.kind === "image") return isRenderableImageUrl(item.url)
+  if (item.mime?.startsWith("video/")) return isRenderableVideoAttachmentUrl(item.url)
+  return isRenderableVideoUrl(item.url)
 }
 
 function collectDirectVideoUrls(value: unknown): string[] {
@@ -248,9 +262,10 @@ function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
           : typeof record.uri === "string"
             ? record.uri
             : undefined
-      return url ? [{ url, kind: (typeof record.mime === "string" && record.mime.startsWith("video/")) || isRenderableVideoUrl(url) ? "video" as const : "image" as const }] : []
+      const mime = typeof record.mime === "string" ? record.mime : undefined
+      return url ? [{ url, kind: mediaKindForAttachment(url, mime), mime }] : []
     })
-    .filter((item) => item.kind === "video" ? isRenderableVideoUrl(item.url) : isRenderableImageUrl(item.url))
+    .filter(isRenderableAttachment)
 }
 
 function extractUserDemand(text: string) {

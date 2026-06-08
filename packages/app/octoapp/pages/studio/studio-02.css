@@ -403,14 +403,7 @@
 }
 
 .studio-result-card {
-  min-height: 186px;
   margin-top: 34px;
-  padding: 18px 18px 16px;
-  border-radius: 12px;
-  background: #eaf2ff;
-}
-
-.studio-result-card.generating {
   min-height: 288px;
   padding: 16px 20px 22px;
   border: 1px solid rgba(15, 23, 42, 0.12);
@@ -419,7 +412,7 @@
 }
 
 .studio-result-card.failed {
-  background: #fff3f0;
+  border-color: rgba(180, 35, 24, 0.18);
 }
 
 .studio-result-badge {
@@ -435,10 +428,6 @@
   font-size: 14px;
   font-weight: 750;
   line-height: 22px;
-}
-
-.studio-result-card.generating .studio-result-badge {
-  color: #0a59f7;
 }
 
 .studio-result-progress-header {
