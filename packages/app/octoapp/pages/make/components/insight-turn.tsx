@@ -938,7 +938,7 @@ const stateStatus = state.status as string | undefined
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
       if (!state) continue
       const output = state.output as string | undefined
-      if (output && output.trim().length > 0) allToolOutput.push(output.trim())
+      if (output && output.trim().length > 0 && output.trim() !== "No files found") allToolOutput.push(output.trim())
       const ts = getToolEndTime(state)
       if (ts > latestToolTs) latestToolTs = ts
     }
