@@ -184,6 +184,24 @@ function numberField(record: Record<string, unknown> | undefined, key: string) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
+function recordField(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key]
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function studioProgress(part?: Extract<Part, { type: "tool" }>) {
+  const state = part?.state as Record<string, unknown> | undefined
+  const studio = recordField(recordField(state, "metadata"), "studio")
+  const status = stringField(studio, "status")
+  return {
+    generationID: stringField(studio, "generationID"),
+    status: status === "queued" || status === "running" || status === "succeeded" || status === "failed" ? status : "running",
+    rawStatus: studio?.rawStatus as number | string | undefined,
+    progress: numberField(studio, "progress") ?? 0,
+    order: numberField(studio, "order"),
+  } as const
+}
+
 function normalizeCapability(value?: string): StudioCapability {
   if (
     value === "image.generate" ||
@@ -290,10 +308,12 @@ function buildResult(input: {
       ].filter((item, index, list) => list.findIndex((entry) => entry.url === item.url) === index)
     : []
   const output = parseToolOutput(completed?.state.output)
-  const inputRecord = toolInput(completed)
+  const activeTool = completed ?? running ?? errored
+  const inputRecord = toolInput(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
   const model = stringField(output, "model") ?? completed?.tool ?? "image-generation-tool"
+  const progress = studioProgress(running)
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
@@ -332,10 +352,29 @@ function buildResult(input: {
             width: numberField(output, "width"),
             height: numberField(output, "height"),
           })),
+          progress: numberField(output, "progress") ?? 100,
+          order: numberField(output, "order"),
+          rawStatus: output.rawStatus as number | string | undefined,
           createdAt: input.createdAt,
+          updatedAt: completed?.state.time.end,
           completedAt: completed?.state.time.end,
         }
-      : undefined,
+      : running
+        ? {
+            id: progress.generationID ?? `studio_${running.id}`,
+            status: progress.status,
+            capability,
+            prompt: extractUserDemand(input.userText),
+            provider: resolveProvider(running.tool),
+            model: running.tool,
+            aspectRatio,
+            images: [],
+            progress: progress.progress,
+            order: progress.order,
+            rawStatus: progress.rawStatus,
+            createdAt: input.createdAt,
+          }
+        : undefined,
     createdAt: input.createdAt,
     isLatest: false,
   }

@@ -57,6 +57,7 @@ const attachmentToolPart = (id: string, messageID: string, url: string, tool = "
     sessionID: "ses_1",
     messageID,
     type: "tool",
+    callID: `call_${id}`,
     tool,
     state: {
       status: "completed",
@@ -67,18 +68,25 @@ const attachmentToolPart = (id: string, messageID: string, url: string, tool = "
     },
   }) as Part
 
-const runningToolPart = (id: string, messageID: string, tool = "internel_image_generate") =>
+const runningToolPart = (
+  id: string,
+  messageID: string,
+  tool = "internel_image_generate",
+  studio?: Record<string, unknown>,
+) =>
   ({
     id,
     sessionID: "ses_1",
     messageID,
     type: "tool",
+    callID: `call_${id}`,
     tool,
     state: {
       status: "running",
       title: "图片生成",
       time: { start: 1 },
-      input: {},
+      input: { capability: "image.generate", aspectRatio: "3:4" },
+      metadata: studio ? { studio } : undefined,
     },
   }) as Part
 
@@ -216,6 +224,32 @@ describe("buildStudioTurns", () => {
     expect(turns[0].toolTitle).toBe("图片生成中")
     expect(turns[0].toolRunning).toBe(true)
     expect(turns[0].result?.status).toBe("running")
+  })
+
+  test("restores queued generation progress from running tool metadata", () => {
+    const user = userMessage("msg_progress_user")
+    const assistant = assistantMessage("msg_progress_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_progress_text", user.id, "生成视频")],
+        [assistant.id]: [
+          runningToolPart("p_progress_tool", assistant.id, "internel_image_generate", {
+            generationID: "studio_gen_1",
+            status: "queued",
+            progress: 12,
+            order: 3,
+            rawStatus: 6,
+          }),
+        ],
+      },
+    })
+
+    expect(turns[0].result?.id).toBe("studio_gen_1")
+    expect(turns[0].result?.status).toBe("queued")
+    expect(turns[0].result?.progress).toBe(12)
+    expect(turns[0].result?.order).toBe(3)
+    expect(turns[0].result?.rawStatus).toBe(6)
   })
 
   test("builds a continuity summary from the latest completed turn", () => {

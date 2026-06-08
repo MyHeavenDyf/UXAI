@@ -6881,7 +6881,8 @@ export type StudioGenerationsCreateResponses = {
    */
   200: {
     id: string
-    status: "succeeded"
+    sessionID: string
+    status: "queued" | "running" | "succeeded" | "failed"
     capability:
       | "image.generate"
       | "video.generate"
@@ -6911,15 +6912,93 @@ export type StudioGenerationsCreateResponses = {
       height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       duration?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     }>
+    progress: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    rawStatus?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | string
+    error?: string
     request?: unknown
     response?: unknown
     rawBody?: string
     createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    completedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   }
 }
 
 export type StudioGenerationsCreateResponse = StudioGenerationsCreateResponses[keyof StudioGenerationsCreateResponses]
+
+export type StudioGenerationsGetData = {
+  body?: never
+  path: {
+    generationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}"
+}
+
+export type StudioGenerationsGetErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsGetError = StudioGenerationsGetErrors[keyof StudioGenerationsGetErrors]
+
+export type StudioGenerationsGetResponses = {
+  /**
+   * Studio generation status
+   */
+  200: {
+    id: string
+    sessionID: string
+    status: "queued" | "running" | "succeeded" | "failed"
+    capability:
+      | "image.generate"
+      | "video.generate"
+      | "image.upscale"
+      | "image.cutout"
+      | "image.inpaint"
+      | "image.outpaint"
+      | "image.fusion"
+    prompt: string
+    provider: "jimeng" | "internel"
+    toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+    taskType?: string
+    task_type?: string
+    taskId?: string
+    model: string
+    aspectRatio: string
+    videoMode?: "text" | "first_last_frame"
+    duration?: "5" | "10"
+    videoQualityMode?: "std" | "pro"
+    images: Array<{
+      id: string
+      kind?: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      remoteUrl?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      duration?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    progress: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    rawStatus?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | string
+    error?: string
+    request?: unknown
+    response?: unknown
+    rawBody?: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioGenerationsGetResponse = StudioGenerationsGetResponses[keyof StudioGenerationsGetResponses]
 
 export type PtyConnectData = {
   body?: never

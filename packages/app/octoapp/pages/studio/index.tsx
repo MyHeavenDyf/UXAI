@@ -48,6 +48,7 @@ import {
   buildStudioTurns,
   type StudioTurnData,
 } from "./turns"
+import { StudioResultCard } from "./studio-result-card"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
@@ -58,7 +59,8 @@ const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
   "image.inpaint",
   "image.outpaint",
 ])
-const STUDIO_GENERATION_TIMEOUT_MS = 180_000
+const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 30_000
+const STUDIO_GENERATION_STATUS_INTERVAL_MS = 7_500
 
 type DataStore = {
   session: Session[]
@@ -533,7 +535,12 @@ export default function StudioPage() {
     return dataStore.session_status[id] ?? ({ type: "idle" } as SessionStatus)
   })
 
-  const isBusy = createMemo(() => sending() || sessionStatus().type === "busy")
+  const isBusy = createMemo(() =>
+    sending() ||
+    sessionStatus().type === "busy" ||
+    pendingResult()?.status === "queued" ||
+    pendingResult()?.status === "running"
+  )
   const turns = createMemo(() =>
     buildStudioTurns({
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
@@ -633,6 +640,8 @@ export default function StudioPage() {
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     if (result()?.images.length) return "succeeded"
     if (status() === "failed" || result()?.status === "failed") return "failed"
+    if (result()?.status === "queued") return "queued"
+    if (result()?.status === "running") return "running"
     if (studioTurn()?.toolError) return "failed"
     if (studioTurn()?.assistantText && params.id) return "failed"
     if (status() === "succeeded") return "succeeded"
@@ -668,6 +677,15 @@ export default function StudioPage() {
     if (studioTurn()?.userText !== pending.prompt) return
     if (pending.status === "failed" && studioTurn()?.toolRunning) return
     if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
+    if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
+      const next = studioTurn()!.result!
+      setPendingResult((current) => {
+        if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
+        return { ...current, ...next, sourceImage: current.sourceImage }
+      })
+      setStatus(next.status)
+      return
+    }
     if (!studioTurn()?.result && !studioTurn()?.toolError) return
     setPendingResult(undefined)
     setStatus(studioTurn()?.toolError ? "failed" : "succeeded")
@@ -682,6 +700,15 @@ export default function StudioPage() {
     if (studioTurn()?.result?.images.length) {
       setPendingResult(undefined)
       setStatus("succeeded")
+      return
+    }
+    if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
+      const next = studioTurn()!.result!
+      setPendingResult((current) => {
+        if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
+        return { ...current, ...next, sourceImage: current.sourceImage }
+      })
+      setStatus(next.status)
       return
     }
     if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) {
@@ -1178,7 +1205,7 @@ export default function StudioPage() {
       })}`
     }
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_TIMEOUT_MS)
+    const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_CREATE_TIMEOUT_MS)
     const response = await fetch(new URL("/studio/generations", current.http.url), {
       method: "POST",
       headers,
@@ -1203,6 +1230,24 @@ export default function StudioPage() {
     if (!response.ok) {
       throw new Error(formatStudioGenerationError(response, bodyText))
     }
+    return JSON.parse(bodyText) as StudioGenerationResult
+  }
+
+  async function getStudioGeneration(id: string) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "x-opencode-directory": projectDir(),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL(`/studio/generations/${encodeURIComponent(id)}`, current.http.url), { headers })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
@@ -1251,6 +1296,7 @@ export default function StudioPage() {
       model: styleModelLabel(styleModel()),
       aspectRatio: aspectRatio(),
       images: [],
+      progress: 0,
       createdAt: Date.now(),
       sourceImage: overrides?.sourceImage,
       ...(nextCapability === "video.generate"
@@ -1292,8 +1338,7 @@ export default function StudioPage() {
         ...generation,
         sourceImage: overrides?.sourceImage,
       })
-      await loadSessionMessages(sessionID)
-      setStatus("succeeded")
+      setStatus(generation.status)
     } catch (error) {
       console.error("[StudioPage] studio prompt failed", error)
       setPrompt(previousPrompt)
@@ -1304,6 +1349,37 @@ export default function StudioPage() {
       setSending(false)
     }
   }
+
+  createEffect(() => {
+    const active = pendingResult() ?? studioTurn()?.result
+    if (!active || active.status !== "queued" && active.status !== "running") return
+    if (active.id.startsWith("studio_pending_")) return
+    const id = active.id
+    const refresh = () => {
+      getStudioGeneration(id)
+        .then((generation) => {
+          setPendingResult((current) => {
+            if (current && current.id !== id) return current
+            if (
+              current &&
+              current.status === generation.status &&
+              current.progress === generation.progress &&
+              current.order === generation.order &&
+              current.error === generation.error &&
+              current.images.length === generation.images.length
+            ) return current
+            return { ...generation, sourceImage: current?.sourceImage }
+          })
+          setStatus(generation.status)
+          const sessionID = generation.sessionID ?? params.id
+          if (generation.status === "succeeded" && sessionID) return loadSessionMessages(sessionID)
+        })
+        .catch((error) => console.error("[StudioPage] generation status load failed", error))
+    }
+    void refresh()
+    const timer = setInterval(refresh, STUDIO_GENERATION_STATUS_INTERVAL_MS)
+    onCleanup(() => clearInterval(timer))
+  })
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
@@ -1611,7 +1687,7 @@ export default function StudioPage() {
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
-                busy={effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
               />
@@ -2275,7 +2351,7 @@ function StudioComposer(props: {
             onPaste={handlePaste}
             placeholder={isVideoGeneration() ? "请描述你想生成的视频内容，或使用反推描述图片，也可查看使用指南提升生成效果。" : "上传参考图、输入文字，描述你想生成的图片。"}
             class="studio-composer-input"
-            disabled={isEditingCapability() || props.status === "running" || props.status === "submitting"}
+            disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
           />
         </div>
 
@@ -2609,53 +2685,12 @@ function StudioConversation(props: {
               )}
             </Show>
             <Show when={!turn.editCapability}>
-              <div
-                class="studio-result-card"
-                classList={{
-                  complete: Boolean(turn.result?.images.length),
-                  generating: Boolean((props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length),
-                  failed: Boolean(turn.toolError || turn.result?.error),
-                }}
-              >
-                <div class="studio-result-badge">
-                  <span class="studio-result-badge-icon" />
-                  {capabilityLabel(turn.result?.capability ?? props.result?.capability ?? "image.generate")}
-                </div>
-                <div class="studio-result-title">{turn.toolTitle ?? studioGenerationTitle(turn.result?.capability ?? props.result?.capability, turn.result?.images.length ? "succeeded" : "running")}</div>
-                <div class="studio-result-meta">
-                  创建时间：{formatTime(turn.createdAt)}
-                </div>
-                <Show when={turn.toolError}>
-                  <div class="studio-result-error">
-                    {turn.toolError}
-                  </div>
-                </Show>
-                <Show when={turn.result?.error}>
-                  <div class="studio-result-error">
-                    {turn.result?.error}
-                  </div>
-                </Show>
-                <Show when={(props.busy || turn.toolRunning || turn.result?.status === "running") && turn.isLatest && !turn.result?.images.length} fallback={
-                  <div class="studio-result-grid">
-                    <For each={turn.result?.images ?? []}>
-                      {(image) => (
-                        <button
-                          type="button"
-                          onClick={() => turn.result && props.onSelectImage({ resultID: turn.result.id, imageID: image.id })}
-                          class="studio-result-thumb"
-                        >
-                          <StudioMediaPreview image={image} class="studio-result-thumb-media" />
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                }>
-                  <div class="studio-generation-skeleton">
-                    <div class="studio-generation-skeleton-shine" />
-                    <div class="studio-generation-skeleton-image" />
-                  </div>
-                </Show>
-              </div>
+              <StudioResultCard
+                turn={turn}
+                fallbackCapability={props.result?.capability}
+                busy={props.busy && turn.isLatest}
+                onSelectImage={props.onSelectImage}
+              />
             </Show>
           </div>
         )}
@@ -2699,7 +2734,7 @@ function StudioResultCanvas(props: {
   return (
     <Show when={props.image} fallback={
       <div class="h-full flex flex-col items-center justify-center text-center">
-        <Show when={props.status === "running" || props.status === "submitting"} fallback={
+        <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
           <Show when={props.status === "failed" && props.result?.error} fallback={
           <>
             <StudioGlassSphere />

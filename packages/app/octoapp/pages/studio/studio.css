@@ -871,7 +871,11 @@
 }
 
 .studio-result-card.generating {
-  background: #eaf2ff;
+  min-height: 288px;
+  padding: 16px 20px 22px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(90deg, #eef4ff 0%, #ffffff 100%);
 }
 
 .studio-result-card.failed {
@@ -896,6 +900,95 @@
 .studio-result-card.generating .studio-result-badge {
   color: #0a59f7;
 }
+
+.studio-result-progress-header {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+}
+
+.studio-result-progress-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #191919;
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.studio-result-progress-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.studio-result-progress-status {
+  min-width: 0;
+  justify-self: start;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(97, 91, 255, 0.08);
+  color: #615bff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 22px;
+  white-space: normal;
+}
+
+.studio-result-progress-track {
+  grid-column: 1 / 3;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.1);
+}
+
+.studio-result-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #191919;
+  transition: width 240ms ease;
+}
+
+.studio-result-progress-percent {
+  grid-column: 3;
+  color: #191919;
+  font-size: 16px;
+  line-height: 24px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.studio-result-cancel {
+  grid-column: 3;
+  grid-row: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #191919;
+  font-size: 15px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.studio-result-cancel:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.studio-result-progress-preview {
+  min-height: 210px;
+  margin-top: 18px;
+  border-radius: 12px;
+  background: #fff;
+}
+
 
 .studio-result-badge-icon {
   width: 14px;
