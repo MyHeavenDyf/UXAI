@@ -1,7 +1,7 @@
 import { Switch } from "@opencode-ai/ui/switch"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { For, Show, Suspense, ErrorBoundary, createSignal, createResource, createEffect, type JSX } from "solid-js"
-import { fetchDomains, fetchProductLines, fetchProducts, searchProducts, fetchDomainInfoByProduct, type Domain, type ProductLine, type Product, type Version, type SearchResult } from "./project-product-select-api"
+import { fetchDomains, fetchProductLines, fetchProducts, searchProducts, fetchDomainInfoByProduct, topProduct, cancelTopProduct, type Domain, type ProductLine, type Product, type Version, type SearchResult } from "./project-product-select-api"
 
 export type { Domain, ProductLine, Product, Version }
 
@@ -73,12 +73,12 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [hideClosed, setHideClosed] = createSignal(false)
   const [search, setSearch] = createSignal("")
 
-  const [searchResults] = createResource(() => search() || undefined, searchProducts)
+  const [searchResults, { refetch: refetchSearchResults }] = createResource(() => search() || undefined, searchProducts)
   const isSearching = () => !!search()
 
   const [domains, { refetch: refetchDomains }] = createResource(fetchDomains)
   const [productLines] = createResource(() => selectedDomainId() ?? undefined, fetchProductLines)
-  const [allProducts] = createResource(() => selectedProductLineId() ?? undefined, fetchProducts)
+  const [allProducts, { refetch: refetchProducts }] = createResource(() => selectedProductLineId() ?? undefined, fetchProducts)
 
   createEffect(() => {
     const list = domains()
@@ -116,8 +116,17 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   return (
     <div onPointerDown={(e) => e.stopPropagation()}>
       <style>{`
-        .panel-item { font-size: 13px; padding: 6px 8px; cursor: pointer; border-radius: 6px; margin-bottom: 2px; }
+        .panel-item { font-size: 13px; padding: 6px 8px; cursor: pointer; border-radius: 6px; margin-bottom: 2px; display: flex; align-items: center; gap: 4px; }
         .panel-item-selected { background: rgba(37, 99, 235, 0.08); color: #2563EB; }
+        .panel-item:not(.panel-item-selected):hover { background: #f3f3f3; }
+        .panel-item .pin-action { visibility: hidden; margin-left: auto; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; }
+        .panel-item:hover .pin-action { visibility: visible; }
+        .closed-label { font-size: 11px; color: rgba(0,0,0,0.45); background: rgba(0,0,0,0.04); padding: 0 4px; border-radius: 2px; line-height: 18px; flex-shrink: 0; }
+        .panel-item-disabled { color: rgba(0,0,0,0.3); cursor: not-allowed; }
+        .panel-item-disabled:hover { background: transparent; }
+        .panel-item-disabled .pin-action { visibility: hidden !important; }
+        .secret-icon svg { color: #E53E3E; }
+        .panel-item-selected .secret-icon svg { color: #2563EB; }
       `}</style>
       <div
         style={{
@@ -183,28 +192,62 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
             <Show when={safeSearchResults().length > 0} fallback={<div style={emptyHintStyle}>未找到匹配的产品</div>}>
               <div style={{ padding: "12px 8px", "max-height": "280px", overflow: "auto" }}>
                 <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>搜索结果</div>
-                <For each={safeSearchResults()}>
-                  {(result) => (
-                    <div
-                      classList={{ "panel-item": true, "panel-item-selected": result.productId === selectedProductId() }}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        fetchDomainInfoByProduct(result.productId).then((info) => {
-                          if (!info?.domain || !info?.subDomain || !info?.product) return
-                          setSelectedDomainId(info.domain.id)
-                          setSelectedProductLineId(info.subDomain.id)
-                          setSelectedProductId(info.product.id)
-                          props.onProductConfirm({
-                            domain: info.domain,
-                            productLine: info.subDomain,
-                            product: info.product,
-                          })
-                        }).catch(() => {})
-                      }}
-                    >
-                      {result.name}
-                    </div>
-                  )}
+<For each={safeSearchResults()}>
+                  {(result) => {
+                    const handleTopToggle = (e: MouseEvent) => {
+                      e.stopPropagation()
+                      const fn = result.isTop ? cancelTopProduct : topProduct
+                      fn(result.productId).then(() => { refetchProducts(); refetchSearchResults() }).catch(() => {})
+                    }
+                    const isSecretDisabled = result.isSecret && !result.isProductMember
+                    return (
+                      <div
+                        classList={{ "panel-item": true, "panel-item-selected": !isSecretDisabled && result.productId === selectedProductId(), "panel-item-disabled": isSecretDisabled }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (isSecretDisabled) return
+                          fetchDomainInfoByProduct(result.productId).then((info) => {
+                            if (!info?.domain || !info?.subDomain || !info?.product) return
+                            setSelectedDomainId(info.domain.id)
+                            setSelectedProductLineId(info.subDomain.id)
+                            setSelectedProductId(info.product.id)
+                            props.onProductConfirm({
+                              domain: info.domain,
+                              productLine: info.subDomain,
+                              product: info.product,
+                            })
+                          }).catch(() => {})
+                        }}
+                      >
+                        <Show when={result.isTop}>
+                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ "flex-shrink": "0" }}>
+                            <path d="M8 3L4 7h3v6h2V7h3L8 3z" fill="currentColor"/>
+                          </svg>
+                        </Show>
+                        <span style={{ overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{result.name}</span>
+                        <Show when={result.isSecret && !result.isProductMember}>
+                          <span class="secret-icon" style={{ "flex-shrink": "0" }}>
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                              <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+                              <path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                            </svg>
+                          </span>
+                        </Show>
+                        <Show when={result.isEnd}>
+                          <span class="closed-label">已结项</span>
+                        </Show>
+                        <span class="pin-action" onClick={handleTopToggle} onPointerDown={(e) => e.stopPropagation()}>
+                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <Show when={result.isTop} fallback={
+                              <path d="M8 3L4 7h3v6h2V7h3L8 3z" fill="currentColor"/>
+                            }>
+                              <path d="M8 13L4 9h3V3h2v6h3L8 13z" fill="currentColor"/>
+                            </Show>
+                          </svg>
+                        </span>
+                      </div>
+                    )
+                  }}
                 </For>
               </div>
             </Show>
@@ -269,23 +312,57 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                     <Show when={safeAllProducts().length > 0 || filteredProducts().length > 0} fallback={<div style={emptyHintStyle}>暂无产品数据</div>}>
                       <div style={{ "max-height": "240px", overflow: "auto" }}>
                         <For each={filteredProducts()}>
-                          {(item) => (
-                            <div
-                              classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductId() }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                const domainItem = safeDomains().find((d) => d.id === selectedDomainId())
-                                const productLineItem = safeProductLines().find((pl) => pl.id === selectedProductLineId())
-                                props.onProductConfirm({
-                                  domain: domainItem,
-                                  productLine: productLineItem,
-                                  product: item,
-                                })
-                              }}
-                            >
-                              {item.name}
-                            </div>
-                          )}
+                          {(item) => {
+                            const handleTopToggle = (e: MouseEvent) => {
+                              e.stopPropagation()
+                              const fn = item.isTop ? cancelTopProduct : topProduct
+                              fn(item.id).then(() => refetchProducts()).catch(() => {})
+                            }
+                            const isSecretDisabled = item.isSecret && !item.isProductMember
+                            return (
+                              <div
+                                classList={{ "panel-item": true, "panel-item-selected": !isSecretDisabled && item.id === selectedProductId(), "panel-item-disabled": isSecretDisabled }}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  if (isSecretDisabled) return
+                                  const domainItem = safeDomains().find((d) => d.id === selectedDomainId())
+                                  const productLineItem = safeProductLines().find((pl) => pl.id === selectedProductLineId())
+                                  props.onProductConfirm({
+                                    domain: domainItem,
+                                    productLine: productLineItem,
+                                    product: item,
+                                  })
+                                }}
+                              >
+                                <Show when={item.isTop}>
+                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ "flex-shrink": "0" }}>
+                                    <path d="M8 3L4 7h3v6h2V7h3L8 3z" fill="currentColor"/>
+                                  </svg>
+                                </Show>
+                                <span style={{ overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{item.name}</span>
+                                <Show when={item.isSecret && !item.isProductMember}>
+                                  <span class="secret-icon" style={{ "flex-shrink": "0" }}>
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                      <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+                                      <path d="M5.5 7V5a2.5 2.5 0 015 0v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                                    </svg>
+                                  </span>
+                                </Show>
+                                <Show when={item.isEnd}>
+                                  <span class="closed-label">已结项</span>
+                                </Show>
+                                <span class="pin-action" onClick={handleTopToggle} onPointerDown={(e) => e.stopPropagation()}>
+                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <Show when={item.isTop} fallback={
+                                      <path d="M8 3L4 7h3v6h2V7h3L8 3z" fill="currentColor"/>
+                                    }>
+                                      <path d="M8 13L4 9h3V3h2v6h3L8 13z" fill="currentColor"/>
+                                    </Show>
+                                  </svg>
+                                </span>
+                              </div>
+                            )
+                          }}
                         </For>
                       </div>
                     </Show>

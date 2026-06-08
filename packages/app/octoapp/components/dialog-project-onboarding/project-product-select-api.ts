@@ -76,19 +76,39 @@ export type DomainInfoByProduct = {
   product: Product
 }
 
-async function request<T>(url: string): Promise<T> {
+async function request<T>(url: string, method: string = "GET"): Promise<T> {
   try {
-    const res = await fetch(url)
+    const uiplusToken = localStorage.getItem("uiplustoken") ?? ""
+    const res = await fetch(url, {
+      method,
+      headers: uiplusToken ? { uiplustoken: uiplusToken } : {},
+    })
     if (!res.ok) throw new Error(`API request failed: ${res.status} ${res.statusText}`)
     const json = await res.json()
     const data = json.data
     if (!data) throw new Error("API response missing data field")
     if (data.errorCode !== 0) throw new Error(`API error: ${data.errorCode} - ${data.errorMessage}`)
     return data.content as T
-} catch (error) {
-    console.error(`Failed to fetch ${url}:`, error)
-    throw error
+  } catch (error) {
+    console.error(`Failed to ${method} ${url}:`, error)
+    return null as T
   }
+}
+
+export async function topProduct(productId: number): Promise<void> {
+  return request<void>(`${BASE_URL}/product/top?productId=${productId}`, "POST")
+}
+
+export async function cancelTopProduct(productId: number): Promise<void> {
+  return request<void>(`${BASE_URL}/product/cancelTop?productId=${productId}`, "POST")
+}
+
+export async function topVersion(teamId: number): Promise<void> {
+  return request<void>(`${BASE_URL}/version/top?teamId=${teamId}`, "POST")
+}
+
+export async function cancelTopVersion(teamId: number): Promise<void> {
+  return request<void>(`${BASE_URL}/version/cancelTop?teamId=${teamId}`, "POST")
 }
 
 export async function fetchDomains(): Promise<Domain[]> {

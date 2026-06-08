@@ -106,30 +106,56 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
       sectionComponent={(local) => (
         <Kobalte.Section data-slot="select-section">{local.section.rawValue.category}</Kobalte.Section>
       )}
-      itemComponent={(itemProps) => (
-        <Kobalte.Item
-          {...itemProps}
-          data-slot="select-select-item"
-          classList={{
-            ...local.classList,
-            [local.class ?? ""]: !!local.class,
-          }}
-          onPointerEnter={() => move(itemProps.item.rawValue)}
-          onPointerMove={() => move(itemProps.item.rawValue)}
-          onFocus={() => move(itemProps.item.rawValue)}
-        >
-          <Kobalte.ItemLabel data-slot="select-select-item-label">
-            {local.children
+      itemComponent={(itemProps) => {
+        const isPinAction = (e: PointerEvent | MouseEvent) =>
+          e.target instanceof Element && !!e.target.closest(".pin-action-icon")
+        return (
+          <Kobalte.Item
+            {...itemProps}
+            data-slot="select-select-item"
+            classList={{
+              ...local.classList,
+              [local.class ?? ""]: !!local.class,
+            }}
+            onPointerDown={(e) => {
+              if (isPinAction(e)) {
+                e.stopPropagation()
+                e.preventDefault()
+                return
+              }
+              (itemProps as any).onPointerDown?.(e)
+            }}
+            onPointerUp={(e) => {
+              if (isPinAction(e)) {
+                e.stopPropagation()
+                return
+              }
+              (itemProps as any).onPointerUp?.(e)
+            }}
+            onClick={(e) => {
+              if (isPinAction(e)) {
+                e.stopPropagation()
+                return
+              }
+              (itemProps as any).onClick?.(e)
+            }}
+            onPointerEnter={() => move(itemProps.item.rawValue)}
+            onPointerMove={() => move(itemProps.item.rawValue)}
+            onFocus={() => move(itemProps.item.rawValue)}
+          >
+            <Kobalte.ItemLabel data-slot="select-select-item-label">
+              {local.children
               ? local.children(itemProps.item.rawValue)
               : local.label
                 ? local.label(itemProps.item.rawValue)
                 : (itemProps.item.rawValue as string)}
           </Kobalte.ItemLabel>
-          <Kobalte.ItemIndicator data-slot="select-select-item-indicator">
+            <Kobalte.ItemIndicator data-slot="select-select-item-indicator">
             <Icon name="check-small" size="small" />
           </Kobalte.ItemIndicator>
-        </Kobalte.Item>
-      )}
+          </Kobalte.Item>
+        )
+      }}
       onChange={(v) => {
         local.onSelect?.(v ?? undefined)
         stop()
