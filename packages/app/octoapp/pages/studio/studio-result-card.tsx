@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js"
+import { capabilityLabel } from "./data"
 import { isVideoMedia } from "./studio-shared"
 import type { StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
@@ -40,7 +41,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     if (status() === "succeeded") return 100
     return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
   }
-  const mediaLabel = () => capability() === "video.generate" ? "视频生成" : "图片生成"
+  const mediaLabel = () => capabilityLabel(capability())
   const statusLabel = () => {
     if (status() === "queued") {
       return props.turn.result?.order === undefined ? "排队中" : `排队中，前方 ${props.turn.result.order} 人`
@@ -65,21 +66,23 @@ export function StudioResultCard(props: StudioResultCardProps) {
           <span>{mediaLabel()}</span>
         </div>
         <span class="studio-result-progress-status">{statusLabel()}</span>
-        <div
-          class="studio-result-progress-track"
-          role="progressbar"
-          aria-label={`${mediaLabel()}${statusLabel()}`}
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow={progress()}
-        >
-          <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
-        </div>
-        <span class="studio-result-progress-percent">{progress()}%</span>
         <Show when={generating()}>
-          <button type="button" class="studio-result-cancel" disabled>
-            取消生成
-          </button>
+          <>
+            <div
+              class="studio-result-progress-track"
+              role="progressbar"
+              aria-label={`${mediaLabel()}${statusLabel()}`}
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow={progress()}
+            >
+              <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
+            </div>
+            <span class="studio-result-progress-percent">{progress()}%</span>
+            <button type="button" class="studio-result-cancel" disabled>
+              取消生成
+            </button>
+          </>
         </Show>
       </div>
       <div class="studio-result-progress-preview">
