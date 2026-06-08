@@ -1,5 +1,5 @@
 import { ProjectProductSelect } from "./project-product-select"
-import { Select } from "@opencode-ai/ui/select"
+import { Select } from "./select"
 import { createStore } from "solid-js/store"
 import { createEffect, createResource, createSignal, Suspense, ErrorBoundary, Show } from "solid-js"
 import type { JSX } from "solid-js"
