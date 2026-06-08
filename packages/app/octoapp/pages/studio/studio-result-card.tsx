@@ -46,6 +46,10 @@ export function StudioResultCard(props: StudioResultCardProps) {
     return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
   }
   const mediaLabel = () => capabilityLabel(capability())
+  const createdAt = () => {
+    if (!props.turn.createdAt) return ""
+    return new Date(props.turn.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+  }
   const statusLabel = () => {
     if (status() === "queued") {
       return props.turn.result?.order === undefined ? "排队中" : `排队中，前方 ${props.turn.result.order} 人`
@@ -89,6 +93,9 @@ export function StudioResultCard(props: StudioResultCardProps) {
           </>
         </Show>
       </div>
+      <Show when={createdAt()}>
+        <div class="studio-result-meta">创建时间：{createdAt()}</div>
+      </Show>
       <div class="studio-result-progress-preview">
         <Show when={status() === "failed"}>
           <div class="studio-result-error">

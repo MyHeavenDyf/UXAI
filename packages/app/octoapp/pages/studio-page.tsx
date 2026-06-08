@@ -1,7 +1,7 @@
 import "./studio/studio.css"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { batch, createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -46,6 +46,7 @@ import { StudioConversation, StudioDetails, StudioResultCanvas, StudioWorkspaceU
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
+import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
   createBlobUrlFromDataUrl,
   formatStudioGenerationError,
@@ -123,7 +124,33 @@ export default function StudioPage() {
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
-  const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | null>(null)
+  const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
+  const [wordBook] = createResource(
+    () => server.current,
+    async (current: any) => {
+      const headers: Record<string, string> = {
+        accept: "application/json",
+        "x-opencode-directory": projectDir(),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const response = await fetch(new URL("/studio/prompt-tags", current.http.url), {
+        method: "GET",
+        headers,
+      })
+      if (!response.ok) throw new Error(`get_prompt_tags failed: ${response.status}`)
+      const json = await response.json() as unknown
+      if (Array.isArray(json)) return json as MaterialWordBook[]
+      const record = json as Record<string, unknown>
+      const data = record.data ?? record.result ?? record.tags
+      if (Array.isArray(data)) return data as MaterialWordBook[]
+      throw new Error("Unexpected get_prompt_tags response shape")
+    },
+  )
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
@@ -1349,6 +1376,7 @@ export default function StudioPage() {
                   status={effectiveStatus()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
+                  wordBook={wordBook}
                   onPrompt={setPrompt}
                   onCapability={selectStudioCapability}
                   onStyleModel={setStyleModel}
@@ -1481,6 +1509,7 @@ export default function StudioPage() {
             status={effectiveStatus()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
+            wordBook={wordBook}
             onPrompt={setPrompt}
             onCapability={selectStudioCapability}
             onStyleModel={setStyleModel}
