@@ -1,6 +1,8 @@
 import { createGeneration, getGeneration } from "@/studio/studio-service"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
+import { fetchPromptTags } from "@/tool/internel_image_generate"
+import { STUDIO_MATERIALS } from "@/server/routes/instance/studio"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -68,5 +70,16 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     return handlers
       .handle("createGeneration", create)
       .handle("getGeneration", get)
+      .handle("listMaterials", () => Effect.succeed(STUDIO_MATERIALS as unknown))
+      .handle("listPromptTags", () =>
+        Effect.tryPromise({
+          try: () => fetchPromptTags(),
+          catch: (error) =>
+            new ApiStudioGenerationError({
+              name: "StudioGenerationError",
+              data: { message: error instanceof Error ? error.message : String(error) },
+            }),
+        })
+      )
   }),
 )

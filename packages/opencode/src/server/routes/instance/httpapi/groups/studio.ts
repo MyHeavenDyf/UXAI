@@ -99,6 +99,25 @@ export const StudioApi = HttpApi.make("studio")
   .add(
     HttpApiGroup.make("studio")
       .add(
+        HttpApiEndpoint.get("listMaterials", StudioPaths.materials, {
+          success: described(Schema.Unknown, "Studio materials list"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.materials.list",
+            summary: "Get Studio material categories",
+            description: "Returns the list of material categories with bilingual tags.",
+          }),
+        ),
+        HttpApiEndpoint.get("listPromptTags", StudioPaths.promptTags, {
+          success: described(Schema.Unknown, "Prompt tags list"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.prompt-tags.list",
+            summary: "Get prompt tags",
+            description: "Returns prompt tag categories from the internal image API.",
+          }),
+        ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
