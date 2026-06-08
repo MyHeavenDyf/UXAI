@@ -1,10 +1,12 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import path from "path"
+import { fileURLToPath } from "url"
 import { readdirSync, statSync } from "fs"
 
-const API_DIR = path.join(import.meta.dir, "api")
-const EXAMPLE_DIR = path.join(import.meta.dir, "example")
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const API_DIR = path.join(__dirname, "api")
+const EXAMPLE_DIR = path.join(__dirname, "example")
 
 const COMPONENT_CATALOG: Record<string, string[]> = {
   General: ["Button", "Icon"],
@@ -46,17 +48,34 @@ function expandComponents(input: string[]): string[] {
 function indexComponentFiles(dir: string): Map<string, string> {
   const map = new Map<string, string>()
   const walk = (currentDir: string) => {
-    for (const entry of readdirSync(currentDir)) {
+    let entries: string[]
+    try { entries = readdirSync(currentDir) } catch { return }
+    for (const entry of entries) {
       const fullPath = path.join(currentDir, entry)
-      if (statSync(fullPath).isDirectory()) {
-        walk(fullPath)
-      } else {
-        map.set(path.basename(fullPath, path.extname(fullPath)), fullPath)
-      }
+      try {
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath)
+        } else {
+          map.set(path.basename(fullPath, path.extname(fullPath)), fullPath)
+        }
+      } catch {}
     }
   }
   walk(dir)
   return map
+}
+
+let _apiMap: Map<string, string> | null = null
+let _exampleMap: Map<string, string> | null = null
+
+function getApiMap() {
+  if (!_apiMap) _apiMap = indexComponentFiles(API_DIR)
+  return _apiMap
+}
+
+function getExampleMap() {
+  if (!_exampleMap) _exampleMap = indexComponentFiles(EXAMPLE_DIR)
+  return _exampleMap
 }
 
 type JsonSchema = Record<string, unknown>
@@ -202,10 +221,6 @@ function compactSchemasBatch(schemas: JsonSchema[]): string {
 export const LoadComponentsDocsTool = Tool.define(
   "load_components_docs",
   Effect.gen(function* () {
-    const apiIndex = Effect.sync(() => indexComponentFiles(API_DIR))
-    const exampleIndex = Effect.sync(() => indexComponentFiles(EXAMPLE_DIR))
-    const [apiMap, exampleMap] = yield* Effect.all([apiIndex, exampleIndex])
-
     return {
       description:
         "获取具体组件的 API Schema 和用法示例。传入你决定使用的组件名称数组，例如 [\"Table\", \"Tabs\", \"Button\"]。会自动补充必要的子组件（如 Table → TableRow）。",
@@ -217,6 +232,9 @@ export const LoadComponentsDocsTool = Tool.define(
 
           const validComps: string[] = []
           const apiSchemas: JsonSchema[] = []
+
+          const apiMap = getApiMap()
+          const exampleMap = getExampleMap()
 
           for (const comp of expanded) {
             if (!ALL_COMPONENTS.includes(comp)) continue
