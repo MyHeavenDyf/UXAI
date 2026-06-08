@@ -3,6 +3,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
 import { createGeneration } from "@/studio/studio-service"
+import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 
 const StudioGenerationInput = z.object({
@@ -26,7 +27,7 @@ const StudioGenerationInput = z.object({
   extra: z.record(z.string(), z.unknown()).optional(),
 })
 
-const STUDIO_MATERIALS = [
+export const STUDIO_MATERIALS = [
   {
     category: "人物",
     subcategories: [
@@ -73,6 +74,25 @@ const STUDIO_MATERIALS = [
 
 export const StudioRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/prompt-tags",
+      describeRoute({
+        summary: "Get prompt tags",
+        description: "Returns prompt tag categories from the internal image API.",
+        operationId: "studio.prompt-tags.list",
+        responses: {
+          200: {
+            description: "Prompt tags list",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(502),
+        },
+      }),
+      async (c) => {
+        const data = await fetchPromptTags()
+        return c.json(data)
+      },
+    )
     .get(
       "/materials",
       describeRoute({

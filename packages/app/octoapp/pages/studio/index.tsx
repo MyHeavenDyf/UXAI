@@ -1,9 +1,9 @@
 import "./studio.css"
-import { MaterialMenu } from "./MaterialMenu"
+import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX, type Resource } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -250,6 +250,32 @@ export default function StudioPage() {
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
+  const [wordBook] = createResource<MaterialWordBook[]>(
+    () => server.current,
+    async (current) => {
+      const headers: Record<string, string> = {
+        accept: "application/json",
+        "x-opencode-directory": projectDir(),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const response = await fetch(new URL("/studio/prompt-tags", current.http.url), {
+        method: "GET",
+        headers,
+      })
+      if (!response.ok) throw new Error(`get_prompt_tags failed: ${response.status}`)
+      const json = await response.json() as unknown
+      if (Array.isArray(json)) return json as MaterialWordBook[]
+      const record = json as Record<string, unknown>
+      const data = record.data ?? record.result ?? record.tags
+      if (Array.isArray(data)) return data as MaterialWordBook[]
+      throw new Error("Unexpected get_prompt_tags response shape")
+    },
+  )
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
@@ -1502,6 +1528,7 @@ export default function StudioPage() {
                   status={effectiveStatus()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
+                  wordBook={wordBook}
                   onPrompt={setPrompt}
                   onCapability={selectStudioCapability}
                   onStyleModel={setStyleModel}
@@ -1634,6 +1661,7 @@ export default function StudioPage() {
             status={effectiveStatus()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
+            wordBook={wordBook}
             onPrompt={setPrompt}
             onCapability={selectStudioCapability}
             onStyleModel={setStyleModel}
@@ -2148,6 +2176,7 @@ function StudioComposer(props: {
   status: StudioGenerationStatus
   openMenu: "capability" | "style" | "settings" | "material" | null
   canSubmit: boolean
+  wordBook: Resource<MaterialWordBook[]>
   onPrompt: (value: string) => void
   onCapability: (value: StudioCapability) => void
   onStyleModel: (value: string) => void
@@ -2292,7 +2321,7 @@ function StudioComposer(props: {
             </div>
             <div class="relative">
               <Show when={props.openMenu === "material"}>
-                <MaterialMenu onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
+                <MaterialMenu wordBook={props.wordBook} onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
               </Show>
               <IconTool
                 label="素材"

@@ -4,10 +4,11 @@ import type { ImageGenerateInput, ImageGenerateOutput } from "@/studio/image-pro
 import type { StudioCapability } from "@/studio/image-provider"
 
 const METHOD = "POST"
-// const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
-// const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
-const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
-const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
+const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
+const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
+const DEFAULT_GET_PROMPT_TAG_URL = "http://localhost:3000/get_prompt_tags"
+// const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
+// const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
 const DEFAULT_USER_IDX = "l00423136"
 const DEFAULT_TIMEOUT_MS = 120_000
 
@@ -192,6 +193,37 @@ function parseJson(text: string): JsonRecord {
 
 function isSupportedImageInput(value: string) {
   return /^(https?:\/\/\S+|data:image\/[a-z0-9.+-]+;base64,\S+)$/i.test(value)
+}
+
+export async function fetchPromptTags(): Promise<unknown> {
+  const url = env("IMAGE_GET_PROMPT_TAG_URL") ?? DEFAULT_GET_PROMPT_TAG_URL
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      accept: "application/json, text/plain, */*",
+      ...internalImageHeaders({ contentType: false }),
+    },
+  }).catch((error) => {
+    throw new Error(
+      [
+        "get_prompt_tags network failed.",
+        `url=${url}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "get_prompt_tags failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  return parseJson(text)
 }
 
 export function resolveReferenceImages(input: Pick<ImageGenerateInput, "referenceImages" | "sourceImage">) {
