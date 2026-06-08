@@ -131,7 +131,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         <Splash class="w-[80px] h-[80px]" />
         <img src="/octo-agent.png" alt="Octo Agent" style={{ width: "212px", height: "42px", "margin-top": "20px" }} />
         <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "24px", "letter-spacing": "2px", "text-align": "center", color: "rgba(110, 115, 122, 1)", "margin-top": "4px" }}>您的全能设计与调研专家</div>
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%", color: "#191919" }}>选择项目&版本</div>
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%", color: "rgba(0,0,0,0.3)" }}>选择项目&版本</div>
         <div style={{ width: "100%", height: "40px", "margin-top": "4px" }}>
           <ProjectInfoDialogContent
             domain={selections.domain}
