@@ -109,6 +109,7 @@ export const layer = Layer.effect(
         const defaults = Permission.fromConfig({
           "*": "allow",
           doom_loop: "ask",
+          load_components_docs: "deny",
           external_directory: {
             "*": "ask",
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
@@ -356,7 +357,10 @@ export const layer = Layer.effect(
             name: "proto_module_create",
             description: "Proto module create agent.",
             prompt: PROMPT_PROTO_MODULE_CREATE,
-            permission: defaults,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({ load_components_docs: "allow" }),
+            ),
             options: {},
             mode: "primary",
             native: false,
@@ -365,7 +369,10 @@ export const layer = Layer.effect(
             name: "proto_module_modify",
             description: "Proto module modify agent.",
             prompt: PROMPT_PROTO_MODULE_MODIFY,
-            permission: defaults,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({ load_components_docs: "allow" }),
+            ),
             options: {},
             mode: "primary",
             native: false,
