@@ -1,4 +1,6 @@
-import { createGeneration } from "@/studio/studio-service"
+import { createGeneration, getGeneration } from "@/studio/studio-service"
+import * as InstanceState from "@/effect/instance-state"
+import { Instance } from "@/project/instance"
 import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { STUDIO_MATERIALS } from "@/server/routes/instance/studio"
 import { Effect } from "effect"
@@ -11,6 +13,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     const create = Effect.fn("StudioHttpApi.createGeneration")(function* (ctx: {
       payload: typeof StudioGenerationPayload.Type
     }) {
+      const instance = yield* InstanceState.context
       console.log("[studio.httpapi] POST /studio/generations", {
         sessionID: ctx.payload.sessionID,
         capability: ctx.payload.capability,
@@ -24,18 +27,36 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
       return yield* Effect.tryPromise({
         try: () =>
-          createGeneration({
-            sessionID: ctx.payload.sessionID,
-            capability: ctx.payload.capability,
-            prompt: ctx.payload.prompt,
-            styleModel: ctx.payload.styleModel,
-            aspectRatio: ctx.payload.aspectRatio,
-            count: ctx.payload.count,
-            imageTool: ctx.payload.imageTool,
-            referenceImages: ctx.payload.referenceImages ? [...ctx.payload.referenceImages] : undefined,
-            sourceImage: ctx.payload.sourceImage,
-            extra: ctx.payload.extra ? { ...ctx.payload.extra } : undefined,
+          Instance.restore(instance, () =>
+            createGeneration({
+              sessionID: ctx.payload.sessionID,
+              capability: ctx.payload.capability,
+              prompt: ctx.payload.prompt,
+              styleModel: ctx.payload.styleModel,
+              aspectRatio: ctx.payload.aspectRatio,
+              count: ctx.payload.count,
+              imageTool: ctx.payload.imageTool,
+              referenceImages: ctx.payload.referenceImages ? [...ctx.payload.referenceImages] : undefined,
+              sourceImage: ctx.payload.sourceImage,
+              extra: ctx.payload.extra ? { ...ctx.payload.extra } : undefined,
+            }),
+          ),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
           }),
+      })
+    })
+
+    const get = Effect.fn("StudioHttpApi.getGeneration")(function* (ctx: {
+      params: { generationID: string }
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => getGeneration(ctx.params.generationID)),
         catch: (error) =>
           new ApiStudioGenerationError({
             name: "StudioGenerationError",
@@ -47,6 +68,8 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     })
 
     return handlers
+      .handle("createGeneration", create)
+      .handle("getGeneration", get)
       .handle("listMaterials", () => Effect.succeed(STUDIO_MATERIALS as unknown))
       .handle("listPromptTags", () =>
         Effect.tryPromise({
@@ -58,6 +81,5 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
             }),
         })
       )
-      .handle("createGeneration", create)
   }),
 )

@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { createGeneration } from "@/studio/studio-service"
+import { createGeneration, getGeneration } from "@/studio/studio-service"
 import { fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 
@@ -119,8 +119,8 @@ export const StudioRoutes = lazy(() =>
       description: "Generate images using the built-in Studio image generation tool.",
       operationId: "studio.generations.create",
       responses: {
-        200: {
-          description: "Studio generation result",
+        202: {
+          description: "Studio generation accepted",
           content: {
             "application/json": {
               schema: resolver(z.unknown()),
@@ -144,7 +144,8 @@ export const StudioRoutes = lazy(() =>
         referenceImageCount: input.referenceImages?.length ?? 0,
         hasSourceImage: Boolean(input.sourceImage),
       })
-      return c.json(await createGeneration(input))
+      return c.json(await createGeneration(input), 202)
     },
-  ),
+  )
+  .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID")))),
 )
