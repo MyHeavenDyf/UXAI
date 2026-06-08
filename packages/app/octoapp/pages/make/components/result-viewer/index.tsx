@@ -101,9 +101,13 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
     const updatedHtml = isFullDocument 
       ? doc.documentElement.outerHTML 
       : doc.body.innerHTML
+    
+    // ★ Remove data-od-id attributes before saving (clean output)
+    const cleanHtml = updatedHtml.replace(/ data-od-id="[^"]*"/g, '')
+    
     const finalContent = isMarkdown
-      ? "```html\n" + updatedHtml + "\n```"
-      : updatedHtml
+      ? "```html\n" + cleanHtml + "\n```"
+      : cleanHtml
     
     props.onContentChange?.(tabId, finalContent)
 }

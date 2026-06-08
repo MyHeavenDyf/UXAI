@@ -1,12 +1,13 @@
-import { createMemo, createSignal, createEffect, onMount, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { buildSrcdoc } from "../../utils/srcdoc-builder"
+import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
 import { DrawOverlay } from "./draw-overlay"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
+import { showToast } from "@opencode-ai/ui/toast"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -17,6 +18,9 @@ interface HistoryState {
 }
 
 const MAX_HISTORY = 50
+
+// ★ Cache annotated HTML (ensure element IDs match between iframe and flush)
+const [annotatedHtmlCache, setAnnotatedHtmlCache] = createSignal<string>("")
 
 export type InspectTarget = {
   elementId: string | null
@@ -153,10 +157,17 @@ export function HtmlRenderer(props: {
       return true
     }
     return false
-  }
+}
   
-  // Initialize floating position on first edit
-  createEffect(() => {
+// ★ Cache annotated HTML when content changes (ensure element IDs match)
+createEffect(on(() => props.content, () => {
+  const html = extractHtmlContent(props.content)
+  const annotated = annotateElementsWithIds(html)
+  setAnnotatedHtmlCache(annotated)
+}))
+  
+// Initialize floating position on first edit
+createEffect(() => {
     if (props.editing && editTarget() && !editPanelPosition()) {
       // Calculate initial position (right side with padding)
       const canvasWidth = iframeRef?.parentElement?.getBoundingClientRect()?.width || 800
@@ -177,10 +188,11 @@ export function HtmlRenderer(props: {
     
     if (!target) return true
     
-    const html = extractHtmlContent(props.content)
+    // ★ Use cached annotated HTML (element IDs match iframe)
+    const annotatedHtml = annotatedHtmlCache()
     
     // Apply all patches (styles + text/href if changed)
-    let result: { ok: boolean; source: string; error?: string } = { ok: true, source: html }
+    let result: { ok: boolean; source: string; error?: string } = { ok: true, source: annotatedHtml }
     let hasChanges = false
     let description = "Edit styles"
     
@@ -220,9 +232,11 @@ export function HtmlRenderer(props: {
     }
     
     if (result.ok) {
-      props.onContentChange?.(wrapHtmlContent(result.source, props.content))
+      // ★ Remove data-od-id attributes before saving (clean output)
+      const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
+      props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
       if (hasChanges) {
-        pushHistory(result.source, description)
+        pushHistory(cleanSource, description)
       }
       return true
     }
@@ -709,14 +723,17 @@ return (
                   manualEditPendingStyle = null
                   setEditDraft(emptyManualEditDraft(props.content))
                 }}
-                onExit={() => {
-                  // Exit button: flush pending styles
-                  const ok = flushManualEditStyleSave()
-                  if (ok) {
-                    setEditTarget(null)
-                    manualEditPendingStyle = null
-                  }
-                }}
+onExit={() => {
+  const ok = flushManualEditStyleSave()
+  if (!ok) {
+    showToast({ 
+      title: "样式未保存", 
+      description: "目标元素在HTML中不存在，修改已丢失" 
+    })
+  }
+  setEditTarget(null)
+  manualEditPendingStyle = null
+}}
 onFloatingPositionChange={setEditPanelPosition}
               />
             </Show>

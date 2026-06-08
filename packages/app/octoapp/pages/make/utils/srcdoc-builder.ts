@@ -411,10 +411,27 @@ export function annotateElementsWithIds(doc: string): string {
   const parser = new DOMParser()
   const parsedDoc = parser.parseFromString(doc, "text/html")
   
-  let counter = 0
+  // Find maximum existing data-od-id to preserve stability
+  let maxId = -1
+  const existingElements = parsedDoc.querySelectorAll('[data-od-id]')
+  existingElements.forEach((el) => {
+    const idAttr = el.getAttribute('data-od-id')
+    if (idAttr && idAttr.startsWith('el-')) {
+      const idNum = parseInt(idAttr.substring(3), 10)
+      if (!isNaN(idNum) && idNum > maxId) maxId = idNum
+    }
+  })
+  
+  // Start counter from maxId + 1 (preserve existing IDs)
+  let counter = maxId + 1
+  
   const walk = (el: Element) => {
     if (el.tagName !== "SCRIPT" && el.tagName !== "STYLE" && el.tagName !== "HEAD") {
-      el.setAttribute("data-od-id", `el-${counter++}`)
+      // Only assign new ID if element doesn't have one
+      if (!el.hasAttribute('data-od-id')) {
+        el.setAttribute("data-od-id", `el-${counter++}`)
+      }
+      // Keep existing data-od-id unchanged
     }
     for (const child of Array.from(el.children)) {
       walk(child)
