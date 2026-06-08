@@ -245,7 +245,7 @@ function PatternContent() {
   const [previewScale, setPreviewScale] = createSignal(1)
 
   const TARGET_WIDTH = 1920
-  const TARGET_HEIGHT = 1280
+  const TARGET_HEIGHT = 1080
 
   function updatePreviewScale() {
     if (!previewPaneRef) return
