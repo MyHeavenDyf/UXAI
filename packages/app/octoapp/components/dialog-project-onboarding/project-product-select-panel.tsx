@@ -1,12 +1,10 @@
 import { Switch } from "@opencode-ai/ui/switch"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { For, Show, createSignal, createResource, createEffect, type JSX } from "solid-js"
-import { fetchDomains, fetchProductLines, fetchProducts, searchProducts } from "./project-product-select-api"
+import { For, Show, Suspense, ErrorBoundary, createSignal, createResource, createEffect, type JSX } from "solid-js"
+import { fetchDomains, fetchProductLines, fetchProducts, searchProducts, fetchDomainInfoByProduct, type Domain, type ProductLine, type Product, type Version, type SearchResult } from "./project-product-select-api"
 
-export type Domain = { id: string; label: string }
-export type ProductLine = { id: string; domainId: string; label: string }
-export type Product = { id: string; productLineId: string; label: string; closed?: boolean }
-export type Version = { value: string; label: string }
+export type { Domain, ProductLine, Product, Version }
+
 export interface ProjectSelection {
   directory: string
   domain?: Domain
@@ -22,6 +20,52 @@ interface PanelProps {
   onProductConfirm: (data: { domain?: Domain; productLine?: ProductLine; product?: Product }) => void
 }
 
+const emptyHintStyle = {
+  padding: "24px 8px",
+  "text-align": "center",
+  color: "rgba(0,0,0,0.4)",
+  "font-size": "13px",
+  "line-height": "20px",
+} as const
+
+const errorPageStyle = {
+  padding: "24px 8px",
+  "text-align": "center",
+} as const
+
+function ErrorContent(props: { onRetry: () => void }) {
+  return (
+    <div style={errorPageStyle}>
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" style={{ margin: "0 auto 8px" }}>
+        <circle cx="20" cy="20" r="18" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" fill="rgba(0,0,0,0.04)" />
+        <path d="M14 16c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="rgba(0,0,0,0.2)" stroke-width="1.5" stroke-linecap="round" />
+        <circle cx="14" cy="16" r="2" fill="rgba(0,0,0,0.2)" />
+        <circle cx="26" cy="16" r="2" fill="rgba(0,0,0,0.2)" />
+        <path d="M14 24h12" stroke="rgba(0,0,0,0.2)" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+      <div style={{ color: "rgba(0,0,0,0.4)", "font-size": "13px", "line-height": "20px" }}>
+        数据加载失败
+        <div style={{ color: "rgba(0,0,0,0.3)", "font-size": "12px", "margin-top": "4px" }}>请检查网络连接后重试</div>
+      </div>
+      <button
+        style={{
+          margin: "12px auto 0",
+          padding: "6px 16px",
+          "font-size": "12px",
+          color: "#2563EB",
+          background: "rgba(37, 99, 235, 0.08)",
+          border: "none",
+          "border-radius": "4px",
+          cursor: "pointer",
+        }}
+        onClick={props.onRetry}
+      >
+        重新加载
+      </button>
+    </div>
+  )
+}
+
 export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [selectedDomainId, setSelectedDomainId] = createSignal(props.domain?.id)
   const [selectedProductLineId, setSelectedProductLineId] = createSignal(props.productLine?.id)
@@ -29,12 +73,12 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   const [hideClosed, setHideClosed] = createSignal(false)
   const [search, setSearch] = createSignal("")
 
-  const [searchResults] = createResource(() => search(), searchProducts)
+  const [searchResults] = createResource(() => search() || undefined, searchProducts)
   const isSearching = () => !!search()
 
-  const [domains] = createResource(fetchDomains)
-  const [productLines] = createResource(() => selectedDomainId(), fetchProductLines)
-  const [allProducts] = createResource(() => selectedProductLineId(), fetchProducts)
+  const [domains, { refetch: refetchDomains }] = createResource(fetchDomains)
+  const [productLines] = createResource(() => selectedDomainId() ?? undefined, fetchProductLines)
+  const [allProducts] = createResource(() => selectedProductLineId() ?? undefined, fetchProducts)
 
   createEffect(() => {
     const list = domains()
@@ -45,14 +89,28 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
   createEffect(() => {
     const list = productLines()
     if (!list?.length) return
-    if (!selectedProductLineId()) setSelectedProductLineId(list[0].id)
+    if (!list.some(item => item.id === selectedProductLineId())) setSelectedProductLineId(list[0].id)
   })
 
   const filteredProducts = () => {
     const list = allProducts() ?? []
-    let result = list
-    if (hideClosed()) result = result.filter((x) => !x.closed)
-    return result
+    if (hideClosed()) return list.filter((x) => !x.isEnd)
+    return list
+  }
+
+  const hasError = () => !!domains.error || !!productLines.error || !!allProducts.error
+
+  const safeDomains = () => {
+    try { return domains() ?? [] } catch { return [] }
+  }
+  const safeProductLines = () => {
+    try { return productLines() ?? [] } catch { return [] }
+  }
+  const safeAllProducts = () => {
+    try { return allProducts() ?? [] } catch { return [] }
+  }
+  const safeSearchResults = () => {
+    try { return searchResults() ?? [] } catch { return [] }
   }
 
   return (
@@ -119,106 +177,127 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
           </Show>
         </div>
       </div>
-      <Show when={isSearching()} fallback={
-        <div style={{ display: "flex"}}>
-          <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
-            <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>领域</div>
-            <div style={{ "max-height": "240px", overflow: "auto" }}>
-              <For each={domains() ?? []}>
-                {(item) => (
-                  <div
-                    classList={{ "panel-item": true, "panel-item-selected": item.id === selectedDomainId() }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (item.id === selectedDomainId()) return
-                      setSelectedDomainId(item.id)
-                      setSelectedProductLineId(undefined)
-                    }}
-                  >
-                    {item.label}
-                  </div>
-                )}
-              </For>
-            </div>
-          </div>
-          <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
-            <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品线</div>
-            <div style={{ "max-height": "240px", overflow: "auto" }}>
-              <For each={productLines() ?? []}>
-                {(item) => (
-                  <div
-                    classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductLineId() }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (item.id === selectedProductLineId()) return
-                      setSelectedProductLineId(item.id)
-                    }}
-                  >
-                    {item.label}
-                  </div>
-                )}
-              </For>
-            </div>
-          </div>
-          <div style={{ flex: "1", padding: "12px 8px" }}>
-            <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品</div>
-            <div style={{ "max-height": "240px", overflow: "auto" }}>
-              <For each={filteredProducts()}>
-                {(item) => (
-                  <div
-                    classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductId() }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      const domainItem = (domains() ?? []).find((d) => d.id === selectedDomainId())
-                      const productLineItem = (productLines() ?? []).find((pl) => pl.id === selectedProductLineId())
-                      props.onProductConfirm({
-                        domain: domainItem,
-                        productLine: productLineItem,
-                        product: item,
-                      })
-                    }}
-                  >
-                    {item.label}
-                  </div>
-                )}
-              </For>
-            </div>
-          </div>
-        </div>
-      }>
-        <div style={{ padding: "12px 8px", "max-height": "280px", overflow: "auto" }}>
-          <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>搜索结果</div>
-          <For each={searchResults() ?? []}>
-            {(result) => (
-              <div
-                classList={{ "panel-item": true, "panel-item-selected": result.product.id === selectedProductId() }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedDomainId(result.domain.id)
-                  setSelectedProductLineId(result.productLine.id)
-                  props.onProductConfirm({
-                    domain: result.domain,
-                    productLine: result.productLine,
-                    product: result.product,
-                  })
-                }}
-              >
-                <span style={{ color: "rgba(0,0,0,0.4)", "font-size": "12px" }}>{result.domain.label}</span>
-                <span style={{ color: "rgba(0,0,0,0.3)", "margin": "0 4px" }}>/</span>
-                <span style={{ color: "rgba(0,0,0,0.4)", "font-size": "12px" }}>{result.productLine.label}</span>
-                <span style={{ color: "rgba(0,0,0,0.3)", "margin": "0 4px" }}>/</span>
-                <span style={{ "font-weight": 500 }}>{result.product.label}</span>
+      <ErrorBoundary fallback={() => <ErrorContent onRetry={() => refetchDomains()} />}>
+        <Show when={isSearching()}>
+          <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
+            <Show when={safeSearchResults().length > 0} fallback={<div style={emptyHintStyle}>未找到匹配的产品</div>}>
+              <div style={{ padding: "12px 8px", "max-height": "280px", overflow: "auto" }}>
+                <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>搜索结果</div>
+                <For each={safeSearchResults()}>
+                  {(result) => (
+                    <div
+                      classList={{ "panel-item": true, "panel-item-selected": result.productId === selectedProductId() }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        fetchDomainInfoByProduct(result.productId).then((info) => {
+                          if (!info?.domain || !info?.subDomain || !info?.product) return
+                          setSelectedDomainId(info.domain.id)
+                          setSelectedProductLineId(info.subDomain.id)
+                          setSelectedProductId(info.product.id)
+                          props.onProductConfirm({
+                            domain: info.domain,
+                            productLine: info.subDomain,
+                            product: info.product,
+                          })
+                        }).catch(() => {})
+                      }}
+                    >
+                      {result.name}
+                    </div>
+                  )}
+                </For>
               </div>
-            )}
-          </For>
-          <Show when={(searchResults() ?? []).length === 0}>
-            <div style={{ padding: "16px 8px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" }}>
-              未找到匹配的产品
+            </Show>
+          </Suspense>
+        </Show>
+        <Show when={!isSearching()}>
+          <Show when={hasError()} fallback={
+            <div style={{ display: "flex" }}>
+              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
+                <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>领域</div>
+                <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
+                  <Show when={safeDomains().length > 0} fallback={<div style={emptyHintStyle}>暂无领域数据</div>}>
+                    <div style={{ "max-height": "240px", overflow: "auto" }}>
+                      <For each={safeDomains()}>
+                        {(item) => (
+                          <div
+                            classList={{ "panel-item": true, "panel-item-selected": item.id === selectedDomainId() }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (item.id === selectedDomainId()) return
+                              setSelectedDomainId(item.id)
+                              setSelectedProductLineId(undefined)
+                            }}
+                          >
+                            {item.name}
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </Suspense>
+              </div>
+              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
+                <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品线</div>
+                <Show when={selectedDomainId()} fallback={<div style={emptyHintStyle}>请先选择领域</div>}>
+                  <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
+                    <Show when={safeProductLines().length > 0} fallback={<div style={emptyHintStyle}>暂无产品线数据</div>}>
+                      <div style={{ "max-height": "240px", overflow: "auto" }}>
+                        <For each={safeProductLines()}>
+                          {(item) => (
+                            <div
+                              classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductLineId() }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (item.id === selectedProductLineId()) return
+                                setSelectedProductLineId(item.id)
+                              }}
+                            >
+                              {item.name}
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </Suspense>
+                </Show>
+              </div>
+              <div style={{ flex: "1", padding: "12px 8px" }}>
+                <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品</div>
+                <Show when={selectedProductLineId()} fallback={<div style={emptyHintStyle}>请先选择产品线</div>}>
+                  <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
+                    <Show when={safeAllProducts().length > 0 || filteredProducts().length > 0} fallback={<div style={emptyHintStyle}>暂无产品数据</div>}>
+                      <div style={{ "max-height": "240px", overflow: "auto" }}>
+                        <For each={filteredProducts()}>
+                          {(item) => (
+                            <div
+                              classList={{ "panel-item": true, "panel-item-selected": item.id === selectedProductId() }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const domainItem = safeDomains().find((d) => d.id === selectedDomainId())
+                                const productLineItem = safeProductLines().find((pl) => pl.id === selectedProductLineId())
+                                props.onProductConfirm({
+                                  domain: domainItem,
+                                  productLine: productLineItem,
+                                  product: item,
+                                })
+                              }}
+                            >
+                              {item.name}
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </Suspense>
+                </Show>
+              </div>
             </div>
+          }>
+            <ErrorContent onRetry={() => refetchDomains()} />
           </Show>
-        </div>
-      </Show>
+        </Show>
+      </ErrorBoundary>
     </div>
   )
 }
-

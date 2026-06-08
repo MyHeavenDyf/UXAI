@@ -1035,7 +1035,10 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   })
 
   const metaHead = createMemo(() => {
-    const agent = props.message.agent
+    let agent = props.message.agent
+    if (agent === 'octo_ai') {
+      agent = 'Octo_Agent'
+    }
     const items = [agent ? agent[0]?.toUpperCase() + agent.slice(1) : "", model()]
     return items.filter((x) => !!x).join("\u00A0\u00B7\u00A0")
   })
@@ -1438,7 +1441,10 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
 
   const meta = createMemo(() => {
     if (props.message.role !== "assistant") return ""
-    const agent = (props.message as AssistantMessage).agent
+    let agent = (props.message as AssistantMessage).agent
+    if (agent === 'octo_ai') {
+      agent = 'Octo_Agent'
+    }
     const items = [
       agent ? agent[0]?.toUpperCase() + agent.slice(1) : "",
       model(),
