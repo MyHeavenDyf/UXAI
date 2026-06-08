@@ -1,4 +1,6 @@
 import "./octo-tokens.css"
+import "./components/starter-cards.css"
+import { FEATURED_STARTERS } from "./utils/starter-prompts"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
@@ -987,6 +989,27 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         aria-label={isBusy() ? "停止生成" : undefined}
                       />
                     </div>
+                  </div>
+                  
+                  {/* Starter Cards */}
+                  <div class="starter-cards" role="list">
+                    <For each={FEATURED_STARTERS}>
+                      {(starter, i) => (
+                        <button
+                          type="button"
+                          role="listitem"
+                          class="starter-card"
+                          style={{ "animation-delay": `${i() * 70}ms` }}
+                          onClick={() => setPrompt(starter.prompt)}
+                          title="点击填充到输入框"
+                        >
+                          <span class="starter-card-icon" aria-hidden>
+                            {starter.icon}
+                          </span>
+                          <span class="starter-card-title">{starter.title}</span>
+                        </button>
+                      )}
+                    </For>
                   </div>
                 </div>
               </div>

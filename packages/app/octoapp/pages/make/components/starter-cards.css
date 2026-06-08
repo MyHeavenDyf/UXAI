@@ -1,0 +1,113 @@
+.starter-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  max-width: 800px;
+  margin-top: 16px;
+}
+
+.starter-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-lg);
+  box-shadow: var(--octo-shadow-xs);
+  color: var(--octo-text-primary);
+  font: inherit;
+  overflow: hidden;
+  transition:
+    transform var(--octo-dur-normal) var(--octo-ease),
+    border-color var(--octo-dur-normal) var(--octo-ease),
+    box-shadow var(--octo-dur-normal) var(--octo-ease),
+    background-color var(--octo-dur-normal) var(--octo-ease);
+  opacity: 0;
+  animation: starter-card-in 380ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.starter-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    var(--octo-brand-a8) 0%,
+    transparent 55%
+  );
+  opacity: 0;
+  transition: opacity var(--octo-dur-normal) var(--octo-ease);
+  pointer-events: none;
+}
+
+.starter-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--octo-brand);
+  box-shadow: var(--octo-shadow-md);
+  background: var(--octo-surface-page);
+}
+
+.starter-card:hover::before {
+  opacity: 1;
+}
+
+.starter-card:active {
+  transform: translateY(0);
+}
+
+.starter-card:focus-visible {
+  outline: 2px solid var(--octo-brand);
+  outline-offset: 2px;
+}
+
+@keyframes starter-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.starter-card-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--octo-radius-md);
+  background: var(--octo-brand);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.starter-card-title {
+  font-weight: 600;
+  color: var(--octo-text-strong);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.starter-card-tag {
+  display: none;
+}
+
+.starter-card-prompt {
+  display: none;
+}
+
+.starter-card-cta {
+  display: none;
+}
