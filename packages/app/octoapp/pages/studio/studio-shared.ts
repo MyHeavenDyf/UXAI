@@ -16,7 +16,7 @@ export type StudioPendingResult = StudioGenerationResult & {
   sourceImage?: string
 }
 
-export type StudioHDMode = "restoration_8k" | "restoration" | "super_restoration"
+export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"
 export type StudioInpaintMode = "qwen_image_edit" | "erase"
 export type StudioVideoDuration = "5" | "10"
 export type StudioVideoQualityMode = "std" | "pro"
@@ -25,7 +25,7 @@ export type StudioVideoFrameSlot = "first" | "last"
 export const STUDIO_HD_MODES = [
   { label: "8k超清", value: "restoration_8k" },
   { label: "4k清晰", value: "restoration" },
-  { label: "2k性能", value: "super_restoration" },
+  { label: "2k性能", value: "super_resolution" },
 ] satisfies { label: string; value: StudioHDMode }[]
 
 export const STUDIO_VIDEO_ASPECT_RATIOS = ["1:1", "9:16", "16:9"] as const

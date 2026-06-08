@@ -988,7 +988,7 @@ async function buildUpscaleRequestBody(input: ImageGenerateInput, context: Inter
     task_type: "magnify",
     args: {
       mode:
-        mode === "restoration_8k" || mode === "restoration" || mode === "super_restoration"
+        mode === "restoration_8k" || mode === "restoration" || mode === "super_resolution"
           ? mode
           : "restoration",
       image_base64: await getSourceImageDataUrl(input),
