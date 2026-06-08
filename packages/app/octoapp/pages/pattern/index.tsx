@@ -1,6 +1,5 @@
 import "./pattern-tokens.css"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
-import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -38,11 +37,12 @@ import { DesignSystemPicker } from "./components/design-system-picker"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { loadDesignSystem } from "./utils/design-system-loader"
-import { buildIntentPrompt, buildModulePrompt, detectCatalog, detectA2UIJson, extractIntentJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 
 const AGENT_NAME = "octo_pattern_intent"
-const AGENT_MODULE = "octo_pattern_module"
+const PROTO_INTENT = "proto_intent"
+const PROTO_INTENT_AUDIT = "proto_intent_audit"
+const PROTO_PLANNER_CREATE = "proto_planner_create"
 
 export default function PatternPage() {
   const globalSync = useGlobalSync()
@@ -182,7 +182,7 @@ function PatternContent() {
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
-  const [phase, setPhase] = createSignal<"idle" | "intent" | "module">("idle")
+  const [phase, setPhase] = createSignal<"idle" | "intent" | "audit" | "planner" | "module">("idle")
   const [detectedCatalog, setDetectedCatalog] = createSignal<ComponentCatalog>("desktop")
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
@@ -272,140 +272,146 @@ function PatternContent() {
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
   }
 
-  createEffect(() => {
-    const id = params.id
-    if (!id) return
-    const messages = (sync.data.message[id] ?? []) as Message[]
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.role !== "assistant") continue
-      const parts = (sync.data.part[msg.id] ?? []) as Array<{ type: string; text?: string }>
-      for (const p of [...parts].reverse()) {
-        if (p.type !== "text") continue
-        const doc = detectA2UIJson(p.text ?? "")
-        if (doc) { sendToPreview(doc); return }
-      }
-    }
-  })
-
-  function findIntentFromMessages(sessionId: string): Record<string, unknown> | null {
+  function getLastAssistantText(sessionId: string): string | null {
     const messages = (sync.data.message[sessionId] ?? []) as Message[]
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
       if (msg.role !== "assistant") continue
       const parts = (sync.data.part[msg.id] ?? []) as Array<{ type: string; text?: string }>
       for (const p of [...parts].reverse()) {
-        if (p.type !== "text") continue
-        const intent = extractIntentJson(p.text ?? "")
-        if (intent) return intent
+        if (p.type === "text" && p.text) return p.text
       }
     }
     return null
   }
 
-  createEffect(() => {
-    const status = sessionStatus().type
-    const currentPhase = phase()
-    if (status !== "idle" || currentPhase !== "intent") return
-    const sessionId = params.id
-    if (!sessionId) return
-    const timer = setTimeout(() => {
-      const intent = findIntentFromMessages(sessionId)
-      if (intent) {
-        void sendModulePrompt(sessionId, intent)
-      } else {
-        setPhase("idle")
-        setSending(false)
-      }
-    }, 800)
-    onCleanup(() => clearTimeout(timer))
-  })
-
-  createEffect(() => {
-    const status = sessionStatus().type
-    if (status !== "idle" || phase() !== "module") return
-    setPhase("idle")
-    setSending(false)
-  })
-
-  async function sendIntentPrompt(sessionId: string, text: string) {
-    const catalog = detectCatalog(text)
-    setDetectedCatalog(catalog)
-    const intentPrompt = buildIntentPrompt({ query: text, catalog })
-    const fileParts: FilePartInput[] = attachments().map((a) => ({
-      type: "file",
-      mime: a.mime,
-      filename: a.filename,
-      url: a.dataUrl,
-    }))
-    const textPart: TextPartInput = { type: "text", text: intentPrompt }
-    const modelKey = activeModelKey()
-    if (!modelKey) return
-    await sdk.client.session.prompt({
-      sessionID: sessionId,
-      agent: AGENT_NAME,
-      ...(modelKey ? { model: modelKey } : {}),
-      parts: [textPart, ...fileParts],
-    })
-    setAttachments([])
+  function extractJsonFromText(text: string): Record<string, unknown> | null {
+    try {
+      const raw = text.includes("```json")
+        ? text.match(/```json\s*\n([\s\S]*?)\n?```/)?.[1] ?? text
+        : text
+      const parsed = JSON.parse(raw.trim())
+      if (parsed && typeof parsed === "object") return parsed
+    } catch {}
+    return null
   }
 
-  async function sendModulePrompt(sessionId: string, intentJson: Record<string, unknown>) {
-    setPhase("module")
-    let designPrompt: string | undefined
-    const dsId = selectedDesignSystem()
-    if (dsId) {
+  async function waitForAssistant(sessionId: string, signal: AbortSignal): Promise<string> {
+    while (!signal.aborted) {
+      await new Promise((r) => setTimeout(r, 2000))
+      if (signal.aborted) throw new Error("aborted")
       try {
-        const ds = await loadDesignSystem(dsId)
-        designPrompt = [
-          `## DESIGN.md (authoritative visual rules)`,
-          ds.design,
-          ``,
-          `## :root tokens (paste verbatim into <style>)`,
-          "```css",
-          ds.tokens,
-          "```",
-        ].join("\n")
+        const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 10 })
+        const items = res.data as Array<{ info: Message; parts: Part[] }> | undefined
+        if (!items) continue
+        for (let i = items.length - 1; i >= 0; i--) {
+          const msg = items[i].info
+          if (msg.role !== "assistant") continue
+          if (msg.time.completed == null) continue
+          const parts = items[i].parts
+          for (let j = parts.length - 1; j >= 0; j--) {
+            // @ts-ignore
+            if (parts[j].type === "text" && parts[j].text) return parts[j].text
+          }
+        }
       } catch (err) {
-        console.error("[PatternPage] design system load failed", err)
+        console.warn("[Pattern] poll error:", err)
       }
     }
-    const modulePromptText = buildModulePrompt({
-      intentJson,
-      catalog: detectedCatalog(),
-      designSystemPrompt: designPrompt,
-    })
-    const textPart: TextPartInput = { type: "text", text: modulePromptText }
+    throw new Error("aborted")
+  }
+
+  async function callSubAgent(parentSid: string, agentName: string, promptText: string, signal: AbortSignal): Promise<string> {
     const modelKey = activeModelKey()
-    if (!modelKey) return
-    await sdk.client.session.prompt({
-      sessionID: sessionId,
-      agent: AGENT_MODULE,
-      ...(modelKey ? { model: modelKey } : {}),
-      parts: [textPart],
+    if (!modelKey) throw new Error("no model")
+
+    const childResult = await sdk.client.session.create({
+      directory: sdk.directory!,
+      parentID: parentSid,
+      agent: agentName,
     })
+    const childSession = childResult.data as Session | undefined
+    if (!childSession) throw new Error("failed to create child session")
+
+    await sdk.client.session.promptAsync({
+      sessionID: childSession.id,
+      agent: agentName,
+      ...(modelKey ? { model: modelKey } : {}),
+      parts: [{ type: "text", text: promptText }],
+    })
+
+    const text = await waitForAssistant(childSession.id, signal)
+    return text
   }
 
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
+    console.log("开始--------------------", text)
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
+    const controller = new AbortController()
     try {
       let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
-        if (!dir) return
+        if (!dir) { console.log("[Pattern] no directory, abort"); return }
         const result = await sdk.client.session.create({ directory: dir, agent: AGENT_NAME })
         const session = result.data as Session | undefined
-        if (!session) return
+        if (!session) { console.log("[Pattern] session.create returned no session"); return }
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
+
+      const existing = sessionInfo()?.title
+      if (!existing || existing.startsWith("New session")) {
+        await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => {})
+      }
+
+      // ── Step 1: proto_intent → 生成蓝图 ──
       setPhase("intent")
-      await sendIntentPrompt(sid, text)
-    } catch (err) {
+      const intentPromptText = `
+      [用户需求:] ==================================
+      ${text}
+
+      请开始意图扩展。`
+      console.log("[Pattern] calling proto_intent...")
+      const intentRaw = await callSubAgent(sid, PROTO_INTENT, intentPromptText, controller.signal)
+      console.log('proto_intent-----------1', intentRaw)
+
+      // ── Step 2: proto_intent_audit → 审核蓝图 ──
+      setPhase("audit")
+      const auditPromptText = `
+      [用户的原始需求:] ==================================
+      ${text}
+      
+      [需要评审的蓝图:] ==================================
+      ${intentRaw}
+
+      请开始审计，若发现任何不一致，请指出。`
+      console.log("[Pattern] calling proto_intent_audit...")
+      const auditRaw = await callSubAgent(sid, PROTO_INTENT_AUDIT, auditPromptText, controller.signal)
+      console.log('proto_intent_audit--------2', auditRaw)
+
+      // ── Step 3: proto_planner_create → 生成布局 ──
+      setPhase("planner")
+      const plannerPromptText = `
+      请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：
+      
+      【Page Blue_print】: ================================= 
+      
+      ${text}
+      
+      `
+      console.log("[Pattern] calling proto_planner_create...")
+      const plannerRaw = await callSubAgent(sid, PROTO_PLANNER_CREATE, plannerPromptText, controller.signal)
+      console.log('proto_planner_create--------3', plannerRaw)
+
+      setPhase("idle")
+      console.log("结束---------------")
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
       setPhase("idle")
     } finally {
