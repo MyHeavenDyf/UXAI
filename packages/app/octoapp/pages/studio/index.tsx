@@ -26,7 +26,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
-import { useServer } from "@/context/server"
+import { useServer, ServerConnection } from "@/context/server"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import IllustrationInsightEmpty from "./IllustrationInsightEmpty.svg"
 import {
@@ -250,7 +250,7 @@ export default function StudioPage() {
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
-  const [wordBook] = createResource<MaterialWordBook[]>(
+  const [wordBook] = createResource<MaterialWordBook[], ServerConnection.Any>(
     () => server.current,
     async (current) => {
       const headers: Record<string, string> = {
