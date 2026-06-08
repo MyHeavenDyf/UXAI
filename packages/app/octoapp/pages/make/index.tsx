@@ -52,13 +52,12 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 
 export default function MakePage() {
-  const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
+  const dir = useProjectDir()
 
   return (
-    <Show when={homeDir()} keyed>
-      {(dir) => (
-        <SDKProvider directory={() => dir}>
+    <Show when={dir()} keyed>
+      {(directory) => (
+        <SDKProvider directory={() => directory}>
           <SyncProvider>
             <LocalProvider>
               <MakeContent />
