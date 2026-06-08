@@ -8,6 +8,7 @@ interface ProjectProductSelectProps {
   domain?: Domain
   productLine?: ProductLine
   product?: Product
+  disabled?: boolean
   onProductConfirm?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product }) => void
 }
 
@@ -25,7 +26,7 @@ export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Elem
   return (
     <Popover
       open={popoverOpen()}
-      onOpenChange={setPopoverOpen}
+      onOpenChange={(open) => { if (!props.disabled) setPopoverOpen(open) }}
       trigger={
         <>
           <span style={{ flex: "1", "text-align": "left", "min-width": "0", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{selectedLabel()}</span>
@@ -41,17 +42,18 @@ export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Elem
           height: "40px",
           "font-size": "14px",
           "line-height": "22px",
-          color: "#191919",
-          background: "white",
+          color: props.disabled ? "rgba(0,0,0,0.3)" : "#191919",
+          background: props.disabled ? "rgba(0,0,0,0.04)" : "white",
           border: "1px solid rgba(0,0,0,0.15)",
           "border-radius": "8px",
           padding: "0 12px",
-          cursor: "pointer",
+          cursor: props.disabled ? "not-allowed" : "pointer",
           display: "inline-flex",
           "justify-content": "flex-start",
           "align-items": "center",
           gap: "4px",
         },
+        ...(props.disabled ? { disabled: true } : {}),
       }}
       placement="bottom-start"
       style={{
