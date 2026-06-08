@@ -1336,10 +1336,10 @@ ${bodies}
       </Show>
 
       {/* 阻塞提示 — 渐进式显示 */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 30}>
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
         {(() => {
           const bt = props.blockTime!
-          const isWarning = bt >= 60
+          const isWarning = bt >= 80
           return (
             <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",
