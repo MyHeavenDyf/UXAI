@@ -16,11 +16,19 @@ import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
-import PROMPT_OCTO_PATTERN from "./prompt/octo_pattern.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
+import {
+  PROMPT_PROTO_INTENT,
+  PROMPT_PROTO_INTENT_AUDIT,
+  PROMPT_PROTO_MODULE_CREATE,
+  PROMPT_PROTO_MODULE_MODIFY,
+  PROMPT_PROTO_PLANNER_CREATE,
+  PROMPT_PROTO_PLANNER_MODIFY,
+  PROMPT_PROTO_TRIAGE,
+} from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -77,7 +85,7 @@ export interface Interface {
 
 type State = Omit<Interface, "generate">
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") { }
 
 export const layer = Layer.effect(
   Service,
@@ -101,6 +109,7 @@ export const layer = Layer.effect(
         const defaults = Permission.fromConfig({
           "*": "allow",
           doom_loop: "ask",
+          load_components_docs: "deny",
           external_directory: {
             "*": "ask",
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
@@ -261,24 +270,14 @@ export const layer = Layer.effect(
             native: false,
             skills: ["creative-assets"],
           },
-          octo_pattern: {
-            name: "octo_pattern",
-            description: "A2UI generative UI specialist. Produces structured A2UI JSON documents describing complete user interfaces.",
-            prompt: PROMPT_OCTO_PATTERN,
-            permission: Permission.merge(defaults, user),
-            options: {},
-            mode: "primary",
-            native: false,
-          },
           octo_pattern_intent: {
             name: "octo_pattern_intent",
-            description: "Pattern intent expansion agent. Analyzes user requirements and generates structured Pattern description blueprints.",
+            description: "A2UI generative UI specialist. Analyzes user requirements, expands into structured blueprints, and produces A2UI JSON documents.",
             prompt: PROMPT_OCTO_PATTERN_INTENT,
             permission: Permission.merge(defaults, user),
             options: {},
             mode: "primary",
             native: false,
-            hidden: true,
           },
           octo_pattern_module: {
             name: "octo_pattern_module",
@@ -335,6 +334,82 @@ export const layer = Layer.effect(
               user,
             ),
             prompt: PROMPT_SUMMARY,
+          },
+          proto_intent: {
+            name: "proto_intent",
+            description: "Proto intent specialist agent.",
+            prompt: PROMPT_PROTO_INTENT,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.2,
+          },
+          proto_intent_audit: {
+            name: "proto_intent_audit",
+            description: "Proto intent audit agent.",
+            prompt: PROMPT_PROTO_INTENT_AUDIT,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.4,
+          },
+          proto_module_create: {
+            name: "proto_module_create",
+            description: "Proto module create agent.",
+            prompt: PROMPT_PROTO_MODULE_CREATE,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({ load_components_docs: "allow" }),
+            ),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
+          },
+          proto_module_modify: {
+            name: "proto_module_modify",
+            description: "Proto module modify agent.",
+            prompt: PROMPT_PROTO_MODULE_MODIFY,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({ load_components_docs: "allow" }),
+            ),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
+          },
+          proto_planner_create: {
+            name: "proto_planner_create",
+            description: "Proto planner create agent.",
+            prompt: PROMPT_PROTO_PLANNER_CREATE,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
+          },
+          proto_planner_modify: {
+            name: "proto_planner_modify",
+            description: "Proto planner modify agent.",
+            prompt: PROMPT_PROTO_PLANNER_MODIFY,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
+          },
+          proto_triage: {
+            name: "proto_triage",
+            description: "Proto triage agent.",
+            prompt: PROMPT_PROTO_TRIAGE,
+            permission: defaults,
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
           },
         }
 
@@ -471,11 +546,11 @@ export const layer = Layer.effect(
             ...(isOpenaiOauth
               ? []
               : system.map(
-                  (item): ModelMessage => ({
-                    role: "system",
-                    content: item,
-                  }),
-                )),
+                (item): ModelMessage => ({
+                  role: "system",
+                  content: item,
+                }),
+              )),
             {
               role: "user",
               content: `Create an agent configuration based on this request: "${input.description}".\n\nIMPORTANT: The following identifiers already exist and must NOT be used: ${existing.map((i) => i.name).join(", ")}\n  Return ONLY the JSON object, no other text, do not wrap in backticks`,
@@ -497,7 +572,7 @@ export const layer = Layer.effect(
                 instructions: system.join("\n"),
                 store: false,
               }),
-              onError: () => {},
+              onError: () => { },
             })
             for await (const part of result.fullStream) {
               if (part.type === "error") throw part.error

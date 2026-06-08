@@ -1,0 +1,1 @@
+var e={state:{},rootId:`icon-root`,elements:[]};export{e as default};
