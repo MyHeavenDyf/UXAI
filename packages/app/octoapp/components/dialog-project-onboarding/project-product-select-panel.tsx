@@ -256,7 +256,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
         <Show when={!isSearching()}>
           <Show when={hasError()} fallback={
             <div style={{ display: "flex" }}>
-              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
+              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "0px 8px 0 0" }}>
                 <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>领域</div>
                 <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
                   <Show when={safeDomains().length > 0} fallback={<div style={emptyHintStyle}>暂无领域数据</div>}>
@@ -280,7 +280,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                   </Show>
                 </Suspense>
               </div>
-              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "12px 8px" }}>
+              <div style={{ flex: "1", "border-right": "1px solid rgba(0,0,0,0.08)", padding: "0 8px" }}>
                 <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品线</div>
                 <Show when={selectedDomainId()} fallback={<div style={emptyHintStyle}>请先选择领域</div>}>
                   <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
@@ -305,7 +305,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                   </Suspense>
                 </Show>
               </div>
-              <div style={{ flex: "1", padding: "12px 8px" }}>
+              <div style={{ flex: "1", padding: "0 0 0 8px" }}>
                 <div style={{ "font-size": "13px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>产品</div>
                 <Show when={selectedProductLineId()} fallback={<div style={emptyHintStyle}>请先选择产品线</div>}>
                   <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
