@@ -26,7 +26,6 @@ export function ProjectProductSelect(props: ProjectProductSelectProps): JSX.Elem
   return (
     <Popover
       open={popoverOpen()}
-      onOpenChange={setPopoverOpen}
       onOpenChange={(open) => { if (!props.disabled) setPopoverOpen(open) }}
       trigger={
         <>
