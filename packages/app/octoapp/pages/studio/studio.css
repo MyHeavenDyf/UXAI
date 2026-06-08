@@ -2524,17 +2524,16 @@
   gap: 0;
   margin-bottom: 0;
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   margin-bottom: 8px;
 }
 
 .studio-material-cat-btn {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   color: #858587;
   padding: 0 10px;
-  height: 18px;
-  line-height: 18px;
+  height: 22px;
+  line-height: 22px;
   border-radius: 3px;
   transition: color 0.15s;
   white-space: nowrap;
@@ -2554,39 +2553,34 @@
 }
 
 .studio-material-section-label {
-  font-size: 11px;
-  line-height: 16px;
-  color: #858587;
+  font-size: 14px;
+  line-height: 22px;
+  color: #777;
   font-weight: 500;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .studio-material-subcategories {
   display: flex;
-  gap: 6px;
+  gap: 16px;
   margin-bottom: 8px;
 }
 
 .studio-material-sub-btn {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   color: #858587;
-  padding: 0 12px;
-  height: 26px;
-  line-height: 26px;
-  border-radius: 100px;
-  background: #f4f4f5;
-  transition: background 0.15s, color 0.15s;
+  height: 22px;
+  line-height: 22px;
+  background: #fff;
 }
 
 .studio-material-sub-btn.active {
-  background: #191919;
-  color: #fff;
+  color: #191919;
 }
 
 .studio-material-sub-btn:hover:not(.active) {
-  background: #e8e8e9;
-  color: #333;
+  color: #191919;
 }
 
 .studio-material-tags {
