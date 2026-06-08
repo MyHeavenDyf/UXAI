@@ -147,9 +147,9 @@ function buildSharedHeader(sharedDefs: Record<string, JsonSchema>): string {
 function compactSchema(schema: JsonSchema, sharedDefs: Record<string, JsonSchema>): string {
   const title = (schema.title as string) ?? "Unknown"
   const description = (schema.description as string) ?? ""
-  const props = (schema.properties?.props?.properties ?? {}) as Record<string, JsonSchema>
-  const requiredProps = (schema.properties?.props?.required as string[]) ?? []
-  const children = schema.properties?.children as JsonSchema | undefined
+  const props = ((schema.properties as Record<string, unknown>)?.props as Record<string, unknown>)?.properties as Record<string, JsonSchema> | undefined ?? {}
+  const requiredProps = (((schema.properties as Record<string, unknown>)?.props as Record<string, unknown>)?.required as string[]) ?? []
+  const children = (schema.properties as Record<string, unknown>)?.children as JsonSchema | undefined
   const defs = getDefs(schema)
 
   const parts: string[] = []
@@ -212,7 +212,8 @@ export const LoadComponentsDocsTool = Tool.define(
       parameters: Parameters,
       execute: (params, ctx) =>
         Effect.gen(function* () {
-          const expanded = expandComponents(params.components)
+          const { components } = params as { components: string[] }
+          const expanded = expandComponents(components)
 
           const validComps: string[] = []
           const apiSchemas: JsonSchema[] = []
