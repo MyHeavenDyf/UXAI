@@ -1,0 +1,191 @@
+{
+  "uiJson": {
+    "state": {
+      "welcomeMessage": "早上好，欢迎回来 👋",
+      "searchPlaceholder": "搜索卡片、项目或用户...",
+      "notificationConfig": {
+        "bellIcon": "Bell",
+        "unreadCount": 5,
+        "notificationTooltip": "你有 5 条未读通知"
+      },
+      "userInfo": {
+        "avatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
+        "userName": "张明",
+        "userRole": "高级产品经理"
+      }
+    },
+    "rootId": "pageHeaderSection",
+    "elements": [
+      {
+        "id": "pageHeaderSection",
+        "component": "header",
+        "props": {
+          "className": "bg-surface-container-highest shadow-sm"
+        },
+        "children": [
+          "pgHdrInner"
+        ]
+      },
+      {
+        "id": "pgHdrInner",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between h-12 px-page"
+        },
+        "children": [
+          "pgHdrLeft",
+          "pgHdrCenter",
+          "pgHdrRight"
+        ]
+      },
+      {
+        "id": "pgHdrLeft",
+        "component": "div",
+        "props": {
+          "className": "flex items-center shrink-0"
+        },
+        "children": [
+          "pgHdrWelcome"
+        ]
+      },
+      {
+        "id": "pgHdrWelcome",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-semibold text-on-surface whitespace-nowrap",
+          "value": {
+            "path": "/welcomeMessage"
+          }
+        }
+      },
+      {
+        "id": "pgHdrCenter",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex justify-center px-6"
+        },
+        "children": [
+          "pgHdrSearch"
+        ]
+      },
+      {
+        "id": "pgHdrSearch",
+        "component": "Input",
+        "props": {
+          "placeholder": {
+            "path": "/searchPlaceholder"
+          },
+          "prefix": "Search",
+          "size": "small",
+          "className": "w-96 bg-surface-variant rounded-lg border-none",
+          "allowClear": true
+        }
+      },
+      {
+        "id": "pgHdrRight",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4 shrink-0"
+        },
+        "children": [
+          "pgHdrNotificationWrap",
+          "pgHdrUserWrap"
+        ]
+      },
+      {
+        "id": "pgHdrNotificationWrap",
+        "component": "div",
+        "props": {
+          "className": "flex items-center",
+          "title": {
+            "path": "/notificationConfig/notificationTooltip"
+          }
+        },
+        "children": [
+          "pgHdrBadge"
+        ]
+      },
+      {
+        "id": "pgHdrBadge",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/notificationConfig/unreadCount"
+          },
+          "size": "small"
+        },
+        "children": [
+          "pgHdrBellBtn"
+        ]
+      },
+      {
+        "id": "pgHdrBellBtn",
+        "component": "Button",
+        "props": {
+          "type": "text",
+          "icon": "Bell",
+          "shape": "circle",
+          "size": "middle"
+        }
+      },
+      {
+        "id": "pgHdrUserWrap",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "pgHdrAvatar",
+          "pgHdrUserInfo"
+        ]
+      },
+      {
+        "id": "pgHdrAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/userInfo/avatarImage"
+          },
+          "alt": {
+            "path": "/userInfo/userName"
+          },
+          "className": "w-8 h-8 rounded-full object-cover shrink-0"
+        }
+      },
+      {
+        "id": "pgHdrUserInfo",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "pgHdrUserName",
+          "pgHdrUserRole"
+        ]
+      },
+      {
+        "id": "pgHdrUserName",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface leading-tight",
+          "value": {
+            "path": "/userInfo/userName"
+          }
+        }
+      },
+      {
+        "id": "pgHdrUserRole",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant leading-tight",
+          "value": {
+            "path": "/userInfo/userRole"
+          }
+        }
+      }
+    ]
+  },
+  "sectionId": "pageHeader",
+  "elementId": "pageHeaderSection",
+  "idPrefix": "pgHdr"
+}

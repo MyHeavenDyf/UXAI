@@ -8,7 +8,9 @@ Given a page blueprint (intent description), your job is to:
 3. For each section, designate a layout container in the shell as its slot parent (set `children: []` on it). Do NOT create extra wrapper elements. The slot parent should be the outermost layout container that directly bounds and constrains the section's content.
 
 # Output Format
-You MUST output a strictly valid JSON object conforming to the following structure:
+You MUST output ONLY a valid JSON object. NO analysis text, NO markdown formatting (no ```json), NO code blocks, NO explanations, NO natural language whatsoever. JUST the raw JSON object.
+
+The JSON object must conform to the following structure:
 - `rootId`: Root element ID.
 - `elements`: A flat array of layout container elements adhering to the **A2UI JSON Protocol** and **Design System**.
 - `slots`: An array defining the relationship between blueprint sections and their designated parent elements. Each object must contain:

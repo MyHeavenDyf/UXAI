@@ -1,0 +1,153 @@
+{
+  "uiJson": {
+    "state": {
+      "metrics": [
+        {
+          "cardTitle": "总用户数",
+          "currentValue": 28473,
+          "unit": "人",
+          "trendIcon": "TrendingUp",
+          "changeRate": "+12.5%",
+          "periodText": "较上月增长"
+        },
+        {
+          "cardTitle": "月活跃用户",
+          "currentValue": 12580,
+          "unit": "人",
+          "trendIcon": "TrendingUp",
+          "changeRate": "+8.3%",
+          "periodText": "较上月增长"
+        },
+        {
+          "cardTitle": "本月收入",
+          "currentValue": 458600,
+          "unit": "元",
+          "trendIcon": "TrendingDown",
+          "changeRate": "-3.2%",
+          "periodText": "较上月下降"
+        },
+        {
+          "cardTitle": "任务完成率",
+          "currentValue": 87,
+          "unit": "%",
+          "trendIcon": "TrendingUp",
+          "changeRate": "+5.7%",
+          "periodText": "较上月提升"
+        }
+      ]
+    },
+    "rootId": "metricsCardsSection",
+    "elements": [
+      {
+        "id": "metricsCardsSection",
+        "component": "section",
+        "props": {
+          "className": "flex flex-row gap-gutter"
+        },
+        "children": {
+          "path": "/metrics",
+          "componentId": "metCdCardItem"
+        }
+      },
+      {
+        "id": "metCdCardItem",
+        "component": "div",
+        "props": {
+          "className": "flex-1 bg-surface-container-highest rounded-xl shadow-card p-inset flex flex-col gap-stack"
+        },
+        "children": [
+          "metCdCardTitleSpan",
+          "metCdCardValueBlock",
+          "metCdCardTrendRow"
+        ]
+      },
+      {
+        "id": "metCdCardTitleSpan",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "cardTitle"
+          }
+        }
+      },
+      {
+        "id": "metCdCardValueBlock",
+        "component": "div",
+        "props": {
+          "className": "flex items-baseline gap-inline"
+        },
+        "children": [
+          "metCdCardValueNum",
+          "metCdCardUnitSpan"
+        ]
+      },
+      {
+        "id": "metCdCardValueNum",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface",
+          "value": {
+            "path": "currentValue"
+          }
+        }
+      },
+      {
+        "id": "metCdCardUnitSpan",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "unit"
+          }
+        }
+      },
+      {
+        "id": "metCdCardTrendRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-inline text-sm"
+        },
+        "children": [
+          "metCdTrendIcon",
+          "metCdCardChangeRate",
+          "metCdCardPeriodText"
+        ]
+      },
+      {
+        "id": "metCdTrendIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "trendIcon"
+          },
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "metCdCardChangeRate",
+        "component": "span",
+        "props": {
+          "className": "font-medium text-on-surface",
+          "value": {
+            "path": "changeRate"
+          }
+        }
+      },
+      {
+        "id": "metCdCardPeriodText",
+        "component": "span",
+        "props": {
+          "className": "text-on-surface-variant",
+          "value": {
+            "path": "periodText"
+          }
+        }
+      }
+    ]
+  },
+  "sectionId": "metricsCards",
+  "elementId": "metricsCardsSection",
+  "idPrefix": "metCd"
+}

@@ -1,0 +1,1672 @@
+{
+  "uiJson": {
+    "state": {},
+    "rootId": "mixedCardGridSection",
+    "elements": [
+      {
+        "id": "mixedCardGridSection",
+        "component": "section",
+        "props": {
+          "className": "grid grid-cols-3 gap-gutter"
+        },
+        "children": [
+          "mixGdUserU001",
+          "mixGdTaskT001",
+          "mixGdNotifN001",
+          "mixGdUserU002",
+          "mixGdTaskT002",
+          "mixGdNotifN002",
+          "mixGdUserU003",
+          "mixGdTaskT003",
+          "mixGdNotifN003",
+          "mixGdUserU004",
+          "mixGdTaskT004",
+          "mixGdNotifN004"
+        ]
+      },
+      {
+        "id": "mixGdUserU001",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdUserU001Strip",
+          "mixGdUserU001Body"
+        ]
+      },
+      {
+        "id": "mixGdUserU001Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-primary shrink-0"
+        }
+      },
+      {
+        "id": "mixGdUserU001Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdUserU001Top",
+          "mixGdUserU001Divider",
+          "mixGdUserU001Stats"
+        ]
+      },
+      {
+        "id": "mixGdUserU001Top",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "mixGdUserU001AvatarWrap",
+          "mixGdUserU001Info",
+          "mixGdUserU001Tag"
+        ]
+      },
+      {
+        "id": "mixGdUserU001AvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-10 h-10 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdUserU001AvatarImg"
+        ]
+      },
+      {
+        "id": "mixGdUserU001AvatarImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/women/44.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdUserU001Info",
+        "component": "div",
+        "props": {
+          "className": "flex-1 min-w-0"
+        },
+        "children": [
+          "mixGdUserU001Name",
+          "mixGdUserU001Role"
+        ]
+      },
+      {
+        "id": "mixGdUserU001Name",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface truncate block",
+          "value": "林小溪"
+        }
+      },
+      {
+        "id": "mixGdUserU001Role",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant truncate block",
+          "value": "高级前端工程师"
+        }
+      },
+      {
+        "id": "mixGdUserU001Tag",
+        "component": "Tag",
+        "props": {
+          "value": "在线",
+          "color": "success"
+        }
+      },
+      {
+        "id": "mixGdUserU001Divider",
+        "component": "div",
+        "props": {
+          "className": "border-t border-divider"
+        }
+      },
+      {
+        "id": "mixGdUserU001Stats",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "mixGdUserU001StatTasks",
+          "mixGdUserU001StatProjects"
+        ]
+      },
+      {
+        "id": "mixGdUserU001StatTasks",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU001StatTasksNum",
+          "mixGdUserU001StatTasksLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU001StatTasksNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "12"
+        }
+      },
+      {
+        "id": "mixGdUserU001StatTasksLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "进行中任务"
+        }
+      },
+      {
+        "id": "mixGdUserU001StatProjects",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU001StatProjectsNum",
+          "mixGdUserU001StatProjectsLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU001StatProjectsNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "8"
+        }
+      },
+      {
+        "id": "mixGdUserU001StatProjectsLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "完成项目"
+        }
+      },
+      {
+        "id": "mixGdTaskT001",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdTaskT001Strip",
+          "mixGdTaskT001Body"
+        ]
+      },
+      {
+        "id": "mixGdTaskT001Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-critical shrink-0"
+        }
+      },
+      {
+        "id": "mixGdTaskT001Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdTaskT001Header",
+          "mixGdTaskT001Deadline",
+          "mixGdTaskT001ProgressWrap",
+          "mixGdTaskT001Assignee"
+        ]
+      },
+      {
+        "id": "mixGdTaskT001Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-start justify-between gap-2"
+        },
+        "children": [
+          "mixGdTaskT001Title",
+          "mixGdTaskT001PriorityTag"
+        ]
+      },
+      {
+        "id": "mixGdTaskT001Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "用户中心模块重构"
+        }
+      },
+      {
+        "id": "mixGdTaskT001PriorityTag",
+        "component": "Tag",
+        "props": {
+          "value": "高",
+          "color": "error"
+        }
+      },
+      {
+        "id": "mixGdTaskT001Deadline",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "mixGdTaskT001DeadlineIcon",
+          "mixGdTaskT001DeadlineText"
+        ]
+      },
+      {
+        "id": "mixGdTaskT001DeadlineIcon",
+        "component": "Icon",
+        "props": {
+          "name": "Calendar",
+          "size": 14,
+          "color": "default",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdTaskT001DeadlineText",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "截止 2026-06-15"
+        }
+      },
+      {
+        "id": "mixGdTaskT001ProgressWrap",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "mixGdTaskT001Progress",
+          "mixGdTaskT001ProgressLabel"
+        ]
+      },
+      {
+        "id": "mixGdTaskT001Progress",
+        "component": "Progress",
+        "props": {
+          "percent": 65,
+          "showInfo": false,
+          "size": "small"
+        }
+      },
+      {
+        "id": "mixGdTaskT001ProgressLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant self-end",
+          "value": "65%"
+        }
+      },
+      {
+        "id": "mixGdTaskT001Assignee",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdTaskT001AssigneeAvatarWrap",
+          "mixGdTaskT001AssigneeName"
+        ]
+      },
+      {
+        "id": "mixGdTaskT001AssigneeAvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-6 h-6 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdTaskT001AssigneeImg"
+        ]
+      },
+      {
+        "id": "mixGdTaskT001AssigneeImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/men/22.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdTaskT001AssigneeName",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "负责人 王强"
+        }
+      },
+      {
+        "id": "mixGdNotifN001",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdNotifN001Strip",
+          "mixGdNotifN001Body"
+        ]
+      },
+      {
+        "id": "mixGdNotifN001Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-success shrink-0"
+        }
+      },
+      {
+        "id": "mixGdNotifN001Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdNotifN001Header",
+          "mixGdNotifN001Summary",
+          "mixGdNotifN001Footer"
+        ]
+      },
+      {
+        "id": "mixGdNotifN001Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdNotifN001Icon",
+          "mixGdNotifN001Title",
+          "mixGdNotifN001Unread"
+        ]
+      },
+      {
+        "id": "mixGdNotifN001Icon",
+        "component": "Icon",
+        "props": {
+          "name": "GitPullRequest",
+          "size": 16,
+          "color": "primary",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdNotifN001Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "代码合并请求"
+        }
+      },
+      {
+        "id": "mixGdNotifN001Unread",
+        "component": "span",
+        "props": {
+          "className": "w-2 h-2 rounded-full bg-primary shrink-0"
+        }
+      },
+      {
+        "id": "mixGdNotifN001Summary",
+        "component": "p",
+        "props": {
+          "className": "text-xs text-on-surface-variant leading-relaxed",
+          "value": "李华 提交了一个 PR #1423 到 main 分支，涉及支付模块优化"
+        }
+      },
+      {
+        "id": "mixGdNotifN001Footer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mixGdNotifN001Timestamp"
+        ]
+      },
+      {
+        "id": "mixGdNotifN001Timestamp",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "10 分钟前"
+        }
+      },
+      {
+        "id": "mixGdUserU002",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdUserU002Strip",
+          "mixGdUserU002Body"
+        ]
+      },
+      {
+        "id": "mixGdUserU002Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-primary shrink-0"
+        }
+      },
+      {
+        "id": "mixGdUserU002Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdUserU002Top",
+          "mixGdUserU002Divider",
+          "mixGdUserU002Stats"
+        ]
+      },
+      {
+        "id": "mixGdUserU002Top",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "mixGdUserU002AvatarWrap",
+          "mixGdUserU002Info",
+          "mixGdUserU002Tag"
+        ]
+      },
+      {
+        "id": "mixGdUserU002AvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-10 h-10 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdUserU002AvatarImg"
+        ]
+      },
+      {
+        "id": "mixGdUserU002AvatarImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/men/45.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdUserU002Info",
+        "component": "div",
+        "props": {
+          "className": "flex-1 min-w-0"
+        },
+        "children": [
+          "mixGdUserU002Name",
+          "mixGdUserU002Role"
+        ]
+      },
+      {
+        "id": "mixGdUserU002Name",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface truncate block",
+          "value": "陈思远"
+        }
+      },
+      {
+        "id": "mixGdUserU002Role",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant truncate block",
+          "value": "后端架构师"
+        }
+      },
+      {
+        "id": "mixGdUserU002Tag",
+        "component": "Tag",
+        "props": {
+          "value": "忙碌",
+          "color": "warning"
+        }
+      },
+      {
+        "id": "mixGdUserU002Divider",
+        "component": "div",
+        "props": {
+          "className": "border-t border-divider"
+        }
+      },
+      {
+        "id": "mixGdUserU002Stats",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "mixGdUserU002StatTasks",
+          "mixGdUserU002StatProjects"
+        ]
+      },
+      {
+        "id": "mixGdUserU002StatTasks",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU002StatTasksNum",
+          "mixGdUserU002StatTasksLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU002StatTasksNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "8"
+        }
+      },
+      {
+        "id": "mixGdUserU002StatTasksLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "进行中任务"
+        }
+      },
+      {
+        "id": "mixGdUserU002StatProjects",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU002StatProjectsNum",
+          "mixGdUserU002StatProjectsLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU002StatProjectsNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "15"
+        }
+      },
+      {
+        "id": "mixGdUserU002StatProjectsLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "完成项目"
+        }
+      },
+      {
+        "id": "mixGdTaskT002",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdTaskT002Strip",
+          "mixGdTaskT002Body"
+        ]
+      },
+      {
+        "id": "mixGdTaskT002Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-critical shrink-0"
+        }
+      },
+      {
+        "id": "mixGdTaskT002Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdTaskT002Header",
+          "mixGdTaskT002Deadline",
+          "mixGdTaskT002ProgressWrap",
+          "mixGdTaskT002Assignee"
+        ]
+      },
+      {
+        "id": "mixGdTaskT002Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-start justify-between gap-2"
+        },
+        "children": [
+          "mixGdTaskT002Title",
+          "mixGdTaskT002PriorityTag"
+        ]
+      },
+      {
+        "id": "mixGdTaskT002Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "数据看板 V2.0 设计"
+        }
+      },
+      {
+        "id": "mixGdTaskT002PriorityTag",
+        "component": "Tag",
+        "props": {
+          "value": "中",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "mixGdTaskT002Deadline",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "mixGdTaskT002DeadlineIcon",
+          "mixGdTaskT002DeadlineText"
+        ]
+      },
+      {
+        "id": "mixGdTaskT002DeadlineIcon",
+        "component": "Icon",
+        "props": {
+          "name": "Calendar",
+          "size": 14,
+          "color": "default",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdTaskT002DeadlineText",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "截止 2026-06-20"
+        }
+      },
+      {
+        "id": "mixGdTaskT002ProgressWrap",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "mixGdTaskT002Progress",
+          "mixGdTaskT002ProgressLabel"
+        ]
+      },
+      {
+        "id": "mixGdTaskT002Progress",
+        "component": "Progress",
+        "props": {
+          "percent": 30,
+          "showInfo": false,
+          "size": "small"
+        }
+      },
+      {
+        "id": "mixGdTaskT002ProgressLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant self-end",
+          "value": "30%"
+        }
+      },
+      {
+        "id": "mixGdTaskT002Assignee",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdTaskT002AssigneeAvatarWrap",
+          "mixGdTaskT002AssigneeName"
+        ]
+      },
+      {
+        "id": "mixGdTaskT002AssigneeAvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-6 h-6 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdTaskT002AssigneeImg"
+        ]
+      },
+      {
+        "id": "mixGdTaskT002AssigneeImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/women/28.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdTaskT002AssigneeName",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "负责人 赵雨涵"
+        }
+      },
+      {
+        "id": "mixGdNotifN002",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdNotifN002Strip",
+          "mixGdNotifN002Body"
+        ]
+      },
+      {
+        "id": "mixGdNotifN002Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-success shrink-0"
+        }
+      },
+      {
+        "id": "mixGdNotifN002Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdNotifN002Header",
+          "mixGdNotifN002Summary",
+          "mixGdNotifN002Footer"
+        ]
+      },
+      {
+        "id": "mixGdNotifN002Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdNotifN002Icon",
+          "mixGdNotifN002Title",
+          "mixGdNotifN002Unread"
+        ]
+      },
+      {
+        "id": "mixGdNotifN002Icon",
+        "component": "Icon",
+        "props": {
+          "name": "MessageCircle",
+          "size": 16,
+          "color": "primary",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdNotifN002Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "新消息"
+        }
+      },
+      {
+        "id": "mixGdNotifN002Unread",
+        "component": "span",
+        "props": {
+          "className": "w-2 h-2 rounded-full bg-primary shrink-0"
+        }
+      },
+      {
+        "id": "mixGdNotifN002Summary",
+        "component": "p",
+        "props": {
+          "className": "text-xs text-on-surface-variant leading-relaxed",
+          "value": "设计团队在「首页改版」项目中 @了你，请查看最新设计稿"
+        }
+      },
+      {
+        "id": "mixGdNotifN002Footer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mixGdNotifN002Timestamp"
+        ]
+      },
+      {
+        "id": "mixGdNotifN002Timestamp",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "1 小时前"
+        }
+      },
+      {
+        "id": "mixGdUserU003",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdUserU003Strip",
+          "mixGdUserU003Body"
+        ]
+      },
+      {
+        "id": "mixGdUserU003Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-primary shrink-0"
+        }
+      },
+      {
+        "id": "mixGdUserU003Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdUserU003Top",
+          "mixGdUserU003Divider",
+          "mixGdUserU003Stats"
+        ]
+      },
+      {
+        "id": "mixGdUserU003Top",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "mixGdUserU003AvatarWrap",
+          "mixGdUserU003Info",
+          "mixGdUserU003Tag"
+        ]
+      },
+      {
+        "id": "mixGdUserU003AvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-10 h-10 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdUserU003AvatarImg"
+        ]
+      },
+      {
+        "id": "mixGdUserU003AvatarImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/women/68.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdUserU003Info",
+        "component": "div",
+        "props": {
+          "className": "flex-1 min-w-0"
+        },
+        "children": [
+          "mixGdUserU003Name",
+          "mixGdUserU003Role"
+        ]
+      },
+      {
+        "id": "mixGdUserU003Name",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface truncate block",
+          "value": "李美琪"
+        }
+      },
+      {
+        "id": "mixGdUserU003Role",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant truncate block",
+          "value": "UI/UX 设计师"
+        }
+      },
+      {
+        "id": "mixGdUserU003Tag",
+        "component": "Tag",
+        "props": {
+          "value": "离线",
+          "color": "default"
+        }
+      },
+      {
+        "id": "mixGdUserU003Divider",
+        "component": "div",
+        "props": {
+          "className": "border-t border-divider"
+        }
+      },
+      {
+        "id": "mixGdUserU003Stats",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "mixGdUserU003StatTasks",
+          "mixGdUserU003StatProjects"
+        ]
+      },
+      {
+        "id": "mixGdUserU003StatTasks",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU003StatTasksNum",
+          "mixGdUserU003StatTasksLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU003StatTasksNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "5"
+        }
+      },
+      {
+        "id": "mixGdUserU003StatTasksLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "进行中任务"
+        }
+      },
+      {
+        "id": "mixGdUserU003StatProjects",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU003StatProjectsNum",
+          "mixGdUserU003StatProjectsLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU003StatProjectsNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "22"
+        }
+      },
+      {
+        "id": "mixGdUserU003StatProjectsLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "完成项目"
+        }
+      },
+      {
+        "id": "mixGdTaskT003",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdTaskT003Strip",
+          "mixGdTaskT003Body"
+        ]
+      },
+      {
+        "id": "mixGdTaskT003Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-critical shrink-0"
+        }
+      },
+      {
+        "id": "mixGdTaskT003Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdTaskT003Header",
+          "mixGdTaskT003Deadline",
+          "mixGdTaskT003ProgressWrap",
+          "mixGdTaskT003Assignee"
+        ]
+      },
+      {
+        "id": "mixGdTaskT003Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-start justify-between gap-2"
+        },
+        "children": [
+          "mixGdTaskT003Title",
+          "mixGdTaskT003PriorityTag"
+        ]
+      },
+      {
+        "id": "mixGdTaskT003Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "性能优化——首屏加载速度"
+        }
+      },
+      {
+        "id": "mixGdTaskT003PriorityTag",
+        "component": "Tag",
+        "props": {
+          "value": "高",
+          "color": "error"
+        }
+      },
+      {
+        "id": "mixGdTaskT003Deadline",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "mixGdTaskT003DeadlineIcon",
+          "mixGdTaskT003DeadlineText"
+        ]
+      },
+      {
+        "id": "mixGdTaskT003DeadlineIcon",
+        "component": "Icon",
+        "props": {
+          "name": "Calendar",
+          "size": 14,
+          "color": "default",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdTaskT003DeadlineText",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "截止 2026-06-10"
+        }
+      },
+      {
+        "id": "mixGdTaskT003ProgressWrap",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "mixGdTaskT003Progress",
+          "mixGdTaskT003ProgressLabel"
+        ]
+      },
+      {
+        "id": "mixGdTaskT003Progress",
+        "component": "Progress",
+        "props": {
+          "percent": 85,
+          "showInfo": false,
+          "size": "small"
+        }
+      },
+      {
+        "id": "mixGdTaskT003ProgressLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant self-end",
+          "value": "85%"
+        }
+      },
+      {
+        "id": "mixGdTaskT003Assignee",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdTaskT003AssigneeAvatarWrap",
+          "mixGdTaskT003AssigneeName"
+        ]
+      },
+      {
+        "id": "mixGdTaskT003AssigneeAvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-6 h-6 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdTaskT003AssigneeImg"
+        ]
+      },
+      {
+        "id": "mixGdTaskT003AssigneeImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/men/55.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdTaskT003AssigneeName",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "负责人 刘伟"
+        }
+      },
+      {
+        "id": "mixGdNotifN003",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdNotifN003Strip",
+          "mixGdNotifN003Body"
+        ]
+      },
+      {
+        "id": "mixGdNotifN003Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-success shrink-0"
+        }
+      },
+      {
+        "id": "mixGdNotifN003Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdNotifN003Header",
+          "mixGdNotifN003Summary",
+          "mixGdNotifN003Footer"
+        ]
+      },
+      {
+        "id": "mixGdNotifN003Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdNotifN003Icon",
+          "mixGdNotifN003Title"
+        ]
+      },
+      {
+        "id": "mixGdNotifN003Icon",
+        "component": "Icon",
+        "props": {
+          "name": "CalendarCheck",
+          "size": 16,
+          "color": "primary",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdNotifN003Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "会议提醒"
+        }
+      },
+      {
+        "id": "mixGdNotifN003Summary",
+        "component": "p",
+        "props": {
+          "className": "text-xs text-on-surface-variant leading-relaxed",
+          "value": "「Sprint 回顾会」将于今天 15:00 在 3楼会议室举行，请准时参加"
+        }
+      },
+      {
+        "id": "mixGdNotifN003Footer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mixGdNotifN003Timestamp"
+        ]
+      },
+      {
+        "id": "mixGdNotifN003Timestamp",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "2 小时前"
+        }
+      },
+      {
+        "id": "mixGdUserU004",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdUserU004Strip",
+          "mixGdUserU004Body"
+        ]
+      },
+      {
+        "id": "mixGdUserU004Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-primary shrink-0"
+        }
+      },
+      {
+        "id": "mixGdUserU004Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdUserU004Top",
+          "mixGdUserU004Divider",
+          "mixGdUserU004Stats"
+        ]
+      },
+      {
+        "id": "mixGdUserU004Top",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "mixGdUserU004AvatarWrap",
+          "mixGdUserU004Info",
+          "mixGdUserU004Tag"
+        ]
+      },
+      {
+        "id": "mixGdUserU004AvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-10 h-10 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdUserU004AvatarImg"
+        ]
+      },
+      {
+        "id": "mixGdUserU004AvatarImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/men/75.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdUserU004Info",
+        "component": "div",
+        "props": {
+          "className": "flex-1 min-w-0"
+        },
+        "children": [
+          "mixGdUserU004Name",
+          "mixGdUserU004Role"
+        ]
+      },
+      {
+        "id": "mixGdUserU004Name",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface truncate block",
+          "value": "周建国"
+        }
+      },
+      {
+        "id": "mixGdUserU004Role",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant truncate block",
+          "value": "测试主管"
+        }
+      },
+      {
+        "id": "mixGdUserU004Tag",
+        "component": "Tag",
+        "props": {
+          "value": "在线",
+          "color": "success"
+        }
+      },
+      {
+        "id": "mixGdUserU004Divider",
+        "component": "div",
+        "props": {
+          "className": "border-t border-divider"
+        }
+      },
+      {
+        "id": "mixGdUserU004Stats",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "mixGdUserU004StatTasks",
+          "mixGdUserU004StatProjects"
+        ]
+      },
+      {
+        "id": "mixGdUserU004StatTasks",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU004StatTasksNum",
+          "mixGdUserU004StatTasksLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU004StatTasksNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "15"
+        }
+      },
+      {
+        "id": "mixGdUserU004StatTasksLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "进行中任务"
+        }
+      },
+      {
+        "id": "mixGdUserU004StatProjects",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "mixGdUserU004StatProjectsNum",
+          "mixGdUserU004StatProjectsLabel"
+        ]
+      },
+      {
+        "id": "mixGdUserU004StatProjectsNum",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "30"
+        }
+      },
+      {
+        "id": "mixGdUserU004StatProjectsLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "完成项目"
+        }
+      },
+      {
+        "id": "mixGdTaskT004",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdTaskT004Strip",
+          "mixGdTaskT004Body"
+        ]
+      },
+      {
+        "id": "mixGdTaskT004Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-critical shrink-0"
+        }
+      },
+      {
+        "id": "mixGdTaskT004Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdTaskT004Header",
+          "mixGdTaskT004Deadline",
+          "mixGdTaskT004ProgressWrap",
+          "mixGdTaskT004Assignee"
+        ]
+      },
+      {
+        "id": "mixGdTaskT004Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-start justify-between gap-2"
+        },
+        "children": [
+          "mixGdTaskT004Title",
+          "mixGdTaskT004PriorityTag"
+        ]
+      },
+      {
+        "id": "mixGdTaskT004Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "自动化测试脚本编写"
+        }
+      },
+      {
+        "id": "mixGdTaskT004PriorityTag",
+        "component": "Tag",
+        "props": {
+          "value": "中",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "mixGdTaskT004Deadline",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "mixGdTaskT004DeadlineIcon",
+          "mixGdTaskT004DeadlineText"
+        ]
+      },
+      {
+        "id": "mixGdTaskT004DeadlineIcon",
+        "component": "Icon",
+        "props": {
+          "name": "Calendar",
+          "size": 14,
+          "color": "default",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdTaskT004DeadlineText",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "截止 2026-06-25"
+        }
+      },
+      {
+        "id": "mixGdTaskT004ProgressWrap",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "mixGdTaskT004Progress",
+          "mixGdTaskT004ProgressLabel"
+        ]
+      },
+      {
+        "id": "mixGdTaskT004Progress",
+        "component": "Progress",
+        "props": {
+          "percent": 45,
+          "showInfo": false,
+          "size": "small"
+        }
+      },
+      {
+        "id": "mixGdTaskT004ProgressLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant self-end",
+          "value": "45%"
+        }
+      },
+      {
+        "id": "mixGdTaskT004Assignee",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdTaskT004AssigneeAvatarWrap",
+          "mixGdTaskT004AssigneeName"
+        ]
+      },
+      {
+        "id": "mixGdTaskT004AssigneeAvatarWrap",
+        "component": "div",
+        "props": {
+          "className": "w-6 h-6 rounded-full overflow-hidden shrink-0"
+        },
+        "children": [
+          "mixGdTaskT004AssigneeImg"
+        ]
+      },
+      {
+        "id": "mixGdTaskT004AssigneeImg",
+        "component": "img",
+        "props": {
+          "src": "https://randomuser.me/api/portraits/women/33.jpg",
+          "className": "w-full h-full object-cover"
+        }
+      },
+      {
+        "id": "mixGdTaskT004AssigneeName",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "负责人 孙婷婷"
+        }
+      },
+      {
+        "id": "mixGdNotifN004",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest rounded-xl shadow-card overflow-hidden"
+        },
+        "children": [
+          "mixGdNotifN004Strip",
+          "mixGdNotifN004Body"
+        ]
+      },
+      {
+        "id": "mixGdNotifN004Strip",
+        "component": "div",
+        "props": {
+          "className": "h-1 w-full bg-success shrink-0"
+        }
+      },
+      {
+        "id": "mixGdNotifN004Body",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-3"
+        },
+        "children": [
+          "mixGdNotifN004Header",
+          "mixGdNotifN004Summary",
+          "mixGdNotifN004Footer"
+        ]
+      },
+      {
+        "id": "mixGdNotifN004Header",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mixGdNotifN004Icon",
+          "mixGdNotifN004Title",
+          "mixGdNotifN004Unread"
+        ]
+      },
+      {
+        "id": "mixGdNotifN004Icon",
+        "component": "Icon",
+        "props": {
+          "name": "AlertTriangle",
+          "size": 16,
+          "color": "error",
+          "shape": "outline"
+        }
+      },
+      {
+        "id": "mixGdNotifN004Title",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface flex-1",
+          "value": "系统告警"
+        }
+      },
+      {
+        "id": "mixGdNotifN004Unread",
+        "component": "span",
+        "props": {
+          "className": "w-2 h-2 rounded-full bg-primary shrink-0"
+        }
+      },
+      {
+        "id": "mixGdNotifN004Summary",
+        "component": "p",
+        "props": {
+          "className": "text-xs text-on-surface-variant leading-relaxed",
+          "value": "线上支付服务响应时间异常（P99: 2.8s），已触发自动扩容流程"
+        }
+      },
+      {
+        "id": "mixGdNotifN004Footer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mixGdNotifN004Timestamp"
+        ]
+      },
+      {
+        "id": "mixGdNotifN004Timestamp",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": "30 分钟前"
+        }
+      }
+    ]
+  },
+  "sectionId": "mixedCardGrid",
+  "elementId": "mixedCardGridSection",
+  "idPrefix": "mixGd"
+}
