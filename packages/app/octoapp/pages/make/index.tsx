@@ -50,15 +50,15 @@ import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { autoSaveArtifact } from "./utils/artifact-auto-save"
 
 export default function MakePage() {
-  const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
+  const dir = useProjectDir()
 
   return (
-    <Show when={homeDir()} keyed>
-      {(dir) => (
-        <SDKProvider directory={() => dir}>
+    <Show when={dir()} keyed>
+      {(directory) => (
+        <SDKProvider directory={() => directory}>
           <SyncProvider>
             <LocalProvider>
               <MakeContent />
@@ -714,6 +714,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
     if (tab) {
       snapshotStore.save(tab)
       refreshSnapshots()
+    }
+
+    if (projectDir()) {
+      autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
+        console.error("[MakePage] auto-save artifact failed:", err)
+      })
     }
   }
 
