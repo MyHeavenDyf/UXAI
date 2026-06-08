@@ -20,6 +20,8 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
 export const StudioPaths = {
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
+  materials: `${root}/materials`,
+  promptTags: `${root}/prompt-tags`,
 } as const
 
 export const StudioGenerationPayload = Schema.Struct({
