@@ -216,17 +216,6 @@ createEffect(
     on(
       () => params.id,
       (newId, oldId) => {
-        if (oldId && oldId !== newId) {
-          const [store, setStore] = globalSync.child(sdk.directory)
-          dropSessionCaches(store, [oldId])
-          setStore(
-            produce((draft) => {
-              delete draft.message[oldId]
-              delete draft.session_status[oldId]
-            }),
-          )
-        }
-
         if (newId) {
           layout.lastSessionPerTab.setMake(newId)
           void sync.session.sync(newId)
