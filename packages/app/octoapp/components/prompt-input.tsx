@@ -1256,6 +1256,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
   }
 
+  createEffect(() => {
+    if (!working()) return
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault()
+        event.stopPropagation()
+        abort()
+      }
+    }
+    document.addEventListener("keydown", handler)
+    onCleanup(() => document.removeEventListener("keydown", handler))
+  })
+
   const [agentsQuery, globalProvidersQuery, providersQuery] = useQueries(() => ({
     queries: [
       loadAgentsQuery(sdk.directory, sdk.client),
@@ -1581,7 +1594,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               <IconButton
                 data-action="prompt-submit"
                 type="submit"
-                disabled={props.disabled || (!working() && blank())}
+                disabled={!stopping() && (props.disabled || (!working() && blank()))}
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                 variant="primary"
