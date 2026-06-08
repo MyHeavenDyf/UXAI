@@ -85,7 +85,7 @@ export interface Interface {
 
 type State = Omit<Interface, "generate">
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") { }
 
 export const layer = Layer.effect(
   Service,
@@ -343,6 +343,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.2,
           },
           proto_intent_audit: {
             name: "proto_intent_audit",
@@ -352,6 +353,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.4,
           },
           proto_module_create: {
             name: "proto_module_create",
@@ -364,6 +366,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.0,
           },
           proto_module_modify: {
             name: "proto_module_modify",
@@ -376,6 +379,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.0,
           },
           proto_planner_create: {
             name: "proto_planner_create",
@@ -385,6 +389,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.0,
           },
           proto_planner_modify: {
             name: "proto_planner_modify",
@@ -394,6 +399,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.0,
           },
           proto_triage: {
             name: "proto_triage",
@@ -403,6 +409,7 @@ export const layer = Layer.effect(
             options: {},
             mode: "primary",
             native: false,
+            temperature: 0.1,
           },
         }
 
@@ -539,11 +546,11 @@ export const layer = Layer.effect(
             ...(isOpenaiOauth
               ? []
               : system.map(
-                  (item): ModelMessage => ({
-                    role: "system",
-                    content: item,
-                  }),
-                )),
+                (item): ModelMessage => ({
+                  role: "system",
+                  content: item,
+                }),
+              )),
             {
               role: "user",
               content: `Create an agent configuration based on this request: "${input.description}".\n\nIMPORTANT: The following identifiers already exist and must NOT be used: ${existing.map((i) => i.name).join(", ")}\n  Return ONLY the JSON object, no other text, do not wrap in backticks`,
@@ -565,7 +572,7 @@ export const layer = Layer.effect(
                 instructions: system.join("\n"),
                 store: false,
               }),
-              onError: () => {},
+              onError: () => { },
             })
             for await (const part of result.fullStream) {
               if (part.type === "error") throw part.error
