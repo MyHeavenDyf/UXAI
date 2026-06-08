@@ -1165,7 +1165,7 @@ export default function StudioPage() {
       input.capability === "image.upscale"
         ? "好的，我将提升当前图片的清晰度和细节。"
         : input.capability === "image.inpaint"
-          ? "好的，我将根据涂抹区域局部重绘当前图片。"
+          ? "好的，我将根据涂抹区域智能重绘当前图片。"
         : input.capability === "image.outpaint"
           ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
           : input.capability === "video.generate"
@@ -2288,6 +2288,7 @@ function StudioComposer(props: {
               <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
             </Show>
             <ToolButton
+              active={props.openMenu === "capability"}
               label={capabilityLabel(props.capability)}
               onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
               onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
@@ -2299,6 +2300,7 @@ function StudioComposer(props: {
                 <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
               </Show>
               <ToolButton
+                active={props.openMenu === "style"}
                 label={styleModelLabel(props.styleModel)}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
@@ -2365,9 +2367,9 @@ function StudioComposer(props: {
   )
 }
 
-function ToolButton(props: { label: string; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
+function ToolButton(props: { label: string; active?: boolean; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
-    <button type="button" onPointerDown={props.onPointerDown} onClick={props.onClick} class="studio-composer-tool-btn">
+    <button type="button" onPointerDown={props.onPointerDown} onClick={props.onClick} class="studio-composer-tool-btn" data-active={props.active || undefined}>
       <span class="studio-composer-tool-label">{props.label}</span>
       <span class="studio-composer-tool-caret" />
     </button>
@@ -2912,7 +2914,7 @@ function StudioDetails(props: {
               disabled={props.regenerateDisabled}
               class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
             >
-              <span>局部重绘</span>
+              <span>智能重绘</span>
             </button>
             <button
               type="button"
@@ -3292,7 +3294,7 @@ function StudioInpaintEditor(props: {
     canvas.width = sourceSize().width
     canvas.height = sourceSize().height
     const context = canvas.getContext("2d")
-    if (!context) throw new Error("无法创建局部重绘画布")
+    if (!context) throw new Error("无法创建智能重绘画布")
     context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
     context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
     return canvas.toDataURL("image/png").split(",")[1] ?? ""
@@ -3326,9 +3328,9 @@ function StudioInpaintEditor(props: {
     <div class="studio-inpaint">
       <div class="studio-inpaint-header">
         <div class="min-w-0">
-          <div class="studio-inpaint-title">局部重绘</div>
+          <div class="studio-inpaint-title">智能重绘</div>
         </div>
-        <button type="button" onClick={props.onClose} class="studio-inpaint-close" aria-label="关闭局部重绘" title="关闭局部重绘" />
+        <button type="button" onClick={props.onClose} class="studio-inpaint-close" aria-label="关闭智能重绘" title="关闭智能重绘" />
       </div>
       <div class="studio-inpaint-body">
         <div ref={canvasWrapRef!} class="studio-inpaint-canvas-wrap">

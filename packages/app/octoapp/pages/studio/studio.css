@@ -2609,3 +2609,36 @@
   background: #e4e2ff;
   color: #5e3bff;
 }
+
+.studio-local-toast {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  z-index: 100;
+  animation: toastSlideIn 0.2s ease-out;
+}
+
+.studio-local-toast-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #17181c;
+}
+
+.studio-local-toast-description {
+  font-size: 13px;
+  color: rgba(23, 24, 28, 0.65);
+}
+
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
