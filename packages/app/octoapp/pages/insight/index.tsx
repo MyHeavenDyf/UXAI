@@ -28,6 +28,7 @@ import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar } from "./sidebar"
+import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
@@ -954,6 +955,15 @@ function InsightContent() {
     lastTaskSnapshot = currentSnap
   })
 
+  // textarea 高度随内容自适应(min-height 由 CSS 控制)
+  createEffect(() => {
+    prompt()
+    const el = textareaRef
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = el.scrollHeight + "px"
+  })
+
   const maxAttachments = () => attachments().length >= MAX_ATTACHMENTS
   function hasUploadingAttachments() {
     return attachments().some((a) => a.status === "uploading")
@@ -973,7 +983,7 @@ function InsightContent() {
             与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
-        <InsightSidebar top={<ProjectInfo />} />
+        <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
 
         {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
         <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
@@ -1053,7 +1063,7 @@ function InsightContent() {
                             rgba(61, 93, 255, 1) 87%,
                             rgba(206, 7, 232, 1) 92%) border-box`,
                         "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                        height: "150px",
+                        "min-height": "150px",
                       }}
                     >
                       {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
@@ -1068,10 +1078,12 @@ function InsightContent() {
                         onInput={(e) => setPrompt(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="请描述您的需求..."
-                        class="w-full flex-1 resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
+                        class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
                         style={{
                           color: "var(--octo-text-primary)",
                           "font-family": "var(--octo-font)",
+                          "min-height": "100px",
+                          "max-height": "240px",
                           "overflow-y": "auto",
                         }}
                       />
@@ -1238,7 +1250,7 @@ function InsightContent() {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                    height: "150px",
+                    "min-height": "150px",
                     "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
@@ -1254,10 +1266,12 @@ function InsightContent() {
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
-                    class="w-full flex-1 resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
+                      "min-height": "100px",
+                      "max-height": "240px",
                       "overflow-y": "auto",
                     }}
                   />

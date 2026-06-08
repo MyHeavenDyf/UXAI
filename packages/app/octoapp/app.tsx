@@ -47,6 +47,9 @@ import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { useCheckServerHealth } from "./utils/server-health"
+// DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。
+// 仅在下方 import.meta.env.DEV 分支调用;生产构建该引用为死代码,整模块摇树掉。
+import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const ChatPage = lazy(() => import("@/pages/chat"))
@@ -416,6 +419,8 @@ export function AppInterface(props: {
                 >
                   <Route path="/" component={HomeRoute} />
                   <Route path="/cowork" component={() => <Navigate href="/insight" />} />
+                  {/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册;生产构建里整块为死代码 */}
+                  {import.meta.env.DEV && insightDevRoutes()}
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/skills" component={SkillsPage} />

@@ -185,6 +185,19 @@
   display: none;                    /* Chromium */
 }
 
+/* 输入框 textarea:可滚动但滚动条透明 */
+.octo-input-scroll {
+  scrollbar-width: thin;                       /* Firefox */
+  scrollbar-color: transparent transparent;
+}
+.octo-input-scroll::-webkit-scrollbar {
+  width: 8px;                                  /* Chromium:保留宽度,可滚动 */
+}
+.octo-input-scroll::-webkit-scrollbar-thumb,
+.octo-input-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .octo-preset-chip {
   flex-shrink: 0;
   padding: 4px 12px;
