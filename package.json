@@ -12,7 +12,7 @@
     "dev:console": "ulimit -n 10240 2>/dev/null; bun run --cwd packages/console/app dev",
     "dev:storybook": "bun --cwd packages/storybook storybook",
     "dev:all": "concurrently \"bun run dev:desktop\" \"bun run dev:preview\"",
-    "dev:preview": "cd packages/preview && npm run dev",
+    "dev:preview": "cd packages/preview && npx serve -s -p 8989",
     "lint": "oxlint",
     "typecheck": "bun turbo typecheck",
     "upgrade-opentui": "bun run script/upgrade-opentui.ts",
