@@ -26,7 +26,7 @@ import { runProtoIntentAudit } from "./agents/proto_intent_audit"
 import { runProtoPlannerCreate } from "./agents/proto_planner_create"
 import { runProtoModuleCreate } from "./agents/proto_module_create"
 import { mergeModules } from "./agents/merge"
-import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { ChatPanel } from "./modules/chat/index"
 
@@ -331,7 +331,6 @@ function PatternContent() {
 
       // ── Step 1: proto_intent → 生成蓝图 ──
       setPhase("intent")
-      debugger
       const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
 
       console.log("[Pattern] intent done, sections:", intentResult.sections.length)
@@ -341,7 +340,6 @@ function PatternContent() {
       setPhase("audit")
       let currentIntent = intentResult
       for (let attempt = 0; attempt < 2; attempt++) {
-        debugger
         const audit = await runProtoIntentAudit({
           ...ctx,
           input: { userRequest: text, blueprint: JSON.stringify(currentIntent) },
@@ -349,7 +347,6 @@ function PatternContent() {
         console.log("[Pattern] audit:", audit.isPass, audit.feedback.slice(0, 80))
         console.log("[Pattern] audit output:", JSON.stringify(audit, null, 2))
         if (audit.isPass) break
-        debugger
         currentIntent = await runProtoIntent({
           ...ctx,
           input: { userRequest: text, previousBlueprint: currentIntent, auditFeedback: audit.feedback },
@@ -359,7 +356,6 @@ function PatternContent() {
 
       // ── Step 3: proto_planner_create → 生成布局 + slots ──
       setPhase("planner")
-      debugger
 
       const planner = await runProtoPlannerCreate({
         ...ctx,
@@ -376,7 +372,6 @@ function PatternContent() {
       const modules: Array<{ rootId: string; elements: Array<{ id: string; component: string; props?: Record<string, unknown>; children?: string[] }>; state?: Record<string, unknown> }> = []
       for (const slot of planner.slots) {
         console.log("[Pattern] module_create:", slot.section_id)
-        debugger
         const moduleResult = await runProtoModuleCreate({
           ...ctx,
           input: {
