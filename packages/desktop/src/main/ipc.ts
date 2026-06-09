@@ -199,7 +199,18 @@ export function registerIpcHandlers(deps: Deps) {
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
       await mkdir(dirname(destPath), { recursive: true })
-      await writeFile(destPath, buf)
+      try {
+        await writeFile(destPath, buf)
+      } catch (err) {
+        // 文件正被本地应用(Word/Excel/WPS)独占打开时,覆盖写会抛 EBUSY/EPERM。
+        // 此时已有本地副本 = 用户上次打开的那份,直接复用,让"打开/定位"正常完成而非报错。
+        const code = (err as NodeJS.ErrnoException)?.code
+        if ((code === "EBUSY" || code === "EPERM") && existsSync(destPath)) {
+          console.warn("[octo:office] reuse-locked", { destPath, code })
+          return destPath
+        }
+        throw err
+      }
       return destPath
     },
   )
