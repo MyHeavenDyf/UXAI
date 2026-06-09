@@ -88,9 +88,7 @@ export function StudioResultCanvas(props: {
         <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
           <Show when={props.status === "failed" && props.result?.error} fallback={
           <>
-            <StudioGlassSphere />
-            <div class="mt-8 text-[28px] font-bold">Octo Studio</div>
-            <div class="mt-2 text-[15px] text-[var(--studio-muted)]">输入你的想法，创意无限可能</div>
+            <StudioEmptyState />
           </>
           }>
             <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
@@ -178,16 +176,17 @@ function InfoRow(props: { label: string; value: string }): JSX.Element {
   )
 }
 
-function StudioGlassSphere(): JSX.Element {
+function StudioEmptyState(): JSX.Element {
   return (
-    <div
-      class="w-[210px] h-[210px] rounded-full"
-      style={{
-        background:
-          "radial-gradient(circle at 35% 24%, rgba(133,207,255,0.95), transparent 23%), radial-gradient(circle at 36% 42%, rgba(191,137,255,0.72), transparent 30%), radial-gradient(circle at 68% 68%, rgba(255,255,255,0.9), transparent 22%), linear-gradient(135deg, rgba(156,185,255,0.64), rgba(213,243,255,0.88))",
-        "box-shadow": "0 28px 80px rgba(73, 123, 255, 0.25), inset -18px -22px 30px rgba(82, 151, 255, 0.12), inset 12px 14px 28px rgba(255,255,255,0.52)",
-      }}
-    />
+    <>
+      <div class="studio-empty-state-dots">
+        <span class="studio-empty-dot" style={{ width: "10px", height: "10px", top: "74px", left: "98px", background: "#5ecb6b", animation: "studio-float-1 2s ease-in-out infinite" }} />
+        <span class="studio-empty-dot" style={{ width: "14px", height: "14px", top: "100px", left: "72px", background: "#45bcc9", animation: "studio-float-2 2s ease-in-out infinite 0.35s" }} />
+        <span class="studio-empty-dot" style={{ width: "22px", height: "22px", top: "98px", left: "116px", background: "#2e9dfb", animation: "studio-float-3 2s ease-in-out infinite 0.7s" }} />
+        <span class="studio-empty-dot" style={{ width: "16px", height: "16px", top: "127px", left: "93px", background: "#7c5cef", animation: "studio-float-4 2s ease-in-out infinite 1.05s" }} />
+      </div>
+      <div class="text-[14px] font-bold -mt-[30px]">生成中...</div>
+    </>
   )
 }
 
