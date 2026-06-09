@@ -4,7 +4,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
-import { useLocation, useNavigate, useParams } from "@solidjs/router"
+import { useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -73,7 +73,6 @@ import { createStudioSessionData } from "./studio/studio-session-data"
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
-  const location = useLocation()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -310,7 +309,7 @@ export default function StudioPage() {
     const startWidth = studioCenterWidth()
     function onMove(e: MouseEvent) {
       const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
+      setStudioCenterWidth(Math.min(700, Math.max(430, startWidth + delta)))
     }
     function onUp() {
       document.removeEventListener("mousemove", onMove)
@@ -1327,22 +1326,10 @@ export default function StudioPage() {
     Boolean(workspaceModeForCapability(capability())),
   )
 
-  const [hintVisible, setHintVisible] = createSignal(false)
-
-  createEffect(() => {
-    if (params.id || prompt().trim() || !new URLSearchParams(location.search).has("hint")) {
-      setHintVisible(false)
-      return
-    }
-    setHintVisible(true)
-    const timer = setTimeout(() => setHintVisible(false), 3000)
-    onCleanup(() => clearTimeout(timer))
-  })
-
   return (
     <div class="studio-page" style={{ position: "relative" }}>
       <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio?hint=${Date.now()}`)} />
+        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio`)} />
       </aside>
       <div
         style={{
@@ -1363,11 +1350,6 @@ export default function StudioPage() {
             <div class="studio-empty-group">
               <StudioIntro />
               <div class="relative size-full">
-                <Show when={hintVisible()}>
-                  <div class="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none -top-7" data-component="tooltip">
-                    {language.t("prompt.hint.newSession")}
-                  </div>
-                </Show>
                 <StudioComposer
                   prompt={prompt()}
                   capability={capability()}

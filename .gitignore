@@ -33,5 +33,6 @@ CLAUDE.md
 tsconfig.tsbuildinfo
 
 bun.lock
+.bunfig.toml
 
 analysis/
