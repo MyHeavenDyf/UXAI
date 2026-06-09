@@ -206,7 +206,7 @@ export function registerIpcHandlers(deps: Deps) {
       } catch (err) {
         // 文件正被本地应用(Word/Excel/WPS)独占打开时,覆盖写会抛 EBUSY/EPERM。
         // 此时已有本地副本 = 用户上次打开的那份,直接复用,让"打开/定位"正常完成而非报错。
-        const code = (err as NodeJS.ErrnoException)?.code
+        const code = err instanceof Error && "code" in err ? err.code : undefined
         if ((code === "EBUSY" || code === "EPERM") && existsSync(destPath)) {
           console.warn("[octo:office] reuse-locked", { destPath, code })
           return destPath
