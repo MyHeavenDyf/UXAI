@@ -242,26 +242,27 @@ function WaitingPill(props: {
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    return textPart?.text ?? ""
-  })
-
-  const filteredDeltaLog = createMemo(() => {
-    if (!props.messageID) return []
-    return props.deltaLog
-      .filter((entry) => entry.messageID === props.messageID)
-      .slice(-20)
+    if (!textPart?.text) return ""
+    
+    const parser = createArtifactParser()
+    let artifactContent = ""
+    for (const ev of parser.feed(textPart.text)) {
+      if (ev.type === "artifact:chunk") {
+        artifactContent += ev.delta
+      }
+    }
+    for (const ev of parser.flush()) {
+      if (ev.type === "artifact:chunk") {
+        artifactContent += ev.delta
+      }
+    }
+    return artifactContent
   })
 
   let contentRef: HTMLDivElement | undefined
 
   createEffect(() => {
     if (accumulatedText() && contentRef) {
-      contentRef.scrollTop = contentRef.scrollHeight
-    }
-  })
-
-  createEffect(() => {
-    if (!accumulatedText() && filteredDeltaLog().length > 0 && contentRef) {
       contentRef.scrollTop = contentRef.scrollHeight
     }
   })
@@ -286,31 +287,7 @@ function WaitingPill(props: {
           {statusLabel()}…
         </span>
       </div>
-      <Show when={accumulatedText().length > 0} fallback={
-        <Show when={filteredDeltaLog().length > 0}>
-          <div
-            ref={(el) => { contentRef = el }}
-            class="px-3 pb-2"
-            style={{
-              "max-height": "120px",
-              overflow: "auto",
-              "font-size": "11px",
-              "font-family": "'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace",
-              color: "var(--octo-text-primary)",
-            }}
-          >
-            <For each={filteredDeltaLog()}>
-              {(entry) => (
-                <div style={{ padding: "2px 0", "border-bottom": "1px dashed #ddd" }}>
-                  <span style={{ color: "#888", "font-size": "10px" }}>{formatDeltaTime(entry.timestamp)}</span>
-                  <span style={{ color: "#3b82f6", "font-weight": "600", "margin-left": "8px" }}>{entry.field}</span>
-                  <span style={{ "margin-left": "8px" }}>{entry.delta.slice(0, 50)}{entry.delta.length > 50 ? "…" : ""}</span>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      }>
+      <Show when={accumulatedText().length > 0}>
         <div
           ref={(el) => { contentRef = el }}
           class="px-3 pb-2"
@@ -906,7 +883,7 @@ const stateStatus = state.status as string | undefined
       }
     }
 
-    // 没有 artifact 标签，fallback 到最后一个 text part 用 detectCard 检测
+// 没有 artifact 标签，fallback 到最后一个 text part 用 detectCard 检测
     const lastTextPart = allTextParts[allTextParts.length - 1]
     if (lastTextPart && typeof lastTextPart.text === "string") {
       const text = lastTextPart.text.trim()
@@ -938,7 +915,7 @@ const stateStatus = state.status as string | undefined
       const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
       if (!state) continue
       const output = state.output as string | undefined
-      if (output && output.trim().length > 0) allToolOutput.push(output.trim())
+      if (output && output.trim().length > 0 && output.trim() !== "No files found") allToolOutput.push(output.trim())
       const ts = getToolEndTime(state)
       if (ts > latestToolTs) latestToolTs = ts
     }
@@ -1336,10 +1313,10 @@ ${bodies}
       </Show>
 
       {/* 阻塞提示 — 渐进式显示 */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 30}>
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
         {(() => {
           const bt = props.blockTime!
-          const isWarning = bt >= 60
+          const isWarning = bt >= 80
           return (
             <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",

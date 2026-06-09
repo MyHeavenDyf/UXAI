@@ -51,34 +51,42 @@ const textPart = (id: string, messageID: string, text: string) =>
       },
     }) as Part
 
-const attachmentToolPart = (id: string, messageID: string, url: string, tool = "jimeng_image_generate") =>
+const attachmentToolPart = (id: string, messageID: string, url: string, tool = "jimeng_image_generate", mime = "image/png") =>
   ({
     id,
     sessionID: "ses_1",
     messageID,
     type: "tool",
+    callID: `call_${id}`,
     tool,
     state: {
       status: "completed",
       title: "图片生成",
       time: { start: 1, end: 2 },
       output: JSON.stringify({ ok: true, imageCount: 1, primaryImage: "jimeng-1.png" }),
-      attachments: [{ mime: "image/png", url, filename: "jimeng-1.png" }],
+      attachments: [{ mime, url, filename: "jimeng-1.png" }],
     },
   }) as Part
 
-const runningToolPart = (id: string, messageID: string, tool = "internel_image_generate") =>
+const runningToolPart = (
+  id: string,
+  messageID: string,
+  tool = "internel_image_generate",
+  studio?: Record<string, unknown>,
+) =>
   ({
     id,
     sessionID: "ses_1",
     messageID,
     type: "tool",
+    callID: `call_${id}`,
     tool,
     state: {
       status: "running",
       title: "图片生成",
       time: { start: 1 },
-      input: {},
+      input: { capability: "image.generate", aspectRatio: "3:4" },
+      metadata: studio ? { studio } : undefined,
     },
   }) as Part
 
@@ -218,6 +226,32 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.status).toBe("running")
   })
 
+  test("restores queued generation progress from running tool metadata", () => {
+    const user = userMessage("msg_progress_user")
+    const assistant = assistantMessage("msg_progress_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_progress_text", user.id, "生成视频")],
+        [assistant.id]: [
+          runningToolPart("p_progress_tool", assistant.id, "internel_image_generate", {
+            generationID: "studio_gen_1",
+            status: "queued",
+            progress: 12,
+            order: 3,
+            rawStatus: 6,
+          }),
+        ],
+      },
+    })
+
+    expect(turns[0].result?.id).toBe("studio_gen_1")
+    expect(turns[0].result?.status).toBe("queued")
+    expect(turns[0].result?.progress).toBe(12)
+    expect(turns[0].result?.order).toBe(3)
+    expect(turns[0].result?.rawStatus).toBe(6)
+  })
+
   test("builds a continuity summary from the latest completed turn", () => {
     const m1 = userMessage("msg_1")
     const a1 = assistantMessage("msg_2")
@@ -347,7 +381,84 @@ describe("buildStudioTurns", () => {
     })
 
     expect(turns[0].result?.images[0]?.url).toBe("data:image/png;base64,QUJDREVGRw==")
+    expect(turns[0].result?.images[0]?.kind).toBe("image")
     expect(turns[0].toolTitle).toBe("图片生成完成")
+  })
+
+  test("keeps remove_bg png attachment as an image", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "抠图")],
+        [a1.id]: [attachmentToolPart("p_2", a1.id, "http://localhost:3000/static/images/remove_bg/test4.png")],
+      },
+    })
+
+    expect(turns[0].result?.images[0]?.url).toBe("http://localhost:3000/static/images/remove_bg/test4.png")
+    expect(turns[0].result?.images[0]?.kind).toBe("image")
+  })
+
+  test("keeps remove_bg png tool output as an image", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "抠图")],
+        [a1.id]: [
+          toolPart(
+            "p_2",
+            a1.id,
+            JSON.stringify({
+              images: ["http://localhost:3000/static/images/remove_bg/test4.png"],
+              primaryImage: "http://localhost:3000/static/images/remove_bg/test4.png",
+            }),
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].result?.images).toHaveLength(1)
+    expect(turns[0].result?.images[0]?.kind).toBe("image")
+  })
+
+  test("keeps image mime authoritative when url contains mov", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "生成海报")],
+        [a1.id]: [attachmentToolPart("p_2", a1.id, "https://example.com/movie/poster.png")],
+      },
+    })
+
+    expect(turns[0].result?.images[0]?.kind).toBe("image")
+  })
+
+  test("recognizes video attachments by extension and mime", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+    const m2 = userMessage("msg_3", 3)
+    const a2 = assistantMessage("msg_4", 4)
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1, m2, a2],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "生成视频")],
+        [a1.id]: [attachmentToolPart("p_2", a1.id, "https://example.com/result.MOV?token=1", "internel_image_generate", "")],
+        [m2.id]: [textPart("p_3", m2.id, "生成视频")],
+        [a2.id]: [attachmentToolPart("p_4", a2.id, "https://example.com/download?id=1", "internel_image_generate", "video/mp4")],
+      },
+    })
+
+    expect(turns[0].result?.images[0]?.kind).toBe("video")
+    expect(turns[1].result?.images[0]?.kind).toBe("video")
   })
 
   test("uses file content urls when attachments are omitted from tool state", () => {

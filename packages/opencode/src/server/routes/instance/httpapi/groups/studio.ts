@@ -19,6 +19,8 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
 
 export const StudioPaths = {
   generations: `${root}/generations`,
+  generation: `${root}/generations/:generationID`,
+  promptTags: `${root}/prompt-tags`,
 } as const
 
 export const StudioGenerationPayload = Schema.Struct({
@@ -55,7 +57,13 @@ const StudioGenerationImage = Schema.Struct({
 
 const StudioGenerationResult = Schema.Struct({
   id: Schema.String,
-  status: Schema.Literal("succeeded"),
+  sessionID: Schema.String,
+  status: Schema.Union([
+    Schema.Literal("queued"),
+    Schema.Literal("running"),
+    Schema.Literal("succeeded"),
+    Schema.Literal("failed"),
+  ]),
   capability: StudioGenerationPayload.fields.capability,
   prompt: Schema.String,
   provider: Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")]),
@@ -76,17 +84,32 @@ const StudioGenerationResult = Schema.Struct({
   duration: Schema.optional(Schema.Union([Schema.Literal("5"), Schema.Literal("10")])),
   videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("std"), Schema.Literal("pro")])),
   images: Schema.Array(StudioGenerationImage),
+  progress: Schema.Number,
+  order: Schema.optional(Schema.Number),
+  rawStatus: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
+  error: Schema.optional(Schema.String),
   request: Schema.optional(Schema.Unknown),
   response: Schema.optional(Schema.Unknown),
   rawBody: Schema.optional(Schema.String),
   createdAt: Schema.Number,
-  completedAt: Schema.Number,
+  updatedAt: Schema.Number,
+  completedAt: Schema.optional(Schema.Number),
 })
 
 export const StudioApi = HttpApi.make("studio")
   .add(
     HttpApiGroup.make("studio")
       .add(
+        HttpApiEndpoint.get("listPromptTags", StudioPaths.promptTags, {
+          success: described(Schema.Unknown, "Prompt tags list"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.prompt-tags.list",
+            summary: "Get prompt tags",
+            description: "Returns prompt tag categories from the internal image API.",
+          }),
+        ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
@@ -96,6 +119,19 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.create",
             summary: "Create Studio image generation",
             description: "Generate images using the built-in Studio image generation tool.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.get("getGeneration", StudioPaths.generation, {
+          params: { generationID: Schema.String },
+          success: described(StudioGenerationResult, "Studio generation status"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.get",
+            summary: "Get Studio generation",
+            description: "Get the current status and result of an asynchronous Studio generation.",
           }),
         ),
       )
