@@ -35,6 +35,20 @@ const MULTI_ROLE_TOOLS = new Set(["run_guide_analysis", "run_usability_analysis"
 
 const HANDLE_RE = /^upload_\d+$/
 
+// MCP 工具在 opencode 里的 tool id 带 server 前缀(实测内网 = `uxr-tool_key_findings`),
+// 不是裸 `key_findings`。用「后缀 + 分隔符」匹配还原 bare 名:既命中带前缀的 MCP 名,
+// 又不会让 `mindmap` 误中 `xmindmap`(要求 bare 名前一个字符是分隔符或就是开头)。
+function matchBareTool(toolId: string, bareNames: Iterable<string>): string | undefined {
+  for (const name of bareNames) {
+    if (toolId === name) return name
+    if (toolId.endsWith(name)) {
+      const prefixChar = toolId[toolId.length - name.length - 1]
+      if (prefixChar && /[_.\-/:]/.test(prefixChar)) return name
+    }
+  }
+  return undefined
+}
+
 type Upload = { handle: string; filename: string; url: string }
 
 // 解析 `[已上传文件]` 区块 → [{handle, filename, url}]。
@@ -81,9 +95,11 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
   return {
     "tool.execute.before": async (input, output) => {
       const tool = input.tool
-      const urlField = SINGLE_BUCKET_URL_FIELD[tool]
-      const isMultiRole = MULTI_ROLE_TOOLS.has(tool)
-      if (!urlField && !isMultiRole) return // 非 insight 文件工具,放行
+      // 按 bare 名匹配(兼容 MCP server 前缀,如 uxr-tool_key_findings)
+      const singleBare = matchBareTool(tool, Object.keys(SINGLE_BUCKET_URL_FIELD))
+      const multiBare = matchBareTool(tool, MULTI_ROLE_TOOLS)
+      if (!singleBare && !multiBare) return // 非 insight 文件工具,放行
+      const urlField = singleBare ? SINGLE_BUCKET_URL_FIELD[singleBare] : undefined
 
       // 拉取 session 消息,从最近一条带 [已上传文件] 区块的 user 消息解析权威 URL。
       let uploads: Upload[] = []
@@ -127,6 +143,7 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
 
       console.log("[octo:inject] args rewritten", {
         tool,
+        bareTool: singleBare ?? multiBare,
         sessionID: input.sessionID,
         mode: urlField ? "inject+handle" : "handle",
         urlField: urlField ?? null,
