@@ -723,7 +723,7 @@ export default function StudioPage() {
         if (!params.id || !conversationScrollRef) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
-          conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight, behavior: "smooth" })
+          conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
         })
       },
       { defer: true },
