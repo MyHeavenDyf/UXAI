@@ -7,7 +7,7 @@ import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
   IconSettings,
-} from "@/pages/_shell/icons"
+} from "@/pages/insight/icons"
 
 /**
  * SidebarFooter —— insight 侧栏底部「技能库 / 资产库 / 设置」公共栏目。

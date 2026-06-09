@@ -32,20 +32,6 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 
 const AGENT = "octo_insight" // 与发送链路 index.tsx:475 的 agent 名一致
 
-// 折叠箭头:与 UXAI 1:1(向下箭头,展开 0deg / 收起 -90deg)
-function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
-      style={{
-        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
-        transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
-        "flex-shrink": "0",
-      }}
-    >
-      <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="rgba(0,0,0,0.6)"/>
-    </svg>
-  )
-}
 
 export function InsightSessionList(): JSX.Element {
   const globalSDK = useGlobalSDK()
@@ -91,13 +77,6 @@ export function InsightSessionList(): JSX.Element {
   const activeSessionId = () => {
     const m = location.pathname.match(/^\/insight\/(.+)$/)
     return m?.[1]
-  }
-
-  const [insightCollapsed, setInsightCollapsed] = createSignal(false)
-
-  // 懒创建(D4):跳空会话页,发首条消息才建记录;不 eager session.create
-  function newSession() {
-    navigate("/insight")
   }
 
   // ── 右键改名/删除(我方在 1:1 之上的功能并集;UXAI 会话列表无此菜单)──────
@@ -150,159 +129,122 @@ export function InsightSessionList(): JSX.Element {
 
   return (
     <div class="flex flex-col">
-      {/* 新建行 */}
-      <button
-        type="button"
-        class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-        style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-        onClick={newSession}
+      <Show
+        when={!sessions.loading}
+        fallback={
+          <div class="px-[8px] py-[6px]">
+            <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
+          </div>
+        }
       >
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
-          <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-        </svg>
-        <span>新建</span>
-      </button>
-      <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0 6px" }} />
-
-      {/* ─── Octo Insight ─── */}
-      <div class="mb-[2px]">
-        <div class="flex items-center h-[36px] px-[12px]">
-          <button
-            type="button"
-            onClick={() => setInsightCollapsed((v) => !v)}
-            class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
-          >
-            <span class="flex items-center gap-[12px] min-w-0">
-              <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
-              <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                Octo Insight
-              </span>
-            </span>
-            <ChevronRightIcon collapsed={insightCollapsed()} />
-          </button>
-        </div>
-
-        <Show when={!insightCollapsed()}>
-          <div class="flex flex-col">
-            <Show
-              when={!sessions.loading}
-              fallback={
-                <div class="px-[8px] py-[6px]">
-                  <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
-                </div>
-              }
-            >
-              <Show
-                when={sessionList.length > 0}
-                fallback={
-                  <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                    暂无对话
-                  </div>
-                }
-              >
-                <For each={sessionList}>
-                  {(session) => {
-                    const isActive = () => activeSessionId() === session.id
-                    const [sessionStore] = globalSync.child(session.directory)
-                    const isWorking = createMemo(() => {
-                      const status = sessionStore.session_status[session.id]
-                      return status !== undefined && status.type !== "idle"
-                    })
-                    const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
-                    const hasError = createMemo(() => notification.session.unseenHasError(session.id))
-                    const hasPermissions = createMemo(() =>
-                      !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
-                        !permission.autoResponds(item, session.directory),
-                      ),
-                    )
-                    return (
-                      <Show
-                        when={renamingId() === session.id}
-                        fallback={
-                      <button
-                        type="button"
-                        onClick={() => {
-                          notification.session.markViewed(session.id)
-                          navigate(`/insight/${session.id}`)
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          setConfirmDeleteId(null)
-                          setContextMenu({ id: session.id, x: e.clientX, y: e.clientY })
-                        }}
-                        class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
-                        style={{
-                          height: "36px",
-                          padding: "0 24px 0 44px",
-                          color: isActive() ? "#0A59F7" : undefined,
-                        }}
-                        classList={{
-                          "bg-[rgba(10,89,247,0.08)]": isActive(),
-                          "hover:bg-surface-base-hover": !isActive(),
-                        }}
-                      >
-                        <Show when={isActive()}>
-                          <span
-                            class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
-                            style={{
-                              height: "28px",
-                              width: "4px",
-                              background: "#0A59F7",
-                              transform: "translateY(-50%)",
-                            }}
-                          />
-                        </Show>
-                        <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                          <div class="shrink-0 size-6 flex items-center justify-center absolute left-[12px]">
-                            <Switch>
-                              <Match when={isWorking()}>
-                                <Spinner class="size-[15px]" />
-                              </Match>
-                              <Match when={hasPermissions()}>
-                                <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-                              </Match>
-                              <Match when={hasError()}>
-                                <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-                              </Match>
-                              <Match when={unseenCount() > 0}>
-                                <div class="size-1.5 rounded-full bg-text-interactive-base" />
-                              </Match>
-                            </Switch>
-                          </div>
-                        </Show>
-                        <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
-                      </button>
-                        }
-                      >
-                        {/* 内联重命名输入框 */}
-                        <div
-                          class="w-full rounded-[8px] flex items-center"
-                          style={{ height: "36px", padding: "0 12px 0 44px", background: "rgba(10,89,247,0.08)" }}
-                        >
-                          <input
-                            type="text"
-                            value={renameDraft()}
-                            onInput={(e) => setRenameDraft(e.currentTarget.value)}
-                            onKeyDown={(e) => {
-                              e.stopPropagation()
-                              if (e.key === "Enter") { e.preventDefault(); void handleRenameConfirm(session.id) }
-                              if (e.key === "Escape") { e.preventDefault(); setRenamingId(null) }
-                            }}
-                            onBlur={() => void handleRenameConfirm(session.id)}
-                            ref={(el) => requestAnimationFrame(() => { el.focus(); el.select() })}
-                            class="w-full bg-transparent text-[12px] outline-none"
-                            style={{ color: "#0A59F7", "font-weight": "500", border: "none" }}
-                          />
+        <Show
+          when={sessionList.length > 0}
+          fallback={
+            <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+              暂无对话
+            </div>
+          }
+        >
+          <For each={sessionList}>
+            {(session) => {
+              const isActive = () => activeSessionId() === session.id
+              const [sessionStore] = globalSync.child(session.directory)
+              const isWorking = createMemo(() => {
+                const status = sessionStore.session_status[session.id]
+                return status !== undefined && status.type !== "idle"
+              })
+              const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
+              const hasError = createMemo(() => notification.session.unseenHasError(session.id))
+              const hasPermissions = createMemo(() =>
+                !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
+                  !permission.autoResponds(item, session.directory),
+                ),
+              )
+              return (
+                <Show
+                  when={renamingId() === session.id}
+                  fallback={
+                    <button
+                      type="button"
+                      onClick={() => {
+                        notification.session.markViewed(session.id)
+                        navigate(`/insight/${session.id}`)
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setConfirmDeleteId(null)
+                        setContextMenu({ id: session.id, x: e.clientX, y: e.clientY })
+                      }}
+                      class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                      style={{
+                        height: "36px",
+                        padding: "0 24px 0 44px",
+                        color: isActive() ? "#0A59F7" : undefined,
+                      }}
+                      classList={{
+                        "bg-[rgba(10,89,247,0.08)]": isActive(),
+                        "hover:bg-surface-base-hover": !isActive(),
+                      }}
+                    >
+                      <Show when={isActive()}>
+                        <span
+                          class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
+                          style={{
+                            height: "28px",
+                            width: "4px",
+                            background: "#0A59F7",
+                            transform: "translateY(-50%)",
+                          }}
+                        />
+                      </Show>
+                      <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
+                        <div class="shrink-0 size-6 flex items-center justify-center absolute left-[12px]">
+                          <Switch>
+                            <Match when={isWorking()}>
+                              <Spinner class="size-[15px]" />
+                            </Match>
+                            <Match when={hasPermissions()}>
+                              <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+                            </Match>
+                            <Match when={hasError()}>
+                              <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                            </Match>
+                            <Match when={unseenCount() > 0}>
+                              <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                            </Match>
+                          </Switch>
                         </div>
                       </Show>
-                    )
-                  }}
-                </For>
-              </Show>
-            </Show>
-          </div>
+                      <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
+                    </button>
+                  }
+                >
+                  {/* 内联重命名输入框 */}
+                  <div
+                    class="w-full rounded-[8px] flex items-center"
+                    style={{ height: "36px", padding: "0 12px 0 44px", background: "rgba(10,89,247,0.08)" }}
+                  >
+                    <input
+                      type="text"
+                      value={renameDraft()}
+                      onInput={(e) => setRenameDraft(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === "Enter") { e.preventDefault(); void handleRenameConfirm(session.id) }
+                        if (e.key === "Escape") { e.preventDefault(); setRenamingId(null) }
+                      }}
+                      onBlur={() => void handleRenameConfirm(session.id)}
+                      ref={(el) => requestAnimationFrame(() => { el.focus(); el.select() })}
+                      class="w-full bg-transparent text-[12px] outline-none"
+                      style={{ color: "#0A59F7", "font-weight": "500", border: "none" }}
+                    />
+                  </div>
+                </Show>
+              )
+            }}
+          </For>
         </Show>
-      </div>
+      </Show>
 
       {/* ── 右键上下文菜单 ───────────────────────────────────── */}
       <Show when={contextMenu()}>
