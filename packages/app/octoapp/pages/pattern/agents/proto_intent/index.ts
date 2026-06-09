@@ -1,5 +1,6 @@
 import type { Session, Part } from "@opencode-ai/sdk/v2/client"
 import type { SDK } from "@/context/sdk"
+import intentDescriptionSchema from './schema';
 
 export type ProtoIntentInput = {
   userRequest: string
@@ -102,6 +103,11 @@ export async function runProtoIntent(ctx: ProtoIntentContext): Promise<ProtoInte
     sessionID: childSession.id,
     agent: "proto_intent",
     ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
+    format: {
+      type: "json_schema",
+      schema: intentDescriptionSchema,
+      retryCount: 2
+    },
     parts: [{ type: "text", text: promptText }],
   })
 
