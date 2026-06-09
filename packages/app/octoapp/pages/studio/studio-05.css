@@ -309,6 +309,18 @@
   animation: studio-pulse 1.2s ease-in-out infinite;
 }
 
+.studio-empty-state-dots {
+  position: relative;
+  width: 210px;
+  height: 210px;
+  flex: 0 0 auto;
+}
+
+.studio-empty-dot {
+  position: absolute;
+  border-radius: 999px;
+}
+
 .studio-enlarging {
   height: 100%;
   min-width: 0;
