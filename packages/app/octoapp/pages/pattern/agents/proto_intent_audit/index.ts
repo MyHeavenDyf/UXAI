@@ -34,7 +34,9 @@ async function waitForAssistant(sdk: ProtoIntentAuditContext["sdk"], sessionId: 
         if (msg.role !== "assistant") continue
         if (msg.time.completed == null) continue
         for (let j = items[i].parts.length - 1; j >= 0; j--) {
+          // @ts-ignore
           if (items[i].parts[j].type === "text" && items[i].parts[j].text)
+          // @ts-ignore
             return items[i].parts[j].text
         }
       }
