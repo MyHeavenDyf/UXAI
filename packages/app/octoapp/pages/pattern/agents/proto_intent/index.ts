@@ -33,7 +33,7 @@ export type ProtoIntentContext = {
   abortSignal: AbortSignal
 }
 
-async function waitForAssistant(sdk: ProtoIntentContext["sdk"], sessionId: string, signal: AbortSignal): Promise<string> {
+async function waitForAssistant(sdk: { client: SDK["client"] }, sessionId: string, signal: AbortSignal): Promise<string> {
   while (!signal.aborted) {
     await new Promise((r) => setTimeout(r, 2000))
     if (signal.aborted) throw new Error("aborted")
@@ -46,7 +46,9 @@ async function waitForAssistant(sdk: ProtoIntentContext["sdk"], sessionId: strin
         if (msg.role !== "assistant") continue
         if (msg.time.completed == null) continue
         for (let j = items[i].parts.length - 1; j >= 0; j--) {
+          // @ts-ignore
           if (items[i].parts[j].type === "text" && items[i].parts[j].text)
+          // @ts-ignore
             return items[i].parts[j].text
         }
       }

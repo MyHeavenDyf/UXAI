@@ -143,10 +143,12 @@ function PatternContent() {
   createEffect(
     on(
       () => params.id,
-      (id) => {
+      (id, prevId) => {
         if (id) layout.lastSessionPerTab.setPattern(id)
-        setSending(false)
-        setPhase("idle")
+        if (prevId !== undefined) {
+          setSending(false)
+          setPhase("idle")
+        }
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -190,7 +192,7 @@ function PatternContent() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
-  const hasContent = () => !!(params.id && userMessages().length > 0)
+  const hasContent = () => !!(params.id && (userMessages().length > 0 || phase() !== "idle"))
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -360,10 +362,11 @@ function PatternContent() {
       let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
-        if (!dir) { console.log("[Pattern] no directory, abort"); return }
+        if (!dir) return
         const result = await sdk.client.session.create({ directory: dir, agent: AGENT_NAME })
         const session = result.data as Session | undefined
-        if (!session) { console.log("[Pattern] session.create returned no session"); return }
+        if (!session) return
+        setPhase("intent")
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
@@ -444,7 +447,7 @@ function PatternContent() {
       console.log("[Pattern] planner output:", JSON.stringify(planner, null, 2))
 
       const plannerJson = detectA2UIJson(JSON.stringify(planner))
-      if (plannerJson) sendToPreview(plannerJson)
+      // if (plannerJson) sendToPreview(plannerJson)
 
       // ── Step 4: proto_module_create → 逐模块生成 A2UI JSON ──
       setPhase("module")
