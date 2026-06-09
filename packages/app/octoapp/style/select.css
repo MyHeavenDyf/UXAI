@@ -76,6 +76,14 @@
   width: 100% !important;
 }
 
+.version-select-content [data-slot="select-select-trigger-icon"] {
+  font-weight: normal !important;
+}
+
+.version-select-content [data-slot="select-select-trigger-icon"] svg {
+  stroke: unset !important;
+}
+
 .version-select-content .closed-label {
   font-size: 12px !important;
   color: rgba(0,0,0,0.45) !important;
