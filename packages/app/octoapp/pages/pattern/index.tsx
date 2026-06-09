@@ -31,12 +31,10 @@ import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { octoSessionsDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
-import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { AttachmentBar, type Attachment } from "./modules/chat/attachment_bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
-import { DesignSystemPicker } from "./components/design-system-picker"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { Icon } from "@opencode-ai/ui/icon"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { ChartInput } from "./modules/chat/chart_input"
 import { runProtoTriage } from "./agents/proto_triage"
 import { runProtoIntent } from "./agents/proto_intent"
 import { runProtoIntentAudit } from "./agents/proto_intent_audit"
@@ -44,6 +42,7 @@ import { runProtoPlannerCreate } from "./agents/proto_planner_create"
 import { runProtoModuleCreate } from "./agents/proto_module_create"
 import { mergeModules } from "./agents/merge"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { ProtoIntroduction } from './modules/chat/proto_introduction' 
 
 const AGENT_NAME = "proto_triage"
 
@@ -503,8 +502,6 @@ function PatternContent() {
     }
   }
 
-  let fileInputRef!: HTMLInputElement
-
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
@@ -561,88 +558,22 @@ function PatternContent() {
   }
 
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
-  const maxAttachments = () => attachments().length >= 5
 
-  const inputBox = (rows: number | undefined) => (
-    <div
-      class="rounded-[16px] transition-all duration-300 relative group"
-      style={{
-        border: "1px solid transparent",
-        background: `
-          linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
-          linear-gradient(135deg,
-            rgba(0, 103, 209, 0.7) 1%,
-            rgba(46, 134, 222, 0.7) 22%,
-            rgba(0, 103, 209, 0.7) 54%,
-            rgba(0, 78, 168, 0.7) 87%,
-            rgba(0, 103, 209, 0.7) 92%) border-box`,
-        "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(0, 103, 209, 0.18), 0 0 20px rgba(0, 78, 168, 0.12)",
-        "margin-top": attachments().length > 0 ? "6px" : "0",
-        ...(rows === undefined ? { height: "150px" } : {}),
-      }}
-    >
-      <textarea
-        value={prompt()}
-        onInput={(e) => setPrompt(e.currentTarget.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="描述你想要的界面，按 Enter 生成 A2UI JSON…"
-        rows={rows}
-        disabled={inputDisabled()}
-        class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
-        style={{
-          "font-family": "var(--octo-font)",
-          ...(rows === undefined ? { flex: "1", "max-height": "none", "overflow-y": "auto" } : { "max-height": "120px", "overflow-y": "auto" }),
-        }}
-      />
-      <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
-        <div class="flex items-center gap-1 min-w-0">
-          <DesignSystemPicker
-            selected={selectedDesignSystem()}
-            onSelect={setSelectedDesignSystem}
-          />
-          <input
-            ref={fileInputRef!}
-            type="file"
-            multiple
-            class="hidden"
-            accept="*/*"
-            onChange={handleFileInputChange}
-          />
-          <button
-            type="button"
-            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-            disabled={maxAttachments()}
-            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-            title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-          >
-            <Icon name="plus" class="size-5" />
-          </button>
-          <ModelSelectorPopover
-            model={local.model}
-            triggerAs="button"
-            triggerProps={{
-              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
-              "data-action": "prompt-model",
-            }}
-          >
-            <span class="truncate">
-              {currentModel()?.name ?? "选择模型"}
-            </span>
-            <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
-          </ModelSelectorPopover>
-        </div>
-        <IconButton
-          data-action="prompt-submit"
-          type="submit"
-          icon={isBusy() ? "stop" : "arrow-up"}
-          class="size-8 flex-shrink-0"
-          onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-          disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-          aria-label={isBusy() ? "停止生成" : undefined}
-        />
-      </div>
-    </div>
-  )
+  const chartInputProps = () => ({
+    value: prompt(),
+    onValueChange: setPrompt,
+    onKeyDown: handleKeyDown,
+    disabled: inputDisabled(),
+    busy: isBusy(),
+    onSubmit: () => void handleSubmit(),
+    onHalt: () => void halt(),
+    attachments: attachments(),
+    maxAttachments: attachments().length >= 5,
+    onFileChange: handleFileInputChange,
+    selectedDesignSystem: selectedDesignSystem(),
+    onSelectDesignSystem: setSelectedDesignSystem,
+    model: local.model,
+  })
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -736,10 +667,13 @@ function PatternContent() {
 
             <Show when={hasContent()} fallback={
               <div class="flex-1 flex flex-col items-center justify-center min-h-0">
-                <ChatEmptyState />
+                {/* 原型介绍 */}
+                <ProtoIntroduction />
                 <div class="w-full max-w-[800px] px-8">
+                  {/* 附件栏 */}
                   <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                  {inputBox(undefined)}
+                  {/* 聊天框 */}
+                  <ChartInput {...chartInputProps()} rows={undefined} />
                 </div>
               </div>
             }>
@@ -766,8 +700,9 @@ function PatternContent() {
               </ScrollView>
 
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+                {/* 附件栏 */}
                 <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                {inputBox(3)}
+                <ChartInput {...chartInputProps()} rows={3} />
               </div>
             </Show>
           </div>
@@ -821,26 +756,6 @@ function PatternContent() {
         </Show>
       </div>
     </DataProvider>
-  )
-}
-
-function ChatEmptyState(): JSX.Element {
-  return (
-    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
-      <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
-        <rect x="8" y="8" width="64" height="64" rx="16" stroke="var(--octo-brand-a40)" stroke-width="2" fill="none" />
-        <rect x="20" y="20" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="44" y="20" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="20" y="44" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="44" y="44" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-      </svg>
-      <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Pattern</div>
-        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
-          描述界面需求，生成 A2UI JSON
-        </div>
-      </div>
-    </div>
   )
 }
 

@@ -1,7 +1,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
-import { loadDesignSystemIndex, type DesignSystemEntry } from "../utils/design-system-loader"
+import { loadDesignSystemIndex, type DesignSystemEntry } from "../../utils/design-system-loader"
 
 export function DesignSystemPicker(props: {
   selected: string | null
