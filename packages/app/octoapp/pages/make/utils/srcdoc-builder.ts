@@ -548,18 +548,22 @@ function injectInspectStyleBridge(doc: string): string {
   const script = `<script data-od-inspect-style-bridge>(function(){
 var overrides={};
 var STYLE_PROPS=['color','backgroundColor','fontSize','fontWeight','textAlign','padding','borderRadius','fontFamily','lineHeight'];
+function camelToKebab(str){
+  return str.replace(/([a-z])([A-Z])/g,function(m,p1,p2){return p1+'-'+p2.toLowerCase();});
+}
 window.addEventListener('message',function(ev){
   var d=ev&&ev.data;
   if(!d)return;
   if(d.type==='od:inspect-set'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');
     if(!el)return;
-    var prop=d.prop;
+    var camelProp=d.prop;
+    var cssProp=camelToKebab(camelProp);
     var value=d.value;
-    if(!STYLE_PROPS.includes(prop))return;
-    var key=d.elementId+'||'+prop;
-    if(!overrides[key])overrides[key]={original:el.style.getPropertyValue(prop)};
-    el.style.setProperty(prop,value,'important');
+    if(!STYLE_PROPS.includes(camelProp))return;
+    var key=d.elementId+'||'+camelProp;
+    if(!overrides[key])overrides[key]={original:el.style.getPropertyValue(cssProp)};
+    el.style.setProperty(cssProp,value,'important');
   }
   if(d.type==='od:inspect-reset'){
     if(d.elementId){
@@ -568,8 +572,9 @@ window.addEventListener('message',function(ev){
         var parts=k.split('||');
         var el=document.querySelector('[data-od-id="'+parts[0]+'"]');
         if(el&&overrides[k]){
-          if(overrides[k].original)el.style.setProperty(parts[1],overrides[k].original);
-          else el.style.removeProperty(parts[1]);
+          var cssProp=camelToKebab(parts[1]);
+          if(overrides[k].original)el.style.setProperty(cssProp,overrides[k].original);
+          else el.style.removeProperty(cssProp);
         }
         delete overrides[k];
       });
@@ -578,8 +583,9 @@ window.addEventListener('message',function(ev){
         var parts=k.split('||');
         var el=document.querySelector('[data-od-id="'+parts[0]+'"]');
         if(el&&overrides[k]){
-          if(overrides[k].original)el.style.setProperty(parts[1],overrides[k].original);
-          else el.style.removeProperty(parts[1]);
+          var cssProp=camelToKebab(parts[1]);
+          if(overrides[k].original)el.style.setProperty(cssProp,overrides[k].original);
+          else el.style.removeProperty(cssProp);
         }
       });
       overrides={};
@@ -587,32 +593,30 @@ window.addEventListener('message',function(ev){
   }
   if(d.type==='od:inspect-extract'){
     var result=[];
-    // Extract from overrides object
     Object.keys(overrides).forEach(function(k){
       var parts=k.split('||');
       var el=document.querySelector('[data-od-id="'+parts[0]+'"]');
       if(el){
-        var currentValue=el.style.getPropertyValue(parts[1]);
+        var cssProp=camelToKebab(parts[1]);
+        var currentValue=el.style.getPropertyValue(cssProp);
         console.log('[Bridge] Extracting from overrides:', parts[0], parts[1], currentValue);
         result.push({elementId:parts[0],prop:parts[1],value:currentValue});
       }
     });
     
-    // Also check for any elements with inline styles that might have been applied
     var allElements=document.querySelectorAll('[data-od-id]');
     for(var i=0;i<allElements.length;i++){
       var el=allElements[i];
       var elementId=el.getAttribute('data-od-id');
       var style=el.style;
-      // Check each allowed prop
       for(var j=0;j<STYLE_PROPS.length;j++){
-        var prop=STYLE_PROPS[j];
-        var value=style.getPropertyValue(prop);
-        var key=elementId+'||'+prop;
-        // Only add if it has a value and not already in result
+        var camelProp=STYLE_PROPS[j];
+        var cssProp=camelToKebab(camelProp);
+        var value=style.getPropertyValue(cssProp);
+        var key=elementId+'||'+camelProp;
         if(value && !overrides[key]){
-          console.log('[Bridge] Found additional inline style:', elementId, prop, value);
-          result.push({elementId:elementId,prop:prop,value:value});
+          console.log('[Bridge] Found additional inline style:', elementId, camelProp, value);
+          result.push({elementId:elementId,prop:camelProp,value:value});
         }
       }
     }
