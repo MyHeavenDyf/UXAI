@@ -1,10 +1,12 @@
 import { createEffect, createMemo, Show } from "solid-js"
 import { useTheme } from "@opencode-ai/ui/theme/context"
+import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocation, useNavigate } from "@solidjs/router"
+import { Logo } from "@opencode-ai/ui/logo"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useGlobalSync } from "@/context/global-sync"
@@ -22,6 +24,13 @@ const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "make", label: "Design" },
   { key: "studio", label: "Studio" },
 ]
+
+const TAB_ICON_MAP: Record<TabType, string> = {
+  chat: "/IconChat.svg",
+  make: "/makeTab.svg",
+  cowork: "/IconCowork.svg",
+  studio: "/IconStudio.svg",
+}
 
 type TauriDesktopWindow = {
   startDragging?: () => Promise<void>
@@ -199,13 +208,11 @@ export function TitlebarSimple() {
         <img src="/headerLogo.png" alt="" style={{ width: "90px", height: "18px" }} />
       </div>
 
-        <style>{`.titlebar-tab-btn [data-component="icon"] { color: inherit }`}</style>
-        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
-          <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] gap-1 p-[2px]" role="tablist">
-            {TAB_ITEMS.map((item) => (
-              <button
-                class="titlebar-tab-btn"
-                role="tab"
+      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
+        <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] gap-1 p-[2px]" role="tablist">
+          {TAB_ITEMS.map((item) => (
+            <button
+              role="tab"
               aria-selected={activeTab() === item.key}
               disabled={!hasActiveTab()}
               classList={{
@@ -222,7 +229,23 @@ export function TitlebarSimple() {
                 if (hasActiveTab()) handleTabClick(item.key)
               }}
             >
-              <Icon name={`tab-${item.key}` as any} size="small"/>
+              <span
+                style={{
+                  width: "18px",
+                  height: "18px",
+                  display: "block",
+                  "flex-shrink": "0",
+                  "background-color": activeTab() === item.key ? "#0A59F7" : "#666",
+                  "mask-image": `url(${TAB_ICON_MAP[item.key]})`,
+                  "-webkit-mask-image": `url(${TAB_ICON_MAP[item.key]})`,
+                  "mask-size": "contain",
+                  "-webkit-mask-size": "contain",
+                  "mask-repeat": "no-repeat",
+                  "-webkit-mask-repeat": "no-repeat",
+                  "mask-position": "center",
+                  "-webkit-mask-position": "center",
+                }}
+              />
               <span>{item.label}</span>
             </button>
           ))}

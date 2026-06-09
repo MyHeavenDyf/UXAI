@@ -242,27 +242,26 @@ function WaitingPill(props: {
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (!textPart?.text) return ""
-    
-    const parser = createArtifactParser()
-    let artifactContent = ""
-    for (const ev of parser.feed(textPart.text)) {
-      if (ev.type === "artifact:chunk") {
-        artifactContent += ev.delta
-      }
-    }
-    for (const ev of parser.flush()) {
-      if (ev.type === "artifact:chunk") {
-        artifactContent += ev.delta
-      }
-    }
-    return artifactContent
+    return textPart?.text ?? ""
+  })
+
+  const filteredDeltaLog = createMemo(() => {
+    if (!props.messageID) return []
+    return props.deltaLog
+      .filter((entry) => entry.messageID === props.messageID)
+      .slice(-20)
   })
 
   let contentRef: HTMLDivElement | undefined
 
   createEffect(() => {
     if (accumulatedText() && contentRef) {
+      contentRef.scrollTop = contentRef.scrollHeight
+    }
+  })
+
+  createEffect(() => {
+    if (!accumulatedText() && filteredDeltaLog().length > 0 && contentRef) {
       contentRef.scrollTop = contentRef.scrollHeight
     }
   })
@@ -287,7 +286,31 @@ function WaitingPill(props: {
           {statusLabel()}…
         </span>
       </div>
-      <Show when={accumulatedText().length > 0}>
+      <Show when={accumulatedText().length > 0} fallback={
+        <Show when={filteredDeltaLog().length > 0}>
+          <div
+            ref={(el) => { contentRef = el }}
+            class="px-3 pb-2"
+            style={{
+              "max-height": "120px",
+              overflow: "auto",
+              "font-size": "11px",
+              "font-family": "'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace",
+              color: "var(--octo-text-primary)",
+            }}
+          >
+            <For each={filteredDeltaLog()}>
+              {(entry) => (
+                <div style={{ padding: "2px 0", "border-bottom": "1px dashed #ddd" }}>
+                  <span style={{ color: "#888", "font-size": "10px" }}>{formatDeltaTime(entry.timestamp)}</span>
+                  <span style={{ color: "#3b82f6", "font-weight": "600", "margin-left": "8px" }}>{entry.field}</span>
+                  <span style={{ "margin-left": "8px" }}>{entry.delta.slice(0, 50)}{entry.delta.length > 50 ? "…" : ""}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      }>
         <div
           ref={(el) => { contentRef = el }}
           class="px-3 pb-2"
@@ -865,36 +888,36 @@ const stateStatus = state.status as string | undefined
     // ── 优先级 2：text parts（含 artifact 标签，支持多个） ──
     // 多条 assistant 消息时，HTML artifact 可能不在最后一个 text part，
     // 所以要先扫描所有 text part 找 artifact 标签
-    const allTextParts = parts.filter((p) => p.type === "text") as Array<{ type: "text"; text?: string }>
+    // const allTextParts = parts.filter((p) => p.type === "text") as Array<{ type: "text"; text?: string }>
 
     // 优先从所有 text part 中找 artifact 标签（按 reverse 顺序，最近的优先）
-    for (const textPart of [...allTextParts].reverse()) {
-      if (typeof textPart.text !== "string") continue
-      const text = textPart.text.trim()
-      if (text.length === 0) continue
-      const artifacts = parseAllArtifactsFromText(text)
-      if (artifacts.length > 0) {
-        const ts = getTextPartTime(textPart as Record<string, unknown>)
-        return artifacts.map((a, i) => ({
-          ...a,
-          id: `card-${props.messageID}-artifact-${i}`,
-          createdAt: new Date(ts),
-        }))
-      }
-    }
+    // for (const textPart of [...allTextParts].reverse()) {
+    //   if (typeof textPart.text !== "string") continue
+    //   const text = textPart.text.trim()
+    //   if (text.length === 0) continue
+    //   const artifacts = parseAllArtifactsFromText(text)
+    //   if (artifacts.length > 0) {
+    //     const ts = getTextPartTime(textPart as Record<string, unknown>)
+    //     return artifacts.map((a, i) => ({
+    //       ...a,
+    //       id: `card-${props.messageID}-artifact-${i}`,
+    //       createdAt: new Date(ts),
+    //     }))
+    //   }
+    // }
 
-// 没有 artifact 标签，fallback 到最后一个 text part 用 detectCard 检测
-    const lastTextPart = allTextParts[allTextParts.length - 1]
-    if (lastTextPart && typeof lastTextPart.text === "string") {
-      const text = lastTextPart.text.trim()
-      if (text.length > 0) {
-        const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
-        const info = detectCard(text)
-        // if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
+    // 没有 artifact 标签，fallback 到最后一个 text part 用 detectCard 检测
+    // const lastTextPart = allTextParts[allTextParts.length - 1]
+    // if (lastTextPart && typeof lastTextPart.text === "string") {
+    //   const text = lastTextPart.text.trim()
+    //   if (text.length > 0) {
+    //     const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
+    //     const info = detectCard(text)
+    //     if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
 
-        // Before falling back to markdown, check if subtask artifacts exist for assembly
-        const stForText = subtasks()
-        const subArtForText = stForText.flatMap((t) => t.artifactOutputs)
+    //     // Before falling back to markdown, check if subtask artifacts exist for assembly
+    //     const stForText = subtasks()
+    //     const subArtForText = stForText.flatMap((t) => t.artifactOutputs)
         // if (subArtForText.length === 0) {
         //   return [{
         //     id: `card-${props.messageID}-text`,
@@ -904,8 +927,8 @@ const stateStatus = state.status as string | undefined
         //     createdAt: new Date(ts),
         //   }]
         // }
-      }
-    }
+    //   }
+    // }
 
     // ── 优先级 3：任何 tool output（聚合所有 tool 输出） ──
     const allToolOutput: string[] = []
@@ -975,19 +998,19 @@ const stateStatus = state.status as string | undefined
         a.content.replace(/<style[\s\S]*?<\/style>/gi, "").trim()
       ).filter(Boolean).join("\n")
       const assembled = `<!DOCTYPE html>
-        <html lang="zh-CN">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>页面预览</title>
-            <style>
-            ${styles}
-            </style>
-          </head>
-          <body>
-            ${bodies}
-          </body>
-        </html>`
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>页面预览</title>
+<style>
+${styles}
+</style>
+</head>
+<body>
+${bodies}
+</body>
+</html>`
       return [maybeRepair({
         id: `card-${props.messageID}-composed-auto`,
         title: "完整页面（自动组装）",
@@ -1313,10 +1336,10 @@ const stateStatus = state.status as string | undefined
       </Show>
 
       {/* 阻塞提示 — 渐进式显示 */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 30}>
         {(() => {
           const bt = props.blockTime!
-          const isWarning = bt >= 80
+          const isWarning = bt >= 60
           return (
             <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",

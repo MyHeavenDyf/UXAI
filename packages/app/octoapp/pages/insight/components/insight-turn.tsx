@@ -11,7 +11,12 @@ import { findResourceLinks, linkToOutputType } from "../utils/resource-link"
 import { type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
-import { fileTypeIconUrl } from "../icons/illustrations"
+
+/** 文件名扩展名徽标(MD / DOCX / PDF …);无扩展名回落 FILE */
+function extBadge(filename: string): string {
+  const ext = filename.split(".").pop()?.toUpperCase()
+  return ext && ext !== filename.toUpperCase() ? ext : "FILE"
+}
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
 
@@ -235,7 +240,7 @@ export function InsightTurn(props: {
           <For each={inputAttachments()}>
             {(f) => (
               <div class="octo-input-attachment-card" title={f.filename}>
-                <img class="octo-input-attachment-card__icon" src={fileTypeIconUrl(f.filename)} width={24} height={24} alt="" aria-hidden="true" />
+                <span class="octo-input-attachment-card__badge">{extBadge(f.filename)}</span>
                 <span class="octo-input-attachment-card__name">{f.filename}</span>
               </div>
             )}

@@ -120,50 +120,6 @@ function mockDomainInfoByProduct(productId: number) {
   return { domain, subDomain: productLine, product }
 }
 
-function mockProductTop(productId: number) {
-  for (const products of Object.values(MOCK_PRODUCTS)) {
-    const product = products.find((p) => p.id === productId)
-    if (product) {
-      product.isTop = true
-      return true
-    }
-  }
-  return false
-}
-
-function mockProductCancelTop(productId: number) {
-  for (const products of Object.values(MOCK_PRODUCTS)) {
-    const product = products.find((p) => p.id === productId)
-    if (product) {
-      product.isTop = false
-      return true
-    }
-  }
-  return false
-}
-
-function mockVersionTop(teamId: number) {
-  for (const versions of Object.values(MOCK_VERSIONS)) {
-    const version = versions.find((v) => v.baseTeam === teamId)
-    if (version) {
-      version.isTop = true
-      return true
-    }
-  }
-  return false
-}
-
-function mockVersionCancelTop(teamId: number) {
-  for (const versions of Object.values(MOCK_VERSIONS)) {
-    const version = versions.find((v) => v.baseTeam === teamId)
-    if (version) {
-      version.isTop = false
-      return true
-    }
-  }
-  return false
-}
-
 function wrapResponse(content: any) {
   return JSON.stringify({ data: { errorCode: 0, errorMessage: "", content } })
 }
@@ -191,11 +147,7 @@ export function handleMockApi(pathname: string, search: string): Response | null
     if (path.startsWith("/domain/getDomainInfoByproduct")) return "domainInfoByProduct"
     if (path.startsWith("/product/getProducts")) return "products"
     if (path.startsWith("/product/search")) return "search"
-    if (path.startsWith("/product/top")) return "productTop"
-    if (path.startsWith("/product/cancelTop")) return "productCancelTop"
     if (path.startsWith("/version/getversionByProduct")) return "versions"
-    if (path.startsWith("/version/top")) return "versionTop"
-    if (path.startsWith("/version/cancelTop")) return "versionCancelTop"
     return null
   })()
 
@@ -221,18 +173,6 @@ export function handleMockApi(pathname: string, search: string): Response | null
     case "domainInfoByProduct":
       content = mockDomainInfoByProduct(Number(query.productId))
       break
-    case "productTop":
-      content = mockProductTop(Number(query.productId))
-      break
-    case "productCancelTop":
-      content = mockProductCancelTop(Number(query.productId))
-      break
-    case "versionTop":
-      content = mockVersionTop(Number(query.teamId))
-      break
-    case "versionCancelTop":
-      content = mockVersionCancelTop(Number(query.teamId))
-      break
   }
 
   return new Response(wrapResponse(content), {
@@ -240,7 +180,7 @@ export function handleMockApi(pathname: string, search: string): Response | null
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     },
   })

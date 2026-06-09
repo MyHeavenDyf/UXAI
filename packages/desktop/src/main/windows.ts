@@ -196,7 +196,6 @@ export function registerRendererProtocol() {
       }
       const realUrl = `https://octo.hdesign.huawei.com${url.pathname}${url.search}`
       return net.fetch(realUrl, {
-        method: request.method,
         headers: Object.fromEntries(request.headers.entries()),
       })
     }
