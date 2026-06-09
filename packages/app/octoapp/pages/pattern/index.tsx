@@ -39,10 +39,12 @@ import { runProtoTriage } from "./agents/proto_triage"
 import { runProtoIntent } from "./agents/proto_intent"
 import { runProtoIntentAudit } from "./agents/proto_intent_audit"
 import { runProtoPlannerCreate } from "./agents/proto_planner_create"
+import { runProtoPlannerModify } from "./agents/proto_planner_modify"
 import { runProtoModuleCreate } from "./agents/proto_module_create"
+import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
-import { ProtoIntroduction } from './modules/chat/proto_introduction' 
+import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 
 const AGENT_NAME = "proto_triage"
@@ -192,7 +194,69 @@ function PatternContent() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
+  const [lastIntent, setLastIntent] = createSignal<Record<string, unknown> | null>(null)
+  const [lastPlanner, setLastPlanner] = createSignal<Record<string, unknown> | null>(null)
+  const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
+  const getModuleResults = () => {
+    const mods = lastModules()
+    return mods.length > 0 ? mods as unknown as Record<string, unknown> : null
+  }
   const hasContent = () => !!(params.id && (userMessages().length > 0 || phase() !== "idle"))
+  const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
+  const [pickerText, setPickerText] = createSignal("")
+
+  function unfreezeDomPicker() {
+    previewApi.postMessage({ type: "DOM_PICKER_UNFREEZE" })
+  }
+
+  function showPickerDialog() {
+    dialog.show(() => (
+      <Dialog title="修改选中区域" fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <span class="text-14-regular text-text-strong">
+            选中元素: <b>{pickerDialog.tagName}</b> ({pickerDialog.domPickerId})
+          </span>
+          <div class="flex gap-2">
+            <button class="px-3 py-1 rounded-full text-13-medium transition-colors bg-primary text-on-primary">
+              AI 修改
+            </button>
+          </div>
+          <textarea
+            value={pickerText()}
+            onInput={(e) => setPickerText(e.currentTarget.value)}
+            placeholder="描述你想要的修改..."
+            rows={3}
+            class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+          />
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              取消
+            </Button>
+            <Button variant="primary" size="large" onClick={submitPicker}>
+              确认修改
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ), unfreezeDomPicker)
+  }
+
+  const handlePickerMessage = (e: MessageEvent) => {
+    if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
+    setPickerDialog({ domPickerId: e.data.domPickerId ?? "", tagName: e.data.tagName ?? "" })
+    setPickerText("")
+    showPickerDialog()
+  }
+  window.addEventListener("message", handlePickerMessage)
+  onCleanup(() => window.removeEventListener("message", handlePickerMessage))
+
+  function submitPicker() {
+    const text = pickerText().trim()
+    if (!text) return
+    setPrompt(`[选中元素: ${pickerDialog.domPickerId}] ${text}`)
+    dialog.close()
+    void handleSubmit()
+  }
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -245,7 +309,7 @@ function PatternContent() {
 
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  const previewApi: PreviewPageAPI = { sendToPreview: () => {} }
+  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { } }
 
   function sendToPreview(data: unknown) {
     previewApi.sendToPreview(data)
@@ -271,7 +335,7 @@ function PatternContent() {
         : text
       const parsed = JSON.parse(raw.trim())
       if (parsed && typeof parsed === "object") return parsed
-    } catch {}
+    } catch { }
     return null
   }
 
@@ -347,7 +411,7 @@ function PatternContent() {
 
       const existing = sessionInfo()?.title
       if (!existing || existing.startsWith("New session")) {
-        await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => {})
+        await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => { })
       }
 
       const ctx = {
@@ -359,31 +423,110 @@ function PatternContent() {
       }
 
       // ── Step 0: triage → 判断首次还是修改 ──
-      const existingText = getLastAssistantText(sid)
-      const genuiJson = existingText ? extractJsonFromText(existingText) : null
+      const isEdit = !!lastIntent()
+      const currentPlanner = lastPlanner()
       const triage = await runProtoTriage({
         sdk: { client: sdk.client },
         directory: sdk.directory!,
         modelKey: mk,
         userRequest: text,
-        genuiJson,
-        layoutPlanner: null,
-        moduleResults: null,
-        sessionId: genuiJson ? sid : undefined,
+        genuiJson: isEdit ? (lastIntent() ?? {}) : null,
+        layoutPlanner: currentPlanner,
+        moduleResults: getModuleResults(),
+        sessionId: isEdit ? sid : undefined,
         abortSignal: controller.signal,
       })
       console.log("[Pattern] triage:", triage.routing, triage.reason)
+      console.log("[Pattern] triage output:", JSON.stringify(triage, null, 2))
 
       if (triage.routing === "modify") {
-        console.log("[Pattern] modify flow (not implemented)")
+        debugger
+        if (!currentPlanner || !lastIntent()) {
+          console.log("[Pattern] modify skipped: no previous page state")
+          return
+        }
+        setPhase("planner")
+        const modifyResult = await runProtoPlannerModify({
+          ...ctx,
+          input: {
+            intentReason: triage.reason,
+            intentDelete: triage.delete,
+            intentAdd: triage.add,
+            intentModify: triage.modify,
+            intentPage: triage.updated_intent,
+            layoutPlanner: currentPlanner,
+          },
+        })
+        console.log("[Pattern] planner_modify done, slots:", modifyResult.output.slots.length)
+        console.log("[Pattern] planner_modify output:", JSON.stringify(modifyResult, null, 2))
+        console.log("[Pattern] removed sections:", modifyResult.removedSectionIds)
+
+        const updatedIntent = { ...lastIntent(), ...triage.updated_intent }
+        const prevModules = lastModules()
+
+        setPhase("module")
+        const allModules: typeof prevModules = []
+
+        for (const slot of modifyResult.output.slots) {
+          if (slot.operation === "none") {
+            const existing = prevModules.find((m) => m.rootId === slot.element_id)
+            if (existing) allModules.push(existing)
+            continue
+          }
+          if (slot.operation === "create") {
+            const moduleResult = await runProtoModuleCreate({
+              ...ctx,
+              input: {
+                intentDescription: updatedIntent as any,
+                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
+                sectionId: slot.section_id,
+                elementId: slot.element_id,
+                idPrefix: slot.id_prefix,
+              },
+            })
+            allModules.push(moduleResult.uiJson as typeof prevModules[number])
+            continue
+          }
+          if (slot.operation === "modify") {
+            const originModule = prevModules.find((m) => m.rootId === slot.element_id)
+            const modAction = triage.modify.find((m) => m.section_id === slot.section_id)
+            if (!originModule || !modAction) continue
+            const moduleResult = await runModuleModify({
+              ...ctx,
+              input: {
+                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
+                idPrefix: slot.id_prefix,
+                sectionId: slot.section_id,
+                originModules: originModule,
+                modifications: modAction as unknown as Record<string, unknown>,
+              },
+            })
+            allModules.push(moduleResult.uiJson as typeof prevModules[number])
+          }
+        }
+
+        const merged = mergeModules(
+          { rootId: modifyResult.output.rootId, elements: modifyResult.output.elements },
+          allModules,
+        )
+        console.log("[Pattern] ========== MERGED A2UI JSON ==========")
+        console.log(JSON.stringify(merged, null, 2))
+        const mergedJson = detectA2UIJson(JSON.stringify(merged))
+        if (mergedJson) sendToPreview(mergedJson)
+
+        setLastIntent(updatedIntent as unknown as Record<string, unknown>)
+        setLastPlanner(modifyResult.output as unknown as Record<string, unknown>)
+        setLastModules(allModules)
+
         setPhase("idle")
         return
       }
-
       // ── Step 1: proto_intent → 生成蓝图 ──
       setPhase("intent")
       debugger
-      const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
+      // const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
+
+      const intentResult = (await import(`./intent.json`)).default
 
       console.log("[Pattern] intent done, sections:", intentResult.sections.length)
       console.log("[Pattern] intent output:", JSON.stringify(intentResult, null, 2))
@@ -391,31 +534,32 @@ function PatternContent() {
       // ── Step 2: proto_intent_audit → 审核（最多重试 2 次）──
       setPhase("audit")
       let currentIntent = intentResult
-      for (let attempt = 0; attempt < 2; attempt++) {
-        debugger
-        const audit = await runProtoIntentAudit({
-          ...ctx,
-          input: { userRequest: text, blueprint: JSON.stringify(currentIntent) },
-        })
-        console.log("[Pattern] audit:", audit.isPass, audit.feedback.slice(0, 80))
-        console.log("[Pattern] audit output:", JSON.stringify(audit, null, 2))
-        if (audit.isPass) break
-        debugger
-        currentIntent = await runProtoIntent({
-          ...ctx,
-          input: { userRequest: text, previousBlueprint: currentIntent, auditFeedback: audit.feedback },
-        })
-        console.log("[Pattern] intent retry", attempt + 1)
-      }
+      // for (let attempt = 0; attempt < 2; attempt++) {
+      //   debugger
+      //   const audit = await runProtoIntentAudit({
+      //     ...ctx,
+      //     input: { userRequest: text, blueprint: JSON.stringify(currentIntent) },
+      //   })
+      //   console.log("[Pattern] audit:", audit.isPass, audit.feedback.slice(0, 80))
+      //   console.log("[Pattern] audit output:", JSON.stringify(audit, null, 2))
+      //   if (audit.isPass) break
+      //   debugger
+      //   currentIntent = await runProtoIntent({
+      //     ...ctx,
+      //     input: { userRequest: text, previousBlueprint: currentIntent, auditFeedback: audit.feedback },
+      //   })
+      //   console.log("[Pattern] intent retry", attempt + 1)
+      // }
 
       // ── Step 3: proto_planner_create → 生成布局 + slots ──
       setPhase("planner")
       debugger
 
-      const planner = await runProtoPlannerCreate({
-        ...ctx,
-        input: { blueprint: currentIntent as unknown as Record<string, unknown> },
-      })
+      // const planner = await runProtoPlannerCreate({
+      //   ...ctx,
+      //   input: { blueprint: currentIntent as unknown as Record<string, unknown> },
+      // })
+      const planner = (await import(`./planner.json`)).default
       console.log("[Pattern] planner done, slots:", planner.slots.length)
       console.log("[Pattern] planner output:", JSON.stringify(planner, null, 2))
 
@@ -425,22 +569,35 @@ function PatternContent() {
       // ── Step 4: proto_module_create → 逐模块生成 A2UI JSON ──
       setPhase("module")
       const modules: Array<{ rootId: string; elements: Array<{ id: string; component: string; props?: Record<string, unknown>; children?: string[] }>; state?: Record<string, unknown> }> = []
-      for (const slot of planner.slots) {
-        console.log("[Pattern] module_create:", slot.section_id)
-        debugger
-        const moduleResult = await runProtoModuleCreate({
-          ...ctx,
-          input: {
-            intentDescription: currentIntent,
-            layoutPlanner: planner as unknown as Record<string, unknown>,
-            sectionId: slot.section_id,
-            elementId: slot.element_id,
-            idPrefix: slot.id_prefix,
-          },
-        })
-        console.log("[Pattern] module_create output [" + slot.section_id + "]:", JSON.stringify(moduleResult.uiJson, null, 2))
-        console.log(JSON.stringify(moduleResult, null, 2))
-        modules.push(moduleResult.uiJson as typeof modules[number])
+      // for (const slot of planner.slots) {
+      //   console.log("[Pattern] module_create:", slot.section_id)
+      //   debugger
+      //   const moduleResult = await runProtoModuleCreate({
+      //     ...ctx,
+      //     input: {
+      //       intentDescription: currentIntent,
+      //       layoutPlanner: planner as unknown as Record<string, unknown>,
+      //       sectionId: slot.section_id,
+      //       elementId: slot.element_id,
+      //       idPrefix: slot.id_prefix,
+      //     },
+      //   })
+      //   console.log("[Pattern] module_create output [" + slot.section_id + "]:", JSON.stringify(moduleResult.uiJson, null, 2))
+      //   console.log(JSON.stringify(moduleResult, null, 2))
+      //   modules.push(moduleResult.uiJson as typeof modules[number])
+      // }
+      for (let i = 0; i < planner.slots.length; i++) {
+        const slot = planner.slots[i]
+        const mod = await import(`./slot${i + 1}.json`)
+        const uiJson = mod.default.rootId && mod.default.elements ? mod.default : mod.default.uiJson
+        if (uiJson.rootId !== slot.element_id) {
+          const target = (uiJson.elements as Array<{ id: string }>)?.find((e) => e.id === uiJson.rootId)
+          if (target) {
+            target.id = slot.element_id
+            uiJson.rootId = slot.element_id
+          }
+        }
+        modules.push(uiJson)
       }
       const merged = mergeModules(
         { rootId: planner.rootId, elements: planner.elements },
@@ -450,6 +607,10 @@ function PatternContent() {
       console.log(JSON.stringify(merged, null, 2))
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)
+
+      setLastIntent(currentIntent as unknown as Record<string, unknown>)
+      setLastPlanner(planner as unknown as Record<string, unknown>)
+      setLastModules(modules)
 
       setPhase("idle")
       console.log("结束---------------")
@@ -467,7 +628,7 @@ function PatternContent() {
   async function halt() {
     const sid = params.id
     if (!sid) return
-    await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
+    await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
   }
 
   function handleKeyDown(e: KeyboardEvent) {

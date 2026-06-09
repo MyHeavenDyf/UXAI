@@ -78,11 +78,11 @@ export async function runProtoIntentAudit(ctx: ProtoIntentAuditContext): Promise
     sessionID: childSession.id,
     agent: "proto_intent_audit",
     ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
-    format: {
-      type: "json_schema",
-      schema: intentAuditSchema,
-      retryCount: 2
-    },
+    // format: {
+    //   type: "json_schema",
+    //   schema: intentAuditSchema,
+    //   retryCount: 2
+    // },
     parts: [{ type: "text", text: promptText }],
   })
 

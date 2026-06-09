@@ -105,11 +105,11 @@ export async function runProtoIntent(ctx: ProtoIntentContext): Promise<ProtoInte
     sessionID: childSession.id,
     agent: "proto_intent",
     ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
-    format: {
-      type: "json_schema",
-      schema: intentDescriptionSchema,
-      retryCount: 2
-    },
+    // format: {
+    //   type: "json_schema",
+    //   schema: intentDescriptionSchema,
+    //   retryCount: 2
+    // },
     parts: [{ type: "text", text: promptText }],
   })
 

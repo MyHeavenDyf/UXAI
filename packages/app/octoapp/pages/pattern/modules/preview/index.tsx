@@ -2,6 +2,7 @@ import { createSignal, onCleanup } from "solid-js"
 
 export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
+  postMessage: (data: unknown) => void
 }
 
 export function PreviewPage(props: { api?: PreviewPageAPI }) {
@@ -41,6 +42,10 @@ export function PreviewPage(props: { api?: PreviewPageAPI }) {
 
   if (props.api) {
     props.api.sendToPreview = sendToPreview
+    props.api.postMessage = (data: unknown) => {
+      if (!previewIframeRef?.contentWindow) return
+      previewIframeRef.contentWindow.postMessage(data, "*")
+    }
   }
 
   return (
