@@ -216,17 +216,6 @@ createEffect(
     on(
       () => params.id,
       (newId, oldId) => {
-        if (oldId && oldId !== newId) {
-          const [store, setStore] = globalSync.child(sdk.directory)
-          dropSessionCaches(store, [oldId])
-          setStore(
-            produce((draft) => {
-              delete draft.message[oldId]
-              delete draft.session_status[oldId]
-            }),
-          )
-        }
-
         if (newId) {
           layout.lastSessionPerTab.setMake(newId)
           void sync.session.sync(newId)
@@ -331,6 +320,7 @@ createEffect(
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     if (isBusy()) {
+      setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
         if (blockedMs > 3000) {
@@ -840,7 +830,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               </div>
             </Show>
             <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+              <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
                 <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
                   <AttachmentBar

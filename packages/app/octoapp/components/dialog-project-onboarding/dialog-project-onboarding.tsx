@@ -131,13 +131,14 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         <Splash class="w-[80px] h-[80px]" />
         <img src="/octo-agent.png" alt="Octo Agent" style={{ width: "212px", height: "42px", "margin-top": "20px" }} />
         <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "24px", "letter-spacing": "2px", "text-align": "center", color: "rgba(110, 115, 122, 1)", "margin-top": "4px" }}>您的全能设计与调研专家</div>
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%", color: "#191919" }}>选择项目&版本</div>
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%", color: "rgba(0,0,0,0.3)" }}>选择项目&版本</div>
         <div style={{ width: "100%", height: "40px", "margin-top": "4px" }}>
           <ProjectInfoDialogContent
             domain={selections.domain}
             productLine={selections.productLine}
             product={selections.product}
             version={selections.version}
+            disabled
             onSelectionChange={(data) => {
               setSelections("domain", data.domain)
               setSelections("productLine", data.productLine)
@@ -173,6 +174,9 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
               {displayPath()}
             </span>
           </Show>
+          <svg width="10" height="10" viewBox="0 0 10.0034 10" fill="none" style={{ "flex-shrink": "0", "margin-left": "auto" }}>
+            <path d="M4.64832 7.6045L0.148315 3.10462C-0.0494385 2.90662 -0.0494385 2.59547 0.148315 2.39747C0.346558 2.19953 0.657593 2.19953 0.855347 2.39753L5.00183 6.54383L9.14783 2.39753C9.34607 2.19953 9.6571 2.19953 9.85486 2.39747C10.0531 2.59547 10.0531 2.90662 9.85486 3.10462L5.35535 7.6045C5.25769 7.7021 5.13953 7.75092 5.00183 7.75092C4.86365 7.75092 4.74597 7.7021 4.64832 7.6045Z" fill="rgb(119,119,119)" fill-rule="evenodd" />
+          </svg>
         </button>
 
         <button
