@@ -12,7 +12,7 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
-export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "pdf"] as const
+export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx"] as const
 
 export type UploadResult = {
   url: string
