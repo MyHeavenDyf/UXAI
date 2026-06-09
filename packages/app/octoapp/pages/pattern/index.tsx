@@ -12,6 +12,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js"
+import { createStore } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
