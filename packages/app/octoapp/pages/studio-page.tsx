@@ -4,7 +4,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -73,6 +73,7 @@ import { createStudioSessionData } from "./studio/studio-session-data"
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -309,7 +310,7 @@ export default function StudioPage() {
     const startWidth = studioCenterWidth()
     function onMove(e: MouseEvent) {
       const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(430, startWidth + delta)))
+      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
     }
     function onUp() {
       document.removeEventListener("mousemove", onMove)
@@ -722,7 +723,7 @@ export default function StudioPage() {
         if (!params.id || !conversationScrollRef) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
-          conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+          conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight, behavior: "smooth" })
         })
       },
       { defer: true },
@@ -950,7 +951,7 @@ export default function StudioPage() {
       input.capability === "image.upscale"
         ? "好的，我将提升当前图片的清晰度和细节。"
         : input.capability === "image.inpaint"
-          ? "好的，我将根据涂抹区域智能重绘当前图片。"
+          ? "好的，我将根据涂抹区域局部重绘当前图片。"
         : input.capability === "image.outpaint"
           ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
           : input.capability === "video.generate"
@@ -1326,10 +1327,22 @@ export default function StudioPage() {
     Boolean(workspaceModeForCapability(capability())),
   )
 
+  const [hintVisible, setHintVisible] = createSignal(false)
+
+  createEffect(() => {
+    if (params.id || prompt().trim() || !new URLSearchParams(location.search).has("hint")) {
+      setHintVisible(false)
+      return
+    }
+    setHintVisible(true)
+    const timer = setTimeout(() => setHintVisible(false), 3000)
+    onCleanup(() => clearTimeout(timer))
+  })
+
   return (
     <div class="studio-page" style={{ position: "relative" }}>
       <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio`)} />
+        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio?hint=${Date.now()}`)} />
       </aside>
       <div
         style={{
@@ -1350,6 +1363,11 @@ export default function StudioPage() {
             <div class="studio-empty-group">
               <StudioIntro />
               <div class="relative size-full">
+                <Show when={hintVisible()}>
+                  <div class="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none -top-7" data-component="tooltip">
+                    {language.t("prompt.hint.newSession")}
+                  </div>
+                </Show>
                 <StudioComposer
                   prompt={prompt()}
                   capability={capability()}
