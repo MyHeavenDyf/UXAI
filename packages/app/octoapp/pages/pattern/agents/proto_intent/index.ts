@@ -1,127 +1,137 @@
-import type { Session, Part } from "@opencode-ai/sdk/v2/client"
-import type { SDK } from "@/context/sdk"
+import type { Message, Session } from '@opencode-ai/sdk/v2/client';
+import { extractJson, getResultFromMessages } from '../../utils/json_parser';
 import intentDescriptionSchema from './schema';
 
-export type ProtoIntentInput = {
-  userRequest: string
-  previousBlueprint?: Record<string, unknown>
-  auditFeedback?: string
-}
+const AGENT_NAME = "proto_intent"
 
-export type ProtoIntentOutput = {
+type ProtoIntentInput = {
+  // 公共sdk
+  sdk: any
+  // 公共流式数据
+  sync: any
+  // 当前使用的模型
+  modelKey: any
+  // 根节点session
+  rootSession: string
+  // 用户输入
   userInput: string
-  intentAnalysis: string
-  layoutDescription: string
-  sections: Array<{ id: string; name: string; description: string }>
-  sectionDetailList: Array<{
-    id: string
-    name: string
-    intent: string
-    function: string
-    layout: string
-    elements: string
-    data: Record<string, unknown>
-  }>
+  // 上一轮审查意见
+  auditFeedback?: string
+  // 上一轮审查是否通过
+  intentAuditPass?: boolean
+  // 上一轮的意图输出
+  pageDescription?: string
 }
 
-export type ProtoIntentContext = {
-  sdk: { client: SDK["client"] }
-  directory: string
-  modelKey: { providerID: string; modelID: string }
-  parentSessionId: string
-  input: ProtoIntentInput
-  abortSignal: AbortSignal
-}
-
-async function waitForAssistant(sdk: { client: SDK["client"] }, sessionId: string, signal: AbortSignal): Promise<string> {
-  while (!signal.aborted) {
-    await new Promise((r) => setTimeout(r, 2000))
-    if (signal.aborted) throw new Error("aborted")
-    try {
-      const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 10 })
-      const items = res.data as Array<{ info: { role: string; time: { completed?: number } }; parts: Part[] }> | undefined
-      if (!items) continue
-      for (let i = items.length - 1; i >= 0; i--) {
-        const msg = items[i].info
-        if (msg.role !== "assistant") continue
-        if (msg.time.completed == null) continue
-        for (let j = items[i].parts.length - 1; j >= 0; j--) {
-          // @ts-ignore
-          if (items[i].parts[j].type === "text" && items[i].parts[j].text)
-          // @ts-ignore
-            return items[i].parts[j].text
-        }
-      }
-    } catch {}
-  }
-  throw new Error("aborted")
-}
-
-function extractJson(text: string): Record<string, unknown> | null {
-  try {
-    const match = text.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/)
-    const raw = match ? match[1] : text
-    const parsed = JSON.parse(raw.trim())
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null
-  } catch {}
-  return null
-}
-
-function buildIntentPrompt(input: ProtoIntentInput): string {
-  if (input.auditFeedback && input.previousBlueprint) {
-    return [
-      `你上一次生成的蓝图未通过审核校验，请务必参考以下反馈进行迭代修复：`,
-      `[用户的原始需求:] ==================================`,
-      input.userRequest,
-      ``,
-      `[待修正界面蓝图:] ==================================`,
-      JSON.stringify(input.previousBlueprint),
-      ``,
-      `[蓝图审核结果:] ==================================`,
-      input.auditFeedback,
-      ``,
-      `请根据评审意见结论修正界面蓝图。`,
-    ].join("\n")
-  }
-  return [
-    `[用户需求:] ==================================`,
-    input.userRequest,
-    ``,
-    `请开始意图扩展。`,
-  ].join("\n")
-}
-
-export async function runProtoIntent(ctx: ProtoIntentContext): Promise<ProtoIntentOutput> {
-  const childResult = await ctx.sdk.client.session.create({
-    directory: ctx.directory,
-    parentID: ctx.parentSessionId,
-    agent: "proto_intent",
-  })
-  const childSession = childResult.data as Session | undefined
-  if (!childSession) throw new Error("failed to create proto_intent session")
-
-  const promptText = buildIntentPrompt(ctx.input)
-  await ctx.sdk.client.session.promptAsync({
-    sessionID: childSession.id,
-    agent: "proto_intent",
-    ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
-    format: {
-      type: "json_schema",
-      schema: intentDescriptionSchema,
-      retryCount: 2
-    },
-    parts: [{ type: "text", text: promptText }],
-  })
-
-  const raw = await waitForAssistant(ctx.sdk, childSession.id, ctx.abortSignal)
-  const parsed = extractJson(raw)
-  if (!parsed) throw new Error("proto_intent did not return valid JSON")
-
+export default async function proto_intent(input: ProtoIntentInput) {
+  const { sdk, sync, modelKey, rootSession, userInput, auditFeedback, intentAuditPass, pageDescription } = input
+  // 组装输入提示词
+  const humanMessage = buildHumanMessage(userInput, auditFeedback, intentAuditPass, pageDescription)
+  // 执行 Agent
+  const intentResult = await runAgent(sdk, sync, modelKey, rootSession, humanMessage)
+  // 转换成 audit json
+  debugger
+  const intentJson = extractJson(intentResult)
+  if (!intentJson) throw new Error("----- Intent Audit did not return valid JSON -----")
   return {
-    userInput: (parsed.userInput as string) ?? ctx.input.userRequest,
-    intentAnalysis: (parsed.intentAnalysis as string) ?? "",
-    layoutDescription: (parsed.layoutDescription as string) ?? "",
-    sections: (parsed.sections as ProtoIntentOutput["sections"]) ?? [],
-    sectionDetailList: (parsed.sectionDetailList as ProtoIntentOutput["sectionDetailList"]) ?? [],
+    "intent_description": intentJson,
+    "intent_page": simplifyData(intentJson),
+    "current_step": "intent_expansion"
   }
+}
+
+// 调用 opencode sdk
+async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: string, humanMessage: string): Promise<string> {
+  // create new session
+  const newSession = await sdk.client.session.create({
+    directory: sdk.directory,
+    parentID: rootSession,
+    agent: AGENT_NAME,
+  })
+  const sessionData = newSession.data as Session | undefined
+  if (!sessionData) throw new Error("----- Failed to create new session -----")
+
+  // run session 
+  await sdk.client.session.promptAsync({
+    sessionID: sessionData.id,
+    agent: AGENT_NAME,
+    model: modelKey,
+    parts: [{ type: "text", text: humanMessage }]
+  })
+
+  // get result
+  let result = await getResultFromMessages(sdk, sessionData.id, false);
+  if (!result) throw new Error("----- Intent gent returned NULL -----")
+  return result;
+}
+
+// 组装意图扩展的输入文本
+function buildHumanMessage(userInput: string, auditFeedback: string | undefined, intentAuditPass: boolean | undefined, pageDescription: string | undefined){
+  let humanMessage: string;
+  if(auditFeedback && !intentAuditPass){
+    humanMessage = `你上一次生成的蓝图未通过审核校验，请务必参考以下反馈进行迭代修复：
+    [用户的原始需求:] ==================================
+    ${userInput}
+
+    [待修正界面蓝图:] ==================================
+    ${pageDescription}
+
+    [蓝图审核结果:] ==================================
+    ${auditFeedback}
+    
+    请根据评审意见结论修正界面蓝图。`;
+  }else{
+    humanMessage = `[用户的需求:] ==================================
+    ${userInput}
+
+    请开始意图扩展。`;
+  }
+  return humanMessage;
+}
+
+// 将复杂的 intent_description 数据转换为精简版 intent_page
+function simplifyData(complexData: any) {
+    // 防御性处理：防止传入 null 或 undefined 导致报错
+    const data = complexData ?? {};
+
+    // 1. 提取并重命名基础字段（设置默认值为空字符串）
+    const pageDescription = data.intentAnalysis ?? "";
+    const layoutDescription = data.layoutDescription ?? "";
+    
+    // 2. 将 sectionDetailList 转为对象（Map），方便按 id 快速查找
+    // 对应 Python 的字典推导式
+    const sectionDetailList = data.sectionDetailList ?? [];
+    const detailMap = sectionDetailList.reduce((map: any, detail: any) => {
+        if (detail?.id) {
+            map[detail.id] = detail;
+        }
+        return map;
+    }, {});
+    
+    // 3. 重新整理 sections
+    const sections = data.sections ?? [];
+    const newSections = sections.map((section: any) => {
+        const sectionId = section?.id;
+        const sectionName = section?.name;
+        
+        // 获取对应的详情信息
+        const detail = detailMap[sectionId] ?? {};
+        const intent = detail.intent ?? "";
+        const functionField = detail.function ?? ""; // 注意：js中function是关键字，变量名改用 functionField 避免混淆风险（对象key不受影响）
+        
+        // 构建新的 section 对象
+        return {
+            id: sectionId,
+            name: sectionName,
+            intent: intent,
+            function: functionField
+        };
+    });
+        
+    // 4. 构建并返回最终的简单数据结构
+    return {
+        pageDescription,
+        layoutDescription,
+        sections: newSections
+    };
 }

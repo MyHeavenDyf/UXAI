@@ -38,12 +38,15 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { runProtoTriage } from "./agents/proto_triage"
-import { runProtoIntent } from "./agents/proto_intent"
-import { runProtoIntentAudit } from "./agents/proto_intent_audit"
-import { runProtoPlannerCreate } from "./agents/proto_planner_create"
-import { runProtoModuleCreate } from "./agents/proto_module_create"
+import proto_intent from "./agents/proto_intent"
+import proto_intent_audit from "./agents/proto_intent_audit"
+import proto_planner_create from "./agents/proto_planner_create"
+import proto_module_create from "./agents/proto_module_create"
+
 import { mergeModules } from "./agents/merge"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { ignore } from "effect/Stream"
+import strict from "assert/strict"
 
 const AGENT_NAME = "proto_triage"
 
@@ -378,7 +381,7 @@ function PatternContent() {
 
       const ctx = {
         sdk: { client: sdk.client },
-        directory: sdk.directory!,
+        directory: sdk.directory,
         modelKey: mk,
         parentSessionId: sid,
         abortSignal: controller.signal,
@@ -405,71 +408,53 @@ function PatternContent() {
         setPhase("idle")
         return
       }
-
-      // ── Step 1: proto_intent → 生成蓝图 ──
       setPhase("intent")
-      debugger
-      const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
 
-      console.log("[Pattern] intent done, sections:", intentResult.sections.length)
-      console.log("[Pattern] intent output:", JSON.stringify(intentResult, null, 2))
 
-      // ── Step 2: proto_intent_audit → 审核（最多重试 2 次）──
-      setPhase("audit")
-      let currentIntent = intentResult
-      for (let attempt = 0; attempt < 2; attempt++) {
-        debugger
-        const audit = await runProtoIntentAudit({
-          ...ctx,
-          input: { userRequest: text, blueprint: JSON.stringify(currentIntent) },
+      let intentCtx = {
+        sdk: sdk,
+        sync: sync,
+        modelKey: mk,
+        rootSession: sid,
+        userInput: text
+      }
+      // 第一步：意图扩展
+      let intentResult = await proto_intent(intentCtx)
+
+      // 第二步：意图检查 - 最多进行N(当前1)次审查
+      for (let attempt = 0; attempt < 1; attempt++) {
+        let descriptionStr = JSON.stringify(intentResult.intent_description);
+        const audit = await proto_intent_audit({ ...intentCtx, intentDescription: descriptionStr });
+        if (audit.intent_audit_pass) break;
+        intentResult = await proto_intent({
+          ...intentCtx,
+          auditFeedback: audit.intent_audit_feedback as string,
+          intentAuditPass: audit.intent_audit_pass as boolean,
+          pageDescription: descriptionStr
         })
-        console.log("[Pattern] audit:", audit.isPass, audit.feedback.slice(0, 80))
-        console.log("[Pattern] audit output:", JSON.stringify(audit, null, 2))
-        if (audit.isPass) break
-        debugger
-        currentIntent = await runProtoIntent({
-          ...ctx,
-          input: { userRequest: text, previousBlueprint: currentIntent, auditFeedback: audit.feedback },
-        })
-        console.log("[Pattern] intent retry", attempt + 1)
       }
 
-      // ── Step 3: proto_planner_create → 生成布局 + slots ──
-      setPhase("planner")
-      debugger
+      // 第三步：页面局部
+      let pageDescriptionStr = JSON.stringify(intentResult.intent_description);
+      const planner = await proto_planner_create({ ...intentCtx, intentDescription: pageDescriptionStr });
 
-      const planner = await runProtoPlannerCreate({
-        ...ctx,
-        input: { blueprint: currentIntent as unknown as Record<string, unknown> },
-      })
-      console.log("[Pattern] planner done, slots:", planner.slots.length)
-      console.log("[Pattern] planner output:", JSON.stringify(planner, null, 2))
-
-      const plannerJson = detectA2UIJson(JSON.stringify(planner))
-      // if (plannerJson) sendToPreview(plannerJson)
-
-      // ── Step 4: proto_module_create → 逐模块生成 A2UI JSON ──
-      setPhase("module")
-      const modules: Array<{ rootId: string; elements: Array<{ id: string; component: string; props?: Record<string, unknown>; children?: string[] }>; state?: Record<string, unknown> }> = []
-      for (const slot of planner.slots) {
-        console.log("[Pattern] module_create:", slot.section_id)
-        debugger
-        const moduleResult = await runProtoModuleCreate({
-          ...ctx,
-          input: {
-            intentDescription: currentIntent,
-            layoutPlanner: planner as unknown as Record<string, unknown>,
-            sectionId: slot.section_id,
-            elementId: slot.element_id,
-            idPrefix: slot.id_prefix,
-          },
+      // 第四部：逐模块生成 A2UI JSON
+      const modules: Array<any> = []
+      for (const slot of planner.layout_planner.slots as Array<any>) {
+        const moduleResult = await proto_module_create({
+          ...intentCtx,
+          idPrefix: slot.id_prefix,
+          sectionId: slot.section_id,
+          elementId: slot.element_id,
+          layoutPlanner: planner,
+          intentDescription: intentResult
         })
-        console.log("[Pattern] module_create output [" + slot.section_id + "]:", JSON.stringify(moduleResult.uiJson, null, 2))
-        console.log(JSON.stringify(moduleResult, null, 2))
-        modules.push(moduleResult.uiJson as typeof modules[number])
+        modules.push(moduleResult.ui_json)
       }
+      
+      // 第五步：合并顶层布局和各模块JSON
       const merged = mergeModules(
-        { rootId: planner.rootId, elements: planner.elements },
+        { rootId: planner.layout_planner.rootId as string, elements: planner.layout_planner.elements},
         modules,
       )
       console.log("[Pattern] ========== MERGED A2UI JSON ==========")

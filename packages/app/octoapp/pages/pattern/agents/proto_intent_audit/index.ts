@@ -1,96 +1,75 @@
-import type { Session, Part } from "@opencode-ai/sdk/v2/client"
-import type { SDK } from "@/context/sdk"
-import intentAuditSchema from './schema'
+import type { Message, Session } from '@opencode-ai/sdk/v2/client';
+import { extractJson, getResultFromMessages } from '../../utils/json_parser';
+import intentAuditSchema from './schema';
 
-export type ProtoIntentAuditInput = {
-  userRequest: string
-  blueprint: string
+const AGENT_NAME = "proto_intent_audit"
+
+type ProtoIntentAuditInput = {
+  // 公共sdk
+  sdk: any
+  // 公共流式数据
+  sync: any
+  // 当前使用的模型
+  modelKey: any
+  // 根节点session
+  rootSession: string
+  // 用户输入
+  userInput: string
+  // 待评审意图
+  intentDescription: string
 }
 
-export type ProtoIntentAuditOutput = {
-  isPass: boolean
-  feedback: string
-}
-
-export type ProtoIntentAuditContext = {
-  sdk: { client: SDK["client"] }
-  directory: string
-  modelKey: { providerID: string; modelID: string }
-  parentSessionId: string
-  input: ProtoIntentAuditInput
-  abortSignal: AbortSignal
-}
-
-async function waitForAssistant(sdk: ProtoIntentAuditContext["sdk"], sessionId: string, signal: AbortSignal): Promise<string> {
-  while (!signal.aborted) {
-    await new Promise((r) => setTimeout(r, 2000))
-    if (signal.aborted) throw new Error("aborted")
-    try {
-      const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 10 })
-      const items = res.data as Array<{ info: { role: string; time: { completed?: number } }; parts: Part[] }> | undefined
-      if (!items) continue
-      for (let i = items.length - 1; i >= 0; i--) {
-        const msg = items[i].info
-        if (msg.role !== "assistant") continue
-        if (msg.time.completed == null) continue
-        for (let j = items[i].parts.length - 1; j >= 0; j--) {
-          // @ts-ignore
-          if (items[i].parts[j].type === "text" && items[i].parts[j].text)
-          // @ts-ignore
-            return items[i].parts[j].text
-        }
-      }
-    } catch {}
-  }
-  throw new Error("aborted")
-}
-
-function extractJson(text: string): Record<string, unknown> | null {
-  try {
-    const match = text.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/)
-    const raw = match ? match[1] : text
-    const parsed = JSON.parse(raw.trim())
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null
-  } catch {}
-  return null
-}
-
-export async function runProtoIntentAudit(ctx: ProtoIntentAuditContext): Promise<ProtoIntentAuditOutput> {
-  const childResult = await ctx.sdk.client.session.create({
-    directory: ctx.directory,
-    parentID: ctx.parentSessionId,
-    agent: "proto_intent_audit",
-  })
-  const childSession = childResult.data as Session | undefined
-  if (!childSession) throw new Error("failed to create proto_intent_audit session")
-
-  const promptText = [
-    `[用户的原始需求:] ==================================`,
-    ctx.input.userRequest,
-    ``,
-    `[需要评审的蓝图:] ==================================`,
-    ctx.input.blueprint,
-    ``,
-    `请开始审计，若发现任何不一致，请指出。`,
-  ].join("\n")
-
-  await ctx.sdk.client.session.promptAsync({
-    sessionID: childSession.id,
-    agent: "proto_intent_audit",
-    ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
-    format: {
-      type: "json_schema",
-      schema: intentAuditSchema,
-      retryCount: 2
-    },
-    parts: [{ type: "text", text: promptText }],
-  })
-
-  const raw = await waitForAssistant(ctx.sdk, childSession.id, ctx.abortSignal)
-  const parsed = extractJson(raw)
-
+export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
+  const { sdk, sync, modelKey, rootSession, userInput, intentDescription } = input
+  // 组装输入提示词
+  const humanMessage = buildHumanMessage(userInput, intentDescription)
+  // 执行 Agent
+  const auditResult = await runAgent(sdk, sync, modelKey, rootSession, humanMessage)
+  debugger
+  // 转换成 audit json
+  const intentJson = extractJson(auditResult)
+  if (!intentJson) throw new Error("----- Intent Audit did not return valid JSON -----")
   return {
-    isPass: (parsed?.is_pass as boolean) ?? true,
-    feedback: (parsed?.feedback as string) ?? "解析失败，默认放行",
-  }
+    "intent_audit_pass": intentJson.is_pass,
+    "intent_audit_feedback": intentJson.feedback,
+    "current_step": "intent_audit"
+  };
+}
+
+// run OpenCode SDK
+async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: string, humanMessage: string): Promise<string> {
+  // create new session
+  const newSession = await sdk.client.session.create({
+    directory: sdk.directory,
+    parentID: rootSession,
+    agent: AGENT_NAME,
+  })
+  const sessionData = newSession.data as Session | undefined
+  if (!sessionData) throw new Error("----- Failed to create new session -----")
+
+  // run session 
+  await sdk.client.session.promptAsync({
+    sessionID: sessionData.id,
+    agent: AGENT_NAME,
+    model: modelKey,
+    parts: [{ type: "text", text: humanMessage }]
+  })
+
+  // get result
+  let result = getResultFromMessages(sdk, sessionData.id, false);
+  if (!result) throw new Error("----- Intent Audit agent returned NULL -----")
+  return result;
+}
+
+// 组装意图审查的输入文本
+function buildHumanMessage(userInput: string, intentDescription: string){
+  let humanMessage: string;
+  humanMessage = `[用户的原始需求:] ==================================
+  ${userInput}
+
+  [需要评审的蓝图:] ==================================
+  ${intentDescription}
+  
+  请开始审计，若发现未满足用户需求，请指出。`;
+  return humanMessage;
 }
