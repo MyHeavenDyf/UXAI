@@ -950,7 +950,7 @@ export default function StudioPage() {
       input.capability === "image.upscale"
         ? "好的，我将提升当前图片的清晰度和细节。"
         : input.capability === "image.inpaint"
-          ? "好的，我将根据涂抹区域局部重绘当前图片。"
+          ? "好的，我将根据涂抹区域智能重绘当前图片。"
         : input.capability === "image.outpaint"
           ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
           : input.capability === "video.generate"

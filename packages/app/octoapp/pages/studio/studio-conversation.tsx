@@ -32,6 +32,7 @@ export function StudioConversation(props: {
                   onClick={() => props.onOpenEditor(editCapability())}
                 >
                   点击前往编辑区
+                  <img src="/studio/stutdio_arrow_right.png" alt="" class="studio-editor-link-arrow" />
                 </button>
               )}
             </Show>
@@ -278,7 +279,7 @@ export function StudioDetails(props: {
               disabled={props.regenerateDisabled}
               class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
             >
-              <span>局部重绘</span>
+              <span>智能重绘</span>
             </button>
             <button
               type="button"

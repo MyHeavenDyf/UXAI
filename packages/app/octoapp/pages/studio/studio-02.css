@@ -532,6 +532,16 @@
   transition: background-color 140ms ease, transform 140ms ease;
 }
 
+.studio-assistant-editor-link {
+  gap: 6px;
+}
+
+.studio-editor-link-arrow {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
 .studio-assistant-editor-link:hover {
   background: #dbe9ff;
   transform: translateY(-1px);
