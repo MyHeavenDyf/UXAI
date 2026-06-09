@@ -87,11 +87,7 @@ export function StudioResultCanvas(props: {
     <Show when={props.image} fallback={
       <div class="h-full flex flex-col items-center justify-center text-center">
         <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
-          <Show when={props.status === "failed" && props.result?.error} fallback={
-          <>
-            <StudioEmptyState />
-          </>
-          }>
+          <Show when={props.status === "failed" && props.result?.error} fallback={<StudioEmptyState />}>
             <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
               <div class="text-[16px] font-semibold text-[#b42318]">生成失败</div>
               <div class="mt-2 text-[12px] leading-[18px] whitespace-pre-wrap break-all text-[#7a271a]">
@@ -100,13 +96,7 @@ export function StudioResultCanvas(props: {
             </div>
           </Show>
         }>
-          <div class="flex items-end gap-4 mb-8">
-            <span class="studio-loader-dot bg-[#2e9dfb]" />
-            <span class="studio-loader-dot bg-[#45bcc9]" style={{ "animation-delay": "120ms" }} />
-            <span class="studio-loader-dot bg-[#704cff]" style={{ "animation-delay": "240ms" }} />
-            <span class="studio-loader-dot bg-[#d100d8]" style={{ "animation-delay": "360ms" }} />
-          </div>
-          <div class="text-[14px] font-medium">生成中...</div>
+          <StudioEmptyState />
         </Show>
       </div>
     }>
