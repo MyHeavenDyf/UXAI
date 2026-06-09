@@ -141,11 +141,13 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "save-file-picker",
-    async (_event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
-      const result = await dialog.showSaveDialog({
+    async (event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
         title: opts?.title ?? "Save file",
         defaultPath: opts?.defaultPath,
-      })
+      }
+      const result = await (win ? dialog.showSaveDialog(win, dialogOpts) : dialog.showSaveDialog(dialogOpts))
       if (result.canceled) return null
       return result.filePath ?? null
     },
@@ -199,7 +201,18 @@ export function registerIpcHandlers(deps: Deps) {
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
       await mkdir(dirname(destPath), { recursive: true })
-      await writeFile(destPath, buf)
+      try {
+        await writeFile(destPath, buf)
+      } catch (err) {
+        // 文件正被本地应用(Word/Excel/WPS)独占打开时,覆盖写会抛 EBUSY/EPERM。
+        // 此时已有本地副本 = 用户上次打开的那份,直接复用,让"打开/定位"正常完成而非报错。
+        const code = err instanceof Error && "code" in err ? err.code : undefined
+        if ((code === "EBUSY" || code === "EPERM") && existsSync(destPath)) {
+          console.warn("[octo:office] reuse-locked", { destPath, code })
+          return destPath
+        }
+        throw err
+      }
       return destPath
     },
   )

@@ -8,7 +8,7 @@ import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
-import { IllustrationResultEmpty } from "../../icons/illustrations"
+import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
@@ -391,113 +391,64 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     }
   }
 
+  const iconUrl = () => fileTypeIconUrl(props.tab.fileName ?? "", props.tab.mimeType ?? "")
   const displayName = () => props.tab.fileName || props.tab.title || "文件"
-  // 文件类型胶囊文案:取扩展名大写 + " 文档"(无扩展名退回"文档")
-  const typeLabel = () => {
-    const ext = (props.tab.fileName ?? "").split(".").pop()?.toUpperCase() ?? ""
-    return ext && ext !== (props.tab.fileName ?? "").toUpperCase() ? `${ext} 文档` : "文档"
-  }
 
   return (
     <div
       class="relative flex flex-col items-center justify-center h-full overflow-hidden"
-      style={{
-        // 氛围渐变背景:一团极淡蓝紫色晕,居中晕开铺满,向四周柔和淡出,叠在底色上
-        background: [
-          "radial-gradient(120% 100% at 50% 48%, rgba(10,89,247,0.02) 0%, rgba(10,89,247,0) 60%)",
-          "radial-gradient(130% 110% at 50% 50%, rgba(75,127,255,0.016) 0%, rgba(75,127,255,0) 65%)",
-          "radial-gradient(140% 120% at 50% 52%, rgba(123,97,255,0.018) 0%, rgba(123,97,255,0) 70%)",
-          "var(--octo-surface-result)",
-        ].join(", "),
-      }}
+      style={{ background: "var(--octo-surface-result)" }}
     >
-      {/* 浮起白卡 + 层叠柔和阴影(轻黑投影 + 蓝/紫辉光) */}
-      <div
-        class="relative z-10 flex flex-col items-center"
-        style={{
-          width: "440px",
-          "max-width": "calc(100% - 40px)",
-          padding: "32px 40px 28px",
-          "border-radius": "16px",
-          background: "rgba(255,255,255,1)",
-          "box-shadow": [
-            "0 4px 12px rgba(0,0,0,0.07)",
-            "0 16px 40px rgba(10,89,247,0.1)",
-            "0 24px 56px rgba(123,97,255,0.08)",
-          ].join(", "),
-        }}
-      >
-        {/* 蓝色圆角徽标 + 白色文档图标(自带蓝色辉光) */}
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "center",
-            width: "64px",
-            height: "64px",
-            "border-radius": "16px",
-            background: "linear-gradient(135deg, rgba(91,139,255,1) 0%, rgba(43,110,246,1) 100%)",
-            "box-shadow": "0 10px 24px rgba(10,89,247,0.2)",
-            "margin-bottom": "14px",
-          }}
-        >
-          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" aria-hidden="true">
-            <path d="M13.2 3H7A1.5 1.5 0 0 0 5.5 4.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8.3L13.2 3Z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" />
-            <path d="M13 3.3V8a1 1 0 0 0 1 1h4.4" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" />
-            <path d="M9 13h6M9 16.3h4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </div>
+      <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "max-width": "calc(100% - 48px)" }}>
+        <img src={iconUrl()} width={72} height={72} alt="" aria-hidden="true" style={{ "margin-bottom": "20px" }} />
 
-        {/* 文件类型胶囊 */}
-        <div style={{ padding: "2px 10px", "border-radius": "6px", background: "rgba(10,89,247,0.08)", color: "rgba(10,89,247,1)", "font-size": "12px", "font-weight": 500, "margin-bottom": "10px" }}>
-          {typeLabel()}
-        </div>
-
-        <div style={{ "font-size": "18px", "font-weight": 700, color: "rgba(0,0,0,0.81)", "line-height": 1.4, "text-align": "center", "word-break": "break-all", "margin-bottom": "8px", "max-width": "360px" }}>
+        <div style={{ "font-size": "20px", "font-weight": 700, color: "var(--octo-text-strong, #0a0a0a)", "line-height": 1.4, "text-align": "center", "word-break": "break-all", "margin-bottom": "8px", "max-width": "500px" }}>
           {displayName()}
         </div>
 
-        <div style={{ "font-size": "13px", color: "rgba(0,0,0,0.4)", "margin-bottom": "20px", "text-align": "center" }}>
+        <div style={{ "font-size": "14px", color: "var(--octo-text-secondary, #6b7280)", "margin-bottom": "20px", "text-align": "center" }}>
           文档已生成完成，可选择以下方式查看
         </div>
+
+        <div style={{ width: "100%", "max-width": "400px", height: "1px", background: "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.07) 50%, transparent 100%)", "margin-bottom": "20px" }} />
 
         <Show when={props.tab.uri} fallback={
           <div style={{ "font-size": "13px", color: "var(--octo-text-disabled)" }}>无远程地址，无法打开 / 下载</div>
         }>
-          <div style={{ display: "flex", gap: "10px", "flex-wrap": "wrap", "justify-content": "center" }}>
+          <div style={{ display: "flex", gap: "12px", "flex-wrap": "wrap", "justify-content": "center" }}>
             <button
               type="button"
               onClick={() => void handleOpenInApp()}
               disabled={openBusy()}
-              style={{ height: "36px", padding: "0 16px", "border-radius": "8px", border: "none", background: "rgba(10,89,247,1)", color: "#fff", "font-size": "13px", "font-weight": 500, cursor: openBusy() ? "not-allowed" : "pointer", opacity: openBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "none", background: "rgb(10,89,247)", color: "#fff", "font-size": "13px", "font-weight": 500, cursor: openBusy() ? "not-allowed" : "pointer", opacity: openBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
             >
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
                 <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="#fff" stroke-width="1.4"/>
                 <path d="M5.5 14.5h5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
                 <path d="M8 12v2.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
               </svg>
-              {openBusy() ? "打开中…" : "用本地应用打开"}
+              {openBusy() ? "打开中…" : "本地打开"}
             </button>
             <button
               type="button"
               onClick={() => void handleRevealInFolder()}
               disabled={revealBusy()}
-              style={{ height: "36px", padding: "0 14px", "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "#fff", color: "rgba(0,0,0,0.81)", "font-size": "13px", cursor: revealBusy() ? "not-allowed" : "pointer", opacity: revealBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: revealBusy() ? "not-allowed" : "pointer", opacity: revealBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
             >
               <img src={folderBlueUrl} width={14} height={12} alt="" aria-hidden="true" />
-              {revealBusy() ? "定位中…" : "在文件夹中打开"}
+              {revealBusy() ? "定位中…" : "文件夹打开"}
             </button>
             <button
               type="button"
               onClick={() => void handleSaveAs()}
               disabled={downloadBusy()}
-              style={{ height: "36px", padding: "0 14px", "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "#fff", color: "rgba(0,0,0,0.81)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
             >
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
-                <path d="M8 2v8M5 7.5l3 3 3-3" stroke="rgba(10,89,247,1)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="rgba(10,89,247,1)" stroke-width="1.3" stroke-linecap="round"/>
+                <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
               </svg>
-              {downloadBusy() ? "保存中…" : "另存为"}
+              {downloadBusy() ? "保存中…" : "下载"}
             </button>
           </div>
         </Show>
