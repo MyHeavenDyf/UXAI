@@ -18,6 +18,7 @@ const AGENT_TO_CATEGORY: Record<string, SessionCategory> = {
   octo_insight: "analysis",
   octo_studio: "creative",
   plan: "planning",
+  subagent: "subagent",
 }
 
 export function agentToCategory(agentName: string): SessionCategory {
