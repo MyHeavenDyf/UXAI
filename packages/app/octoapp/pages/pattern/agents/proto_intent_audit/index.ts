@@ -1,5 +1,6 @@
 import type { Session, Part } from "@opencode-ai/sdk/v2/client"
 import type { SDK } from "@/context/sdk"
+import intentAuditSchema from './schema'
 
 export type ProtoIntentAuditInput = {
   userRequest: string
@@ -75,6 +76,11 @@ export async function runProtoIntentAudit(ctx: ProtoIntentAuditContext): Promise
     sessionID: childSession.id,
     agent: "proto_intent_audit",
     ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
+    format: {
+      type: "json_schema",
+      schema: intentAuditSchema,
+      retryCount: 2
+    },
     parts: [{ type: "text", text: promptText }],
   })
 

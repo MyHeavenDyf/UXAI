@@ -94,6 +94,7 @@ def simplify_data(complex_data):
     new_sections = []
     for section in complex_data.get("sections", []):
         section_id = section.get("id")
+        
         section_name = section.get("name")
         
         # 获取对应的详情信息
