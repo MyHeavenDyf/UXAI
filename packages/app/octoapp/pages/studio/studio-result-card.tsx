@@ -87,9 +87,6 @@ export function StudioResultCard(props: StudioResultCardProps) {
               <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
             </div>
             <span class="studio-result-progress-percent">{progress()}%</span>
-            <button type="button" class="studio-result-cancel" disabled>
-              取消生成
-            </button>
           </>
         </Show>
       </div>
