@@ -1060,6 +1060,9 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
+                        onFormSubmit={(text) => {
+                          setPrompt(text)
+                        }}
                       />
                     )}
                   </For>

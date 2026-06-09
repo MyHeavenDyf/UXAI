@@ -7,6 +7,9 @@ import { createEffect, createMemo, createSignal, Show, For, type JSX } from "sol
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
+import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
+import { QuickBriefFormView } from "./quick-brief-form"
+import './quick-brief-form.css'
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -356,6 +359,7 @@ export function InsightTurn(props: {
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
+  onFormSubmit?: (text: string) => void
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -623,6 +627,33 @@ const stateStatus = state.status as string | undefined
     // Intentionally skip flush() — partial <artifact prefixes held in the buffer
     // should NOT be emitted as visible text (prevents flicker/duplication).
     return prose.trim()
+  })
+
+  // ── NEW: prose segments (split on <question-form> blocks) ──
+  const proseSegments = createMemo(() => {
+    const text = proseText()
+    if (!text) return []
+    return splitOnQuestionForms(text)
+  })
+
+  // ── NEW: detect if form already submitted (scan subsequent user messages for submit marker) ──
+  const formSubmitted = createMemo(() => {
+    const messages = msgStore?.[props.sessionID] ?? []
+    const currentIndex = messages.findIndex((m) => m.id === props.messageID)
+    if (currentIndex === -1) return false
+
+    // Check subsequent messages (after current user message)
+    const subsequentMessages = messages.slice(currentIndex + 1)
+    for (const msg of subsequentMessages) {
+      if (msg.role !== "user") continue
+      const parts = partStore?.[msg.id] ?? []
+      const textPart = parts.find((p) => p.type === "text")
+      const text = textPart?.text ?? ""
+      if (text.includes("[快速简报]") || text.includes("[form answers —")) {
+        return true
+      }
+    }
+    return false
   })
 
   // Notify parent when subtasks with valid session IDs appear
@@ -966,13 +997,30 @@ ${bodies}
         </div>
       </Show>
 
-      {/* AI 文字回复（proseText 已剥离 artifact 内容，始终显示） */}
-      <Show when={proseText().length > 0}>
+      {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
+      <Show when={proseSegments().length > 0}>
         <div
           class="mx-3 mb-2 px-3 py-2"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
-          <Markdown text={proseText()} />
+          <For each={proseSegments()}>
+            {(seg) => {
+              if (seg.kind === "text") {
+                if (seg.text.trim().length === 0) return null
+                return <Markdown text={seg.text} />
+              }
+              if (seg.kind === "form") {
+                return (
+                  <QuickBriefFormView
+                    form={seg.form}
+                    interactive={!props.active && props.status.type !== "busy"}
+                    submitted={formSubmitted()}
+                    onSubmit={props.onFormSubmit}
+                  />
+                )
+              }
+            }}
+          </For>
         </div>
       </Show>
 
