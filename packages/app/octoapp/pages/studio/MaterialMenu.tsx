@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, on, Show, type JSX, type Resource } from "solid-js"
 
 export type MaterialTag = { en: string; zh: string }
-export type MaterialWordBook = { category: string; subcategories: { label: string; tags: MaterialTag[] }[] }
+export type MaterialWordBook = { name: string; model: string[]; groups: { name: string; tags: MaterialTag[] }[] }
 
 export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; onSelectTag: (tag: string) => void }): JSX.Element {
   const [categoryIndex, setCategoryIndex] = createSignal(0)
@@ -19,7 +19,7 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
   }, { defer: true }))
 
   const currentCategory = createMemo(() => currentWordBook()[categoryIndex()])
-  const currentSubcategory = createMemo(() => currentCategory()?.subcategories?.[subcategoryIndex()])
+  const currentSubcategory = createMemo(() => currentCategory()?.groups?.[subcategoryIndex()])
 
   function selectCategory(index: number) {
     setCategoryIndex(index)
@@ -43,14 +43,14 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
                   classList={{ active: index() === categoryIndex() }}
                   onClick={() => selectCategory(index())}
                 >
-                  {item.category}
+                  {item.name}
                 </button>
               )}
             </For>
           </div>
           <div class="studio-material-section-label">类型选择</div>
           <div class="studio-material-subcategories">
-            <For each={currentCategory()?.subcategories ?? []}>
+            <For each={currentCategory()?.groups ?? []}>
               {(sub, index) => (
                 <button
                   type="button"
@@ -58,7 +58,7 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
                   classList={{ active: index() === subcategoryIndex() }}
                   onClick={() => setSubcategoryIndex(index())}
                 >
-                  {sub.label}
+                  {sub.name}
                 </button>
               )}
             </For>

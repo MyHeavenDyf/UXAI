@@ -33,7 +33,7 @@
 
 .studio-result-progress-track {
   min-width: 0;
-  height: 8px;
+  height: 4px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.1);
@@ -52,8 +52,8 @@
 
 .studio-result-progress-percent {
   color: #191919;
-  font-size: 16px;
-  line-height: 24px;
+  font-size: 12px;
+  line-height: 100%;
   text-align: right;
   white-space: nowrap;
 }
@@ -106,8 +106,8 @@
 .studio-result-meta {
   margin-top: 4px;
   color: rgba(25, 25, 25, 0.52);
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 12px;
+  line-height: 100%;
 }
 
 .studio-result-error {
