@@ -634,10 +634,10 @@ export const layer = Layer.effect(
     )
 
     function closeClient(s: State, name: string) {
-      Reconnect.markIntentionalDisconnect(name)
       const client = s.clients[name]
       delete s.defs[name]
       if (!client) return Effect.void
+      Reconnect.markIntentionalDisconnect(name)
       return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
     }
 

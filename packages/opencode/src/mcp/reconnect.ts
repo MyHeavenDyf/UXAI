@@ -139,6 +139,11 @@ export function setupConnectionHandlers(
       log.info("connection closed intentionally - skipping reconnect", { name })
       return
     }
+    // 过期检查：如果 state 中的 client 已被替换，说明这是旧 handler 延迟触发，跳过
+    if (s.clients[name] !== client) {
+      log.info("stale onclose handler - client already replaced", { name })
+      return
+    }
     log.info("connection closed unexpectedly - triggering reconnect", { name })
     delete s.clients[name]
     delete s.defs[name]
@@ -168,19 +173,13 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
           return
         }
 
-        const delay = backoffMs(attempt)
         let s = yield* ctx.state.get()
         s.status[name] = { status: "connecting" }
         log.info("reconnect attempt", {
           name,
           attempt,
           maxAttempts: MAX_RECONNECT_ATTEMPTS,
-          delayMs: delay,
         })
-
-        yield* Effect.sleep(delay)
-
-        if (intentionalDisconnects.has(name)) return
 
         const result = yield* ctx.createFn(name, mcp).pipe(
           Effect.catchCause((cause) => {
@@ -194,6 +193,13 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
 
         if (!result.mcpClient || result.status.status !== "connected") {
           log.warn("reconnect attempt failed", { name, attempt })
+          // 最后一次失败不再等待
+          if (attempt < MAX_RECONNECT_ATTEMPTS) {
+            const delay = backoffMs(attempt)
+            log.info("reconnect backoff", { name, nextAttempt: attempt + 1, delayMs: delay })
+            yield* Effect.sleep(delay)
+            if (intentionalDisconnects.has(name)) return
+          }
           continue
         }
 
