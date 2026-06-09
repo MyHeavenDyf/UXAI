@@ -32,8 +32,15 @@ async function waitForAssistant(sdk: ProtoModuleCreateContext["sdk"], sessionId:
     if (signal.aborted) throw new Error("aborted")
     try {
       const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 20 })
-      const items = res.data as Array<{ info: { role: string; time: { completed?: number } }; parts: Part[] }> | undefined
+      const items = res.data as Array<{ info: { role: string; id: string; time: { completed?: number } }; parts: Part[] }> | undefined
       if (!items) continue
+      for (const item of items) {
+        for (const part of item.parts) {
+          if (part.type === "tool-call" && (part as any).toolName === "load_components_docs") {
+            console.log("[module_create] load_components_docs called:", (part as any).input)
+          }
+        }
+      }
       for (let i = items.length - 1; i >= 0; i--) {
         const msg = items[i].info
         if (msg.role !== "assistant") continue

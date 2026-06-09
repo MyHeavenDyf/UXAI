@@ -45,7 +45,7 @@ import { runProtoModuleCreate } from "./agents/proto_module_create"
 import { mergeModules } from "./agents/merge"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 
-const AGENT_NAME = "octo_pattern_intent"
+const AGENT_NAME = "proto_triage"
 
 export default function PatternPage() {
   const globalSync = useGlobalSync()
@@ -387,7 +387,6 @@ function PatternContent() {
       // ── Step 0: triage → 判断首次还是修改 ──
       const existingText = getLastAssistantText(sid)
       const genuiJson = existingText ? extractJsonFromText(existingText) : null
-      debugger
       const triage = await runProtoTriage({
         sdk: { client: sdk.client },
         directory: sdk.directory!,
@@ -396,10 +395,10 @@ function PatternContent() {
         genuiJson,
         layoutPlanner: null,
         moduleResults: null,
+        sessionId: genuiJson ? sid : undefined,
         abortSignal: controller.signal,
       })
       console.log("[Pattern] triage:", triage.routing, triage.reason)
-      console.log("[Pattern] triage output:", JSON.stringify(triage, null, 2))
 
       if (triage.routing === "modify") {
         console.log("[Pattern] modify flow (not implemented)")

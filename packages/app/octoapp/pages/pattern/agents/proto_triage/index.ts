@@ -17,13 +17,14 @@ export interface TriageResult {
 }
 
 export type TriageContext = {
-  sdk: { client: SDK["client"] }
+  sdk: { client: Client }
   directory: string
   modelKey: { providerID: string; modelID: string }
   userRequest: string
   genuiJson: Record<string, unknown> | null
   layoutPlanner: Record<string, unknown> | null
   moduleResults: Record<string, unknown> | null
+  sessionId?: string
   abortSignal: AbortSignal
 }
 
@@ -86,23 +87,27 @@ function buildRegenerateResult(): TriageResult {
 export async function runProtoTriage(ctx: TriageContext): Promise<TriageResult> {
   if (!ctx.genuiJson) return buildRegenerateResult()
 
-  const childResult = await ctx.sdk.client.session.create({
-    directory: ctx.directory,
-    parentID: "",
-    agent: "proto_triage",
-  })
-  const childSession = childResult.data as Session | undefined
-  if (!childSession) throw new Error("failed to create triage session")
+  let sid = ctx.sessionId
+  if (!sid) {
+    const childResult = await ctx.sdk.client.session.create({
+      directory: ctx.directory,
+      parentID: "",
+      agent: "proto_triage",
+    })
+    const childSession = childResult.data as Session | undefined
+    if (!childSession) throw new Error("failed to create triage session")
+    sid = childSession.id
+  }
 
   const promptText = buildTriagePrompt(ctx)
   await ctx.sdk.client.session.promptAsync({
-    sessionID: childSession.id,
+    sessionID: sid,
     agent: "proto_triage",
     ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
     parts: [{ type: "text", text: promptText }],
   })
 
-  const raw = await waitForAssistant(ctx.sdk, childSession.id, ctx.abortSignal)
+  const raw = await waitForAssistant(ctx.sdk, sid, ctx.abortSignal)
   const parsed = extractJson(raw)
 
   if (!parsed) return { ...buildRegenerateResult(), reason: "解析失败，兜底进入重生成" }
