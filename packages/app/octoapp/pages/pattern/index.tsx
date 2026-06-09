@@ -469,7 +469,6 @@ function PatternContent() {
         setLastPlanner(modifyResult.output as unknown as Record<string, unknown>)
         setLastModules(allModules)
 
-        setPhase("idle")
         return
       }
       // ── Step 1: proto_intent → 生成蓝图 ──
@@ -562,12 +561,10 @@ function PatternContent() {
       setLastPlanner(planner as unknown as Record<string, unknown>)
       setLastModules(modules)
 
-      setPhase("idle")
       console.log("结束---------------")
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
-      setPhase("idle")
     } finally {
       if (!submitSessionId || params.id === submitSessionId) {
         setSending(false)
