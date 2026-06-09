@@ -90,28 +90,12 @@
   background: url('/studio/IconMaterial.svg') center/ 16px 16px no-repeat, #f2f3f5 !important;
 }
 
-/* 8. Canvas idle state (GlassSphere -> IllustrationInsightEmpty.svg, 414x433) */
+/* 8. Canvas idle state (animated floating dots, 210x210) */
 .studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center {
   position: absolute;
-  height: 433px;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-}
-.studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center .mt-8.font-bold {
-  position: absolute;
-  bottom: 72px;
-}
-.studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center .mt-2 {
-  position: absolute;
-  bottom: 40px;
-}
-.studio-canvas > div.h-full.flex.flex-col.items-center.justify-center.text-center .rounded-full {
-  width: 414px;
-  height: 433px;
-  border-radius: 0;
-  background: url('/IllustrationInsightEmpty.svg') center/contain no-repeat !important;
-  box-shadow: none !important;
 }
 
 /* 9. StyleMenu icons -- 渐变色块 → studioModel1~11.png */
