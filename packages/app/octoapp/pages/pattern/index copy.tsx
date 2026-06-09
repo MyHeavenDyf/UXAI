@@ -358,6 +358,7 @@ function PatternContent() {
     const mk = activeModelKey()!
     try {
       let sid = submitSessionId
+      debugger
       if (!sid) {
         const dir = sdk.directory
         if (!dir) { console.log("[Pattern] no directory, abort"); return }
@@ -749,7 +750,7 @@ function PatternContent() {
       console.log("[Pattern] planner output:", JSON.stringify(planner, null, 2))
 
       const plannerJson = detectA2UIJson(JSON.stringify(planner))
-      if (plannerJson) sendToPreview(plannerJson)
+      // if (plannerJson) sendToPreview(plannerJson)
 
       // ── Step 4: proto_module_create → 逐模块生成 A2UI JSON ──
       setPhase("module")

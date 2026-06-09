@@ -39,12 +39,16 @@ async function waitForAssistant(sdk: ProtoModuleCreateContext["sdk"], sessionId:
         if (msg.role !== "assistant") continue
         if (msg.time.completed == null) break
         for (let j = items[i].parts.length - 1; j >= 0; j--) {
+          // @ts-ignore
           if (items[i].parts[j].type !== "text" || !items[i].parts[j].text) continue
+          // @ts-ignore
           const json = extractA2UIJson(items[i].parts[j].text)
-          if (json) return items[i].parts[j].text
+          if (json)
+          // @ts-ignore
+            return items[i].parts[j].text
         }
       }
-    } catch {}
+    } catch { }
   }
   throw new Error("aborted")
 }
@@ -57,7 +61,7 @@ function extractA2UIJson(text: string): Record<string, unknown> | null {
     try {
       const parsed = JSON.parse(codeBlockMatch[1].trim()) as Record<string, unknown>
       if (parsed.rootId && parsed.elements) return parsed
-    } catch {}
+    } catch { }
   }
 
   const starts: number[] = []
@@ -74,7 +78,7 @@ function extractA2UIJson(text: string): Record<string, unknown> | null {
         try {
           const parsed = JSON.parse(clean.slice(start, i + 1)) as Record<string, unknown>
           if (parsed.rootId && parsed.elements) return parsed as Record<string, unknown>
-        } catch {}
+        } catch { }
         break
       }
     }
