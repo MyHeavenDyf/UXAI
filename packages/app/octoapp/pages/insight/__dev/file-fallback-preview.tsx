@@ -72,20 +72,12 @@ function FileFallbackNew(props: {
         ].join(", "),
       }}
     >
-      {/* ② 中间的设计:白色卡片 + 层叠柔和阴影(轻黑投影 + 蓝/紫辉光) */}
+      {/* ② 内容直接落在氛围背景上(已移除浮起白卡) */}
       <div
         class="relative z-10 flex flex-col items-center"
         style={{
           width: "440px",
           "max-width": "calc(100% - 40px)",
-          padding: "32px 40px 28px",
-          "border-radius": "16px",
-          background: "rgba(255,255,255,1)",
-          "box-shadow": [
-            "0 4px 12px rgba(0,0,0,0.07)",
-            "0 16px 40px rgba(10,89,247,0.1)",
-            "0 24px 56px rgba(123,97,255,0.08)",
-          ].join(", "),
         }}
       >
         {/* 蓝色圆角徽标 + 白色文档图标(自带蓝色辉光) */}
