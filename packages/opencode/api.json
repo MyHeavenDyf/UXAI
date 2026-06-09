@@ -14,7 +14,7 @@
         "reasoning": false,
         "temperature": true,
         "tool_call": true,
-        "limit": { "context": 128000, "output": 128000 }
+        "limit": { "context": 128000, "output": 16000 }
       },
       "DeepSeek-V4-Flash": {
         "id": "DeepSeek-V4-Flash",
@@ -24,7 +24,7 @@
         "reasoning": false,
         "temperature": true,
         "tool_call": true,
-        "limit": { "context": 128000, "output": 128000 }
+        "limit": { "context": 128000, "output": 16000 }
       },
       "Qwen3.5-27B-Claude-4.6": {
         "id": "Qwen3.5-27B-Claude-4.6",
