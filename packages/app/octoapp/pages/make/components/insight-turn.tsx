@@ -890,7 +890,7 @@ const stateStatus = state.status as string | undefined
       if (text.length > 0) {
         const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
         const info = detectCard(text)
-        if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
+        // if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
 
         // Before falling back to markdown, check if subtask artifacts exist for assembly
         const stForText = subtasks()
@@ -975,19 +975,19 @@ const stateStatus = state.status as string | undefined
         a.content.replace(/<style[\s\S]*?<\/style>/gi, "").trim()
       ).filter(Boolean).join("\n")
       const assembled = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>页面预览</title>
-<style>
-${styles}
-</style>
-</head>
-<body>
-${bodies}
-</body>
-</html>`
+        <html lang="zh-CN">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>页面预览</title>
+            <style>
+            ${styles}
+            </style>
+          </head>
+          <body>
+            ${bodies}
+          </body>
+        </html>`
       return [maybeRepair({
         id: `card-${props.messageID}-composed-auto`,
         title: "完整页面（自动组装）",
