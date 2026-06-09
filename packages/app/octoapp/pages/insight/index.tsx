@@ -13,7 +13,9 @@ import {
   onMount,
   Show,
 } from "solid-js"
+import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
+import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useServer } from "@/context/server"
 import { SDKProvider, useSDK } from "@/context/sdk"
@@ -516,6 +518,17 @@ function InsightContent() {
       const result = await sdk.client.session.create({ agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
+        // 导航前先把新会话 seed 进 sync store。否则 navigate 触发的 sync.session.sync
+        // 会发出 REST session.get,其返回的默认标题可能晚于 SSE session.updated 到达,
+        // 把 LLM 已生成的标题覆盖回默认值(标题偶发不更新的竞态)。seed 后 hasSession=true,
+        // 该 REST 请求被跳过,标题完全由 SSE 驱动。插入逻辑与原生 session.get 命中分支一致。
+        sync.set(
+          "session",
+          produce((draft) => {
+            const match = Binary.search(draft, session.id, (s) => s.id)
+            if (!match.found) draft.splice(match.index, 0, session)
+          }),
+        )
         local.session.promote(dir, session.id)
         navigate(`/insight/${session.id}`)
         return session.id
