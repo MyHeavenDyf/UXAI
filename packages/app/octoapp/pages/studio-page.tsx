@@ -175,6 +175,7 @@ export default function StudioPage() {
   let conversationScrollRef!: HTMLDivElement
   let scrollFrame = 0
   let pendingEditorSessionID: string | undefined
+  let pendingGenerationSessionID: string | undefined
   const blobUrlCache = new Map<string, string>()
 
   function replaceVideoFrames(frames: { first?: StudioAsset; last?: StudioAsset }) {
@@ -513,7 +514,9 @@ export default function StudioPage() {
       () => params.id,
       (id) => {
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
+        const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         if (preserveEditorEntry) pendingEditorSessionID = undefined
+        if (preserveGenerationCapability) pendingGenerationSessionID = undefined
         if (!id && !sending() && !pendingResult()) {
           setStatus("idle")
           setPendingResult(undefined)
@@ -524,7 +527,7 @@ export default function StudioPage() {
         }
         if (!preserveEditorEntry) {
           setEditEntryTurn(undefined)
-          setCapability("image.generate")
+          if (!preserveGenerationCapability) setCapability("image.generate")
         }
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
@@ -1102,7 +1105,10 @@ export default function StudioPage() {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
-      if (!existingSession) navigate(`/${slug()}/studio/${sessionID}`)
+      if (!existingSession) {
+        pendingGenerationSessionID = sessionID
+        navigate(`/${slug()}/studio/${sessionID}`)
+      }
       const generation = await createStudioGeneration({
         sessionID,
         text,
