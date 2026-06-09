@@ -141,11 +141,13 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "save-file-picker",
-    async (_event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
-      const result = await dialog.showSaveDialog({
+    async (event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
         title: opts?.title ?? "Save file",
         defaultPath: opts?.defaultPath,
-      })
+      }
+      const result = await (win ? dialog.showSaveDialog(win, dialogOpts) : dialog.showSaveDialog(dialogOpts))
       if (result.canceled) return null
       return result.filePath ?? null
     },
