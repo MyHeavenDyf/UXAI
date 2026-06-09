@@ -31,6 +31,24 @@ export type ImageGenerateOutput = {
   raw: unknown
 }
 
+export type ImageGenerationStatus = "queued" | "running" | "succeeded" | "failed"
+
+export type ImageGenerationTask = {
+  provider: "internel"
+  model: string
+  capability: StudioCapability
+  toolAction: NonNullable<ImageGenerateOutput["toolAction"]>
+  taskId: string
+  request: unknown
+}
+
+export type ImageGenerationQuery = ImageGenerateOutput & {
+  status: ImageGenerationStatus
+  rawStatus: number | string
+  progress: number
+  order?: number
+}
+
 export type ImageGenerationProvider = {
   generate: (input: ImageGenerateInput) => Promise<ImageGenerateOutput>
   edit: (input: ImageGenerateInput) => Promise<ImageGenerateOutput>

@@ -1,4 +1,7 @@
 [data-component="markdown"] {
+  /* Containment: isolate layout/paint to prevent position:fixed from escaping */
+  contain: layout paint;
+
   /* Reset & Base Typography */
   min-width: 0;
   max-width: 100%;
