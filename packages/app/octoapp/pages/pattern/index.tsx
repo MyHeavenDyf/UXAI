@@ -19,6 +19,9 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
 import { type Attachment } from "./modules/chat/attachment_bar"
 import { type OutputCard } from "./components/insight-turn"
 import { runProtoTriage } from "./agents/proto_triage"
@@ -61,6 +64,7 @@ function PatternContent() {
   const sdk = useSDK()
   const sync = useSync()
   const layout = useLayout()
+  const dialog = useDialog()
   const globalSync = useGlobalSync()
 
   const local = useLocal()
@@ -260,10 +264,15 @@ function PatternContent() {
 
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { } }
+  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
-    previewApi.sendToPreview(data)
+    fetch("http://127.0.0.1:8989/api/data", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }).then(() => {
+      previewApi.refresh()
+    })
   }
 
   function getLastAssistantText(sessionId: string): string | null {
@@ -474,9 +483,9 @@ function PatternContent() {
       // ── Step 1: proto_intent → 生成蓝图 ──
       setPhase("intent")
       debugger
-      // const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
+      const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
 
-      const intentResult = (await import(`./intent.json`)).default
+      // const intentResult = (await import(`./intent.json`)).default
 
       console.log("[Pattern] intent done, sections:", intentResult.sections.length)
       console.log("[Pattern] intent output:", JSON.stringify(intentResult, null, 2))
@@ -484,70 +493,67 @@ function PatternContent() {
       // ── Step 2: proto_intent_audit → 审核（最多重试 2 次）──
       setPhase("audit")
       let currentIntent = intentResult
-      // for (let attempt = 0; attempt < 2; attempt++) {
-      //   debugger
-      //   const audit = await runProtoIntentAudit({
-      //     ...ctx,
-      //     input: { userRequest: text, blueprint: JSON.stringify(currentIntent) },
-      //   })
-      //   console.log("[Pattern] audit:", audit.isPass, audit.feedback.slice(0, 80))
-      //   console.log("[Pattern] audit output:", JSON.stringify(audit, null, 2))
-      //   if (audit.isPass) break
-      //   debugger
-      //   currentIntent = await runProtoIntent({
-      //     ...ctx,
-      //     input: { userRequest: text, previousBlueprint: currentIntent, auditFeedback: audit.feedback },
-      //   })
-      //   console.log("[Pattern] intent retry", attempt + 1)
-      // }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        debugger
+        const audit = await runProtoIntentAudit({
+          ...ctx,
+          input: { userRequest: text, blueprint: JSON.stringify(currentIntent) },
+        })
+        console.log("[Pattern] audit:", audit.isPass, audit.feedback.slice(0, 80))
+        console.log("[Pattern] audit output:", JSON.stringify(audit, null, 2))
+        if (audit.isPass) break
+        debugger
+        currentIntent = await runProtoIntent({
+          ...ctx,
+          input: { userRequest: text, previousBlueprint: currentIntent, auditFeedback: audit.feedback },
+        })
+        console.log("[Pattern] intent retry", attempt + 1)
+      }
 
       // ── Step 3: proto_planner_create → 生成布局 + slots ──
       setPhase("planner")
 
-      // const planner = await runProtoPlannerCreate({
-      //   ...ctx,
-      //   input: { blueprint: currentIntent as unknown as Record<string, unknown> },
-      // })
-      const planner = (await import(`./planner.json`)).default
+      const planner = await runProtoPlannerCreate({
+        ...ctx,
+        input: { blueprint: currentIntent as unknown as Record<string, unknown> },
+      })
+      // const planner = (await import(`./planner.json`)).default
       console.log("[Pattern] planner done, slots:", planner.slots.length)
       console.log("[Pattern] planner output:", JSON.stringify(planner, null, 2))
-
-      const plannerJson = detectA2UIJson(JSON.stringify(planner))
-      // if (plannerJson) sendToPreview(plannerJson)
 
       // ── Step 4: proto_module_create → 逐模块生成 A2UI JSON ──
       setPhase("module")
       const modules: Array<{ rootId: string; elements: Array<{ id: string; component: string; props?: Record<string, unknown>; children?: string[] }>; state?: Record<string, unknown> }> = []
-      // for (const slot of planner.slots) {
-      //   console.log("[Pattern] module_create:", slot.section_id)
-      //   debugger
-      //   const moduleResult = await runProtoModuleCreate({
-      //     ...ctx,
-      //     input: {
-      //       intentDescription: currentIntent,
-      //       layoutPlanner: planner as unknown as Record<string, unknown>,
-      //       sectionId: slot.section_id,
-      //       elementId: slot.element_id,
-      //       idPrefix: slot.id_prefix,
-      //     },
-      //   })
-      //   console.log("[Pattern] module_create output [" + slot.section_id + "]:", JSON.stringify(moduleResult.uiJson, null, 2))
-      //   console.log(JSON.stringify(moduleResult, null, 2))
-      //   modules.push(moduleResult.uiJson as typeof modules[number])
-      // }
-      for (let i = 0; i < planner.slots.length; i++) {
-        const slot = planner.slots[i]
-        const mod = await import(`./slot${i + 1}.json`)
-        const uiJson = mod.default.rootId && mod.default.elements ? mod.default : mod.default.uiJson
-        if (uiJson.rootId !== slot.element_id) {
-          const target = (uiJson.elements as Array<{ id: string }>)?.find((e) => e.id === uiJson.rootId)
-          if (target) {
-            target.id = slot.element_id
-            uiJson.rootId = slot.element_id
-          }
-        }
-        modules.push(uiJson)
+      for (const slot of planner.slots) {
+        console.log("[Pattern] module_create:", slot.section_id)
+        debugger
+        const moduleResult = await runProtoModuleCreate({
+          ...ctx,
+          input: {
+            intentDescription: currentIntent,
+            layoutPlanner: planner as unknown as Record<string, unknown>,
+            sectionId: slot.section_id,
+            elementId: slot.element_id,
+            idPrefix: slot.id_prefix,
+          },
+        })
+        console.log("[Pattern] module_create output [" + slot.section_id + "]:", JSON.stringify(moduleResult.uiJson, null, 2))
+        console.log(JSON.stringify(moduleResult, null, 2))
+        modules.push(moduleResult.uiJson as typeof modules[number])
       }
+      // for (let i = 0; i < planner.slots.length; i++) {
+      //   const slot = planner.slots[i]
+      //   const mod = await import(`./slot${i + 1}.json`)
+      //   const uiJson = mod.default.rootId && mod.default.elements ? mod.default : mod.default.uiJson
+      //   if (uiJson.rootId !== slot.element_id) {
+      //     const target = (uiJson.elements as Array<{ id: string }>)?.find((e) => e.id === uiJson.rootId)
+      //     if (target) {
+      //       target.id = slot.element_id
+      //       uiJson.rootId = slot.element_id
+      //     }
+      //   }
+      //   modules.push(uiJson)
+      // }
       const merged = mergeModules(
         { rootId: planner.rootId, elements: planner.elements },
         modules,

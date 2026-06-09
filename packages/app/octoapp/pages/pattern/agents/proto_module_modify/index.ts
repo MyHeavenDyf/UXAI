@@ -51,13 +51,36 @@ async function waitForAssistant(sdk: ModuleModifyContext["sdk"], sessionId: stri
 
 function extractA2UIJson(text: string): Record<string, unknown> | null {
   const clean = text.replace(/\ufeff/g, "").replace(/\u200b/g, "").trim()
-  const match = clean.match(/(\{[\s\S]*\})/)
-  if (!match) return null
-  try {
-    return JSON.parse(match[1]) as Record<string, unknown>
-  } catch {
-    return null
+
+  const codeBlockMatch = clean.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/)
+  if (codeBlockMatch) {
+    try {
+      const parsed = JSON.parse(codeBlockMatch[1].trim()) as Record<string, unknown>
+      if (parsed.rootId && parsed.elements) return parsed
+    } catch { }
   }
+
+  const starts: number[] = []
+  for (let i = 0; i < clean.length; i++) {
+    if (clean[i] === "{") starts.push(i)
+  }
+
+  for (const start of starts) {
+    let depth = 0
+    for (let i = start; i < clean.length; i++) {
+      if (clean[i] === "{") depth++
+      if (clean[i] === "}") depth--
+      if (depth === 0) {
+        try {
+          const parsed = JSON.parse(clean.slice(start, i + 1)) as Record<string, unknown>
+          if (parsed.rootId && parsed.elements) return parsed
+        } catch { }
+        break
+      }
+    }
+  }
+
+  return null
 }
 
 function buildModifyPrompt(input: ModuleModifyInput): string {
@@ -97,11 +120,12 @@ export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleM
   })
 
   const raw = await waitForAssistant(ctx.sdk, childSession.id, ctx.abortSignal)
+  console.log("[module_modify] raw (first 300 chars):", raw.slice(0, 300))
   const moduleJson = extractA2UIJson(raw)
 
   if (!moduleJson) throw new Error("module_modify did not return valid JSON")
 
-  const rootElementId = ctx.input.originModules.element_id as string
+  const rootElementId = ctx.input.originModules.rootId as string
   if (moduleJson.rootId !== rootElementId) {
     const target = (moduleJson.elements as Array<{ id: string }>)?.find((e) => e.id === moduleJson.rootId)
     if (target) {
@@ -109,6 +133,7 @@ export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleM
       moduleJson.rootId = rootElementId
     }
   }
+
 
   return {
     uiJson: moduleJson,
