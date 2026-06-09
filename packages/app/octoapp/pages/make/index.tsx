@@ -830,7 +830,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               </div>
             </Show>
             <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+              <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
                 <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
                   <AttachmentBar
