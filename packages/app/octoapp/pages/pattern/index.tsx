@@ -2,39 +2,24 @@ import "./pattern-tokens.css"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Dialog } from "@opencode-ai/ui/dialog"
-import { Button } from "@opencode-ai/ui/button"
-import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   createEffect,
   createMemo,
   createResource,
   createSignal,
-  For,
   on,
   onCleanup,
   Show,
-  type JSX,
 } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
-import { useLanguage } from "@/context/language"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
-import { sessionTitle } from "@/utils/session-title"
-import { AttachmentBar, type Attachment } from "./modules/chat/attachment_bar"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
-import { Spinner } from "@opencode-ai/ui/spinner"
-import { ChartInput } from "./modules/chat/chart_input"
+import { type Attachment } from "./modules/chat/attachment_bar"
+import { type OutputCard } from "./components/insight-turn"
 import { runProtoTriage } from "./agents/proto_triage"
 import { runProtoIntent } from "./agents/proto_intent"
 import { runProtoIntentAudit } from "./agents/proto_intent_audit"
@@ -46,6 +31,7 @@ import { mergeModules } from "./agents/merge"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
+import { ChatPanel } from "./modules/chat/index"
 
 const AGENT_NAME = "proto_triage"
 
@@ -74,8 +60,6 @@ function PatternContent() {
   const sdk = useSDK()
   const sync = useSync()
   const layout = useLayout()
-  const language = useLanguage()
-  const dialog = useDialog()
   const globalSync = useGlobalSync()
 
   const local = useLocal()
@@ -99,34 +83,6 @@ function PatternContent() {
     },
   )
 
-  const [titleState, setTitleState] = createStore({
-    editing: false,
-    draft: "",
-    menuOpen: false,
-    pendingRename: false,
-  })
-  let titleRef: HTMLInputElement | undefined
-
-  function openTitleEditor() {
-    const info = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
-    requestAnimationFrame(() => titleRef?.focus())
-  }
-
-  async function saveTitleEditor() {
-    const id = params.id
-    if (!id) return
-    const draft = titleState.draft.trim()
-    if (!draft) { setTitleState("editing", false); return }
-    try {
-      await sdk.client.session.update({ sessionID: id, title: draft })
-      void refetchSession()
-    } catch (err) {
-      showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
-    }
-    setTitleState("editing", false)
-  }
-
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
@@ -134,12 +90,6 @@ function PatternContent() {
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
     }
-  }
-
-  function handleDeleteSession() {
-    const id = params.id
-    if (!id) return
-    dialog.show(() => <PatternDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Pattern"} onDelete={deleteSession} />)
   }
 
   createEffect(
@@ -553,7 +503,6 @@ function PatternContent() {
 
       // ── Step 3: proto_planner_create → 生成布局 + slots ──
       setPhase("planner")
-      debugger
 
       // const planner = await runProtoPlannerCreate({
       //   ...ctx,
@@ -709,6 +658,7 @@ function PatternContent() {
     selectedDesignSystem: selectedDesignSystem(),
     onSelectDesignSystem: setSelectedDesignSystem,
     model: local.model,
+    rows:undefined
   })
 
   return (
@@ -725,123 +675,26 @@ function PatternContent() {
             : undefined,
         }}
       >
+        {/* 对话 */}
         <Show when={!focusMode()}>
-          <div
-            class="flex flex-col overflow-hidden"
-            style={{
-              background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
-              outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
-            }}
+          <ChatPanel
+            hasContent={hasContent()}
+            isBusy={isBusy()}
+            sessionInfo={sessionInfo() ?? null}
+            userMessages={userMessages()}
+            sessionStatus={sessionStatus()}
+            autoScroll={autoScroll}
+            inputProps={chartInputProps()}
+            attachments={attachments()}
+            onRemoveAttachment={removeAttachment}
+            isDragOver={isDragOver()}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-          >
-            <Show when={hasContent()}>
-              <div
-                class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff" }}
-              >
-                <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
-                  <Show when={isBusy()}>
-                    <div class="shrink-0">
-                      <Spinner class="size-4" />
-                    </div>
-                  </Show>
-                  <Show
-                    when={!titleState.editing}
-                    fallback={
-                      <InlineInput
-                        ref={(el) => { titleRef = el }}
-                        value={titleState.draft}
-                        class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
-                        onInput={(e) => setTitleState("draft", e.currentTarget.value)}
-                        onKeyDown={(e) => {
-                          e.stopPropagation()
-                          if (e.key === "Enter") { e.preventDefault(); void saveTitleEditor() }
-                          if (e.key === "Escape") { e.preventDefault(); setTitleState("editing", false) }
-                        }}
-                        onBlur={() => void saveTitleEditor()}
-                      />
-                    }
-                  >
-                    <h1
-                      class="truncate min-w-0"
-                      style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
-                      onDblClick={openTitleEditor}
-                    >
-                      {sessionTitle(sessionInfo()?.title) ?? "Pattern"}
-                    </h1>
-                  </Show>
-                </div>
-                <DropdownMenu
-                  gutter={4}
-                  placement="bottom-end"
-                  open={titleState.menuOpen}
-                  onOpenChange={(open) => setTitleState("menuOpen", open)}
-                >
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="dot-grid"
-                    variant="ghost"
-                    class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
-                    aria-label={language.t("common.moreOptions")}
-                  />
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content style={{ "min-width": "104px" }}>
-                      <DropdownMenu.Item onSelect={() => { setTitleState("menuOpen", false); openTitleEditor() }}>
-                        <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item onSelect={handleDeleteSession}>
-                        <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
-              </div>
-            </Show>
-
-            <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
-                {/* 原型介绍 */}
-                <ProtoIntroduction />
-                <div class="w-full max-w-[800px] px-8">
-                  {/* 附件栏 */}
-                  <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                  {/* 聊天框 */}
-                  <ChartInput {...chartInputProps()} rows={undefined} />
-                </div>
-              </div>
-            }>
-              <ScrollView
-                class="flex-1 min-h-0"
-                style={{ background: "#fff" }}
-                viewportRef={autoScroll.scrollRef}
-                onScroll={autoScroll.handleScroll}
-                onMouseUp={autoScroll.handleInteraction}
-              >
-                <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
-                  <For each={userMessages()}>
-                    {(msg) => (
-                      <InsightTurn
-                        sessionID={params.id!}
-                        messageID={msg.id}
-                        status={sessionStatus()}
-                        active={isBusy()}
-                        onOpenResult={handleOpenResult}
-                      />
-                    )}
-                  </For>
-                </div>
-              </ScrollView>
-
-              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
-                {/* 附件栏 */}
-                <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                <ChartInput {...chartInputProps()} rows={3} />
-              </div>
-            </Show>
-          </div>
+            onOpenResult={handleOpenResult}
+            onDeleteSession={deleteSession}
+            onTitleChanged={() => void refetchSession()}
+          />
         </Show>
 
         <Show when={hasContent() && !focusMode()}>
@@ -854,32 +707,6 @@ function PatternContent() {
         </Show>
       </div>
     </DataProvider>
-  )
-}
-
-function PatternDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
-  const language = useLanguage()
-  const dialog = useDialog()
-  return (
-    <Dialog title={language.t("session.delete.title")} fit>
-      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-        <span class="text-14-regular text-text-strong">
-          {language.t("session.delete.confirm", { name: props.name })}
-        </span>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-          >
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
   )
 }
 
