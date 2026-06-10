@@ -975,10 +975,11 @@ function InsightContent() {
       count: ocs.length,
       tabs: ocs.map((oc) => ({ type: oc.type, source: oc.source, file: oc.fileName })),
     })
-    // 多文件:全部 openTab,激活 = 最后一个 openTab 内部已处理(activate first won't override later)
-    // 用户视觉上看到最后激活的是数组里最后一个 = 第一张?— 让我们激活第一张
-    for (const oc of ocs) tabStore.openTab(oc)
-    tabStore.activate(ocs[0].id)
+    // 多文件:全部 openTab,激活第一张。
+    // 注意:openTab 会按 (uri,type) 去重,ocs[0].id 不一定真进了 tabs(可能命中已有 tab),
+    // 故用 openTab 返回的「实际生效 id」激活,避免 activate 指向不存在的 tab 导致右侧栏空白。
+    const openedIds = ocs.map((oc) => tabStore.openTab(oc))
+    tabStore.activate(openedIds[0])
     revealPanel()
   }
 
@@ -997,8 +998,8 @@ function InsightContent() {
         count: ocs.length,
         tabs: ocs.map((oc) => ({ type: oc.type, file: oc.fileName })),
       })
-      for (const oc of ocs) tabStore.openTab(oc)
-      tabStore.activate(ocs[0].id)
+      const openedIds = ocs.map((oc) => tabStore.openTab(oc))
+      tabStore.activate(openedIds[0])
       revealPanel()
       break  // 一次只自动开一个 task 的全部产物
     }
