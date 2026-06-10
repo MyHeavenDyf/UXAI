@@ -123,6 +123,8 @@ export default function StudioPage() {
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
+  const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
+  const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
@@ -459,8 +461,16 @@ export default function StudioPage() {
       .find((item): item is StudioGenerationResult => item?.id === id)
   })
   const result = createMemo(() => normalizeResultValue(selectedResult() ?? defaultResult()))
+  const canvasResult = createMemo((): StudioGenerationResult | undefined => {
+    const r = result()
+    const deleted = deletedImageIds()
+    if (!r || deleted.size === 0) return r
+    const filtered = r.images.filter((img) => !deleted.has(img.id))
+    const r2 = filtered.length === r.images.length ? r : { ...r, images: filtered }
+    return r2.images.length > 0 ? r2 : undefined
+  })
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
-    if (result()?.images.length) return "succeeded"
+    if (canvasResult()?.images.length) return "succeeded"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
@@ -472,23 +482,86 @@ export default function StudioPage() {
   })
 
   const selectedImage = createMemo(() => {
-    const images = result()?.images ?? []
+    const images = canvasResult()?.images ?? []
     return images.find((item) => item.id === selectedImageId()) ?? images[0]
   })
   const workspaceEditImage = createMemo(() => workspaceImage() ?? (workspaceUploadRequested() ? undefined : selectedImage()))
 
   createEffect(() => {
-    const first = result()?.images[0]?.id
-    if (first && !result()?.images.some((image) => image.id === selectedImageId())) setSelectedImageId(first)
+    const first = canvasResult()?.images[0]?.id
+    if (first && !canvasResult()?.images.some((image) => image.id === selectedImageId())) setSelectedImageId(first)
   })
 
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
       setSelectedResultId(input.resultID)
       setSelectedImageId(input.imageID)
+      const r = displayTurns().map((t) => t.result).find((item) => item?.id === input.resultID)
+      if (!r) return
+      if (canvasTabImages().length === 0) {
+        // tabs 为空：点击默认第一张则维持 fallback，点击其他图则把默认和点击的都加入 tabs
+        if (r.images[0]?.id === input.imageID) {
+          setDeletedImageIds(new Set<string>())
+          setWorkspaceImage(undefined)
+          setWorkspaceUploadRequested(false)
+          setMode("preview")
+          return
+        }
+        const clicked = r.images.find((img) => img.id === input.imageID)
+        if (clicked) {
+          setCanvasTabImages([clicked])
+          setDeletedImageIds(new Set<string>())
+          setWorkspaceImage(undefined)
+          setWorkspaceUploadRequested(false)
+          setMode("preview")
+          return
+        }
+      }
+      // 已有 tabs 时追加
+      setCanvasTabImages((prev) => {
+        if (prev.some((i) => i.id === input.imageID)) return prev
+        const clicked = r.images.find((img) => img.id === input.imageID)
+        return clicked ? [...prev, clicked] : prev
+      })
+      setDeletedImageIds(new Set<string>())
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("preview")
+    })
+  }
+
+  function selectCanvasTab(id: string) {
+    const turn = displayTurns()
+      .map((t) => t.result)
+      .find((r) => r?.images.some((img) => img.id === id))
+    batch(() => {
+      if (turn) setSelectedResultId(turn.id)
+      setSelectedImageId(id)
+      setDeletedImageIds(new Set<string>())
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("preview")
+    })
+  }
+
+  function closeCanvasTab(id: string) {
+    let nextId: string | undefined
+    setCanvasTabImages((prev) => {
+      const idx = prev.findIndex((img) => img.id === id)
+      if (idx === -1) return prev
+      const rest = prev.filter((img) => img.id !== id)
+      nextId = rest[idx]?.id ?? rest[idx - 1]?.id
+      return rest
+    })
+    batch(() => {
+      if (nextId !== undefined) {
+        setSelectedImageId(nextId)
+      } else {
+        // 最后一个 tab：把当前 result 所有图片都标记删除，隐藏 canvas 和 details
+        const allIds = result()?.images.map((img) => img.id) ?? []
+        setDeletedImageIds(new Set(allIds))
+        setSelectedImageId(undefined)
+      }
     })
   }
 
@@ -575,6 +648,8 @@ export default function StudioPage() {
           setEditEntryTurn(undefined)
           if (!preserveGenerationCapability) setCapability("image.generate")
         }
+        setCanvasTabImages([])
+        setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
         setWorkspaceImage(undefined)
@@ -1669,14 +1744,31 @@ export default function StudioPage() {
         />
 
       <main class="studio-workspace">
+        <Show when={isEditingWorkspaceMode() || canvasResult()?.images.length} fallback={
+          <div class="studio-empty-workspace">
+            <StudioIntro />
+          </div>
+        }>
         <section class="studio-canvas">
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               status={effectiveStatus()}
               image={selectedImage()}
-              result={result()}
+              result={canvasResult()}
               imageLabel={currentImageLabel()}
+              selectedImageId={selectedImageId()}
+              tabImages={canvasTabImages()}
               onDownload={() => void downloadCurrentImage()}
+              onSelectImage={selectCanvasTab}
+              onDeleteImage={(id) => {
+                batch(() => {
+                  // fallback 模式（无 tabs）：只有一个关闭按钮，删除全部图片隐藏 canvas 和 details
+                  const allIds = result()?.images.map((img) => img.id) ?? []
+                  setDeletedImageIds(new Set(allIds))
+                  setSelectedImageId(undefined)
+                })
+              }}
+              onCloseTab={closeCanvasTab}
             />
           }>
             <Show when={!workspaceEditImage()}>
@@ -1728,8 +1820,9 @@ export default function StudioPage() {
             </Show>
           </Show>
         </section>
+        </Show>
 
-          <Show when={!isEditingWorkspaceMode() && result()?.images.length}>
+          <Show when={!isEditingWorkspaceMode() && canvasResult()?.images.length}>
             <aside class="studio-details">
               <StudioDetails
                 result={result()!}
@@ -1737,7 +1830,21 @@ export default function StudioPage() {
                 selectedImageId={selectedImageId()}
                 imageLabel={currentImageLabel()}
                 regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
-                onSelectImage={(id) => setSelectedImageId(id)}
+                onSelectImage={(id) => {
+                  const r = result()
+                  batch(() => {
+                    setSelectedImageId(id)
+                    setCanvasTabImages((prev) => {
+                      if (prev.some((i) => i.id === id)) return prev
+                      const clicked = r?.images.find((img) => img.id === id)
+                      return clicked ? [...prev, clicked] : prev
+                    })
+                    setDeletedImageIds(new Set<string>())
+                    setWorkspaceImage(undefined)
+                    setWorkspaceUploadRequested(false)
+                    setMode("preview")
+                  })
+                }}
                 onRegenerate={regenerateCurrentResult}
                 onUpscale={openHD}
                 onCutout={openCutout}

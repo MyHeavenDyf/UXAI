@@ -77,8 +77,8 @@
 }
 
 .studio-center-header {
-  height: 64px;
-  min-height: 64px;
+  height: 56px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   gap: 16px;
