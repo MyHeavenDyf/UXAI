@@ -29,6 +29,8 @@ import proto_intent from "./agents/proto_intent"
 import proto_intent_audit from "./agents/proto_intent_audit"
 import proto_planner_create from "./agents/proto_planner_create"
 import proto_module_create from "./agents/proto_module_create"
+
+import create_json from './workflow/create_json'
 import { runProtoPlannerModify } from "./agents/proto_planner_modify"
 import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
@@ -288,42 +290,6 @@ function PatternContent() {
     return null
   }
 
-  function extractJsonFromText(text: string): Record<string, unknown> | null {
-    try {
-      const raw = text.includes("```json")
-        ? text.match(/```json\s*\n([\s\S]*?)\n?```/)?.[1] ?? text
-        : text
-      const parsed = JSON.parse(raw.trim())
-      if (parsed && typeof parsed === "object") return parsed
-    } catch { }
-    return null
-  }
-
-  async function waitForAssistant(sessionId: string, signal: AbortSignal): Promise<string> {
-    while (!signal.aborted) {
-      await new Promise((r) => setTimeout(r, 2000))
-      if (signal.aborted) throw new Error("aborted")
-      try {
-        const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 10 })
-        const items = res.data as Array<{ info: Message; parts: Part[] }> | undefined
-        if (!items) continue
-        for (let i = items.length - 1; i >= 0; i--) {
-          const msg = items[i].info
-          if (msg.role !== "assistant") continue
-          if (msg.time.completed == null) continue
-          const parts = items[i].parts
-          for (let j = parts.length - 1; j >= 0; j--) {
-            // @ts-ignore
-            if (parts[j].type === "text" && parts[j].text) return parts[j].text
-          }
-        }
-      } catch (err) {
-        console.warn("[Pattern] poll error:", err)
-      }
-    }
-    throw new Error("aborted")
-  }
-
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
@@ -357,6 +323,14 @@ function PatternContent() {
         modelKey: mk,
         parentSessionId: sid,
         abortSignal: controller.signal,
+      }
+
+      let intentCtx = {
+        sdk: sdk,
+        sync: sync,
+        modelKey: mk,
+        rootSession: sid,
+        userInput: text
       }
 
       // ── Step 0: triage → 判断首次还是修改 ──
@@ -411,15 +385,13 @@ function PatternContent() {
             continue
           }
           if (slot.operation === "create") {
-            const moduleResult = await runProtoModuleCreate({
-              ...ctx,
-              input: {
-                intentDescription: updatedIntent as any,
-                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
-                sectionId: slot.section_id,
-                elementId: slot.element_id,
-                idPrefix: slot.id_prefix,
-              },
+            const moduleResult = await proto_module_create({
+              ...intentCtx,
+              idPrefix: slot.id_prefix,
+              sectionId: slot.section_id,
+              elementId: slot.element_id,
+              layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
+              intentDescription: updatedIntent as any,
             })
             allModules.push(moduleResult.uiJson as typeof prevModules[number])
             continue
@@ -460,13 +432,7 @@ function PatternContent() {
       setPhase("intent")
 
 
-      let intentCtx = {
-        sdk: sdk,
-        sync: sync,
-        modelKey: mk,
-        rootSession: sid,
-        userInput: text
-      }
+      
       // 第一步：意图扩展
       let intentResult = await proto_intent(intentCtx)
 
@@ -515,8 +481,8 @@ function PatternContent() {
       //   }
       //   modules.push(uiJson)
       // }
-      const merged = mergeModules(
-        { rootId: planner.layout_planner.rootId as string, elements: planner.layout_planner.elements},
+    const merged = mergeModules(
+        { rootId: planner.layout_planner.rootId, elements: planner.layout_planner.elements },
         modules,
       )
       console.log("[Pattern] ========== MERGED A2UI JSON ==========")
