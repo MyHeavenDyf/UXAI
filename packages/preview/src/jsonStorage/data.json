@@ -1,420 +1,297 @@
 {
-  "rootId": "loginRootContainer",
+  "rootId": "loginPageRoot",
   "elements": [
     {
-      "id": "loginRootContainer",
+      "id": "loginPageRoot",
       "component": "div",
       "props": {
-        "className": "flex flex-col min-h-screen"
+        "className": "flex flex-row w-full h-screen"
       },
       "children": [
-        "loginMainArea",
-        "loginFooterSection"
+        "loginBrandSlot",
+        "loginFormSlot"
       ]
     },
     {
-      "id": "loginMainArea",
+      "id": "loginBrandSlot",
       "component": "div",
       "props": {
-        "className": "flex-1 flex flex-row w-full bg-gradient-to-r from-inverse-surface to-surface-container-lowest"
+        "className": "flex flex-col items-center justify-center w-[40%] h-full bg-gradient-to-br from-[#1A1A2E] to-[#16213E] text-white"
       },
       "children": [
-        "loginBrandSection",
-        "loginFormSection"
+        "brandInnerWrapper"
       ]
     },
     {
-      "id": "loginBrandSection",
-      "component": "section",
+      "id": "loginFormSlot",
+      "component": "div",
       "props": {
-        "className": "w-[45%] flex flex-col items-center justify-center px-page py-page"
+        "className": "flex flex-col items-center justify-center w-[60%] h-full bg-surface"
       },
       "children": [
-        "brndContentStack"
+        "formCardWrapper"
       ]
     },
     {
-      "id": "loginFormSection",
-      "component": "section",
+      "id": "brandInnerWrapper",
+      "component": "div",
       "props": {
-        "className": "w-[55%] flex items-center justify-center"
+        "className": "w-full h-full relative flex flex-col items-center justify-center"
+      },
+      "children": [
+        "brandBgImage",
+        "brandTopBar",
+        "brandCenterContent",
+        "brandBottomBar"
+      ]
+    },
+    {
+      "id": "brandBgImage",
+      "component": "img",
+      "props": {
+        "src": {
+          "path": "/brandBackgroundImage"
+        },
+        "alt": "品牌背景",
+        "className": "absolute inset-0 w-full h-full object-cover opacity-10"
+      }
+    },
+    {
+      "id": "brandTopBar",
+      "component": "div",
+      "props": {
+        "className": "w-full flex justify-end px-6 pt-5 relative z-10"
+      },
+      "children": [
+        "brandLangSelect"
+      ]
+    },
+    {
+      "id": "brandLangSelect",
+      "component": "Select",
+      "props": {
+        "value": {
+          "path": "/brandCurrentLocale"
+        },
+        "options": [
+          {
+            "value": "zh-CN",
+            "label": "简体中文"
+          },
+          {
+            "value": "en-US",
+            "label": "English (US)"
+          },
+          {
+            "value": "ja-JP",
+            "label": "日本語"
+          },
+          {
+            "value": "ko-KR",
+            "label": "한국어"
+          },
+          {
+            "value": "fr-FR",
+            "label": "Français"
+          }
+        ],
+        "className": "w-40 bg-white/10 border-white/20 text-white",
+        "placeholder": "选择语言"
+      }
+    },
+    {
+      "id": "brandCenterContent",
+      "component": "div",
+      "props": {
+        "className": "flex-1 flex flex-col items-center justify-center gap-5 relative z-10"
+      },
+      "children": [
+        "brandLogoIcon",
+        "brandSystemName",
+        "brandSloganRow"
+      ]
+    },
+    {
+      "id": "brandLogoIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/brandLogoIcon"
+        },
+        "size": 64,
+        "shape": "circle",
+        "color": "inverse"
+      }
+    },
+    {
+      "id": "brandSystemName",
+      "component": "h1",
+      "props": {
+        "className": "text-3xl font-bold text-white text-center",
+        "value": {
+          "path": "/brandSystemName"
+        }
+      }
+    },
+    {
+      "id": "brandSloganRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2"
+      },
+      "children": [
+        "brandSloganIcon",
+        "brandSloganText"
+      ]
+    },
+    {
+      "id": "brandSloganIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/brandSloganIcon"
+        },
+        "size": 20,
+        "shape": "outline",
+        "color": "inverse"
+      }
+    },
+    {
+      "id": "brandSloganText",
+      "component": "p",
+      "props": {
+        "className": "text-base text-white/70 text-center",
+        "value": {
+          "path": "/brandSlogan"
+        }
+      }
+    },
+    {
+      "id": "brandBottomBar",
+      "component": "div",
+      "props": {
+        "className": "w-full flex flex-col items-center gap-0.5 pb-6 relative z-10"
+      },
+      "children": [
+        "brandCopyright",
+        "brandVersion"
+      ]
+    },
+    {
+      "id": "brandCopyright",
+      "component": "span",
+      "props": {
+        "className": "text-xs text-white/50",
+        "value": {
+          "path": "/brandCopyright"
+        }
+      }
+    },
+    {
+      "id": "brandVersion",
+      "component": "span",
+      "props": {
+        "className": "text-xs text-white/40",
+        "value": {
+          "path": "/brandVersion"
+        }
+      }
+    },
+    {
+      "id": "formCardWrapper",
+      "component": "div",
+      "props": {
+        "className": "w-full max-w-md px-inset py-page"
       },
       "children": [
         "formCardContainer"
       ]
     },
     {
-      "id": "loginFooterSection",
-      "component": "footer",
-      "props": {
-        "className": "w-full bg-inverse-surface/80 backdrop-blur-sm px-page py-stack"
-      },
-      "children": [
-        "footContentContainer"
-      ]
-    },
-    {
-      "id": "brndContentStack",
-      "component": "div",
-      "props": {
-        "className": "w-full max-w-lg flex flex-col items-center gap-8"
-      },
-      "children": [
-        "brndLogoSystemGroup",
-        "brndSloganText",
-        "brndCarouselArea",
-        "brndSecurityRow",
-        "brndVersionBadge"
-      ]
-    },
-    {
-      "id": "brndLogoSystemGroup",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col items-center gap-2"
-      },
-      "children": [
-        "brndLogoRow",
-        "brndSystemFullName"
-      ]
-    },
-    {
-      "id": "brndLogoRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3"
-      },
-      "children": [
-        "brndLogoImg",
-        "brndSystemName"
-      ]
-    },
-    {
-      "id": "brndLogoImg",
-      "component": "img",
-      "props": {
-        "src": {
-          "path": "/brandLogoImage"
-        },
-        "alt": "CloudForge Logo",
-        "className": "h-10 w-auto"
-      }
-    },
-    {
-      "id": "brndSystemName",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/systemName"
-        },
-        "className": "text-3xl font-bold text-white tracking-wide"
-      }
-    },
-    {
-      "id": "brndSystemFullName",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/systemFullName"
-        },
-        "className": "text-sm text-white/50 tracking-wide"
-      }
-    },
-    {
-      "id": "brndSloganText",
-      "component": "p",
-      "props": {
-        "value": {
-          "path": "/systemSlogan"
-        },
-        "className": "text-lg text-white/70 text-center leading-relaxed"
-      }
-    },
-    {
-      "id": "brndCarouselArea",
-      "component": "div",
-      "props": {
-        "className": "w-full"
-      },
-      "children": [
-        "brndCarousel"
-      ]
-    },
-    {
-      "id": "brndCarousel",
-      "component": "Carousel",
-      "props": {
-        "autoplay": {
-          "path": "/carouselConfig/autoPlayEnabled"
-        },
-        "autoplaySpeed": 4000,
-        "dots": {
-          "path": "/carouselConfig/showIndicators"
-        },
-        "arrows": {
-          "path": "/carouselConfig/showArrows"
-        }
-      },
-      "children": {
-        "path": "/brandCarouselSlides",
-        "componentId": "brndCarouselSlideItem"
-      }
-    },
-    {
-      "id": "brndCarouselSlideItem",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col items-center gap-4 p-4"
-      },
-      "children": [
-        "brndSlideImage",
-        "brndSlideTitle",
-        "brndSlideDesc"
-      ]
-    },
-    {
-      "id": "brndSlideImage",
-      "component": "img",
-      "props": {
-        "src": {
-          "path": "slideImage"
-        },
-        "alt": {
-          "path": "slideTitle"
-        },
-        "className": "w-full h-auto rounded-xl shadow-lg"
-      }
-    },
-    {
-      "id": "brndSlideTitle",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "slideTitle"
-        },
-        "className": "text-xl font-semibold text-white"
-      }
-    },
-    {
-      "id": "brndSlideDesc",
-      "component": "p",
-      "props": {
-        "value": {
-          "path": "slideDescription"
-        },
-        "className": "text-sm text-white/60 text-center leading-relaxed"
-      }
-    },
-    {
-      "id": "brndSecurityRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-2"
-      },
-      "children": [
-        "brndSecurityIcon",
-        "brndSecurityText"
-      ]
-    },
-    {
-      "id": "brndSecurityIcon",
-      "component": "Icon",
-      "props": {
-        "name": {
-          "path": "/securityCertificationIcon"
-        },
-        "size": "w-5",
-        "shape": "outline",
-        "color": "success"
-      }
-    },
-    {
-      "id": "brndSecurityText",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/securityCertificationText"
-        },
-        "className": "text-sm text-white/60"
-      }
-    },
-    {
-      "id": "brndVersionBadge",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/versionBadge"
-        },
-        "className": "text-xs text-white/40 border border-white/10 px-3 py-1 rounded-full"
-      }
-    },
-    {
       "id": "formCardContainer",
       "component": "div",
       "props": {
-        "className": "bg-surface-container-highest shadow-sm rounded-xl p-8 w-full max-w-[420px]"
-      },
-      "children": [
-        "formCardHeader",
-        "formLoginTabs",
-        "formOptionsRow",
-        "formSubmitBtn",
-        "formSocialDivider",
-        "formSocialLoginSection",
-        "formRegisterLink"
-      ]
-    },
-    {
-      "id": "formCardHeader",
-      "component": "div",
-      "props": {
-        "className": "mb-7"
+        "className": "flex flex-col gap-stack bg-surface-container-highest rounded-xl shadow-card p-inset"
       },
       "children": [
         "formCardTitle",
-        "formWelcomeTitle",
-        "formWelcomeSub",
-        "formSecurityNotice"
+        "formUsernameField",
+        "formPasswordField",
+        "formCaptchaField",
+        "formRememberRow",
+        "formLoginBtn",
+        "formActionLinks",
+        "formSocialDivider",
+        "formSocialSection",
+        "formCopyrightText",
+        "formVersionText"
       ]
     },
     {
       "id": "formCardTitle",
       "component": "span",
       "props": {
-        "className": "block text-xs font-medium text-on-surface-variant uppercase tracking-wider mb-1",
-        "value": "用户登录"
+        "className": "text-lg font-semibold text-on-surface text-center mb-1",
+        "value": "欢迎登录"
       }
     },
     {
-      "id": "formWelcomeTitle",
-      "component": "h2",
-      "props": {
-        "className": "text-2xl font-bold text-on-surface mb-1",
-        "value": "欢迎回来"
-      }
-    },
-    {
-      "id": "formWelcomeSub",
-      "component": "p",
-      "props": {
-        "className": "text-sm text-on-surface-variant mb-4",
-        "value": "请登录您的账号以继续使用 CloudForge 平台"
-      }
-    },
-    {
-      "id": "formSecurityNotice",
+      "id": "formUsernameField",
       "component": "div",
       "props": {
-        "className": "flex items-start gap-2 bg-warning-container text-on-warning-container text-xs px-3 py-2.5 rounded-lg"
+        "className": "flex flex-col gap-1"
       },
       "children": [
-        "formSecurityIcon",
-        "formSecurityText"
+        "formUsernameLabel",
+        "formUsernameInput",
+        "formUsernameHelper"
       ]
     },
     {
-      "id": "formSecurityIcon",
-      "component": "Icon",
-      "props": {
-        "name": "ShieldCheck",
-        "size": 14,
-        "className": "mt-0.5 shrink-0 text-warning"
-      }
-    },
-    {
-      "id": "formSecurityText",
+      "id": "formUsernameLabel",
       "component": "span",
       "props": {
-        "value": "您将进入企业管理系统，非授权访问将被记录并追责"
+        "className": "text-sm font-medium text-on-surface-variant",
+        "value": "用户名/邮箱"
       }
     },
     {
-      "id": "formLoginTabs",
-      "component": "Tabs",
-      "props": {
-        "activeKey": {
-          "path": "/activeTabKey"
-        },
-        "centered": true,
-        "className": "mb-6"
-      },
-      "children": [
-        "formAccountTabItem",
-        "formSmsTabItem"
-      ]
-    },
-    {
-      "id": "formAccountTabItem",
-      "component": "TabItem",
-      "props": {
-        "key": "accountLogin",
-        "label": "账号登录",
-        "icon": "User",
-        "content": {
-          "componentId": "formAccountPanel"
-        }
-      }
-    },
-    {
-      "id": "formAccountPanel",
-      "component": "div",
-      "props": {
-        "className": "pt-2"
-      },
-      "children": [
-        "formAccountField",
-        "formPasswordField"
-      ]
-    },
-    {
-      "id": "formAccountField",
-      "component": "div",
-      "props": {
-        "className": "mb-4"
-      },
-      "children": [
-        "formAccountLabel",
-        "formAccountInput"
-      ]
-    },
-    {
-      "id": "formAccountLabel",
-      "component": "label",
-      "props": {
-        "className": "block text-sm font-medium text-on-surface mb-1.5",
-        "value": "用户名 / 手机号 / 邮箱"
-      }
-    },
-    {
-      "id": "formAccountInput",
+      "id": "formUsernameInput",
       "component": "Input",
       "props": {
         "value": {
-          "path": "/account"
+          "path": "/username"
         },
-        "placeholder": "请输入用户名、手机号或邮箱",
+        "placeholder": "请输入用户名或注册邮箱",
         "prefix": "User",
-        "autoComplete": "username",
-        "className": "w-full",
-        "size": "large"
+        "className": "w-full"
+      }
+    },
+    {
+      "id": "formUsernameHelper",
+      "component": "span",
+      "props": {
+        "className": "text-xs text-on-surface-variant",
+        "value": "请输入用户名（至少3个字符）"
       }
     },
     {
       "id": "formPasswordField",
       "component": "div",
       "props": {
-        "className": "mb-2"
+        "className": "flex flex-col gap-1"
       },
       "children": [
         "formPasswordLabel",
-        "formPasswordInput"
+        "formPasswordInput",
+        "formPasswordHelper"
       ]
     },
     {
       "id": "formPasswordLabel",
-      "component": "label",
+      "component": "span",
       "props": {
-        "className": "block text-sm font-medium text-on-surface mb-1.5",
+        "className": "text-sm font-medium text-on-surface-variant",
         "value": "密码"
       }
     },
@@ -428,131 +305,96 @@
         "placeholder": "请输入密码",
         "prefix": "Lock",
         "type": "password",
-        "autoComplete": "current-password",
-        "className": "w-full",
-        "size": "large"
+        "className": "w-full"
       }
     },
     {
-      "id": "formSmsTabItem",
-      "component": "TabItem",
+      "id": "formPasswordHelper",
+      "component": "span",
       "props": {
-        "key": "smsLogin",
-        "label": "短信登录",
-        "icon": "MessageSquare",
-        "content": {
-          "componentId": "formSmsPanel"
-        }
+        "className": "text-xs text-on-surface-variant",
+        "value": "请输入密码（至少6个字符）"
       }
     },
     {
-      "id": "formSmsPanel",
+      "id": "formCaptchaField",
       "component": "div",
       "props": {
-        "className": "pt-2"
+        "className": "flex flex-col gap-1"
       },
       "children": [
-        "formPhoneField",
-        "formSmsCodeField"
+        "formCaptchaLabel",
+        "formCaptchaRow",
+        "formCaptchaHelper"
       ]
     },
     {
-      "id": "formPhoneField",
-      "component": "div",
+      "id": "formCaptchaLabel",
+      "component": "span",
       "props": {
-        "className": "mb-4"
-      },
-      "children": [
-        "formPhoneLabel",
-        "formPhoneInput"
-      ]
-    },
-    {
-      "id": "formPhoneLabel",
-      "component": "label",
-      "props": {
-        "className": "block text-sm font-medium text-on-surface mb-1.5",
-        "value": "手机号"
-      }
-    },
-    {
-      "id": "formPhoneInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/phoneNumber"
-        },
-        "placeholder": "请输入11位手机号",
-        "prefix": "Smartphone",
-        "maxLength": 11,
-        "autoComplete": "tel",
-        "className": "w-full",
-        "size": "large"
-      }
-    },
-    {
-      "id": "formSmsCodeField",
-      "component": "div",
-      "props": {
-        "className": "mb-2"
-      },
-      "children": [
-        "formSmsCodeLabel",
-        "formSmsCodeRow"
-      ]
-    },
-    {
-      "id": "formSmsCodeLabel",
-      "component": "label",
-      "props": {
-        "className": "block text-sm font-medium text-on-surface mb-1.5",
+        "className": "text-sm font-medium text-on-surface-variant",
         "value": "验证码"
       }
     },
     {
-      "id": "formSmsCodeRow",
+      "id": "formCaptchaRow",
       "component": "div",
       "props": {
-        "className": "flex gap-3"
+        "className": "flex items-center gap-3"
       },
       "children": [
-        "formSmsCodeInput",
-        "formSmsCodeBtn"
+        "formCaptchaInput",
+        "formCaptchaImage",
+        "formCaptchaRefreshBtn"
       ]
     },
     {
-      "id": "formSmsCodeInput",
+      "id": "formCaptchaInput",
       "component": "Input",
       "props": {
         "value": {
-          "path": "/smsCode"
+          "path": "/captcha"
         },
-        "placeholder": "请输入6位验证码",
-        "prefix": "KeyRound",
-        "maxLength": 6,
-        "autoComplete": "one-time-code",
-        "className": "flex-1",
-        "size": "large"
+        "placeholder": "输入验证码",
+        "prefix": "ScanQrCode",
+        "className": "flex-1"
       }
     },
     {
-      "id": "formSmsCodeBtn",
+      "id": "formCaptchaImage",
+      "component": "img",
+      "props": {
+        "src": "https://fpoimg.com/120x40?gradient=0067D1,004EA8&text_color=ffffff&text=CAPTCHA",
+        "className": "h-10 w-auto rounded-md border border-base cursor-pointer",
+        "alt": "验证码图片"
+      }
+    },
+    {
+      "id": "formCaptchaRefreshBtn",
       "component": "Button",
       "props": {
-        "value": "获取验证码",
-        "className": "shrink-0",
-        "size": "large"
+        "icon": "RefreshCw",
+        "shape": "circle",
+        "title": "刷新验证码",
+        "className": "shrink-0"
       }
     },
     {
-      "id": "formOptionsRow",
+      "id": "formCaptchaHelper",
+      "component": "span",
+      "props": {
+        "className": "text-xs text-on-surface-variant",
+        "value": "请输入验证码"
+      }
+    },
+    {
+      "id": "formRememberRow",
       "component": "div",
       "props": {
-        "className": "flex items-center justify-start mb-6 mt-2"
+        "className": "flex items-center"
       },
       "children": [
-        "formRememberCheckbox",
-        "formForgotPwdAnchor"
+        "formRememberCheckbox"
       ]
     },
     {
@@ -562,442 +404,188 @@
         "checked": {
           "path": "/rememberMe"
         },
-        "value": "记住账号"
+        "value": "记住此设备"
       }
     },
     {
-      "id": "formForgotPwdAnchor",
-      "component": "a",
+      "id": "formLoginBtn",
+      "component": "Button",
       "props": {
-        "href": "/forgot-password",
-        "className": "text-sm text-primary hover:text-primary-fixed-dim transition-colors inline-flex items-center gap-1",
-        "target": "_self"
+        "type": "primary",
+        "icon": "LogIn",
+        "value": "登 录",
+        "loading": {
+          "path": "/loginLoading"
+        },
+        "className": "w-full h-10 text-md font-medium"
+      }
+    },
+    {
+      "id": "formActionLinks",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-between -mt-1"
       },
       "children": [
-        "formForgotPwdIcon",
-        "formForgotPwdText"
+        "formForgotPasswordBtn",
+        "formRegisterBtn"
       ]
     },
     {
-      "id": "formForgotPwdIcon",
-      "component": "Icon",
-      "props": {
-        "name": "HelpCircle",
-        "size": 14,
-        "className": "text-primary"
-      }
-    },
-    {
-      "id": "formForgotPwdText",
-      "component": "span",
-      "props": {
-        "value": "忘记密码？"
-      }
-    },
-    {
-      "id": "formSubmitBtn",
+      "id": "formForgotPasswordBtn",
       "component": "Button",
       "props": {
-        "value": "登 录",
-        "icon": "LogIn",
-        "type": "primary",
-        "shape": "round",
-        "block": true,
-        "className": "h-11 text-base font-medium mb-6",
-        "size": "large"
+        "type": "link",
+        "icon": "HelpCircle",
+        "value": "忘记密码？",
+        "className": "text-md p-0 h-auto"
+      }
+    },
+    {
+      "id": "formRegisterBtn",
+      "component": "Button",
+      "props": {
+        "type": "link",
+        "icon": "UserPlus",
+        "value": "立即注册",
+        "className": "text-md p-0 h-auto"
       }
     },
     {
       "id": "formSocialDivider",
       "component": "Divider",
       "props": {
-        "value": "或使用以下方式登录",
-        "className": "mb-6 text-sm text-on-surface-variant"
+        "value": "其他方式登录",
+        "className": "text-sm text-on-surface-variant my-2"
       }
     },
     {
-      "id": "formSocialLoginSection",
+      "id": "formSocialSection",
       "component": "div",
       "props": {
-        "className": "flex flex-col items-center gap-5 mb-6"
-      },
-      "children": [
-        "formSocialIcons",
-        "formQrCodeSection"
-      ]
-    },
-    {
-      "id": "formSocialIcons",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-center gap-5"
-      },
-      "children": [
-        "formWechatBtn",
-        "formDingtalkBtn",
-        "formWorkwechatBtn",
-        "formFeishuBtn"
-      ]
-    },
-    {
-      "id": "formWechatBtn",
-      "component": "Button",
-      "props": {
-        "icon": "MessageCircle",
-        "shape": "circle",
-        "size": "large"
-      }
-    },
-    {
-      "id": "formDingtalkBtn",
-      "component": "Button",
-      "props": {
-        "icon": "Bell",
-        "shape": "circle",
-        "size": "large"
-      }
-    },
-    {
-      "id": "formWorkwechatBtn",
-      "component": "Button",
-      "props": {
-        "icon": "Briefcase",
-        "shape": "circle",
-        "size": "large"
-      }
-    },
-    {
-      "id": "formFeishuBtn",
-      "component": "Button",
-      "props": {
-        "icon": "BookOpen",
-        "shape": "circle",
-        "disabled": true,
-        "size": "large"
-      }
-    },
-    {
-      "id": "formQrCodeSection",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-2"
-      },
-      "children": [
-        "formQrCodeBtn"
-      ]
-    },
-    {
-      "id": "formQrCodeBtn",
-      "component": "Button",
-      "props": {
-        "icon": "QrCode",
-        "value": "扫码登录",
-        "shape": "round",
-        "className": "text-sm",
-        "size": "large"
-      }
-    },
-    {
-      "id": "formRegisterLink",
-      "component": "a",
-      "props": {
-        "href": "/register",
-        "className": "block text-center text-sm text-primary hover:text-primary-fixed-dim font-medium inline-flex items-center justify-center gap-1",
-        "target": "_self"
-      },
-      "children": [
-        "formRegisterIcon",
-        "formRegisterText"
-      ]
-    },
-    {
-      "id": "formRegisterIcon",
-      "component": "Icon",
-      "props": {
-        "name": "UserPlus",
-        "size": 14,
-        "className": "text-primary"
-      }
-    },
-    {
-      "id": "formRegisterText",
-      "component": "span",
-      "props": {
-        "value": "还没有账号？立即注册"
-      }
-    },
-    {
-      "id": "footContentContainer",
-      "component": "div",
-      "props": {
-        "className": "mx-auto max-w-6xl flex flex-col items-center gap-stack w-full"
-      },
-      "children": [
-        "footDivider",
-        "footLinkGroupsRow",
-        "footCopyrightRow",
-        "footIcpRow"
-      ]
-    },
-    {
-      "id": "footDivider",
-      "component": "Divider",
-      "props": {
-        "className": "border-inverse-on-surface-variant/20 w-full"
-      }
-    },
-    {
-      "id": "footLinkGroupsRow",
-      "component": "div",
-      "props": {
-        "className": "w-full flex justify-center gap-gutter"
+        "className": "flex items-center justify-center gap-6"
       },
       "children": {
-        "path": "/footerLinkGroups",
-        "componentId": "footGroupItem"
+        "path": "/socialLogin/providers",
+        "componentId": "formSocialItem"
       }
     },
     {
-      "id": "footGroupItem",
+      "id": "formSocialItem",
       "component": "div",
       "props": {
         "className": "flex flex-col items-center gap-1"
       },
       "children": [
-        "footGroupHeader",
-        "footGroupLinksList"
+        "formSocialIconBtn",
+        "formSocialLabel"
       ]
     },
     {
-      "id": "footGroupHeader",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-1 mb-1"
-      },
-      "children": [
-        "footGroupIconEl",
-        "footGroupTitle"
-      ]
-    },
-    {
-      "id": "footGroupIconEl",
-      "component": "Icon",
-      "props": {
-        "shape": "outline",
-        "size": 14,
-        "color": "inverse",
-        "name": {
-          "path": "groupIcon"
-        }
-      }
-    },
-    {
-      "id": "footGroupTitle",
-      "component": "span",
-      "props": {
-        "className": "text-sm font-semibold text-inverse-on-surface",
-        "value": {
-          "path": "groupName"
-        }
-      }
-    },
-    {
-      "id": "footGroupLinksList",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col items-center gap-0.5"
-      },
-      "children": {
-        "path": "links",
-        "componentId": "footLinkItem"
-      }
-    },
-    {
-      "id": "footLinkItem",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-1"
-      },
-      "children": [
-        "footLinkBtn"
-      ]
-    },
-    {
-      "id": "footLinkBtn",
+      "id": "formSocialIconBtn",
       "component": "Button",
       "props": {
-        "type": "link",
-        "className": "text-inverse-on-surface-variant hover:text-inverse-on-surface",
-        "value": {
-          "path": "linkLabel"
-        },
+        "shape": "circle",
         "icon": {
-          "path": "linkIcon"
+          "path": "icon"
         },
-        "href": {
-          "path": "linkUrl"
+        "title": {
+          "path": "tooltip"
         },
-        "target": "_blank"
+        "className": "w-10 h-10"
       }
     },
     {
-      "id": "footCopyrightRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-center"
-      },
-      "children": [
-        "footCopyrightText"
-      ]
-    },
-    {
-      "id": "footCopyrightText",
+      "id": "formSocialLabel",
       "component": "span",
       "props": {
-        "className": "text-sm text-inverse-on-surface-variant",
+        "className": "text-xs text-on-surface-variant",
         "value": {
-          "path": "/copyrightInfo/displayLine"
+          "path": "providerName"
         }
       }
     },
     {
-      "id": "footIcpRow",
-      "component": "div",
+      "id": "formCopyrightText",
+      "component": "span",
       "props": {
-        "className": "flex items-center justify-center"
-      },
-      "children": [
-        "footIcpLink"
-      ]
+        "className": "text-xs text-on-surface-variant text-center mt-4",
+        "value": "© 2026 DeepVision Technology. All rights reserved."
+      }
     },
     {
-      "id": "footIcpLink",
-      "component": "Button",
+      "id": "formVersionText",
+      "component": "span",
       "props": {
-        "type": "link",
-        "className": "text-inverse-on-surface-variant hover:text-inverse-on-surface",
-        "value": {
-          "path": "/icpBeian/icpNumber"
-        },
-        "href": {
-          "path": "/icpBeian/icpLinkUrl"
-        },
-        "target": "_blank"
+        "className": "text-xs text-on-surface-variant text-center",
+        "value": "v4.2.1"
       }
     }
   ],
   "state": {
-    "brandLogoImage": "https://fpoimg.com/240x60?gradient=0067D1,004EA8&text_color=ffffff&text=CloudForge",
-    "systemName": "CloudForge",
-    "systemFullName": "CloudForge 企业智能管理平台",
-    "systemSlogan": "驱动数字化转型 · 赋能业务创新",
-    "versionBadge": "v4.2.0",
-    "securityCertificationIcon": "ShieldCheck",
-    "securityCertificationText": "ISO 27001 认证 · 等保三级",
-    "carouselConfig": {
-      "autoPlayEnabled": true,
-      "intervalSeconds": 4,
-      "showIndicators": true,
-      "indicatorStyle": "dot",
-      "showArrows": false
-    },
-    "brandCarouselSlides": [
+    "brandSystemName": "DataPulse 智能分析平台",
+    "brandSlogan": "洞见数据价值，驱动业务决策",
+    "brandSloganIcon": "Sparkles",
+    "brandLogoIcon": "ShieldCheck",
+    "brandBackgroundImage": "https://fpoimg.com/800x900?gradient=1A1A2E,16213E&text_color=ffffff&text=ACCESS",
+    "brandCurrentLocale": "zh-CN",
+    "brandLanguageOptions": [
       {
-        "slideImage": "https://fpoimg.com/800x600?gradient=0067D1,004EA8&text_color=ffffff&text=智能数据看板",
-        "slideTitle": "智能数据看板",
-        "slideDescription": "实时洞察业务核心指标，自助式数据分析，让决策有据可依"
+        "locale": "zh-CN",
+        "label": "简体中文",
+        "icon": "Languages"
       },
       {
-        "slideImage": "https://fpoimg.com/800x600?gradient=09AA71,0067D1&text_color=ffffff&text=流程自动化",
-        "slideTitle": "流程自动化引擎",
-        "slideDescription": "可视化编排业务流程，智能审批路由，大幅提升组织运营效率"
+        "locale": "en-US",
+        "label": "English (US)",
+        "icon": "Languages"
       },
       {
-        "slideImage": "https://fpoimg.com/800x600?gradient=F4840C,FCC800&text_color=ffffff&text=协同办公",
-        "slideTitle": "协同办公空间",
-        "slideDescription": "融合即时通讯、文档协作与项目管理，打造高效团队工作台"
+        "locale": "ja-JP",
+        "label": "日本語",
+        "icon": "Languages"
       },
       {
-        "slideImage": "https://fpoimg.com/800x600?gradient=0067D1,09AA71&text_color=ffffff&text=安全合规",
-        "slideTitle": "全方位安全合规",
-        "slideDescription": "端到端数据加密、细粒度权限管控、完整审计日志，护航企业数据安全"
+        "locale": "ko-KR",
+        "label": "한국어",
+        "icon": "Languages"
+      },
+      {
+        "locale": "fr-FR",
+        "label": "Français",
+        "icon": "Languages"
       }
     ],
-    "activeTabKey": "accountLogin",
-    "account": "",
+    "brandCopyright": "© 2026 DeepVision Technology. All rights reserved.",
+    "brandVersion": "v4.2.1",
+    "username": "",
     "password": "",
-    "phoneNumber": "",
-    "smsCode": "",
+    "captcha": "",
     "rememberMe": true,
-    "qrCodeImage": "https://fpoimg.com/200x200?gradient=0067D1,004EA8&text_color=ffffff&text=扫码登录",
-    "formErrorMessages": {
-      "networkError": "网络连接异常，请检查网络后重试",
-      "authFailed": "账号或密码错误，请重新输入",
-      "accountLocked": "账号已被锁定，请联系管理员",
-      "tooManyAttempts": "登录尝试次数过多，请15分钟后再试",
-      "smsSendFailed": "验证码发送失败，请稍后重试",
-      "smsCodeExpired": "验证码已过期，请重新获取"
-    },
-    "footerLinkGroups": [
-      {
-        "groupName": "法律条款",
-        "groupIcon": "Scale",
-        "links": [
-          {
-            "linkLabel": "隐私政策",
-            "linkUrl": "/privacy",
-            "linkIcon": "Shield",
-            "openInNewTab": true
-          },
-          {
-            "linkLabel": "服务条款",
-            "linkUrl": "/terms",
-            "linkIcon": "FileText",
-            "openInNewTab": true
-          },
-          {
-            "linkLabel": "Cookie政策",
-            "linkUrl": "/cookies",
-            "linkIcon": "Cookie",
-            "openInNewTab": true
-          }
-        ]
-      },
-      {
-        "groupName": "支持与帮助",
-        "groupIcon": "LifeBuoy",
-        "links": [
-          {
-            "linkLabel": "帮助中心",
-            "linkUrl": "/help",
-            "linkIcon": "HelpCircle",
-            "openInNewTab": true
-          },
-          {
-            "linkLabel": "联系我们",
-            "linkUrl": "/contact",
-            "linkIcon": "Mail",
-            "openInNewTab": true
-          },
-          {
-            "linkLabel": "系统状态",
-            "linkUrl": "/status",
-            "linkIcon": "Activity",
-            "openInNewTab": true
-          }
-        ]
-      }
-    ],
-    "copyrightInfo": {
-      "copyrightYear": "2026",
-      "companyName": "CloudForge Technology Co., Ltd.",
-      "displayLine": "© 2026 CloudForge Technology Co., Ltd. All rights reserved."
-    },
-    "icpBeian": {
-      "enabled": true,
-      "icpNumber": "京ICP备2024XXXXXXXX号-1",
-      "icpLinkUrl": "https://beian.miit.gov.cn",
-      "openInNewTab": true
+    "loginLoading": false,
+    "socialLogin": {
+      "providers": [
+        {
+          "providerName": "WeChat",
+          "icon": "MessageCircle",
+          "tooltip": "微信扫码登录"
+        },
+        {
+          "providerName": "DingTalk",
+          "icon": "Bell",
+          "tooltip": "钉钉扫码登录"
+        },
+        {
+          "providerName": "Lark",
+          "icon": "Bird",
+          "tooltip": "飞书扫码登录"
+        },
+        {
+          "providerName": "EnterpriseSSO",
+          "icon": "Building",
+          "tooltip": "企业SSO单点登录"
+        }
+      ]
     }
   }
 }

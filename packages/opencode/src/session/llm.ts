@@ -332,8 +332,6 @@ const live: Layer.Layer<
       const opencodeProjectID = input.model.providerID.startsWith("opencode")
         ? (yield* InstanceState.context).project.id
         : undefined
-      log.warn("AAAABBBBVVVVDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", messages)
-      
       return streamText({
         onError(error) {
           l.error("stream error", {

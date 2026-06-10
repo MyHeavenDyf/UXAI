@@ -123,37 +123,3 @@ function buildHumanMessage(idPrefix: string, sectionId: string, elementId: strin
   请先调用 *load_module_components* 工具查询组件 API，然后生成该模块的 JSON（包含 state 子集和 elements 数组）。`;
   return humanMessage;
 }
-    
-// async function waitForAssistant(sdk: ProtoModuleCreateContext["sdk"], sessionId: string, signal: AbortSignal): Promise<string> {
-//   while (!signal.aborted) {
-//     await new Promise((r) => setTimeout(r, 2000))
-//     if (signal.aborted) throw new Error("aborted")
-//     try {
-//       const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 20 })
-//       const items = res.data as Array<{ info: { role: string; id: string; time: { completed?: number } }; parts: Part[] }> | undefined
-//       if (!items) continue
-//       for (const item of items) {
-//         for (const part of item.parts) {
-//           if (part.type === "tool-call" && (part as any).toolName === "load_components_docs") {
-//             console.log("[module_create] load_components_docs called:", (part as any).input)
-//           }
-//         }
-//       }
-//       for (let i = items.length - 1; i >= 0; i--) {
-//         const msg = items[i].info
-//         if (msg.role !== "assistant") continue
-//         if (msg.time.completed == null) break
-//         for (let j = items[i].parts.length - 1; j >= 0; j--) {
-//           // @ts-ignore
-//           if (items[i].parts[j].type !== "text" || !items[i].parts[j].text) continue
-//           // @ts-ignore
-//           const json = extractA2UIJson(items[i].parts[j].text)
-//           if (json)
-//           // @ts-ignore
-//             return items[i].parts[j].text
-//         }
-//       }
-//     } catch { }
-//   }
-//   throw new Error("aborted")
-// }

@@ -23,7 +23,7 @@ export async function getResultFromMessages(sdk: any, sessionId: string, aborted
     try {
       const res = await sdk.client.session.messages({ sessionID: sessionId});
       const items = res.data;
-      if (!items || items.length === 0) continue;
+      if (!items || items.length === 0) continue;      
       // 找到最新的 assistant 消息
       for (let i = items.length - 1; i >= 0; i--) {
         if (items[i].info.role !== "assistant") continue;

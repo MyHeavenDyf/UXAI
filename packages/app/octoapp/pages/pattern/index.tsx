@@ -440,7 +440,7 @@ function PatternContent() {
       
       // 第一步：意图扩展
       let intentResult = await proto_intent(intentCtx)
-
+      
       // 第二步：意图检查 - 最多进行N(当前1)次审查
       for (let attempt = 0; attempt < 1; attempt++) {
         let descriptionStr = JSON.stringify(intentResult.intent_description);
@@ -453,27 +453,31 @@ function PatternContent() {
           pageDescription: descriptionStr
         })
       }
-
+      
       // 第三步：页面局部
       let pageDescriptionStr = JSON.stringify(intentResult.intent_description);
       const planner = await proto_planner_create({ ...intentCtx, intentDescription: pageDescriptionStr });
-
-      // 第四部：逐模块生成 A2UI JSON
-      const modules: Array<any> = []
-      for (const slot of planner.layout_planner.slots as Array<any>) {
-        console.log("[Pattern] 进入代理: proto_module_create")
-        const moduleResult = await proto_module_create({
-          ...intentCtx,
-          idPrefix: slot.id_prefix,
-          sectionId: slot.section_id,
-          elementId: slot.element_id,
-          layoutPlanner: planner.layout_planner,
-          intentDescription: intentResult.intent_description,
-        })
-        console.log(JSON.stringify(moduleResult, null, 2))
-        modules.push(moduleResult.ui_json)
-      }
       
+      debugger
+      // 第四部：并行生成 A2UI JSON
+      const modules = await Promise.all(
+        (planner.layout_planner.slots as Array<any>).map(slot =>
+          proto_module_create({
+            ...intentCtx,
+            idPrefix: slot.id_prefix,
+            sectionId: slot.section_id,
+            elementId: slot.element_id,
+            layoutPlanner: planner.layout_planner,
+            intentDescription: intentResult.intent_description
+          }).then(r => r.ui_json)
+        )
+      )
+      
+      const merged = mergeModules(
+        { rootId: planner.layout_planner.rootId, elements: planner.layout_planner.elements },
+        modules,
+      )
+
       // 第五步：合并顶层布局和各模块JSON
       // for (let i = 0; i < planner.slots.length; i++) {
       //   const slot = planner.slots[i]
@@ -488,10 +492,8 @@ function PatternContent() {
       //   }
       //   modules.push(uiJson)
       // }
-    const merged = mergeModules(
-        { rootId: planner.layout_planner.rootId, elements: planner.layout_planner.elements },
-        modules,
-      )
+      debugger
+      
       console.log("[Pattern] ========== MERGED A2UI JSON ==========")
       console.log(JSON.stringify(merged, null, 2))
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
