@@ -10,6 +10,7 @@ import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { stripCodeFence } from "../../utils/detect"
+import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
@@ -159,7 +160,10 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
       }
     >
       <Match when={props.tab.type === "table"}>
-        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
+        {/* table 卡四视图(预览/代码/复制/下载)统一只呈现表格本体:
+            预览抽 table token、复制/下载走 extractTableMarkdown,代码视图同样抽表格源,
+            避免把上方对话正文带进来(全文仍在对话区 + 磁盘文件)。 */}
+        <Show when={!isSource()} fallback={<SourceCodeView content={extractTableMarkdown(content())} lang="markdown" />}>
           <TableRenderer content={content()} />
         </Show>
       </Match>
