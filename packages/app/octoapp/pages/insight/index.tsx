@@ -15,6 +15,7 @@ import {
 } from "solid-js"
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useServer } from "@/context/server"
@@ -40,6 +41,7 @@ import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { linkToOutputType } from "./utils/resource-link"
@@ -131,6 +133,18 @@ function InsightContent() {
   const sync = useSync()
   const local = useLocal()
   const themeCtx = useTheme()
+  const globalSDK = useGlobalSDK()
+
+  // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
+  const insightDebug = installInsightDebug({
+    globalSDK: {
+      url: globalSDK.url,
+      event: globalSDK.event as unknown as Parameters<typeof installInsightDebug>[0]["globalSDK"]["event"],
+    },
+    syncData: sync.data as unknown as Parameters<typeof installInsightDebug>[0]["syncData"],
+    currentSessionID: () => params.id,
+  })
+  onCleanup(() => insightDebug.dispose())
 
   // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
   // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
@@ -666,6 +680,21 @@ function InsightContent() {
       cleanText: text,         // 用户可见文本
       uploadBlock,             // synthetic 上传块(喂给 LLM,气泡不显示)
     })
+
+    // 回灌 send 记录到 debug-observer 环形缓冲（§SPEC-INS-011）
+    insightDebug.recordSend({
+      ts: Date.now(),
+      source: opts.source,
+      sessionID: sessionId,
+      messageID,
+      model,
+      modelResolved: !!model,
+      statusAtSend: sync.data.session_status[sessionId]?.type ?? "idle",
+      cleanText: text,
+      uploadBlock,
+      attachmentsCount: doneAttachments.length,
+      endpoint: `${sdk.url}/session/${sessionId}/prompt_async`,
+    } satisfies SendRecord)
 
     sync.session.optimistic.add({
       sessionID: sessionId,

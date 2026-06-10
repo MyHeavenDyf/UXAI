@@ -1517,12 +1517,23 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
 }
 
 PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
+  const data = useData()
   const part = () => props.part as ReasoningPart
   const streaming = createMemo(
     () => props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
   )
   const text = () => part().text.trim()
   const [open, setOpen] = createSignal(false)
+
+  // 当生成完成且同一条消息无正文 part 时（模型把回答输出在思维链内），自动展开。
+  // 对照业界做法：Claude / OpenAI 协议层保证 text 与 thinking 共存；本地兜底处理 DeepSeek R1 异常。
+  const hasTextSibling = createMemo(() => {
+    const parts: PartType[] = (data.store.part as Record<string, PartType[]>)?.[props.message.id] ?? []
+    return parts.some((p) => p.type === "text" && (p as { text?: string }).text?.trim())
+  })
+  createEffect(() => {
+    if (!streaming() && !hasTextSibling()) setOpen(true)
+  })
 
   const duration = createMemo(() => {
     if (props.message.role !== "assistant") return ""
