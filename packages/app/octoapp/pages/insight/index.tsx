@@ -20,6 +20,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useServer } from "@/context/server"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
@@ -516,7 +517,7 @@ function InsightContent() {
     const dir = projectDir()
     if (!dir) return
     try {
-      const result = await sdk.client.session.create({ agent: "octo_insight" })
+      const result = await sdk.client.session.create({ agent: INSIGHT_AGENT })
       const session = result.data as Session | undefined
       if (session) {
         // 导航前先把新会话 seed 进 sync store。否则 navigate 触发的 sync.session.sync
@@ -605,7 +606,7 @@ function InsightContent() {
     const parts: TextPartInput[] = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
-    const agent = "octo_insight"
+    const agent = INSIGHT_AGENT
 
     // 当前选中模型(useLocal().model.current():会话级→agent 默认→全局兜底 回退链)
     const currentModel = local.model.current()

@@ -4,6 +4,7 @@ import { createEffect, createMemo, createResource, createSignal, For, Match, on,
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -145,7 +146,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
       const result = await client.session.list()
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       setInsightFetchedDir(d)
-      return data.filter(s => s.agent === "octo_insight")
+      return data.filter(s => s.agent === INSIGHT_AGENT)
     },
   )
 
@@ -182,7 +183,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "octo_insight" }).then((result) => {
+    void client.session.create({ directory: dir, agent: INSIGHT_AGENT }).then((result) => {
       const session = result.data as Session | undefined
       if (session) navigate(`/insight/${session.id}`)
     })
