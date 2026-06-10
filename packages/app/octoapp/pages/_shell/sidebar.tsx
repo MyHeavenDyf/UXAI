@@ -215,120 +215,120 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>
-      {/* Scrollable: Insight + Make sessions */}
-      <div
-        data-slot="list-scroll"
-        class="flex-1 min-h-0 overflow-y-auto px-[12px]"
-      >
-        {/* ─── Octo Insight ─── */}
-        <div class="mb-[2px]">
-          <div class="flex items-center h-[36px] px-[12px]">
-            <button
-              type="button"
-              onClick={() => setInsightCollapsed((v) => !v)}
-              class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
-            >
-              <span class="flex items-center gap-[12px] min-w-0">
-                <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
-                <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                  Octo Insight
-                </span>
+      {/* ─── Octo Insight section header (non-scrolling) ─── */}
+      <div class="shrink-0 px-[12px]">
+        <div class="flex items-center h-[36px] px-[12px]">
+          <button
+            type="button"
+            onClick={() => setInsightCollapsed((v) => !v)}
+            class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
+          >
+            <span class="flex items-center gap-[12px] min-w-0">
+              <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+              <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
+                Octo Insight
               </span>
-              <ChevronRightIcon collapsed={insightCollapsed()} />
-            </button>
-          </div>
+            </span>
+            <ChevronRightIcon collapsed={insightCollapsed()} />
+          </button>
+        </div>
+      </div>
 
-          <Show when={!insightCollapsed()}>
-            <div class="flex flex-col">
+      {/* Scrollable: session list only */}
+      <Show when={!insightCollapsed()}>
+        <div
+          data-slot="list-scroll"
+          class="flex-1 min-h-0 overflow-y-auto px-[12px]"
+        >
+          <div class="flex flex-col mb-[2px]">
+            <Show
+              when={insightStable()}
+              fallback={
+                <div class="px-[8px] py-[6px]">
+                  <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
+                </div>
+              }
+            >
               <Show
-                when={insightStable()}
+                when={sessionList.length > 0}
                 fallback={
-                  <div class="px-[8px] py-[6px]">
-                    <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
+                  <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+                    {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                   </div>
                 }
               >
-                <Show
-                  when={sessionList.length > 0}
-                  fallback={
-                    <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
-                    </div>
-                  }
-                >
-                  <For each={sessionList}>
-                    {(session) => {
-                      const isActive = () => activeSessionId() === session.id
-                      const [sessionStore] = globalSync.child(session.directory)
-                      const isWorking = createMemo(() => {
-                        const status = sessionStore.session_status[session.id]
-                        return status !== undefined && status.type !== "idle"
-                      })
-                      const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
-                      const hasError = createMemo(() => notification.session.unseenHasError(session.id))
-                      const hasPermissions = createMemo(() =>
-                        !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
-                          !permission.autoResponds(item, session.directory),
-                        ),
-                      )
-                      return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              notification.session.markViewed(session.id)
-                              navigate(`/insight/${session.id}`)
-                            }}
-                            class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
-                            style={{
-                              height: "36px",
-                              padding: "0 24px 0 44px",
-                              color: isActive() ? "#0A59F7" : undefined,
-                            }}
-                            classList={{
-                              "bg-[rgba(10,89,247,0.08)]": isActive(),
-                              "hover:bg-surface-base-hover": !isActive(),
-                            }}
-                          >
-                            <Show when={isActive()}>
-                              <span
-                                class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
-                                style={{
-                                  height: "28px",
-                                  width: "4px",
-                                  background: "#0A59F7",
-                                  transform: "translateY(-50%)",
-                                }}
-                              />
-                            </Show>
-                          <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                            <div class="shrink-0 size-6 flex items-center justify-center">
-                              <Switch>
-                                <Match when={isWorking()}>
-                                  <Spinner class="size-[15px]" />
-                                </Match>
-                                <Match when={hasPermissions()}>
-                                  <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-                                </Match>
-                                <Match when={hasError()}>
-                                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-                                </Match>
-                                <Match when={unseenCount() > 0}>
-                                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
-                                </Match>
-                              </Switch>
-                            </div>
+                <For each={sessionList}>
+                  {(session) => {
+                    const isActive = () => activeSessionId() === session.id
+                    const [sessionStore] = globalSync.child(session.directory)
+                    const isWorking = createMemo(() => {
+                      const status = sessionStore.session_status[session.id]
+                      return status !== undefined && status.type !== "idle"
+                    })
+                    const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
+                    const hasError = createMemo(() => notification.session.unseenHasError(session.id))
+                    const hasPermissions = createMemo(() =>
+                      !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, session.id, (item) =>
+                        !permission.autoResponds(item, session.directory),
+                      ),
+                    )
+                    return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            notification.session.markViewed(session.id)
+                            navigate(`/insight/${session.id}`)
+                          }}
+                          class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                          style={{
+                            height: "36px",
+                            padding: "0 24px 0 44px",
+                            color: isActive() ? "#0A59F7" : undefined,
+                          }}
+                          classList={{
+                            "bg-[rgba(10,89,247,0.08)]": isActive(),
+                            "hover:bg-surface-base-hover": !isActive(),
+                          }}
+                        >
+                          <Show when={isActive()}>
+                            <span
+                              class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
+                              style={{
+                                height: "28px",
+                                width: "4px",
+                                background: "#0A59F7",
+                                transform: "translateY(-50%)",
+                              }}
+                            />
                           </Show>
-                          <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
-                        </button>
-                      )
-                    }}
-                  </For>
-                </Show>
+                        <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
+                          <div class="shrink-0 size-6 flex items-center justify-center">
+                            <Switch>
+                              <Match when={isWorking()}>
+                                <Spinner class="size-[15px]" />
+                              </Match>
+                              <Match when={hasPermissions()}>
+                                <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+                              </Match>
+                              <Match when={hasError()}>
+                                <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                              </Match>
+                              <Match when={unseenCount() > 0}>
+                                <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                              </Match>
+                            </Switch>
+                          </div>
+                        </Show>
+                        <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
+                      </button>
+                    )
+                  }}
+                </For>
               </Show>
-            </div>
-          </Show>
+            </Show>
+          </div>
         </div>
-      </div>
+      </Show>
 
       {/* Fixed bottom: 技能库 / 资产库 */}
       <div

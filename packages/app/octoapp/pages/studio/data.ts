@@ -5,7 +5,7 @@ export const STUDIO_CAPABILITIES: { id: StudioCapability; label: string; descrip
   { id: "video.generate", label: "视频生成", description: "一键成片，AI演绎无限可能", tone: "#704cff" },
   { id: "image.upscale", label: "变清晰", description: "一键高清，AI还原真实质感", tone: "#00a6d6" },
   { id: "image.cutout", label: "抠图", description: "快速分离主体与背景", tone: "#111827" },
-  { id: "image.inpaint", label: "局部重绘", description: "自由编辑，AI赋予局部创作能力", tone: "#00ad6f" },
+  { id: "image.inpaint", label: "智能重绘", description: "自由编辑，AI赋予局部创作能力", tone: "#00ad6f" },
   { id: "image.outpaint", label: "扩图", description: "保留主体，扩展更大尺寸和内容", tone: "#2563eb" },
   { id: "image.fusion", label: "场景融合", description: "融合主体、风格和空间氛围", tone: "#c026d3" },
 ]

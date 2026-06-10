@@ -1,5 +1,5 @@
 {
-  "name": "@opencode-ai/desktop",
+  "name": "@octo-agent-ai/desktop",
   "private": true,
   "version": "1.14.41",
   "type": "module",
@@ -17,7 +17,8 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "package": "electron-builder --config electron-builder.config.ts",
-    "package:mac": "electron-builder --mac --config electron-builder.config.ts",
+    "package:mac-arm64": "electron-builder --mac --arm64 --config electron-builder.config.ts",
+    "package:mac-x64": "electron-builder --mac --x64 --config electron-builder.config.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native"

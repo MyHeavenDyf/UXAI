@@ -241,7 +241,7 @@ export function ActionBar(props: {
 
   return (
     <div class="octo-action-bar">
-      <span class="text-[12px] truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
+      <span class="text-[14px] truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
       <div class="flex items-center gap-0.5">
         {showViewport && props.onViewportChange && (
           <div class="flex items-center gap-0.5 mr-1 px-1" style={{ "border-right": "1px solid var(--octo-border-divider)" }}>

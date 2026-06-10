@@ -122,6 +122,14 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
 
   onCleanup(() => clearTimeout(createTimer))
 
+  // 在导航到新对话时兜底刷新列表，防止事件竞争导致列表遗漏
+  createEffect(on(activeSessionId, (newId, oldId) => {
+    if (newId && newId !== oldId) {
+      clearTimeout(refetchTimer)
+      refetchTimer = setTimeout(() => void refetch(), 500)
+    }
+  }))
+
   const [contextMenu, setContextMenu] = createStore<{
     show: boolean
     x: number
@@ -140,10 +148,12 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
       const client = globalSDK.createClient({ directory })
       await client.session.delete({ sessionID })
       closeContextMenu()
+      if (idx >= 0) {
+        setSessionList(sessionList.filter((s) => s.id !== sessionID))
+      }
       if (activeSessionId() === sessionID) {
         navigate("/make")
-      } else if (idx >= 0) {
-        setSessionList(sessionList.filter((s) => s.id !== sessionID))
+        void refetch()
       }
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
@@ -244,7 +254,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
             <span>新建</span>
           </button>
         </div>
-        <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
+        <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", "margin-bottom": "8px" }} />
       </div>
 
       <div

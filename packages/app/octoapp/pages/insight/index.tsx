@@ -13,10 +13,12 @@ import {
   onMount,
   Show,
 } from "solid-js"
+import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSDK } from "@/context/global-sdk"
-import { useGlobalSync } from "@/context/global-sync"
-import { SDKProvider } from "@/context/sdk"
+import { Binary } from "@opencode-ai/core/util/binary"
+import { useProjectDir } from "@/hooks/use-project-dir"
+import { useServer } from "@/context/server"
+import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -28,6 +30,8 @@ import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar } from "./sidebar"
+import { SidebarFooter } from "./components/sidebar-footer"
+import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { PresetPrompts } from "./components/preset-prompts"
 import { ResultViewer } from "./components/result-viewer/index"
@@ -48,17 +52,42 @@ import { showToast, Toast } from "@opencode-ai/ui/toast"
  * 不再自建本地 dataStore + SSE listener。详见 SPEC-INS-005
  * (docs/specs/ui/insight-data-layer-reuse.md)。
  *
- * 外层 InsightPage：负责拼装 SDKProvider + SyncProvider（依赖 homeDir 就绪）。
+ * 外层 InsightPage：负责拼装 SDKProvider + SyncProvider（依赖 projectDir 就绪）。
  * 内层 InsightContent：所有业务逻辑，可读写 useSync() / useSDK()。
  */
 export default function InsightPage() {
-  const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
+  // 数据/事件层、建会话、列表三处必须用同一个目录(= 用户所选目录),否则白屏 / 列表空。
+  // 关键事实(已核对服务端):event.directory = AppFileSystem.resolve(客户端传入 directory),
+  // 与 VCS worktree 无关(instance-store.ts boot:ctx.directory = input.directory);session.list
+  // 也按该 directory 解析出的 project 过滤。只要三处传同一个目录:事件就路由到同一 child store、
+  // 会话建在该目录下、列表也查得到。之前白屏是因数据层喂了 worktree(≠建会话用的目录),key 对不上;
+  // 之前"记录建到根目录"是因数据层/建会话用 home 而列表用所选目录,两边项目不同。
+  // 用 useProjectDir():跟随所选项目目录(insight 路由无 :dir → 取 server.projects.last(),回退 home),
+  // 与 session-list 的 useProjectDir() 完全同源,保证三处一致。
+  const projectDir = useProjectDir()
+  const server = useServer()
+  const navigate = useNavigate()
 
-  // homeDir 异步就绪。等就绪再挂 SDK/Sync providers，否则 useSDK 拿到空字符串 directory 会异常。
-  // keyed: dir 变化时整体重挂，确保 SyncProvider 内部状态干净。
+  // 用户主动切换项目目录时,回到新建空态(/insight)。
+  // 切目录只改 projects.last() / 触发 keyed 重挂,但不会自动改路由 —— url 仍停在上个目录的
+  // /insight/:oldId,而该会话不属于新目录(新目录 store 里没有它)→ 加载空 / 串台。这里检测到
+  // 切换就跳首页,让用户从新目录的新建态开始。
+  // 用 server.projects.last()(不含 home 兜底)做信号:启动期 undefined→首个值 prev 为空被 defer+判空
+  // 跳过,不会冲掉"刷新保路由"的 boot-restore(那只在整页加载、url 无 id 时恢复);仅真实切换(D→E)才跳。
+  createEffect(
+    on(
+      () => server.projects.last(),
+      (cur, prev) => {
+        if (prev && cur && cur !== prev) navigate("/insight")
+      },
+      { defer: true },
+    ),
+  )
+
+  // projectDir 异步就绪(home/projects 来自 globalSync)。等就绪再挂 SDK/Sync providers,
+  // 否则 useSDK 拿到空字符串 directory 会异常。keyed: dir 变化时整体重挂,确保状态干净。
   return (
-    <Show when={homeDir()} keyed>
+    <Show when={projectDir()} keyed>
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
@@ -97,8 +126,7 @@ let didBootRestore = false
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const globalSDK = useGlobalSDK()
-  const globalSync = useGlobalSync()
+  const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
   const themeCtx = useTheme()
@@ -124,7 +152,13 @@ function InsightContent() {
     onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
   })
 
-  const homeDir = () => globalSync.data.path.home
+  // 数据/事件层目录:直接用 SDKProvider 注入的 sdk.directory(= keyed 的所选项目目录),
+  // 保证与数据层 child store、以及所有 sdk.client 请求的 directory 是同一个值。
+  // 关键:会话操作(create/prompt/abort/get)必须走 scoped sdk.client —— 它带 directory;
+  // 绝不能用 globalSDK.client(不带 directory),否则 promptAsync 会跑在 cwd(=home)实例,
+  // 事件 event.directory=home 落到 home 的 store 而非所选目录的 store → 聊天区收不到回复 → 白屏。
+  // 这正是 insight 之前在非 home 目录白屏、而 make(用 scoped sdk)无此问题的根因。
+  const projectDir = () => sdk.directory
 
   // ── 刷新保路由 ─────────────────────────────────────────────
   // bootSavedId:在下方 save effect 覆盖前,同步捕获"刷新前"存的对话 id。
@@ -135,13 +169,14 @@ function InsightContent() {
     // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
     // 若上次就在新建空态(bootSavedId 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
     if (params.id || !bootSavedId) return
-    const dir = homeDir() // InsightContent 仅在 homeDir 就绪后挂载,理论恒有值
+    const dir = projectDir() // InsightContent 仅在 sdk.directory 就绪后挂载,理论恒有值
     if (!dir) return
     // 先校验上次会话仍存在再跳(replace 不污染历史):避免跳到已删会话卡在加载态。
-    void globalSDK.client.session
-      .get({ directory: dir, sessionID: bootSavedId })
-      .then((r) => {
-        if ((r as { data?: unknown })?.data) navigate(`/insight/${bootSavedId}`, { replace: true })
+    // directory 由 sdk.client 注入,无需显式传。
+    void sdk.client.session
+      .get({ sessionID: bootSavedId })
+      .then((r: { data?: unknown }) => {
+        if (r?.data) navigate(`/insight/${bootSavedId}`, { replace: true })
         else localStorage.removeItem(LAST_SESSION_KEY) // 已删 → 留首页 + 清记录
       })
       .catch(() => { /* 网络/未知错误:不跳,保持首页,记录留待下次 */ })
@@ -307,9 +342,10 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
-  // queue:busy 期间用户继续发送,先入队,idle 后自动 flush(SPEC-INS-007 §3.3.3)
-  // 单容量:第二次入队会覆盖上一次;切 session 时清空
-  const [queuedText, setQueuedText] = createSignal<string | null>(null)
+  // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
+  // 多容量:入队 push 追加(不再覆盖);abort / 切 session 时整体清空
+  const [queue, setQueue] = createSignal<string[]>([])
+  const clearQueue = () => setQueue([])
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
@@ -419,7 +455,7 @@ function InsightContent() {
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
-    setQueuedText(null)
+    clearQueue()
     clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
@@ -432,15 +468,69 @@ function InsightContent() {
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
 
+  // 切换 / 打开 session 后把对话区滚到底部：消息异步加载(message[id] 先 undefined),
+  // 必须等 sessionMessagesLoaded 翻真、InsightTurn 的 parts 渲染撑开高度后再定位,
+  // 否则会滚到尚为空的容器。
+  //
+  // 单次 rAF 不够:切到"已完成会话"时任务卡片/各类 part renderer(图表/mermaid/html)
+  // 渐进撑高,高度在首帧之后还在涨;而 session 非 busy → autoScroll 的 ResizeObserver
+  // 不会再补滚(它只在 active() 时跟随)。所以这里自己盯一个 settle 窗口:每帧强制贴底,
+  // 直到 scrollHeight 连续两帧不再变化(高度稳定),或超时兜底。切换/卸载时取消上一轮。
+  let scrollContainerEl: HTMLElement | undefined
+  let settleScrollRAF: number | undefined
+  const cancelSettleScroll = () => {
+    if (settleScrollRAF !== undefined) {
+      cancelAnimationFrame(settleScrollRAF)
+      settleScrollRAF = undefined
+    }
+  }
+  onCleanup(cancelSettleScroll)
+  createEffect(on(
+    () => [params.id, sessionMessagesLoaded()] as const,
+    ([id, loaded]) => {
+      cancelSettleScroll()
+      if (!id || !loaded) return
+      const SETTLE_MS = 600
+      const start = performance.now()
+      let lastHeight = -1
+      let stableFrames = 0
+      const step = () => {
+        const height = scrollContainerEl?.scrollHeight ?? 0
+        autoScroll.forceScrollToBottom()
+        stableFrames = height === lastHeight ? stableFrames + 1 : 0
+        lastHeight = height
+        // 连续两帧高度不变 = 内容已稳定;或超时兜底,停止盯防
+        if (stableFrames >= 2 || performance.now() - start > SETTLE_MS) {
+          settleScrollRAF = undefined
+          return
+        }
+        settleScrollRAF = requestAnimationFrame(step)
+      }
+      settleScrollRAF = requestAnimationFrame(step)
+    },
+  ))
+
   // ── session 操作 ──────────────────────────────────────────
 
   async function createAndNavigate(): Promise<string | undefined> {
-    const dir = homeDir()
+    const dir = projectDir()
     if (!dir) return
     try {
-      const result = await globalSDK.client.session.create({ directory: dir, agent: "octo_insight" })
+      const result = await sdk.client.session.create({ agent: "octo_insight" })
       const session = result.data as Session | undefined
       if (session) {
+        // 导航前先把新会话 seed 进 sync store。否则 navigate 触发的 sync.session.sync
+        // 会发出 REST session.get,其返回的默认标题可能晚于 SSE session.updated 到达,
+        // 把 LLM 已生成的标题覆盖回默认值(标题偶发不更新的竞态)。seed 后 hasSession=true,
+        // 该 REST 请求被跳过,标题完全由 SSE 驱动。插入逻辑与原生 session.get 命中分支一致。
+        sync.set(
+          "session",
+          produce((draft) => {
+            const match = Binary.search(draft, session.id, (s) => s.id)
+            if (!match.found) draft.splice(match.index, 0, session)
+          }),
+        )
+        local.session.promote(dir, session.id)
         navigate(`/insight/${session.id}`)
         return session.id
       }
@@ -525,7 +615,7 @@ function InsightContent() {
     } : undefined
 
     // optimistic user message —— 立即写入 sync.data,UI 瞬时反馈
-    // directory 不传 → 默认走 SDKProvider 注入的 homeDir;model 不传 → 服务端按 agent 默认配置
+    // directory 不传 → 走 scoped sdk.client 注入的所选目录;model 不传 → 服务端按 agent 默认配置
     const optimisticMessage: Message = {
       id: messageID,
       sessionID: sessionId,
@@ -589,7 +679,7 @@ function InsightContent() {
     }
 
     try {
-      const result = await globalSDK.client.session.promptAsync({
+      const result = await sdk.client.session.promptAsync({
         sessionID: sessionId,
         agent,
         model,
@@ -628,10 +718,10 @@ function InsightContent() {
     if (!text || hasUploadingAttachments()) return
     setPrompt("")
 
-    // busy 时入队(SPEC-INS-007 §3.3.3):单容量,第二次会覆盖上一次
+    // busy 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
     if (isBusy()) {
-      setQueuedText(text)
-      console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length })
+      setQueue((q) => [...q, text])
+      console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length, depth: queue().length })
       return
     }
 
@@ -646,32 +736,35 @@ function InsightContent() {
     await sendMessage(sid, text)
   }
 
-  // busy → idle 自动 flush 队列(SPEC-INS-007 §3.3.3)
+  // busy → idle 自动 flush 队首一条(SPEC-INS-007 §3.3.3)
+  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn
   createEffect(on(isBusy, (busy, prev) => {
     if (!prev || busy) return
-    const text = queuedText()
+    const q = queue()
     const sid = params.id
-    if (!text || !sid) return
-    setQueuedText(null)
-    console.log("[octo:queue] flushing", { sessionID: sid, len: text.length })
-    void sendMessage(sid, text)
+    if (q.length === 0 || !sid) return
+    const [next, ...rest] = q
+    setQueue(rest)
+    console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
+    void sendMessage(sid, next)
   }, { defer: true }))
 
-  function cancelQueued() {
-    const text = queuedText()
-    if (!text) return
-    setQueuedText(null)
-    setPrompt((cur) => cur ? cur : text)
-    console.log("[octo:queue] canceled, restored to input")
+  // 单条移除:剔除该条;输入框为空时回填便于编辑,非空则直接丢弃不覆盖草稿(SPEC-INS-007 §3.3.4)
+  function removeQueued(index: number) {
+    const item = queue()[index]
+    if (item === undefined) return
+    setQueue((q) => q.filter((_, i) => i !== index))
+    setPrompt((cur) => cur ? cur : item)
+    console.log("[octo:queue] removed", { index, remaining: queue().length })
   }
 
   async function handleAbort() {
     const sid = params.id
     if (!sid) return
-    // 先取消排队消息，避免 abort 完成后 idle 触发器自动 flush
-    if (queuedText()) cancelQueued()
+    // 先清空整个队列，避免 abort 完成后 idle 触发器自动 flush(abort = 全部停下，不回填)
+    if (queue().length) clearQueue()
     try {
-      await globalSDK.client.session.abort({ sessionID: sid })
+      await sdk.client.session.abort({ sessionID: sid })
     } catch {
       // session_status 事件自动同步状态，忽略网络错误
     }
@@ -947,6 +1040,15 @@ function InsightContent() {
     lastTaskSnapshot = currentSnap
   })
 
+  // textarea 高度随内容自适应(min-height 由 CSS 控制)
+  createEffect(() => {
+    prompt()
+    const el = textareaRef
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = el.scrollHeight + "px"
+  })
+
   const maxAttachments = () => attachments().length >= MAX_ATTACHMENTS
   function hasUploadingAttachments() {
     return attachments().some((a) => a.status === "uploading")
@@ -955,14 +1057,18 @@ function InsightContent() {
   return (
     <DataProvider
       data={sync.data}
-      directory={homeDir() || ""}
+      directory={projectDir() || ""}
       onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
       <Toast.Region />
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
-        <InsightSidebar />
+        {/* top 槽注入 UXAI 自家的项目/产品切换器(走 ProjectInfo → DialogProjectOnboarding,
+            与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
+            octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
+            两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
+        <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
 
         {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
         <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
@@ -1042,7 +1148,7 @@ function InsightContent() {
                             rgba(61, 93, 255, 1) 87%,
                             rgba(206, 7, 232, 1) 92%) border-box`,
                         "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                        height: "150px",
+                        "min-height": "150px",
                       }}
                     >
                       {/* 附件条在胶囊内部顶部:单行横向滚动,不撑开胶囊 */}
@@ -1057,10 +1163,12 @@ function InsightContent() {
                         onInput={(e) => setPrompt(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="请描述您的需求..."
-                        class="w-full flex-1 resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
+                        class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
                         style={{
                           color: "var(--octo-text-primary)",
                           "font-family": "var(--octo-font)",
+                          "min-height": "100px",
+                          "max-height": "240px",
                           "overflow-y": "auto",
                         }}
                       />
@@ -1105,7 +1213,7 @@ function InsightContent() {
                           <span class="truncate">
                             {local.model.current()?.name ?? "选择模型"}
                           </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                         </ModelSelectorPopover>
 
                         <button
@@ -1159,7 +1267,10 @@ function InsightContent() {
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
               <div
                 class="flex-1 overflow-y-auto min-h-0"
-                ref={autoScroll.scrollRef}
+                ref={(el) => {
+                  scrollContainerEl = el
+                  autoScroll.scrollRef(el)
+                }}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
@@ -1188,20 +1299,29 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
-                {/* 队列提示条:busy 时点了发送会先入队,这里给反馈 (SPEC-INS-007 §3.3.4) */}
-                <Show when={queuedText()}>
+                {/* 队列提示条:busy 时点了发送会先入队,FIFO 多条逐行列出 (SPEC-INS-007 §3.3.4) */}
+                <Show when={queue().length > 0}>
                   <div class="octo-queue-banner">
-                    <span class="octo-queue-banner-label">排队中</span>
-                    <span class="octo-queue-banner-text">{queuedText()}</span>
-                    <button
-                      type="button"
-                      onClick={cancelQueued}
-                      class="octo-queue-banner-cancel"
-                      title="取消并恢复到输入框"
-                      aria-label="取消排队"
-                    >
-                      ×
-                    </button>
+                    <span class="octo-queue-banner-label">排队中 {queue().length}</span>
+                    <div class="octo-queue-banner-list">
+                      <For each={queue()}>
+                        {(item, i) => (
+                          <div class="octo-queue-banner-item">
+                            <span class="octo-queue-banner-index">{i() + 1}</span>
+                            <span class="octo-queue-banner-text">{item}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeQueued(i())}
+                              class="octo-queue-banner-cancel"
+                              title="移除这条(输入框为空时回填,便于编辑)"
+                              aria-label="移除排队项"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
+                      </For>
+                    </div>
                   </div>
                 </Show>
 
@@ -1227,7 +1347,7 @@ function InsightContent() {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                    height: "150px",
+                    "min-height": "150px",
                     "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
@@ -1243,10 +1363,12 @@ function InsightContent() {
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
-                    class="w-full flex-1 resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
+                      "min-height": "100px",
+                      "max-height": "240px",
                       "overflow-y": "auto",
                     }}
                   />
@@ -1291,7 +1413,7 @@ function InsightContent() {
                       <span class="truncate">
                         {local.model.current()?.name ?? "选择模型"}
                       </span>
-                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60" />
+                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                     </ModelSelectorPopover>
 
                     <button

@@ -167,6 +167,8 @@ import type {
   SessionUpdateResponses,
   StudioGenerationsCreateErrors,
   StudioGenerationsCreateResponses,
+  StudioGenerationsGetErrors,
+  StudioGenerationsGetResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -4875,6 +4877,42 @@ export class Generations extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Get Studio generation
+   *
+   * Get the current status and result of an asynchronous Studio generation.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioGenerationsGetResponses,
+      StudioGenerationsGetErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}",
+      ...options,
+      ...params,
     })
   }
 }

@@ -19,6 +19,8 @@ import { gitlabAuthPlugin as GitlabAuthPlugin } from "opencode-gitlab-auth"
 import { PoeAuthPlugin } from "opencode-poe-auth"
 import { CloudflareAIGatewayAuthPlugin, CloudflareWorkersAuthPlugin } from "./cloudflare"
 import { AzureAuthPlugin } from "./azure"
+// octo 自有 server 插件:MCP 工具执行前注入精确 S3 URL(见 ../agent/octo-upload-inject.ts)
+import { OctoUploadInjectPlugin } from "../agent/octo-upload-inject"
 import { Effect, Layer, Context, Stream } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
@@ -64,6 +66,7 @@ const INTERNAL_PLUGINS: PluginInstance[] = [
   CloudflareWorkersAuthPlugin,
   CloudflareAIGatewayAuthPlugin,
   AzureAuthPlugin,
+  OctoUploadInjectPlugin,
 ]
 
 function isServerPlugin(value: unknown): value is PluginInstance {

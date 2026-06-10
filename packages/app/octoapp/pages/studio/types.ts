@@ -10,14 +10,16 @@ export type StudioCapability =
 export type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
 export type StudioImageTool = "jimeng" | "internel"
 
-export type StudioGenerationStatus = "idle" | "submitting" | "running" | "succeeded" | "failed"
+export type StudioGenerationStatus = "idle" | "submitting" | "queued" | "running" | "succeeded" | "failed"
 
 export type StudioImage = {
   id: string
+  kind?: "image" | "video"
   url: string
   thumbnailUrl?: string
   width?: number
   height?: number
+  duration?: number
   remoteUrl?: string
   localPath?: string
 }
@@ -36,18 +38,26 @@ export type StudioGenerationRequest = {
 
 export type StudioGenerationResult = {
   id: string
+  sessionID?: string
   status: Exclude<StudioGenerationStatus, "idle" | "submitting">
   capability: StudioCapability
   prompt: string
   provider: "mock" | "jimeng" | "internel"
-  toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+  toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string
   task_type?: string
   taskId?: string
   model: string
   aspectRatio: StudioAspectRatio
+  videoMode?: "text" | "first_last_frame"
+  duration?: "5" | "10"
+  videoQualityMode?: "std" | "pro"
   images: StudioImage[]
+  progress?: number
+  order?: number
+  rawStatus?: number | string
   createdAt: number
+  updatedAt?: number
   completedAt?: number
   error?: string
   request?: unknown

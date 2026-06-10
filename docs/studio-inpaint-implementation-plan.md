@@ -1,12 +1,12 @@
-# Studio 局部重绘实现方案
+# Studio 智能重绘实现方案
 
 ## 目标
 
-根据 `/Users/ljc/Documents/workspace/image-agent-studio-vite-express/docs/aa.md` 的智能重绘设计，在 UXAI 现有 Studio 中复刻“局部重绘”能力。
+根据 `/Users/ljc/Documents/workspace/image-agent-studio-vite-express/docs/aa.md` 的智能重绘设计，在 UXAI 现有 Studio 中复刻“智能重绘”能力。
 
 本方案只覆盖 Studio 内已有图片的局部编辑闭环：
 
-- 从当前选中图片进入局部重绘编辑器。
+- 从当前选中图片进入智能重绘编辑器。
 - 在图片上涂抹要重绘或消除的区域。
 - 支持笔刷粗细、撤销、重做、清空。
 - 支持“重绘 / 消除”两种模式。
@@ -35,8 +35,8 @@
 当前已有基础：
 
 - `StudioCapability` 已包含 `image.inpaint`。
-- 能力菜单 `STUDIO_CAPABILITIES` 已包含“局部重绘”，但前端 `SUPPORTED_STUDIO_CAPABILITIES` 暂未启用。
-- 右侧详情面板已有“局部重绘”按钮，但没有点击事件。
+- 能力菜单 `STUDIO_CAPABILITIES` 已包含“智能重绘”，但前端 `SUPPORTED_STUDIO_CAPABILITIES` 暂未启用。
+- 右侧详情面板已有“智能重绘”按钮，但没有点击事件。
 - Studio 已有 `mode()` 编辑工作区模式，当前支持 `preview`、`hd`、`outpaint`。
 - `runGeneration()` 已能复用同一套 pending、会话持久化、结果刷新流程。
 - 后端 `internel_image_generate.ts` 已有独立 builder 分发结构，当前支持普通生图、变清晰、抠图、扩图。
@@ -44,7 +44,7 @@
 ## 总体链路
 
 ```txt
-用户点击“局部重绘”
+用户点击“智能重绘”
   -> StudioPage.openInpaint()
   -> 右侧工作区切换到 StudioInpaintEditor
   -> 用户在图片上涂抹 mask
@@ -79,7 +79,7 @@ export type StudioMode = "preview" | "hd" | "outpaint" | "inpaint"
 
 ### 2. 右侧按钮接入
 
-给 `StudioDetails` 增加 `onInpaint` prop，并把“局部重绘”按钮接到事件上。
+给 `StudioDetails` 增加 `onInpaint` prop，并把“智能重绘”按钮接到事件上。
 
 `StudioPage` 中增加：
 
@@ -106,7 +106,7 @@ function openInpaint() {
 组件职责对应原文档里的 `FusionEditDraw.vue` 和 `FusionEditDrawCanvas.vue`，但用 Solid + 原生 Canvas 实现，不引入 Fabric.js。理由：
 
 - 当前仓库没有 Fabric.js 依赖。
-- 局部重绘只需要自由涂抹、撤销/重做、mask 输出，原生 Canvas 足够。
+- 智能重绘只需要自由涂抹、撤销/重做、mask 输出，原生 Canvas 足够。
 - 避免新增大依赖和打包风险。
 
 组件输入：
@@ -132,7 +132,7 @@ function StudioInpaintEditor(props: {
 |---|---|
 | `editMode` | `"qwen_image_edit"` 重绘，`"erase"` 消除 |
 | `brushSize` | 默认 40，范围 10 到 126 |
-| `localPrompt` | 局部重绘提示词 |
+| `localPrompt` | 智能重绘提示词 |
 | `displaySize` | 图片在编辑器中的展示尺寸 |
 | `sourceSize` | 图片原始像素尺寸 |
 | `undoList` | mask 快照栈，首项为空 mask |
@@ -251,10 +251,10 @@ if (capability() === "image.inpaint") {
 
 优化 `buildStudioThinkingText()`：
 
-- `image.inpaint`：`好的，我将根据涂抹区域局部重绘当前图片。`
+- `image.inpaint`：`好的，我将根据涂抹区域智能重绘当前图片。`
 - `erase` 模式可通过 `extra.generateMode` 在 pending 文案中显示为“消除涂抹区域”。
 
-这不是功能必需，但可以避免显示成“生成一张 3:4 比例的局部重绘”。
+这不是功能必需，但可以避免显示成“生成一张 3:4 比例的智能重绘”。
 
 ## 后端方案
 
@@ -332,7 +332,7 @@ async function buildInternalRequestBody(input: ImageGenerateInput, context: Inte
 
 ### 4. 持久化和展示
 
-`studio-service.ts` 当前会把 `input.extra` 写入 tool part 的 `state.input`，并把工具输出图片作为 attachments 持久化。局部重绘复用这条链路即可。
+`studio-service.ts` 当前会把 `input.extra` 写入 tool part 的 `state.input`，并把工具输出图片作为 attachments 持久化。智能重绘复用这条链路即可。
 
 需要同步扩展 `toolAction` 类型，否则 TypeScript 会在 `inpainting` 输出处报错。
 
@@ -398,7 +398,7 @@ bun typecheck
 ### 手动验证
 
 1. 打开 Studio，生成或选择一张已有结果图。
-2. 点击右侧“局部重绘”。
+2. 点击右侧“智能重绘”。
 3. 在图片上涂抹，确认笔刷圆点、紫色 mask、撤销、重做、清空可用。
 4. 重绘模式下输入 prompt，点击生成。
 5. 消除模式下涂抹后不输入 prompt，点击生成。
@@ -410,7 +410,7 @@ bun typecheck
 1. 类型和入口：启用 `image.inpaint`，扩展 `StudioMode`、详情按钮、工作区分支。
 2. 前端编辑器：实现 `StudioInpaintEditor` 的画布、mask、撤销重做、提交。
 3. 后端 builder：补 `toolAction` 类型、`buildInpaintRequestBody()` 和分发。
-4. 样式：补齐局部重绘编辑器的布局和交互状态。
+4. 样式：补齐智能重绘编辑器的布局和交互状态。
 5. 验证：运行 `packages/app` 与 `packages/opencode` 的 typecheck，手动跑通生成链路。
 
 ## 风险与待确认点
