@@ -83,6 +83,7 @@ export function StudioResultCanvas(props: {
   imageLabel: string
   selectedImageId?: string
   tabImages?: StudioImage[]
+  tabLabels?: Record<string, string>
   onDownload: () => void
   onSelectImage?: (id: string) => void
   onDeleteImage?: (id: string) => void
@@ -109,8 +110,15 @@ export function StudioResultCanvas(props: {
         function tabLabelFor(tabImage: StudioImage, index: number): string {
           const video = isVideoMedia(tabImage)
           const ext = video ? "mp4" : "png"
-          const match = props.imageLabel?.match(/^(.+)-(\d+)\.\w+$/)
-          const prefix = match ? match[1] : "image"
+          const stored = props.tabLabels?.[tabImage.id]
+          if (stored) return `${stored}-${index + 1}.${ext}`
+          const prompt = props.result?.prompt ?? ""
+          const firstLine = prompt.split("\n")[0].trim()
+          const cleaned = firstLine
+            .replace(/[\\/:*?\"<>|，。！？、；：""''（）【】《》!?;:()\[\]{}@#$%^&+=~`]/g, " ")
+            .replace(/\s+/g, "-")
+            .replace(/^-+|-+$/g, "")
+          const prefix = cleaned.length > 20 ? cleaned.slice(0, 20).replace(/-+$/, "") : (cleaned || "image")
           return `${prefix}-${index + 1}.${ext}`
         }
         return (
