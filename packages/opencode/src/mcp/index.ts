@@ -33,6 +33,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { zod as effectZod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
+import * as Reconnect from "./reconnect"
 
 const log = Log.create({ service: "mcp" })
 const elog = EffectLogger.create({ service: "mcp" })
@@ -534,6 +535,9 @@ export const layer = Layer.effect(
       })
     }
 
+    // 前置声明：在 storeClient 之后赋值，但 state init 中 forked effect 使用时已赋值
+    let reconnectCtx!: Reconnect.ReconnectContext
+
     const state = yield* InstanceState.make<State>(
       Effect.fn("MCP.state")(function* () {
         const cfg = yield* cfgSvc.get()
@@ -589,6 +593,11 @@ export const layer = Layer.effect(
                     s.clients[key] = result.mcpClient
                     s.defs[key] = result.defs!
                     watch(s, key, result.mcpClient, bridge, mcp.timeout)
+                    // 为远程 client 设置断连检测和自动重连
+                    if (mcp.type === "remote") {
+                      Reconnect.storeRemoteConfig(key, mcp as ConfigMCP.Info & { type: "remote" })
+                      Reconnect.setupConnectionHandlers(s, key, result.mcpClient, bridge, reconnectCtx)
+                    }
                   }
                 }),
               )
@@ -616,6 +625,7 @@ export const layer = Layer.effect(
               { concurrency: "unbounded" },
             )
             pendingOAuthTransports.clear()
+            Reconnect.cleanup()
           }),
         )
 
@@ -627,6 +637,7 @@ export const layer = Layer.effect(
       const client = s.clients[name]
       delete s.defs[name]
       if (!client) return Effect.void
+      Reconnect.markIntentionalDisconnect(name)
       return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
     }
 
@@ -643,8 +654,21 @@ export const layer = Layer.effect(
       s.clients[name] = client
       s.defs[name] = listed
       watch(s, name, client, bridge, timeout)
+      // 为远程 client 设置断连检测和自动重连
+      if (Reconnect.hasRemoteConfig(name)) {
+        Reconnect.setupConnectionHandlers(s, name, client, bridge, reconnectCtx)
+      }
       return s.status[name]
     })
+
+    // 重连上下文（在 storeClient 定义之后赋值，打破循环依赖）
+    reconnectCtx = {
+      state: { get: () => InstanceState.get(state) },
+      createFn: create,
+      storeClientFn: storeClient,
+      bus,
+      toolsChanged: ToolsChanged,
+    }
 
     const status = Effect.fn("MCP.status")(function* () {
       const s = yield* InstanceState.get(state)
