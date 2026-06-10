@@ -113,6 +113,7 @@
   min-height: 0;
   padding: 36px 28px 22px;
   background: #fff;
+  isolation: isolate;
 }
 
 .studio-workspace {

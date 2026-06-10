@@ -241,7 +241,7 @@ export function StudioInpaintEditor(props: {
     canvas.width = sourceSize().width
     canvas.height = sourceSize().height
     const context = canvas.getContext("2d")
-    if (!context) throw new Error("无法创建局部重绘画布")
+    if (!context) throw new Error("无法创建智能重绘画布")
     context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
     context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
     return canvas.toDataURL("image/png").split(",")[1] ?? ""
@@ -268,18 +268,22 @@ export function StudioInpaintEditor(props: {
       ? "请输入想要消除的物体，可留空"
       : hasDrawing()
         ? "重绘所选区域：例如把花瓶改成台灯"
-        : "涂抹要修改的区域，并描述希望变成什么",
+        : `重绘所选区域："更改/替换/去除+对象+保留部分（可选）"，例：去除衣服上的文字。使用具体词汇生成效果更稳定。`,
   )
 
   return (
     <div class="studio-inpaint">
       <div class="studio-inpaint-header">
         <div class="min-w-0">
-          <div class="studio-inpaint-title">局部重绘</div>
+          <div class="studio-inpaint-title">智能重绘</div>
         </div>
-        <button type="button" onClick={props.onClose} class="studio-inpaint-close" aria-label="关闭局部重绘" title="关闭局部重绘" />
+        <button type="button" onClick={props.onClose} class="studio-inpaint-close" aria-label="关闭智能重绘" title="关闭智能重绘" />
       </div>
       <div class="studio-inpaint-body">
+        <div class="studio-inpaint-hint">
+          <img src="/studio/studio_help_tips.png" alt="" class="studio-inpaint-hint-icon" />
+          <span>通过涂抹生成修改图片局部</span>
+        </div>
         <div ref={canvasWrapRef!} class="studio-inpaint-canvas-wrap">
           <Show when={displaySize().width && displaySize().height} fallback={
             <div class="studio-inpaint-loading">{loadError() || "图片加载中..."}</div>

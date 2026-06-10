@@ -181,7 +181,7 @@ export function StudioComposer(props: {
                 <MaterialMenu wordBook={props.wordBook!} onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
               </Show>
               <IconTool
-                label="素材"
+                label="词书"
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
               />
@@ -231,14 +231,14 @@ function ToolButton(props: { label: string; active?: boolean; onClick: () => voi
   )
 }
 
-function IconTool(props: { label: string; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
+function IconTool(props: { label: string; title?: string; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
     <button
       type="button"
       onPointerDown={props.onPointerDown}
       onClick={props.onClick}
       class={`studio-composer-icon-tool ${props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"}`}
-      title={props.label}
+      title={props.title ?? props.label}
       aria-label={props.label}
     />
   )
