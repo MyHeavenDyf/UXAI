@@ -52,3 +52,10 @@
 
 - `src/session/prompt.ts`：移除中断时取消子会话的逻辑
 - `src/tool/task.ts`：简化 onAbort 处理程序
+
+### Agent 工具权限精简（待提交）
+
+- **octo_ai**：允许 bash, read, glob, grep, edit, skill；deny task, todowrite, webfetch, websearch, jimeng_image_generate, internel_image_generate, lsp。移除 question/plan_enter 的 allow 覆盖（恢复 defaults 的 deny）
+- **octo_make**：允许 bash, read, glob, grep, task, webfetch, skill, question；deny edit, todowrite, websearch, jimeng_image_generate, internel_image_generate, lsp。新增 question: allow 覆盖
+- 目的：减少不必要工具描述注入系统提示词，降低上下文长度
+- **涉及文件**：`src/agent/agent.ts`
