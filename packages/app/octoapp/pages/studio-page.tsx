@@ -124,7 +124,9 @@ export default function StudioPage() {
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
+  const [showStudioCanvas, setShowStudioCanvas] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
+  const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
@@ -492,6 +494,16 @@ export default function StudioPage() {
     if (first && !canvasResult()?.images.some((image) => image.id === selectedImageId())) setSelectedImageId(first)
   })
 
+  function extractKeywords(text: string, maxLen: number = 20): string {
+    if (!text) return "image"
+    const firstLine = text.split("\n")[0].trim()
+    const cleaned = firstLine
+      .replace(/[\\/:*?\"<>|，。！？、；：""''（）【】《》!?;:()\[\]{}@#$%^&+=~`]/g, " ")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "")
+    const prefix = cleaned.length > maxLen ? cleaned.slice(0, maxLen).replace(/-+$/, "") : (cleaned || "image")
+    return prefix
+  }
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
       setSelectedResultId(input.resultID)
@@ -509,7 +521,9 @@ export default function StudioPage() {
         }
         const clicked = r.images.find((img) => img.id === input.imageID)
         if (clicked) {
+          setShowStudioCanvas(true)
           setCanvasTabImages([clicked])
+          setCanvasTabLabels({ [clicked.id]: extractKeywords(r.prompt) })
           setDeletedImageIds(new Set<string>())
           setWorkspaceImage(undefined)
           setWorkspaceUploadRequested(false)
@@ -522,6 +536,12 @@ export default function StudioPage() {
         if (prev.some((i) => i.id === input.imageID)) return prev
         const clicked = r.images.find((img) => img.id === input.imageID)
         return clicked ? [...prev, clicked] : prev
+      })
+      setShowStudioCanvas(true)
+      setCanvasTabLabels((prev) => {
+        if (prev[input.imageID]) return prev
+        const clicked = r.images.find((img) => img.id === input.imageID)
+        return clicked ? { ...prev, [clicked.id]: extractKeywords(r.prompt) } : prev
       })
       setDeletedImageIds(new Set<string>())
       setWorkspaceImage(undefined)
@@ -553,13 +573,17 @@ export default function StudioPage() {
       nextId = rest[idx]?.id ?? rest[idx - 1]?.id
       return rest
     })
+    setCanvasTabLabels((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
     batch(() => {
       if (nextId !== undefined) {
         setSelectedImageId(nextId)
       } else {
-        // 最后一个 tab：把当前 result 所有图片都标记删除，隐藏 canvas 和 details
-        const allIds = result()?.images.map((img) => img.id) ?? []
-        setDeletedImageIds(new Set(allIds))
+        // 最后一个 tab：隐藏 canvas 和 details
+        setShowStudioCanvas(false)
         setSelectedImageId(undefined)
       }
     })
@@ -649,6 +673,7 @@ export default function StudioPage() {
           if (!preserveGenerationCapability) setCapability("image.generate")
         }
         setCanvasTabImages([])
+        setCanvasTabLabels({})
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
@@ -1229,6 +1254,7 @@ export default function StudioPage() {
           : []
     setOpenMenu(null)
     setMode("preview")
+    setShowStudioCanvas(true)
     setEditEntryTurn(undefined)
     setSending(true)
     setStatus("submitting")
@@ -1744,7 +1770,7 @@ export default function StudioPage() {
         />
 
       <main class="studio-workspace">
-        <Show when={isEditingWorkspaceMode() || canvasResult()?.images.length} fallback={
+        <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
           <div class="studio-empty-workspace">
             <StudioIntro />
           </div>
@@ -1758,11 +1784,13 @@ export default function StudioPage() {
               imageLabel={currentImageLabel()}
               selectedImageId={selectedImageId()}
               tabImages={canvasTabImages()}
+              tabLabels={canvasTabLabels()}
               onDownload={() => void downloadCurrentImage()}
               onSelectImage={selectCanvasTab}
               onDeleteImage={(id) => {
                 batch(() => {
                   // fallback 模式（无 tabs）：只有一个关闭按钮，删除全部图片隐藏 canvas 和 details
+                  setShowStudioCanvas(false)
                   const allIds = result()?.images.map((img) => img.id) ?? []
                   setDeletedImageIds(new Set(allIds))
                   setSelectedImageId(undefined)
@@ -1834,10 +1862,16 @@ export default function StudioPage() {
                   const r = result()
                   batch(() => {
                     setSelectedImageId(id)
+                    setShowStudioCanvas(true)
                     setCanvasTabImages((prev) => {
                       if (prev.some((i) => i.id === id)) return prev
                       const clicked = r?.images.find((img) => img.id === id)
                       return clicked ? [...prev, clicked] : prev
+                    })
+                    setCanvasTabLabels((prev) => {
+                      if (prev[id]) return prev
+                      const clicked = r?.images.find((img) => img.id === id)
+                      return clicked ? { ...prev, [clicked.id]: extractKeywords(r?.prompt ?? "") } : prev
                     })
                     setDeletedImageIds(new Set<string>())
                     setWorkspaceImage(undefined)
