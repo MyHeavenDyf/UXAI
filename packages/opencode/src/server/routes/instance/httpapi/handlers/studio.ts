@@ -1,11 +1,11 @@
 import { createGeneration, getGeneration } from "@/studio/studio-service"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
-import { fetchPromptTags } from "@/tool/internel_image_generate"
+import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioGenerationPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioGenerationPayload, StudioPermissionPayload } from "../groups/studio"
 
 export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (handlers) =>
   Effect.gen(function* () {
@@ -69,6 +69,16 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
     return handlers
       .handle("createGeneration", create)
       .handle("getGeneration", get)
+      .handle("checkPermission", (ctx: { payload: typeof StudioPermissionPayload.Type }) =>
+        Effect.tryPromise({
+          try: () => checkStudioPermission(ctx.payload.uid),
+          catch: (error) =>
+            new ApiStudioGenerationError({
+              name: "StudioGenerationError",
+              data: { message: error instanceof Error ? error.message : String(error) },
+            }),
+        })
+      )
       .handle("listPromptTags", () =>
         Effect.tryPromise({
           try: () => fetchPromptTags(),

@@ -46,6 +46,7 @@ import { StudioConversation, StudioDetails, StudioResultCanvas, StudioWorkspaceU
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
+import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
   createBlobUrlFromDataUrl,
@@ -80,6 +81,7 @@ export default function StudioPage() {
   const layout = useLayout()
   const server = useServer()
   const dialog = useDialog()
+  let studioPermissionChecked = false
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -121,10 +123,16 @@ export default function StudioPage() {
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
+  const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
+  const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
+  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
+  const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
+  const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
+  const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
     () => server.current,
     async (current: any) => {
@@ -151,6 +159,37 @@ export default function StudioPage() {
       throw new Error("Unexpected get_prompt_tags response shape")
     },
   )
+  createEffect(() => {
+    const current = server.current
+    if (!current || studioPermissionChecked) return
+    studioPermissionChecked = true
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      "content-type": "application/json",
+      "x-opencode-directory": projectDir(),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    void fetch(new URL("/studio/permissions/check", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ uid: uiplusUserAccount() }),
+    })
+      .then(async (response) => {
+        const bodyText = await response.text()
+        if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
+        const result = JSON.parse(bodyText) as { code?: number; data?: unknown[] }
+        setCanGenerateVideo(result.code === 200 && result.data?.[0] === true)
+      })
+      .catch((error) => {
+        setCanGenerateVideo(false)
+        console.error("[StudioPage] permission check failed", error)
+      })
+  })
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
@@ -422,8 +461,16 @@ export default function StudioPage() {
       .find((item): item is StudioGenerationResult => item?.id === id)
   })
   const result = createMemo(() => normalizeResultValue(selectedResult() ?? defaultResult()))
+  const canvasResult = createMemo((): StudioGenerationResult | undefined => {
+    const r = result()
+    const deleted = deletedImageIds()
+    if (!r || deleted.size === 0) return r
+    const filtered = r.images.filter((img) => !deleted.has(img.id))
+    const r2 = filtered.length === r.images.length ? r : { ...r, images: filtered }
+    return r2.images.length > 0 ? r2 : undefined
+  })
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
-    if (result()?.images.length) return "succeeded"
+    if (canvasResult()?.images.length) return "succeeded"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
@@ -435,23 +482,86 @@ export default function StudioPage() {
   })
 
   const selectedImage = createMemo(() => {
-    const images = result()?.images ?? []
+    const images = canvasResult()?.images ?? []
     return images.find((item) => item.id === selectedImageId()) ?? images[0]
   })
   const workspaceEditImage = createMemo(() => workspaceImage() ?? (workspaceUploadRequested() ? undefined : selectedImage()))
 
   createEffect(() => {
-    const first = result()?.images[0]?.id
-    if (first && !result()?.images.some((image) => image.id === selectedImageId())) setSelectedImageId(first)
+    const first = canvasResult()?.images[0]?.id
+    if (first && !canvasResult()?.images.some((image) => image.id === selectedImageId())) setSelectedImageId(first)
   })
 
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
       setSelectedResultId(input.resultID)
       setSelectedImageId(input.imageID)
+      const r = displayTurns().map((t) => t.result).find((item) => item?.id === input.resultID)
+      if (!r) return
+      if (canvasTabImages().length === 0) {
+        // tabs 为空：点击默认第一张则维持 fallback，点击其他图则把默认和点击的都加入 tabs
+        if (r.images[0]?.id === input.imageID) {
+          setDeletedImageIds(new Set<string>())
+          setWorkspaceImage(undefined)
+          setWorkspaceUploadRequested(false)
+          setMode("preview")
+          return
+        }
+        const clicked = r.images.find((img) => img.id === input.imageID)
+        if (clicked) {
+          setCanvasTabImages([clicked])
+          setDeletedImageIds(new Set<string>())
+          setWorkspaceImage(undefined)
+          setWorkspaceUploadRequested(false)
+          setMode("preview")
+          return
+        }
+      }
+      // 已有 tabs 时追加
+      setCanvasTabImages((prev) => {
+        if (prev.some((i) => i.id === input.imageID)) return prev
+        const clicked = r.images.find((img) => img.id === input.imageID)
+        return clicked ? [...prev, clicked] : prev
+      })
+      setDeletedImageIds(new Set<string>())
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("preview")
+    })
+  }
+
+  function selectCanvasTab(id: string) {
+    const turn = displayTurns()
+      .map((t) => t.result)
+      .find((r) => r?.images.some((img) => img.id === id))
+    batch(() => {
+      if (turn) setSelectedResultId(turn.id)
+      setSelectedImageId(id)
+      setDeletedImageIds(new Set<string>())
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("preview")
+    })
+  }
+
+  function closeCanvasTab(id: string) {
+    let nextId: string | undefined
+    setCanvasTabImages((prev) => {
+      const idx = prev.findIndex((img) => img.id === id)
+      if (idx === -1) return prev
+      const rest = prev.filter((img) => img.id !== id)
+      nextId = rest[idx]?.id ?? rest[idx - 1]?.id
+      return rest
+    })
+    batch(() => {
+      if (nextId !== undefined) {
+        setSelectedImageId(nextId)
+      } else {
+        // 最后一个 tab：把当前 result 所有图片都标记删除，隐藏 canvas 和 details
+        const allIds = result()?.images.map((img) => img.id) ?? []
+        setDeletedImageIds(new Set(allIds))
+        setSelectedImageId(undefined)
+      }
     })
   }
 
@@ -517,6 +627,15 @@ export default function StudioPage() {
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         if (preserveEditorEntry) pendingEditorSessionID = undefined
         if (preserveGenerationCapability) pendingGenerationSessionID = undefined
+        if (preserveGenerationCapability && draftVideoRiskConfirmed()) {
+          setVideoRiskConfirmedSessionID(id)
+          setDraftVideoRiskConfirmed(false)
+        }
+        if (!preserveGenerationCapability) {
+          setVideoRiskConfirmedSessionID(undefined)
+          setDraftVideoRiskConfirmed(false)
+        }
+        setVideoRiskDialogOpen(false)
         if (!id && !sending() && !pendingResult()) {
           setStatus("idle")
           setPendingResult(undefined)
@@ -529,6 +648,8 @@ export default function StudioPage() {
           setEditEntryTurn(undefined)
           if (!preserveGenerationCapability) setCapability("image.generate")
         }
+        setCanvasTabImages([])
+        setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
         setWorkspaceImage(undefined)
@@ -914,7 +1035,7 @@ export default function StudioPage() {
       .catch((error) => console.error("[StudioPage] editor session create failed", error))
   }
 
-  function selectStudioCapability(value: StudioCapability) {
+  function applyStudioCapability(value: StudioCapability) {
     setCapability(value)
     if (value === "video.generate" && !STUDIO_VIDEO_ASPECT_RATIOS.includes(aspectRatio() as (typeof STUDIO_VIDEO_ASPECT_RATIOS)[number])) {
       setAspectRatio("16:9")
@@ -931,6 +1052,37 @@ export default function StudioPage() {
       setWorkspaceUploadRequested(false)
       setMode("preview")
     })
+  }
+
+  function selectStudioCapability(value: StudioCapability) {
+    if (value !== "video.generate") {
+      applyStudioCapability(value)
+      return
+    }
+    if (!canGenerateVideo()) return
+    if (params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed()) {
+      applyStudioCapability(value)
+      return
+    }
+    setVideoRiskDialogOpen(true)
+  }
+
+  function cancelVideoRiskDialog() {
+    setVideoRiskDialogOpen(false)
+  }
+
+  function confirmVideoRiskDialog() {
+    if (params.id) setVideoRiskConfirmedSessionID(params.id)
+    if (!params.id) setDraftVideoRiskConfirmed(true)
+    setVideoRiskDialogOpen(false)
+    applyStudioCapability("video.generate")
+  }
+
+  function startNewStudioConversation() {
+    setVideoRiskDialogOpen(false)
+    setVideoRiskConfirmedSessionID(undefined)
+    setDraftVideoRiskConfirmed(false)
+    navigate(`/${slug()}/studio?hint=${Date.now()}`)
   }
 
   async function createStudioSession(title?: string) {
@@ -1020,7 +1172,7 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
-  async function getStudioGeneration(id: string) {
+  async function getStudioGeneration(id: string, signal?: AbortSignal) {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
@@ -1032,7 +1184,10 @@ export default function StudioPage() {
         password: current.http.password,
       })}`
     }
-    const response = await fetch(new URL(`/studio/generations/${encodeURIComponent(id)}`, current.http.url), { headers })
+    const response = await fetch(new URL(`/studio/generations/${encodeURIComponent(id)}`, current.http.url), {
+      headers,
+      signal,
+    })
     const bodyText = await response.text()
     if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
     return JSON.parse(bodyText) as StudioGenerationResult
@@ -1144,48 +1299,90 @@ export default function StudioPage() {
     }
   }
 
-  createEffect(() => {
+  const pollingGenerationID = createMemo(() => {
     const active = pendingResult() ?? studioTurn()?.result
     if (!active || active.status !== "queued" && active.status !== "running") return
-    if (active.id.startsWith("studio_pending_")) return
     if (!isStudioGenerationID(active.id)) return
-    const id = active.id
-    const refresh = () => {
-      getStudioGeneration(id)
-        .then((generation) => {
-          setPendingResult((current) => {
-            if (current && current.id !== id) return current
-            if (
-              current &&
-              current.status === generation.status &&
-              current.progress === generation.progress &&
-              current.order === generation.order &&
-              current.error === generation.error &&
-              current.images.length === generation.images.length
-            ) return current
-            return { ...generation, sourceImage: current?.sourceImage }
-          })
-          setStatus(generation.status)
-          const sessionID = generation.sessionID ?? params.id
-          if (generation.status === "succeeded" && sessionID) return loadSessionMessages(sessionID)
-        })
-        .catch((error) => {
-          console.error("[StudioPage] generation status load failed", error)
-          const message = error instanceof Error ? error.message : String(error)
-          const current = pendingResult()
-          if (current && current.id !== id) return
-          setStatus("failed")
-          setPendingResult({
-            ...(current ?? active),
-            status: "failed",
-            error: message,
-          })
-        })
-    }
-    void refresh()
-    const timer = setInterval(refresh, STUDIO_GENERATION_STATUS_INTERVAL_MS)
-    onCleanup(() => clearInterval(timer))
+    return active.id
   })
+
+  createEffect(
+    on(
+      pollingGenerationID,
+      (id) => {
+        if (!id) return
+
+        const fallback = pendingResult() ?? studioTurn()?.result
+        let stopped = false
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const controller = new AbortController()
+
+        const schedule = () => {
+          if (stopped) return
+          timer = setTimeout(run, STUDIO_GENERATION_STATUS_INTERVAL_MS)
+        }
+
+        const run = async () => {
+          if (stopped) return
+
+          try {
+            const generation = await getStudioGeneration(id, controller.signal)
+            if (stopped) return
+
+            setPendingResult((current) => {
+              if (current && current.id !== id) return current
+              if (
+                current &&
+                current.status === generation.status &&
+                current.progress === generation.progress &&
+                current.order === generation.order &&
+                current.error === generation.error &&
+                current.images.length === generation.images.length
+              ) return current
+              return { ...generation, sourceImage: current?.sourceImage }
+            })
+            setStatus(generation.status)
+
+            if (generation.status === "succeeded" || generation.status === "failed") {
+              const sessionID = generation.sessionID ?? params.id
+              if (generation.status === "succeeded" && sessionID) {
+                void loadSessionMessages(sessionID).catch((error) => {
+                  console.error("[StudioPage] generated session load failed", error)
+                })
+              }
+              return
+            }
+
+            schedule()
+          } catch (error) {
+            if (stopped) return
+            if (error instanceof DOMException && error.name === "AbortError") return
+
+            console.error("[StudioPage] generation status load failed", error)
+            const message = error instanceof Error ? error.message : String(error)
+            const current = pendingResult()
+            if (current && current.id !== id) return
+            setStatus("failed")
+            const base = current ?? fallback
+            if (!base) return
+            setPendingResult({
+              ...base,
+              status: "failed",
+              error: message,
+            })
+          }
+        }
+
+        void run()
+
+        onCleanup(() => {
+          stopped = true
+          controller.abort()
+          if (timer) clearTimeout(timer)
+        })
+      },
+    ),
+  )
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
@@ -1312,6 +1509,7 @@ export default function StudioPage() {
   function regenerateCurrentResult() {
     const current = result()
     if (!current) return
+    if (current.capability === "video.generate" && !canGenerateVideo()) return
     void runGeneration({
       capability: current.capability,
       prompt: current.prompt,
@@ -1342,7 +1540,7 @@ export default function StudioPage() {
   return (
     <div class="studio-page" style={{ position: "relative" }}>
       <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={() => navigate(`/${slug()}/studio?hint=${Date.now()}`)} />
+        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={startNewStudioConversation} />
       </aside>
       <div
         style={{
@@ -1371,6 +1569,7 @@ export default function StudioPage() {
                 <StudioComposer
                   prompt={prompt()}
                   capability={capability()}
+                  canGenerateVideo={canGenerateVideo()}
                   styleModel={styleModel()}
                   aspectRatio={aspectRatio()}
                   count={count()}
@@ -1504,6 +1703,7 @@ export default function StudioPage() {
           <StudioComposer
             prompt={prompt()}
             capability={capability()}
+            canGenerateVideo={canGenerateVideo()}
             styleModel={styleModel()}
             aspectRatio={aspectRatio()}
             count={count()}
@@ -1544,14 +1744,31 @@ export default function StudioPage() {
         />
 
       <main class="studio-workspace">
+        <Show when={isEditingWorkspaceMode() || canvasResult()?.images.length} fallback={
+          <div class="studio-empty-workspace">
+            <StudioIntro />
+          </div>
+        }>
         <section class="studio-canvas">
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               status={effectiveStatus()}
               image={selectedImage()}
-              result={result()}
+              result={canvasResult()}
               imageLabel={currentImageLabel()}
+              selectedImageId={selectedImageId()}
+              tabImages={canvasTabImages()}
               onDownload={() => void downloadCurrentImage()}
+              onSelectImage={selectCanvasTab}
+              onDeleteImage={(id) => {
+                batch(() => {
+                  // fallback 模式（无 tabs）：只有一个关闭按钮，删除全部图片隐藏 canvas 和 details
+                  const allIds = result()?.images.map((img) => img.id) ?? []
+                  setDeletedImageIds(new Set(allIds))
+                  setSelectedImageId(undefined)
+                })
+              }}
+              onCloseTab={closeCanvasTab}
             />
           }>
             <Show when={!workspaceEditImage()}>
@@ -1603,16 +1820,31 @@ export default function StudioPage() {
             </Show>
           </Show>
         </section>
+        </Show>
 
-          <Show when={!isEditingWorkspaceMode() && result()?.images.length}>
+          <Show when={!isEditingWorkspaceMode() && canvasResult()?.images.length}>
             <aside class="studio-details">
               <StudioDetails
                 result={result()!}
                 image={selectedImage()}
                 selectedImageId={selectedImageId()}
                 imageLabel={currentImageLabel()}
-                regenerateDisabled={isBusy()}
-                onSelectImage={(id) => setSelectedImageId(id)}
+                regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                onSelectImage={(id) => {
+                  const r = result()
+                  batch(() => {
+                    setSelectedImageId(id)
+                    setCanvasTabImages((prev) => {
+                      if (prev.some((i) => i.id === id)) return prev
+                      const clicked = r?.images.find((img) => img.id === id)
+                      return clicked ? [...prev, clicked] : prev
+                    })
+                    setDeletedImageIds(new Set<string>())
+                    setWorkspaceImage(undefined)
+                    setWorkspaceUploadRequested(false)
+                    setMode("preview")
+                  })
+                }}
                 onRegenerate={regenerateCurrentResult}
                 onUpscale={openHD}
                 onCutout={openCutout}
@@ -1625,6 +1857,9 @@ export default function StudioPage() {
       </Show>
       <input ref={fileInputRef!} type="file" accept="image/*" class="hidden" onChange={handleFileChange} />
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
+      <Show when={videoRiskDialogOpen()}>
+        <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />
+      </Show>
     </div>
   )
 }
