@@ -20,6 +20,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useServer } from "@/context/server"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
@@ -516,7 +517,7 @@ function InsightContent() {
     const dir = projectDir()
     if (!dir) return
     try {
-      const result = await sdk.client.session.create({ agent: "octo_insight" })
+      const result = await sdk.client.session.create({ agent: INSIGHT_AGENT })
       const session = result.data as Session | undefined
       if (session) {
         // 导航前先把新会话 seed 进 sync store。否则 navigate 触发的 sync.session.sync
@@ -605,7 +606,7 @@ function InsightContent() {
     const parts: TextPartInput[] = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
-    const agent = "octo_insight"
+    const agent = INSIGHT_AGENT
 
     // 当前选中模型(useLocal().model.current():会话级→agent 默认→全局兜底 回退链)
     const currentModel = local.model.current()
@@ -975,10 +976,11 @@ function InsightContent() {
       count: ocs.length,
       tabs: ocs.map((oc) => ({ type: oc.type, source: oc.source, file: oc.fileName })),
     })
-    // 多文件:全部 openTab,激活 = 最后一个 openTab 内部已处理(activate first won't override later)
-    // 用户视觉上看到最后激活的是数组里最后一个 = 第一张?— 让我们激活第一张
-    for (const oc of ocs) tabStore.openTab(oc)
-    tabStore.activate(ocs[0].id)
+    // 多文件:全部 openTab,激活第一张。
+    // 注意:openTab 会按 (uri,type) 去重,ocs[0].id 不一定真进了 tabs(可能命中已有 tab),
+    // 故用 openTab 返回的「实际生效 id」激活,避免 activate 指向不存在的 tab 导致右侧栏空白。
+    const openedIds = ocs.map((oc) => tabStore.openTab(oc))
+    tabStore.activate(openedIds[0])
     revealPanel()
   }
 
@@ -997,8 +999,8 @@ function InsightContent() {
         count: ocs.length,
         tabs: ocs.map((oc) => ({ type: oc.type, file: oc.fileName })),
       })
-      for (const oc of ocs) tabStore.openTab(oc)
-      tabStore.activate(ocs[0].id)
+      const openedIds = ocs.map((oc) => tabStore.openTab(oc))
+      tabStore.activate(openedIds[0])
       revealPanel()
       break  // 一次只自动开一个 task 的全部产物
     }
