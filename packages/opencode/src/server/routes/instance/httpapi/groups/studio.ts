@@ -21,7 +21,12 @@ export const StudioPaths = {
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
   promptTags: `${root}/prompt-tags`,
+  permission: `${root}/permissions/check`,
 } as const
+
+export const StudioPermissionPayload = Schema.Struct({
+  uid: Schema.optional(Schema.String),
+})
 
 export const StudioGenerationPayload = Schema.Struct({
   sessionID: Schema.optional(Schema.String),
@@ -108,6 +113,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.prompt-tags.list",
             summary: "Get prompt tags",
             description: "Returns prompt tag categories from the internal image API.",
+          }),
+        ),
+        HttpApiEndpoint.post("checkPermission", StudioPaths.permission, {
+          payload: StudioPermissionPayload,
+          success: described(Schema.Unknown, "Studio permission result"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.permissions.check",
+            summary: "Check Studio permission",
+            description: "Checks whether the current user can access the internal Studio entry.",
           }),
         ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
