@@ -227,13 +227,18 @@ function MakeContent() {
     ),
   )
 
-createEffect(
+const sessionMessagesLoaded = createMemo(() => {
+    const id = params.id
+    return !id || sync.data.message[id] !== undefined
+  })
+
+  createEffect(
     on(
-      () => params.id,
-      (newId, oldId) => {
-        if (newId) {
-          layout.lastSessionPerTab.setMake(newId)
-          void sync.session.sync(newId)
+      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
+      ([id, missing]) => {
+        if (id) {
+          layout.lastSessionPerTab.setMake(id)
+          if (missing) void sync.session.sync(id)
         }
 
         setSending(false)
@@ -1060,8 +1065,13 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               </div>
             </Show>
             <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
-                <ChatEmptyState />
+              <Show when={sessionMessagesLoaded()} fallback={
+                <div class="size-full flex items-center justify-center">
+                  <div class="octo-spinner" />
+                </div>
+              }>
+                <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
+                  <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
                   <AttachmentBar
                     attachments={attachments()}
@@ -1186,11 +1196,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
                         aria-label={isBusy() ? "停止生成" : undefined}
                       />
-                    </div>
-                  </div>
-                  
-                  {/* Starter Cards */}
-                  <div class="starter-cards" role="list">
+</div>
+                   </div>
+                 </div>
+                 
+                 {/* Starter Cards */}
+                 <div class="starter-cards" role="list">
                     <For each={FEATURED_STARTERS}>
                       {(starter, i) => (
                         <button
@@ -1210,7 +1221,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                     </For>
                   </div>
                 </div>
-              </div>
+              </Show>
             }>
               {/* 消息列表 */}
               <ScrollView
