@@ -303,9 +303,24 @@
 .studio-inpaint-body {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
   padding: 24px;
+}
+
+.studio-inpaint-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(25, 25, 25, 1);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.studio-inpaint-hint-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .studio-inpaint-canvas-wrap {

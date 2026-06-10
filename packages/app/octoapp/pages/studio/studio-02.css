@@ -153,8 +153,8 @@
 }
 
 .studio-material-menu {
-  width: 431px;
-  height: 236px;
+  min-width: 431px;
+  min-height: 236px;
   padding: 14px 16px;
   overflow: hidden;
   box-sizing: border-box;
@@ -170,7 +170,8 @@
 
 .studio-material-categories {
   display: flex;
-  gap: 0;
+  flex-wrap: wrap;
+  gap: 0 16px;
   margin-bottom: 0;
   padding-bottom: 6px;
   margin-bottom: 8px;
@@ -180,7 +181,6 @@
   font-size: 14px;
   font-weight: 500;
   color: #858587;
-  padding: 0 10px;
   height: 22px;
   line-height: 22px;
   border-radius: 3px;
@@ -211,7 +211,8 @@
 
 .studio-material-subcategories {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   margin-bottom: 8px;
 }
 
@@ -236,8 +237,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  overflow: hidden;
-  max-height: 91px;
 }
 
 .studio-material-tag-btn {
@@ -482,7 +481,7 @@
   display: flex;
   flex-direction: column;
   gap: 44px;
-  max-width: 478px;
+  width: 100%;
   margin: 0 auto;
 }
 
@@ -531,6 +530,16 @@
   font-weight: 700;
   line-height: 22px;
   transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.studio-assistant-editor-link {
+  gap: 6px;
+}
+
+.studio-editor-link-arrow {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .studio-assistant-editor-link:hover {
