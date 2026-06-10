@@ -1,13 +1,17 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import path from "path"
-import { fileURLToPath } from "url"
-import { readdirSync, statSync } from "fs"
+import { homedir } from "os"
+import { readdirSync, statSync, mkdirSync } from "fs"
+import { readFile } from "fs/promises"
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const API_DIR = path.join(__dirname, "api")
-const EXAMPLE_DIR = path.join(__dirname, "example")
+const CONFIG_DIR = path.join(homedir(), ".config", "octo")
+const API_DIR = path.join(CONFIG_DIR, "api")
+const EXAMPLE_DIR = path.join(CONFIG_DIR, "example")
 
+mkdirSync(API_DIR, { recursive: true })
+mkdirSync(EXAMPLE_DIR, { recursive: true })
+import * as Log from "@opencode-ai/core/util/log"
 const COMPONENT_CATALOG: Record<string, string[]> = {
   General: ["Button", "Icon"],
   Navigation: ["Tabs", "TabItem", "Steps", "StepItem", "Breadcrumb", "Dropdown", "Menu"],
@@ -17,6 +21,7 @@ const COMPONENT_CATALOG: Record<string, string[]> = {
   Chart: ["LineChart", "BarChart", "PieChart", "RadarChart", "GaugeChart", "ProcessChart", "BubbleChart", "AssembleBubbleChart", "BulletChart", "FunnelChart", "HillChart", "ScatterChart", "JadeJueChart", "CircleProcessChart"],
   Custom: ["PatGauge", "PatStackedBar"],
 }
+const log = Log.create({ service: "load_components_docs" })
 
 const COMPONENT_CHILDREN: Record<string, string[]> = {
   Tabs: ["TabItem"],
@@ -58,7 +63,7 @@ function indexComponentFiles(dir: string): Map<string, string> {
         } else {
           map.set(path.basename(fullPath, path.extname(fullPath)), fullPath)
         }
-      } catch {}
+      } catch { }
     }
   }
   walk(dir)
@@ -92,46 +97,48 @@ function getDefs(schema: JsonSchema): Record<string, JsonSchema> {
 function formatEnum(schema: JsonSchema): string {
   const values = schema.enum as unknown[]
   if (!values) return ""
-  return values.map((v) => `\`${v}\``).join(" | ")
+  return values.map((v) => (typeof v === "string" ? `"${v}"` : String(v))).join(" | ")
 }
 
-function formatType(schema: JsonSchema, defs: Record<string, JsonSchema>, sharedDefs: Record<string, JsonSchema>, visited: Set<string>, depth = 0): string {
-  if (!schema) return "unknown"
-  if (depth > 4) return "..."
+function formatType(schema: JsonSchema, defs: Record<string, JsonSchema>, sharedDefs: Record<string, JsonSchema>, visited: Set<string>): string {
+  if (!schema) return "any"
 
   if (schema.$ref) {
     const name = refName(schema.$ref as string)
-    const resolved = sharedDefs[name] ?? defs[name]
-    if (resolved && !visited.has(name)) {
-      visited.add(name)
-      return name
-    }
-    return name
+    if (sharedDefs[name]) return name
+    if (visited.has(name)) return name
+    const defn = defs[name]
+    if (!defn) return name
+    const newVisited = new Set(visited)
+    newVisited.add(name)
+    return formatType(defn, defs, sharedDefs, newVisited)
   }
 
-  if (schema.oneOf || schema.anyOf) {
-    const options = (schema.oneOf || schema.anyOf) as JsonSchema[]
-    return options.map((opt) => formatType(opt, defs, sharedDefs, visited, depth + 1)).filter(Boolean).join(" | ")
+  if (schema.oneOf) {
+    return (schema.oneOf as JsonSchema[]).map((opt) => formatType(opt, defs, sharedDefs, visited)).join(" | ")
+  }
+  if (schema.anyOf) {
+    return (schema.anyOf as JsonSchema[]).map((opt) => formatType(opt, defs, sharedDefs, visited)).join(" | ")
   }
 
   if (schema.enum) return formatEnum(schema)
 
   if (schema.type === "array") {
     const items = schema.items as JsonSchema | undefined
-    const itemType = items ? formatType(items, defs, sharedDefs, visited, depth + 1) : "any"
-    return `Array<${itemType}>`
+    const itemType = items ? formatType(items, defs, sharedDefs, visited) : "any"
+    return `${itemType}[]`
   }
 
   if (schema.type === "object") {
     const props = (schema.properties ?? {}) as Record<string, JsonSchema>
     if (Object.keys(props).length === 0) return "object"
-    const entries = Object.entries(props).slice(0, 8).map(([key, val]) => {
-      const desc = val.description ? ` — ${val.description}` : ""
-      const typeStr = formatType(val, defs, sharedDefs, visited, depth + 1)
-      return `  ${key}: ${typeStr}${desc}`
+    const required = (schema.required as string[]) ?? []
+    const entries = Object.entries(props).map(([key, val]) => {
+      const mark = required.includes(key) ? "" : "?"
+      const typeStr = formatType(val, defs, sharedDefs, visited)
+      return `\`${key}${mark}\`: ${typeStr}`
     })
-    if (Object.keys(props).length > 8) entries.push("  ...")
-    return `{\n${entries.join("\n")}\n}`
+    return `{ ${entries.join(", ")} }`
   }
 
   if (schema.type) {
@@ -139,63 +146,138 @@ function formatType(schema: JsonSchema, defs: Record<string, JsonSchema>, shared
     return schema.type as string
   }
 
-  return "unknown"
+  return "any"
 }
 
 function buildSharedHeader(sharedDefs: Record<string, JsonSchema>): string {
   if (Object.keys(sharedDefs).length === 0) return ""
-  const parts: string[] = ["## Shared Definitions\n"]
+  const lines: string[] = ["## Shared Definitions"]
+  lines.push("以下类型定义被组件复用，属性类型标注为这些名称时参照此定义：")
+
   for (const [name, defn] of Object.entries(sharedDefs)) {
-    const desc = defn.description ? ` — ${defn.description as string}` : ""
-    parts.push(`### ${name}${desc}`)
-    const props = (defn.properties ?? {}) as Record<string, JsonSchema>
-    const required = (defn.required as string[]) ?? []
-    for (const [key, val] of Object.entries(props)) {
-      const req = required.includes(key) ? " **(required)**" : ""
-      const visited = new Set<string>()
-      const typeStr = formatType(val, {}, sharedDefs, visited)
-      const desc = val.description ? ` — ${val.description}` : ""
-      const example = (val as any).examples ? ` e.g. ${JSON.stringify((val as any).examples)}` : ""
-      parts.push(`- \`${key}\`: ${typeStr}${req}${desc}${example}`)
+    const desc = defn.description ? defn.description as string : ""
+    lines.push("")
+    lines.push(`### ${name}`)
+    if (desc) lines.push(`> ${desc}`)
+
+    if (defn.type === "object" && defn.properties) {
+      const defRequired = new Set((defn.required as string[]) ?? [])
+      for (const [pname, pschema] of Object.entries(defn.properties as Record<string, JsonSchema>)) {
+        const pdesc = pschema.description ? pschema.description as string : ""
+        const opt = defRequired.has(pname) ? "" : "?"
+        const examples = (pschema as any).examples as unknown[] | undefined
+        const exStr = examples ? ` (e.g., ${examples.map(String).join(", ")})` : ""
+        if (pdesc || exStr) {
+          lines.push(`- \`${pname}${opt}\`: ${pschema.type ?? "any"}${exStr} — ${pdesc}`)
+        } else {
+          lines.push(`- \`${pname}${opt}\`: ${pschema.type ?? "any"}`)
+        }
+      }
+    } else if (defn.type === "array" && defn.items) {
+      const items = defn.items as JsonSchema
+      const itemType = items.type ?? "any"
+      const itemDesc = items.description ? items.description as string : ""
+      if (itemDesc) {
+        lines.push(`类型: ${itemType}[] — ${itemDesc}`)
+      } else {
+        lines.push(`类型: ${itemType}[]`)
+      }
+    } else {
+      const typeStr = formatType(defn, sharedDefs, {}, new Set())
+      lines.push(`类型: ${typeStr}`)
     }
-    parts.push("")
   }
-  return parts.join("\n")
+
+  return lines.join("\n")
 }
 
 function compactSchema(schema: JsonSchema, sharedDefs: Record<string, JsonSchema>): string {
-  const title = (schema.title as string) ?? "Unknown"
-  const description = (schema.description as string) ?? ""
-  const props = ((schema.properties as Record<string, unknown>)?.props as Record<string, unknown>)?.properties as Record<string, JsonSchema> | undefined ?? {}
-  const requiredProps = (((schema.properties as Record<string, unknown>)?.props as Record<string, unknown>)?.required as string[]) ?? []
-  const children = (schema.properties as Record<string, unknown>)?.children as JsonSchema | undefined
   const defs = getDefs(schema)
+  const name = (schema.name as string) ?? (schema.title as string) ?? "Unknown"
+  const desc = (schema.description as string) ?? ""
+  const properties = (schema.properties ?? {}) as Record<string, JsonSchema>
 
-  const parts: string[] = []
-  parts.push(`### ${title}`)
-  if (description) parts.push(description)
-  parts.push("")
+  const lines: string[] = []
 
-  if (Object.keys(props).length > 0) {
-    parts.push("**Props:**")
-    for (const [key, val] of Object.entries(props)) {
-      const req = requiredProps.includes(key) ? " **(required)**" : ""
-      const visited = new Set<string>()
-      const typeStr = formatType(val, defs, sharedDefs, visited)
-      const desc = val.description ? ` — ${val.description}` : ""
-      parts.push(`- \`${key}\`: ${typeStr}${req}${desc}`)
+  lines.push(`## ${name}`)
+  if (desc) lines.push(`> ${desc}`)
+
+  const compConst = (properties.component as JsonSchema)?.const ?? name
+  const topParts: string[] = []
+  topParts.push("id: string")
+  topParts.push(`component: "${compConst}"`)
+
+  const hasProps = "props" in properties
+  const hasChildren = "children" in properties
+
+  if (hasProps) topParts.push("props: object")
+  if (hasChildren) topParts.push("children: object")
+
+  lines.push("> " + topParts.join(" | "))
+
+  if (hasProps) {
+    const propsSchema = properties.props
+    const propsProps = (propsSchema.properties ?? {}) as Record<string, JsonSchema>
+    const propsRequired = new Set((propsSchema.required as string[]) ?? [])
+
+    lines.push("")
+    lines.push("### props")
+
+    for (const [pname, pschema] of Object.entries(propsProps)) {
+      const pdesc = pschema.description ? pschema.description as string : ""
+      const deflt = pschema.default !== undefined ? ` (default: ${JSON.stringify(pschema.default)})` : ""
+      const opt = propsRequired.has(pname) ? "" : "?"
+
+      if (pschema.type === "object" && pschema.properties) {
+        lines.push(`- \`${pname}${opt}\`:` + (pdesc ? ` — ${pdesc}` : ""))
+        const nestedReq = new Set((pschema.required as string[]) ?? [])
+        for (const [nk, nv] of Object.entries(pschema.properties as Record<string, JsonSchema>)) {
+          const nt = formatType(nv, defs, sharedDefs, new Set())
+          const nd = nv.description ? nv.description as string : ""
+          const nopt = nestedReq.has(nk) ? "" : "?"
+          const ndef = (nv as any).default !== undefined ? ` (default: ${JSON.stringify((nv as any).default)})` : ""
+          if (nd) {
+            lines.push(`  - \`${nk}${nopt}\`: ${nt}${ndef} — ${nd}`)
+          } else {
+            lines.push(`  - \`${nk}${nopt}\`: ${nt}${ndef}`)
+          }
+        }
+      } else {
+        const typeStr = formatType(pschema, defs, sharedDefs, new Set())
+        let line = `- \`${pname}${opt}\`: ${typeStr}${deflt}`
+        if (pdesc) line += ` — ${pdesc}`
+        lines.push(line)
+      }
     }
-    parts.push("")
   }
 
-  if (children) {
-    const visited = new Set<string>()
-    parts.push(`**Children:** ${formatType(children, defs, sharedDefs, visited)}`)
-    if (children.description) parts.push(` — ${children.description}`)
-    parts.push("")
+  if (hasChildren) {
+    const childrenSchema = properties.children
+    const childrenDesc = childrenSchema.description ? childrenSchema.description as string : ""
+
+    lines.push("")
+    lines.push("### children")
+
+    if (childrenSchema.$ref) {
+      const ref = refName(childrenSchema.$ref as string)
+      if (sharedDefs[ref]) {
+        lines.push(`类型: ${ref}`)
+      } else if (defs[ref]) {
+        const refDef = defs[ref]
+        const typeStr = formatType(refDef, defs, sharedDefs, new Set())
+        lines.push(`类型: ${typeStr}`)
+      } else {
+        lines.push(`类型: ${ref}`)
+      }
+    } else {
+      const typeStr = formatType(childrenSchema, defs, sharedDefs, new Set())
+      lines.push(`类型: ${typeStr}`)
+    }
+
+    if (childrenDesc) lines.push(`> ${childrenDesc}`)
   }
 
-  return parts.join("\n")
+  return lines.join("\n")
 }
 
 function compactSchemasBatch(schemas: JsonSchema[]): string {
@@ -236,13 +318,27 @@ export const LoadComponentsDocsTool = Tool.define(
           const apiMap = getApiMap()
           const exampleMap = getExampleMap()
 
+          log.warn("=== [DEBUG] 路径检查 ===");
+          log.warn("API_DIR 实际扫描路径", { path: API_DIR });
+          log.warn("API_DIR 扫描到的所有组件 Key", { keys: Array.from(apiMap.keys()) });
+          log.warn("=======================");
+
           for (const comp of expanded) {
-            if (!ALL_COMPONENTS.includes(comp)) continue
+            if (!ALL_COMPONENTS.includes(comp)) {
+              log.warn(`⚠️ 组件 [${comp}] 没在 COMPONENT_CATALOG 注册，已被过滤`);
+              continue
+            }
             validComps.push(comp)
 
             const apiFile = apiMap.get(comp)
-            if (!apiFile) continue
-            const raw = yield* Effect.promise(() => Bun.file(apiFile).text())
+            // ======= 【DEBUG 2】打印文件匹配情况 =======
+            if (!apiFile) {
+              log.warn(`❌ 组件 [${comp}] 注册了，但在 API 目录下找不到对应的文件名！`);
+              continue
+            }
+
+            log.warn(`✅ 成功找到组件 [${comp}] 的文件`, { file: apiFile });
+            const raw = yield* Effect.promise(() => readFile(apiFile, "utf-8"))
             const parsed = JSON.parse(raw)
             apiSchemas.push(parsed)
           }
@@ -257,10 +353,15 @@ export const LoadComponentsDocsTool = Tool.define(
           for (const comp of validComps) {
             const exampleFile = exampleMap.get(comp)
             if (!exampleFile) continue
-            const content = yield* Effect.promise(() => Bun.file(exampleFile).text())
+            const content = yield* Effect.promise(() => readFile(exampleFile, "utf-8"))
             resultParts.push(content)
           }
-
+          log.warn("=========================================================tool", {
+            params,
+            title: `load_components_docs: ${validComps.join(", ")}`,
+            output: resultParts.join("\n\n---\n\n"),
+            metadata: {},
+          })
           return {
             title: `load_components_docs: ${validComps.join(", ")}`,
             output: resultParts.join("\n\n---\n\n"),

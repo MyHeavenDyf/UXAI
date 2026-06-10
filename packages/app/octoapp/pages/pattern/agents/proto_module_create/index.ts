@@ -99,7 +99,7 @@ function buildHumanMessage(idPrefix: string, sectionId: string, elementId: strin
   let sectionDetailList = intentDescription.sectionDetailList ?? [];
   let sectionDetail = sectionDetailList.find((item:any) => item?.id === sectionId) ?? {};
   let sectionDetailStr = JSON.stringify(sectionDetail, null, 2);
-
+  debugger
   let humanMessage: string;
   humanMessage = `请为以下模块生成 A2UI JSON：
 

@@ -207,3 +207,27 @@ export function deployBuiltinSkills() {
     log.warn("builtin skills deployment: failed", err)
   }
 }
+
+export function deployProtoToolFiles() {
+  const octoConfigDir = join(homedir(), ".config", "octo")
+
+  for (const sub of ["api", "example"]) {
+    const sourceDir = app.isPackaged
+      ? join(process.resourcesPath, sub)
+      : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", sub)
+
+    const destDir = join(octoConfigDir, sub)
+
+    if (!existsSync(sourceDir)) {
+      log.warn(`proto_tool ${sub} deployment: source directory not found`, sourceDir)
+      continue
+    }
+
+    try {
+      cpSync(sourceDir, destDir, { recursive: true })
+      log.log(`proto_tool ${sub} deployment: copied to`, destDir)
+    } catch (err) {
+      log.warn(`proto_tool ${sub} deployment: failed`, err)
+    }
+  }
+}

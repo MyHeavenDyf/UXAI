@@ -293,7 +293,8 @@ function PatternContent() {
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
-    console.log("开始--------------------", text)
+    const genStartTime = performance.now()
+    console.log("[Pattern] 开始生成页面:", text)
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
@@ -336,6 +337,7 @@ function PatternContent() {
       // ── Step 0: triage → 判断首次还是修改 ──
       const isEdit = !!lastIntent()
       const currentPlanner = lastPlanner()
+      console.log("[Pattern] 进入代理: proto_triage")
       const triage = await runProtoTriage({
         sdk: { client: sdk.client },
         directory: sdk.directory!,
@@ -357,6 +359,7 @@ function PatternContent() {
           return
         }
         setPhase("planner")
+        console.log("[Pattern] 进入代理: proto_planner_modify")
         const modifyResult = await runProtoPlannerModify({
           ...ctx,
           input: {
@@ -385,6 +388,7 @@ function PatternContent() {
             continue
           }
           if (slot.operation === "create") {
+            console.log("[Pattern] 进入代理: proto_module_create (modify/create)")
             const moduleResult = await proto_module_create({
               ...intentCtx,
               idPrefix: slot.id_prefix,
@@ -400,6 +404,7 @@ function PatternContent() {
             const originModule = prevModules.find((m) => m.rootId === slot.element_id)
             const modAction = triage.modify.find((m) => m.section_id === slot.section_id)
             if (!originModule || !modAction) continue
+            console.log("[Pattern] 进入代理: proto_module_modify")
             const moduleResult = await runModuleModify({
               ...ctx,
               input: {
@@ -456,14 +461,16 @@ function PatternContent() {
       // 第四部：逐模块生成 A2UI JSON
       const modules: Array<any> = []
       for (const slot of planner.layout_planner.slots as Array<any>) {
+        console.log("[Pattern] 进入代理: proto_module_create")
         const moduleResult = await proto_module_create({
           ...intentCtx,
           idPrefix: slot.id_prefix,
           sectionId: slot.section_id,
           elementId: slot.element_id,
-          layoutPlanner: planner,
-          intentDescription: intentResult
+          layoutPlanner: planner.layout_planner,
+          intentDescription: intentResult.intent_description,
         })
+        console.log(JSON.stringify(moduleResult, null, 2))
         modules.push(moduleResult.ui_json)
       }
       
@@ -494,7 +501,8 @@ function PatternContent() {
       setLastPlanner(planner as unknown as Record<string, unknown>)
       setLastModules(modules)
 
-      console.log("结束---------------")
+      const genDuration = (performance.now() - genStartTime).toFixed(0)
+      console.log(`[Pattern] 第一次生成页面耗时: ${genDuration}ms`)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
