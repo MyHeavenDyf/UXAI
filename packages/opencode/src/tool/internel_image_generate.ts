@@ -16,7 +16,7 @@ const METHOD = "POST"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
 const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
-const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/check_permissions"
+const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
 const DEFAULT_USER_IDX = "l00423136"
 const DEFAULT_TIMEOUT_MS = 120_000
 
