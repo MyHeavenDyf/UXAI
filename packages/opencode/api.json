@@ -34,7 +34,8 @@
         "reasoning": false,
         "temperature": true,
         "tool_call": true,
-        "limit": { "context": 128000, "output": 16000 }
+        "limit": { "context": 128000, "output": 16000 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
       }
     }
   },

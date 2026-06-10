@@ -1,6 +1,7 @@
 import "../octo-tokens.css"
 import { createSignal, For, type JSX } from "solid-js"
 import { A } from "@solidjs/router"
+import { fileTypeIconUrl } from "../icons/illustrations"
 import folderBlueUrl from "../icons/IconFolderBlue.svg?url"
 
 /**
@@ -53,104 +54,103 @@ function FileFallbackNew(props: {
   downloadBusy?: boolean
   onSaveAs?: () => Promise<void>
 }): JSX.Element {
-  // 类型胶囊文案:取扩展名大写 + " 文档"(如 算子...报告.docx → DOCX 文档)
-  const typeLabel = () => {
-    const ext = props.fileName.split(".").pop()?.toUpperCase() ?? ""
-    return ext ? `${ext} 文档` : "文档"
-  }
+  const iconUrl = () => fileTypeIconUrl(props.fileName, props.mimeType)
 
   return (
     <div
       class="relative flex flex-col items-center justify-center h-full overflow-hidden"
-      style={{
-        // ① 氛围渐变背景:一团蓝紫色晕,居中晕开铺满整框,向四周柔和淡出,整体很淡,叠在底色上
-        background: [
-          "radial-gradient(120% 100% at 50% 48%, rgba(10,89,247,0.02) 0%, rgba(10,89,247,0) 60%)",
-          "radial-gradient(130% 110% at 50% 50%, rgba(75,127,255,0.016) 0%, rgba(75,127,255,0) 65%)",
-          "radial-gradient(140% 120% at 50% 52%, rgba(123,97,255,0.018) 0%, rgba(123,97,255,0) 70%)",
-          "var(--octo-surface-result)",
-        ].join(", "),
-      }}
+      style={{ background: "var(--octo-surface-result)" }}
     >
-      {/* ② 中间的设计:白色卡片 + 层叠柔和阴影(轻黑投影 + 蓝/紫辉光) */}
-      <div
-        class="relative z-10 flex flex-col items-center"
-        style={{
-          width: "440px",
-          "max-width": "calc(100% - 40px)",
-          padding: "32px 40px 28px",
-          "border-radius": "16px",
-          background: "rgba(255,255,255,1)",
-          "box-shadow": [
-            "0 4px 12px rgba(0,0,0,0.07)",
-            "0 16px 40px rgba(10,89,247,0.1)",
-            "0 24px 56px rgba(123,97,255,0.08)",
-          ].join(", "),
-        }}
-      >
-        {/* 蓝色圆角徽标 + 白色文档图标(自带蓝色辉光) */}
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "center",
-            width: "64px",
-            height: "64px",
-            "border-radius": "16px",
-            background: "linear-gradient(135deg, rgba(91,139,255,1) 0%, rgba(43,110,246,1) 100%)",
-            "box-shadow": "0 10px 24px rgba(10,89,247,0.2)",
-            "margin-bottom": "14px",
-          }}
-        >
-          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" aria-hidden="true">
-            <path d="M13.2 3H7A1.5 1.5 0 0 0 5.5 4.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8.3L13.2 3Z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" />
-            <path d="M13 3.3V8a1 1 0 0 0 1 1h4.4" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" />
-            <path d="M9 13h6M9 16.3h4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </div>
-
-        {/* 文件类型胶囊 */}
-        <div style={{ padding: "2px 10px", "border-radius": "6px", background: "rgba(10,89,247,0.08)", color: "rgba(10,89,247,1)", "font-size": "12px", "font-weight": 500, "margin-bottom": "10px" }}>
-          {typeLabel()}
-        </div>
+      <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "max-width": "calc(100% - 48px)" }}>
+        {/* 文件类型图标 72×72 */}
+        <img src={iconUrl()} width={72} height={72} alt="" aria-hidden="true" style={{ "margin-bottom": "20px" }} />
 
         {/* 文件名标题 */}
-        <div style={{ "font-size": "18px", "font-weight": 700, color: "rgba(0,0,0,0.81)", "line-height": 1.4, "text-align": "center", "word-break": "break-all", "margin-bottom": "8px", "max-width": "360px" }}>
+        <div style={{ "font-size": "20px", "font-weight": 700, color: "var(--octo-text-strong, #0a0a0a)", "line-height": 1.4, "text-align": "center", "word-break": "break-all", "margin-bottom": "8px", "max-width": "500px" }}>
           {props.fileName}
         </div>
 
         {/* 副标题 */}
-        <div style={{ "font-size": "13px", color: "rgba(0,0,0,0.4)", "margin-bottom": "20px", "text-align": "center" }}>
+        <div style={{ "font-size": "14px", color: "var(--octo-text-secondary, #6b7280)", "margin-bottom": "20px", "text-align": "center" }}>
           文档已生成完成，可选择以下方式查看
         </div>
 
+        {/* 分隔线 */}
+        <div style={{ width: "100%", "max-width": "400px", height: "1px", background: "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.07) 50%, transparent 100%)", "margin-bottom": "20px" }} />
+
         {/* 三按钮行 */}
-        <div style={{ display: "flex", gap: "10px", "flex-wrap": "wrap", "justify-content": "center" }}>
+        <div style={{ display: "flex", gap: "12px", "flex-wrap": "wrap", "justify-content": "center" }}>
           {/* 主按钮:本地打开 — 实心蓝 */}
-          <button type="button" disabled={props.openBusy} style={{ height: "36px", padding: "0 16px", "border-radius": "8px", border: "none", background: "rgba(10,89,247,1)", color: "#fff", "font-size": "13px", "font-weight": 500, cursor: props.openBusy ? "not-allowed" : "pointer", opacity: props.openBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
+          <button type="button" disabled={props.openBusy} style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "none", background: "rgb(10,89,247)", color: "#fff", "font-size": "13px", "font-weight": 500, cursor: props.openBusy ? "not-allowed" : "pointer", opacity: props.openBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
               <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="#fff" stroke-width="1.4"/>
               <path d="M5.5 14.5h5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
               <path d="M8 12v2.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
             </svg>
-            {props.openBusy ? "打开中…" : "用本地应用打开"}
+            {props.openBusy ? "打开中…" : "本地打开"}
           </button>
 
-          {/* 次按钮:文件夹打开 — 白底描边 */}
-          <button type="button" disabled={props.revealBusy} style={{ height: "36px", padding: "0 14px", "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "#fff", color: "rgba(0,0,0,0.81)", "font-size": "13px", cursor: props.revealBusy ? "not-allowed" : "pointer", opacity: props.revealBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
+          {/* 次按钮:文件夹打开 — 浅灰底蓝字 */}
+          <button type="button" disabled={props.revealBusy} style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: props.revealBusy ? "not-allowed" : "pointer", opacity: props.revealBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
             <img src={folderBlueUrl} width={14} height={12} alt="" aria-hidden="true" />
-            {props.revealBusy ? "定位中…" : "在文件夹中打开"}
+            {props.revealBusy ? "定位中…" : "文件夹打开"}
           </button>
 
-          {/* 次按钮:另存为 — 白底描边 */}
-          <button type="button" onClick={() => void props.onSaveAs?.()} disabled={props.downloadBusy} style={{ height: "36px", padding: "0 14px", "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "#fff", color: "rgba(0,0,0,0.81)", "font-size": "13px", cursor: props.downloadBusy ? "not-allowed" : "pointer", opacity: props.downloadBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
+          {/* 次按钮:另存为 — 浅灰底蓝字 */}
+          <button type="button" onClick={() => void props.onSaveAs?.()} disabled={props.downloadBusy} style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: props.downloadBusy ? "not-allowed" : "pointer", opacity: props.downloadBusy ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}>
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
-              <path d="M8 2v8M5 7.5l3 3 3-3" stroke="rgba(10,89,247,1)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M2.5 11.5v1A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5v-1" stroke="rgba(10,89,247,1)" stroke-width="1.3" stroke-linecap="round"/>
+              <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
             </svg>
             {props.downloadBusy ? "保存中…" : "另存为"}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 线上现状(result-viewer/index.tsx FileFallback 原样复刻,无 API 调用) ──
+function FileFallbackCurrent(props: {
+  fileName: string
+  mimeType: string
+  openBusy?: boolean
+  revealBusy?: boolean
+  downloadBusy?: boolean
+}): JSX.Element {
+  return (
+    <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
+      <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>
+        {props.fileName}
+      </div>
+      <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>
+        {props.mimeType} · 该格式不在应用内预览
+      </div>
+      <div class="flex items-center gap-2 mt-1 flex-wrap justify-center">
+        <button
+          type="button"
+          disabled={props.openBusy}
+          class="px-3 py-1 text-xs rounded disabled:opacity-50"
+          style={{ border: "1px solid var(--octo-brand)", color: "var(--octo-brand)", background: "var(--octo-surface-page)" }}
+        >
+          {props.openBusy ? "打开中…" : "用本地应用打开"}
+        </button>
+        <button
+          type="button"
+          disabled={props.revealBusy}
+          class="px-3 py-1 text-xs rounded disabled:opacity-50"
+          style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+        >
+          {props.revealBusy ? "定位中…" : "在文件夹中打开"}
+        </button>
+        <button
+          type="button"
+          disabled={props.downloadBusy}
+          class="px-3 py-1 text-xs rounded disabled:opacity-50"
+          style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+        >
+          {props.downloadBusy ? "保存中…" : "另存为"}
+        </button>
       </div>
     </div>
   )
@@ -191,12 +191,12 @@ export default function FileFallbackPreviewPage(): JSX.Element {
 
   return (
     <div class="size-full overflow-y-auto" style={{ background: "var(--octo-shell-bg, #f5f6f8)", "font-family": "var(--octo-font, system-ui)" }}>
-      <div class="mx-auto" style={{ "max-width": "1080px", padding: "40px 24px 80px" }}>
+      <div class="mx-auto" style={{ "max-width": "760px", padding: "40px 24px 80px" }}>
         <A href="/insight/__dev" style={{ "font-size": "12px", color: "var(--octo-text-secondary)", "text-decoration": "none" }}>← Dev 预览索引</A>
 
-        <div style={{ "margin-top": "12px", "margin-bottom": "4px", "font-size": "22px", "font-weight": 600, color: "var(--octo-text-strong)" }}>FileFallback 预览</div>
+        <div style={{ "margin-top": "12px", "margin-bottom": "4px", "font-size": "22px", "font-weight": 600, color: "var(--octo-text-strong)" }}>FileFallback 对比预览</div>
         <div style={{ "margin-bottom": "20px", "font-size": "13px", color: "var(--octo-text-secondary)" }}>
-          设计稿新 UI（待落地 result-viewer/index.tsx FileFallback）
+          左:线上现状(result-viewer/index.tsx)&emsp;右:设计稿新 UI(待落地)
         </div>
 
         {/* 文件类型选择 */}
@@ -225,20 +225,44 @@ export default function FileFallbackPreviewPage(): JSX.Element {
           ))}
         </div>
 
-        {/* 单栏画框:模拟 ResultViewer 右栏(白底大尺寸,内含氛围背景 + 浮起卡片) */}
-        <div style={{ height: "560px", border: "1px solid var(--octo-border-divider, #eee)", "border-radius": "var(--octo-radius-md, 8px)", overflow: "hidden", "box-shadow": "0 1px 3px rgba(0,0,0,.06)", background: "var(--octo-surface-result, #fff)" }}>
-          <FileFallbackNew
-            fileName={file().fileName}
-            mimeType={file().mimeType}
-            openBusy={openBusy()}
-            revealBusy={revealBusy()}
-            downloadBusy={downloadBusy()}
-            onSaveAs={handleSaveAs}
-          />
+        {/* 左右对比:同一画框尺寸 */}
+        <div style={{ display: "flex", gap: "20px", "flex-wrap": "wrap" }}>
+          {/* 左:线上现状 */}
+          <div style={{ flex: "1", "min-width": "280px" }}>
+            <div style={{ "font-size": "12px", "font-weight": 600, color: "var(--octo-text-secondary)", "margin-bottom": "8px" }}>
+              线上现状
+            </div>
+            <div style={{ height: "320px", border: "1px solid var(--octo-border-divider, #eee)", "border-radius": "var(--octo-radius-md, 8px)", overflow: "hidden", "box-shadow": "0 1px 3px rgba(0,0,0,.06)", background: "var(--octo-surface-result, #fff)" }}>
+              <FileFallbackCurrent
+                fileName={file().fileName}
+                mimeType={file().mimeType}
+                openBusy={openBusy()}
+                revealBusy={revealBusy()}
+                downloadBusy={downloadBusy()}
+              />
+            </div>
+          </div>
+
+          {/* 右:设计稿新 UI */}
+          <div style={{ flex: "1", "min-width": "280px" }}>
+            <div style={{ "font-size": "12px", "font-weight": 600, color: "var(--octo-text-secondary)", "margin-bottom": "8px" }}>
+              设计稿新 UI(待落地)
+            </div>
+            <div style={{ height: "320px", border: "1px solid var(--octo-border-divider, #eee)", "border-radius": "var(--octo-radius-md, 8px)", overflow: "hidden", "box-shadow": "0 1px 3px rgba(0,0,0,.06)" }}>
+              <FileFallbackNew
+                fileName={file().fileName}
+                mimeType={file().mimeType}
+                openBusy={openBusy()}
+                revealBusy={revealBusy()}
+                downloadBusy={downloadBusy()}
+                onSaveAs={handleSaveAs}
+              />
+            </div>
+          </div>
         </div>
 
         <div style={{ "margin-top": "14px", "font-size": "12px", color: "var(--octo-text-disabled)", "line-height": 1.7 }}>
-          画框模拟 ResultViewer 右栏（氛围渐变背景 + 浮起卡片）。确认后落地替换 <code>result-viewer/index.tsx FileFallback</code>。
+          画框 320px 高模拟 ResultViewer 右栏。确认新 UI 后落地替换 <code>result-viewer/index.tsx FileFallback</code>。
         </div>
       </div>
     </div>

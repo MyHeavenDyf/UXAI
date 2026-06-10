@@ -633,7 +633,7 @@ export function MessageTimeline(props: {
     >
       <div class="relative w-full h-full min-w-0">
         <div
-          class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
+          class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[2] pointer-events-none transition-all duration-200 ease-out"
           classList={{
             hidden: !!dialog.active,
             "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
