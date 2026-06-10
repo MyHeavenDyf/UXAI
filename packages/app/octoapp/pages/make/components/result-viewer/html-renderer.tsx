@@ -681,8 +681,10 @@ return (
                   if (d && d.type === "od:inspect-overrides") {
                     console.log("[Inspect] Extracted overrides:", d.overrides)
                     // Save overrides for reapplication after iframe reload
-                    setSavedOverrides(d.overrides)
                     props.onSaveOverrides?.(d.overrides)
+                    // Close inspect panel and clear state
+                    setInspectTarget(null)
+                    setSavedOverrides([])
                     window.removeEventListener("message", handleOverrides)
                   }
                 }
@@ -712,24 +714,21 @@ return (
                     "*"
                   )
                 }}
-                onApplyPatch={(patch: ManualEditPatch, label: string) => {
-                  const html = extractHtmlContent(props.content)
-                  const result = applyManualEditPatch(html, patch)
-                  if (result.ok) {
-                    const updatedContent = wrapHtmlContent(result.source, props.content)
-                    props.onContentChange?.(updatedContent)
-                    
-                    // Push to history
-                    pushHistory(result.source, label)
-                    
-                    // Clear edit target after successful patch
-                    if (patch.kind === 'remove-element') {
-                      setEditTarget(null)
-                    }
-                  } else {
-                    console.error("[Edit] Patch failed:", result.error)
-                  }
-                }}
+onApplyPatch={(patch: ManualEditPatch, label: string) => {
+              const annotatedHtml = annotatedHtmlCache()
+              const result = applyManualEditPatch(annotatedHtml, patch)
+              if (result.ok) {
+                const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
+                const updatedContent = wrapHtmlContent(cleanSource, props.content)
+                props.onContentChange?.(updatedContent)
+                pushHistory(cleanSource, label)
+                if (patch.kind === 'remove-element') {
+                  setEditTarget(null)
+                }
+              } else {
+                console.error("[Edit] Patch failed:", result.error)
+              }
+            }}
                 onPickImage={async (file: File): Promise<string | null> => {
                   // Convert file to dataUrl (simple implementation)
                   return new Promise((resolve) => {

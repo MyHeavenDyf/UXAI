@@ -1,10 +1,11 @@
 import "./octo-tokens.css"
 import "./components/starter-cards.css"
+import "./components/slash-popover.css"
 import { FEATURED_STARTERS } from "./utils/starter-prompts"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
-import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { createAutoScroll, useFilteredList } from "@opencode-ai/ui/hooks"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -14,6 +15,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useCommand } from "@/context/command"
 import {
   createEffect,
   createMemo,
@@ -55,13 +57,17 @@ import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { autoSaveArtifact } from "./utils/artifact-auto-save"
 import { persistTabChanges } from "./utils/tab-persistence"
+import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
   const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
+  const projectDir = () => {
+    const config = globalSync.data.path.config
+    return config ? octoSessionsDir(config) : globalSync.data.path.home
+  }
 
   return (
-    <Show when={homeDir()} keyed>
+    <Show when={projectDir()} keyed>
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
@@ -78,13 +84,17 @@ export default function MakePage() {
 function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const sdk = useSDK()
+  const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
   const language = useLanguage()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
+  const sdk = useSDK()
+
+  // Register Make slash commands
+  useMakeCommands()
 
   const projectDir = useProjectDir()
 
@@ -246,34 +256,39 @@ createEffect(
 
   // ── Annotation event listener (from DrawOverlay) ────────────────────────────────
   createEffect(() => {
-    const handleAnnotation = (e: CustomEvent<AnnotationEventDetail>) => {
-      const detail = e.detail
+    const handleAnnotation = async (e: Event) => {
+      const detail = (e as CustomEvent<AnnotationEventDetail>).detail
       
-      // Convert File to Attachment
+      // Convert File to Attachment (synchronously)
       if (detail.file) {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const att: Attachment = {
-            id: crypto.randomUUID(),
-            filename: detail.file!.name,
-            mime: 'image/png',
-            dataUrl: reader.result as string
-          }
-          setAttachments(prev => [...prev, att])
+        const file = detail.file
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.readAsDataURL(file)
+        })
+        
+        const att: Attachment = {
+          id: crypto.randomUUID(),
+          filename: file.name,
+          mime: 'image/png',
+          dataUrl
         }
-        reader.readAsDataURL(detail.file)
+        setAttachments(prev => [...prev, att])
       }
       
-      // Append note to prompt
-      if (detail.note) {
-        setPrompt(prev => prev ? `${prev}\n${detail.note}` : detail.note)
-      }
+      // Build message text (note only)
+      const messageText = detail.note || ""
       
       // Send immediately if requested and not busy
       if (detail.action === 'send' && !sending()) {
         const sessionId = params.id
         if (sessionId) {
-          sendMessage(sessionId, prompt())
+          await sendMessage(sessionId, messageText)
+          
+          // Clear attachments after send
+          setAttachments([])
+          setPrompt("")
         }
       }
       
@@ -283,8 +298,8 @@ createEffect(
       }
     }
     
-    window.addEventListener(ANNOTATION_EVENT, handleAnnotation as EventListener)
-    onCleanup(() => window.removeEventListener(ANNOTATION_EVENT, handleAnnotation as EventListener))
+    window.addEventListener(ANNOTATION_EVENT, handleAnnotation)
+    onCleanup(() => window.removeEventListener(ANNOTATION_EVENT, handleAnnotation))
   })
 
   // 调试日志：打印当前 session 相关的 SSE 事件
@@ -398,6 +413,66 @@ createEffect(
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+
+  // ── Slash Command Popover State ──
+  const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [slashIndex, setSlashIndex] = createSignal(0)
+  let textareaRef!: HTMLTextAreaElement
+
+  // ── Slash Command List ──
+  interface SlashCommand {
+    trigger: string
+    title: string
+    description?: string
+    id: string
+    source: "builtin" | "command" | "mcp"
+  }
+
+  const slashCommands = createMemo<SlashCommand[]>(() => {
+    const list: SlashCommand[] = []
+
+    // Builtin commands - TEMPORARILY HIDDEN (keep system configuration intact)
+    // const builtinCommands = command.options.filter(opt => opt.slash)
+    // for (const opt of builtinCommands) {
+    //   list.push({
+    //     trigger: opt.slash!,
+    //     title: opt.title,
+    //     description: opt.description,
+    //     id: opt.id,
+    //     source: "builtin",
+    //   })
+    // }
+
+    // Custom commands from sync.data.command - Only show MCP commands
+    const customCommands = sync.data?.command ?? []
+    for (const cmd of customCommands) {
+      // Temporary filter: hide project-level commands, only show MCP
+      if (cmd.source !== "mcp") continue
+      list.push({
+        trigger: cmd.name,
+        title: cmd.name,
+        description: cmd.description,
+        id: cmd.name,
+        source: cmd.source as "command" | "mcp",
+      })
+    }
+
+    // Sort alphabetically
+    list.sort((a, b) => a.trigger.localeCompare(b.trigger))
+    return list
+  })
+
+  const filteredSlash = createMemo(() => {
+    const query = slashState()?.query ?? ""
+    if (!query) return slashCommands()
+
+    const lowerQuery = query.toLowerCase()
+    return slashCommands().filter(cmd =>
+      (cmd.trigger?.toLowerCase() ?? "").includes(lowerQuery) ||
+      (cmd.title?.toLowerCase() ?? "").includes(lowerQuery) ||
+      (cmd.description?.toLowerCase() ?? "").includes(lowerQuery)
+    )
+  })
   const DS_KEY_PREFIX = "octo:make:design-system:"
   const PROMPT_KEY_PREFIX = "octo:make:prompt:"
   const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
@@ -677,12 +752,83 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
-  /** Enter 发送，Shift+Enter 换行 */
+  /** Handle keyboard events including slash command navigation */
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    const slash = slashState()
+
+    // Slash command navigation
+    if (slash) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSlashIndex(i => Math.min(i + 1, filteredSlash().length - 1))
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSlashIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault()
+        e.stopPropagation()
+        const cmds = filteredSlash()
+        if (cmds.length > 0) {
+          pickSlash(cmds[slashIndex()])
+        }
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSlashState(null)
+        return
+      }
+    }
+
+    // Enter to send (only when slash popover is closed)
+    if (e.key === "Enter" && !e.shiftKey && !slash) {
       e.preventDefault()
       void handleSubmit()
     }
+  }
+
+  /** Handle input changes and detect slash trigger */
+  function handleInput(e: InputEvent) {
+    const ta = e.currentTarget as HTMLTextAreaElement
+    const value = ta.value
+    const cursor = ta.selectionStart
+
+    setPrompt(value)
+
+    // Detect slash trigger: /^\/([^\s/]*)$/
+    const slashMatch = value.match(/^\/([^\s/]*)$/)
+    if (slashMatch && cursor === value.length) {
+      setSlashState({ query: slashMatch[1] ?? "", cursor })
+      setSlashIndex(0)
+    } else {
+      setSlashState(null)
+    }
+  }
+
+  /** Pick a slash command and insert into textarea */
+  function pickSlash(cmd: SlashCommand) {
+    if (!slashState()) return
+
+    const ta = textareaRef
+    const before = prompt()
+    
+    // Replace `/query` with `/trigger `
+    const replaced = before.replace(/^\/([^\s/]*)$/, `/${cmd.trigger} `)
+    setPrompt(replaced)
+    setSlashState(null)
+
+    // Focus textarea and position cursor at end
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(replaced.length, replaced.length)
+    })
   }
 
   // ── 附件管理 ─────────────────────────────────────────────
@@ -944,9 +1090,42 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                       height: "150px",
                     }}
                   >
+                    {/* Slash Command Popover（新建对话） */}
+                    <Show when={slashState() && filteredSlash().length > 0}>
+                      <div class="slash-popover">
+                        <div class="slash-popover-head">
+                          <span class="slash-popover-title">命令</span>
+                          <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        </div>
+                        <For each={filteredSlash()}>
+                          {(cmd, i) => {
+                            const active = i() === slashIndex()
+                            return (
+                              <button
+                                type="button"
+                                class={`slash-item ${active ? "active" : ""}`}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onMouseEnter={() => setSlashIndex(i())}
+                                onClick={() => pickSlash(cmd)}
+                              >
+                                <span class="slash-trigger">/{cmd.trigger}</span>
+                                <span class="slash-desc">{cmd.description ?? cmd.title}</span>
+                                <Show when={cmd.source !== "builtin"}>
+                                  <span class={`slash-source badge-${cmd.source}`}>
+                                    {cmd.source === "mcp" ? "MCP" : "自定义"}
+                                  </span>
+                                </Show>
+                              </button>
+                            )
+                          }}
+                        </For>
+                      </div>
+                    </Show>
+
                     <textarea
+                      ref={textareaRef}
                       value={prompt()}
-                      onInput={(e) => setPrompt(e.currentTarget.value)}
+                      onInput={handleInput}
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}
@@ -1093,9 +1272,42 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                     "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
+                  {/* Slash Command Popover */}
+                  <Show when={slashState() && filteredSlash().length > 0}>
+                    <div class="slash-popover">
+                      <div class="slash-popover-head">
+                        <span class="slash-popover-title">命令</span>
+                        <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                      </div>
+                      <For each={filteredSlash()}>
+                        {(cmd, i) => {
+                          const active = i() === slashIndex()
+                          return (
+                            <button
+                              type="button"
+                              class={`slash-item ${active ? "active" : ""}`}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onMouseEnter={() => setSlashIndex(i())}
+                              onClick={() => pickSlash(cmd)}
+                            >
+                              <span class="slash-trigger">/{cmd.trigger}</span>
+                              <span class="slash-desc">{cmd.description ?? cmd.title}</span>
+                              <Show when={cmd.source !== "builtin"}>
+                                <span class={`slash-source badge-${cmd.source}`}>
+                                  {cmd.source === "mcp" ? "MCP" : "自定义"}
+                                </span>
+                              </Show>
+                            </button>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+
                   <textarea
+                    ref={textareaRef}
                     value={prompt()}
-                    onInput={(e) => setPrompt(e.currentTarget.value)}
+                    onInput={handleInput}
                     onKeyDown={handleKeyDown}
                     placeholder="输入指令，按 Enter 发送…"
                     rows={3}

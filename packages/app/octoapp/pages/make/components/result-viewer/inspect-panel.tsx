@@ -32,11 +32,22 @@ export function InspectPanel(props: {
   }
 
   function rgbToHex(rgb: string): string {
-    const m = rgb.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
-    if (!m) return "#000000"
-    const r = parseInt(m[1]).toString(16).padStart(2, "0")
-    const g = parseInt(m[2]).toString(16).padStart(2, "0")
-    const b = parseInt(m[3]).toString(16).padStart(2, "0")
+    if (rgb === "transparent" || rgb === "rgba(0, 0, 0, 0)") {
+      return ""
+    }
+    const match = rgb.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)/i)
+    if (!match) return rgb.startsWith("#") ? rgb : "#000000"
+    
+    const alpha = match[4] ? parseFloat(match[4]) : 1
+    if (alpha === 0) return ""
+    
+    if (alpha < 1) {
+      return rgb
+    }
+    
+    const r = parseInt(match[1]).toString(16).padStart(2, "0")
+    const g = parseInt(match[2]).toString(16).padStart(2, "0")
+    const b = parseInt(match[3]).toString(16).padStart(2, "0")
     return `#${r}${g}${b}`
   }
 
@@ -49,7 +60,7 @@ export function InspectPanel(props: {
   const initialRadius = pxToNumber(style().borderRadius ?? "0")
 
   const colorHex = () => value("color", rgbToHex(style().color ?? "#000000"))
-  const bgHex = () => value("backgroundColor", rgbToHex(style().backgroundColor ?? "#ffffff"))
+  const bgHex = () => value("backgroundColor", rgbToHex(style().backgroundColor ?? ""))
   const padding = () => value("padding", String(initialPadding))
   const fontSize = () => value("fontSize", String(initialFontSize))
   const radius = () => value("borderRadius", String(initialRadius))
@@ -103,13 +114,26 @@ export function InspectPanel(props: {
           <input
             id="ip-bg"
             type="color"
-            value={bgHex()}
+            value={(() => {
+              const v = bgHex()
+              if (!v) return "#ffffff"
+              if (v.startsWith("rgba")) {
+                const m = v.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+                if (!m) return "#ffffff"
+                const r = parseInt(m[1]).toString(16).padStart(2, "0")
+                const g = parseInt(m[2]).toString(16).padStart(2, "0")
+                const b = parseInt(m[3]).toString(16).padStart(2, "0")
+                return `#${r}${g}${b}`
+              }
+              return v
+            })()}
             onChange={(e) => setVal("backgroundColor", e.currentTarget.value)}
           />
           <input
             type="text"
             value={bgHex()}
             onChange={(e) => setVal("backgroundColor", e.currentTarget.value)}
+            placeholder="(transparent)"
             spellcheck={false}
           />
         </div>

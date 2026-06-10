@@ -335,7 +335,7 @@ export function ActionBar(props: {
             title="可视化元素编辑（文本、链接、图片、样式）"
           >
             <IconActionEdit size={13} />
-            <span>元素编辑</span>
+            <span>编辑</span>
           </button>
         )}
         {canToggleMode && props.onModeChange && (
@@ -345,7 +345,7 @@ export function ActionBar(props: {
             onClick={props.onModeChange}
           >
             {props.mode === "edit" ? <IconActionPreview size={13} /> : <IconActionEdit size={13} />}
-            <span>{props.mode === "edit" ? "预览" : "编辑"}</span>
+            <span>{props.mode === "edit" ? "预览" : "查看源码"}</span>
           </button>
         )}
         <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>

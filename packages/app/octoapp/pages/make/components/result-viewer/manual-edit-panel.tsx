@@ -70,9 +70,12 @@ export function ManualEditPanel(props: {
     event.preventDefault()
     event.stopPropagation()
     
-    const panel = (event.currentTarget as HTMLElement).closest('.manual-edit-right') as HTMLElement | null
+    const target = event.currentTarget as HTMLElement
+    const panel = target.closest('.manual-edit-right') as HTMLElement | null
     const parent = panel?.parentElement
     if (!panel || !parent) return
+    
+    target.setPointerCapture(event.pointerId)
     
     const startX = event.clientX
     const startY = event.clientY
@@ -85,8 +88,6 @@ export function ManualEditPanel(props: {
     const maxLeft = Math.max(pad, parentRect.width - panelRect.width - pad)
     const maxTop = Math.max(pad, parentRect.height - panelRect.height - pad)
     
-    const ownerDocument = panel.ownerDocument
-    
     const move = (moveEvent: PointerEvent) => {
       props.onFloatingPositionChange!({
         left: clamp(startLeft + moveEvent.clientX - startX, pad, maxLeft),
@@ -95,14 +96,15 @@ export function ManualEditPanel(props: {
     }
     
     const up = () => {
-      ownerDocument.removeEventListener('pointermove', move)
-      ownerDocument.removeEventListener('pointerup', up)
-      ownerDocument.removeEventListener('pointercancel', up)
+      try { target.releasePointerCapture(event.pointerId) } catch { /* noop */ }
+      target.removeEventListener('pointermove', move)
+      target.removeEventListener('pointerup', up)
+      target.removeEventListener('pointercancel', up)
     }
     
-    ownerDocument.addEventListener('pointermove', move)
-    ownerDocument.addEventListener('pointerup', up)
-    ownerDocument.addEventListener('pointercancel', up)
+    target.addEventListener('pointermove', move)
+    target.addEventListener('pointerup', up)
+    target.addEventListener('pointercancel', up)
   }
 
   const changeTargetStyle = (key: keyof ManualEditStyles, value: string) => {
@@ -537,7 +539,7 @@ function ColorRow(props: {
         />
         <input
           value={props.value}
-          placeholder="#000000"
+          placeholder="(transparent)"
           onChange={(e) => props.onChange(e.currentTarget.value)}
           onFocus={() => setOpen(true)}
         />
@@ -556,7 +558,19 @@ function ColorRow(props: {
             <input
               type="color"
               class="cc-color-native"
-              value={normalizeColorForPicker(props.value)}
+              value={(() => {
+                const normalized = normalizeColorForPicker(props.value)
+                if (!normalized) return "#ffffff"
+                if (normalized.startsWith("rgba")) {
+                  const m = normalized.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+                  if (!m) return "#ffffff"
+                  const r = parseInt(m[1]).toString(16).padStart(2, "0")
+                  const g = parseInt(m[2]).toString(16).padStart(2, "0")
+                  const b = parseInt(m[3]).toString(16).padStart(2, "0")
+                  return `#${r}${g}${b}`
+                }
+                return normalized
+              })()}
               onChange={(e) => props.onChange(e.currentTarget.value)}
             />
           </div>
@@ -662,6 +676,11 @@ function sideUpper(side: 't' | 'r' | 'b' | 'l'): 'Top' | 'Right' | 'Bottom' | 'L
 
 function normalizeColorForPicker(value: string): string {
   const trimmed = value.trim()
+  
+  if (trimmed === "transparent" || trimmed === "rgba(0, 0, 0, 0)") {
+    return ""
+  }
+  
   if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
     if (trimmed.length === 4) {
       const r = trimmed[1]!, g = trimmed[2]!, b = trimmed[3]!
@@ -669,12 +688,21 @@ function normalizeColorForPicker(value: string): string {
     }
     return trimmed.toLowerCase()
   }
-  const match = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
+  
+  const match = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)/i)
   if (match) {
+    const alpha = match[4] ? parseFloat(match[4]) : 1
+    if (alpha === 0) return ""
+    
+    if (alpha < 1) {
+      return trimmed
+    }
+    
     const toHex = (n: string) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0')
     return `#${toHex(match[1]!)}${toHex(match[2]!)}${toHex(match[3]!)}`
   }
-  return '#000000'
+  
+  return ''
 }
 
 function readableContentName(value: string | undefined): string {
