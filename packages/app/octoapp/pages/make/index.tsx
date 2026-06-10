@@ -10,7 +10,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   createEffect,
@@ -746,7 +746,6 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
-      <Toast.Region />
       <div
         class="octo-make octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
