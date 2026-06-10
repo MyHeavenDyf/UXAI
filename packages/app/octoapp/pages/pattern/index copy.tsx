@@ -31,9 +31,9 @@ import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { octoSessionsDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
-import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { AttachmentBar, type Attachment } from "./modules/chat/attachment_bar"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
-import { DesignSystemPicker } from "./components/design-system-picker"
+import { DesignSystemPicker } from "./modules/chat/design_system_picker"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
@@ -41,7 +41,9 @@ import { runProtoTriage } from "./agents/proto_triage"
 import { runProtoIntent } from "./agents/proto_intent"
 import { runProtoIntentAudit } from "./agents/proto_intent_audit"
 import { runProtoPlannerCreate } from "./agents/proto_planner_create"
+import { runProtoPlannerModify } from "./agents/proto_planner_modify"
 import { runProtoModuleCreate } from "./agents/proto_module_create"
+import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 
@@ -190,7 +192,71 @@ function PatternContent() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
+  const [lastIntent, setLastIntent] = createSignal<Record<string, unknown> | null>(null)
+  const [lastPlanner, setLastPlanner] = createSignal<Record<string, unknown> | null>(null)
+  const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
+  const getModuleResults = () => {
+    const mods = lastModules()
+    return mods.length > 0 ? mods as unknown as Record<string, unknown> : null
+  }
   const hasContent = () => !!(params.id && userMessages().length > 0)
+  const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
+  const [pickerText, setPickerText] = createSignal("")
+
+  function unfreezeDomPicker() {
+    if (previewIframeRef?.contentWindow) {
+      previewIframeRef.contentWindow.postMessage({ type: "DOM_PICKER_UNFREEZE" }, "*")
+    }
+  }
+
+  function showPickerDialog() {
+    dialog.show(() => (
+      <Dialog title="修改选中区域" fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <span class="text-14-regular text-text-strong">
+            选中元素: <b>{pickerDialog.tagName}</b> ({pickerDialog.domPickerId})
+          </span>
+          <div class="flex gap-2">
+            <button class="px-3 py-1 rounded-full text-13-medium transition-colors bg-primary text-on-primary">
+              AI 修改
+            </button>
+          </div>
+          <textarea
+            value={pickerText()}
+            onInput={(e) => setPickerText(e.currentTarget.value)}
+            placeholder="描述你想要的修改..."
+            rows={3}
+            class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+          />
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              取消
+            </Button>
+            <Button variant="primary" size="large" onClick={submitPicker}>
+              确认修改
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ), unfreezeDomPicker)
+  }
+
+  const handlePickerMessage = (e: MessageEvent) => {
+    if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
+    setPickerDialog({ domPickerId: e.data.domPickerId ?? "", tagName: e.data.tagName ?? "" })
+    setPickerText("")
+    showPickerDialog()
+  }
+  window.addEventListener("message", handlePickerMessage)
+  onCleanup(() => window.removeEventListener("message", handlePickerMessage))
+
+  function submitPicker() {
+    const text = pickerText().trim()
+    if (!text) return
+    setPrompt(`[选中元素: ${pickerDialog.domPickerId}] ${text}`)
+    dialog.close()
+    void handleSubmit()
+  }
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -383,25 +449,101 @@ function PatternContent() {
       }
 
       // ── Step 0: triage → 判断首次还是修改 ──
-      const existingText = getLastAssistantText(sid)
-      const genuiJson = existingText ? extractJsonFromText(existingText) : null
-      debugger
+      const isEdit = !!lastIntent()
+      const currentPlanner = lastPlanner()
       const triage = await runProtoTriage({
         sdk: { client: sdk.client },
         directory: sdk.directory!,
         modelKey: mk,
         userRequest: text,
-        genuiJson,
-        layoutPlanner: null,
-        moduleResults: null,
-        sessionId: genuiJson ? sid : undefined,
+        genuiJson: isEdit ? (lastIntent() ?? {}) : null,
+        layoutPlanner: currentPlanner,
+        moduleResults: getModuleResults(),
+        sessionId: isEdit ? sid : undefined,
         abortSignal: controller.signal,
       })
       console.log("[Pattern] triage:", triage.routing, triage.reason)
       console.log("[Pattern] triage output:", JSON.stringify(triage, null, 2))
 
       if (triage.routing === "modify") {
-        console.log("[Pattern] modify flow (not implemented)")
+        if (!currentPlanner || !lastIntent()) {
+          console.log("[Pattern] modify skipped: no previous page state")
+          return
+        }
+        setPhase("planner")
+        const modifyResult = await runProtoPlannerModify({
+          ...ctx,
+          input: {
+            intentReason: triage.reason,
+            intentDelete: triage.delete,
+            intentAdd: triage.add,
+            intentModify: triage.modify,
+            intentPage: triage.updated_intent,
+            layoutPlanner: currentPlanner,
+          },
+        })
+        console.log("[Pattern] planner_modify done, slots:", modifyResult.output.slots.length)
+        console.log("[Pattern] planner_modify output:", JSON.stringify(modifyResult, null, 2))
+        console.log("[Pattern] removed sections:", modifyResult.removedSectionIds)
+
+        const currentIntent = lastIntent()!
+        const prevModules = lastModules()
+
+        setPhase("module")
+        const allModules: typeof prevModules = []
+
+        for (const slot of modifyResult.output.slots) {
+          if (slot.operation === "none") {
+            const existing = prevModules.find((m) => m.rootId === slot.element_id)
+            if (existing) allModules.push(existing)
+            continue
+          }
+          if (slot.operation === "create") {
+            const moduleResult = await runProtoModuleCreate({
+              ...ctx,
+              input: {
+                intentDescription: currentIntent as any,
+                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
+                sectionId: slot.section_id,
+                elementId: slot.element_id,
+                idPrefix: slot.id_prefix,
+              },
+            })
+            allModules.push(moduleResult.uiJson as typeof prevModules[number])
+            continue
+          }
+          if (slot.operation === "modify") {
+            const originModule = prevModules.find((m) => m.rootId === slot.element_id)
+            const modAction = triage.modify.find((m) => m.section_id === slot.section_id)
+            if (!originModule || !modAction) continue
+            const moduleResult = await runModuleModify({
+              ...ctx,
+              input: {
+                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
+                idPrefix: slot.id_prefix,
+                sectionId: slot.section_id,
+                originModules: originModule,
+                modifications: modAction as unknown as Record<string, unknown>,
+              },
+            })
+            allModules.push(moduleResult.uiJson as typeof prevModules[number])
+          }
+        }
+
+        const merged = mergeModules(
+          { rootId: modifyResult.output.rootId, elements: modifyResult.output.elements },
+          allModules,
+        )
+        console.log("[Pattern] ========== MERGED A2UI JSON ==========")
+        console.log(JSON.stringify(merged, null, 2))
+        const mergedJson = detectA2UIJson(JSON.stringify(merged))
+        if (mergedJson) sendToPreview(mergedJson)
+
+        const updatedIntent = { ...lastIntent(), ...triage.updated_intent }
+        setLastIntent(updatedIntent as unknown as Record<string, unknown>)
+        setLastPlanner(modifyResult.output as unknown as Record<string, unknown>)
+        setLastModules(allModules)
+
         setPhase("idle")
         return
       }
@@ -409,247 +551,9 @@ function PatternContent() {
       // ── Step 1: proto_intent → 生成蓝图 ──
       setPhase("intent")
       debugger
-      const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
-//       const intentResult = JSON.parse(`{
-//   "userInput": "简易小卡片",
-//   "intentAnalysis": "该界面是一个轻量级卡片式概览面板，面向内部团队成员或管理者，用于在一个简洁统一的视图中快速掌握关键业务指标、团队成员动态及待办事项。核心痛点在于信息碎片化——用户需要在多个系统页面间切换才能获取完整信息。本界面通过将多种信息类型（指标数据、人员状态、任务进度）统一收敛为视觉一致的小卡片形态，帮助用户实现「一屏览全局」的效率提升。",
-//   "layoutDescription": "页面采用上下垂直布局模式：顶部为通栏标题栏（含欢迎语、全局搜索与用户入口），下方为主体区域，主体区域从上至下依次为指标卡片行和多功能卡片网格区。整体布局紧凑，聚焦于卡片信息的快速扫描与消费。",
-//   "sections": [
-//     {
-//       "id": "pageHeader",
-//       "name": "页面顶部标题栏",
-//       "description": "页面最顶部的全局导航与状态区域，提供欢迎问候、全局搜索入口、通知提醒及用户信息展示，是用户进入页面的第一视觉锚点。"
-//     },
-//     {
-//       "id": "metricsCards",
-//       "name": "核心指标卡片行",
-//       "description": "横向排列的4个关键业务指标小卡片，以极简的视觉风格展示总用户数、月活跃用户、本月收入和任务完成率的当前数值与变化趋势，帮助用户快速感知业务健康度。"
-//     },
-//     {
-//       "id": "mixedCardGrid",
-//       "name": "多功能卡片网格",
-//       "description": "一个3列的卡片网格区域，混合展示团队成员卡片、待办任务卡片和动态通知卡片，每种卡片类型拥有统一的视觉基调和差异化的信息结构，集中呈现协作维度的关键信息。"
-//     }
-//   ],
-//   "sectionDetailList": [
-//     {
-//       "id": "pageHeader",
-//       "name": "页面顶部标题栏",
-//       "intent": "提供页面级全局导航与用户状态入口，让用户快速定位到搜索内容、查看通知或进入个人中心。",
-//       "function": "1. 显示个性化欢迎语；2. 提供全局搜索框；3. 展示未读通知数并提供点击入口；4. 展示当前登录用户头像与名称。",
-//       "layout": "水平通栏布局，采用左中右三段式结构：左侧为欢迎语文本，中间为搜索框，右侧为通知按钮和用户头像的组合。",
-//       "elements": "左侧：标题文本组件；中间：Input搜索输入框（带Search图标）；右侧：Badge包裹的Bell图标按钮 + 用户头像Image组件。",
-//       "data": {
-//         "welcomeMessage": "早上好，欢迎回来 👋",
-//         "searchPlaceholder": "搜索卡片、项目或用户...",
-//         "notificationConfig": {
-//           "bellIcon": "Bell",
-//           "unreadCount": 5,
-//           "notificationTooltip": "你有 5 条未读通知"
-//         },
-//         "userInfo": {
-//           "avatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
-//           "userName": "张明",
-//           "userRole": "高级产品经理"
-//         }
-//       }
-//     },
-//     {
-//       "id": "metricsCards",
-//       "name": "核心指标卡片行",
-//       "intent": "在视觉最优先的区域集中呈现4个最关键的量化业务指标，让用户无需任何操作即可完成对当前业务状态的全局评估。",
-//       "function": "展示4个并排的指标小卡片，每张卡片包含：指标名称、当前数值与单位、趋势方向图标、环比变化率、对比时间段文本。",
-//       "layout": "水平等分布局，4张卡片占据一整行，每张卡片宽度相等，内部采用上下结构：指标名称在上，数值居中，趋势与变化率在底部。",
-//       "elements": "4个结构一致的指标卡片组件。每个卡片内部包含：指标名称文本、大号数值文本、单位文本、趋势图标（Lucide: TrendingUp / TrendingDown）、变化率文本、对比时段文本。",
-//       "data": {
-//         "cardTitle": "核心指标",
-//         "metrics": [
-//           {
-//             "cardTitle": "总用户数",
-//             "currentValue": 28473,
-//             "unit": "人",
-//             "trendIcon": "TrendingUp",
-//             "changeRate": "+12.5%",
-//             "periodText": "较上月增长"
-//           },
-//           {
-//             "cardTitle": "月活跃用户",
-//             "currentValue": 12580,
-//             "unit": "人",
-//             "trendIcon": "TrendingUp",
-//             "changeRate": "+8.3%",
-//             "periodText": "较上月增长"
-//           },
-//           {
-//             "cardTitle": "本月收入",
-//             "currentValue": 458600,
-//             "unit": "元",
-//             "trendIcon": "TrendingDown",
-//             "changeRate": "-3.2%",
-//             "periodText": "较上月下降"
-//           },
-//           {
-//             "cardTitle": "任务完成率",
-//             "currentValue": 87,
-//             "unit": "%",
-//             "trendIcon": "TrendingUp",
-//             "changeRate": "+5.7%",
-//             "periodText": "较上月提升"
-//           }
-//         ]
-//       }
-//     },
-//     {
-//       "id": "mixedCardGrid",
-//       "name": "多功能卡片网格",
-//       "intent": "在一个统一的卡片网格中聚合展示多维度信息（人员、任务、通知），使团队成员能在同一视图中完成人员联络、任务追踪和动态阅览，减少上下文切换成本。",
-//       "function": "提供3列等宽卡片网格，包含三种类型的卡片：1) 团队成员卡片（头像、姓名、职位、在线状态、任务数）；2) 待办任务卡片（任务标题、优先级标签、截止日期、完成进度）；3) 动态通知卡片（通知图标、标题、摘要、时间戳）。",
-//       "layout": "3列等宽网格布局，卡片高度随内容自适应，卡片之间保持均匀间距。三种卡片类型在网格中混合排列，视觉上通过卡片顶部的彩色标识条区分类型。",
-//       "elements": "12张结构清晰的小卡片，分为三类：1) UserCard：包含avatarImage、userName文本、userRole文本、Tag状态标签、currentTaskCount和completedProjectCount统计；2) TaskCard：包含taskTitle文本、priorityTag标签（高/中/低）、deadline文本、Progress条形进度条、assigneeAvatar头像；3) NotificationCard：包含notifyIcon图标、notifyTitle文本、summary文本、timestamp文本、isUnread未读标记。",
-//       "data": {
-//         "cardTitle": "团队动态",
-//         "items": [
-//           {
-//             "cardType": "user",
-//             "id": "u-001",
-//             "avatarImage": "https://randomuser.me/api/portraits/women/44.jpg",
-//             "userName": "林小溪",
-//             "userRole": "高级前端工程师",
-//             "department": "技术部",
-//             "statusTag": "在线",
-//             "statusTagColor": "green",
-//             "currentTaskCount": 12,
-//             "completedProjectCount": 8,
-//             "email": "lin.xiao@example.com"
-//           },
-//           {
-//             "cardType": "task",
-//             "id": "t-001",
-//             "taskTitle": "用户中心模块重构",
-//             "priorityTag": "高",
-//             "priorityTagColor": "red",
-//             "deadline": "2026-06-15",
-//             "progressPercent": 65,
-//             "assigneeAvatar": "https://randomuser.me/api/portraits/men/22.jpg",
-//             "assigneeName": "王强",
-//             "description": "完成用户中心前后端分离架构升级"
-//           },
-//           {
-//             "cardType": "notification",
-//             "id": "n-001",
-//             "notifyIcon": "GitPullRequest",
-//             "notifyTitle": "代码合并请求",
-//             "summary": "李华 提交了一个 PR #1423 到 main 分支，涉及支付模块优化",
-//             "timestamp": "10 分钟前",
-//             "isUnread": true
-//           },
-//           {
-//             "cardType": "user",
-//             "id": "u-002",
-//             "avatarImage": "https://randomuser.me/api/portraits/men/45.jpg",
-//             "userName": "陈思远",
-//             "userRole": "后端架构师",
-//             "department": "技术部",
-//             "statusTag": "忙碌",
-//             "statusTagColor": "orange",
-//             "currentTaskCount": 8,
-//             "completedProjectCount": 15,
-//             "email": "chen.siyuan@example.com"
-//           },
-//           {
-//             "cardType": "task",
-//             "id": "t-002",
-//             "taskTitle": "数据看板 V2.0 设计",
-//             "priorityTag": "中",
-//             "priorityTagColor": "blue",
-//             "deadline": "2026-06-20",
-//             "progressPercent": 30,
-//             "assigneeAvatar": "https://randomuser.me/api/portraits/women/28.jpg",
-//             "assigneeName": "赵雨涵",
-//             "description": "设计并实现新版数据可视化看板的所有图表组件"
-//           },
-//           {
-//             "cardType": "notification",
-//             "id": "n-002",
-//             "notifyIcon": "MessageCircle",
-//             "notifyTitle": "新消息",
-//             "summary": "设计团队在「首页改版」项目中 @了你，请查看最新设计稿",
-//             "timestamp": "1 小时前",
-//             "isUnread": true
-//           },
-//           {
-//             "cardType": "user",
-//             "id": "u-003",
-//             "avatarImage": "https://randomuser.me/api/portraits/women/68.jpg",
-//             "userName": "李美琪",
-//             "userRole": "UI/UX 设计师",
-//             "department": "设计部",
-//             "statusTag": "离线",
-//             "statusTagColor": "default",
-//             "currentTaskCount": 5,
-//             "completedProjectCount": 22,
-//             "email": "li.meiqi@example.com"
-//           },
-//           {
-//             "cardType": "task",
-//             "id": "t-003",
-//             "taskTitle": "性能优化——首屏加载速度",
-//             "priorityTag": "高",
-//             "priorityTagColor": "red",
-//             "deadline": "2026-06-10",
-//             "progressPercent": 85,
-//             "assigneeAvatar": "https://randomuser.me/api/portraits/men/55.jpg",
-//             "assigneeName": "刘伟",
-//             "description": "将首屏加载时间从 3.2s 优化至 1.5s 以内"
-//           },
-//           {
-//             "cardType": "notification",
-//             "id": "n-003",
-//             "notifyIcon": "CalendarCheck",
-//             "notifyTitle": "会议提醒",
-//             "summary": "「Sprint 回顾会」将于今天 15:00 在 3楼会议室举行，请准时参加",
-//             "timestamp": "2 小时前",
-//             "isUnread": false
-//           },
-//           {
-//             "cardType": "user",
-//             "id": "u-004",
-//             "avatarImage": "https://randomuser.me/api/portraits/men/75.jpg",
-//             "userName": "周建国",
-//             "userRole": "测试主管",
-//             "department": "质量保障部",
-//             "statusTag": "在线",
-//             "statusTagColor": "green",
-//             "currentTaskCount": 15,
-//             "completedProjectCount": 30,
-//             "email": "zhou.jianguo@example.com"
-//           },
-//           {
-//             "cardType": "task",
-//             "id": "t-004",
-//             "taskTitle": "自动化测试脚本编写",
-//             "priorityTag": "中",
-//             "priorityTagColor": "blue",
-//             "deadline": "2026-06-25",
-//             "progressPercent": 45,
-//             "assigneeAvatar": "https://randomuser.me/api/portraits/women/33.jpg",
-//             "assigneeName": "孙婷婷",
-//             "description": "为核心业务模块编写不少于 200 个 E2E 自动化测试用例"
-//           },
-//           {
-//             "cardType": "notification",
-//             "id": "n-004",
-//             "notifyIcon": "AlertTriangle",
-//             "notifyTitle": "系统告警",
-//             "summary": "线上支付服务响应时间异常（P99: 2.8s），已触发自动扩容流程",
-//             "timestamp": "30 分钟前",
-//             "isUnread": true
-//           }
-//         ]
-//       }
-//     }
-//   ]
-// }`)
+      // const intentResult = await runProtoIntent({ ...ctx, input: { userRequest: text } })
+      const intentResult = JSON.parse(await import(`./intent.json`))
+
       console.log("[Pattern] intent done, sections:", intentResult.sections.length)
       console.log("[Pattern] intent output:", JSON.stringify(intentResult, null, 2))
 
@@ -794,6 +698,10 @@ function PatternContent() {
       console.log(JSON.stringify(merged, null, 2))
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)
+
+      setLastIntent(currentIntent as unknown as Record<string, unknown>)
+      setLastPlanner(planner as unknown as Record<string, unknown>)
+      setLastModules(modules)
 
       setPhase("idle")
       console.log("结束---------------")
@@ -1130,6 +1038,7 @@ function PatternContent() {
             <div style={{ flex: "1", "min-height": "0", overflow: "hidden", display: "flex", "justify-content": "center", "align-items": "center", padding: "20px", position: "relative" }}>
               <div class="preview-iframe-wrapper" style={{ width: `${TARGET_WIDTH}px`, height: `${TARGET_HEIGHT}px`, transform: `scale(${previewScale()})` }}>
                 <iframe
+                  allow="clipboard-write"
                   ref={(el) => { previewIframeRef = el }}
                   src="http://127.0.0.1:8989"
                 />

@@ -2,51 +2,40 @@ import "./pattern-tokens.css"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Dialog } from "@opencode-ai/ui/dialog"
-import { Button } from "@opencode-ai/ui/button"
-import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   createEffect,
   createMemo,
   createResource,
   createSignal,
-  For,
   on,
   onCleanup,
   Show,
-  type JSX,
 } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
-import { useLanguage } from "@/context/language"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
-import { sessionTitle } from "@/utils/session-title"
-import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard } from "./components/insight-turn"
-import { DesignSystemPicker } from "./components/design-system-picker"
-import { Spinner } from "@opencode-ai/ui/spinner"
-import { Icon } from "@opencode-ai/ui/icon"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { type Attachment } from "./modules/chat/attachment_bar"
+import { type OutputCard } from "./components/insight-turn"
 import { runProtoTriage } from "./agents/proto_triage"
 import proto_intent from "./agents/proto_intent"
 import proto_intent_audit from "./agents/proto_intent_audit"
 import proto_planner_create from "./agents/proto_planner_create"
 import proto_module_create from "./agents/proto_module_create"
-
+import { runProtoPlannerModify } from "./agents/proto_planner_modify"
+import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
-import { ignore } from "effect/Stream"
-import strict from "assert/strict"
+import { ProtoIntroduction } from './modules/chat/proto_introduction'
+import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
+import { ChatPanel } from "./modules/chat/index"
 
 const AGENT_NAME = "proto_triage"
 
@@ -75,7 +64,6 @@ function PatternContent() {
   const sdk = useSDK()
   const sync = useSync()
   const layout = useLayout()
-  const language = useLanguage()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
 
@@ -100,34 +88,6 @@ function PatternContent() {
     },
   )
 
-  const [titleState, setTitleState] = createStore({
-    editing: false,
-    draft: "",
-    menuOpen: false,
-    pendingRename: false,
-  })
-  let titleRef: HTMLInputElement | undefined
-
-  function openTitleEditor() {
-    const info = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
-    requestAnimationFrame(() => titleRef?.focus())
-  }
-
-  async function saveTitleEditor() {
-    const id = params.id
-    if (!id) return
-    const draft = titleState.draft.trim()
-    if (!draft) { setTitleState("editing", false); return }
-    try {
-      await sdk.client.session.update({ sessionID: id, title: draft })
-      void refetchSession()
-    } catch (err) {
-      showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
-    }
-    setTitleState("editing", false)
-  }
-
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
@@ -135,12 +95,6 @@ function PatternContent() {
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
     }
-  }
-
-  function handleDeleteSession() {
-    const id = params.id
-    if (!id) return
-    dialog.show(() => <PatternDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Pattern"} onDelete={deleteSession} />)
   }
 
   createEffect(
@@ -195,7 +149,69 @@ function PatternContent() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
+  const [lastIntent, setLastIntent] = createSignal<Record<string, unknown> | null>(null)
+  const [lastPlanner, setLastPlanner] = createSignal<Record<string, unknown> | null>(null)
+  const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
+  const getModuleResults = () => {
+    const mods = lastModules()
+    return mods.length > 0 ? mods as unknown as Record<string, unknown> : null
+  }
   const hasContent = () => !!(params.id && (userMessages().length > 0 || phase() !== "idle"))
+  const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
+  const [pickerText, setPickerText] = createSignal("")
+
+  function unfreezeDomPicker() {
+    previewApi.postMessage({ type: "DOM_PICKER_UNFREEZE" })
+  }
+
+  function showPickerDialog() {
+    dialog.show(() => (
+      <Dialog title="修改选中区域" fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <span class="text-14-regular text-text-strong">
+            选中元素: <b>{pickerDialog.tagName}</b> ({pickerDialog.domPickerId})
+          </span>
+          <div class="flex gap-2">
+            <button class="px-3 py-1 rounded-full text-13-medium transition-colors bg-primary text-on-primary">
+              AI 修改
+            </button>
+          </div>
+          <textarea
+            value={pickerText()}
+            onInput={(e) => setPickerText(e.currentTarget.value)}
+            placeholder="描述你想要的修改..."
+            rows={3}
+            class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+          />
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              取消
+            </Button>
+            <Button variant="primary" size="large" onClick={submitPicker}>
+              确认修改
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ), unfreezeDomPicker)
+  }
+
+  const handlePickerMessage = (e: MessageEvent) => {
+    if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
+    setPickerDialog({ domPickerId: e.data.domPickerId ?? "", tagName: e.data.tagName ?? "" })
+    setPickerText("")
+    showPickerDialog()
+  }
+  window.addEventListener("message", handlePickerMessage)
+  onCleanup(() => window.removeEventListener("message", handlePickerMessage))
+
+  function submitPicker() {
+    const text = pickerText().trim()
+    if (!text) return
+    setPrompt(`[选中元素: ${pickerDialog.domPickerId}] ${text}`)
+    dialog.close()
+    void handleSubmit()
+  }
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -248,36 +264,15 @@ function PatternContent() {
 
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  let previewIframeRef: HTMLIFrameElement | undefined
-  let previewPaneRef: HTMLDivElement | undefined
-  const [previewScale, setPreviewScale] = createSignal(1)
-
-  const TARGET_WIDTH = 1920
-  const TARGET_HEIGHT = 1080
-
-  function updatePreviewScale() {
-    if (!previewPaneRef) return
-    const containerWidth = previewPaneRef.clientWidth - 40
-    const containerHeight = previewPaneRef.clientHeight - 40
-    const scaleX = containerWidth / TARGET_WIDTH
-    const scaleY = containerHeight / TARGET_HEIGHT
-    setPreviewScale(Math.min(scaleX, scaleY, 1))
-  }
-
-  let previewResizeObserver: ResizeObserver | undefined
-  onCleanup(() => previewResizeObserver?.disconnect())
-
-  function bindPreviewPaneRef(el: HTMLDivElement) {
-    previewPaneRef = el
-    updatePreviewScale()
-    previewResizeObserver?.disconnect()
-    previewResizeObserver = new ResizeObserver(() => updatePreviewScale())
-    previewResizeObserver.observe(el)
-  }
+  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
-    if (!previewIframeRef?.contentWindow) return
-    previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
+    fetch("http://127.0.0.1:8989/api/data", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }).then(() => {
+      previewApi.refresh()
+    })
   }
 
   function getLastAssistantText(sessionId: string): string | null {
@@ -300,7 +295,7 @@ function PatternContent() {
         : text
       const parsed = JSON.parse(raw.trim())
       if (parsed && typeof parsed === "object") return parsed
-    } catch {}
+    } catch { }
     return null
   }
 
@@ -329,29 +324,6 @@ function PatternContent() {
     throw new Error("aborted")
   }
 
-  async function callSubAgent(parentSid: string, agentName: string, promptText: string, signal: AbortSignal): Promise<string> {
-    const modelKey = activeModelKey()
-    if (!modelKey) throw new Error("no model")
-
-    const childResult = await sdk.client.session.create({
-      directory: sdk.directory!,
-      parentID: parentSid,
-      agent: agentName,
-    })
-    const childSession = childResult.data as Session | undefined
-    if (!childSession) throw new Error("failed to create child session")
-
-    await sdk.client.session.promptAsync({
-      sessionID: childSession.id,
-      agent: agentName,
-      ...(modelKey ? { model: modelKey } : {}),
-      parts: [{ type: "text", text: promptText }],
-    })
-
-    const text = await waitForAssistant(childSession.id, signal)
-    return text
-  }
-
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
@@ -376,7 +348,7 @@ function PatternContent() {
 
       const existing = sessionInfo()?.title
       if (!existing || existing.startsWith("New session")) {
-        await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => {})
+        await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => { })
       }
 
       const ctx = {
@@ -388,24 +360,101 @@ function PatternContent() {
       }
 
       // ── Step 0: triage → 判断首次还是修改 ──
-      const existingText = getLastAssistantText(sid)
-      const genuiJson = existingText ? extractJsonFromText(existingText) : null
+      const isEdit = !!lastIntent()
+      const currentPlanner = lastPlanner()
       const triage = await runProtoTriage({
         sdk: { client: sdk.client },
         directory: sdk.directory!,
         modelKey: mk,
         userRequest: text,
-        genuiJson,
-        layoutPlanner: null,
-        moduleResults: null,
-        sessionId: genuiJson ? sid : undefined,
+        genuiJson: isEdit ? (lastIntent() ?? {}) : null,
+        layoutPlanner: currentPlanner,
+        moduleResults: getModuleResults(),
+        sessionId: isEdit ? sid : undefined,
         abortSignal: controller.signal,
       })
       console.log("[Pattern] triage:", triage.routing, triage.reason)
+      console.log("[Pattern] triage output:", JSON.stringify(triage, null, 2))
 
       if (triage.routing === "modify") {
-        console.log("[Pattern] modify flow (not implemented)")
-        setPhase("idle")
+        debugger
+        if (!currentPlanner || !lastIntent()) {
+          console.log("[Pattern] modify skipped: no previous page state")
+          return
+        }
+        setPhase("planner")
+        const modifyResult = await runProtoPlannerModify({
+          ...ctx,
+          input: {
+            intentReason: triage.reason,
+            intentDelete: triage.delete,
+            intentAdd: triage.add,
+            intentModify: triage.modify,
+            intentPage: triage.updated_intent,
+            layoutPlanner: currentPlanner,
+          },
+        })
+        console.log("[Pattern] planner_modify done, slots:", modifyResult.output.slots.length)
+        console.log("[Pattern] planner_modify output:", JSON.stringify(modifyResult, null, 2))
+        console.log("[Pattern] removed sections:", modifyResult.removedSectionIds)
+
+        const updatedIntent = { ...lastIntent(), ...triage.updated_intent }
+        const prevModules = lastModules()
+
+        setPhase("module")
+        const allModules: typeof prevModules = []
+
+        for (const slot of modifyResult.output.slots) {
+          if (slot.operation === "none") {
+            const existing = prevModules.find((m) => m.rootId === slot.element_id)
+            if (existing) allModules.push(existing)
+            continue
+          }
+          if (slot.operation === "create") {
+            const moduleResult = await runProtoModuleCreate({
+              ...ctx,
+              input: {
+                intentDescription: updatedIntent as any,
+                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
+                sectionId: slot.section_id,
+                elementId: slot.element_id,
+                idPrefix: slot.id_prefix,
+              },
+            })
+            allModules.push(moduleResult.uiJson as typeof prevModules[number])
+            continue
+          }
+          if (slot.operation === "modify") {
+            const originModule = prevModules.find((m) => m.rootId === slot.element_id)
+            const modAction = triage.modify.find((m) => m.section_id === slot.section_id)
+            if (!originModule || !modAction) continue
+            const moduleResult = await runModuleModify({
+              ...ctx,
+              input: {
+                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
+                idPrefix: slot.id_prefix,
+                sectionId: slot.section_id,
+                originModules: originModule,
+                modifications: modAction as unknown as Record<string, unknown>,
+              },
+            })
+            allModules.push(moduleResult.uiJson as typeof prevModules[number])
+          }
+        }
+
+        const merged = mergeModules(
+          { rootId: modifyResult.output.rootId, elements: modifyResult.output.elements },
+          allModules,
+        )
+        console.log("[Pattern] ========== MERGED A2UI JSON ==========")
+        console.log(JSON.stringify(merged, null, 2))
+        const mergedJson = detectA2UIJson(JSON.stringify(merged))
+        if (mergedJson) sendToPreview(mergedJson)
+
+        setLastIntent(updatedIntent as unknown as Record<string, unknown>)
+        setLastPlanner(modifyResult.output as unknown as Record<string, unknown>)
+        setLastModules(allModules)
+
         return
       }
       setPhase("intent")
@@ -453,6 +502,19 @@ function PatternContent() {
       }
       
       // 第五步：合并顶层布局和各模块JSON
+      // for (let i = 0; i < planner.slots.length; i++) {
+      //   const slot = planner.slots[i]
+      //   const mod = await import(`./slot${i + 1}.json`)
+      //   const uiJson = mod.default.rootId && mod.default.elements ? mod.default : mod.default.uiJson
+      //   if (uiJson.rootId !== slot.element_id) {
+      //     const target = (uiJson.elements as Array<{ id: string }>)?.find((e) => e.id === uiJson.rootId)
+      //     if (target) {
+      //       target.id = slot.element_id
+      //       uiJson.rootId = slot.element_id
+      //     }
+      //   }
+      //   modules.push(uiJson)
+      // }
       const merged = mergeModules(
         { rootId: planner.layout_planner.rootId as string, elements: planner.layout_planner.elements},
         modules,
@@ -462,12 +524,14 @@ function PatternContent() {
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)
 
-      setPhase("idle")
+      setLastIntent(intentResult.intent_page as unknown as Record<string, unknown>)
+      setLastPlanner(planner as unknown as Record<string, unknown>)
+      setLastModules(modules)
+
       console.log("结束---------------")
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
-      setPhase("idle")
     } finally {
       if (!submitSessionId || params.id === submitSessionId) {
         setSending(false)
@@ -478,7 +542,7 @@ function PatternContent() {
   async function halt() {
     const sid = params.id
     if (!sid) return
-    await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
+    await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -487,8 +551,6 @@ function PatternContent() {
       void handleSubmit()
     }
   }
-
-  let fileInputRef!: HTMLInputElement
 
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
@@ -546,88 +608,23 @@ function PatternContent() {
   }
 
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
-  const maxAttachments = () => attachments().length >= 5
 
-  const inputBox = (rows: number | undefined) => (
-    <div
-      class="rounded-[16px] transition-all duration-300 relative group"
-      style={{
-        border: "1px solid transparent",
-        background: `
-          linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
-          linear-gradient(135deg,
-            rgba(0, 103, 209, 0.7) 1%,
-            rgba(46, 134, 222, 0.7) 22%,
-            rgba(0, 103, 209, 0.7) 54%,
-            rgba(0, 78, 168, 0.7) 87%,
-            rgba(0, 103, 209, 0.7) 92%) border-box`,
-        "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(0, 103, 209, 0.18), 0 0 20px rgba(0, 78, 168, 0.12)",
-        "margin-top": attachments().length > 0 ? "6px" : "0",
-        ...(rows === undefined ? { height: "150px" } : {}),
-      }}
-    >
-      <textarea
-        value={prompt()}
-        onInput={(e) => setPrompt(e.currentTarget.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="描述你想要的界面，按 Enter 生成 A2UI JSON…"
-        rows={rows}
-        disabled={inputDisabled()}
-        class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
-        style={{
-          "font-family": "var(--octo-font)",
-          ...(rows === undefined ? { flex: "1", "max-height": "none", "overflow-y": "auto" } : { "max-height": "120px", "overflow-y": "auto" }),
-        }}
-      />
-      <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
-        <div class="flex items-center gap-1 min-w-0">
-          <DesignSystemPicker
-            selected={selectedDesignSystem()}
-            onSelect={setSelectedDesignSystem}
-          />
-          <input
-            ref={fileInputRef!}
-            type="file"
-            multiple
-            class="hidden"
-            accept="*/*"
-            onChange={handleFileInputChange}
-          />
-          <button
-            type="button"
-            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-            disabled={maxAttachments()}
-            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-            title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-          >
-            <Icon name="plus" class="size-5" />
-          </button>
-          <ModelSelectorPopover
-            model={local.model}
-            triggerAs="button"
-            triggerProps={{
-              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
-              "data-action": "prompt-model",
-            }}
-          >
-            <span class="truncate">
-              {currentModel()?.name ?? "选择模型"}
-            </span>
-            <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
-          </ModelSelectorPopover>
-        </div>
-        <IconButton
-          data-action="prompt-submit"
-          type="submit"
-          icon={isBusy() ? "stop" : "arrow-up"}
-          class="size-8 flex-shrink-0"
-          onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-          disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-          aria-label={isBusy() ? "停止生成" : undefined}
-        />
-      </div>
-    </div>
-  )
+  const chartInputProps = () => ({
+    value: prompt(),
+    onValueChange: setPrompt,
+    onKeyDown: handleKeyDown,
+    disabled: inputDisabled(),
+    busy: isBusy(),
+    onSubmit: () => void handleSubmit(),
+    onHalt: () => void halt(),
+    attachments: attachments(),
+    maxAttachments: attachments().length >= 5,
+    onFileChange: handleFileInputChange,
+    selectedDesignSystem: selectedDesignSystem(),
+    onSelectDesignSystem: setSelectedDesignSystem,
+    model: local.model,
+    rows:undefined
+  })
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -643,215 +640,38 @@ function PatternContent() {
             : undefined,
         }}
       >
+        {/* 对话 */}
         <Show when={!focusMode()}>
-          <div
-            class="flex flex-col overflow-hidden"
-            style={{
-              background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
-              outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
-            }}
+          <ChatPanel
+            hasContent={hasContent()}
+            isBusy={isBusy()}
+            sessionInfo={sessionInfo() ?? null}
+            userMessages={userMessages()}
+            sessionStatus={sessionStatus()}
+            autoScroll={autoScroll}
+            inputProps={chartInputProps()}
+            attachments={attachments()}
+            onRemoveAttachment={removeAttachment}
+            isDragOver={isDragOver()}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-          >
-            <Show when={hasContent()}>
-              <div
-                class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff" }}
-              >
-                <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
-                  <Show when={isBusy()}>
-                    <div class="shrink-0">
-                      <Spinner class="size-4" />
-                    </div>
-                  </Show>
-                  <Show
-                    when={!titleState.editing}
-                    fallback={
-                      <InlineInput
-                        ref={(el) => { titleRef = el }}
-                        value={titleState.draft}
-                        class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
-                        onInput={(e) => setTitleState("draft", e.currentTarget.value)}
-                        onKeyDown={(e) => {
-                          e.stopPropagation()
-                          if (e.key === "Enter") { e.preventDefault(); void saveTitleEditor() }
-                          if (e.key === "Escape") { e.preventDefault(); setTitleState("editing", false) }
-                        }}
-                        onBlur={() => void saveTitleEditor()}
-                      />
-                    }
-                  >
-                    <h1
-                      class="truncate min-w-0"
-                      style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
-                      onDblClick={openTitleEditor}
-                    >
-                      {sessionTitle(sessionInfo()?.title) ?? "Pattern"}
-                    </h1>
-                  </Show>
-                </div>
-                <DropdownMenu
-                  gutter={4}
-                  placement="bottom-end"
-                  open={titleState.menuOpen}
-                  onOpenChange={(open) => setTitleState("menuOpen", open)}
-                >
-                  <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="dot-grid"
-                    variant="ghost"
-                    class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
-                    aria-label={language.t("common.moreOptions")}
-                  />
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content style={{ "min-width": "104px" }}>
-                      <DropdownMenu.Item onSelect={() => { setTitleState("menuOpen", false); openTitleEditor() }}>
-                        <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item onSelect={handleDeleteSession}>
-                        <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu>
-              </div>
-            </Show>
-
-            <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
-                <ChatEmptyState />
-                <div class="w-full max-w-[800px] px-8">
-                  <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                  {inputBox(undefined)}
-                </div>
-              </div>
-            }>
-              <ScrollView
-                class="flex-1 min-h-0"
-                style={{ background: "#fff" }}
-                viewportRef={autoScroll.scrollRef}
-                onScroll={autoScroll.handleScroll}
-                onMouseUp={autoScroll.handleInteraction}
-              >
-                <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
-                  <For each={userMessages()}>
-                    {(msg) => (
-                      <InsightTurn
-                        sessionID={params.id!}
-                        messageID={msg.id}
-                        status={sessionStatus()}
-                        active={isBusy()}
-                        onOpenResult={handleOpenResult}
-                      />
-                    )}
-                  </For>
-                </div>
-              </ScrollView>
-
-              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
-                <AttachmentBar attachments={attachments()} onRemove={removeAttachment} />
-                {inputBox(3)}
-              </div>
-            </Show>
-          </div>
+            onOpenResult={handleOpenResult}
+            onDeleteSession={deleteSession}
+            onTitleChanged={() => void refetchSession()}
+          />
         </Show>
 
         <Show when={hasContent() && !focusMode()}>
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
+        {/* 预览页 */}
         <Show when={hasContent()}>
-          <div ref={bindPreviewPaneRef} class="flex flex-col overflow-hidden" style="position:relative">
-            <div class="absolute right-[12px] top-[12px] flex gap-[6px]" style={{ "z-index": 10 }}>
-              <button
-                class="preview-action-btn"
-                title="历史版本"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
-              <button
-                class="preview-action-btn"
-                title="刷新"
-                onClick={() => { if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989" }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-              <button
-                class="preview-action-btn"
-                title="全屏"
-                onClick={() => {
-                  if (previewPaneRef?.requestFullscreen) previewPaneRef.requestFullscreen()
-                }}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                </svg>
-              </button>
-            </div>
-            <div style={{ flex: "1", "min-height": "0", overflow: "hidden", display: "flex", "justify-content": "center", "align-items": "center", padding: "20px", position: "relative" }}>
-              <div class="preview-iframe-wrapper" style={{ width: `${TARGET_WIDTH}px`, height: `${TARGET_HEIGHT}px`, transform: `scale(${previewScale()})` }}>
-                <iframe
-                  ref={(el) => { previewIframeRef = el }}
-                  src="http://127.0.0.1:8989"
-                />
-              </div>
-            </div>
-          </div>
+          <PreviewPage api={previewApi} />
         </Show>
       </div>
     </DataProvider>
-  )
-}
-
-function ChatEmptyState(): JSX.Element {
-  return (
-    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
-      <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
-        <rect x="8" y="8" width="64" height="64" rx="16" stroke="var(--octo-brand-a40)" stroke-width="2" fill="none" />
-        <rect x="20" y="20" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="44" y="20" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="20" y="44" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-        <rect x="44" y="44" width="16" height="16" rx="4" fill="var(--octo-brand-a20)" />
-      </svg>
-      <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Pattern</div>
-        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
-          描述界面需求，生成 A2UI JSON
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function PatternDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
-  const language = useLanguage()
-  const dialog = useDialog()
-  return (
-    <Dialog title={language.t("session.delete.title")} fit>
-      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-        <span class="text-14-regular text-text-strong">
-          {language.t("session.delete.confirm", { name: props.name })}
-        </span>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-          >
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
   )
 }
 

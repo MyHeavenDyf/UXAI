@@ -1,0 +1,52 @@
+{
+  "rootId": "rootCardDashboard",
+  "elements": [{
+      "id": "rootCardDashboard",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+      },
+      "children": [
+        "pageHeaderSection",
+        "mainContentArea"
+      ]
+    },
+    {
+      "id": "pageHeaderSection",
+      "component": "header",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm"
+      },
+      "children": []
+    },
+    {
+      "id": "mainContentArea",
+      "component": "main",
+      "props": {
+        "className": "flex-1 flex flex-col gap-section p-page"
+      },
+      "children": [
+        "metricsCardsSection"
+      ]
+    },
+    {
+      "id": "metricsCardsSection",
+      "component": "section",
+      "props": {
+        "className": "flex flex-row gap-gutter"
+      },
+      "children": []
+    }
+  ],
+  "slots": [{
+      "section_id": "pageHeader",
+      "element_id": "pageHeaderSection",
+      "id_prefix": "pgHdr"
+    },
+    {
+      "section_id": "metricsCards",
+      "element_id": "metricsCardsSection",
+      "id_prefix": "metCd"
+    }
+  ]
+}
