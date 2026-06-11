@@ -370,6 +370,9 @@ function createGlobalSync() {
       loadLsp: () => {
         void queryClient.fetchQuery(loadLspQuery(key, sdkFor(directory)))
       },
+      invalidateMcp: () => {
+        void queryClient.invalidateQueries({ queryKey: mcpQueryKey(directory) })
+      },
     })
   })
 
