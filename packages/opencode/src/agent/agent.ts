@@ -245,7 +245,7 @@ export const layer = Layer.effect(
                 jimeng_image_generate: "deny",
                 internel_image_generate: "deny",
                 lsp: "deny",
-                question: "allow",
+                question: "deny",
               }),
               user,
             ),
