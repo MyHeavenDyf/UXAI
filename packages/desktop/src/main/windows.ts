@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
+import { insightDebugLog } from "./logging"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
@@ -142,6 +143,13 @@ export function createMainWindow() {
         win.webContents.openDevTools()
       }
     }
+  })
+
+  // SPEC-INS-011 阶段3:把 renderer console 全量转发到 electron-log 文件(userData/logs,5MB 滚动),
+  // 作"绝对不漏"兜底——偶现/崩溃前/结构化没捕获到的日志也落盘。level: 0=verbose 1=info 2=warning 3=error
+  win.webContents.on("console-message", (_event, level: number, message: string) => {
+    const fn = level >= 3 ? insightDebugLog.error : level === 2 ? insightDebugLog.warn : insightDebugLog.info
+    fn(`[renderer] ${message}`)
   })
 
   return win
