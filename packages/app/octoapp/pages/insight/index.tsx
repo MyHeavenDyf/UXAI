@@ -877,8 +877,21 @@ function InsightContent() {
     }
   }
 
+  // 拖动页面内 <img>/网页图片时 Chromium 也会把图片本体塞进 dataTransfer.files,
+  // drop 时靠 files 无法与外部文件区分;只能在 types 上判别——从 OS 拖文件进来
+  // 只有 "Files",页面元素/网页图片拖动会附带 text/uri-list。带 uri-list 的一律拒收。
+  function isExternalFileDrag(e: DragEvent) {
+    const types = e.dataTransfer?.types ?? []
+    return types.includes("Files") && !types.includes("text/uri-list")
+  }
+
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
+    if (!isExternalFileDrag(e)) {
+      // dropEffect=none:显示禁止光标,且 drop 不触发,顺带挡掉 textarea 默认的 URI 文本插入
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "none"
+      return
+    }
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
@@ -890,6 +903,7 @@ function InsightContent() {
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
+    if (!isExternalFileDrag(e)) return
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length > 0) addAttachments(files)
   }
