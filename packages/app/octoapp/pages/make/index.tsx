@@ -752,7 +752,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
         style={{
           "grid-template-columns": !focusMode()
             ? hasContent()
-              ? `${chatWidth()}px 8px minmax(400px, 1fr)`
+              ? `${chatWidth()}px 8px minmax(0, 1fr)`
               : "1fr"
             : undefined,
         }}
