@@ -1,113 +1,73 @@
-.starter-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-  max-width: 800px;
-  margin-top: 16px;
-}
+/* ── Starter Cards 预置提示词按钮组 ────── */
 
-.starter-card {
+.octo-preset-bar {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: auto;
-  padding: 12px 14px;
-  text-align: left;
-  cursor: pointer;
-  background: var(--octo-surface-page);
-  border: 1px solid var(--octo-border-default);
-  border-radius: var(--octo-radius-lg);
-  box-shadow: var(--octo-shadow-xs);
+  padding: 0 2px 16px 2px;
+}
+
+.octo-preset-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  flex: 1;
+  scroll-behavior: smooth;
+}
+.octo-preset-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.octo-preset-chip {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(44, 46, 52, 0.05);
   color: var(--octo-text-primary);
-  font: inherit;
-  overflow: hidden;
-  transition:
-    transform var(--octo-dur-normal) var(--octo-ease),
-    border-color var(--octo-dur-normal) var(--octo-ease),
-    box-shadow var(--octo-dur-normal) var(--octo-ease),
-    background-color var(--octo-dur-normal) var(--octo-ease);
-  opacity: 0;
-  animation: starter-card-in 380ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  font-size: 12px;
+  font-family: var(--octo-font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-preset-chip:hover:not(:disabled) {
+  background: var(--octo-brand-a8);
+  color: var(--octo-brand);
+}
+.octo-preset-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.starter-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    135deg,
-    var(--octo-brand-a8) 0%,
-    transparent 55%
-  );
-  opacity: 0;
-  transition: opacity var(--octo-dur-normal) var(--octo-ease);
-  pointer-events: none;
-}
-
-.starter-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--octo-brand);
-  box-shadow: var(--octo-shadow-md);
-  background: var(--octo-surface-page);
-}
-
-.starter-card:hover::before {
-  opacity: 1;
-}
-
-.starter-card:active {
-  transform: translateY(0);
-}
-
-.starter-card:focus-visible {
-  outline: 2px solid var(--octo-brand);
-  outline-offset: 2px;
-}
-
-@keyframes starter-card-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.starter-card-icon {
-  position: relative;
-  display: inline-flex;
+.octo-preset-scroll-left,
+.octo-preset-scroll-right {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  border-radius: var(--octo-radius-md);
-  background: var(--octo-brand);
-  color: #fff;
-  font-size: 18px;
-  line-height: 1;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  border: 1px solid var(--octo-border-divider);
+  background: var(--octo-surface-page);
+  color: var(--octo-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
 }
-
-.starter-card-title {
-  font-weight: 600;
-  color: var(--octo-text-strong);
-  font-size: 13.5px;
-  white-space: nowrap;
+.octo-preset-scroll-left {
+  margin-right: 4px;
+  box-shadow: 6px 0 8px -4px rgba(255, 255, 255, 0.9);
 }
-
-.starter-card-tag {
-  display: none;
+.octo-preset-scroll-right {
+  margin-left: 4px;
+  box-shadow: -6px 0 8px -4px rgba(255, 255, 255, 0.9);
 }
-
-.starter-card-prompt {
-  display: none;
-}
-
-.starter-card-cta {
-  display: none;
+.octo-preset-scroll-left:hover,
+.octo-preset-scroll-right:hover {
+  color: var(--octo-brand);
+  border-color: var(--octo-brand-a25);
 }

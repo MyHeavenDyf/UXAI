@@ -2,6 +2,7 @@ import "./octo-tokens.css"
 import "./components/starter-cards.css"
 import "./components/slash-popover.css"
 import { FEATURED_STARTERS } from "./utils/starter-prompts"
+import { StarterCards } from "./components/starter-cards"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
@@ -1073,6 +1074,11 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
                   <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
+                  {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
+                  <StarterCards
+                    prompts={FEATURED_STARTERS}
+                    onClick={(starter) => setPrompt(starter.prompt)}
+                  />
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
@@ -1195,34 +1201,13 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                         disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
                         aria-label={isBusy() ? "停止生成" : undefined}
-                      />
-</div>
+/>
+                    </div>
                    </div>
                  </div>
-                 
-                 {/* Starter Cards */}
-                 <div class="starter-cards" role="list">
-                    <For each={FEATURED_STARTERS}>
-                      {(starter, i) => (
-                        <button
-                          type="button"
-                          role="listitem"
-                          class="starter-card"
-                          style={{ "animation-delay": `${i() * 70}ms` }}
-                          onClick={() => setPrompt(starter.prompt)}
-                          title="点击填充到输入框"
-                        >
-                          <span class="starter-card-icon" aria-hidden>
-                            {starter.icon}
-                          </span>
-                          <span class="starter-card-title">{starter.title}</span>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </Show>
-            }>
+               </div>
+             </Show>
+           }>
               {/* 消息列表 */}
               <ScrollView
                 class="flex-1 min-h-0"
@@ -1261,6 +1246,13 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   attachments={attachments()}
                   onRemove={removeAttachment}
                 />
+
+                {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
+                <StarterCards
+                  prompts={FEATURED_STARTERS}
+                  onClick={(starter) => setPrompt(starter.prompt)}
+                />
+
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group"
                   style={{
