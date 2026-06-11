@@ -1,6 +1,7 @@
 import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
+import { octoMockPlugin } from "../app/mock/index.ts"
 import * as fs from "node:fs/promises"
 
 const channel = (() => {
@@ -82,7 +83,7 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [appPlugin, sentry],
+    plugins: [appPlugin, octoMockPlugin(), sentry],
     publicDir: "../../../app/public",
     root: "src/renderer",
     define: {
