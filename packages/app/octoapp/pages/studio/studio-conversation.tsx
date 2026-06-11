@@ -204,7 +204,7 @@ function InfoRow(props: { label: string; value: string }): JSX.Element {
   )
 }
 
-function StudioEmptyState(): JSX.Element {
+export function StudioEmptyState(): JSX.Element {
   return (
     <>
       <div class="studio-empty-state-dots">

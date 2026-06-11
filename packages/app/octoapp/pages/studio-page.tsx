@@ -42,7 +42,7 @@ import {
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
 import { StudioComposer, StudioIntro } from "./studio/studio-composer"
-import { StudioConversation, StudioDetails, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
+import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
@@ -1275,7 +1275,6 @@ export default function StudioPage() {
           : []
     setOpenMenu(null)
     setMode("preview")
-    setShowStudioCanvas(true)
     setEditEntryTurn(undefined)
     setSending(true)
     setStatus("submitting")
@@ -1797,6 +1796,7 @@ export default function StudioPage() {
           </div>
         }>
         <section class="studio-canvas">
+          <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               status={effectiveStatus()}
@@ -1868,10 +1868,16 @@ export default function StudioPage() {
               )}
             </Show>
           </Show>
+          </Show>
+          <Show when={isBusy() && !showStudioCanvas() && canvasTabImages().length === 0}>
+            <div class="flex-1 flex flex-col items-center justify-center text-center">
+              <StudioEmptyState />
+            </div>
+          </Show>
         </section>
         </Show>
 
-          <Show when={!isEditingWorkspaceMode() && canvasResult()?.images.length}>
+          <Show when={!isEditingWorkspaceMode() && showStudioCanvas() && canvasResult()?.images.length}>
             <aside class="studio-details">
               <StudioDetails
                 result={result()!}
