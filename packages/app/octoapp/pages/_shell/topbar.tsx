@@ -4,8 +4,7 @@ import { useLocation, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useLayout } from "@/context/layout"
-import { useGlobalSync } from "@/context/global-sync"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import {
   OctoLogo, IconSearch,
 } from "./icons"
@@ -29,12 +28,11 @@ export function OctoTopbar(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const layout = useLayout()
-  const globalSync = useGlobalSync()
+  const projectDir = useProjectDir({ mode: "project" })
 
   const getConfigDirSlug = () => {
-    const config = globalSync.data.path.config
-    const directory = config ? octoSessionsDir(config) : ""
-    return directory ? base64Encode(directory) : undefined
+    const dir = projectDir()
+    return dir ? base64Encode(dir) : undefined
   }
 
   const activeHref = () => {

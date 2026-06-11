@@ -1,18 +1,16 @@
 import { DataProvider } from "@opencode-ai/ui/context"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { useLocation, useNavigate, useParams } from "@solidjs/router"
+import { useNavigate, useParams } from "@solidjs/router"
 import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { useServer } from "@/context/server"
-import { useGlobalSync } from "@/context/global-sync"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
+import { useProjectDir } from "@/hooks/use-project-dir"
 
 const SESSIONS_DIR_NAME = "sessions"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
-  const location = useLocation()
   const navigate = useNavigate()
   const params = useParams()
   const sync = useSync()
@@ -43,13 +41,9 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
 }
 
 export default function Layout(props: ParentProps) {
-  const globalSync = useGlobalSync()
+  const projectDir = useProjectDir({ mode: "project" })
 
-  const resolved = createMemo(() => {
-    const config = globalSync.data.path.config
-    if (!config) return ""
-    return octoSessionsDir(config)
-  })
+  const resolved = createMemo(() => projectDir())
 
   return (
     <Show when={resolved()} keyed>

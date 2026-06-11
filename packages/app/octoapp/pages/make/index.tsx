@@ -40,7 +40,7 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
-import { octoSessionsDir, useProjectDir } from "@/hooks/use-project-dir"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
@@ -62,11 +62,7 @@ import { persistTabChanges } from "./utils/tab-persistence"
 import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
-  const globalSync = useGlobalSync()
-  const projectDir = () => {
-    const config = globalSync.data.path.config
-    return config ? octoSessionsDir(config) : globalSync.data.path.home
-  }
+  const projectDir = useProjectDir({ mode: "project" })
 
   return (
     <Show when={projectDir()} keyed>
@@ -100,11 +96,6 @@ function MakeContent() {
   useMakeCommands()
 
   const projectDir = useProjectDir()
-
-  const configDir = () => {
-    const config = globalSync.data.path.config
-    return config ? octoSessionsDir(config) : ""
-  }
 
   // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
   const local = useLocal()
