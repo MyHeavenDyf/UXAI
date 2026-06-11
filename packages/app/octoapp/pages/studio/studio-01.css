@@ -157,7 +157,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 8px 24px 24px;
+  margin: 8px 24px 16px 24px;
   color: rgba(25, 25, 25, 0.6);
   font-size: 12px;
   line-height: 22px;
@@ -437,6 +437,11 @@
   transform: scale(1);
 }
 
+.studio-composer-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
 .studio-composer-input {
   width: 100%;
   min-height: 64px;
@@ -452,6 +457,27 @@
 
 .studio-composer-input::placeholder {
   color: rgba(15, 23, 42, 0.45);
+}
+
+.studio-composer-video-placeholder {
+  position: absolute;
+  inset: 0;
+  color: rgba(15, 23, 42, 0.45);
+  cursor: text;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.studio-composer-video-guide-link {
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.studio-composer-video-guide-link:focus-visible {
+  outline: 2px solid #1769ff;
+  outline-offset: 2px;
 }
 
 .studio-composer-toolbar {

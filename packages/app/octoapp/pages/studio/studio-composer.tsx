@@ -1,10 +1,13 @@
 import { createMemo, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
+import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
 import { STUDIO_VIDEO_ASPECT_RATIOS, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
+
+const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?lang=zh"
 
 export function StudioIntro(): JSX.Element {
   return (
@@ -51,6 +54,8 @@ export function StudioComposer(props: {
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
 }): JSX.Element {
+  const platform = usePlatform()
+  let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
@@ -130,15 +135,38 @@ export function StudioComposer(props: {
               </Show>
             </div>
           </Show>
-          <textarea
-            value={props.prompt}
-            onInput={(event) => props.onPrompt(event.currentTarget.value)}
-            onKeyDown={props.onKeyDown}
-            onPaste={handlePaste}
-            placeholder={isVideoGeneration() ? "请描述你想生成的视频内容，或使用反推描述图片，也可查看使用指南提升生成效果。" : "上传参考图、输入文字，描述你想生成的图片。"}
-            class="studio-composer-input"
-            disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
-          />
+          <div class="studio-composer-input-wrap">
+            <textarea
+              ref={inputRef}
+              value={props.prompt}
+              onInput={(event) => props.onPrompt(event.currentTarget.value)}
+              onKeyDown={props.onKeyDown}
+              onPaste={handlePaste}
+              placeholder={isVideoGeneration() ? undefined : "上传参考图、输入文字，描述你想生成的图片。"}
+              class="studio-composer-input"
+              disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
+            />
+            <Show when={isVideoGeneration() && !props.prompt}>
+              <div class="studio-composer-video-placeholder" onClick={() => inputRef.focus()}>
+                请描述你想生成的视频内容，或使用反推描述图片，也可查看
+                <a
+                  href={STUDIO_VIDEO_GUIDE_URL || undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="studio-composer-video-guide-link"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    if (!STUDIO_VIDEO_GUIDE_URL) return
+                    event.preventDefault()
+                    platform.openLink(STUDIO_VIDEO_GUIDE_URL)
+                  }}
+                >
+                  使用指南
+                </a>
+                提升生成效果。
+              </div>
+            </Show>
+          </div>
         </div>
 
         <div class="studio-composer-toolbar">

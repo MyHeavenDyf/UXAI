@@ -258,12 +258,14 @@ export function StudioDetails(props: {
       <section class="studio-detail-section">
         <div class="studio-detail-section-title">生成信息</div>
         <InfoRow label="模型" value={props.result.model} />
-        <InfoRow label="比例" value={props.result.aspectRatio} />
+        <Show when={!isEditResult()}>
+          <InfoRow label="比例" value={props.result.aspectRatio} />
+        </Show>
         <Show when={isVideoResult()}>
           <InfoRow label="类型" value={props.result.videoMode === "first_last_frame" ? "首尾帧生成" : "文生视频"} />
           <InfoRow label="时长" value={props.result.duration ? `${props.result.duration}秒` : "-"} />
         </Show>
-        <Show when={!isVideoResult()}>
+        <Show when={!isVideoResult() && !isEditResult()}>
           <InfoRow label="分辨率" value={props.image?.width && props.image.height ? `${props.image.width} x ${props.image.height}` : "-"} />
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
