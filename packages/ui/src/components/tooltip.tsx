@@ -50,6 +50,8 @@ export function Tooltip(props: TooltipProps) {
     "value",
   ])
 
+  let preventClear = false
+
   const close = () => setState("open", false)
 
   const inside = () => {
@@ -59,6 +61,7 @@ export function Tooltip(props: TooltipProps) {
   }
 
   const drop = (expand = state.expand) => {
+    if (preventClear) return
     if (expand) return
     if (ref?.matches(":hover")) return
     if (inside()) return
@@ -77,6 +80,7 @@ export function Tooltip(props: TooltipProps) {
   }
 
   const arm = () => {
+    preventClear = true
     setState("block", true)
     close()
   }
@@ -99,8 +103,6 @@ export function Tooltip(props: TooltipProps) {
     onCleanup(() => obs.disconnect())
   })
 
-  let justClickedTrigger = false
-
   return (
     <Switch>
       <Match when={local.inactive}>{local.children}</Match>
@@ -114,10 +116,6 @@ export function Tooltip(props: TooltipProps) {
           onOpenChange={(open) => {
             if (local.forceOpen) return
             if (state.block && open) return
-            if (justClickedTrigger) {
-              justClickedTrigger = false
-              return
-            }
             setState("open", open)
           }}
         >
@@ -131,6 +129,7 @@ export function Tooltip(props: TooltipProps) {
               if (event.key !== "Enter" && event.key !== " ") return
               arm()
             }}
+            onPointerEnter={() => { preventClear = false }}
             onPointerLeave={leave}
             onFocusOut={() => requestAnimationFrame(() => drop())}
           >
@@ -144,9 +143,6 @@ export function Tooltip(props: TooltipProps) {
               class={local.contentClass}
               style={local.contentStyle}
               onPointerDownOutside={(e) => {
-                if (ref === e.target || (e.target instanceof Node && ref?.contains(e.target))) {
-                  justClickedTrigger = true
-                }
                 e.preventDefault()
               }}
             >

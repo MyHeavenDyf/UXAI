@@ -403,7 +403,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       class="relative flex flex-col items-center justify-center h-full overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "max-width": "calc(100% - 48px)" }}>
+      <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "min-width": "560px" }}>
         <img src={iconUrl()} width={72} height={72} alt="" aria-hidden="true" style={{ "margin-bottom": "20px" }} />
 
         <div style={{ "font-size": "20px", "font-weight": 700, color: "var(--octo-text-strong, #0a0a0a)", "line-height": 1.4, "text-align": "center", "word-break": "break-all", "margin-bottom": "8px", "max-width": "500px" }}>

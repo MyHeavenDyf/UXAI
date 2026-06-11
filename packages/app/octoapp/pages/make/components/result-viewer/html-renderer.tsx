@@ -678,13 +678,15 @@ return (
               />
             </div>
           ) : (
-            <iframe
-              ref={iframeRef}
-              srcdoc={srcdoc()}
-              sandbox="allow-scripts"
-              class="w-full h-full border-0"
-              style={{ "min-height": "200px", "min-width": "800px" }}
-            />
+            <div style={{ "min-width": "800px", height: "100%" }}>
+              <iframe
+                ref={iframeRef}
+                srcdoc={srcdoc()}
+                sandbox="allow-scripts"
+                class="w-full h-full border-0"
+                style={{ "min-height": "200px" }}
+              />
+            </div>
           )}
           <Show when={props.inspecting}>
             <PreviewOverlay iframeRef={iframeRef} inspecting={!!props.inspecting} />
