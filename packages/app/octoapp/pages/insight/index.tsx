@@ -449,9 +449,9 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue / 未发送附件
+  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue / 未发送附件 / 输入框草稿
   // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
-  // 附件草稿必须清:在 session A 上传未发送的文件,新建/切换 session 后不应残留(设计确认)。
+  // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
   //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
   createEffect(on(() => params.id, () => {
     tabStore.reset()
@@ -465,6 +465,7 @@ function InsightContent() {
     } else {
       filesById.clear()
       setAttachments([])
+      setPrompt("")
     }
     console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
   }, { defer: true }))
