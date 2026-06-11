@@ -5,6 +5,7 @@ import { FEATURED_STARTERS } from "./utils/starter-prompts"
 import { StarterCards } from "./components/starter-cards"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import { Binary } from "@opencode-ai/core/util/binary"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll, useFilteredList } from "@opencode-ai/ui/hooks"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -210,8 +211,12 @@ function MakeContent() {
               }),
             )
             
+            // 清理子 session 追踪状态
+            loadedChildSessions.clear()
+            setChildSessionIDs(new Set<string>())
+            
             // 清除 lastSessionPerTab 记录，防止切换回来时恢复
-            layout.lastSessionPerTab.setMake("")
+            layout.lastSessionPerTab.setMake(sdk.directory, "")
             
             // 导航到空态
             navigate("/make")
@@ -231,8 +236,8 @@ const sessionMessagesLoaded = createMemo(() => {
       () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
       ([id, missing]) => {
         if (id) {
-          layout.lastSessionPerTab.setMake(id)
-          if (missing) void sync.session.sync(id)
+          layout.lastSessionPerTab.setMake(sdk.directory, id)
+          if (missing) void sync.session.sync(id).catch(() => {})
         }
 
         setSending(false)
@@ -326,11 +331,24 @@ const sessionMessagesLoaded = createMemo(() => {
   const loadedChildSessions = new Set<string>()
 
   /** 加载子会话数据 */
-  function ensureChildSession(subSessionID: string) {
+  async function ensureChildSession(subSessionID: string) {
     if (!subSessionID || loadedChildSessions.has(subSessionID)) return
+    
+    // 防护：检查主 session 是否仍然有效（属于当前 sync.data）
+    const mainSessionId = params.id
+    if (!mainSessionId) return
+    const hasMainSession = Binary.search(sync.data.session, mainSessionId, (s) => s.id).found
+    if (!hasMainSession) return
+    
     loadedChildSessions.add(subSessionID)
     setChildSessionIDs((prev) => { const next = new Set(prev); next.add(subSessionID); return next })
-    void sync.session.sync(subSessionID)
+    
+    // 子 session 可能属于不同项目，sync 失败时静默忽略
+    try {
+      await sync.session.sync(subSessionID)
+    } catch {
+      // 忽略跨项目 session sync 错误
+    }
   }
 
   const userMessages = createMemo((): Message[] => {

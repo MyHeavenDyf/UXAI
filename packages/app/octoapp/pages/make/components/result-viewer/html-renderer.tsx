@@ -109,6 +109,9 @@ export function HtmlRenderer(props: {
   // Pending style storage for Cancel/Save logic
   let manualEditPendingStyle: { id: string; styles: ManualEditStyles; label: string } | null = null
   
+  // Pending text storage for Cancel/Save logic (tracks text/href changes)
+  let manualEditPendingText: { id: string; text: string; href: string } | null = null
+  
   // History management for Undo/Redo
   let historyStack: HistoryState[] = []
   let historyIndex = -1
@@ -222,25 +225,28 @@ createEffect(() => {
       description = `Edit ${pending.label || target.label} styles`
     }
     
-    // Apply text content if changed (for text/link/mixed elements)
-    if (result.ok && draft.text && (target.kind === 'text' || target.kind === 'mixed')) {
+    // Apply text content if pending (for text/mixed elements)
+    const pendingText = manualEditPendingText
+    if (result.ok && pendingText && pendingText.id === target.id && (target.kind === 'text' || target.kind === 'mixed')) {
       result = applyManualEditPatch(result.source, {
         id: target.id,
         kind: 'set-text',
-        value: draft.text
+        value: pendingText.text
       })
+      manualEditPendingText = null
       hasChanges = true
       description = `Edit ${target.label} text`
     }
     
-    // Apply link if changed (for link elements)
-    if (result.ok && target.kind === 'link' && (draft.text || draft.href)) {
+    // Apply link if pending (for link elements)
+    if (result.ok && pendingText && pendingText.id === target.id && target.kind === 'link') {
       result = applyManualEditPatch(result.source, {
         id: target.id,
         kind: 'set-link',
-        text: draft.text || '',
-        href: draft.href || ''
+        text: pendingText.text || '',
+        href: pendingText.href || ''
       })
+      manualEditPendingText = null
       hasChanges = true
       description = `Edit ${target.label} link`
     }
@@ -259,30 +265,43 @@ createEffect(() => {
     return false
   }
   
-  // Cancel pending styles (reset iframe to original)
+  // Cancel pending changes (reset iframe to original)
   function cancelManualEditStyleDraft() {
-    const pending = manualEditPendingStyle
-    if (!pending) return
+    const pendingStyle = manualEditPendingStyle
+    const pendingText = manualEditPendingText
+    const target = editTarget()
     
     manualEditPendingStyle = null
+    manualEditPendingText = null
     
-    // Read original styles from HTML
-    const html = extractHtmlContent(props.content)
-    const target = editTarget()
-    const sourceStyles = target
-      ? inspectorManualEditStyles(target, html)
-      : emptyManualEditStyles()
+    if (!target) return
     
-    // Reset iframe to original styles
-    const resetStyles: Partial<ManualEditStyles> = {}
-    MANUAL_EDIT_STYLE_PROPS.forEach(key => {
-      resetStyles[key] = sourceStyles[key] ?? ''
-    })
+    // Reset styles in iframe
+    if (pendingStyle) {
+      const html = extractHtmlContent(props.content)
+      const sourceStyles = inspectorManualEditStyles(target, html)
+      
+      const resetStyles: Partial<ManualEditStyles> = {}
+      MANUAL_EDIT_STYLE_PROPS.forEach(key => {
+        resetStyles[key] = sourceStyles[key] ?? ''
+      })
+      
+      iframeRef?.contentWindow?.postMessage(
+        { type: "od:edit-preview-style", id: pendingStyle.id, styles: resetStyles, version: 999 },
+        "*"
+      )
+    }
     
-    iframeRef?.contentWindow?.postMessage(
-      { type: "od:edit-preview-style", id: pending.id, styles: resetStyles, version: 999 },
-      "*"
-    )
+    // Reset draft text to original
+    if (pendingText) {
+      const html = extractHtmlContent(props.content)
+      const fields = readManualEditFields(html, target.id)
+      setEditDraft(prev => ({
+        ...prev,
+        text: fields.text ?? target.fields.text ?? target.text ?? '',
+        href: fields.href ?? target.fields.href ?? '',
+      }))
+    }
   }
   
   // Reapply saved overrides after iframe loads
@@ -462,17 +481,21 @@ createEffect(() => {
       if (d.type === "od:edit-selected") {
         const target: ManualEditTarget = d.target
         
-        // Save previous element's pending styles before switching (方案2：切换时自动Save)
-        if (manualEditPendingStyle && manualEditPendingStyle.id !== target.id) {
-          const flushOk = flushManualEditStyleSave()
-          if (!flushOk) {
-            console.error("[Edit] Failed to flush pending styles before switch")
-            return
+        // Save previous element's pending changes before switching
+        const prevId = editTarget()?.id
+        if (prevId && prevId !== target.id) {
+          if (manualEditPendingStyle?.id === prevId || manualEditPendingText?.id === prevId) {
+            const flushOk = flushManualEditStyleSave()
+            if (!flushOk) {
+              console.error("[Edit] Failed to flush pending changes before switch")
+              return
+            }
           }
         }
         
         setEditTarget(target)
         manualEditPendingStyle = null
+        manualEditPendingText = null
         
         // Initialize draft from target + source
         const html = extractHtmlContent(props.content)
@@ -716,7 +739,19 @@ return (
                 error={null}
                 busy={false}
                 floatingStyle={editPanelPosition() ?? undefined}
-                onDraftChange={setEditDraft}
+                onDraftChange={(newDraft) => {
+                  const target = editTarget()
+                  setEditDraft(newDraft)
+                  
+                  // Track text/href changes for pending save
+                  if (target && (target.kind === 'text' || target.kind === 'link' || target.kind === 'mixed')) {
+                    manualEditPendingText = {
+                      id: target.id,
+                      text: newDraft.text,
+                      href: newDraft.href,
+                    }
+                  }
+                }}
                 onStyleChange={(id, styles, label) => {
                   // Store to pending (waiting for Save button)
                   const mergedStyles = { ...editDraft().styles, ...styles }
@@ -766,12 +801,14 @@ onApplyPatch={(patch: ManualEditPatch, label: string) => {
                   if (ok) {
                     setEditTarget(null)
                     manualEditPendingStyle = null
+                    manualEditPendingText = null
                   }
                 }}
                 onCancelDraft={() => {
                   cancelManualEditStyleDraft()
                   setEditTarget(null)
                   manualEditPendingStyle = null
+                  manualEditPendingText = null
                   setEditDraft(emptyManualEditDraft(props.content))
                 }}
 onExit={() => {
@@ -784,6 +821,7 @@ onExit={() => {
   }
   setEditTarget(null)
   manualEditPendingStyle = null
+  manualEditPendingText = null
 }}
 onFloatingPositionChange={setEditPanelPosition}
               />

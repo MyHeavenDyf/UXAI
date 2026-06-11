@@ -110,9 +110,14 @@ export function TitlebarSimple() {
     }
 
     if (tab === "make") {
-      const make = layout.lastSessionPerTab.make()
-      if (make?.id) {
-        navigate(`/make/${make.id}`)
+      const dir = projectDir()
+      if (dir) {
+        const sessionId = layout.lastSessionPerTab.make(dir)
+        if (sessionId) {
+          navigate(`/make/${sessionId}`)
+        } else {
+          navigate("/make")
+        }
       } else {
         navigate("/make")
       }
