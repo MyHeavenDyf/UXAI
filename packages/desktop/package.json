@@ -24,6 +24,8 @@
     "package:mac-arm64": "electron-builder --mac --arm64 --config electron-builder.config.ts",
     "package:mac-x64": "electron-builder --mac --x64 --config electron-builder.config.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
+    "package:win:beta": "bun --env-file .env.beta run package:win",
+    "package:win:prod": "bun --env-file .env.prod run package:win",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native"
   },
