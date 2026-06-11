@@ -158,7 +158,14 @@ function remoteURL(key: string, value: string) {
 }
 
 // Convert MCP tool definition to AI SDK Tool type
-function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number): Tool {
+// clientGetter: 动态获取当前 client（支持重连后自动切换到新 client）
+// 重连期间若 client 已死，调用会失败，但 try/catch 兜住返回 isError 结果而不是抛异常中断 LLM 流。
+function convertMcpTool(
+  mcpTool: MCPToolDef,
+  clientGetter: () => MCPClient | undefined,
+  clientName: string,
+  timeout?: number,
+): Tool {
   const inputSchema = mcpTool.inputSchema
 
   // Spread first, then override type to ensure it's always "object"
@@ -173,17 +180,38 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
     description: mcpTool.description ?? "",
     inputSchema: jsonSchema(schema),
     execute: async (args: unknown) => {
-      return client.callTool(
-        {
-          name: mcpTool.name,
-          arguments: (args || {}) as Record<string, unknown>,
-        },
-        CallToolResultSchema,
-        {
-          resetTimeoutOnProgress: true,
-          timeout,
-        },
-      )
+      const client = clientGetter()
+      if (!client) {
+        log.warn("tool execute skipped - client removed", { clientName, tool: mcpTool.name })
+        return {
+          content: [{ type: "text" as const, text: `MCP server "${clientName}" is not connected. Tool "${mcpTool.name}" cannot be executed.` }],
+          isError: true,
+        }
+      }
+      try {
+        return await client.callTool(
+          {
+            name: mcpTool.name,
+            arguments: (args || {}) as Record<string, unknown>,
+          },
+          CallToolResultSchema,
+          {
+            resetTimeoutOnProgress: true,
+            timeout,
+          },
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.error("tool execute failed - client possibly disconnected", {
+          clientName,
+          tool: mcpTool.name,
+          error: msg,
+        })
+        return {
+          content: [{ type: "text" as const, text: `Tool "${mcpTool.name}" on server "${clientName}" failed: ${msg}. The server may be reconnecting.` }],
+          isError: true,
+        }
+      }
     },
   })
 }
@@ -770,7 +798,13 @@ export const layer = Layer.effect(
 
             const timeout = entry?.timeout ?? defaultTimeout
             for (const mcpTool of listed) {
-              result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(mcpTool, client, timeout)
+              // 传 getter 而非直接传 client，确保重连后命中最新 client
+              result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(
+                mcpTool,
+                () => s.clients[clientName],
+                clientName,
+                timeout,
+              )
             }
           }),
         { concurrency: "unbounded" },
