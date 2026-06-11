@@ -57,6 +57,10 @@ const getBase = (): Configuration => ({
       from: "../opencode/dist/node/example",
       to: "example",
     },
+    {
+      from: "../opencode/dist/node/design",
+      to: "design",
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",
