@@ -112,12 +112,12 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
         </div>
       </div>
 
-      {/* 会话列表 — 仅此区域可滚动 */}
-      <Show when={!collapsed()}>
-        <div class="flex-1 min-h-0 overflow-y-auto px-[12px]" style={{ "scrollbar-width": "none" }}>
+      {/* 会话列表 — 仅此区域可滚动;收起时容器保留占位,底部槽不上移 */}
+      <div class="flex-1 min-h-0 overflow-y-auto px-[12px]" style={{ "scrollbar-width": "none" }}>
+        <Show when={!collapsed()}>
           <InsightSessionList />
-        </div>
-      </Show>
+        </Show>
+      </div>
 
       {/* 底部槽:技能库/资产库/设置(D7) */}
       {props.bottom}
