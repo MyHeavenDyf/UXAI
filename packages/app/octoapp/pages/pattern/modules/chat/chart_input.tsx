@@ -69,7 +69,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
         value={props.value}
         onInput={(e) => props.onValueChange(e.currentTarget.value)}
         onKeyDown={props.onKeyDown}
-        placeholder="描述你想要的界面，按 Enter 生成 A2UI JSON…"
+        placeholder="描述你想要的界面，按 Enter 生成页面原型"
         rows={props.rows}
         disabled={props.disabled}
         class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"

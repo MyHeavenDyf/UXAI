@@ -19,6 +19,7 @@ import { InsightTurn, type OutputCard } from "./insight-turn"
 import { ProtoIntroduction } from "./proto_introduction"
 import { ChartInput, type ChartInputProps } from "./chart_input"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { ProtoTabSwitcher, type TabKey } from "./proto-tab-switcher"
 
 type AutoScrollApi = ReturnType<typeof createAutoScroll>
 
@@ -102,6 +103,8 @@ export function ChatPanel(props: {
     ))
   }
 
+  const [state, setState] = createStore<{ activeTab: TabKey }>({ activeTab: "fullpage" })
+
   return (
     <div
       class="flex flex-col overflow-hidden"
@@ -183,6 +186,9 @@ export function ChatPanel(props: {
           <ProtoIntroduction />
           <div class="w-full max-w-[800px] px-8">
             <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
+            <div class="proto-tab-btns">
+              <ProtoTabSwitcher activeTab={state.activeTab} onChange={(tab) => setState("activeTab", tab)} />
+            </div>
             <ChartInput {...props.inputProps} rows={undefined} />
           </div>
         </div>
