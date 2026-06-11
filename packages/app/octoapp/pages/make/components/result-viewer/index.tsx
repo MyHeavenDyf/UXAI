@@ -72,7 +72,13 @@ export function ResultViewer(props: {
 
   const toggleHtmlMode = (id: string) => {
     const current = getHtmlMode(id)
-    setHtmlModes((prev) => ({ ...prev, [id]: current === "preview" ? "edit" : "preview" }))
+    const nextMode = current === "preview" ? "edit" : "preview"
+    setHtmlModes((prev) => ({ ...prev, [id]: nextMode }))
+    if (nextMode === "edit") {
+      setInspecting(false)
+      setEditing(false)
+      setDrawing(false)
+    }
   }
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
@@ -136,7 +142,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 palette={palette()}
                 onPaletteChange={setPalette}
                 inspecting={inspecting()}
-                onInspectToggle={() => {
+                onInspectToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextInspecting = !inspecting()
                   setInspecting(nextInspecting)
                   if (nextInspecting && editing()) {
@@ -147,7 +153,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   }
                 }}
                 editing={editing()}
-                onEditToggle={() => {
+                onEditToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextEditing = !editing()
                   setEditing(nextEditing)
                   if (nextEditing && inspecting()) {
@@ -158,7 +164,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   }
                 }}
                 drawing={drawing()}
-                onDrawToggle={() => {
+                onDrawToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextDrawing = !drawing()
                   setDrawing(nextDrawing)
                   if (nextDrawing && inspecting()) {

@@ -104,6 +104,7 @@ export function HtmlRenderer(props: {
   const [editDraft, setEditDraft] = createSignal<ManualEditDraft>(emptyManualEditDraft(props.content))
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   
   // Pending style storage for Cancel/Save logic
   let manualEditPendingStyle: { id: string; styles: ManualEditStyles; label: string } | null = null
@@ -179,6 +180,19 @@ createEffect(() => {
       })
     }
   })
+
+// Initialize floating position on first inspect
+createEffect(() => {
+  if (props.inspectPanel && inspectTarget() && !inspectPanelPosition()) {
+    const canvasWidth = iframeRef?.parentElement?.getBoundingClientRect()?.width || 800
+    const panelWidth = 320
+    const padding = 12
+    setInspectPanelPosition({
+      left: Math.max(padding, canvasWidth - panelWidth - padding),
+      top: padding
+    })
+  }
+})
   
   // Flush pending styles to HTML (Save button)
   function flushManualEditStyleSave(): boolean {
@@ -691,6 +705,8 @@ return (
                 window.addEventListener("message", handleOverrides)
               }}
               onClose={() => setInspectTarget(null)}
+              floatingStyle={inspectPanelPosition() ?? undefined}
+              onFloatingPositionChange={setInspectPanelPosition}
             />
           </Show>
           <Show when={props.editing && editTarget()}>

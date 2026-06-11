@@ -8,13 +8,58 @@ export function InspectPanel(props: {
   onSaveToContent: () => void
   onClose: () => void
   iframeRef: HTMLIFrameElement | undefined
+  floatingStyle?: { left: number; top: number }
+  onFloatingPositionChange?: (position: { left: number; top: number }) => void
 }): JSX.Element {
   const [draft, setDraft] = createSignal<Record<string, string>>({})
 
-  // Reset draft when target changes
   createEffect(() => {
     if (props.target) setDraft({})
   })
+
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+
+  const startPanelDrag = (event: PointerEvent) => {
+    if (!props.onFloatingPositionChange) return
+    event.preventDefault()
+    event.stopPropagation()
+
+    const target = event.currentTarget as HTMLElement
+    const panel = target.closest('.inspect-panel') as HTMLElement | null
+    const parent = panel?.parentElement
+    if (!panel || !parent) return
+
+    target.setPointerCapture(event.pointerId)
+
+    const startX = event.clientX
+    const startY = event.clientY
+    const startLeft = panel.offsetLeft
+    const startTop = panel.offsetTop
+    const parentRect = parent.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const pad = 8
+
+    const maxLeft = Math.max(pad, parentRect.width - panelRect.width - pad)
+    const maxTop = Math.max(pad, parentRect.height - panelRect.height - pad)
+
+    const move = (moveEvent: PointerEvent) => {
+      props.onFloatingPositionChange!({
+        left: clamp(startLeft + moveEvent.clientX - startX, pad, maxLeft),
+        top: clamp(startTop + moveEvent.clientY - startY, pad, maxTop)
+      })
+    }
+
+    const up = () => {
+      try { target.releasePointerCapture(event.pointerId) } catch { /* noop */ }
+      target.removeEventListener('pointermove', move)
+      target.removeEventListener('pointerup', up)
+      target.removeEventListener('pointercancel', up)
+    }
+
+    target.addEventListener('pointermove', move)
+    target.addEventListener('pointerup', up)
+    target.addEventListener('pointercancel', up)
+  }
 
   const value = (prop: string, fallback: string): string =>
     draft()[prop] ?? fallback
@@ -72,8 +117,27 @@ export function InspectPanel(props: {
   const radiusNum = () => pxToNumber(radius())
 
   return (
-    <aside class="inspect-panel">
+    <aside 
+      class={`inspect-panel${props.floatingStyle ? ' inspect-panel-floating' : ''}`}
+      style={props.floatingStyle ? { 
+        left: `${props.floatingStyle.left}px`, 
+        top: `${props.floatingStyle.top}px`,
+        right: 'auto',
+        bottom: 'auto'
+      } : undefined}
+    >
       <header class="inspect-panel-head">
+        <Show when={props.floatingStyle}>
+          <button
+            type="button"
+            class="inspect-panel-drag-handle"
+            aria-label="Move panel"
+            title="Move panel"
+            onPointerDown={startPanelDrag}
+          >
+            ⋮⋮
+          </button>
+        </Show>
         <div class="inspect-panel-title">
           <strong title={target()?.tag ?? ""}>
             {target()?.tag ?? "Element"}
