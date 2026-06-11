@@ -1,5 +1,5 @@
-import type { Message, Session } from '@opencode-ai/sdk/v2/client';
-import { extractJson, getResultFromMessages } from '../../utils/json_parser';
+import { extractJson } from '../../utils/json_parser';
+import { runChildSession } from '../run-child-session';
 
 const AGENT_NAME = "proto_planner_create"
 
@@ -16,14 +16,25 @@ type ProtoPlannerCreateInput = {
   userInput: string
   // 页面意图
   intentDescription: string
+  // 子 session 创建回调
+  onSessionCreated?: (childSessionID: string) => void
 }
 
 export default async function proto_planner_create(input: ProtoPlannerCreateInput) {
-  const { sdk, sync, modelKey, rootSession, userInput, intentDescription } = input
+  const { sdk, sync, modelKey, rootSession, userInput, intentDescription, onSessionCreated } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(intentDescription)
   // 执行 Agent
-  const plannerResult = await runAgent(sdk, sync, modelKey, rootSession, humanMessage)
+  const plannerResult = await runChildSession({
+    client: sdk.client,
+    directory: sdk.directory,
+    parentSessionID: rootSession,
+    agent: AGENT_NAME,
+    modelKey,
+    prompt: humanMessage,
+    sync,
+    onSessionCreated,
+  })
   debugger
   // 转换成 planner json
   const plannerJson = extractJson(plannerResult)
@@ -32,31 +43,6 @@ export default async function proto_planner_create(input: ProtoPlannerCreateInpu
     "layout_planner": plannerJson,
     "current_step": "planner_create"
   }
-}
-
-// run OpenCode SDK
-async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: string, humanMessage: string): Promise<string> {
-  // create new session
-  const newSession = await sdk.client.session.create({
-    directory: sdk.directory,
-    parentID: rootSession,
-    agent: AGENT_NAME,
-  })
-  const sessionData = newSession.data as Session | undefined
-  if (!sessionData) throw new Error("----- Failed to create new session -----")
-
-  // run session 
-  await sdk.client.session.promptAsync({
-    sessionID: sessionData.id,
-    agent: AGENT_NAME,
-    model: modelKey,
-    parts: [{ type: "text", text: humanMessage }]
-  })
-
-  // get result
-  let result = getResultFromMessages(sdk, sessionData.id, false);
-  if (!result) throw new Error("----- Intent Audit agent returned NULL -----")
-  return result;
 }
 
 // 组装布局规划的输入文本

@@ -107,6 +107,7 @@ function PatternContent() {
         if (prevId !== undefined) {
           setSending(false)
           setPhase("idle")
+          setChildSessionIDs([])
         }
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
@@ -119,14 +120,40 @@ function PatternContent() {
       (id) => {
         if (!id) return
         void sync.session.sync(id)
+        // 发现并同步子 session（恢复历史记录）
+        discoverChildSessions(id)
       },
     ),
   )
 
+  async function discoverChildSessions(rootID: string) {
+    try {
+      const res = await sdk.client.session.list({ directory: sdk.directory })
+      const all = res.data ?? []
+      const children = all.filter((s: any) => s.parentID === rootID)
+      const childIDs: string[] = []
+      for (const child of children) {
+        await sync.session.sync(child.id)
+        childIDs.push(child.id)
+      }
+      setChildSessionIDs(childIDs)
+    } catch {}
+  }
+
+  const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
+
   const userMessages = createMemo((): Message[] => {
     const id = params.id
     if (!id) return []
-    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+    const rootMsgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+    const result: (Message & { _sessionID: string })[] = rootMsgs.map((m) => ({ ...m, _sessionID: id }))
+    for (const childID of childSessionIDs()) {
+      const childMsgs = ((sync.data.message[childID] ?? []) as Message[]).filter((m) => m.role === "user")
+      for (const m of childMsgs) {
+        result.push({ ...m, _sessionID: childID })
+      }
+    }
+    return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -139,9 +166,17 @@ function PatternContent() {
     if (sessionStatus().type !== "idle") return true
     const id = params.id
     if (!id) return false
-    const msgs = (sync.data.message[id] ?? []) as Message[]
-    const lastAssistant = msgs.findLast((m) => m.role === "assistant")
-    return !!lastAssistant && typeof lastAssistant.time.completed !== "number"
+    // check root session
+    const rootMsgs = (sync.data.message[id] ?? []) as Message[]
+    const lastRootAssistant = rootMsgs.findLast((m) => m.role === "assistant")
+    if (!!lastRootAssistant && typeof lastRootAssistant.time.completed !== "number") return true
+    // check child sessions
+    for (const childID of childSessionIDs()) {
+      const childMsgs = (sync.data.message[childID] ?? []) as Message[]
+      const lastChildAssistant = childMsgs.findLast((m) => m.role === "assistant")
+      if (!!lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") return true
+    }
+    return false
   })
 
   const [prompt, setPrompt] = createSignal("")
@@ -324,6 +359,8 @@ function PatternContent() {
         modelKey: mk,
         parentSessionId: sid,
         abortSignal: controller.signal,
+        sync: sync,
+        onSessionCreated: (childID: string) => setChildSessionIDs((prev) => [...prev, childID]),
       }
 
       let intentCtx = {
@@ -331,7 +368,8 @@ function PatternContent() {
         sync: sync,
         modelKey: mk,
         rootSession: sid,
-        userInput: text
+        userInput: text,
+        onSessionCreated: (childID: string) => setChildSessionIDs((prev) => [...prev, childID]),
       }
 
       // ── Step 0: triage → 判断首次还是修改 ──
@@ -518,7 +556,17 @@ function PatternContent() {
   async function halt() {
     const sid = params.id
     if (!sid) return
+    // abort 根 session
     await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
+    // abort 所有正在运行的子 session
+    for (const childID of childSessionIDs()) {
+      const msgs = (sync.data.message[childID] ?? []) as Message[]
+      const pending = msgs.findLast((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+      if (pending) {
+        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+      }
+    }
+    setSending(false)
   }
 
   function handleKeyDown(e: KeyboardEvent) {

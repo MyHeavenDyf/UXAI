@@ -204,7 +204,7 @@ export function ChatPanel(props: {
             <For each={props.userMessages}>
               {(msg) => (
                 <InsightTurn
-                  sessionID={params.id!}
+                  sessionID={(msg as any)._sessionID ?? params.id!}
                   messageID={msg.id}
                   status={props.sessionStatus}
                   active={props.isBusy}

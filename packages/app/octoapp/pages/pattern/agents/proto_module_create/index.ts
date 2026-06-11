@@ -1,5 +1,5 @@
-import type { Message, Session } from '@opencode-ai/sdk/v2/client';
-import { extractJson, getResultFromMessages } from '../../utils/json_parser';
+import { extractJson } from '../../utils/json_parser';
+import { runChildSession } from '../run-child-session';
 
 const AGENT_NAME = "proto_module_create";
 
@@ -24,6 +24,8 @@ type ProtoModuleCreateInput = {
   layoutPlanner: any
   // 意图扩展结论
   intentDescription: any
+  // 子 session 创建回调
+  onSessionCreated?: (childSessionID: string) => void
 }
 
 export default async function proto_module_create(input: ProtoModuleCreateInput) {
@@ -37,11 +39,21 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     sectionId,
     elementId, 
     layoutPlanner,
-    intentDescription } = input
+    intentDescription,
+    onSessionCreated } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(idPrefix, sectionId, elementId, layoutPlanner, intentDescription)
   // 执行模块渲染
-  const moduleResult = await runAgent(sdk, sync, modelKey, rootSession, humanMessage)
+  const moduleResult = await runChildSession({
+    client: sdk.client,
+    directory: sdk.directory,
+    parentSessionID: rootSession,
+    agent: AGENT_NAME,
+    modelKey,
+    prompt: humanMessage,
+    sync,
+    onSessionCreated,
+  })
   debugger
   // 转换成 a2ui json
   const moduleJson = extractJson(moduleResult)
@@ -52,31 +64,6 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     "element_id": elementId,
     "id_prefix": idPrefix
   } 
-}
-
-// run OpenCode SDK
-async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: string, humanMessage: string): Promise<string> {
-  // create new session
-  const newSession = await sdk.client.session.create({
-    directory: sdk.directory,
-    parentID: rootSession,
-    agent: AGENT_NAME,
-  })
-  const sessionData = newSession.data as Session | undefined
-  if (!sessionData) throw new Error("----- Failed to create new session -----")
-
-  // run session 
-  await sdk.client.session.promptAsync({
-    sessionID: sessionData.id,
-    agent: AGENT_NAME,
-    model: modelKey,
-    parts: [{ type: "text", text: humanMessage }]
-  })
-
-  // get result
-  let result = getResultFromMessages(sdk, sessionData.id, false);
-  if (!result) throw new Error("----- Intent Audit agent returned NULL -----")
-  return result;
 }
 
 // 组装模块生成的输入文本
