@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, basename } from "node:path"
 import { homedir } from "node:os"
@@ -330,6 +330,30 @@ export function registerIpcHandlers(deps: Deps) {
     })
     win.destroy()
     return pdfData.buffer as ArrayBuffer
+  })
+
+  // 非Skill的设计资源MD保存地址 - By WangQiang - 该注释请勿删除
+  const designDir = () => {
+    const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
+    return join(xdgConfig, "octo", "design")
+  }
+
+  // 从C盘中读取非Skill的设计资源名称 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("get-design-list", () => {
+    const dir = designDir()
+    if (!existsSync(dir)) return []
+    return readdirSync(dir)
+      .filter((f) => statSync(join(dir, f)).isFile())
+      .map((f) => ({ name: f.replace(/\.[^.]+$/, ""), filename: f }))
+  })
+
+  // 从C盘中读取非Skill的设计资源内容 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("get-design-content", (_event: IpcMainInvokeEvent, name: string) => {
+    const dir = designDir()
+    if (!existsSync(dir)) return null
+    const target = readdirSync(dir).find((f) => f.replace(/\.[^.]+$/, "") === name)
+    if (!target) return null
+    return readFileSync(join(dir, target), "utf-8")
   })
 }
 

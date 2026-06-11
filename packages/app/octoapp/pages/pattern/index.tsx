@@ -29,7 +29,7 @@ import proto_intent from "./agents/proto_intent"
 import proto_intent_audit from "./agents/proto_intent_audit"
 import proto_planner_create from "./agents/proto_planner_create"
 import proto_module_create from "./agents/proto_module_create"
-
+import { getDesignMap, readDesignFile } from "./design/load_design"
 import create_json from './workflow/create_json'
 import { runProtoPlannerModify } from "./agents/proto_planner_modify"
 import { runModuleModify } from "./agents/proto_module_modify"
@@ -436,23 +436,22 @@ function PatternContent() {
       }
       setPhase("intent")
 
-
-      
+      debugger
       // 第一步：意图扩展
       let intentResult = await proto_intent(intentCtx)
       
       // 第二步：意图检查 - 最多进行N(当前1)次审查
-      for (let attempt = 0; attempt < 1; attempt++) {
-        let descriptionStr = JSON.stringify(intentResult.intent_description);
-        const audit = await proto_intent_audit({ ...intentCtx, intentDescription: descriptionStr });
-        if (audit.intent_audit_pass) break;
-        intentResult = await proto_intent({
-          ...intentCtx,
-          auditFeedback: audit.intent_audit_feedback as string,
-          intentAuditPass: audit.intent_audit_pass as boolean,
-          pageDescription: descriptionStr
-        })
-      }
+      // for (let attempt = 0; attempt < 1; attempt++) {
+      //   let descriptionStr = JSON.stringify(intentResult.intent_description);
+      //   const audit = await proto_intent_audit({ ...intentCtx, intentDescription: descriptionStr });
+      //   if (audit.intent_audit_pass) break;
+      //   intentResult = await proto_intent({
+      //     ...intentCtx,
+      //     auditFeedback: audit.intent_audit_feedback as string,
+      //     intentAuditPass: audit.intent_audit_pass as boolean,
+      //     pageDescription: descriptionStr
+      //   })
+      // }
       
       // 第三步：页面局部
       let pageDescriptionStr = JSON.stringify(intentResult.intent_description);

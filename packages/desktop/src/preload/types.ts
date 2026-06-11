@@ -91,4 +91,6 @@ export type ElectronAPI = {
   openSkillFolder: () => Promise<void>
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
+  getDesignList: () => Promise<Array<{ name: string; filename: string }>>
+  getDesignContent: (name: string) => Promise<string | null>
 }
