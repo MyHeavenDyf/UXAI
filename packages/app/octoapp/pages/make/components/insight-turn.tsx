@@ -553,13 +553,17 @@ export function InsightTurn(props: {
         const filePath = input
           ? ((input.path ?? input.filepath ?? input.filePath ?? "") as string)
           : ""
+        const stateStatus = state.status as string | undefined
+        const stateError = state.error as string | undefined
         const hasOutput = typeof state.output === "string" && (state.output as string).length > 0
         const metadata = state.metadata as Record<string, unknown> | undefined
-        const isError = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+        const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
+        const isErrorFromStatus = stateStatus === "error" && !isCancelled
+        const isErrorFromMetadata = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+        const isError = isErrorFromStatus || isErrorFromMetadata
         return {
-          // V1 ToolPart uses `tool` field, not `name`
           name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
-          status: !hasOutput ? ("running" as const) : isError ? ("error" as const) : ("done" as const),
+          status: isCancelled ? ("error" as const) : isError ? ("error" as const) : hasOutput ? ("done" as const) : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
