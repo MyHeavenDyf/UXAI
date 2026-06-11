@@ -1,5 +1,6 @@
 import { createMemo, Show, For, type JSX } from "solid-js"
 import type { ToolCallInfo } from "./tool-call-card"
+import "../../assets/style/chat/file-ops-summary.css"
 
 type FileOpKind = "read" | "write" | "edit"
 type FileOpEntry = {
@@ -77,14 +78,8 @@ export function FileOpsSummary(props: { calls: ToolCallInfo[] }): JSX.Element {
 
   return (
     <div
-      class="mx-3 mb-1 px-2.5 py-1.5 flex flex-col gap-1"
-      style={{
-        "border-radius": "var(--octo-radius-md)",
-        background: "var(--octo-surface-page)",
-        border: "1px solid var(--octo-border-default)",
-      }}
-    >
-      <div class="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--octo-text-secondary)" }}>
+      class="mx-3 mb-1 px-2.5 py-1.5 flex flex-col gap-1 file-summany-content">
+      <div class="flex items-center gap-1.5 text-[11px] summany-color">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M2 4h8M2 6h8M2 8h5" stroke="currentColor" stroke-width="1.2" />
         </svg>
@@ -95,7 +90,7 @@ export function FileOpsSummary(props: { calls: ToolCallInfo[] }): JSX.Element {
           <For each={entries()}>
             {(entry) => (
               <div class="flex items-center gap-1.5 text-[11px]">
-                <span class="truncate flex-1 min-w-0" style={{ color: "var(--octo-text-primary)" }}>
+                <span class="truncate flex-1 min-w-0 truncate-name">
                   {entry.name}
                 </span>
                 <div class="flex items-center gap-0.5">

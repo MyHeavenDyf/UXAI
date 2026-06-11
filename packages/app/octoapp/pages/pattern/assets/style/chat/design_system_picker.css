@@ -1,0 +1,15 @@
+
+.picker-search {
+	background: var(--octo-surface-selected);
+	color: var(--octo-text-primary);
+}
+.chevron-down-icon {
+	color: #000;
+}
+
+.view-contain {
+	height: 280px;
+}
+.view-content {
+	max-height: 280px;
+}

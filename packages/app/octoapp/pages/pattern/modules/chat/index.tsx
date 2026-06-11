@@ -20,6 +20,7 @@ import { ProtoIntroduction } from "./proto_introduction"
 import { ChartInput, type ChartInputProps } from "./chart_input"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { ProtoTabSwitcher, type TabKey } from "./proto-tab-switcher"
+import "../../assets/style/chat/index.css"
 
 type AutoScrollApi = ReturnType<typeof createAutoScroll>
 
@@ -145,8 +146,7 @@ export function ChatPanel(props: {
               }
             >
               <h1
-                class="truncate min-w-0"
-                style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
+                class="truncate min-w-0 title"
                 onDblClick={openTitleEditor}
               >
                 {sessionTitle(props.sessionInfo?.title) ?? "Pattern"}
@@ -215,7 +215,7 @@ export function ChatPanel(props: {
           </div>
         </ScrollView>
 
-        <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+        <div class="shrink-0 chat-content">
           <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
           <ChartInput {...props.inputProps} rows={3} />
         </div>

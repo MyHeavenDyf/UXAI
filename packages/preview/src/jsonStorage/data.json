@@ -1,308 +1,219 @@
 {
-  "rootId": "shellRoot",
+  "rootId": "appShellRoot",
   "elements": [
     {
-      "id": "shellRoot",
+      "id": "appShellRoot",
       "component": "div",
       "props": {
         "className": "flex flex-col h-screen bg-surface-container-lowest"
       },
       "children": [
-        "shellHeader",
-        "shellBody"
+        "topNavSlot",
+        "appShellBody"
       ]
     },
     {
-      "id": "shellHeader",
+      "id": "topNavSlot",
       "component": "header",
       "props": {
-        "className": "flex items-center justify-between h-12 px-4 bg-surface-container-highest shadow-sm z-10 shrink-0"
+        "className": "h-12 bg-surface-container-highest shadow-sm flex items-center px-page shrink-0 z-10"
       },
       "children": [
-        "hdrLeftSection",
-        "hdrSearchInput",
-        "hdrRightSection"
+        "topNavLeft",
+        "topNavRight"
       ]
     },
     {
-      "id": "shellBody",
+      "id": "appShellBody",
       "component": "div",
       "props": {
         "className": "flex flex-1 overflow-hidden"
       },
       "children": [
-        "shellSidebar",
-        "shellMainContainer"
+        "sideMenuSlot",
+        "mainContentSlot"
       ]
     },
     {
-      "id": "shellSidebar",
+      "id": "sideMenuSlot",
       "component": "aside",
       "props": {
-        "className": "flex flex-col w-[15.5rem] bg-surface-container-highest shadow-sm overflow-y-auto shrink-0"
+        "className": "w-[15.5rem] bg-surface-container-highest shadow-sm overflow-y-auto shrink-0"
       },
       "children": [
-        "snavBrandArea",
-        "snavDivider",
-        "snavMenuWrap",
-        "snavSpacer",
-        "snavFooter"
+        "sideMenuLogo",
+        "sideMenuDivider",
+        "sideMenuNav"
       ]
     },
     {
-      "id": "shellMainContainer",
+      "id": "mainContentSlot",
       "component": "main",
       "props": {
-        "className": "flex-1 flex flex-col overflow-hidden"
+        "className": "flex-1 overflow-y-auto p-page"
       },
       "children": [
-        "shellContentScroll"
+        "mainContentInner"
       ]
     },
     {
-      "id": "shellContentScroll",
-      "component": "div",
-      "props": {
-        "className": "flex-1 overflow-y-auto p-6"
-      },
-      "children": [
-        "shellContent"
-      ]
-    },
-    {
-      "id": "shellContent",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-6"
-      },
-      "children": [
-        "careaBreadcrumb",
-        "careaDetailCard"
-      ]
-    },
-    {
-      "id": "hdrLeftSection",
+      "id": "topNavLeft",
       "component": "div",
       "props": {
         "className": "flex items-center gap-2 shrink-0"
       },
       "children": [
-        "hdrLogoIcon",
-        "hdrSystemName"
+        "topNavLogoIcon",
+        "topNavLogoText"
       ]
     },
     {
-      "id": "hdrLogoIcon",
+      "id": "topNavLogoIcon",
       "component": "Icon",
       "props": {
         "name": {
           "path": "/logoIcon"
         },
         "color": "primary",
-        "shape": "square",
+        "shape": "outline",
         "className": "w-6 h-6"
       }
     },
     {
-      "id": "hdrSystemName",
+      "id": "topNavLogoText",
       "component": "span",
       "props": {
-        "value": {
-          "path": "/systemName"
-        },
-        "className": "text-lg font-semibold text-on-surface tracking-tight"
+        "className": "text-lg font-semibold text-on-surface select-none",
+        "value": "电商后台"
       }
     },
     {
-      "id": "hdrSearchInput",
+      "id": "topNavRight",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 ml-auto"
+      },
+      "children": [
+        "topNavSearch",
+        "topNavNotifyBadge",
+        "topNavUserArea"
+      ]
+    },
+    {
+      "id": "topNavSearch",
       "component": "Input",
       "props": {
-        "value": {
-          "path": "/searchValue"
-        },
+        "value": "",
         "placeholder": {
           "path": "/searchPlaceholder"
         },
         "prefix": "search",
-        "className": "w-80 mx-8"
+        "className": "w-72"
       }
     },
     {
-      "id": "hdrRightSection",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-4 shrink-0"
-      },
-      "children": [
-        "hdrNotificationBadge",
-        "hdrUserDropdown"
-      ]
-    },
-    {
-      "id": "hdrNotificationBadge",
+      "id": "topNavNotifyBadge",
       "component": "Badge",
       "props": {
         "count": {
           "path": "/notificationCount"
         },
-        "overflowCount": 99
+        "overflowCount": 99,
+        "color": "error"
       },
       "children": [
-        "hdrNotificationIcon"
+        "topNavNotifyIcon"
       ]
     },
     {
-      "id": "hdrNotificationIcon",
+      "id": "topNavNotifyIcon",
       "component": "Icon",
       "props": {
-        "name": {
-          "path": "/notificationIcon"
-        },
-        "color": "default",
+        "name": "bell",
+        "color": "on-surface-variant",
         "shape": "outline",
-        "className": "w-6 h-6 cursor-pointer"
+        "className": "w-5 h-5 cursor-pointer"
       }
     },
     {
-      "id": "hdrUserDropdown",
-      "component": "Dropdown",
-      "props": {
-        "trigger": [
-          "click"
-        ],
-        "placement": "bottomRight",
-        "menu": [
-          {
-            "label": "个人中心",
-            "key": "profile",
-            "icon": "user"
-          },
-          {
-            "label": "账号设置",
-            "key": "settings",
-            "icon": "settings"
-          },
-          {
-            "label": "退出登录",
-            "key": "logout",
-            "icon": "log-out"
-          }
-        ]
-      },
-      "children": [
-        "hdrUserTrigger"
-      ]
-    },
-    {
-      "id": "hdrUserTrigger",
+      "id": "topNavUserArea",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1 hover:bg-surface-variant transition-colors"
+        "className": "flex items-center gap-2 cursor-pointer ml-2"
       },
       "children": [
-        "hdrUserAvatar",
-        "hdrUserInfo"
+        "topNavAvatar",
+        "topNavUserName"
       ]
     },
     {
-      "id": "hdrUserAvatar",
+      "id": "topNavAvatar",
       "component": "img",
       "props": {
         "src": {
-          "path": "/userProfile/avatarImage"
+          "path": "/userInfo/avatarImage"
         },
         "alt": "用户头像",
-        "className": "w-7 h-7 rounded-full object-cover"
+        "className": "w-8 h-8 rounded-full object-cover border border-divider"
       }
     },
     {
-      "id": "hdrUserInfo",
+      "id": "topNavUserName",
+      "component": "span",
+      "props": {
+        "className": "text-md text-on-surface font-medium",
+        "value": {
+          "path": "/userInfo.userName"
+        }
+      }
+    },
+    {
+      "id": "sideMenuLogo",
       "component": "div",
       "props": {
-        "className": "flex flex-col"
+        "className": "flex items-center gap-2 px-5 py-4"
       },
       "children": [
-        "hdrUserName",
-        "hdrUserRole"
+        "sideMenuLogoIcon",
+        "sideMenuLogoText"
       ]
     },
     {
-      "id": "hdrUserName",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/userProfile/userName"
-        },
-        "className": "text-sm font-medium text-on-surface leading-tight"
-      }
-    },
-    {
-      "id": "hdrUserRole",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/userProfile/roleName"
-        },
-        "className": "text-xs text-on-surface-variant leading-tight"
-      }
-    },
-    {
-      "id": "snavBrandArea",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3 px-6 h-16 shrink-0"
-      },
-      "children": [
-        "snavBrandIcon",
-        "snavBrandText"
-      ]
-    },
-    {
-      "id": "snavBrandIcon",
+      "id": "sideMenuLogoIcon",
       "component": "Icon",
       "props": {
-        "name": "hexagon",
+        "name": "store",
         "color": "primary",
         "shape": "square",
-        "className": "w-8 h-8 shrink-0"
+        "className": "w-8 h-8"
       }
     },
     {
-      "id": "snavBrandText",
+      "id": "sideMenuLogoText",
       "component": "span",
       "props": {
-        "className": "text-lg font-bold text-on-surface truncate",
-        "value": "CMS 管理平台"
+        "value": "电商管理后台",
+        "className": "text-lg font-semibold text-on-surface"
       }
     },
     {
-      "id": "snavDivider",
+      "id": "sideMenuDivider",
       "component": "div",
       "props": {
-        "className": "mx-4 h-px bg-divider"
+        "className": "mx-4 border-t border-divider"
       }
     },
     {
-      "id": "snavMenuWrap",
-      "component": "div",
-      "props": {
-        "className": "flex-1 px-2 pt-2"
-      },
-      "children": [
-        "snavMenu"
-      ]
-    },
-    {
-      "id": "snavMenu",
+      "id": "sideMenuNav",
       "component": "Menu",
       "props": {
         "mode": "vertical",
         "inlineCollapsed": false,
         "selectedKeys": {
-          "path": "/selectedKeys"
+          "path": "/selectedMenuKeys"
         },
         "openKeys": {
-          "path": "/openKeys"
+          "path": "/openMenuKeys"
         },
         "items": {
           "path": "/menuItems"
@@ -311,603 +222,1153 @@
       }
     },
     {
-      "id": "snavSpacer",
+      "id": "mainContentInner",
       "component": "div",
       "props": {
-        "className": "flex-1"
-      }
-    },
-    {
-      "id": "snavFooter",
-      "component": "div",
-      "props": {
-        "className": "px-4 py-4 border-t border-divider"
+        "className": "flex flex-col gap-section"
       },
       "children": [
-        "snavCollapseBtn"
+        "mainContentHeaderRow",
+        "mainContentBasicCard",
+        "mainContentSkuCard",
+        "mainContentSalesCard"
       ]
     },
     {
-      "id": "snavCollapseBtn",
+      "id": "mainContentHeaderRow",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-on-surface-variant hover:bg-surface-variant transition-colors"
+        "className": "flex justify-between items-center"
       },
       "children": [
-        "snavCollapseIcon",
-        "snavCollapseLabel"
+        "mainContentBreadcrumb",
+        "mainContentActionBtns"
       ]
     },
     {
-      "id": "snavCollapseIcon",
-      "component": "Icon",
-      "props": {
-        "name": "panel-left-close",
-        "color": "default",
-        "shape": "outline",
-        "className": "w-5 h-5"
-      }
-    },
-    {
-      "id": "snavCollapseLabel",
-      "component": "span",
-      "props": {
-        "className": "text-md text-on-surface-variant",
-        "value": "收起菜单"
-      }
-    },
-    {
-      "id": "careaBreadcrumb",
+      "id": "mainContentBreadcrumb",
       "component": "Breadcrumb",
       "props": {
-        "items": [
-          {
-            "title": {
-              "componentId": "careaBcItem1Wrap"
-            }
-          },
-          {
-            "title": {
-              "componentId": "careaBcItem2Wrap"
-            }
-          },
-          {
-            "title": {
-              "componentId": "careaBcItem3Wrap"
-            }
-          },
-          {
-            "title": {
-              "componentId": "careaBcItem4Wrap"
-            }
-          }
-        ]
+        "items": {
+          "path": "/breadcrumbData"
+        },
+        "className": ""
       }
     },
     {
-      "id": "careaBcItem1Wrap",
+      "id": "mainContentActionBtns",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-1.5"
+        "className": "flex gap-2"
       },
       "children": [
-        "careaBcItem1Icon",
-        "careaBcItem1Text"
+        "mainContentBtnEdit",
+        "mainContentBtnUpload",
+        "mainContentBtnDelete"
       ]
     },
     {
-      "id": "careaBcItem1Icon",
-      "component": "Icon",
+      "id": "mainContentBtnEdit",
+      "component": "Button",
       "props": {
-        "name": {
-          "path": "/breadcrumbData/0/iconName"
+        "value": {
+          "path": "/actionButtons/0/label"
         },
-        "className": "w-4 h-4",
+        "icon": {
+          "path": "/actionButtons/0/icon"
+        },
+        "iconPlacement": "start",
         "color": "primary"
       }
     },
     {
-      "id": "careaBcItem1Text",
+      "id": "mainContentBtnUpload",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/actionButtons/1/label"
+        },
+        "icon": {
+          "path": "/actionButtons/1/icon"
+        },
+        "iconPlacement": "start"
+      }
+    },
+    {
+      "id": "mainContentBtnDelete",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/actionButtons/2/label"
+        },
+        "icon": {
+          "path": "/actionButtons/2/icon"
+        },
+        "iconPlacement": "start",
+        "color": "danger"
+      }
+    },
+    {
+      "id": "mainContentBasicCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentBasicCardTitle",
+        "mainContentBasicDivider",
+        "mainContentBasicCardBody"
+      ]
+    },
+    {
+      "id": "mainContentBasicCardTitle",
       "component": "span",
       "props": {
         "value": {
-          "path": "/breadcrumbData/0/label"
+          "path": "/basicInfoCard/cardTitle"
         },
-        "className": "text-sm text-primary"
+        "className": "text-lg font-semibold text-on-surface"
       }
     },
     {
-      "id": "careaBcItem2Wrap",
+      "id": "mainContentBasicDivider",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-1.5"
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentBasicCardBody",
+      "component": "div",
+      "props": {
+        "className": "flex gap-6"
       },
       "children": [
-        "careaBcItem2Icon",
-        "careaBcItem2Text"
+        "mainContentCarouselWrap",
+        "mainContentInfoRight"
       ]
     },
     {
-      "id": "careaBcItem2Icon",
-      "component": "Icon",
+      "id": "mainContentCarouselWrap",
+      "component": "div",
       "props": {
-        "name": {
-          "path": "/breadcrumbData/1/iconName"
-        },
-        "className": "w-4 h-4",
-        "color": "primary"
+        "className": "w-2/5 shrink-0"
+      },
+      "children": [
+        "mainContentCarousel"
+      ]
+    },
+    {
+      "id": "mainContentCarousel",
+      "component": "Carousel",
+      "props": {
+        "arrows": true,
+        "dotPlacement": "bottom",
+        "className": "w-full rounded-lg overflow-hidden"
+      },
+      "children": {
+        "path": "/basicInfoCard/productImages",
+        "componentId": "mainContentCarouselSlide"
       }
     },
     {
-      "id": "careaBcItem2Text",
+      "id": "mainContentCarouselSlide",
+      "component": "div",
+      "props": {
+        "className": "w-full aspect-square rounded-lg overflow-hidden"
+      },
+      "children": [
+        "mainContentCarouselImg"
+      ]
+    },
+    {
+      "id": "mainContentCarouselImg",
+      "component": "img",
+      "props": {
+        "src": {
+          "path": "urlImage"
+        },
+        "alt": "商品图片",
+        "className": "w-full h-full object-cover"
+      }
+    },
+    {
+      "id": "mainContentInfoRight",
+      "component": "div",
+      "props": {
+        "className": "flex-1 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentProductName",
+        "mainContentProductDesc",
+        "mainContentAttrList"
+      ]
+    },
+    {
+      "id": "mainContentProductName",
+      "component": "h2",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/productName"
+        },
+        "className": "text-xl font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentProductDesc",
+      "component": "p",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/productDesc"
+        },
+        "className": "text-md text-on-surface-variant leading-relaxed"
+      }
+    },
+    {
+      "id": "mainContentAttrList",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3 mt-2"
+      },
+      "children": [
+        "mainContentAttrRow1",
+        "mainContentAttrRow2",
+        "mainContentAttrRow3",
+        "mainContentAttrRow4",
+        "mainContentAttrRow5"
+      ]
+    },
+    {
+      "id": "mainContentAttrRow1",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel1",
+        "mainContentAttrValue1"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel1",
       "component": "span",
       "props": {
         "value": {
-          "path": "/breadcrumbData/1/label"
+          "path": "/basicInfoCard/attributes/0/label"
         },
-        "className": "text-sm text-primary"
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
       }
     },
     {
-      "id": "careaBcItem3Wrap",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-1.5"
-      },
-      "children": [
-        "careaBcItem3Icon",
-        "careaBcItem3Text"
-      ]
-    },
-    {
-      "id": "careaBcItem3Icon",
-      "component": "Icon",
-      "props": {
-        "name": {
-          "path": "/breadcrumbData/2/iconName"
-        },
-        "className": "w-4 h-4",
-        "color": "primary"
-      }
-    },
-    {
-      "id": "careaBcItem3Text",
+      "id": "mainContentAttrValue1",
       "component": "span",
       "props": {
         "value": {
-          "path": "/breadcrumbData/2/label"
+          "path": "/basicInfoCard/attributes/0/value"
         },
-        "className": "text-sm text-primary"
+        "className": "text-md text-on-surface"
       }
     },
     {
-      "id": "careaBcItem4Wrap",
+      "id": "mainContentAttrRow2",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-1.5"
+        "className": "flex items-center gap-4"
       },
       "children": [
-        "careaBcItem4Icon",
-        "careaBcItem4Text"
+        "mainContentAttrLabel2",
+        "mainContentAttrValue2"
       ]
     },
     {
-      "id": "careaBcItem4Icon",
-      "component": "Icon",
-      "props": {
-        "name": {
-          "path": "/breadcrumbData/3/iconName"
-        },
-        "className": "w-4 h-4"
-      }
-    },
-    {
-      "id": "careaBcItem4Text",
+      "id": "mainContentAttrLabel2",
       "component": "span",
       "props": {
         "value": {
-          "path": "/breadcrumbData/3/label"
+          "path": "/basicInfoCard/attributes/1/label"
         },
-        "className": "text-sm font-medium text-on-surface"
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
       }
     },
     {
-      "id": "careaDetailCard",
+      "id": "mainContentAttrValue2",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/1/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow3",
       "component": "div",
       "props": {
-        "className": "bg-surface-container-highest rounded-xl shadow-card p-6 flex flex-col gap-5"
+        "className": "flex items-center gap-4"
       },
       "children": [
-        "careaCardHeader",
-        "careaTitle",
-        "careaMetaRow",
-        "careaDivider",
-        "careaCoverImg",
-        "careaContentText",
-        "careaActions"
+        "mainContentAttrLabel3",
+        "mainContentAttrValue3"
       ]
     },
     {
-      "id": "careaCardHeader",
+      "id": "mainContentAttrLabel3",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/2/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue3",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/2/value"
+        },
+        "className": "text-md font-mono text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow4",
       "component": "div",
       "props": {
-        "className": "flex items-center justify-between"
+        "className": "flex items-center gap-4"
       },
       "children": [
-        "careaStatusTag",
-        "careaArticleId"
+        "mainContentAttrLabel4",
+        "mainContentAttrValue4"
       ]
     },
     {
-      "id": "careaStatusTag",
+      "id": "mainContentAttrLabel4",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/3/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue4",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/3/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow5",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel5",
+        "mainContentAttrValue5"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel5",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/4/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue5",
       "component": "Tag",
       "props": {
         "value": {
-          "path": "/articleDetail/statusTag/text"
+          "path": "/basicInfoCard/attributes/4/value"
         },
         "color": {
-          "path": "/articleDetail/statusTag/color"
-        },
-        "icon": "check-circle"
+          "path": "/basicInfoCard/attributes/4/color"
+        }
       }
     },
     {
-      "id": "careaArticleId",
+      "id": "mainContentSkuCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentSkuCardTitle",
+        "mainContentSkuDivider",
+        "mainContentSkuTableWrap"
+      ]
+    },
+    {
+      "id": "mainContentSkuCardTitle",
       "component": "span",
       "props": {
         "value": {
-          "path": "/articleDetail/articleId"
+          "path": "/skuListTable/cardTitle"
         },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuDivider",
+      "component": "div",
+      "props": {
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentSkuTableWrap",
+      "component": "div",
+      "props": {
+        "className": "-mx-6 -mb-6 overflow-hidden"
+      },
+      "children": [
+        "mainContentSkuTable"
+      ]
+    },
+    {
+      "id": "mainContentSkuTable",
+      "component": "Table",
+      "props": {
+        "rowKey": "key",
+        "dataSource": {
+          "path": "/skuListTable/items"
+        },
+        "columns": {
+          "path": "/skuListTable/columns"
+        },
+        "pagination": true,
+        "className": "mb-4"
+      },
+      "children": {
+        "path": "/skuListTable/items",
+        "componentId": "mainContentSkuRow"
+      }
+    },
+    {
+      "id": "mainContentSkuRow",
+      "component": "TableRow",
+      "children": [
+        "mainContentSkuCodeCell",
+        "mainContentSkuColorCell",
+        "mainContentSkuSizeCell",
+        "mainContentSkuPriceCell",
+        "mainContentSkuStockCell",
+        "mainContentSkuStatusCell",
+        "mainContentSkuActionCell"
+      ],
+      "props": {}
+    },
+    {
+      "id": "mainContentSkuCodeCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "skuCode"
+        },
+        "className": "text-md font-mono text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuColorCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "colorName"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuSizeCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "sizeName"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuPriceCell",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-0.5"
+      },
+      "children": [
+        "mainContentSkuPriceSymbol",
+        "mainContentSkuPriceNum"
+      ]
+    },
+    {
+      "id": "mainContentSkuPriceSymbol",
+      "component": "span",
+      "props": {
+        "value": "¥",
         "className": "text-sm text-on-surface-variant"
       }
     },
     {
-      "id": "careaTitle",
-      "component": "h1",
-      "props": {
-        "value": {
-          "path": "/articleDetail/title"
-        },
-        "className": "text-2xl font-bold text-on-surface leading-snug"
-      }
-    },
-    {
-      "id": "careaMetaRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-4 flex-wrap"
-      },
-      "children": [
-        "careaAvatar",
-        "careaAuthorBlock",
-        "careaMetaSep1",
-        "careaPublishBlock",
-        "careaMetaSep2",
-        "careaViewBlock",
-        "careaMetaSep3",
-        "careaLikeBlock"
-      ]
-    },
-    {
-      "id": "careaAvatar",
-      "component": "img",
-      "props": {
-        "src": {
-          "path": "/articleDetail/authorInfo/avatarImage"
-        },
-        "alt": "作者头像",
-        "className": "w-10 h-10 rounded-full object-cover"
-      }
-    },
-    {
-      "id": "careaAuthorBlock",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col"
-      },
-      "children": [
-        "careaAuthorName",
-        "careaAuthorRole"
-      ]
-    },
-    {
-      "id": "careaAuthorName",
+      "id": "mainContentSkuPriceNum",
       "component": "span",
       "props": {
         "value": {
-          "path": "/articleDetail/authorInfo/name"
+          "path": "price"
         },
         "className": "text-md font-medium text-on-surface"
       }
     },
     {
-      "id": "careaAuthorRole",
+      "id": "mainContentSkuStockCell",
       "component": "span",
       "props": {
         "value": {
-          "path": "/articleDetail/authorInfo/role"
+          "path": "stock"
         },
-        "className": "text-sm text-on-surface-variant"
+        "className": "text-md text-on-surface"
       }
     },
     {
-      "id": "careaMetaSep1",
-      "component": "span",
-      "props": {
-        "value": "·",
-        "className": "text-on-surface-variant"
-      }
-    },
-    {
-      "id": "careaPublishBlock",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-1.5"
-      },
-      "children": [
-        "careaPublishIcon",
-        "careaPublishTime"
-      ]
-    },
-    {
-      "id": "careaPublishIcon",
-      "component": "Icon",
-      "props": {
-        "name": "calendar",
-        "className": "w-4 h-4",
-        "color": "primary"
-      }
-    },
-    {
-      "id": "careaPublishTime",
-      "component": "span",
+      "id": "mainContentSkuStatusCell",
+      "component": "Tag",
       "props": {
         "value": {
-          "path": "/articleDetail/publishTime"
+          "path": "stockStatus/text"
         },
-        "className": "text-sm text-on-surface-variant"
+        "color": {
+          "path": "stockStatus/status"
+        }
       }
     },
     {
-      "id": "careaMetaSep2",
-      "component": "span",
-      "props": {
-        "value": "·",
-        "className": "text-on-surface-variant"
-      }
-    },
-    {
-      "id": "careaViewBlock",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-1.5"
-      },
-      "children": [
-        "careaViewIcon",
-        "careaViewCount",
-        "careaViewSuffix"
-      ]
-    },
-    {
-      "id": "careaViewIcon",
-      "component": "Icon",
-      "props": {
-        "name": "eye",
-        "className": "w-4 h-4",
-        "color": "primary"
-      }
-    },
-    {
-      "id": "careaViewCount",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/articleDetail/viewCount"
-        },
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "careaViewSuffix",
-      "component": "span",
-      "props": {
-        "value": "次浏览",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "careaMetaSep3",
-      "component": "span",
-      "props": {
-        "value": "·",
-        "className": "text-on-surface-variant"
-      }
-    },
-    {
-      "id": "careaLikeBlock",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-1.5"
-      },
-      "children": [
-        "careaLikeIcon",
-        "careaLikeCount",
-        "careaLikeSuffix"
-      ]
-    },
-    {
-      "id": "careaLikeIcon",
-      "component": "Icon",
-      "props": {
-        "name": "heart",
-        "className": "w-4 h-4",
-        "color": "error"
-      }
-    },
-    {
-      "id": "careaLikeCount",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/articleDetail/likeCount"
-        },
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "careaLikeSuffix",
-      "component": "span",
-      "props": {
-        "value": "点赞",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "careaDivider",
-      "component": "Divider",
-      "props": {}
-    },
-    {
-      "id": "careaCoverImg",
-      "component": "img",
-      "props": {
-        "src": {
-          "path": "/articleDetail/coverImage"
-        },
-        "alt": "文章封面",
-        "className": "w-full rounded-lg object-cover max-h-80"
-      }
-    },
-    {
-      "id": "careaContentText",
-      "component": "p",
-      "props": {
-        "value": {
-          "path": "/articleDetail/contentPreview"
-        },
-        "className": "text-md text-on-surface leading-relaxed"
-      }
-    },
-    {
-      "id": "careaActions",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3 justify-end pt-2"
-      },
-      "children": [
-        "careaBackBtn",
-        "careaEditBtn"
-      ]
-    },
-    {
-      "id": "careaBackBtn",
+      "id": "mainContentSkuActionCell",
       "component": "Button",
       "props": {
-        "value": "返回列表",
-        "icon": "arrow-left",
-        "iconPlacement": "start"
+        "value": {
+          "path": "actions/0"
+        },
+        "types": "link",
+        "size": "small"
       }
     },
     {
-      "id": "careaEditBtn",
-      "component": "Button",
+      "id": "mainContentSalesCard",
+      "component": "div",
       "props": {
-        "value": "编辑文章",
-        "icon": "pencil",
-        "iconPlacement": "start",
-        "color": "primary"
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentSalesCardTitle",
+        "mainContentSalesDivider",
+        "mainContentMetricsGrid",
+        "mainContentChartWrap"
+      ]
+    },
+    {
+      "id": "mainContentSalesCardTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/salesMetricsCard/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSalesDivider",
+      "component": "div",
+      "props": {
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentMetricsGrid",
+      "component": "div",
+      "props": {
+        "className": "grid grid-cols-4 gap-section"
+      },
+      "children": {
+        "path": "/salesMetricsCard/metrics",
+        "componentId": "mainContentMetricItem"
+      }
+    },
+    {
+      "id": "mainContentMetricItem",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-variant rounded-container p-4 flex flex-col gap-2"
+      },
+      "children": [
+        "mainContentMetricTitle",
+        "mainContentMetricValueWrap",
+        "mainContentMetricTrendRow"
+      ]
+    },
+    {
+      "id": "mainContentMetricTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "title"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricValueWrap",
+      "component": "div",
+      "props": {
+        "className": "flex items-baseline gap-1"
+      },
+      "children": [
+        "mainContentMetricPrefix",
+        "mainContentMetricValueNum",
+        "mainContentMetricSuffix"
+      ]
+    },
+    {
+      "id": "mainContentMetricPrefix",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "prefix"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricValueNum",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "value"
+        },
+        "className": "text-2xl font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentMetricSuffix",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "suffix"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricTrendRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5 mt-1"
+      },
+      "children": [
+        "mainContentMetricTrendIcon",
+        "mainContentMetricTrendTag"
+      ]
+    },
+    {
+      "id": "mainContentMetricTrendIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "trendIcon"
+        },
+        "color": {
+          "path": "trendColor"
+        },
+        "shape": "outline",
+        "className": "w-4 h-4"
+      }
+    },
+    {
+      "id": "mainContentMetricTrendTag",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "trendValue"
+        },
+        "color": {
+          "path": "trendColor"
+        },
+        "size": "small"
+      }
+    },
+    {
+      "id": "mainContentChartWrap",
+      "component": "div",
+      "props": {
+        "className": "mt-2"
+      },
+      "children": [
+        "mainContentSalesChart"
+      ]
+    },
+    {
+      "id": "mainContentSalesChart",
+      "component": "LineChart",
+      "props": {
+        "option": {
+          "data": {
+            "path": "/salesMetricsCard/salesTrendChartData"
+          },
+          "xAxis": {
+            "data": "日期"
+          },
+          "yAxisTitle": "销售额 (元) / 订单数 (笔)",
+          "smooth": true
+        },
+        "className": "h-80 w-full"
       }
     }
   ],
   "state": {
-    "searchValue": "",
-    "logoIcon": "LayoutDashboard",
-    "systemName": "Archon CMS",
-    "searchPlaceholder": "全局搜索文章、用户、设置...",
+    "logoIcon": "ShoppingBag",
+    "searchPlaceholder": "搜索商品、订单、SKU...",
     "notificationCount": 5,
-    "notificationIcon": "Bell",
-    "userProfile": {
-      "avatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
-      "userName": "张建国",
-      "roleName": "超级管理员"
+    "userInfo": {
+      "avatarImage": "https://randomuser.me/api/portraits/women/44.jpg",
+      "userName": "赵明"
     },
-    "selectedKeys": [
-      "article-list"
+    "selectedMenuKeys": [
+      "product-detail"
     ],
-    "openKeys": [
-      "content"
+    "openMenuKeys": [
+      "product-center"
     ],
     "menuItems": [
       {
-        "title": "数据看板",
+        "title": "概览大盘",
         "key": "dashboard",
-        "icon": "bar-chart-2"
+        "icon": "layout-dashboard"
       },
       {
-        "title": "内容管理",
-        "key": "content",
-        "icon": "file-text",
+        "title": "商品中心",
+        "key": "product-center",
+        "icon": "package",
         "children": [
           {
-            "title": "文章列表",
-            "key": "article-list"
+            "title": "商品列表",
+            "key": "product-list"
           },
           {
             "title": "分类管理",
-            "key": "category"
+            "key": "product-category"
+          },
+          {
+            "title": "商品详情",
+            "key": "product-detail",
+            "disabled": true
           }
         ]
       },
       {
-        "title": "用户中心",
-        "key": "user",
+        "title": "订单中心",
+        "key": "order-center",
+        "icon": "shopping-cart"
+      },
+      {
+        "title": "用户运营",
+        "key": "user-center",
         "icon": "users"
       },
       {
-        "title": "系统设置",
-        "key": "settings",
-        "icon": "settings"
+        "title": "财务结算",
+        "key": "finance",
+        "icon": "wallet"
       }
     ],
     "breadcrumbData": [
       {
-        "label": "首页",
-        "iconName": "house",
+        "title": "首页",
         "path": "/dashboard"
       },
       {
-        "label": "内容管理",
-        "iconName": "folder",
-        "path": "/content"
+        "title": "商品中心",
+        "path": "/products"
       },
       {
-        "label": "文章列表",
-        "iconName": "file-text",
-        "path": "/content/articles"
+        "title": "商品管理",
+        "path": "/products/list"
       },
       {
-        "label": "2024年度技术架构演进总结",
-        "iconName": "file",
-        "path": ""
+        "title": "云端轻奢智能手表 Pro"
       }
     ],
-    "articleDetail": {
-      "articleId": "art-89021",
-      "title": "2024年度技术架构演进总结：从微服务到Serverless的全面转型之路",
-      "statusTag": {
-        "text": "已发布",
-        "color": "success"
+    "actionButtons": [
+      {
+        "label": "编辑商品",
+        "icon": "pencil",
+        "type": "primary"
       },
-      "authorInfo": {
-        "name": "李思维",
-        "role": "首席架构师",
-        "avatarImage": "https://randomuser.me/api/portraits/men/75.jpg"
+      {
+        "label": "上架商品",
+        "icon": "upload"
       },
-      "publishTime": "2024-05-20 14:30:00",
-      "viewCount": 18542,
-      "likeCount": 328,
-      "coverImage": "https://fpoimg.com/1200x400?gradient=0067D1,E6F2FD&text_color=ffffff&text=Cover",
-      "contentPreview": "本文回顾了2024年度公司核心业务系统的架构升级历程。面对日益增长的高并发诉求，我们逐步将传统的微服务架构向Serverless架构迁移，通过引入事件驱动模型和边缘计算，大幅降低了基础设施的维护成本，并提升了系统的弹性伸缩能力。"
+      {
+        "label": "删除",
+        "icon": "trash-2",
+        "danger": true
+      }
+    ],
+    "basicInfoCard": {
+      "cardTitle": "基础信息",
+      "productName": "云端轻奢智能手表 Pro (Cloud Smart Watch Pro)",
+      "productDesc": "采用最新一代健康监测芯片，支持血压、血氧、心率全方位守护。蓝宝石镜面搭配钛合金表体，彰显极致工艺。",
+      "productImages": [
+        {
+          "uid": "img-1",
+          "urlImage": "https://fpoimg.com/800x800?gradient=0067D1,E6F2FD&text_color=ffffff&text=WATCH+PRO+1"
+        },
+        {
+          "uid": "img-2",
+          "urlImage": "https://fpoimg.com/800x800?gradient=09AA71,E7FBF2&text_color=ffffff&text=WATCH+PRO+2"
+        },
+        {
+          "uid": "img-3",
+          "urlImage": "https://fpoimg.com/800x800?gradient=004EA8,191919&text_color=ffffff&text=WATCH+PRO+3"
+        }
+      ],
+      "attributes": [
+        {
+          "label": "商品类目",
+          "value": "智能设备 / 智能穿戴 / 智能手表"
+        },
+        {
+          "label": "品牌",
+          "value": "CloudTech"
+        },
+        {
+          "label": "商品编码",
+          "value": "SKU-CT-WATCH-X1"
+        },
+        {
+          "label": "创建时间",
+          "value": "2025-11-20 14:30:00"
+        },
+        {
+          "label": "当前状态",
+          "value": "已上架",
+          "tag": true,
+          "color": "success"
+        }
+      ]
+    },
+    "skuListTable": {
+      "cardTitle": "规格与库存 (SKU)",
+      "columns": [
+        {
+          "title": "SKU编码",
+          "dataIndex": "skuCode",
+          "minWidth": 160
+        },
+        {
+          "title": "颜色",
+          "dataIndex": "colorName"
+        },
+        {
+          "title": "尺寸",
+          "dataIndex": "sizeName"
+        },
+        {
+          "title": "售价 (元)",
+          "dataIndex": "price"
+        },
+        {
+          "title": "库存",
+          "dataIndex": "stock"
+        },
+        {
+          "title": "库存状态",
+          "dataIndex": "stockStatus"
+        },
+        {
+          "title": "操作",
+          "dataIndex": "actions"
+        }
+      ],
+      "items": [
+        {
+          "key": "1",
+          "skuCode": "CT-W-X1-BLK-42",
+          "colorName": "曜石黑",
+          "sizeName": "42mm",
+          "price": 2499,
+          "stock": 342,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "2",
+          "skuCode": "CT-W-X1-BLK-46",
+          "colorName": "曜石黑",
+          "sizeName": "46mm",
+          "price": 2699,
+          "stock": 125,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "3",
+          "skuCode": "CT-W-X1-SLV-42",
+          "colorName": "流光银",
+          "sizeName": "42mm",
+          "price": 2599,
+          "stock": 89,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "4",
+          "skuCode": "CT-W-X1-SLV-46",
+          "colorName": "流光银",
+          "sizeName": "46mm",
+          "price": 2799,
+          "stock": 45,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "5",
+          "skuCode": "CT-W-X1-BLU-42",
+          "colorName": "海峰蓝",
+          "sizeName": "42mm",
+          "price": 2699,
+          "stock": 12,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "6",
+          "skuCode": "CT-W-X1-BLU-46",
+          "colorName": "海峰蓝",
+          "sizeName": "46mm",
+          "price": 2899,
+          "stock": 0,
+          "stockStatus": {
+            "text": "缺货",
+            "status": "default"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "7",
+          "skuCode": "CT-W-X1-PNK-42",
+          "colorName": "樱语粉",
+          "sizeName": "42mm",
+          "price": 2599,
+          "stock": 230,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "8",
+          "skuCode": "CT-W-X1-PNK-46",
+          "colorName": "樱语粉",
+          "sizeName": "46mm",
+          "price": 2799,
+          "stock": 88,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "9",
+          "skuCode": "CT-W-X1-GLD-42",
+          "colorName": "尊贵金",
+          "sizeName": "42mm",
+          "price": 3299,
+          "stock": 15,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "10",
+          "skuCode": "CT-W-X1-GLD-46",
+          "colorName": "尊贵金",
+          "sizeName": "46mm",
+          "price": 3499,
+          "stock": 10,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        }
+      ]
+    },
+    "salesMetricsCard": {
+      "cardTitle": "销售数据概览",
+      "metrics": [
+        {
+          "title": "总销售额",
+          "value": 125800,
+          "precision": 2,
+          "prefix": "¥",
+          "trendIcon": "trending-up",
+          "trendValue": "15.3%",
+          "suffix": "较上月",
+          "trendColor": "success"
+        },
+        {
+          "title": "总销量",
+          "value": 842,
+          "precision": 0,
+          "suffix": "件",
+          "trendIcon": "trending-down",
+          "trendValue": "-2.1%",
+          "prefix": "",
+          "trendColor": "error"
+        },
+        {
+          "title": "访客数 (UV)",
+          "value": 6420,
+          "precision": 0,
+          "suffix": "人",
+          "trendIcon": "trending-up",
+          "trendValue": "5.4%",
+          "prefix": "",
+          "trendColor": "success"
+        },
+        {
+          "title": "转化率",
+          "value": 13.1,
+          "suffix": "%",
+          "precision": 2,
+          "trendIcon": "trending-up",
+          "trendValue": "1.2%",
+          "prefix": "",
+          "trendColor": "success"
+        }
+      ],
+      "salesTrendChartData": [
+        {
+          "日期": "05-01",
+          "销售额": 4200,
+          "订单数": 28
+        },
+        {
+          "日期": "05-02",
+          "销售额": 3800,
+          "订单数": 25
+        },
+        {
+          "日期": "05-03",
+          "销售额": 5100,
+          "订单数": 34
+        },
+        {
+          "日期": "05-04",
+          "销售额": 4800,
+          "订单数": 32
+        },
+        {
+          "日期": "05-05",
+          "销售额": 6200,
+          "订单数": 41
+        },
+        {
+          "日期": "05-06",
+          "销售额": 5500,
+          "订单数": 36
+        },
+        {
+          "日期": "05-07",
+          "销售额": 4900,
+          "订单数": 33
+        },
+        {
+          "日期": "05-08",
+          "销售额": 7200,
+          "订单数": 48
+        },
+        {
+          "日期": "05-09",
+          "销售额": 8100,
+          "订单数": 54
+        },
+        {
+          "日期": "05-10",
+          "销售额": 6500,
+          "订单数": 43
+        },
+        {
+          "日期": "05-11",
+          "销售额": 5900,
+          "订单数": 39
+        },
+        {
+          "日期": "05-12",
+          "销售额": 6800,
+          "订单数": 45
+        },
+        {
+          "日期": "05-13",
+          "销售额": 7500,
+          "订单数": 50
+        },
+        {
+          "日期": "05-14",
+          "销售额": 8200,
+          "订单数": 55
+        },
+        {
+          "日期": "05-15",
+          "销售额": 7800,
+          "订单数": 52
+        }
+      ]
     }
   }
 }

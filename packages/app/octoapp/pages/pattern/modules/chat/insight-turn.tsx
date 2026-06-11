@@ -3,11 +3,12 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
-import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../../icons"
+import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../../utils/artifact-parser"
 import { stripArtifact } from "../../utils/artifact-strip"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
+import "../../assets/style/chat/insight-turn.css"
 
 export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
@@ -151,20 +152,11 @@ function WaitingPill(props: { parts: Array<{ type: string; text?: string }> }): 
 
   return (
     <div
-      class="mx-3 mb-2 px-3 py-2 flex items-center gap-2"
-      style={{
-        "border-radius": "var(--octo-radius-md)",
-        background: "var(--octo-brand-a3)",
-        border: "1.5px dashed var(--octo-brand-a25)",
-      }}
-    >
+      class="mx-3 mb-2 px-3 py-2 flex items-center gap-2 waiting-pill-content">
       <div
-        class="w-1.5 h-1.5 rounded-full animate-pulse"
-        style={{
-          background: "var(--octo-brand, #3b82f6)",
-        }}
+        class="w-1.5 h-1.5 rounded-full animate-pulse status-content"
       />
-      <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>
+      <span class="text-xs status-label">
         {statusLabel()}…
       </span>
     </div>
@@ -177,14 +169,9 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
   return (
     <div class="mx-3 mb-2">
       <div
-        class="px-2.5 py-1.5 flex flex-col gap-1"
-        style={{
-          "border-radius": "var(--octo-radius-md)",
-          background: "var(--octo-surface-page)",
-          border: "1px solid var(--octo-border-default)",
-        }}
+        class="px-2.5 py-1.5 flex flex-col gap-1 produced-files-list"
       >
-        <div class="text-[11px]" style={{ color: "var(--octo-text-secondary)" }}>
+        <div class="text-[11px] produce-text">
           涉及文件
         </div>
         <For each={props.files}>
@@ -194,7 +181,7 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
                 <rect x="2" y="1" width="8" height="10" rx="1" stroke="currentColor" stroke-width="1" />
                 <path d="M5 4h3M5 6h3M5 8h2" stroke="currentColor" stroke-width="0.7" />
               </svg>
-              <span class="truncate" style={{ color: "var(--octo-text-primary)" }}>{file.name}</span>
+              <span class="truncate file-name">{file.name}</span>
             </div>
           )}
         </For>
@@ -485,14 +472,9 @@ export function InsightTurn(props: {
   return (
     <div class="flex flex-col">
       {/* 用户消息气泡（右侧对齐） */}
-      <div class="flex justify-end px-3 py-2.5">
+      <div class="flex justify-end px-3 py-2.5 ">
         <div
-          class="text-sm whitespace-pre-wrap break-words leading-relaxed max-w-[85%] px-3 py-2"
-          style={{
-            color: "var(--octo-text-primary)",
-            background: "var(--octo-brand-a8)",
-            "border-radius": "var(--octo-radius-md)",
-          }}
+          class="text-sm whitespace-pre-wrap break-words leading-relaxed max-w-[85%] px-3 py-2 bubble-content"
         >
           {userText()}
         </div>
@@ -509,19 +491,13 @@ export function InsightTurn(props: {
       <Show when={reasoningTexts().length > 0}>
         <div class="mx-3 mb-1">
           <div
-            class="p-2.5 rounded-md text-xs leading-relaxed overflow-auto"
-            style={{
-              background: "var(--octo-brand-a3)",
-              color: "var(--octo-text-secondary)",
-              "max-height": "300px",
-              "border": "1px solid var(--octo-brand-a8)",
-            }}
+            class="p-2.5 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
           >
             <For each={reasoningTexts()}>
               {(text, i) => (
                 <>
                   <Show when={i() > 0}>
-                    <div class="my-1.5" style={{ "border-top": "1px dashed var(--octo-brand-a15)" }} />
+                    <div class="my-1.5 split-line" />
                   </Show>
                   <div class="whitespace-pre-wrap">{text}</div>
                 </>
@@ -544,8 +520,7 @@ export function InsightTurn(props: {
       {/* AI 文字回复（剥离 artifact 标签） */}
       <Show when={proseText().length > 0}>
         <div
-          class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed"
-          style={{ color: "var(--octo-text-primary)" }}
+          class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed prose-text"
         >
           <Markdown text={proseText()} />
         </div>
@@ -557,25 +532,18 @@ export function InsightTurn(props: {
           const genCard = card()
           return (
             <div
-              class="mx-3 mb-3 p-3"
-              style={{
-                "border-radius": "var(--octo-radius-md)",
-                border: "1px dashed var(--octo-brand-a25)",
-                background: "var(--octo-surface-page)",
-                width: "calc(100% - 1.5rem)",
-              }}
+              class="mx-3 mb-3 p-3 gen-card-content"
             >
               <div class="flex items-center gap-2">
                 <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={genCard.type} /></span>
                 <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{genCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>正在生成…</span>
+                  <span class="text-sm font-medium truncate card-title">{genCard.title}</span>
+                  <span class="text-xs card-label">正在生成…</span>
                 </div>
                 <span
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium"
-                  style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium card-rounded"
                 >
-                  <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
+                  <span class="w-1.5 h-1.5 rounded-full animate-pulse card-rounded-full"/>
                   生成中
                 </span>
               </div>
@@ -592,13 +560,7 @@ export function InsightTurn(props: {
             <button
               type="button"
               onClick={() => props.onOpenResult(capturedCard)}
-              class="mx-3 mb-3 p-3 text-left transition-all"
-              style={{
-                "border-radius": "var(--octo-radius-md)",
-                border: "1px solid var(--octo-border-default)",
-                background: "var(--octo-surface-page)",
-                width: "calc(100% - 1.5rem)",
-              }}
+              class="mx-3 mb-3 p-3 text-left transition-all captured-card-btn"
               onMouseEnter={(e) => {
                 e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
               }}
@@ -609,10 +571,10 @@ export function InsightTurn(props: {
               <div class="flex items-center gap-2">
                 <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
                 <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate" style={{ color: "var(--octo-text-primary)" }}>{capturedCard.title}</span>
-                  <span class="text-xs" style={{ color: "var(--octo-text-secondary)" }}>{formatTime(capturedCard.createdAt)}</span>
+                  <span class="text-sm font-medium truncate title">{capturedCard.title}</span>
+                  <span class="text-xs time">{formatTime(capturedCard.createdAt)}</span>
                 </div>
-                <span class="text-xs flex-shrink-0" style={{ color: "var(--octo-text-secondary)" }}>→</span>
+                <span class="text-xs flex-shrink-0 text">→</span>
               </div>
             </button>
           )
