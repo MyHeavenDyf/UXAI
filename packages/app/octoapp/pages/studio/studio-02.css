@@ -509,9 +509,10 @@
 .studio-assistant-copy {
   margin-top: 32px;
   color: #191919;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 28px;
   white-space: pre-wrap;
+  font-weight: 400;
 }
 
 .studio-assistant-editor-link {
