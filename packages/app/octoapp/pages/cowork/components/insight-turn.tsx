@@ -127,7 +127,7 @@ export function InsightTurn(props: {
         sessionID={props.sessionID}
         messageID={props.messageID}
         status={props.status}
-        active={props.active}
+        active={props.active || (props.status.type === "retry" && isLatestTurn())}
         classes={{ root: "px-3" }}
       />
 

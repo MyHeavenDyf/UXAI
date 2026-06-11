@@ -140,8 +140,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  justify-content: stretch;
+  align-items: center;
+  justify-content: center;
   background: #fff;
   padding: 0;
 }

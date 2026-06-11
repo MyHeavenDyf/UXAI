@@ -1,0 +1,133 @@
+.studio-video-risk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.studio-video-risk-dialog {
+  box-sizing: border-box;
+  width: 489px;
+  padding: 20px 24px 24px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+
+.studio-video-risk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 10px;
+}
+
+.studio-video-risk-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 16px;
+}
+
+.studio-video-risk-icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+}
+
+.studio-video-risk-title {
+  margin: 0;
+  color: #191919;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.studio-video-risk-close {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  color: #191919;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 200;
+  line-height: 1;
+}
+
+.studio-video-risk-close:hover {
+  background: rgba(25, 25, 25, 0.06);
+}
+
+.studio-video-risk-close:focus-visible,
+.studio-video-risk-button:focus-visible {
+  outline: 2px solid #1769ff;
+  outline-offset: 2px;
+}
+
+.studio-video-risk-content {
+  margin-bottom: 30px;
+  margin-left: 36px;
+  color: #191919;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.studio-video-risk-link {
+  color: #0969ff;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.studio-video-risk-link:hover {
+  text-decoration: underline;
+}
+
+.studio-video-risk-greeting {
+  margin-bottom: 8px;
+}
+
+.studio-video-risk-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.studio-video-risk-button {
+  width: 88px;
+  height: 32px;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.studio-video-risk-button-cancel {
+  color: #191919;
+  background: #f1f1f1;
+}
+
+.studio-video-risk-button-cancel:hover {
+  background: #e7e7e7;
+}
+
+.studio-video-risk-button-confirm {
+  color: #fff;
+  background: #0969ff;
+}
+
+.studio-video-risk-button-confirm:hover {
+  background: #0057df;
+}

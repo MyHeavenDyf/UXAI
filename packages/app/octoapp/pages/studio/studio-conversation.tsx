@@ -81,7 +81,13 @@ export function StudioResultCanvas(props: {
   image?: StudioImage
   result?: StudioGenerationResult
   imageLabel: string
+  selectedImageId?: string
+  tabImages?: StudioImage[]
+  tabLabels?: Record<string, string>
   onDownload: () => void
+  onSelectImage?: (id: string) => void
+  onDeleteImage?: (id: string) => void
+  onCloseTab?: (id: string) => void
 }): JSX.Element {
   return (
     <Show when={props.image} fallback={
@@ -100,12 +106,41 @@ export function StudioResultCanvas(props: {
         </Show>
       </div>
     }>
-      {(image) => (
+      {(image) => {
+        function tabLabelFor(tabImage: StudioImage, index: number): string {
+          const video = isVideoMedia(tabImage)
+          const ext = video ? "mp4" : "png"
+          const stored = props.tabLabels?.[tabImage.id]
+          if (stored) return `${stored}-${index + 1}.${ext}`
+          const prompt = props.result?.prompt ?? ""
+          const firstLine = prompt.split("\n")[0].trim()
+          const cleaned = firstLine
+            .replace(/[\\/:*?\"<>|，。！？、；：""''（）【】《》!?;:()\[\]{}@#$%^&+=~`]/g, " ")
+            .replace(/\s+/g, "-")
+            .replace(/^-+|-+$/g, "")
+          const prefix = cleaned.length > 20 ? cleaned.slice(0, 20).replace(/-+$/, "") : (cleaned || "image")
+          return `${prefix}-${index + 1}.${ext}`
+        }
+        return (
         <>
           <div class="studio-canvas-header">
-            <span class="studio-canvas-label">
-              <span class="studio-canvas-label-text">{props.imageLabel}</span>
-            </span>
+            <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
+              {(tabImage, index) => {
+                const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : [props.result!.images[0]]
+                return (
+                  <span
+                    class="studio-canvas-tab"
+                    classList={{ active: tabImage.id === (props.selectedImageId ?? tabSource[0]?.id) }}
+                    onClick={() => props.onSelectImage!(tabImage.id)}
+                  >
+                    <span class="studio-canvas-label-text">{tabLabelFor(tabImage, index())}</span>
+                    <Show when={(props.tabImages && props.tabImages.length > 0) ? Boolean(props.onCloseTab) : Boolean(props.onDeleteImage)}>
+                      <span class="studio-canvas-tab-close" onClick={(e) => { e.stopPropagation(); (props.tabImages && props.tabImages.length > 0 ? props.onCloseTab! : props.onDeleteImage!)(tabImage.id); }} />
+                    </Show>
+                  </span>
+                )
+              }}
+            </For>
           </div>
           <div class="studio-canvas-stage">
             <StudioMediaPreview image={image()} class="studio-canvas-image" controls={isVideoMedia(image())} />
@@ -114,7 +149,9 @@ export function StudioResultCanvas(props: {
             <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
           </div>
         </>
-      )}
+        )
+      }
+      }
     </Show>
   )
 }
@@ -167,7 +204,7 @@ function InfoRow(props: { label: string; value: string }): JSX.Element {
   )
 }
 
-function StudioEmptyState(): JSX.Element {
+export function StudioEmptyState(): JSX.Element {
   return (
     <>
       <div class="studio-empty-state-dots">
