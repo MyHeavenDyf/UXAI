@@ -23,7 +23,7 @@ export type TriageContext = {
   userRequest: string
   genuiJson: Record<string, unknown> | null
   layoutPlanner: Record<string, unknown> | null
-  moduleResults: Record<string, unknown> | null
+  moduleResults: Array<Record<string, unknown>> | null
   sessionId?: string
   abortSignal: AbortSignal
 }
@@ -85,6 +85,7 @@ function buildRegenerateResult(): TriageResult {
 }
 
 export async function runProtoTriage(ctx: TriageContext): Promise<TriageResult> {
+  debugger
   if (!ctx.genuiJson) return buildRegenerateResult()
 
   let sid = ctx.sessionId
@@ -98,7 +99,8 @@ export async function runProtoTriage(ctx: TriageContext): Promise<TriageResult> 
     if (!childSession) throw new Error("failed to create triage session")
     sid = childSession.id
   }
-
+  const startTime = Date.now()
+  console.log("[Pattern ] triage_agent运行中")
   const promptText = buildTriagePrompt(ctx)
   await ctx.sdk.client.session.promptAsync({
     sessionID: sid,
@@ -108,6 +110,7 @@ export async function runProtoTriage(ctx: TriageContext): Promise<TriageResult> 
   })
 
   const raw = await waitForAssistant(ctx.sdk, sid, ctx.abortSignal)
+  console.log("[Pattern ] triage_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   const parsed = extractJson(raw)
 
   if (!parsed) return { ...buildRegenerateResult(), reason: "解析失败，兜底进入重生成" }

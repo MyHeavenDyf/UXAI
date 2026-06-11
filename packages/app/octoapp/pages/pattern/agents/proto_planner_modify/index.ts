@@ -119,7 +119,8 @@ export async function runProtoPlannerModify(ctx: PlannerModifyContext): Promise<
   })
   const childSession = childResult.data as Session | undefined
   if (!childSession) throw new Error("failed to create proto_planner_modify session")
-
+  const startTime = Date.now()
+  console.log("[Pattern ] planner_modify_agent运行中")
   const promptText = buildModifyPrompt(ctx.input)
   await ctx.sdk.client.session.promptAsync({
     sessionID: childSession.id,
@@ -129,6 +130,7 @@ export async function runProtoPlannerModify(ctx: PlannerModifyContext): Promise<
   })
 
   const raw = await waitForAssistant(ctx.sdk, childSession.id, ctx.abortSignal)
+  console.log("[Pattern ] planner_modify_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   console.log("[proto_planner_modify] raw (first 300 chars):", raw.slice(0, 300))
   const parsed = extractJson(raw)
   if (!parsed) throw new Error("proto_planner_modify did not return valid JSON\nraw: " + raw.slice(0, 500))

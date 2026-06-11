@@ -110,7 +110,8 @@ export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleM
   })
   const childSession = childResult.data as Session | undefined
   if (!childSession) throw new Error("failed to create module_modify session")
-
+  const startTime = Date.now()
+  console.log("[Pattern ] module_modify_agent运行中")
   const promptText = buildModifyPrompt(ctx.input)
   await ctx.sdk.client.session.promptAsync({
     sessionID: childSession.id,
@@ -120,6 +121,7 @@ export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleM
   })
 
   const raw = await waitForAssistant(ctx.sdk, childSession.id, ctx.abortSignal)
+  console.log("[Pattern ] module_modify_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   console.log("[module_modify] raw (first 300 chars):", raw.slice(0, 300))
   const moduleJson = extractA2UIJson(raw)
 

@@ -50,8 +50,9 @@ async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: stri
   })
   const sessionData = newSession.data as Session | undefined
   if (!sessionData) throw new Error("----- Failed to create new session -----")
-
-  // run session 
+  const startTime = Date.now()
+  console.log("[Pattern ] intent_agent运行中")
+   // run session 
   await sdk.client.session.promptAsync({
     sessionID: sessionData.id,
     agent: AGENT_NAME,
@@ -61,6 +62,8 @@ async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: stri
 
   // get result
   let result = await getResultFromMessages(sdk, sessionData.id, false);
+  console.log("[Pattern ] intent_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
+
   if (!result) throw new Error("----- Intent gent returned NULL -----")
   return result;
 }
