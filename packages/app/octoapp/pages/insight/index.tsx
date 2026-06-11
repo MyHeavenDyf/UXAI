@@ -45,7 +45,7 @@ import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { linkToOutputType } from "./utils/resource-link"
-import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
+import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { showToast } from "@opencode-ai/ui/toast"
 
 /**
@@ -463,15 +463,16 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue / 未发送附件 / 输入框草稿
+  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / queue / 未发送附件 / 输入框草稿
   // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
   // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
   //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
+  // 任务卡片刷新冷却(task-refresh)不清:per task_id 全局唯一,切走再切回必须延续倒计时
+  //   (否则切换 session 可绕过 3 分钟防抖,spec task-card.md §7.1)。
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
     clearQueue()
-    clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
     if (sendingNavigation) {
@@ -481,7 +482,7 @@ function InsightContent() {
       setAttachments([])
       setPrompt("")
     }
-    console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
+    console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
   }, { defer: true }))
 
   // 切换 / 打开 session 后把对话区滚到底部：消息异步加载(message[id] 先 undefined),
