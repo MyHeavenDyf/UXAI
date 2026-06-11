@@ -138,6 +138,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
             productLine={selections.productLine}
             product={selections.product}
             version={selections.version}
+            disabled
             onSelectionChange={(data) => {
               setSelections("domain", data.domain)
               setSelections("productLine", data.productLine)
