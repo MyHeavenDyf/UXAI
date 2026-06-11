@@ -44,45 +44,43 @@ function parseOS(): string {
 const ENDPOINT = "/record/logger/page"
 
 async function send(type: "page" | "interaction" | "duration", params: TrackParams) {
-  const baseUrl = (import.meta.env.VITE_OCTO_REPORT_BASE_URL as string) ?? ""
-  const url = baseUrl ? `${baseUrl}${ENDPOINT}` : ENDPOINT
-  const { account, uid } = getUserInfo()
-  const { browserName, browserVersion } = parseBrowser()
-
-  const payload = {
-    account: account ?? "",
-    uid,
-    browserName,
-    browserVersion,
-    module: params.module,
-    os: parseOS(),
-    platform: 3 as const,
-    project: "octo-agent",
-    userAgent: navigator.userAgent,
-    datas: {
-      from: params.from,
-      name: params.name,
-      path: window.location.href,
-      screenWidth: window.screen.width,
-      screenHeight: window.screen.height,
-      type,
-      extend: params.extend,
-    },
-  }
-
   try {
+    const baseUrl = (import.meta.env.VITE_OCTO_REPORT_BASE_URL as string) ?? ""
+    const url = baseUrl ? `${baseUrl}${ENDPOINT}` : ENDPOINT
+    const { account, uid } = getUserInfo()
+    const { browserName, browserVersion } = parseBrowser()
+
     await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        account: account ?? "",
+        uid,
+        browserName,
+        browserVersion,
+        module: params.module,
+        os: parseOS(),
+        platform: 3 as const,
+        project: "octo-agent",
+        userAgent: navigator.userAgent,
+        datas: {
+          from: params.from,
+          name: params.name,
+          path: window.location.href,
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height,
+          type,
+          extend: params.extend,
+        },
+      }),
     })
-  } catch {
-    // tracking failure must not affect app
+  } catch (err) {
+    console.warn("[tracker] failed silently", err)
   }
 }
 
 export const tracker = {
-  page: (params: TrackParams) => send("page", params),
-  interaction: (params: TrackParams) => send("interaction", params),
-  duration: (params: TrackParams) => send("duration", params),
+  page: (params: TrackParams): void => { void send("page", params) },
+  interaction: (params: TrackParams): void => { void send("interaction", params) },
+  duration: (params: TrackParams): void => { void send("duration", params) },
 }
