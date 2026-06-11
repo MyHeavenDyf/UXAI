@@ -1,15 +1,12 @@
 import { onMount, type JSX } from "solid-js"
+import { usePlatform } from "@/context/platform"
 
 const AI_MANAGEMENT_GUIDE_URL = "https://w3.huawei.com/info/cn/doc/viewDoc.do?did=18822293&cata348041"
 const SEEDANCE_TERMS_URL = "https://docs.byteplus.com/zh-CN/docs/legal/docs-terms-of-service"
 const EXTERNAL_AI_WEBSITE_CASE_URL = "https://12345.huawei.com/unidesk/portal/#/case_details?caseId=KT00231963"
 
-function openLink(url: string) {
-  if (!url) return
-  window.open(url, "_blank", "noopener,noreferrer")
-}
-
 function StudioVideoRiskLink(props: { href: string; children: JSX.Element }): JSX.Element {
+  const platform = usePlatform()
   return (
     <a
       href={props.href || undefined}
@@ -17,8 +14,9 @@ function StudioVideoRiskLink(props: { href: string; children: JSX.Element }): JS
       rel="noopener noreferrer"
       class="studio-video-risk-link"
       onClick={(event) => {
+        if (!props.href) return
         event.preventDefault()
-        openLink(props.href)
+        platform.openLink(props.href)
       }}
     >
       {props.children}
