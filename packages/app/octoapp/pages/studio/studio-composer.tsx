@@ -135,7 +135,7 @@ export function StudioComposer(props: {
             onInput={(event) => props.onPrompt(event.currentTarget.value)}
             onKeyDown={props.onKeyDown}
             onPaste={handlePaste}
-            placeholder={isVideoGeneration() ? "请描述你想生成的视频内容，或使用反推描述图片，也可查看使用指南提升生成效果。" : "上传参考图、输入文字，描述你想生成的图片。"}
+            placeholder={isVideoGeneration() ? "请描述你想生成的视频内容，或使用反推描述图片，也可查看使用指南提升生成效果。" : props.capability === "image.upscale" ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
             class="studio-composer-input"
             disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
           />
