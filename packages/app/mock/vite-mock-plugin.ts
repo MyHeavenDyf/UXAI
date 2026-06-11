@@ -15,24 +15,16 @@ import {
 
 const API_PREFIX = "/pipeline/rest.root/workflow"
 
-const mockEnabled = () => process.env.MOCK_API !== "false"
-
-function wrapResponse(content: any) {
-  return JSON.stringify({ data: { errorCode: 0, errorMessage: "", content } })
-}
-
-function parseQuery(url: string) {
-  const idx = url.indexOf("?")
-  if (idx === -1) return {}
-  return Object.fromEntries(new URLSearchParams(url.slice(idx + 1)))
-}
-
 export function viteMockPlugin(): Plugin {
+  let enabled = true
   return {
     name: "octo:mock-api",
+    configResolved(config) {
+      enabled = config.mode !== "beta" && config.mode !== "prod" && process.env.MOCK_API !== "false"
+    },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (!mockEnabled()) return next()
+        if (!enabled) return next()
         if (!req.url?.startsWith(API_PREFIX)) return next()
 
         const path = req.url.slice(API_PREFIX.length)

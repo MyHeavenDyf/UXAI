@@ -1,4 +1,4 @@
-const BASE_URL = "/pipeline/rest.root/workflow"
+const BASE_URL = (import.meta.env.VITE_OCTO_BASE_URL ?? "") + "/pipeline/rest.root/workflow"
 
 export type Domain = {
   id: number
