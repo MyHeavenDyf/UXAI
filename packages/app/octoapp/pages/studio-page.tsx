@@ -491,7 +491,18 @@ export default function StudioPage() {
 
   createEffect(() => {
     const first = canvasResult()?.images[0]?.id
-    if (first && !canvasResult()?.images.some((image) => image.id === selectedImageId())) setSelectedImageId(first)
+    if (first && !canvasResult()?.images.some((image) => image.id === selectedImageId())) {
+      setSelectedImageId(first)
+      // Session 切换或首次加载时自动显示 canvas，同时将首图加入真实 tab
+      if (selectedResultId() === undefined) {
+        setShowStudioCanvas(true)
+        const r = canvasResult()
+        if (r) {
+          setCanvasTabImages([r.images[0]])
+          setCanvasTabLabels({ [r.images[0].id]: extractKeywords(r.prompt) })
+        }
+      }
+    }
   })
 
   function extractKeywords(text: string, maxLen: number = 20): string {
@@ -511,14 +522,7 @@ export default function StudioPage() {
       const r = displayTurns().map((t) => t.result).find((item) => item?.id === input.resultID)
       if (!r) return
       if (canvasTabImages().length === 0) {
-        // tabs 为空：点击默认第一张则维持 fallback，点击其他图则把默认和点击的都加入 tabs
-        if (r.images[0]?.id === input.imageID) {
-          setDeletedImageIds(new Set<string>())
-          setWorkspaceImage(undefined)
-          setWorkspaceUploadRequested(false)
-          setMode("preview")
-          return
-        }
+        // tabs 为空：点击任意图片都创建一个 tab
         const clicked = r.images.find((img) => img.id === input.imageID)
         if (clicked) {
           setShowStudioCanvas(true)
@@ -677,6 +681,7 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
+        setShowStudioCanvas(false)
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
