@@ -559,11 +559,12 @@ export function InsightTurn(props: {
         const metadata = state.metadata as Record<string, unknown> | undefined
         const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
         const isErrorFromStatus = stateStatus === "error" && !isCancelled
-        const isErrorFromMetadata = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+        const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
         const isError = isErrorFromStatus || isErrorFromMetadata
+        const isCompleted = stateStatus === "completed"
         return {
           name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
-          status: isCancelled ? ("error" as const) : isError ? ("error" as const) : hasOutput ? ("done" as const) : ("running" as const),
+          status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
@@ -607,7 +608,7 @@ const stateStatus = state.status as string | undefined
       const hasOutput = outputStr.length > 0
       const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
       const isErrorFromStatus = stateStatus === "error" && !isCancelled
-      const isErrorFromMetadata = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+      const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
       const isError = isErrorFromStatus || isErrorFromMetadata
 
       const textParts: string[] = []

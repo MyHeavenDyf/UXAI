@@ -41,10 +41,4 @@ export const FEATURED_STARTERS: StarterPrompt[] = [
     prompt:
       "生成一份 REST API 文档：包含接口概述、认证方式、端点列表（GET /users, POST /users, PUT /users/:id, DELETE /users/:id）、请求/响应示例、错误码说明。使用表格格式，清晰易读。",
   },
-  {
-    title: "可折叠卡片",
-    tag: "React",
-    prompt:
-      "创建一个可折叠卡片组件：卡片头部显示标题和展开/收起按钮，点击按钮切换内容区域的显示/隐藏，支持同时展开多个卡片。使用 React hooks，添加平滑的展开动画。",
-  },
 ]
