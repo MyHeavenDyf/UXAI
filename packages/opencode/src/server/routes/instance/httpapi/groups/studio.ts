@@ -19,7 +19,14 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
 
 export const StudioPaths = {
   generations: `${root}/generations`,
+  generation: `${root}/generations/:generationID`,
+  promptTags: `${root}/prompt-tags`,
+  permission: `${root}/permissions/check`,
 } as const
+
+export const StudioPermissionPayload = Schema.Struct({
+  uid: Schema.optional(Schema.String),
+})
 
 export const StudioGenerationPayload = Schema.Struct({
   sessionID: Schema.optional(Schema.String),
@@ -44,21 +51,30 @@ export const StudioGenerationPayload = Schema.Struct({
 
 const StudioGenerationImage = Schema.Struct({
   id: Schema.String,
+  kind: Schema.optional(Schema.Union([Schema.Literal("image"), Schema.Literal("video")])),
   url: Schema.String,
   thumbnailUrl: Schema.optional(Schema.String),
   remoteUrl: Schema.optional(Schema.String),
   width: Schema.optional(Schema.Number),
   height: Schema.optional(Schema.Number),
+  duration: Schema.optional(Schema.Number),
 })
 
 const StudioGenerationResult = Schema.Struct({
   id: Schema.String,
-  status: Schema.Literal("succeeded"),
+  sessionID: Schema.String,
+  status: Schema.Union([
+    Schema.Literal("queued"),
+    Schema.Literal("running"),
+    Schema.Literal("succeeded"),
+    Schema.Literal("failed"),
+  ]),
   capability: StudioGenerationPayload.fields.capability,
   prompt: Schema.String,
   provider: Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")]),
   toolAction: Schema.optional(Schema.Union([
     Schema.Literal("generate_image"),
+    Schema.Literal("generate_video"),
     Schema.Literal("super_resolution"),
     Schema.Literal("cutout"),
     Schema.Literal("inpainting"),
@@ -69,18 +85,47 @@ const StudioGenerationResult = Schema.Struct({
   taskId: Schema.optional(Schema.String),
   model: Schema.String,
   aspectRatio: Schema.String,
+  videoMode: Schema.optional(Schema.Union([Schema.Literal("text"), Schema.Literal("first_last_frame")])),
+  duration: Schema.optional(Schema.Union([Schema.Literal("5"), Schema.Literal("10")])),
+  videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("std"), Schema.Literal("pro")])),
   images: Schema.Array(StudioGenerationImage),
+  progress: Schema.Number,
+  order: Schema.optional(Schema.Number),
+  rawStatus: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
+  error: Schema.optional(Schema.String),
   request: Schema.optional(Schema.Unknown),
   response: Schema.optional(Schema.Unknown),
   rawBody: Schema.optional(Schema.String),
   createdAt: Schema.Number,
-  completedAt: Schema.Number,
+  updatedAt: Schema.Number,
+  completedAt: Schema.optional(Schema.Number),
 })
 
 export const StudioApi = HttpApi.make("studio")
   .add(
     HttpApiGroup.make("studio")
       .add(
+        HttpApiEndpoint.get("listPromptTags", StudioPaths.promptTags, {
+          success: described(Schema.Unknown, "Prompt tags list"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.prompt-tags.list",
+            summary: "Get prompt tags",
+            description: "Returns prompt tag categories from the internal image API.",
+          }),
+        ),
+        HttpApiEndpoint.post("checkPermission", StudioPaths.permission, {
+          payload: StudioPermissionPayload,
+          success: described(Schema.Unknown, "Studio permission result"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.permissions.check",
+            summary: "Check Studio permission",
+            description: "Checks whether the current user can access the internal Studio entry.",
+          }),
+        ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
@@ -90,6 +135,19 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.create",
             summary: "Create Studio image generation",
             description: "Generate images using the built-in Studio image generation tool.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.get("getGeneration", StudioPaths.generation, {
+          params: { generationID: Schema.String },
+          success: described(StudioGenerationResult, "Studio generation status"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.get",
+            summary: "Get Studio generation",
+            description: "Get the current status and result of an asynchronous Studio generation.",
           }),
         ),
       )

@@ -31,7 +31,10 @@ export function createTabStore() {
   const [tabs, setTabs] = createSignal<ResultTab[]>([])
   const [activeId, setActiveId] = createSignal<string | null>(null)
 
-  function openTab(card: OutputCard) {
+  // 返回「去重后实际生效的 tab id」:命中已有 tab 时返回已有 id,新建时返回 card.id。
+  // 调用方据此激活真实存在的 tab —— 不能假定 card.id 一定进了 tabs(可能被 (uri,type) 去重掉),
+  // 否则用 card.id 去 activate 会指向不存在的 tab,导致 activeTab() 为 null、右侧栏只剩标签栏空白。
+  function openTab(card: OutputCard): string {
     // 去重优先级(spec: task-card.md §3.5 入口冗余 ≠ tab 重复):
     //   1. (uri, type) 复合命中 → 激活(多入口指向同一产物 + 同一渲染视图)
     //   2. id 命中 → 激活(inline 模式 / 同入口重复点击)
@@ -49,14 +52,14 @@ export function createTabStore() {
           type: card.type,
         })
         setActiveId(byUriAndType.id)
-        return
+        return byUriAndType.id
       }
     }
     const byId = current.find((t) => t.id === card.id)
     if (byId) {
       console.log("[octo:tab] dedupe-by-id", { tabId: card.id })
       setActiveId(card.id)
-      return
+      return card.id
     }
     const tab: ResultTab = {
       id: card.id,
@@ -79,6 +82,7 @@ export function createTabStore() {
     })
     setTabs((prev) => [...prev, tab])
     setActiveId(card.id)
+    return card.id
   }
 
   function closeTab(id: string) {

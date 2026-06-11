@@ -1,591 +1,913 @@
 {
-  "rootId": "loginPageRoot",
+  "rootId": "shellRoot",
   "elements": [
     {
-      "id": "loginPageRoot",
+      "id": "shellRoot",
       "component": "div",
       "props": {
-        "className": "flex flex-row w-full h-screen"
+        "className": "flex flex-col h-screen bg-surface-container-lowest"
       },
       "children": [
-        "loginBrandSlot",
-        "loginFormSlot"
+        "shellHeader",
+        "shellBody"
       ]
     },
     {
-      "id": "loginBrandSlot",
-      "component": "div",
+      "id": "shellHeader",
+      "component": "header",
       "props": {
-        "className": "flex flex-col items-center justify-center w-[40%] h-full bg-gradient-to-br from-[#1A1A2E] to-[#16213E] text-white"
+        "className": "flex items-center justify-between h-12 px-4 bg-surface-container-highest shadow-sm z-10 shrink-0"
       },
       "children": [
-        "brandInnerWrapper"
+        "hdrLeftSection",
+        "hdrSearchInput",
+        "hdrRightSection"
       ]
     },
     {
-      "id": "loginFormSlot",
+      "id": "shellBody",
       "component": "div",
       "props": {
-        "className": "flex flex-col items-center justify-center w-[60%] h-full bg-surface"
+        "className": "flex flex-1 overflow-hidden"
       },
       "children": [
-        "formCardWrapper"
+        "shellSidebar",
+        "shellMainContainer"
       ]
     },
     {
-      "id": "brandInnerWrapper",
-      "component": "div",
+      "id": "shellSidebar",
+      "component": "aside",
       "props": {
-        "className": "w-full h-full relative flex flex-col items-center justify-center"
+        "className": "flex flex-col w-[15.5rem] bg-surface-container-highest shadow-sm overflow-y-auto shrink-0"
       },
       "children": [
-        "brandBgImage",
-        "brandTopBar",
-        "brandCenterContent",
-        "brandBottomBar"
+        "snavBrandArea",
+        "snavDivider",
+        "snavMenuWrap",
+        "snavSpacer",
+        "snavFooter"
       ]
     },
     {
-      "id": "brandBgImage",
+      "id": "shellMainContainer",
+      "component": "main",
+      "props": {
+        "className": "flex-1 flex flex-col overflow-hidden"
+      },
+      "children": [
+        "shellContentScroll"
+      ]
+    },
+    {
+      "id": "shellContentScroll",
+      "component": "div",
+      "props": {
+        "className": "flex-1 overflow-y-auto p-6"
+      },
+      "children": [
+        "shellContent"
+      ]
+    },
+    {
+      "id": "shellContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "careaBreadcrumb",
+        "careaDetailCard"
+      ]
+    },
+    {
+      "id": "hdrLeftSection",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 shrink-0"
+      },
+      "children": [
+        "hdrLogoIcon",
+        "hdrSystemName"
+      ]
+    },
+    {
+      "id": "hdrLogoIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/logoIcon"
+        },
+        "color": "primary",
+        "shape": "square",
+        "className": "w-6 h-6"
+      }
+    },
+    {
+      "id": "hdrSystemName",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/systemName"
+        },
+        "className": "text-lg font-semibold text-on-surface tracking-tight"
+      }
+    },
+    {
+      "id": "hdrSearchInput",
+      "component": "Input",
+      "props": {
+        "value": {
+          "path": "/searchValue"
+        },
+        "placeholder": {
+          "path": "/searchPlaceholder"
+        },
+        "prefix": "search",
+        "className": "w-80 mx-8"
+      }
+    },
+    {
+      "id": "hdrRightSection",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 shrink-0"
+      },
+      "children": [
+        "hdrNotificationBadge",
+        "hdrUserDropdown"
+      ]
+    },
+    {
+      "id": "hdrNotificationBadge",
+      "component": "Badge",
+      "props": {
+        "count": {
+          "path": "/notificationCount"
+        },
+        "overflowCount": 99
+      },
+      "children": [
+        "hdrNotificationIcon"
+      ]
+    },
+    {
+      "id": "hdrNotificationIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/notificationIcon"
+        },
+        "color": "default",
+        "shape": "outline",
+        "className": "w-6 h-6 cursor-pointer"
+      }
+    },
+    {
+      "id": "hdrUserDropdown",
+      "component": "Dropdown",
+      "props": {
+        "trigger": [
+          "click"
+        ],
+        "placement": "bottomRight",
+        "menu": [
+          {
+            "label": "个人中心",
+            "key": "profile",
+            "icon": "user"
+          },
+          {
+            "label": "账号设置",
+            "key": "settings",
+            "icon": "settings"
+          },
+          {
+            "label": "退出登录",
+            "key": "logout",
+            "icon": "log-out"
+          }
+        ]
+      },
+      "children": [
+        "hdrUserTrigger"
+      ]
+    },
+    {
+      "id": "hdrUserTrigger",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1 hover:bg-surface-variant transition-colors"
+      },
+      "children": [
+        "hdrUserAvatar",
+        "hdrUserInfo"
+      ]
+    },
+    {
+      "id": "hdrUserAvatar",
       "component": "img",
       "props": {
         "src": {
-          "path": "/brandBackgroundImage"
+          "path": "/userProfile/avatarImage"
         },
-        "alt": "品牌背景",
-        "className": "absolute inset-0 w-full h-full object-cover opacity-10"
+        "alt": "用户头像",
+        "className": "w-7 h-7 rounded-full object-cover"
       }
     },
     {
-      "id": "brandTopBar",
+      "id": "hdrUserInfo",
       "component": "div",
       "props": {
-        "className": "w-full flex justify-end px-6 pt-5 relative z-10"
+        "className": "flex flex-col"
       },
       "children": [
-        "brandLangSelect"
+        "hdrUserName",
+        "hdrUserRole"
       ]
     },
     {
-      "id": "brandLangSelect",
-      "component": "Select",
+      "id": "hdrUserName",
+      "component": "span",
       "props": {
         "value": {
-          "path": "/brandCurrentLocale"
+          "path": "/userProfile/userName"
         },
-        "options": [
-          {
-            "value": "zh-CN",
-            "label": "简体中文"
-          },
-          {
-            "value": "en-US",
-            "label": "English (US)"
-          },
-          {
-            "value": "ja-JP",
-            "label": "日本語"
-          },
-          {
-            "value": "ko-KR",
-            "label": "한국어"
-          },
-          {
-            "value": "fr-FR",
-            "label": "Français"
-          }
-        ],
-        "className": "w-40 bg-white/10 border-white/20 text-white",
-        "placeholder": "选择语言"
+        "className": "text-sm font-medium text-on-surface leading-tight"
       }
     },
     {
-      "id": "brandCenterContent",
+      "id": "hdrUserRole",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/userProfile/roleName"
+        },
+        "className": "text-xs text-on-surface-variant leading-tight"
+      }
+    },
+    {
+      "id": "snavBrandArea",
       "component": "div",
       "props": {
-        "className": "flex-1 flex flex-col items-center justify-center gap-5 relative z-10"
+        "className": "flex items-center gap-3 px-6 h-16 shrink-0"
       },
       "children": [
-        "brandLogoIcon",
-        "brandSystemName",
-        "brandSloganRow"
+        "snavBrandIcon",
+        "snavBrandText"
       ]
     },
     {
-      "id": "brandLogoIcon",
+      "id": "snavBrandIcon",
       "component": "Icon",
       "props": {
-        "name": {
-          "path": "/brandLogoIcon"
+        "name": "hexagon",
+        "color": "primary",
+        "shape": "square",
+        "className": "w-8 h-8 shrink-0"
+      }
+    },
+    {
+      "id": "snavBrandText",
+      "component": "span",
+      "props": {
+        "className": "text-lg font-bold text-on-surface truncate",
+        "value": "CMS 管理平台"
+      }
+    },
+    {
+      "id": "snavDivider",
+      "component": "div",
+      "props": {
+        "className": "mx-4 h-px bg-divider"
+      }
+    },
+    {
+      "id": "snavMenuWrap",
+      "component": "div",
+      "props": {
+        "className": "flex-1 px-2 pt-2"
+      },
+      "children": [
+        "snavMenu"
+      ]
+    },
+    {
+      "id": "snavMenu",
+      "component": "Menu",
+      "props": {
+        "mode": "vertical",
+        "inlineCollapsed": false,
+        "selectedKeys": {
+          "path": "/selectedKeys"
         },
-        "size": 64,
-        "shape": "circle",
-        "color": "inverse"
-      }
-    },
-    {
-      "id": "brandSystemName",
-      "component": "h1",
-      "props": {
-        "className": "text-3xl font-bold text-white text-center",
-        "value": {
-          "path": "/brandSystemName"
-        }
-      }
-    },
-    {
-      "id": "brandSloganRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-2"
-      },
-      "children": [
-        "brandSloganIcon",
-        "brandSloganText"
-      ]
-    },
-    {
-      "id": "brandSloganIcon",
-      "component": "Icon",
-      "props": {
-        "name": {
-          "path": "/brandSloganIcon"
+        "openKeys": {
+          "path": "/openKeys"
         },
-        "size": 20,
-        "shape": "outline",
-        "color": "inverse"
-      }
-    },
-    {
-      "id": "brandSloganText",
-      "component": "p",
-      "props": {
-        "className": "text-base text-white/70 text-center",
-        "value": {
-          "path": "/brandSlogan"
-        }
-      }
-    },
-    {
-      "id": "brandBottomBar",
-      "component": "div",
-      "props": {
-        "className": "w-full flex flex-col items-center gap-0.5 pb-6 relative z-10"
-      },
-      "children": [
-        "brandCopyright",
-        "brandVersion"
-      ]
-    },
-    {
-      "id": "brandCopyright",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-white/50",
-        "value": {
-          "path": "/brandCopyright"
-        }
-      }
-    },
-    {
-      "id": "brandVersion",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-white/40",
-        "value": {
-          "path": "/brandVersion"
-        }
-      }
-    },
-    {
-      "id": "formCardWrapper",
-      "component": "div",
-      "props": {
-        "className": "w-full max-w-md px-inset py-page"
-      },
-      "children": [
-        "formCardContainer"
-      ]
-    },
-    {
-      "id": "formCardContainer",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-stack bg-surface-container-highest rounded-xl shadow-card p-inset"
-      },
-      "children": [
-        "formCardTitle",
-        "formUsernameField",
-        "formPasswordField",
-        "formCaptchaField",
-        "formRememberRow",
-        "formLoginBtn",
-        "formActionLinks",
-        "formSocialDivider",
-        "formSocialSection",
-        "formCopyrightText",
-        "formVersionText"
-      ]
-    },
-    {
-      "id": "formCardTitle",
-      "component": "span",
-      "props": {
-        "className": "text-lg font-semibold text-on-surface text-center mb-1",
-        "value": "欢迎登录"
-      }
-    },
-    {
-      "id": "formUsernameField",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-1"
-      },
-      "children": [
-        "formUsernameLabel",
-        "formUsernameInput",
-        "formUsernameHelper"
-      ]
-    },
-    {
-      "id": "formUsernameLabel",
-      "component": "span",
-      "props": {
-        "className": "text-sm font-medium text-on-surface-variant",
-        "value": "用户名/邮箱"
-      }
-    },
-    {
-      "id": "formUsernameInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/username"
+        "items": {
+          "path": "/menuItems"
         },
-        "placeholder": "请输入用户名或注册邮箱",
-        "prefix": "User",
         "className": "w-full"
       }
     },
     {
-      "id": "formUsernameHelper",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-on-surface-variant",
-        "value": "请输入用户名（至少3个字符）"
-      }
-    },
-    {
-      "id": "formPasswordField",
+      "id": "snavSpacer",
       "component": "div",
       "props": {
-        "className": "flex flex-col gap-1"
-      },
-      "children": [
-        "formPasswordLabel",
-        "formPasswordInput",
-        "formPasswordHelper"
-      ]
-    },
-    {
-      "id": "formPasswordLabel",
-      "component": "span",
-      "props": {
-        "className": "text-sm font-medium text-on-surface-variant",
-        "value": "密码"
-      }
-    },
-    {
-      "id": "formPasswordInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/password"
-        },
-        "placeholder": "请输入密码",
-        "prefix": "Lock",
-        "type": "password",
-        "className": "w-full"
-      }
-    },
-    {
-      "id": "formPasswordHelper",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-on-surface-variant",
-        "value": "请输入密码（至少6个字符）"
-      }
-    },
-    {
-      "id": "formCaptchaField",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-1"
-      },
-      "children": [
-        "formCaptchaLabel",
-        "formCaptchaRow",
-        "formCaptchaHelper"
-      ]
-    },
-    {
-      "id": "formCaptchaLabel",
-      "component": "span",
-      "props": {
-        "className": "text-sm font-medium text-on-surface-variant",
-        "value": "验证码"
-      }
-    },
-    {
-      "id": "formCaptchaRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3"
-      },
-      "children": [
-        "formCaptchaInput",
-        "formCaptchaImage",
-        "formCaptchaRefreshBtn"
-      ]
-    },
-    {
-      "id": "formCaptchaInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/captcha"
-        },
-        "placeholder": "输入验证码",
-        "prefix": "ScanQrCode",
         "className": "flex-1"
       }
     },
     {
-      "id": "formCaptchaImage",
+      "id": "snavFooter",
+      "component": "div",
+      "props": {
+        "className": "px-4 py-4 border-t border-divider"
+      },
+      "children": [
+        "snavCollapseBtn"
+      ]
+    },
+    {
+      "id": "snavCollapseBtn",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-on-surface-variant hover:bg-surface-variant transition-colors"
+      },
+      "children": [
+        "snavCollapseIcon",
+        "snavCollapseLabel"
+      ]
+    },
+    {
+      "id": "snavCollapseIcon",
+      "component": "Icon",
+      "props": {
+        "name": "panel-left-close",
+        "color": "default",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "snavCollapseLabel",
+      "component": "span",
+      "props": {
+        "className": "text-md text-on-surface-variant",
+        "value": "收起菜单"
+      }
+    },
+    {
+      "id": "careaBreadcrumb",
+      "component": "Breadcrumb",
+      "props": {
+        "items": [
+          {
+            "title": {
+              "componentId": "careaBcItem1Wrap"
+            }
+          },
+          {
+            "title": {
+              "componentId": "careaBcItem2Wrap"
+            }
+          },
+          {
+            "title": {
+              "componentId": "careaBcItem3Wrap"
+            }
+          },
+          {
+            "title": {
+              "componentId": "careaBcItem4Wrap"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "careaBcItem1Wrap",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5"
+      },
+      "children": [
+        "careaBcItem1Icon",
+        "careaBcItem1Text"
+      ]
+    },
+    {
+      "id": "careaBcItem1Icon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/breadcrumbData/0/iconName"
+        },
+        "className": "w-4 h-4",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "careaBcItem1Text",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/breadcrumbData/0/label"
+        },
+        "className": "text-sm text-primary"
+      }
+    },
+    {
+      "id": "careaBcItem2Wrap",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5"
+      },
+      "children": [
+        "careaBcItem2Icon",
+        "careaBcItem2Text"
+      ]
+    },
+    {
+      "id": "careaBcItem2Icon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/breadcrumbData/1/iconName"
+        },
+        "className": "w-4 h-4",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "careaBcItem2Text",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/breadcrumbData/1/label"
+        },
+        "className": "text-sm text-primary"
+      }
+    },
+    {
+      "id": "careaBcItem3Wrap",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5"
+      },
+      "children": [
+        "careaBcItem3Icon",
+        "careaBcItem3Text"
+      ]
+    },
+    {
+      "id": "careaBcItem3Icon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/breadcrumbData/2/iconName"
+        },
+        "className": "w-4 h-4",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "careaBcItem3Text",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/breadcrumbData/2/label"
+        },
+        "className": "text-sm text-primary"
+      }
+    },
+    {
+      "id": "careaBcItem4Wrap",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5"
+      },
+      "children": [
+        "careaBcItem4Icon",
+        "careaBcItem4Text"
+      ]
+    },
+    {
+      "id": "careaBcItem4Icon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/breadcrumbData/3/iconName"
+        },
+        "className": "w-4 h-4"
+      }
+    },
+    {
+      "id": "careaBcItem4Text",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/breadcrumbData/3/label"
+        },
+        "className": "text-sm font-medium text-on-surface"
+      }
+    },
+    {
+      "id": "careaDetailCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-card p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "careaCardHeader",
+        "careaTitle",
+        "careaMetaRow",
+        "careaDivider",
+        "careaCoverImg",
+        "careaContentText",
+        "careaActions"
+      ]
+    },
+    {
+      "id": "careaCardHeader",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-between"
+      },
+      "children": [
+        "careaStatusTag",
+        "careaArticleId"
+      ]
+    },
+    {
+      "id": "careaStatusTag",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "/articleDetail/statusTag/text"
+        },
+        "color": {
+          "path": "/articleDetail/statusTag/color"
+        },
+        "icon": "check-circle"
+      }
+    },
+    {
+      "id": "careaArticleId",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/articleDetail/articleId"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaTitle",
+      "component": "h1",
+      "props": {
+        "value": {
+          "path": "/articleDetail/title"
+        },
+        "className": "text-2xl font-bold text-on-surface leading-snug"
+      }
+    },
+    {
+      "id": "careaMetaRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "careaAvatar",
+        "careaAuthorBlock",
+        "careaMetaSep1",
+        "careaPublishBlock",
+        "careaMetaSep2",
+        "careaViewBlock",
+        "careaMetaSep3",
+        "careaLikeBlock"
+      ]
+    },
+    {
+      "id": "careaAvatar",
       "component": "img",
       "props": {
-        "src": "https://fpoimg.com/120x40?gradient=0067D1,004EA8&text_color=ffffff&text=CAPTCHA",
-        "className": "h-10 w-auto rounded-md border border-base cursor-pointer",
-        "alt": "验证码图片"
+        "src": {
+          "path": "/articleDetail/authorInfo/avatarImage"
+        },
+        "alt": "作者头像",
+        "className": "w-10 h-10 rounded-full object-cover"
       }
     },
     {
-      "id": "formCaptchaRefreshBtn",
-      "component": "Button",
+      "id": "careaAuthorBlock",
+      "component": "div",
       "props": {
-        "icon": "RefreshCw",
-        "shape": "circle",
-        "title": "刷新验证码",
-        "className": "shrink-0"
-      }
+        "className": "flex flex-col"
+      },
+      "children": [
+        "careaAuthorName",
+        "careaAuthorRole"
+      ]
     },
     {
-      "id": "formCaptchaHelper",
+      "id": "careaAuthorName",
       "component": "span",
       "props": {
-        "className": "text-xs text-on-surface-variant",
-        "value": "请输入验证码"
-      }
-    },
-    {
-      "id": "formRememberRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center"
-      },
-      "children": [
-        "formRememberCheckbox"
-      ]
-    },
-    {
-      "id": "formRememberCheckbox",
-      "component": "Checkbox",
-      "props": {
-        "checked": {
-          "path": "/rememberMe"
-        },
-        "value": "记住此设备"
-      }
-    },
-    {
-      "id": "formLoginBtn",
-      "component": "Button",
-      "props": {
-        "type": "primary",
-        "icon": "LogIn",
-        "value": "登 录",
-        "loading": {
-          "path": "/loginLoading"
-        },
-        "className": "w-full h-10 text-md font-medium"
-      }
-    },
-    {
-      "id": "formActionLinks",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-between -mt-1"
-      },
-      "children": [
-        "formForgotPasswordBtn",
-        "formRegisterBtn"
-      ]
-    },
-    {
-      "id": "formForgotPasswordBtn",
-      "component": "Button",
-      "props": {
-        "type": "link",
-        "icon": "HelpCircle",
-        "value": "忘记密码？",
-        "className": "text-md p-0 h-auto"
-      }
-    },
-    {
-      "id": "formRegisterBtn",
-      "component": "Button",
-      "props": {
-        "type": "link",
-        "icon": "UserPlus",
-        "value": "立即注册",
-        "className": "text-md p-0 h-auto"
-      }
-    },
-    {
-      "id": "formSocialDivider",
-      "component": "Divider",
-      "props": {
-        "value": "其他方式登录",
-        "className": "text-sm text-on-surface-variant my-2"
-      }
-    },
-    {
-      "id": "formSocialSection",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-center gap-6"
-      },
-      "children": {
-        "path": "/socialLogin/providers",
-        "componentId": "formSocialItem"
-      }
-    },
-    {
-      "id": "formSocialItem",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col items-center gap-1"
-      },
-      "children": [
-        "formSocialIconBtn",
-        "formSocialLabel"
-      ]
-    },
-    {
-      "id": "formSocialIconBtn",
-      "component": "Button",
-      "props": {
-        "shape": "circle",
-        "icon": {
-          "path": "icon"
-        },
-        "title": {
-          "path": "tooltip"
-        },
-        "className": "w-10 h-10"
-      }
-    },
-    {
-      "id": "formSocialLabel",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-on-surface-variant",
         "value": {
-          "path": "providerName"
-        }
+          "path": "/articleDetail/authorInfo/name"
+        },
+        "className": "text-md font-medium text-on-surface"
       }
     },
     {
-      "id": "formCopyrightText",
+      "id": "careaAuthorRole",
       "component": "span",
       "props": {
-        "className": "text-xs text-on-surface-variant text-center mt-4",
-        "value": "© 2026 DeepVision Technology. All rights reserved."
+        "value": {
+          "path": "/articleDetail/authorInfo/role"
+        },
+        "className": "text-sm text-on-surface-variant"
       }
     },
     {
-      "id": "formVersionText",
+      "id": "careaMetaSep1",
       "component": "span",
       "props": {
-        "className": "text-xs text-on-surface-variant text-center",
-        "value": "v4.2.1"
+        "value": "·",
+        "className": "text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaPublishBlock",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5"
+      },
+      "children": [
+        "careaPublishIcon",
+        "careaPublishTime"
+      ]
+    },
+    {
+      "id": "careaPublishIcon",
+      "component": "Icon",
+      "props": {
+        "name": "calendar",
+        "className": "w-4 h-4",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "careaPublishTime",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/articleDetail/publishTime"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaMetaSep2",
+      "component": "span",
+      "props": {
+        "value": "·",
+        "className": "text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaViewBlock",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5"
+      },
+      "children": [
+        "careaViewIcon",
+        "careaViewCount",
+        "careaViewSuffix"
+      ]
+    },
+    {
+      "id": "careaViewIcon",
+      "component": "Icon",
+      "props": {
+        "name": "eye",
+        "className": "w-4 h-4",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "careaViewCount",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/articleDetail/viewCount"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaViewSuffix",
+      "component": "span",
+      "props": {
+        "value": "次浏览",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaMetaSep3",
+      "component": "span",
+      "props": {
+        "value": "·",
+        "className": "text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaLikeBlock",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5"
+      },
+      "children": [
+        "careaLikeIcon",
+        "careaLikeCount",
+        "careaLikeSuffix"
+      ]
+    },
+    {
+      "id": "careaLikeIcon",
+      "component": "Icon",
+      "props": {
+        "name": "heart",
+        "className": "w-4 h-4",
+        "color": "error"
+      }
+    },
+    {
+      "id": "careaLikeCount",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/articleDetail/likeCount"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaLikeSuffix",
+      "component": "span",
+      "props": {
+        "value": "点赞",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "careaDivider",
+      "component": "Divider",
+      "props": {}
+    },
+    {
+      "id": "careaCoverImg",
+      "component": "img",
+      "props": {
+        "src": {
+          "path": "/articleDetail/coverImage"
+        },
+        "alt": "文章封面",
+        "className": "w-full rounded-lg object-cover max-h-80"
+      }
+    },
+    {
+      "id": "careaContentText",
+      "component": "p",
+      "props": {
+        "value": {
+          "path": "/articleDetail/contentPreview"
+        },
+        "className": "text-md text-on-surface leading-relaxed"
+      }
+    },
+    {
+      "id": "careaActions",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 justify-end pt-2"
+      },
+      "children": [
+        "careaBackBtn",
+        "careaEditBtn"
+      ]
+    },
+    {
+      "id": "careaBackBtn",
+      "component": "Button",
+      "props": {
+        "value": "返回列表",
+        "icon": "arrow-left",
+        "iconPlacement": "start"
+      }
+    },
+    {
+      "id": "careaEditBtn",
+      "component": "Button",
+      "props": {
+        "value": "编辑文章",
+        "icon": "pencil",
+        "iconPlacement": "start",
+        "color": "primary"
       }
     }
   ],
   "state": {
-    "brandSystemName": "DataPulse 智能分析平台",
-    "brandSlogan": "洞见数据价值，驱动业务决策",
-    "brandSloganIcon": "Sparkles",
-    "brandLogoIcon": "ShieldCheck",
-    "brandBackgroundImage": "https://fpoimg.com/800x900?gradient=1A1A2E,16213E&text_color=ffffff&text=ACCESS",
-    "brandCurrentLocale": "zh-CN",
-    "brandLanguageOptions": [
+    "searchValue": "",
+    "logoIcon": "LayoutDashboard",
+    "systemName": "Archon CMS",
+    "searchPlaceholder": "全局搜索文章、用户、设置...",
+    "notificationCount": 5,
+    "notificationIcon": "Bell",
+    "userProfile": {
+      "avatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
+      "userName": "张建国",
+      "roleName": "超级管理员"
+    },
+    "selectedKeys": [
+      "article-list"
+    ],
+    "openKeys": [
+      "content"
+    ],
+    "menuItems": [
       {
-        "locale": "zh-CN",
-        "label": "简体中文",
-        "icon": "Languages"
+        "title": "数据看板",
+        "key": "dashboard",
+        "icon": "bar-chart-2"
       },
       {
-        "locale": "en-US",
-        "label": "English (US)",
-        "icon": "Languages"
+        "title": "内容管理",
+        "key": "content",
+        "icon": "file-text",
+        "children": [
+          {
+            "title": "文章列表",
+            "key": "article-list"
+          },
+          {
+            "title": "分类管理",
+            "key": "category"
+          }
+        ]
       },
       {
-        "locale": "ja-JP",
-        "label": "日本語",
-        "icon": "Languages"
+        "title": "用户中心",
+        "key": "user",
+        "icon": "users"
       },
       {
-        "locale": "ko-KR",
-        "label": "한국어",
-        "icon": "Languages"
-      },
-      {
-        "locale": "fr-FR",
-        "label": "Français",
-        "icon": "Languages"
+        "title": "系统设置",
+        "key": "settings",
+        "icon": "settings"
       }
     ],
-    "brandCopyright": "© 2026 DeepVision Technology. All rights reserved.",
-    "brandVersion": "v4.2.1",
-    "username": "",
-    "password": "",
-    "captcha": "",
-    "rememberMe": true,
-    "loginLoading": false,
-    "socialLogin": {
-      "providers": [
-        {
-          "providerName": "WeChat",
-          "icon": "MessageCircle",
-          "tooltip": "微信扫码登录"
-        },
-        {
-          "providerName": "DingTalk",
-          "icon": "Bell",
-          "tooltip": "钉钉扫码登录"
-        },
-        {
-          "providerName": "Lark",
-          "icon": "Bird",
-          "tooltip": "飞书扫码登录"
-        },
-        {
-          "providerName": "EnterpriseSSO",
-          "icon": "Building",
-          "tooltip": "企业SSO单点登录"
-        }
-      ]
+    "breadcrumbData": [
+      {
+        "label": "首页",
+        "iconName": "house",
+        "path": "/dashboard"
+      },
+      {
+        "label": "内容管理",
+        "iconName": "folder",
+        "path": "/content"
+      },
+      {
+        "label": "文章列表",
+        "iconName": "file-text",
+        "path": "/content/articles"
+      },
+      {
+        "label": "2024年度技术架构演进总结",
+        "iconName": "file",
+        "path": ""
+      }
+    ],
+    "articleDetail": {
+      "articleId": "art-89021",
+      "title": "2024年度技术架构演进总结：从微服务到Serverless的全面转型之路",
+      "statusTag": {
+        "text": "已发布",
+        "color": "success"
+      },
+      "authorInfo": {
+        "name": "李思维",
+        "role": "首席架构师",
+        "avatarImage": "https://randomuser.me/api/portraits/men/75.jpg"
+      },
+      "publishTime": "2024-05-20 14:30:00",
+      "viewCount": 18542,
+      "likeCount": 328,
+      "coverImage": "https://fpoimg.com/1200x400?gradient=0067D1,E6F2FD&text_color=ffffff&text=Cover",
+      "contentPreview": "本文回顾了2024年度公司核心业务系统的架构升级历程。面对日益增长的高并发诉求，我们逐步将传统的微服务架构向Serverless架构迁移，通过引入事件驱动模型和边缘计算，大幅降低了基础设施的维护成本，并提升了系统的弹性伸缩能力。"
     }
   }
 }

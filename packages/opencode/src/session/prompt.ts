@@ -1490,6 +1490,22 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             continue
           }
 
+          if (lastFinished && lastFinished.summary !== true) {
+            const t = lastFinished.tokens
+            log.info("overflow-check", {
+              step,
+              sessionID,
+              input: t.input,
+              output: t.output,
+              total: t.total,
+              cache_read: t.cache.read,
+              cache_write: t.cache.write,
+              context: model.limit.context,
+              output_limit: model.limit.output,
+              msgs_count: msgs.length,
+            })
+          }
+
           if (
             lastFinished &&
             lastFinished.summary !== true &&
