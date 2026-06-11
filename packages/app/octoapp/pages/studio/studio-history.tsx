@@ -180,18 +180,18 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
     }
 
     return (
-      <Dialog title={language.t("session.delete.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
+        <div class="flex flex-col gap-4">
           <div class="flex flex-col gap-1">
             <span class="text-14-regular text-text-strong">
               {language.t("session.delete.confirm", { name: name() })}
             </span>
           </div>
           <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
             </Button>
-            <Button variant="primary" size="large" onClick={handleDelete}>
+            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
               {language.t("session.delete.button")}
             </Button>
           </div>

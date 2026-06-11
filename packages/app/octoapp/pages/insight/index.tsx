@@ -15,11 +15,13 @@ import {
 } from "solid-js"
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useServer } from "@/context/server"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
@@ -39,11 +41,12 @@ import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { linkToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
-import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast } from "@opencode-ai/ui/toast"
 
 /**
  * InsightPage —— 用研 agent 页面
@@ -130,6 +133,18 @@ function InsightContent() {
   const sync = useSync()
   const local = useLocal()
   const themeCtx = useTheme()
+  const globalSDK = useGlobalSDK()
+
+  // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
+  const insightDebug = installInsightDebug({
+    globalSDK: {
+      url: globalSDK.url,
+      event: globalSDK.event as unknown as Parameters<typeof installInsightDebug>[0]["globalSDK"]["event"],
+    },
+    syncData: sync.data as unknown as Parameters<typeof installInsightDebug>[0]["syncData"],
+    currentSessionID: () => params.id,
+  })
+  onCleanup(() => insightDebug.dispose())
 
   // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
   // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
@@ -516,7 +531,7 @@ function InsightContent() {
     const dir = projectDir()
     if (!dir) return
     try {
-      const result = await sdk.client.session.create({ agent: "octo_insight" })
+      const result = await sdk.client.session.create({ agent: INSIGHT_AGENT })
       const session = result.data as Session | undefined
       if (session) {
         // 导航前先把新会话 seed 进 sync store。否则 navigate 触发的 sync.session.sync
@@ -605,7 +620,7 @@ function InsightContent() {
     const parts: TextPartInput[] = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     const messageID = Identifier.ascending("message")
-    const agent = "octo_insight"
+    const agent = INSIGHT_AGENT
 
     // 当前选中模型(useLocal().model.current():会话级→agent 默认→全局兜底 回退链)
     const currentModel = local.model.current()
@@ -665,6 +680,21 @@ function InsightContent() {
       cleanText: text,         // 用户可见文本
       uploadBlock,             // synthetic 上传块(喂给 LLM,气泡不显示)
     })
+
+    // 回灌 send 记录到 debug-observer 环形缓冲（§SPEC-INS-011）
+    insightDebug.recordSend({
+      ts: Date.now(),
+      source: opts.source,
+      sessionID: sessionId,
+      messageID,
+      model,
+      modelResolved: !!model,
+      statusAtSend: sync.data.session_status[sessionId]?.type ?? "idle",
+      cleanText: text,
+      uploadBlock,
+      attachmentsCount: doneAttachments.length,
+      endpoint: `${sdk.url}/session/${sessionId}/prompt_async`,
+    } satisfies SendRecord)
 
     sync.session.optimistic.add({
       sessionID: sessionId,
@@ -975,10 +1005,11 @@ function InsightContent() {
       count: ocs.length,
       tabs: ocs.map((oc) => ({ type: oc.type, source: oc.source, file: oc.fileName })),
     })
-    // 多文件:全部 openTab,激活 = 最后一个 openTab 内部已处理(activate first won't override later)
-    // 用户视觉上看到最后激活的是数组里最后一个 = 第一张?— 让我们激活第一张
-    for (const oc of ocs) tabStore.openTab(oc)
-    tabStore.activate(ocs[0].id)
+    // 多文件:全部 openTab,激活第一张。
+    // 注意:openTab 会按 (uri,type) 去重,ocs[0].id 不一定真进了 tabs(可能命中已有 tab),
+    // 故用 openTab 返回的「实际生效 id」激活,避免 activate 指向不存在的 tab 导致右侧栏空白。
+    const openedIds = ocs.map((oc) => tabStore.openTab(oc))
+    tabStore.activate(openedIds[0])
     revealPanel()
   }
 
@@ -997,8 +1028,8 @@ function InsightContent() {
         count: ocs.length,
         tabs: ocs.map((oc) => ({ type: oc.type, file: oc.fileName })),
       })
-      for (const oc of ocs) tabStore.openTab(oc)
-      tabStore.activate(ocs[0].id)
+      const openedIds = ocs.map((oc) => tabStore.openTab(oc))
+      tabStore.activate(openedIds[0])
       revealPanel()
       break  // 一次只自动开一个 task 的全部产物
     }
@@ -1061,7 +1092,6 @@ function InsightContent() {
       onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
     >
-      <Toast.Region />
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
         {/* top 槽注入 UXAI 自家的项目/产品切换器(走 ProjectInfo → DialogProjectOnboarding,

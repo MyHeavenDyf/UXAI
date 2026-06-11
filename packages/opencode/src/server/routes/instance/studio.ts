@@ -3,8 +3,12 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
 import { createGeneration, getGeneration } from "@/studio/studio-service"
-import { fetchPromptTags } from "@/tool/internel_image_generate"
+import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
+
+const StudioPermissionInput = z.object({
+  uid: z.string().optional(),
+})
 
 const StudioGenerationInput = z.object({
   sessionID: z.string().optional(),
@@ -47,6 +51,23 @@ export const StudioRoutes = lazy(() =>
         const data = await fetchPromptTags()
         return c.json(data)
       },
+    )
+    .post(
+      "/permissions/check",
+      describeRoute({
+        summary: "Check Studio permission",
+        description: "Checks whether the current user can access the internal Studio entry.",
+        operationId: "studio.permissions.check",
+        responses: {
+          200: {
+            description: "Studio permission result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(502),
+        },
+      }),
+      validator("json", StudioPermissionInput),
+      async (c) => c.json(await checkStudioPermission(c.req.valid("json").uid)),
     )
     .post(
     "/generations",

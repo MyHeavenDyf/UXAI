@@ -14,7 +14,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useCommand } from "@/context/command"
 import {
@@ -39,6 +39,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
+import { useSettings } from "@/context/settings"
 import { octoSessionsDir, useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
@@ -89,6 +90,7 @@ function MakeContent() {
   const sync = useSync()
   const layout = useLayout()
   const language = useLanguage()
+  const settings = useSettings()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
@@ -355,6 +357,23 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
+
+  // ── 会话进度条动画状态 ────────────────────────────────────
+  const [timeoutDone, setTimeoutDone] = createSignal(true)
+  const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
+    if (isBusy()) return "showing"
+    if (prev === "showing" || !timeoutDone()) return "hiding"
+    return "hidden"
+  })
+  createEffect(() => {
+    if (workingStatus() !== "hiding") return
+    setTimeoutDone(false)
+    const id = setTimeout(() => setTimeoutDone(true), 260)
+    onCleanup(() => clearTimeout(id))
+  })
+
+  const [bar, setBar] = createStore({ ms: 1800 })
+
   // ── 执行计时器 ────────────────────────────────────────────
   const [elapsedText, setElapsedText] = createSignal("")
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
@@ -963,7 +982,6 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
-      <Toast.Region />
       <div
         class="octo-make octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
@@ -990,10 +1008,24 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
           >
             {/* 标题栏 */}
             <Show when={hasContent()}>
-              <div
-                class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
-              >
+              <div style={{ position: "relative" }}>
+                <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>
+                  <div
+                    data-component="session-progress"
+                    data-state={workingStatus()}
+                    aria-hidden="true"
+                    style={{
+                      "--session-progress-color": "var(--octo-brand)",
+                      "--session-progress-ms": `${bar.ms}ms`,
+                    }}
+                  >
+                    <div data-component="session-progress-bar" />
+                  </div>
+                </Show>
+                <div
+                  class="shrink-0 flex items-center justify-between"
+                  style={{ padding: "12px 24px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
+                >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
@@ -1063,6 +1095,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu>
+              </div>
               </div>
             </Show>
             <Show when={hasContent()} fallback={
@@ -1462,7 +1495,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 function ChatEmptyState(): JSX.Element {
   return (
     <div class="flex flex-col items-center gap-6 text-center pb-20 px-6">
-      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
       <div class="flex flex-col items-center gap-2">
         <div style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "36px", "font-weight": "600", "line-height": "42px" }}>Octo Design</div>
         <div style={{ color: "rgba(0, 0, 0, 0.6)", "font-size": "16px", "line-height": "24px" }}>

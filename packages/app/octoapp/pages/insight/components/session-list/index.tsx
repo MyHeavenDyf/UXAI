@@ -3,6 +3,7 @@ import { createEffect, createMemo, createResource, createSignal, For, Match, on,
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -30,8 +31,6 @@ import { Spinner } from "@opencode-ai/ui/spinner"
  * (均在 AppBaseProviders 全局层,搬出后照样拿得到)。宿主 shell 仅 import 摆位。
  */
 
-const AGENT = "octo_insight" // 与发送链路 index.tsx:475 的 agent 名一致
-
 
 export function InsightSessionList(): JSX.Element {
   const globalSDK = useGlobalSDK()
@@ -53,7 +52,7 @@ export function InsightSessionList(): JSX.Element {
     const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
       (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
     )
-    return data.filter((s) => s.agent === AGENT)
+    return data.filter((s) => s.agent === INSIGHT_AGENT)
   })
 
   // reconcile(key=id):保持 <For> 行引用稳定,避免每次 refetch 重建每行的 globalSync.child

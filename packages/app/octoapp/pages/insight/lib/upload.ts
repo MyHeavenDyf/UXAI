@@ -6,7 +6,7 @@
 //   不需要改源码（详见 spec §端点）
 // - 全链路 console 日志统一前缀 [octo:upload]，便于内外网隔空调试
 
-// 上传服务端地址。配置方式：packages/app/.env.local 里写 VITE_OCTO_UPLOAD_ENDPOINT=...
+// 上传服务端地址。配置方式：packages/desktop/.env 里写 VITE_OCTO_UPLOAD_ENDPOINT=...
 const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 
 const LOG = "[octo:upload]"
@@ -105,7 +105,7 @@ export async function uploadFile(file: File): Promise<UploadResult> {
     // 用户可见文案友好简洁;开发期排查提示(改 .env.local)只走 console,不糊给用户
     const err = new UploadError("ENDPOINT_NOT_CONFIGURED", "上传服务暂时不可用，请稍后重试")
     console.error(`${LOG} endpoint not configured`, {
-      hint: "在 packages/app/.env.local 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>,然后重启 dev",
+      hint: "在 packages/desktop/.env 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>,然后重启 dev",
     })
     throw err
   }
@@ -181,6 +181,21 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return body.content
 }
 
+// 从文件 URL 派生一个**全局唯一且稳定**的 handle token(FNV-1a 32bit → 8 位 hex)。
+//
+// 为什么不用顺序号(upload_1/2/…):顺序号是「按 turn」编的,用户分多次上传时每个 turn
+// 都从 1 重排 → 跨 turn 撞号(turn1 的 upload_1=任务书、turn2 的 upload_1=逐字稿),模型会
+// 误判「upload_1 被替换了」。URL 派生的 token:同一文件永远同一 handle,跨 turn 不撞、刷新
+// 也不变(URL 里含全局唯一的 S3 UUID 段)。插件对 handle 形态不挑,只按 session 区块建表来认。
+function uploadHandle(url: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < url.length; i++) {
+    h ^= url.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `upload_${(h >>> 0).toString(16).padStart(8, "0")}`
+}
+
 // 按 spec §注入格式：拼成 [已上传文件] 段落。
 //
 // 该段落作为**独立的 synthetic text part** 发送(不再拼进用户可见文本):
@@ -188,13 +203,13 @@ export async function uploadFile(file: File): Promise<UploadResult> {
 //   - 上游 UserMessageDisplay 只渲染非 synthetic text part → 气泡不暴露 S3 长地址
 // 文件卡片由 InsightTurn 解析本段落渲染(parseUploadedFiles),optimistic / server 回传后都稳定存在。
 //
-// 每行带一个稳定 handle `[upload_N]`(按顺序,从 1 起):
-//   模型被 prompt 约束「只写 handle、不写 URL」,server 端 octo-upload-inject 插件在 MCP 工具
+// 每行带一个稳定 handle `[upload_<8hex>]`(uploadHandle,全局唯一):
+//   模型被 prompt 约束「文件参数只写 handle、不写 URL」,server 端 octo-upload-inject 插件在工具
 //   执行前把 handle 换成此处的精确 URL —— 避免弱模型把 S3 转码字符微调坏。
 //   格式契约与该插件 parseUploadBlock 同源,改格式需两处同步。
 export function formatUploadsForPrompt(uploads: Array<{ filename: string; url: string }>): string {
   if (uploads.length === 0) return ""
-  const lines = uploads.map((u, i) => `- ${u.filename} [upload_${i + 1}]: ${u.url}`)
+  const lines = uploads.map((u) => `- ${u.filename} [${uploadHandle(u.url)}]: ${u.url}`)
   return `[已上传文件]\n${lines.join("\n")}`
 }
 
@@ -211,12 +226,12 @@ export function parseUploadedFiles(block: string): Array<{ handle: string; filen
     const body = trimmed.slice(2)
     const sep = body.indexOf(": ")
     if (sep < 0) continue
-    const left = body.slice(0, sep).trim() // "<文件名> [upload_N]"
+    const left = body.slice(0, sep).trim() // "<文件名> [upload_xxxx]"
     const url = body.slice(sep + 2).trim()
     if (!url) continue
-    // 末尾的 ` [upload_N]` 是 handle 标记;剥离后还原干净文件名供卡片渲染。
+    // 末尾的 ` [upload_xxxx]` 是 handle 标记;剥离后还原干净文件名供卡片渲染。
     // 兼容历史无 handle 的旧块(没匹配到就 handle 置空、filename 用整段)。
-    const m = left.match(/^(.*?)\s*\[(upload_\d+)\]$/)
+    const m = left.match(/^(.*?)\s*\[(upload_\w+)\]$/)
     const filename = m ? m[1].trim() : left
     const handle = m ? m[2] : ""
     if (filename) out.push({ handle, filename, url })

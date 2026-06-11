@@ -30,6 +30,10 @@ export function StudioHDEditor(props: {
         <button type="button" onClick={props.onClose} class="studio-hd-close" aria-label="关闭变清晰" title="关闭变清晰" />
       </div>
       <div class="studio-hd-body">
+        <div class="studio-inpaint-hint">
+          <img src="/studio/studio_help_tips.png" alt="" class="studio-inpaint-hint-icon" />
+          <span>画质提升、基于原图快速超分放大</span>
+        </div>
         <div class="studio-hd-canvas-wrap">
           <img
             class="studio-hd-image"

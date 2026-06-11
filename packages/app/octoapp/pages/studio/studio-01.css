@@ -77,8 +77,8 @@
 }
 
 .studio-center-header {
-  height: 64px;
-  min-height: 64px;
+  height: 56px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -113,6 +113,7 @@
   min-height: 0;
   padding: 36px 28px 22px;
   background: #fff;
+  isolation: isolate;
 }
 
 .studio-workspace {
@@ -141,7 +142,7 @@
 }
 
 .studio-composer {
-  margin: 0 24px 24px;
+  margin: 0 24px;
   min-height: 150px;
   padding: 16px 14px 18px;
   border: 1.5px solid transparent;
@@ -150,6 +151,91 @@
     linear-gradient(#fff, #fff) padding-box,
     linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%) border-box;
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
+}
+
+.studio-composer-compliance {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px 24px 24px;
+  color: rgba(25, 25, 25, 0.6);
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.studio-composer-compliance-guide {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.studio-composer-compliance-trigger {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: #0969ff;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+}
+
+.studio-composer-compliance-trigger:hover {
+  text-decoration: underline;
+}
+
+.studio-composer-compliance-trigger:focus-visible {
+  outline: 2px solid #1769ff;
+  outline-offset: 2px;
+}
+
+.studio-composer-compliance-tooltip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  z-index: 100;
+  width: 353px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: #fff;
+  background: #4a4a4a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.studio-composer-compliance-tooltip::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -10px;
+  left: 0;
+  height: 10px;
+}
+
+.studio-composer-compliance-guide:hover .studio-composer-compliance-tooltip,
+.studio-composer-compliance-guide:focus-within .studio-composer-compliance-tooltip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.studio-composer-compliance-tooltip-content {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.studio-composer-compliance-tooltip-arrow {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  background: #4a4a4a;
+  transform: translate(-50%, -6px) rotate(45deg);
 }
 
 .studio-composer.video {
@@ -203,26 +289,8 @@
 }
 
 .studio-composer-video-plus {
-  width: 20px;
-  height: 20px;
-  position: relative;
-}
-
-.studio-composer-video-plus::before,
-.studio-composer-video-plus::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 20px;
-  height: 2px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.45);
-  transform: translate(-50%, -50%);
-}
-
-.studio-composer-video-plus::after {
-  transform: translate(-50%, -50%) rotate(90deg);
+  width: 14px;
+  height: 14px;
 }
 
 .studio-composer-video-label {
@@ -263,37 +331,20 @@
 }
 
 .studio-composer-video-swap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
   padding: 0;
   border: 0;
   background: transparent;
-  position: relative;
+  cursor: pointer;
 }
 
-.studio-composer-video-swap::before,
-.studio-composer-video-swap::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  right: 3px;
-  height: 2px;
-  border-radius: 999px;
-  background: #191919;
-}
-
-.studio-composer-video-swap::before {
-  top: 8px;
-  transform: rotate(180deg);
-}
-
-.studio-composer-video-swap::after {
-  top: 15px;
-}
-
-.studio-composer-video-swap:hover::before,
-.studio-composer-video-swap:hover::after {
-  background: #0a59f7;
+.studio-composer-video-swap-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .studio-composer-input-row {
@@ -457,4 +508,3 @@
 .studio-composer-tool-btn[data-active] .studio-composer-tool-caret {
   transform: rotate(-180deg);
 }
-

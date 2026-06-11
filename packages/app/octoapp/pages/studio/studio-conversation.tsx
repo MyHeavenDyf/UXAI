@@ -32,6 +32,7 @@ export function StudioConversation(props: {
                   onClick={() => props.onOpenEditor(editCapability())}
                 >
                   点击前往编辑区
+                  <img src="/studio/stutdio_arrow_right.png" alt="" class="studio-editor-link-arrow" />
                 </button>
               )}
             </Show>
@@ -80,17 +81,19 @@ export function StudioResultCanvas(props: {
   image?: StudioImage
   result?: StudioGenerationResult
   imageLabel: string
+  selectedImageId?: string
+  tabImages?: StudioImage[]
+  tabLabels?: Record<string, string>
   onDownload: () => void
+  onSelectImage?: (id: string) => void
+  onDeleteImage?: (id: string) => void
+  onCloseTab?: (id: string) => void
 }): JSX.Element {
   return (
     <Show when={props.image} fallback={
       <div class="h-full flex flex-col items-center justify-center text-center">
         <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
-          <Show when={props.status === "failed" && props.result?.error} fallback={
-          <>
-            <StudioEmptyState />
-          </>
-          }>
+          <Show when={props.status === "failed" && props.result?.error} fallback={<StudioEmptyState />}>
             <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
               <div class="text-[16px] font-semibold text-[#b42318]">生成失败</div>
               <div class="mt-2 text-[12px] leading-[18px] whitespace-pre-wrap break-all text-[#7a271a]">
@@ -99,22 +102,45 @@ export function StudioResultCanvas(props: {
             </div>
           </Show>
         }>
-          <div class="flex items-end gap-4 mb-8">
-            <span class="studio-loader-dot bg-[#2e9dfb]" />
-            <span class="studio-loader-dot bg-[#45bcc9]" style={{ "animation-delay": "120ms" }} />
-            <span class="studio-loader-dot bg-[#704cff]" style={{ "animation-delay": "240ms" }} />
-            <span class="studio-loader-dot bg-[#d100d8]" style={{ "animation-delay": "360ms" }} />
-          </div>
-          <div class="text-[14px] font-medium">生成中...</div>
+          <StudioEmptyState />
         </Show>
       </div>
     }>
-      {(image) => (
+      {(image) => {
+        function tabLabelFor(tabImage: StudioImage, index: number): string {
+          const video = isVideoMedia(tabImage)
+          const ext = video ? "mp4" : "png"
+          const stored = props.tabLabels?.[tabImage.id]
+          if (stored) return `${stored}-${index + 1}.${ext}`
+          const prompt = props.result?.prompt ?? ""
+          const firstLine = prompt.split("\n")[0].trim()
+          const cleaned = firstLine
+            .replace(/[\\/:*?\"<>|，。！？、；：""''（）【】《》!?;:()\[\]{}@#$%^&+=~`]/g, " ")
+            .replace(/\s+/g, "-")
+            .replace(/^-+|-+$/g, "")
+          const prefix = cleaned.length > 20 ? cleaned.slice(0, 20).replace(/-+$/, "") : (cleaned || "image")
+          return `${prefix}-${index + 1}.${ext}`
+        }
+        return (
         <>
           <div class="studio-canvas-header">
-            <span class="studio-canvas-label">
-              <span class="studio-canvas-label-text">{props.imageLabel}</span>
-            </span>
+            <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
+              {(tabImage, index) => {
+                const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : [props.result!.images[0]]
+                return (
+                  <span
+                    class="studio-canvas-tab"
+                    classList={{ active: tabImage.id === (props.selectedImageId ?? tabSource[0]?.id) }}
+                    onClick={() => props.onSelectImage!(tabImage.id)}
+                  >
+                    <span class="studio-canvas-label-text">{tabLabelFor(tabImage, index())}</span>
+                    <Show when={(props.tabImages && props.tabImages.length > 0) ? Boolean(props.onCloseTab) : Boolean(props.onDeleteImage)}>
+                      <span class="studio-canvas-tab-close" onClick={(e) => { e.stopPropagation(); (props.tabImages && props.tabImages.length > 0 ? props.onCloseTab! : props.onDeleteImage!)(tabImage.id); }} />
+                    </Show>
+                  </span>
+                )
+              }}
+            </For>
           </div>
           <div class="studio-canvas-stage">
             <StudioMediaPreview image={image()} class="studio-canvas-image" controls={isVideoMedia(image())} />
@@ -123,7 +149,9 @@ export function StudioResultCanvas(props: {
             <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
           </div>
         </>
-      )}
+        )
+      }
+      }
     </Show>
   )
 }
@@ -176,7 +204,7 @@ function InfoRow(props: { label: string; value: string }): JSX.Element {
   )
 }
 
-function StudioEmptyState(): JSX.Element {
+export function StudioEmptyState(): JSX.Element {
   return (
     <>
       <div class="studio-empty-state-dots">
@@ -278,7 +306,7 @@ export function StudioDetails(props: {
               disabled={props.regenerateDisabled}
               class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
             >
-              <span>局部重绘</span>
+              <span>智能重绘</span>
             </button>
             <button
               type="button"

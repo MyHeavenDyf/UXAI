@@ -15,8 +15,34 @@ import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { diffs as list, message as clean } from "@/utils/diffs"
+import { INSIGHT_AGENT } from "@/constants/agent"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
+
+// 服务端默认标题格式:`New session - <iso>` / `Child session - <iso>`(见 opencode session.ts)
+const DEFAULT_TITLE_RE = /^(New session|Child session) - \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+function isDefaultSessionTitle(title: string | undefined): boolean {
+  return !!title && DEFAULT_TITLE_RE.test(title)
+}
+
+// 标题单向护栏:已经是真标题时,不允许默认标题倒灌覆盖。
+// 每个 session.updated SSE 带的是整条会话全量快照(server projectors getWithCategory),
+// 任务型首轮 MCP 工具调用并发产生大量 session.updated,某条在标题写库前读出的快照会带默认
+// 标题;若它晚于标题那条到达客户端,reconcile 全量替换就会把已生成的标题抹回默认值。
+// 顺带打 [octo:title] 日志区分病因:看到 "set" 说明标题确已生成;看到 "kept" 说明确实发生
+// 了默认标题倒灌(已被本护栏挡下)——外网控制台即可观察,无需抓 SSE。
+// 仅对 insight 会话(agent === INSIGHT_AGENT)生效,不影响 make 等其它页面的会话标题行为。
+function keepRealSessionTitle(prev: Session | undefined, next: Session): Session {
+  if (next.agent !== INSIGHT_AGENT) return next
+  if (prev && !isDefaultSessionTitle(prev.title) && isDefaultSessionTitle(next.title)) {
+    console.log("[octo:title] kept", { sessionID: next.id, kept: prev.title })
+    return { ...next, title: prev.title }
+  }
+  if (!isDefaultSessionTitle(next.title) && next.title !== prev?.title) {
+    console.log("[octo:title] set", { sessionID: next.id, title: next.title })
+  }
+  return next
+}
 
 export function applyGlobalEvent(input: {
   event: { type: string; properties?: unknown }
@@ -110,7 +136,7 @@ export function applyDirectoryEvent(input: {
       const info = (event.properties as { info: Session }).info
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
       if (result.found) {
-        input.setStore("session", result.index, reconcile(info))
+        input.setStore("session", result.index, reconcile(keepRealSessionTitle(input.store.session[result.index], info)))
         break
       }
       const next = input.store.session.slice()
@@ -139,7 +165,7 @@ export function applyDirectoryEvent(input: {
         break
       }
       if (result.found) {
-        input.setStore("session", result.index, reconcile(info))
+        input.setStore("session", result.index, reconcile(keepRealSessionTitle(input.store.session[result.index], info)))
         break
       }
       const next = input.store.session.slice()
