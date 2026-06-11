@@ -24,8 +24,8 @@
     "package:mac-arm64": "electron-builder --mac --arm64 --config electron-builder.config.ts",
     "package:mac-x64": "electron-builder --mac --x64 --config electron-builder.config.ts",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
-    "package:win:beta": "bun --env-file .env.beta run package:win",
-    "package:win:prod": "bun --env-file .env.prod run package:win",
+    "package:win:beta": "cross-env OCTO_CHANNEL=beta bun run package:win",
+    "package:win:prod": "cross-env OCTO_CHANNEL=prod bun run package:win",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native"
   },
@@ -55,6 +55,7 @@
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@valibot/to-json-schema": "1.6.0",
+    "cross-env": "7.0.3",
     "electron": "42",
     "electron-builder": "^26",
     "electron-vite": "^5",
