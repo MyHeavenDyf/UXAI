@@ -1,5 +1,6 @@
 // 从 AI 返回的字符串中提取 JSON
 export function extractJson(text: string): Record<string, unknown> | null {
+  if (!text || !text.trim()) return null
   try {
     let match = text.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/)
     let raw = match ? match[1] : text
@@ -7,12 +8,17 @@ export function extractJson(text: string): Record<string, unknown> | null {
     return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null
   } catch {
     let start = text.indexOf("{");
+    if (start === -1) return null
     let end = text.lastIndexOf("}");
-    let rawjson = text.substring(start, end + 1);
-    let parsed = JSON.parse(rawjson.trim())
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null
+    if (end <= start) return null
+    try {
+      let rawjson = text.substring(start, end + 1);
+      let parsed = JSON.parse(rawjson.trim())
+      return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null
+    } catch {
+      return null
+    }
   }
-  return null
 }
 
 // 从 Session 中每2秒轮询, 取出最终结果

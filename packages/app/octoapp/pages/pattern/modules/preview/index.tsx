@@ -1,5 +1,4 @@
 import { createSignal, onCleanup } from "solid-js"
-import { createStore } from "solid-js/store"
 
 export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
@@ -7,29 +6,36 @@ export type PreviewPageAPI = {
   refresh: () => void
 }
 
-const MIN_ZOOM = 0.1
-const MAX_ZOOM = 5
-const ZOOM_STEP = 0.1
-const TARGET_WIDTH = 1920
-const TARGET_HEIGHT = 1080
-const DEFAULT_ZOOM = 0.4
-
 export function PreviewPage(props: { api?: PreviewPageAPI }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
-  let viewportRef: HTMLDivElement | undefined
-  const [zoom, setZoom] = createSignal(DEFAULT_ZOOM)
-  const [pan, setPan] = createStore({ x: 0, y: 0 })
-  const [vpSize, setVpSize] = createStore({ w: 0, h: 0 })
-  const [dragging, setDragging] = createSignal(false)
-  let dragStart = { x: 0, y: 0, panX: 0, panY: 0 }
-  let resizeObserver: ResizeObserver | undefined
+  const [previewScale, setPreviewScale] = createSignal(1)
 
-  const cx = () => (vpSize.w - TARGET_WIDTH * zoom()) / 2
-  const cy = () => (vpSize.h - TARGET_HEIGHT * zoom()) / 2
-  const tx = () => cx() + pan.x
-  const ty = () => cy() + pan.y
+  const TARGET_WIDTH = 1920
+  const TARGET_HEIGHT = 1080
 
+  // 更新预览页大小
+  function updatePreviewScale() {
+    if (!previewPageRef) return
+    const containerWidth = previewPageRef.clientWidth - 40
+    const containerHeight = previewPageRef.clientHeight - 40
+    const scaleX = containerWidth / TARGET_WIDTH
+    const scaleY = containerHeight / TARGET_HEIGHT
+    setPreviewScale(Math.min(scaleX, scaleY, 1))
+  }
+
+  let previewResizeObserver: ResizeObserver | undefined
+  onCleanup(() => previewResizeObserver?.disconnect())
+
+  function bindpreviewPageRef(el: HTMLDivElement) {
+    previewPageRef = el
+    updatePreviewScale()
+    previewResizeObserver?.disconnect()
+    previewResizeObserver = new ResizeObserver(() => updatePreviewScale())
+    previewResizeObserver.observe(el)
+  }
+
+  // 发送数据
   function sendToPreview(data: unknown) {
     if (!previewIframeRef?.contentWindow) return
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
@@ -46,82 +52,9 @@ export function PreviewPage(props: { api?: PreviewPageAPI }) {
     }
   }
 
-  function handleWheel(e: WheelEvent) {
-    e.preventDefault()
-    if (!viewportRef) return
-
-    const rect = viewportRef.getBoundingClientRect()
-    const mouseX = e.clientX - rect.left
-    const mouseY = e.clientY - rect.top
-
-    const oldZoom = zoom()
-    const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
-    const newZoom = Math.round(Math.min(Math.max(oldZoom + delta, MIN_ZOOM), MAX_ZOOM) * 100) / 100
-
-    if (newZoom === oldZoom) return
-
-    const oldTotalX = tx()
-    const oldTotalY = ty()
-    const scale = newZoom / oldZoom
-
-    const newTotalX = mouseX - scale * (mouseX - oldTotalX)
-    const newTotalY = mouseY - scale * (mouseY - oldTotalY)
-
-    const newCx = (vpSize.w - TARGET_WIDTH * newZoom) / 2
-    const newCy = (vpSize.h - TARGET_HEIGHT * newZoom) / 2
-
-    setPan({ x: newTotalX - newCx, y: newTotalY - newCy })
-    setZoom(newZoom)
-  }
-
-  function handleMouseDown(e: MouseEvent) {
-    if (e.button !== 1) return
-    e.preventDefault()
-    setDragging(true)
-    dragStart = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
-  }
-
-  function handleMouseMove(e: MouseEvent) {
-    if (!dragging()) return
-    setPan({
-      x: dragStart.panX + (e.clientX - dragStart.x),
-      y: dragStart.panY + (e.clientY - dragStart.y),
-    })
-  }
-
-  function handleMouseUp(e: MouseEvent) {
-    if (e.button !== 1) return
-    setDragging(false)
-  }
-
-  function resetZoom() {
-    setZoom(DEFAULT_ZOOM)
-    setPan({ x: 0, y: 0 })
-  }
-
-  function handleAuxClick(e: MouseEvent) {
-    e.preventDefault()
-  }
-
-  onCleanup(() => {
-    window.removeEventListener("mousemove", handleMouseMove)
-    window.removeEventListener("mouseup", handleMouseUp)
-    resizeObserver?.disconnect()
-  })
-
   return (
-    <div ref={(el) => { previewPageRef = el }} class="flex flex-col overflow-hidden" style="position:relative">
-      <div class="absolute right-[12px] top-[12px] flex items-center gap-[6px]" style={{ "z-index": 10 }}>
-        <button
-          class="preview-action-btn"
-          title="恢复原始位置"
-          onClick={resetZoom}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-            <circle cx="12" cy="12" r="3" stroke-width="2" />
-            <path stroke-linecap="round" stroke-width="2" d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-          </svg>
-        </button>
+    <div ref={bindpreviewPageRef} class="flex flex-col overflow-hidden" style="position:relative">
+      <div class="absolute right-[12px] top-[12px] flex gap-[6px]" style={{ "z-index": 10 }}>
         <button class="preview-action-btn" title="历史版本">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
             <path
@@ -166,50 +99,27 @@ export function PreviewPage(props: { api?: PreviewPageAPI }) {
         </button>
       </div>
       <div
-        ref={(el) => {
-          viewportRef = el
-          resizeObserver?.disconnect()
-          const update = () => setVpSize({ w: el.clientWidth, h: el.clientHeight })
-          update()
-          resizeObserver = new ResizeObserver(update)
-          resizeObserver.observe(el)
-        }}
         style={{
           flex: "1",
           "min-height": "0",
           overflow: "hidden",
+          display: "flex",
+          "justify-content": "center",
+          "align-items": "center",
+          padding: "20px",
           position: "relative",
         }}
       >
         <div
+          class="preview-iframe-wrapper"
           style={{
             width: `${TARGET_WIDTH}px`,
             height: `${TARGET_HEIGHT}px`,
-            transform: `translate(${tx()}px, ${ty()}px) scale(${zoom()})`,
-            "transform-origin": "0 0",
+            transform: `scale(${previewScale()})`,
           }}
         >
-          <iframe
-            ref={(el) => { previewIframeRef = el }}
-            src="http://127.0.0.1:8989"
-            style={{ width: "100%", height: "100%", border: "none" }}
-          />
+          <iframe ref={(el) => { previewIframeRef = el }} src="http://127.0.0.1:8989" />
         </div>
-        <div
-          style={{
-            position: "absolute",
-            inset: "0",
-            "z-index": 5,
-            cursor: dragging() ? "grabbing" : "grab",
-          }}
-          onWheel={handleWheel}
-          onMouseDown={(e) => {
-            handleMouseDown(e)
-            window.addEventListener("mousemove", handleMouseMove)
-            window.addEventListener("mouseup", handleMouseUp)
-          }}
-          onAuxClick={handleAuxClick}
-        />
       </div>
     </div>
   )

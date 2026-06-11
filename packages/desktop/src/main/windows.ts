@@ -3,6 +3,7 @@ import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol } from "ele
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
+import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
@@ -186,6 +187,18 @@ export function registerRendererProtocol() {
     const url = new URL(request.url)
     if (url.host !== rendererHost) {
       return new Response("Not found", { status: 404 })
+    }
+
+    if (isApiPath(url.pathname)) {
+      if (mockEnabled()) {
+        const mockResponse = handleMockApi(url.pathname, url.search)
+        if (mockResponse) return mockResponse
+      }
+      const realUrl = `https://octo.hdesign.huawei.com${url.pathname}${url.search}`
+      return net.fetch(realUrl, {
+        method: request.method,
+        headers: Object.fromEntries(request.headers.entries()),
+      })
     }
 
     const file = resolve(rendererRoot, `.${decodeURIComponent(url.pathname)}`)

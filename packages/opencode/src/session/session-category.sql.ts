@@ -3,7 +3,7 @@ import { SessionTable } from "./session.sql"
 import { Timestamps } from "../storage/schema.sql"
 import type { SessionID } from "./schema"
 
-export type SessionCategory = "dev" | "design" | "prototype" | "analysis" | "creative" | "planning"
+export type SessionCategory = "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
 
 export const SessionCategoryTable = sqliteTable(
   "session_category",

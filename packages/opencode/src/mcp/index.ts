@@ -33,10 +33,42 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { zod as effectZod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
+import * as Reconnect from "./reconnect"
 
 const log = Log.create({ service: "mcp" })
 const elog = EffectLogger.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
+
+const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] as const
+
+function noProxyFetch(url: string | URL, init?: RequestInit): Promise<Response> {
+  const saved = Object.fromEntries(PROXY_ENV_KEYS.map((k) => [k, process.env[k]]))
+  for (const k of PROXY_ENV_KEYS) delete process.env[k]
+  return globalThis.fetch(url, init).finally(() => {
+    for (const k of PROXY_ENV_KEYS) {
+      if (saved[k] !== undefined) process.env[k] = saved[k]
+    }
+  })
+}
+
+function isPrivateUrl(url: URL): boolean {
+  const host = url.hostname
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true
+  const match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host)
+  if (match) {
+    const [, a, b] = match.map(Number)
+    if (a === 10) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+  }
+  return false
+}
+
+function mcpFetch(proxy: boolean | undefined, url: URL): (url: string | URL, init?: RequestInit) => Promise<Response> {
+  if (proxy === true) return globalThis.fetch
+  if (proxy === false) return noProxyFetch
+  return isPrivateUrl(url) ? noProxyFetch : globalThis.fetch
+}
 
 export const Resource = Schema.Struct({
   name: Schema.String,
@@ -315,12 +347,15 @@ export const layer = Layer.effect(
         )
       }
 
+      const fetchFn = mcpFetch(mcp.proxy, url)
+
       const transports: Array<{ name: string; transport: TransportWithAuth }> = [
         {
           name: "StreamableHTTP",
           transport: new StreamableHTTPClientTransport(url, {
             authProvider,
             requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+            fetch: fetchFn,
           }),
         },
         {
@@ -328,6 +363,7 @@ export const layer = Layer.effect(
           transport: new SSEClientTransport(url, {
             authProvider,
             requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+            fetch: fetchFn,
           }),
         },
       ]
@@ -499,6 +535,9 @@ export const layer = Layer.effect(
       })
     }
 
+    // 前置声明：在 storeClient 之后赋值，但 state init 中 forked effect 使用时已赋值
+    let reconnectCtx!: Reconnect.ReconnectContext
+
     const state = yield* InstanceState.make<State>(
       Effect.fn("MCP.state")(function* () {
         const cfg = yield* cfgSvc.get()
@@ -554,6 +593,11 @@ export const layer = Layer.effect(
                     s.clients[key] = result.mcpClient
                     s.defs[key] = result.defs!
                     watch(s, key, result.mcpClient, bridge, mcp.timeout)
+                    // 为远程 client 设置断连检测和自动重连
+                    if (mcp.type === "remote") {
+                      Reconnect.storeRemoteConfig(key, mcp as ConfigMCP.Info & { type: "remote" })
+                      Reconnect.setupConnectionHandlers(s, key, result.mcpClient, bridge, reconnectCtx)
+                    }
                   }
                 }),
               )
@@ -581,6 +625,7 @@ export const layer = Layer.effect(
               { concurrency: "unbounded" },
             )
             pendingOAuthTransports.clear()
+            Reconnect.cleanup()
           }),
         )
 
@@ -592,6 +637,7 @@ export const layer = Layer.effect(
       const client = s.clients[name]
       delete s.defs[name]
       if (!client) return Effect.void
+      Reconnect.markIntentionalDisconnect(name)
       return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
     }
 
@@ -608,8 +654,21 @@ export const layer = Layer.effect(
       s.clients[name] = client
       s.defs[name] = listed
       watch(s, name, client, bridge, timeout)
+      // 为远程 client 设置断连检测和自动重连
+      if (Reconnect.hasRemoteConfig(name)) {
+        Reconnect.setupConnectionHandlers(s, name, client, bridge, reconnectCtx)
+      }
       return s.status[name]
     })
+
+    // 重连上下文（在 storeClient 定义之后赋值，打破循环依赖）
+    reconnectCtx = {
+      state: { get: () => InstanceState.get(state) },
+      createFn: create,
+      storeClientFn: storeClient,
+      bus,
+      toolsChanged: ToolsChanged,
+    }
 
     const status = Effect.fn("MCP.status")(function* () {
       const s = yield* InstanceState.get(state)
@@ -852,7 +911,8 @@ export const layer = Layer.effect(
         auth,
       )
 
-      const transport = new StreamableHTTPClientTransport(url, { authProvider })
+      const fetchFn = mcpFetch(mcpConfig.proxy, url)
+      const transport = new StreamableHTTPClientTransport(url, { authProvider, fetch: fetchFn })
 
       return yield* Effect.tryPromise({
         try: () => {

@@ -19,6 +19,16 @@ const sentry =
       })
     : false
 
+const mockProxy = process.env.MOCK_API === "false"
+  ? {
+      "/pipeline/rest.root/workflow": {
+        target: "https://octo.hdesign.huawei.com",
+        changeOrigin: true,
+        secure: true,
+      },
+    }
+  : undefined
+
 export default defineConfig({
   plugins: [desktopPlugin, sentry] as any,
   server: {
@@ -26,6 +36,7 @@ export default defineConfig({
     allowedHosts: true,
     port: 3000,
     historyApiFallback: true,
+    proxy: mockProxy,
   },
   build: {
     target: "esnext",

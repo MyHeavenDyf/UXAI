@@ -12,7 +12,7 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
-export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "pdf"] as const
+export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx"] as const
 
 export type UploadResult = {
   url: string
@@ -119,8 +119,9 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   try {
     res = await fetch(UPLOAD_ENDPOINT, { method: "POST", body: form })
   } catch (e) {
-    const err = new UploadError("NETWORK", e instanceof Error ? e.message : "网络异常")
-    console.error(`${LOG} network failed`, { ...meta, error: err.message })
+    // fetch 抛出的原生 Error.message 是英文（如 "Failed to fetch"），固定用中文文案
+    const err = new UploadError("NETWORK", "网络异常，请检查连接后重试")
+    console.error(`${LOG} network failed`, { ...meta, nativeError: e instanceof Error ? e.message : String(e) })
     throw err
   }
 
@@ -180,25 +181,60 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return body.content
 }
 
+// 从文件 URL 派生一个**全局唯一且稳定**的 handle token(FNV-1a 32bit → 8 位 hex)。
+//
+// 为什么不用顺序号(upload_1/2/…):顺序号是「按 turn」编的,用户分多次上传时每个 turn
+// 都从 1 重排 → 跨 turn 撞号(turn1 的 upload_1=任务书、turn2 的 upload_1=逐字稿),模型会
+// 误判「upload_1 被替换了」。URL 派生的 token:同一文件永远同一 handle,跨 turn 不撞、刷新
+// 也不变(URL 里含全局唯一的 S3 UUID 段)。插件对 handle 形态不挑,只按 session 区块建表来认。
+function uploadHandle(url: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < url.length; i++) {
+    h ^= url.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `upload_${(h >>> 0).toString(16).padStart(8, "0")}`
+}
+
 // 按 spec §注入格式：拼成 [已上传文件] 段落。
 //
 // 该段落作为**独立的 synthetic text part** 发送(不再拼进用户可见文本):
 //   - server 的 toModelMessages 对 user 消息只过滤 ignored,synthetic 照样喂给模型 → LLM 拿得到 URL
 //   - 上游 UserMessageDisplay 只渲染非 synthetic text part → 气泡不暴露 S3 长地址
 // 文件卡片由 InsightTurn 解析本段落渲染(parseUploadedFiles),optimistic / server 回传后都稳定存在。
+//
+// 每行带一个稳定 handle `[upload_<8hex>]`(uploadHandle,全局唯一):
+//   模型被 prompt 约束「文件参数只写 handle、不写 URL」,server 端 octo-upload-inject 插件在工具
+//   执行前把 handle 换成此处的精确 URL —— 避免弱模型把 S3 转码字符微调坏。
+//   格式契约与该插件 parseUploadBlock 同源,改格式需两处同步。
 export function formatUploadsForPrompt(uploads: Array<{ filename: string; url: string }>): string {
   if (uploads.length === 0) return ""
-  const lines = uploads.map((u) => `- ${u.filename}: ${u.url}`)
+  const lines = uploads.map((u) => `- ${u.filename} [${uploadHandle(u.url)}]: ${u.url}`)
   return `[已上传文件]\n${lines.join("\n")}`
 }
 
-// formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { filename, url } 列表,
+// formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { handle, filename, url } 列表,
 // 供 InsightTurn 渲染输入文件卡片。两者共用同一格式,是单一事实源。
-export function parseUploadedFiles(block: string): Array<{ filename: string; url: string }> {
-  const out: Array<{ filename: string; url: string }> = []
+export function parseUploadedFiles(block: string): Array<{ handle: string; filename: string; url: string }> {
+  const out: Array<{ handle: string; filename: string; url: string }> = []
   for (const line of block.split("\n")) {
-    const m = line.match(/^-\s+(.+?):\s+(https?:\/\/\S+)\s*$/)
-    if (m) out.push({ filename: m[1], url: m[2] })
+    const trimmed = line.trim()
+    if (!trimmed.startsWith("- ")) continue
+    // 按第一个 ": " 切分,不要用正则的 \S+ 匹配 URL:内网上传服务会把未编码的
+    // 原始文件名拼进 URL,文件名带空格 → URL 含空格 → \S+ 截断 → 整行丢弃(实测 10 个文件
+    // 发送后只剩不含空格的几个)。这里 filename / url 任一含空格都能完整还原。
+    const body = trimmed.slice(2)
+    const sep = body.indexOf(": ")
+    if (sep < 0) continue
+    const left = body.slice(0, sep).trim() // "<文件名> [upload_xxxx]"
+    const url = body.slice(sep + 2).trim()
+    if (!url) continue
+    // 末尾的 ` [upload_xxxx]` 是 handle 标记;剥离后还原干净文件名供卡片渲染。
+    // 兼容历史无 handle 的旧块(没匹配到就 handle 置空、filename 用整段)。
+    const m = left.match(/^(.*?)\s*\[(upload_\w+)\]$/)
+    const filename = m ? m[1].trim() : left
+    const handle = m ? m[2] : ""
+    if (filename) out.push({ handle, filename, url })
   }
   return out
 }

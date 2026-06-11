@@ -1,7 +1,10 @@
-import { createSignal, createMemo, createEffect, For, Show, onCleanup } from "solid-js"
-import { Portal } from "solid-js/web"
+import { createSignal, createMemo, createEffect, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { loadDesignSystemIndex, type DesignSystemEntry } from "../../utils/design-system-loader"
+import { Popover as Kobalte } from "@kobalte/core/popover"
+import { Icon } from "@opencode-ai/ui/icon"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { loadDesignSystemIndex, loadDesignSystemTokens, type DesignSystemEntry } from "../../utils/design-system-loader"
+import "../../assets/style/chat/design_system_picker.css"
 
 export function DesignSystemPicker(props: {
   selected: string | null
@@ -10,37 +13,17 @@ export function DesignSystemPicker(props: {
   const [entries, setEntries] = createSignal<DesignSystemEntry[]>([])
   const [open, setOpen] = createSignal(false)
   const [search, setSearch] = createSignal("")
-  const [dropdownPos, setDropdownPos] = createSignal({ top: 0, left: 0, width: 0 })
-
-  let triggerRef: HTMLButtonElement | undefined
-
-  function updatePosition() {
-    if (!triggerRef) return
-    const rect = triggerRef.getBoundingClientRect()
-    setDropdownPos({
-      top: rect.top - 4,
-      left: rect.left,
-      width: rect.width,
-    })
-  }
+  const [swatches, setSwatches] = createSignal<string[]>([])
+  const [hoveredId, setHoveredId] = createSignal<string | null>(null)
 
   createEffect(() => {
-    if (!open()) return
-    updatePosition()
-    const onClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (!target.closest(".design-system-picker-root") && !target.closest(".design-system-picker-portal")) {
-        setOpen(false)
-      }
-    }
-    const timer = setTimeout(() => {
-      document.addEventListener("mousedown", onClickOutside, true)
-    }, 0)
-    onCleanup(() => {
-      clearTimeout(timer)
-      document.removeEventListener("mousedown", onClickOutside, true)
-    })
+    const id = props.selected
+    if (!id) { setSwatches([]); return }
+    loadDesignSystemTokens(id).then((tokens) => {
+      setSwatches(extractSwatches(tokens))
+    }).catch(() => setSwatches([]))
   })
+
 
   const loadIndex = async () => {
     if (entries().length > 0) return
@@ -60,53 +43,50 @@ export function DesignSystemPicker(props: {
   })
 
   return (
-    <div class="relative design-system-picker-root">
-      <button
-        ref={triggerRef}
+    <Kobalte
+      open={open()}
+      onOpenChange={(next) => {
+        if (next) loadIndex()
+        setOpen(next)
+      }}
+      placement="top-start"
+      gutter={14}
+    >
+      <Kobalte.Trigger
+        as="button"
         type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors"
-        style={{
-          background: props.selected ? "var(--octo-brand-a8)" : "transparent",
-          color: props.selected ? "var(--octo-brand)" : "var(--octo-text-secondary)",
-          border: props.selected ? "1px solid var(--octo-brand-a20)" : "1px solid transparent",
-        }}
-        onClick={() => {
-          if (!open()) loadIndex()
-          setOpen(!open())
-        }}
+        class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium overflow-hidden group focus-visible:outline-none"
+        data-picked={props.selected ? "true" : undefined}
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.2" />
-          <circle cx="6" cy="6" r="1.5" fill="currentColor" />
-        </svg>
-        <span>{props.selected ? props.selected : "Design System"}</span>
-      </button>
-
-      <Show when={open()}>
-        <Portal>
-          <div
-            class="fixed rounded-lg shadow-lg overflow-hidden z-[9999] design-system-picker-portal"
-            style={{
-              top: `${dropdownPos().top}px`,
-              left: `${dropdownPos().left}px`,
-              width: "256px",
-              "max-height": "240px",
-              background: "var(--octo-surface-page)",
-              border: "1px solid var(--octo-border-default)",
-              transform: "translateY(-100%)",
-            }}
-          >
-            <div class="p-2">
-              <input
-                type="text"
-                placeholder="Search..."
-                value={search()}
-                onInput={(e) => setSearch(e.currentTarget.value)}
-                class="w-full px-2 py-1 text-xs rounded border-0 outline-none"
-                style={{ background: "var(--octo-surface-selected)", color: "var(--octo-text-primary)" }}
-              />
-            </div>
-            <div class="max-h-48 overflow-y-auto">
+        <Show when={swatches().length > 0}>
+          <span class="flex items-center gap-[2px]">
+            <For each={swatches().slice(0, 3)}>
+              {(color) => <span class="octo-ds-swatch" style={{ background: color }} />}
+            </For>
+          </span>
+        </Show>
+        <span class="truncate">{props.selected ? props.selected : "Design System"}</span>
+        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180 chevron-down-icon" />
+      </Kobalte.Trigger>
+      <Kobalte.Portal>
+        <Kobalte.Content
+          class="p-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
+          style={{"box-shadow": "0 4px 12px rgba(0,0,0,0.16)"}}
+          onPointerDownOutside={() => setOpen(false)}
+          onFocusOutside={() => setOpen(false)}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <div>
+            <input
+              type="text"
+              placeholder="Search..."
+              value={search()}
+              onInput={(e) => setSearch(e.currentTarget.value)}
+              class="w-full px-2 py-1 text-xs rounded-md border-0 outline-none picker-search"
+            />
+          </div>
+          <div class="flex view-contain">
+            <ScrollView class="w-48 flex-shrink-0 view-content">
               <button
                 type="button"
                 class="w-full text-left px-3 py-1.5 text-xs transition-colors"
@@ -115,6 +95,7 @@ export function DesignSystemPicker(props: {
                   color: !props.selected ? "var(--octo-brand)" : "var(--octo-text-primary)",
                 }}
                 onClick={() => { props.onSelect(null); setOpen(false) }}
+                onMouseEnter={() => setHoveredId(null)}
               >
                 None
               </button>
@@ -122,22 +103,36 @@ export function DesignSystemPicker(props: {
                 {(entry) => (
                   <button
                     type="button"
-                    class="w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-[var(--octo-brand-a5)]"
+                    class="w-full text-left px-3 py-1.5 text-xs transition-colors"
                     style={{
-                      background: props.selected === entry.id ? "var(--octo-brand-a8)" : "transparent",
+                      background: props.selected === entry.id ? "var(--octo-brand-a8)" : hoveredId() === entry.id ? "var(--octo-surface-hover)" : "transparent",
                       color: props.selected === entry.id ? "var(--octo-brand)" : "var(--octo-text-primary)",
                     }}
                     onClick={() => { props.onSelect(entry.id); setOpen(false) }}
+                    onMouseEnter={() => setHoveredId(entry.id)}
                   >
-                    <span class="font-medium">{entry.title}</span>
-                    <span class="ml-1 opacity-50">{entry.id}</span>
+                    <span class="font-medium truncate block">{entry.title}</span>
                   </button>
                 )}
               </For>
-            </div>
+            </ScrollView>
           </div>
-        </Portal>
-      </Show>
-    </div>
+        </Kobalte.Content>
+      </Kobalte.Portal>
+    </Kobalte>
   )
+}
+
+function extractSwatches(tokensCss: string): string[] {
+  const colors: string[] = []
+  const patterns = [
+    /--accent\s*:\s*([^;]+)/,
+    /--bg\s*:\s*([^;]+)/,
+    /--fg\s*:\s*([^;]+)/,
+  ]
+  for (const p of patterns) {
+    const m = tokensCss.match(p)
+    if (m) colors.push(m[1].trim())
+  }
+  return colors
 }

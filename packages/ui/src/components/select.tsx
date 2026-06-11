@@ -1,5 +1,5 @@
 import { Select as Kobalte } from "@kobalte/core/select"
-import { createMemo, onCleanup, splitProps, type ComponentProps, type JSX } from "solid-js"
+import { Show, createMemo, onCleanup, splitProps, type ComponentProps, type JSX } from "solid-js"
 import { pipe, groupBy, entries, map } from "remeda"
 import { Button, ButtonProps } from "./button"
 import { Icon } from "./icon"
@@ -20,6 +20,7 @@ export type SelectProps<T> = Omit<ComponentProps<typeof Kobalte<T>>, "value" | "
   triggerStyle?: JSX.CSSProperties
   triggerVariant?: "settings"
   triggerProps?: Record<string, string | number | boolean | undefined>
+  emptyContent?: JSX.Element
 }
 
 export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">) {
@@ -40,6 +41,7 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
     "triggerStyle",
     "triggerVariant",
     "triggerProps",
+    "emptyContent",
   ])
 
   const state = {
@@ -71,7 +73,12 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
 
   onCleanup(stop)
 
+  const isEmpty = createMemo(() => local.options.length === 0)
+
   const grouped = createMemo(() => {
+    if (local.options.length === 0 && local.emptyContent) {
+      return [{ category: "", options: [{} as T] }]
+    }
     const result = pipe(
       local.options,
       groupBy((x) => (local.groupBy ? local.groupBy(x) : "")),
@@ -166,7 +173,9 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
           data-component="select-content"
           data-trigger-style={local.triggerVariant}
         >
-          <Kobalte.Listbox data-slot="select-select-content-list" />
+          <Show when={!isEmpty()} fallback={local.emptyContent}>
+            <Kobalte.Listbox data-slot="select-select-content-list" />
+          </Show>
         </Kobalte.Content>
       </Kobalte.Portal>
     </Kobalte>

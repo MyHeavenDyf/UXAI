@@ -1,4 +1,7 @@
 [data-component="markdown"] {
+  /* Containment: isolate layout/paint to prevent position:fixed from escaping */
+  contain: layout paint;
+
   /* Reset & Base Typography */
   min-width: 0;
   max-width: 100%;
@@ -27,7 +30,7 @@
     color: var(--text-strong);
     font-weight: var(--font-weight-medium);
     margin-top: 0px;
-    margin-bottom: 24px;
+    margin-bottom: 12px;
     line-height: var(--line-height-large);
   }
 
@@ -229,7 +232,7 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    margin: 24px 0;
+    margin: 12px 0;
     font-size: var(--font-size-base);
     display: block;
     overflow-x: auto;

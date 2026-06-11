@@ -1,0 +1,11 @@
+.chat-input-content {
+  border: 1px solid transparent;
+  background: linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+        linear-gradient(135deg,
+          rgba(0, 103, 209, 0.7) 1%,
+          rgba(46, 134, 222, 0.7) 22%,
+          rgba(0, 103, 209, 0.7) 54%,
+          rgba(0, 78, 168, 0.7) 87%,
+          rgba(0, 103, 209, 0.7) 92%) border-box;
+  box-shadow: "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(0, 103, 209, 0.18), 0 0 20px rgba(0, 78, 168, 0.12)";
+}

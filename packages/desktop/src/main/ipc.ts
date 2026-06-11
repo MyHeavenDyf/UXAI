@@ -141,11 +141,13 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "save-file-picker",
-    async (_event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
-      const result = await dialog.showSaveDialog({
+    async (event: IpcMainInvokeEvent, opts?: { title?: string; defaultPath?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
         title: opts?.title ?? "Save file",
         defaultPath: opts?.defaultPath,
-      })
+      }
+      const result = await (win ? dialog.showSaveDialog(win, dialogOpts) : dialog.showSaveDialog(dialogOpts))
       if (result.canceled) return null
       return result.filePath ?? null
     },
@@ -178,15 +180,39 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle(
     "download-resource-to-temp",
-    async (_event: IpcMainInvokeEvent, url: string, namespace: string, filename: string) => {
+    async (
+      _event: IpcMainInvokeEvent,
+      url: string,
+      namespace: string,
+      filename: string,
+      baseDir?: string,
+    ) => {
       const safeNs = namespace.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default"
       const safeName = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
-      const destPath = join(app.getPath("temp"), "octo", safeNs, safeName)
+      // baseDir 提供时:文件落到 <baseDir>/.octo/downloads/<ns>/<name>(用户选了项目目录后,
+      // MCP 工具产物/"打开"/"在文件夹定位"全部进项目内,持久可查、可备份);
+      // 不传时 fallback 老逻辑走 OS 临时目录(无项目场景或纯一次性预览)。
+      const root =
+        baseDir && baseDir.length > 0
+          ? join(baseDir, ".octo", "downloads")
+          : join(app.getPath("temp"), "octo")
+      const destPath = join(root, safeNs, safeName)
       const res = await fetch(url)
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
       await mkdir(dirname(destPath), { recursive: true })
-      await writeFile(destPath, buf)
+      try {
+        await writeFile(destPath, buf)
+      } catch (err) {
+        // 文件正被本地应用(Word/Excel/WPS)独占打开时,覆盖写会抛 EBUSY/EPERM。
+        // 此时已有本地副本 = 用户上次打开的那份,直接复用,让"打开/定位"正常完成而非报错。
+        const code = err instanceof Error && "code" in err ? err.code : undefined
+        if ((code === "EBUSY" || code === "EPERM") && existsSync(destPath)) {
+          console.warn("[octo:office] reuse-locked", { destPath, code })
+          return destPath
+        }
+        throw err
+      }
       return destPath
     },
   )
@@ -284,20 +310,22 @@ export function registerIpcHandlers(deps: Deps) {
       cpSync(sourcePath, destDir, { recursive: true })
 
       // Update skills.json with type: "common"
+      const skillMdPath = join(destDir, "SKILL.md")
+      if (!existsSync(skillMdPath)) {
+        return { success: false, error: "所选文件夹中未找到 SKILL.md" }
+      }
       const config = existsSync(skillsConfigPath)
         ? JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
         : {}
-      const skillMdPath = join(destDir, "SKILL.md")
-      if (existsSync(skillMdPath)) {
-        const content = readFileSync(skillMdPath, "utf-8")
-        const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
-        config[skillName] = {
-          description: descMatch ? descMatch[1] : "",
-          import: true,
-          type: "common",
-        }
-        writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      const content = readFileSync(skillMdPath, "utf-8")
+      const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
+      config[skillName] = {
+        description: descMatch ? descMatch[1] : "",
+        import: true,
+        type: "common",
       }
+      mkdirSync(dirname(skillsConfigPath), { recursive: true })
+      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
 
       return { success: true, skillName }
     } catch (err) {

@@ -48,6 +48,8 @@ import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
+// DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。仅 DEV 分支调用,生产构建该引用为死代码,整模块摇树掉。
+import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
@@ -620,6 +622,8 @@ export function AppInterface(props: {
                 >
                   <Route path="/" component={() => <Navigate href="/insight" />} />
                   <Route path="/cowork" component={() => <Navigate href="/insight" />} />
+                  {/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册;生产构建里整块为死代码 */}
+                  {import.meta.env.DEV && insightDevRoutes()}
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />

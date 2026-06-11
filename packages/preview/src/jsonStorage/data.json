@@ -1,92 +1,214 @@
 {
-  "rootId": "rootContainer",
+  "rootId": "appShellRoot",
   "elements": [
     {
-      "id": "rootContainer",
+      "id": "appShellRoot",
       "component": "div",
       "props": {
-        "className": "flex flex-row min-h-screen bg-surface-container-lowest"
+        "className": "flex flex-col h-screen bg-surface-container-lowest"
       },
       "children": [
-        "rootLsb",
-        "rootContentPanel"
+        "topNavSlot",
+        "appShellBody"
       ]
     },
     {
-      "id": "rootLsb",
-      "component": "aside",
-      "props": {
-        "className": "w-62 flex flex-col shrink-0 overflow-y-auto bg-surface-container-highest shadow-sm"
-      },
-      "children": [
-        "sbarLogoImg",
-        "sbarCollapseBtn",
-        "sbarMenu"
-      ]
-    },
-    {
-      "id": "rootContentPanel",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col flex-1 min-w-0"
-      },
-      "children": [
-        "rootHeaderShell",
-        "rootAltContentShell"
-      ]
-    },
-    {
-      "id": "rootHeaderShell",
+      "id": "topNavSlot",
       "component": "header",
       "props": {
-        "className": "h-12 flex items-center justify-end gap-inline px-page shrink-0 bg-surface-container-highest shadow-sm"
+        "className": "h-12 bg-surface-container-highest shadow-sm flex items-center px-page shrink-0 z-10"
       },
       "children": [
-        "hdrSearchIcon",
-        "hdrNotificationIcon",
-        "hdrDocumentIcon",
-        "hdrUserSection",
-        "hdrHelpIcon"
+        "topNavLeft",
+        "topNavRight"
       ]
     },
     {
-      "id": "rootAltContentShell",
+      "id": "appShellBody",
+      "component": "div",
+      "props": {
+        "className": "flex flex-1 overflow-hidden"
+      },
+      "children": [
+        "sideMenuSlot",
+        "mainContentSlot"
+      ]
+    },
+    {
+      "id": "sideMenuSlot",
+      "component": "aside",
+      "props": {
+        "className": "w-[15.5rem] bg-surface-container-highest shadow-sm overflow-y-auto shrink-0"
+      },
+      "children": [
+        "sideMenuLogo",
+        "sideMenuDivider",
+        "sideMenuNav"
+      ]
+    },
+    {
+      "id": "mainContentSlot",
       "component": "main",
       "props": {
-        "className": "flex-1 min-h-0 overflow-y-auto p-page"
+        "className": "flex-1 overflow-y-auto p-page"
       },
       "children": [
-        "altcTitleBar",
-        "altcCardContainer"
+        "mainContentInner"
       ]
     },
     {
-      "id": "sbarLogoImg",
+      "id": "topNavLeft",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 shrink-0"
+      },
+      "children": [
+        "topNavLogoIcon",
+        "topNavLogoText"
+      ]
+    },
+    {
+      "id": "topNavLogoIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/logoIcon"
+        },
+        "color": "primary",
+        "shape": "outline",
+        "className": "w-6 h-6"
+      }
+    },
+    {
+      "id": "topNavLogoText",
+      "component": "span",
+      "props": {
+        "className": "text-lg font-semibold text-on-surface select-none",
+        "value": "电商后台"
+      }
+    },
+    {
+      "id": "topNavRight",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 ml-auto"
+      },
+      "children": [
+        "topNavSearch",
+        "topNavNotifyBadge",
+        "topNavUserArea"
+      ]
+    },
+    {
+      "id": "topNavSearch",
+      "component": "Input",
+      "props": {
+        "value": "",
+        "placeholder": {
+          "path": "/searchPlaceholder"
+        },
+        "prefix": "search",
+        "className": "w-72"
+      }
+    },
+    {
+      "id": "topNavNotifyBadge",
+      "component": "Badge",
+      "props": {
+        "count": {
+          "path": "/notificationCount"
+        },
+        "overflowCount": 99,
+        "color": "error"
+      },
+      "children": [
+        "topNavNotifyIcon"
+      ]
+    },
+    {
+      "id": "topNavNotifyIcon",
+      "component": "Icon",
+      "props": {
+        "name": "bell",
+        "color": "on-surface-variant",
+        "shape": "outline",
+        "className": "w-5 h-5 cursor-pointer"
+      }
+    },
+    {
+      "id": "topNavUserArea",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 cursor-pointer ml-2"
+      },
+      "children": [
+        "topNavAvatar",
+        "topNavUserName"
+      ]
+    },
+    {
+      "id": "topNavAvatar",
       "component": "img",
       "props": {
         "src": {
-          "path": "/logCompositeImage"
+          "path": "/userInfo/avatarImage"
         },
-        "alt": "Huawei DME IQ Logo",
-        "className": "px-4 py-3"
+        "alt": "用户头像",
+        "className": "w-8 h-8 rounded-full object-cover border border-divider"
       }
     },
     {
-      "id": "sbarCollapseBtn",
-      "component": "Button",
+      "id": "topNavUserName",
+      "component": "span",
       "props": {
-        "icon": {
-          "path": "/collapseIcon"
-        },
-        "types": "link",
-        "className": "self-start ml-2 mb-1"
+        "className": "text-md text-on-surface font-medium",
+        "value": {
+          "path": "/userInfo.userName"
+        }
       }
     },
     {
-      "id": "sbarMenu",
+      "id": "sideMenuLogo",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 px-5 py-4"
+      },
+      "children": [
+        "sideMenuLogoIcon",
+        "sideMenuLogoText"
+      ]
+    },
+    {
+      "id": "sideMenuLogoIcon",
+      "component": "Icon",
+      "props": {
+        "name": "store",
+        "color": "primary",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "sideMenuLogoText",
+      "component": "span",
+      "props": {
+        "value": "电商管理后台",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "sideMenuDivider",
+      "component": "div",
+      "props": {
+        "className": "mx-4 border-t border-divider"
+      }
+    },
+    {
+      "id": "sideMenuNav",
       "component": "Menu",
       "props": {
         "mode": "vertical",
+        "inlineCollapsed": false,
         "selectedKeys": {
           "path": "/selectedMenuKeys"
         },
@@ -96,613 +218,538 @@
         "items": {
           "path": "/menuItems"
         },
-        "className": "flex-1"
+        "className": "w-full"
       }
     },
     {
-      "id": "hdrSearchIcon",
-      "component": "Icon",
-      "props": {
-        "name": "search",
-        "shape": "outline",
-        "className": "w-5 h-5 text-on-surface"
-      }
-    },
-    {
-      "id": "hdrNotificationIcon",
-      "component": "Icon",
-      "props": {
-        "name": "bell",
-        "shape": "outline",
-        "className": "w-5 h-5 text-on-surface"
-      }
-    },
-    {
-      "id": "hdrDocumentIcon",
-      "component": "Icon",
-      "props": {
-        "name": "file-text",
-        "shape": "outline",
-        "className": "w-5 h-5 text-on-surface"
-      }
-    },
-    {
-      "id": "hdrUserSection",
+      "id": "mainContentInner",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-1"
+        "className": "flex flex-col gap-section"
       },
       "children": [
-        "hdrUserAvatar",
-        "hdrUserName"
+        "mainContentHeaderRow",
+        "mainContentBasicCard",
+        "mainContentSkuCard",
+        "mainContentSalesCard"
       ]
     },
     {
-      "id": "hdrUserAvatar",
-      "component": "img",
-      "props": {
-        "src": "https://randomuser.me/api/portraits/men/33.jpg",
-        "alt": "Jasper",
-        "className": "w-7 h-7 rounded-full object-cover"
-      }
-    },
-    {
-      "id": "hdrUserName",
-      "component": "span",
-      "props": {
-        "value": "Jasper",
-        "className": "text-sm font-medium text-on-surface"
-      }
-    },
-    {
-      "id": "hdrHelpIcon",
-      "component": "Icon",
-      "props": {
-        "name": "help-circle",
-        "shape": "outline",
-        "className": "w-5 h-5 text-on-surface"
-      }
-    },
-    {
-      "id": "altcTitleBar",
+      "id": "mainContentHeaderRow",
       "component": "div",
       "props": {
-        "className": "flex items-center justify-between mb-section"
+        "className": "flex justify-between items-center"
       },
       "children": [
-        "altcTitle",
-        "altcSettingLink"
+        "mainContentBreadcrumb",
+        "mainContentActionBtns"
       ]
     },
     {
-      "id": "altcTitle",
-      "component": "span",
+      "id": "mainContentBreadcrumb",
+      "component": "Breadcrumb",
       "props": {
-        "className": "text-2xl font-bold text-on-surface",
-        "value": "告警"
+        "items": {
+          "path": "/breadcrumbData"
+        },
+        "className": ""
       }
     },
     {
-      "id": "altcSettingLink",
+      "id": "mainContentActionBtns",
+      "component": "div",
+      "props": {
+        "className": "flex gap-2"
+      },
+      "children": [
+        "mainContentBtnEdit",
+        "mainContentBtnUpload",
+        "mainContentBtnDelete"
+      ]
+    },
+    {
+      "id": "mainContentBtnEdit",
       "component": "Button",
-      "props": {
-        "value": "告警通知管理",
-        "types": "link",
-        "icon": "settings",
-        "iconPlacement": "start",
-        "className": "text-md"
-      }
-    },
-    {
-      "id": "altcCardContainer",
-      "component": "div",
-      "props": {
-        "className": "bg-surface-container-highest rounded-xl shadow-sm p-3"
-      },
-      "children": [
-        "altcTabs"
-      ]
-    },
-    {
-      "id": "altcTabs",
-      "component": "Tabs",
-      "props": {
-        "activeKey": {
-          "path": "/altcActiveTab"
-        },
-        "size": "medium"
-      },
-      "children": [
-        "altcTabCurrent",
-        "altcTabHistory"
-      ]
-    },
-    {
-      "id": "altcTabCurrent",
-      "component": "TabItem",
-      "props": {
-        "key": "current",
-        "label": "当前告警",
-        "content": {
-          "componentId": "altcTabContent"
-        }
-      }
-    },
-    {
-      "id": "altcTabHistory",
-      "component": "TabItem",
-      "props": {
-        "key": "history",
-        "label": "历史告警",
-        "content": {
-          "componentId": "altcTabHistoryContent"
-        }
-      }
-    },
-    {
-      "id": "altcTabContent",
-      "component": "div",
-      "props": {
-        "className": "p-4 flex flex-col gap-section"
-      },
-      "children": [
-        "altcChartRow",
-        "altcToolbar",
-        "altcTable"
-      ]
-    },
-    {
-      "id": "altcTabHistoryContent",
-      "component": "div",
-      "props": {
-        "className": "p-4 flex flex-col gap-section"
-      },
-      "children": [
-        "altcHistoryTable"
-      ]
-    },
-    {
-      "id": "altcChartRow",
-      "component": "div",
-      "props": {
-        "className": "grid grid-cols-4 gap-4"
-      },
-      "children": [
-        "altcChartCard1",
-        "altcChartCard2",
-        "altcChartCard3",
-        "altcChartCard4"
-      ]
-    },
-    {
-      "id": "altcChartCard1",
-      "component": "div",
-      "props": {
-        "className": "bg-white rounded-xl p-4 flex flex-col"
-      },
-      "children": [
-        "altcChartCard1Title",
-        "altcPieChart"
-      ]
-    },
-    {
-      "id": "altcChartCard1Title",
-      "component": "span",
-      "props": {
-        "className": "text-lg font-bold text-on-surface mb-3",
-        "value": "告警级别"
-      }
-    },
-    {
-      "id": "altcPieChart",
-      "component": "PieChart",
-      "props": {
-        "option": {
-          "data": {
-            "path": "/altcPieData"
-          },
-          "title": {
-            "text": "50",
-            "subtext": "总数"
-          }
-        },
-        "className": "h-52 w-full"
-      }
-    },
-    {
-      "id": "altcChartCard2",
-      "component": "div",
-      "props": {
-        "className": "bg-white rounded-xl p-4 flex flex-col"
-      },
-      "children": [
-        "altcChartCard2Title",
-        "altcHillChart"
-      ]
-    },
-    {
-      "id": "altcChartCard2Title",
-      "component": "span",
-      "props": {
-        "className": "text-lg font-bold text-on-surface mb-3",
-        "value": "告警持续时间"
-      }
-    },
-    {
-      "id": "altcHillChart",
-      "component": "HillChart",
-      "props": {
-        "option": {
-          "data": {
-            "path": "/altcHillData"
-          }
-        },
-        "className": "h-52 w-full"
-      }
-    },
-    {
-      "id": "altcChartCard3",
-      "component": "div",
-      "props": {
-        "className": "bg-white rounded-xl p-4 flex flex-col"
-      },
-      "children": [
-        "altcChartCard3Title",
-        "altcTop5AlertChart"
-      ]
-    },
-    {
-      "id": "altcChartCard3Title",
-      "component": "span",
-      "props": {
-        "className": "text-lg font-bold text-on-surface mb-3",
-        "value": "TOP 5 告警"
-      }
-    },
-    {
-      "id": "altcTop5AlertChart",
-      "component": "ProcessChart",
-      "props": {
-        "option": {
-          "name": "ProcessBarChart",
-          "data": {
-            "path": "/altcTop5AlertData"
-          },
-          "unit": ""
-        },
-        "className": "h-52 w-full"
-      }
-    },
-    {
-      "id": "altcChartCard4",
-      "component": "div",
-      "props": {
-        "className": "bg-white rounded-xl p-4 flex flex-col"
-      },
-      "children": [
-        "altcChartCard4Title",
-        "altcTop5SourceChart"
-      ]
-    },
-    {
-      "id": "altcChartCard4Title",
-      "component": "span",
-      "props": {
-        "className": "text-lg font-bold text-on-surface mb-3",
-        "value": "TOP 5 告警源"
-      }
-    },
-    {
-      "id": "altcTop5SourceChart",
-      "component": "ProcessChart",
-      "props": {
-        "option": {
-          "name": "ProcessBarChart",
-          "data": {
-            "path": "/altcTop5SourceData"
-          },
-          "unit": ""
-        },
-        "className": "h-52 w-full"
-      }
-    },
-    {
-      "id": "altcToolbar",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-between"
-      },
-      "children": [
-        "altcToolbarLeft",
-        "altcToolbarRight"
-      ]
-    },
-    {
-      "id": "altcToolbarLeft",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-2"
-      },
-      "children": [
-        "altcConfirmDropdown",
-        "altcClearDropdown",
-        "altcSearchInput"
-      ]
-    },
-    {
-      "id": "altcConfirmDropdown",
-      "component": "Dropdown",
-      "props": {
-        "trigger": [
-          "click"
-        ],
-        "menu": [
-          {
-            "label": "确认告警",
-            "key": "confirm_alert"
-          },
-          {
-            "label": "确认并清除",
-            "key": "confirm_clear"
-          }
-        ]
-      },
-      "children": [
-        "altcConfirmBtn"
-      ]
-    },
-    {
-      "id": "altcConfirmBtn",
-      "component": "Button",
-      "props": {
-        "value": "确认",
-        "icon": "chevron-down",
-        "iconPlacement": "end"
-      }
-    },
-    {
-      "id": "altcClearDropdown",
-      "component": "Dropdown",
-      "props": {
-        "trigger": [
-          "click"
-        ],
-        "menu": [
-          {
-            "label": "清除选中",
-            "key": "clear_selected"
-          },
-          {
-            "label": "清除全部",
-            "key": "clear_all"
-          }
-        ]
-      },
-      "children": [
-        "altcClearBtn"
-      ]
-    },
-    {
-      "id": "altcClearBtn",
-      "component": "Button",
-      "props": {
-        "value": "清除",
-        "icon": "chevron-down",
-        "iconPlacement": "end"
-      }
-    },
-    {
-      "id": "altcSearchInput",
-      "component": "Input",
       "props": {
         "value": {
-          "path": "/altcSearchValue"
+          "path": "/actionButtons/0/label"
         },
-        "placeholder": "搜索告警名称...",
-        "prefix": "search",
-        "className": "w-[220px]"
+        "icon": {
+          "path": "/actionButtons/0/icon"
+        },
+        "iconPlacement": "start",
+        "color": "primary"
       }
     },
     {
-      "id": "altcToolbarRight",
+      "id": "mainContentBtnUpload",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/actionButtons/1/label"
+        },
+        "icon": {
+          "path": "/actionButtons/1/icon"
+        },
+        "iconPlacement": "start"
+      }
+    },
+    {
+      "id": "mainContentBtnDelete",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/actionButtons/2/label"
+        },
+        "icon": {
+          "path": "/actionButtons/2/icon"
+        },
+        "iconPlacement": "start",
+        "color": "danger"
+      }
+    },
+    {
+      "id": "mainContentBasicCard",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-2"
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
       },
       "children": [
-        "altcExportBtn",
-        "altcRefreshBtn"
+        "mainContentBasicCardTitle",
+        "mainContentBasicDivider",
+        "mainContentBasicCardBody"
       ]
     },
     {
-      "id": "altcExportBtn",
-      "component": "Button",
+      "id": "mainContentBasicCardTitle",
+      "component": "span",
       "props": {
-        "icon": "download",
-        "shape": "circle"
+        "value": {
+          "path": "/basicInfoCard/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
       }
     },
     {
-      "id": "altcRefreshBtn",
-      "component": "Button",
+      "id": "mainContentBasicDivider",
+      "component": "div",
       "props": {
-        "icon": "refresh-cw",
-        "shape": "circle"
+        "className": "border-b border-divider"
       }
     },
     {
-      "id": "altcTable",
+      "id": "mainContentBasicCardBody",
+      "component": "div",
+      "props": {
+        "className": "flex gap-6"
+      },
+      "children": [
+        "mainContentCarouselWrap",
+        "mainContentInfoRight"
+      ]
+    },
+    {
+      "id": "mainContentCarouselWrap",
+      "component": "div",
+      "props": {
+        "className": "w-2/5 shrink-0"
+      },
+      "children": [
+        "mainContentCarousel"
+      ]
+    },
+    {
+      "id": "mainContentCarousel",
+      "component": "Carousel",
+      "props": {
+        "arrows": true,
+        "dotPlacement": "bottom",
+        "className": "w-full rounded-lg overflow-hidden"
+      },
+      "children": {
+        "path": "/basicInfoCard/productImages",
+        "componentId": "mainContentCarouselSlide"
+      }
+    },
+    {
+      "id": "mainContentCarouselSlide",
+      "component": "div",
+      "props": {
+        "className": "w-full aspect-square rounded-lg overflow-hidden"
+      },
+      "children": [
+        "mainContentCarouselImg"
+      ]
+    },
+    {
+      "id": "mainContentCarouselImg",
+      "component": "img",
+      "props": {
+        "src": {
+          "path": "urlImage"
+        },
+        "alt": "商品图片",
+        "className": "w-full h-full object-cover"
+      }
+    },
+    {
+      "id": "mainContentInfoRight",
+      "component": "div",
+      "props": {
+        "className": "flex-1 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentProductName",
+        "mainContentProductDesc",
+        "mainContentAttrList"
+      ]
+    },
+    {
+      "id": "mainContentProductName",
+      "component": "h2",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/productName"
+        },
+        "className": "text-xl font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentProductDesc",
+      "component": "p",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/productDesc"
+        },
+        "className": "text-md text-on-surface-variant leading-relaxed"
+      }
+    },
+    {
+      "id": "mainContentAttrList",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3 mt-2"
+      },
+      "children": [
+        "mainContentAttrRow1",
+        "mainContentAttrRow2",
+        "mainContentAttrRow3",
+        "mainContentAttrRow4",
+        "mainContentAttrRow5"
+      ]
+    },
+    {
+      "id": "mainContentAttrRow1",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel1",
+        "mainContentAttrValue1"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel1",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/0/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue1",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/0/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow2",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel2",
+        "mainContentAttrValue2"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel2",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/1/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue2",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/1/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow3",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel3",
+        "mainContentAttrValue3"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel3",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/2/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue3",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/2/value"
+        },
+        "className": "text-md font-mono text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow4",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel4",
+        "mainContentAttrValue4"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel4",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/3/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue4",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/3/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow5",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel5",
+        "mainContentAttrValue5"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel5",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/4/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue5",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/4/value"
+        },
+        "color": {
+          "path": "/basicInfoCard/attributes/4/color"
+        }
+      }
+    },
+    {
+      "id": "mainContentSkuCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentSkuCardTitle",
+        "mainContentSkuDivider",
+        "mainContentSkuTableWrap"
+      ]
+    },
+    {
+      "id": "mainContentSkuCardTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/skuListTable/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuDivider",
+      "component": "div",
+      "props": {
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentSkuTableWrap",
+      "component": "div",
+      "props": {
+        "className": "-mx-6 -mb-6 overflow-hidden"
+      },
+      "children": [
+        "mainContentSkuTable"
+      ]
+    },
+    {
+      "id": "mainContentSkuTable",
       "component": "Table",
       "props": {
         "rowKey": "key",
         "dataSource": {
-          "path": "/altcTableRows"
+          "path": "/skuListTable/items"
         },
-        "rowSelection": {
-          "type": "checkbox",
-          "selectedRowKeys": {
-            "path": "/altcSelectedRowKeys"
-          }
+        "columns": {
+          "path": "/skuListTable/columns"
         },
-        "columns": [
-          {
-            "title": "名称",
-            "dataIndex": "name",
-            "minWidth": 160
-          },
-          {
-            "title": "级别",
-            "dataIndex": "level"
-          },
-          {
-            "title": "详情",
-            "dataIndex": "detail",
-            "minWidth": 220
-          },
-          {
-            "title": "站点",
-            "dataIndex": "site"
-          },
-          {
-            "title": "告警源分类",
-            "dataIndex": "alertSourceCategory"
-          },
-          {
-            "title": "告警源",
-            "dataIndex": "alertSource",
-            "minWidth": 180
-          },
-          {
-            "title": "设备SN",
-            "dataIndex": "deviceSN"
-          },
-          {
-            "title": "首次发生时间",
-            "dataIndex": "firstOccurTime",
-            "sort": true,
-            "minWidth": 160
-          },
-          {
-            "title": "末次发生时间",
-            "dataIndex": "lastOccurTime",
-            "sort": true,
-            "minWidth": 160
-          },
-          {
-            "title": "是否确认",
-            "dataIndex": "ackStatusText"
-          },
-          {
-            "title": "处理策略",
-            "dataIndex": "processStrategy"
-          },
-          {
-            "title": "操作",
-            "dataIndex": "actions",
-            "fixed": "end",
-            "width": 120
-          }
-        ],
+        "pagination": true,
         "className": "mb-4"
       },
       "children": {
-        "path": "/altcTableRows",
-        "componentId": "altcTableRow"
+        "path": "/skuListTable/items",
+        "componentId": "mainContentSkuRow"
       }
     },
     {
-      "id": "altcTableRow",
+      "id": "mainContentSkuRow",
       "component": "TableRow",
       "children": [
-        "altcNameCell",
-        "altcLevelCell",
-        "altcDetailCell",
-        "altcSiteCell",
-        "altcAlertSourceCategoryCell",
-        "altcAlertSourceCell",
-        "altcDeviceSNCell",
-        "altcFirstOccurTimeCell",
-        "altcLastOccurTimeCell",
-        "altcAckStatusCell",
-        "altcProcessStrategyCell",
-        "altcActionsCell"
+        "mainContentSkuCodeCell",
+        "mainContentSkuColorCell",
+        "mainContentSkuSizeCell",
+        "mainContentSkuPriceCell",
+        "mainContentSkuStockCell",
+        "mainContentSkuStatusCell",
+        "mainContentSkuActionCell"
       ],
       "props": {}
     },
     {
-      "id": "altcNameCell",
-      "component": "Button",
+      "id": "mainContentSkuCodeCell",
+      "component": "span",
       "props": {
         "value": {
-          "path": "name"
+          "path": "skuCode"
         },
-        "types": "link",
-        "size": "small",
-        "className": "text-md p-0 h-auto"
+        "className": "text-md font-mono text-on-surface"
       }
     },
     {
-      "id": "altcLevelCell",
+      "id": "mainContentSkuColorCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "colorName"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuSizeCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "sizeName"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuPriceCell",
       "component": "div",
       "props": {
-        "className": "flex items-center gap-1"
+        "className": "flex items-center gap-0.5"
       },
       "children": [
-        "altcLevelCellIcon",
-        "altcLevelCellText"
+        "mainContentSkuPriceSymbol",
+        "mainContentSkuPriceNum"
       ]
     },
     {
-      "id": "altcLevelCellIcon",
-      "component": "Icon",
+      "id": "mainContentSkuPriceSymbol",
+      "component": "span",
       "props": {
-        "name": {
-          "path": "levelIcon"
+        "value": "¥",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentSkuPriceNum",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "price"
         },
-        "className": "w-4 h-4"
+        "className": "text-md font-medium text-on-surface"
       }
     },
     {
-      "id": "altcLevelCellText",
+      "id": "mainContentSkuStockCell",
       "component": "span",
       "props": {
-        "className": "text-md",
         "value": {
-          "path": "level"
+          "path": "stock"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuStatusCell",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "stockStatus/text"
+        },
+        "color": {
+          "path": "stockStatus/status"
         }
       }
     },
     {
-      "id": "altcDetailCell",
-      "component": "span",
-      "props": {
-        "className": "text-md",
-        "value": {
-          "path": "detail"
-        }
-      }
-    },
-    {
-      "id": "altcSiteCell",
-      "component": "span",
-      "props": {
-        "className": "text-md",
-        "value": {
-          "path": "site"
-        }
-      }
-    },
-    {
-      "id": "altcAlertSourceCategoryCell",
-      "component": "span",
-      "props": {
-        "className": "text-md",
-        "value": {
-          "path": "alertSourceCategory"
-        }
-      }
-    },
-    {
+<<<<<<< HEAD
       "id": "altcAlertSourceCell",
       "component": "Button",
       "props": {
@@ -1044,10 +1091,191 @@
       "props": {
         "className": "text-md",
         "value": "-"
+=======
+      "id": "mainContentSkuActionCell",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "actions/0"
+        },
+        "types": "link",
+        "size": "small"
+      }
+    },
+    {
+      "id": "mainContentSalesCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentSalesCardTitle",
+        "mainContentSalesDivider",
+        "mainContentMetricsGrid",
+        "mainContentChartWrap"
+      ]
+    },
+    {
+      "id": "mainContentSalesCardTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/salesMetricsCard/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSalesDivider",
+      "component": "div",
+      "props": {
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentMetricsGrid",
+      "component": "div",
+      "props": {
+        "className": "grid grid-cols-4 gap-section"
+      },
+      "children": {
+        "path": "/salesMetricsCard/metrics",
+        "componentId": "mainContentMetricItem"
+      }
+    },
+    {
+      "id": "mainContentMetricItem",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-variant rounded-container p-4 flex flex-col gap-2"
+      },
+      "children": [
+        "mainContentMetricTitle",
+        "mainContentMetricValueWrap",
+        "mainContentMetricTrendRow"
+      ]
+    },
+    {
+      "id": "mainContentMetricTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "title"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricValueWrap",
+      "component": "div",
+      "props": {
+        "className": "flex items-baseline gap-1"
+      },
+      "children": [
+        "mainContentMetricPrefix",
+        "mainContentMetricValueNum",
+        "mainContentMetricSuffix"
+      ]
+    },
+    {
+      "id": "mainContentMetricPrefix",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "prefix"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricValueNum",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "value"
+        },
+        "className": "text-2xl font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentMetricSuffix",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "suffix"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricTrendRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5 mt-1"
+      },
+      "children": [
+        "mainContentMetricTrendIcon",
+        "mainContentMetricTrendTag"
+      ]
+    },
+    {
+      "id": "mainContentMetricTrendIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "trendIcon"
+        },
+        "color": {
+          "path": "trendColor"
+        },
+        "shape": "outline",
+        "className": "w-4 h-4"
+      }
+    },
+    {
+      "id": "mainContentMetricTrendTag",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "trendValue"
+        },
+        "color": {
+          "path": "trendColor"
+        },
+        "size": "small"
+      }
+    },
+    {
+      "id": "mainContentChartWrap",
+      "component": "div",
+      "props": {
+        "className": "mt-2"
+      },
+      "children": [
+        "mainContentSalesChart"
+      ]
+    },
+    {
+      "id": "mainContentSalesChart",
+      "component": "LineChart",
+      "props": {
+        "option": {
+          "data": {
+            "path": "/salesMetricsCard/salesTrendChartData"
+          },
+          "xAxis": {
+            "data": "日期"
+          },
+          "yAxisTitle": "销售额 (元) / 订单数 (笔)",
+          "smooth": true
+        },
+        "className": "h-80 w-full"
+>>>>>>> 78b74bfe30d00f09db06003a34c0d07c86325590
       }
     }
   ],
   "state": {
+<<<<<<< HEAD
     "logCompositeImage": "https://fpoimg.com/160x48?gradient=0067D1,004EA8&text_color=ffffff&text=HUAWEI+DME+IQ",
     "collapseIcon": "panel-left-close",
     "selectedMenuKeys": [
@@ -1089,10 +1317,49 @@
             "title": "网络",
             "key": "network",
             "icon": "network"
+=======
+    "logoIcon": "ShoppingBag",
+    "searchPlaceholder": "搜索商品、订单、SKU...",
+    "notificationCount": 5,
+    "userInfo": {
+      "avatarImage": "https://randomuser.me/api/portraits/women/44.jpg",
+      "userName": "赵明"
+    },
+    "selectedMenuKeys": [
+      "product-detail"
+    ],
+    "openMenuKeys": [
+      "product-center"
+    ],
+    "menuItems": [
+      {
+        "title": "概览大盘",
+        "key": "dashboard",
+        "icon": "layout-dashboard"
+      },
+      {
+        "title": "商品中心",
+        "key": "product-center",
+        "icon": "package",
+        "children": [
+          {
+            "title": "商品列表",
+            "key": "product-list"
+          },
+          {
+            "title": "分类管理",
+            "key": "product-category"
+          },
+          {
+            "title": "商品详情",
+            "key": "product-detail",
+            "disabled": true
+>>>>>>> 78b74bfe30d00f09db06003a34c0d07c86325590
           }
         ]
       },
       {
+<<<<<<< HEAD
         "title": "消息",
         "key": "message",
         "icon": "message-circle",
@@ -1381,5 +1648,406 @@
       }
     ],
     "altcHistoryTableRows": []
+=======
+        "title": "订单中心",
+        "key": "order-center",
+        "icon": "shopping-cart"
+      },
+      {
+        "title": "用户运营",
+        "key": "user-center",
+        "icon": "users"
+      },
+      {
+        "title": "财务结算",
+        "key": "finance",
+        "icon": "wallet"
+      }
+    ],
+    "breadcrumbData": [
+      {
+        "title": "首页",
+        "path": "/dashboard"
+      },
+      {
+        "title": "商品中心",
+        "path": "/products"
+      },
+      {
+        "title": "商品管理",
+        "path": "/products/list"
+      },
+      {
+        "title": "云端轻奢智能手表 Pro"
+      }
+    ],
+    "actionButtons": [
+      {
+        "label": "编辑商品",
+        "icon": "pencil",
+        "type": "primary"
+      },
+      {
+        "label": "上架商品",
+        "icon": "upload"
+      },
+      {
+        "label": "删除",
+        "icon": "trash-2",
+        "danger": true
+      }
+    ],
+    "basicInfoCard": {
+      "cardTitle": "基础信息",
+      "productName": "云端轻奢智能手表 Pro (Cloud Smart Watch Pro)",
+      "productDesc": "采用最新一代健康监测芯片，支持血压、血氧、心率全方位守护。蓝宝石镜面搭配钛合金表体，彰显极致工艺。",
+      "productImages": [
+        {
+          "uid": "img-1",
+          "urlImage": "https://fpoimg.com/800x800?gradient=0067D1,E6F2FD&text_color=ffffff&text=WATCH+PRO+1"
+        },
+        {
+          "uid": "img-2",
+          "urlImage": "https://fpoimg.com/800x800?gradient=09AA71,E7FBF2&text_color=ffffff&text=WATCH+PRO+2"
+        },
+        {
+          "uid": "img-3",
+          "urlImage": "https://fpoimg.com/800x800?gradient=004EA8,191919&text_color=ffffff&text=WATCH+PRO+3"
+        }
+      ],
+      "attributes": [
+        {
+          "label": "商品类目",
+          "value": "智能设备 / 智能穿戴 / 智能手表"
+        },
+        {
+          "label": "品牌",
+          "value": "CloudTech"
+        },
+        {
+          "label": "商品编码",
+          "value": "SKU-CT-WATCH-X1"
+        },
+        {
+          "label": "创建时间",
+          "value": "2025-11-20 14:30:00"
+        },
+        {
+          "label": "当前状态",
+          "value": "已上架",
+          "tag": true,
+          "color": "success"
+        }
+      ]
+    },
+    "skuListTable": {
+      "cardTitle": "规格与库存 (SKU)",
+      "columns": [
+        {
+          "title": "SKU编码",
+          "dataIndex": "skuCode",
+          "minWidth": 160
+        },
+        {
+          "title": "颜色",
+          "dataIndex": "colorName"
+        },
+        {
+          "title": "尺寸",
+          "dataIndex": "sizeName"
+        },
+        {
+          "title": "售价 (元)",
+          "dataIndex": "price"
+        },
+        {
+          "title": "库存",
+          "dataIndex": "stock"
+        },
+        {
+          "title": "库存状态",
+          "dataIndex": "stockStatus"
+        },
+        {
+          "title": "操作",
+          "dataIndex": "actions"
+        }
+      ],
+      "items": [
+        {
+          "key": "1",
+          "skuCode": "CT-W-X1-BLK-42",
+          "colorName": "曜石黑",
+          "sizeName": "42mm",
+          "price": 2499,
+          "stock": 342,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "2",
+          "skuCode": "CT-W-X1-BLK-46",
+          "colorName": "曜石黑",
+          "sizeName": "46mm",
+          "price": 2699,
+          "stock": 125,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "3",
+          "skuCode": "CT-W-X1-SLV-42",
+          "colorName": "流光银",
+          "sizeName": "42mm",
+          "price": 2599,
+          "stock": 89,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "4",
+          "skuCode": "CT-W-X1-SLV-46",
+          "colorName": "流光银",
+          "sizeName": "46mm",
+          "price": 2799,
+          "stock": 45,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "5",
+          "skuCode": "CT-W-X1-BLU-42",
+          "colorName": "海峰蓝",
+          "sizeName": "42mm",
+          "price": 2699,
+          "stock": 12,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "6",
+          "skuCode": "CT-W-X1-BLU-46",
+          "colorName": "海峰蓝",
+          "sizeName": "46mm",
+          "price": 2899,
+          "stock": 0,
+          "stockStatus": {
+            "text": "缺货",
+            "status": "default"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "7",
+          "skuCode": "CT-W-X1-PNK-42",
+          "colorName": "樱语粉",
+          "sizeName": "42mm",
+          "price": 2599,
+          "stock": 230,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "8",
+          "skuCode": "CT-W-X1-PNK-46",
+          "colorName": "樱语粉",
+          "sizeName": "46mm",
+          "price": 2799,
+          "stock": 88,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "9",
+          "skuCode": "CT-W-X1-GLD-42",
+          "colorName": "尊贵金",
+          "sizeName": "42mm",
+          "price": 3299,
+          "stock": 15,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "10",
+          "skuCode": "CT-W-X1-GLD-46",
+          "colorName": "尊贵金",
+          "sizeName": "46mm",
+          "price": 3499,
+          "stock": 10,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        }
+      ]
+    },
+    "salesMetricsCard": {
+      "cardTitle": "销售数据概览",
+      "metrics": [
+        {
+          "title": "总销售额",
+          "value": 125800,
+          "precision": 2,
+          "prefix": "¥",
+          "trendIcon": "trending-up",
+          "trendValue": "15.3%",
+          "suffix": "较上月",
+          "trendColor": "success"
+        },
+        {
+          "title": "总销量",
+          "value": 842,
+          "precision": 0,
+          "suffix": "件",
+          "trendIcon": "trending-down",
+          "trendValue": "-2.1%",
+          "prefix": "",
+          "trendColor": "error"
+        },
+        {
+          "title": "访客数 (UV)",
+          "value": 6420,
+          "precision": 0,
+          "suffix": "人",
+          "trendIcon": "trending-up",
+          "trendValue": "5.4%",
+          "prefix": "",
+          "trendColor": "success"
+        },
+        {
+          "title": "转化率",
+          "value": 13.1,
+          "suffix": "%",
+          "precision": 2,
+          "trendIcon": "trending-up",
+          "trendValue": "1.2%",
+          "prefix": "",
+          "trendColor": "success"
+        }
+      ],
+      "salesTrendChartData": [
+        {
+          "日期": "05-01",
+          "销售额": 4200,
+          "订单数": 28
+        },
+        {
+          "日期": "05-02",
+          "销售额": 3800,
+          "订单数": 25
+        },
+        {
+          "日期": "05-03",
+          "销售额": 5100,
+          "订单数": 34
+        },
+        {
+          "日期": "05-04",
+          "销售额": 4800,
+          "订单数": 32
+        },
+        {
+          "日期": "05-05",
+          "销售额": 6200,
+          "订单数": 41
+        },
+        {
+          "日期": "05-06",
+          "销售额": 5500,
+          "订单数": 36
+        },
+        {
+          "日期": "05-07",
+          "销售额": 4900,
+          "订单数": 33
+        },
+        {
+          "日期": "05-08",
+          "销售额": 7200,
+          "订单数": 48
+        },
+        {
+          "日期": "05-09",
+          "销售额": 8100,
+          "订单数": 54
+        },
+        {
+          "日期": "05-10",
+          "销售额": 6500,
+          "订单数": 43
+        },
+        {
+          "日期": "05-11",
+          "销售额": 5900,
+          "订单数": 39
+        },
+        {
+          "日期": "05-12",
+          "销售额": 6800,
+          "订单数": 45
+        },
+        {
+          "日期": "05-13",
+          "销售额": 7500,
+          "订单数": 50
+        },
+        {
+          "日期": "05-14",
+          "销售额": 8200,
+          "订单数": 55
+        },
+        {
+          "日期": "05-15",
+          "销售额": 7800,
+          "订单数": 52
+        }
+      ]
+    }
+>>>>>>> 78b74bfe30d00f09db06003a34c0d07c86325590
   }
 }

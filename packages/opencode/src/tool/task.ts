@@ -8,6 +8,7 @@ import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
 import { Effect, Exit, Schema } from "effect"
 import { EffectBridge } from "@/effect/bridge"
+import { insertCategory } from "@/session/session-category-query"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -71,6 +72,7 @@ export const TaskTool = Tool.define(
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
+          agent: next.name,
           permission: [
             ...(parent.permission ?? []).filter(
               (rule) => rule.permission === "external_directory" || rule.action === "deny",
@@ -100,6 +102,10 @@ export const TaskTool = Tool.define(
             })) ?? []),
           ],
         }))
+
+      if (!session) {
+        insertCategory(nextSession.id, "subagent")
+      }
 
       const msg = yield* Effect.sync(() => MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }))
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
