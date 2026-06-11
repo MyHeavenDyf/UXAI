@@ -124,6 +124,7 @@ export default function StudioPage() {
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
+  const processedAutoAddResults = new Set<string>()
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
@@ -490,17 +491,31 @@ export default function StudioPage() {
   const workspaceEditImage = createMemo(() => workspaceImage() ?? (workspaceUploadRequested() ? undefined : selectedImage()))
 
   createEffect(() => {
-    const first = canvasResult()?.images[0]?.id
-    if (first && !canvasResult()?.images.some((image) => image.id === selectedImageId())) {
-      setSelectedImageId(first)
-      // Session 切换或首次加载时自动显示 canvas，同时将首图加入真实 tab
-      if (selectedResultId() === undefined) {
-        setShowStudioCanvas(true)
-        const r = canvasResult()
-        if (r) {
-          setCanvasTabImages([r.images[0]])
-          setCanvasTabLabels({ [r.images[0].id]: extractKeywords(r.prompt) })
-        }
+    const r = canvasResult()
+    if (!r) return
+    const first = r.images[0]?.id
+    if (!first || r.images.some((image) => image.id === selectedImageId())) return
+    setSelectedImageId(first)
+    // Session 切换或首次加载时自动显示 canvas，同时将首图加入真实 tab
+    if (selectedResultId() === undefined) {
+      // 同一结果只自动添加一次，避免用户关闭 tab 后被重新添加
+      if (processedAutoAddResults.has(r.id)) return
+      processedAutoAddResults.add(r.id)
+      setShowStudioCanvas(true)
+      if (canvasTabImages().length === 0) {
+        // 无 tabs：创建第一个 tab
+        setCanvasTabImages([r.images[0]])
+        setCanvasTabLabels({ [r.images[0].id]: extractKeywords(r.prompt) })
+      } else {
+        // 已有 tabs：追加，与 selectStudioImage 逻辑一致
+        setCanvasTabImages((prev) => {
+          if (prev.some((i) => i.id === r.images[0].id)) return prev
+          return [...prev, r.images[0]]
+        })
+        setCanvasTabLabels((prev) => {
+          if (prev[r.images[0].id]) return prev
+          return { ...prev, [r.images[0].id]: extractKeywords(r.prompt) }
+        })
       }
     }
   })
@@ -587,8 +602,8 @@ export default function StudioPage() {
         setSelectedImageId(nextId)
       } else {
         // 最后一个 tab：隐藏 canvas 和 details
+        // 注意：不清空 selectedImageId，否则 auto-show effect 会重新创建 tab
         setShowStudioCanvas(false)
-        setSelectedImageId(undefined)
       }
     })
   }
@@ -678,6 +693,7 @@ export default function StudioPage() {
         }
         setCanvasTabImages([])
         setCanvasTabLabels({})
+        processedAutoAddResults.clear()
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
