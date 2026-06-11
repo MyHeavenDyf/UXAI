@@ -1,591 +1,1143 @@
 {
-  "rootId": "loginPageRoot",
+  "rootId": "rootContainer",
   "elements": [
     {
-      "id": "loginPageRoot",
+      "id": "rootContainer",
       "component": "div",
       "props": {
-        "className": "flex flex-row w-full h-screen"
+        "className": "flex flex-col h-screen w-screen bg-surface-container-lowest"
       },
       "children": [
-        "loginBrandSlot",
-        "loginFormSlot"
+        "headerNavContainer",
+        "mainLayoutContainer"
       ]
     },
     {
-      "id": "loginBrandSlot",
-      "component": "div",
+      "id": "headerNavContainer",
+      "component": "header",
       "props": {
-        "className": "flex flex-col items-center justify-center w-[40%] h-full bg-gradient-to-br from-[#1A1A2E] to-[#16213E] text-white"
+        "className": "flex-shrink-0 h-12 bg-surface-container-highest shadow-sm"
       },
       "children": [
-        "brandInnerWrapper"
+        "hdrInnerContainer"
       ]
     },
     {
-      "id": "loginFormSlot",
+      "id": "mainLayoutContainer",
       "component": "div",
       "props": {
-        "className": "flex flex-col items-center justify-center w-[60%] h-full bg-surface"
+        "className": "flex flex-1 flex-row overflow-hidden"
       },
       "children": [
-        "formCardWrapper"
+        "sidebarMenuContainer",
+        "contentMainArea"
       ]
     },
     {
-      "id": "brandInnerWrapper",
-      "component": "div",
+      "id": "sidebarMenuContainer",
+      "component": "aside",
       "props": {
-        "className": "w-full h-full relative flex flex-col items-center justify-center"
+        "className": "w-12 flex-shrink-0 bg-surface-container-highest shadow-card"
       },
       "children": [
-        "brandBgImage",
-        "brandTopBar",
-        "brandCenterContent",
-        "brandBottomBar"
+        "sbrSidebarInner"
       ]
     },
     {
-      "id": "brandBgImage",
+      "id": "contentMainArea",
+      "component": "main",
+      "props": {
+        "className": "flex-1 bg-surface overflow-auto"
+      },
+      "children": [
+        "cntFirstLevelTabs"
+      ]
+    },
+    {
+      "id": "hdrInnerContainer",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-between h-full px-page"
+      },
+      "children": [
+        "hdrLeftGroup",
+        "hdrRightGroup"
+      ]
+    },
+    {
+      "id": "hdrLeftGroup",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-gutter"
+      },
+      "children": [
+        "hdrBrandLogo",
+        "hdrBrandName",
+        "hdrProjectGroup"
+      ]
+    },
+    {
+      "id": "hdrBrandLogo",
+      "component": "Icon",
+      "props": {
+        "name": "network",
+        "shape": "outline",
+        "className": "w-6 h-6 text-primary"
+      }
+    },
+    {
+      "id": "hdrBrandName",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/brandName"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "hdrProjectGroup",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1 text-on-surface-variant cursor-pointer"
+      },
+      "children": [
+        "hdrProjectIcon",
+        "hdrProjectText",
+        "hdrProjectDropdownIcon"
+      ]
+    },
+    {
+      "id": "hdrProjectIcon",
+      "component": "Icon",
+      "props": {
+        "name": "folder-kanban",
+        "shape": "outline",
+        "className": "w-4 h-4"
+      }
+    },
+    {
+      "id": "hdrProjectText",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/projectName"
+        },
+        "className": "text-sm font-medium"
+      }
+    },
+    {
+      "id": "hdrProjectDropdownIcon",
+      "component": "Icon",
+      "props": {
+        "name": "chevron-down",
+        "shape": "outline",
+        "className": "w-3 h-3"
+      }
+    },
+    {
+      "id": "hdrRightGroup",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-gutter"
+      },
+      "children": [
+        "hdrNotificationBadge",
+        "hdrUserAvatar",
+        "hdrHomeBtn"
+      ]
+    },
+    {
+      "id": "hdrNotificationBadge",
+      "component": "Badge",
+      "props": {
+        "count": {
+          "path": "/notificationCount"
+        },
+        "color": "red",
+        "overflowCount": 99
+      },
+      "children": [
+        "hdrBellIcon"
+      ]
+    },
+    {
+      "id": "hdrBellIcon",
+      "component": "Icon",
+      "props": {
+        "name": "bell",
+        "shape": "outline",
+        "className": "w-5 h-5 text-on-surface-variant"
+      }
+    },
+    {
+      "id": "hdrUserAvatar",
       "component": "img",
       "props": {
         "src": {
-          "path": "/brandBackgroundImage"
+          "path": "/userAvatarSrc"
         },
-        "alt": "品牌背景",
-        "className": "absolute inset-0 w-full h-full object-cover opacity-10"
+        "className": "w-8 h-8 rounded-full object-cover",
+        "alt": "用户头像"
       }
     },
     {
-      "id": "brandTopBar",
+      "id": "hdrHomeBtn",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/homeBtnText"
+        },
+        "icon": "home",
+        "iconPlacement": "start",
+        "color": "default"
+      }
+    },
+    {
+      "id": "sbrSidebarInner",
       "component": "div",
       "props": {
-        "className": "w-full flex justify-end px-6 pt-5 relative z-10"
+        "className": "h-full flex flex-col"
       },
       "children": [
-        "brandLangSelect"
+        "sbrTopMenuSection",
+        "sbrDividerLine",
+        "sbrBottomMenuSection"
       ]
     },
     {
-      "id": "brandLangSelect",
-      "component": "Select",
-      "props": {
-        "value": {
-          "path": "/brandCurrentLocale"
-        },
-        "options": [
-          {
-            "value": "zh-CN",
-            "label": "简体中文"
-          },
-          {
-            "value": "en-US",
-            "label": "English (US)"
-          },
-          {
-            "value": "ja-JP",
-            "label": "日本語"
-          },
-          {
-            "value": "ko-KR",
-            "label": "한국어"
-          },
-          {
-            "value": "fr-FR",
-            "label": "Français"
-          }
-        ],
-        "className": "w-40 bg-white/10 border-white/20 text-white",
-        "placeholder": "选择语言"
-      }
-    },
-    {
-      "id": "brandCenterContent",
+      "id": "sbrTopMenuSection",
       "component": "div",
       "props": {
-        "className": "flex-1 flex flex-col items-center justify-center gap-5 relative z-10"
+        "className": "flex-1 flex flex-col justify-start pt-3"
       },
       "children": [
-        "brandLogoIcon",
-        "brandSystemName",
-        "brandSloganRow"
+        "sbrTopMenu"
       ]
     },
     {
-      "id": "brandLogoIcon",
-      "component": "Icon",
+      "id": "sbrTopMenu",
+      "component": "Menu",
       "props": {
-        "name": {
-          "path": "/brandLogoIcon"
+        "mode": "vertical",
+        "inlineCollapsed": true,
+        "selectedKeys": {
+          "path": "/selectedKeys"
         },
-        "size": 64,
-        "shape": "circle",
-        "color": "inverse"
+        "items": {
+          "path": "/topMenuItems"
+        },
+        "className": "w-full bg-transparent border-none"
       }
     },
     {
-      "id": "brandSystemName",
-      "component": "h1",
+      "id": "sbrDividerLine",
+      "component": "Divider",
       "props": {
-        "className": "text-3xl font-bold text-white text-center",
-        "value": {
-          "path": "/brandSystemName"
+        "className": "my-1 mx-2 border-divider"
+      }
+    },
+    {
+      "id": "sbrBottomMenuSection",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col pb-3"
+      },
+      "children": [
+        "sbrBottomMenu"
+      ]
+    },
+    {
+      "id": "sbrBottomMenu",
+      "component": "Menu",
+      "props": {
+        "mode": "vertical",
+        "inlineCollapsed": true,
+        "selectedKeys": [],
+        "items": {
+          "path": "/bottomMenuItems"
+        },
+        "className": "w-full bg-transparent border-none"
+      }
+    },
+    {
+      "id": "cntFirstLevelTabs",
+      "component": "Tabs",
+      "props": {
+        "activeKey": {
+          "path": "/firstLevelTabActive"
+        },
+        "className": "bg-surface",
+        "size": "large",
+        "types": "line"
+      },
+      "children": [
+        "cntFirstTabConfig",
+        "cntFirstTabSwitch",
+        "cntFirstTabRouter",
+        "cntFirstTabAP",
+        "cntFirstTabWAC"
+      ]
+    },
+    {
+      "id": "cntFirstTabConfig",
+      "component": "TabItem",
+      "props": {
+        "key": "整网配置",
+        "label": "整网配置",
+        "content": {
+          "componentId": "cntContentCard"
         }
       }
     },
     {
-      "id": "brandSloganRow",
+      "id": "cntFirstTabSwitch",
+      "component": "TabItem",
+      "props": {
+        "key": "交换机",
+        "label": "交换机",
+        "content": {
+          "componentId": "cntPlaceholderSwitch"
+        }
+      }
+    },
+    {
+      "id": "cntFirstTabRouter",
+      "component": "TabItem",
+      "props": {
+        "key": "路由器",
+        "label": "路由器",
+        "content": {
+          "componentId": "cntPlaceholderRouter"
+        }
+      }
+    },
+    {
+      "id": "cntFirstTabAP",
+      "component": "TabItem",
+      "props": {
+        "key": "AP",
+        "label": "AP",
+        "content": {
+          "componentId": "cntPlaceholderAP"
+        }
+      }
+    },
+    {
+      "id": "cntFirstTabWAC",
+      "component": "TabItem",
+      "props": {
+        "key": "WAC",
+        "label": "WAC",
+        "content": {
+          "componentId": "cntPlaceholderWAC"
+        }
+      }
+    },
+    {
+      "id": "cntPlaceholderSwitch",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-center h-64 text-on-surface-variant text-lg",
+        "value": "交换机配置内容"
+      }
+    },
+    {
+      "id": "cntPlaceholderRouter",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-center h-64 text-on-surface-variant text-lg",
+        "value": "路由器配置内容"
+      }
+    },
+    {
+      "id": "cntPlaceholderAP",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-center h-64 text-on-surface-variant text-lg",
+        "value": "AP配置内容"
+      }
+    },
+    {
+      "id": "cntPlaceholderWAC",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-center h-64 text-on-surface-variant text-lg",
+        "value": "WAC配置内容"
+      }
+    },
+    {
+      "id": "cntContentCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-card p-gutter mx-page mb-section"
+      },
+      "children": [
+        "cntSecondLevelTabs"
+      ]
+    },
+    {
+      "id": "cntSecondLevelTabs",
+      "component": "Tabs",
+      "props": {
+        "activeKey": {
+          "path": "/secondLevelTabActive"
+        }
+      },
+      "children": [
+        "cntSecondTabBiz",
+        "cntSecondTabIPTV",
+        "cntSecondTabNat"
+      ]
+    },
+    {
+      "id": "cntSecondTabBiz",
+      "component": "TabItem",
+      "props": {
+        "key": "业务网",
+        "label": "业务网",
+        "content": {
+          "componentId": "cntBizContent"
+        }
+      }
+    },
+    {
+      "id": "cntSecondTabIPTV",
+      "component": "TabItem",
+      "props": {
+        "key": "IPTV",
+        "label": "IPTV",
+        "content": {
+          "componentId": "cntIPTVContent"
+        }
+      }
+    },
+    {
+      "id": "cntSecondTabNat",
+      "component": "TabItem",
+      "props": {
+        "key": "内网穿透",
+        "label": "内网穿透",
+        "content": {
+          "componentId": "cntNatContent"
+        }
+      }
+    },
+    {
+      "id": "cntIPTVContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-center h-48 text-on-surface-variant text-md",
+        "value": "IPTV配置内容"
+      }
+    },
+    {
+      "id": "cntNatContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-center h-48 text-on-surface-variant text-md",
+        "value": "内网穿透配置内容"
+      }
+    },
+    {
+      "id": "cntBizContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-section mt-0"
+      },
+      "children": [
+        "cntDivider1",
+        "cntDeviceCard",
+        "cntDivider2",
+        "cntModuleTitle",
+        "cntToolbar",
+        "cntTable"
+      ]
+    },
+    {
+      "id": "cntDivider1",
+      "component": "Divider",
+      "props": {
+        "className": "my-0"
+      }
+    },
+    {
+      "id": "cntDeviceCard",
+      "component": "div",
+      "props": {
+        "className": "flex justify-between items-center p-gutter bg-surface-container-highest rounded-lg"
+      },
+      "children": [
+        "cntDeviceInfo",
+        "cntModifyGatewayBtn"
+      ]
+    },
+    {
+      "id": "cntDeviceInfo",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "cntDeviceThumbnail",
+        "cntDeviceTitle",
+        "cntDeviceModel",
+        "cntDeviceESN"
+      ]
+    },
+    {
+      "id": "cntDeviceThumbnail",
+      "component": "img",
+      "props": {
+        "src": "https://fpoimg.com/80x80?gradient=0067D1,004EA8&text_color=ffffff&text=AR",
+        "alt": "AR设备缩略图",
+        "className": "w-12 h-12 rounded-lg"
+      }
+    },
+    {
+      "id": "cntDeviceTitle",
+      "component": "span",
+      "props": {
+        "value": "AR_6AEBBC254674648874802",
+        "className": "text-lg font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "cntDeviceModel",
+      "component": "span",
+      "props": {
+        "value": "型号 AR651C",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "cntDeviceESN",
+      "component": "span",
+      "props": {
+        "value": "ESN 10023455RLG19807655",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "cntModifyGatewayBtn",
+      "component": "Button",
+      "props": {
+        "value": "修改网关",
+        "icon": "edit",
+        "iconPlacement": "start",
+        "types": "link"
+      }
+    },
+    {
+      "id": "cntDivider2",
+      "component": "Divider",
+      "props": {
+        "className": "my-0"
+      }
+    },
+    {
+      "id": "cntModuleTitle",
+      "component": "span",
+      "props": {
+        "value": "业务网",
+        "className": "text-2xl font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "cntToolbar",
+      "component": "div",
+      "props": {
+        "className": "flex justify-between items-center"
+      },
+      "children": [
+        "cntSearchInput",
+        "cntToolbarActions"
+      ]
+    },
+    {
+      "id": "cntSearchInput",
+      "component": "Input",
+      "props": {
+        "value": {
+          "path": "/searchValue"
+        },
+        "placeholder": "请输入业务网名称",
+        "prefix": "search",
+        "className": "w-80"
+      }
+    },
+    {
+      "id": "cntToolbarActions",
       "component": "div",
       "props": {
         "className": "flex items-center gap-2"
       },
       "children": [
-        "brandSloganIcon",
-        "brandSloganText"
+        "cntDeleteBtn",
+        "cntCreateGuestBtn",
+        "cntCreateBizBtn",
+        "cntRefreshBtn"
       ]
     },
     {
-      "id": "brandSloganIcon",
-      "component": "Icon",
-      "props": {
-        "name": {
-          "path": "/brandSloganIcon"
-        },
-        "size": 20,
-        "shape": "outline",
-        "color": "inverse"
-      }
-    },
-    {
-      "id": "brandSloganText",
-      "component": "p",
-      "props": {
-        "className": "text-base text-white/70 text-center",
-        "value": {
-          "path": "/brandSlogan"
-        }
-      }
-    },
-    {
-      "id": "brandBottomBar",
-      "component": "div",
-      "props": {
-        "className": "w-full flex flex-col items-center gap-0.5 pb-6 relative z-10"
-      },
-      "children": [
-        "brandCopyright",
-        "brandVersion"
-      ]
-    },
-    {
-      "id": "brandCopyright",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-white/50",
-        "value": {
-          "path": "/brandCopyright"
-        }
-      }
-    },
-    {
-      "id": "brandVersion",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-white/40",
-        "value": {
-          "path": "/brandVersion"
-        }
-      }
-    },
-    {
-      "id": "formCardWrapper",
-      "component": "div",
-      "props": {
-        "className": "w-full max-w-md px-inset py-page"
-      },
-      "children": [
-        "formCardContainer"
-      ]
-    },
-    {
-      "id": "formCardContainer",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-stack bg-surface-container-highest rounded-xl shadow-card p-inset"
-      },
-      "children": [
-        "formCardTitle",
-        "formUsernameField",
-        "formPasswordField",
-        "formCaptchaField",
-        "formRememberRow",
-        "formLoginBtn",
-        "formActionLinks",
-        "formSocialDivider",
-        "formSocialSection",
-        "formCopyrightText",
-        "formVersionText"
-      ]
-    },
-    {
-      "id": "formCardTitle",
-      "component": "span",
-      "props": {
-        "className": "text-lg font-semibold text-on-surface text-center mb-1",
-        "value": "欢迎登录"
-      }
-    },
-    {
-      "id": "formUsernameField",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-1"
-      },
-      "children": [
-        "formUsernameLabel",
-        "formUsernameInput",
-        "formUsernameHelper"
-      ]
-    },
-    {
-      "id": "formUsernameLabel",
-      "component": "span",
-      "props": {
-        "className": "text-sm font-medium text-on-surface-variant",
-        "value": "用户名/邮箱"
-      }
-    },
-    {
-      "id": "formUsernameInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/username"
-        },
-        "placeholder": "请输入用户名或注册邮箱",
-        "prefix": "User",
-        "className": "w-full"
-      }
-    },
-    {
-      "id": "formUsernameHelper",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-on-surface-variant",
-        "value": "请输入用户名（至少3个字符）"
-      }
-    },
-    {
-      "id": "formPasswordField",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-1"
-      },
-      "children": [
-        "formPasswordLabel",
-        "formPasswordInput",
-        "formPasswordHelper"
-      ]
-    },
-    {
-      "id": "formPasswordLabel",
-      "component": "span",
-      "props": {
-        "className": "text-sm font-medium text-on-surface-variant",
-        "value": "密码"
-      }
-    },
-    {
-      "id": "formPasswordInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/password"
-        },
-        "placeholder": "请输入密码",
-        "prefix": "Lock",
-        "type": "password",
-        "className": "w-full"
-      }
-    },
-    {
-      "id": "formPasswordHelper",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-on-surface-variant",
-        "value": "请输入密码（至少6个字符）"
-      }
-    },
-    {
-      "id": "formCaptchaField",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-1"
-      },
-      "children": [
-        "formCaptchaLabel",
-        "formCaptchaRow",
-        "formCaptchaHelper"
-      ]
-    },
-    {
-      "id": "formCaptchaLabel",
-      "component": "span",
-      "props": {
-        "className": "text-sm font-medium text-on-surface-variant",
-        "value": "验证码"
-      }
-    },
-    {
-      "id": "formCaptchaRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3"
-      },
-      "children": [
-        "formCaptchaInput",
-        "formCaptchaImage",
-        "formCaptchaRefreshBtn"
-      ]
-    },
-    {
-      "id": "formCaptchaInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/captcha"
-        },
-        "placeholder": "输入验证码",
-        "prefix": "ScanQrCode",
-        "className": "flex-1"
-      }
-    },
-    {
-      "id": "formCaptchaImage",
-      "component": "img",
-      "props": {
-        "src": "https://fpoimg.com/120x40?gradient=0067D1,004EA8&text_color=ffffff&text=CAPTCHA",
-        "className": "h-10 w-auto rounded-md border border-base cursor-pointer",
-        "alt": "验证码图片"
-      }
-    },
-    {
-      "id": "formCaptchaRefreshBtn",
+      "id": "cntDeleteBtn",
       "component": "Button",
       "props": {
-        "icon": "RefreshCw",
-        "shape": "circle",
-        "title": "刷新验证码",
-        "className": "shrink-0"
+        "value": "删除",
+        "icon": "trash-2",
+        "iconPlacement": "start",
+        "disabled": true,
+        "color": "default"
       }
     },
     {
-      "id": "formCaptchaHelper",
-      "component": "span",
+      "id": "cntCreateGuestBtn",
+      "component": "Button",
       "props": {
-        "className": "text-xs text-on-surface-variant",
-        "value": "请输入验证码"
+        "value": "创建访客网",
+        "icon": "user-plus",
+        "iconPlacement": "start",
+        "color": "default"
       }
     },
     {
-      "id": "formRememberRow",
-      "component": "div",
+      "id": "cntCreateBizBtn",
+      "component": "Button",
       "props": {
-        "className": "flex items-center"
-      },
-      "children": [
-        "formRememberCheckbox"
-      ]
+        "value": "创建业务网",
+        "icon": "plus",
+        "iconPlacement": "start",
+        "color": "primary"
+      }
     },
     {
-      "id": "formRememberCheckbox",
-      "component": "Checkbox",
+      "id": "cntRefreshBtn",
+      "component": "Button",
       "props": {
-        "checked": {
-          "path": "/rememberMe"
+        "value": "刷新",
+        "icon": "refresh-cw",
+        "iconPlacement": "start",
+        "color": "default"
+      }
+    },
+    {
+      "id": "cntTable",
+      "component": "Table",
+      "props": {
+        "rowKey": "key",
+        "dataSource": {
+          "path": "/tableData"
         },
-        "value": "记住此设备"
-      }
-    },
-    {
-      "id": "formLoginBtn",
-      "component": "Button",
-      "props": {
-        "type": "primary",
-        "icon": "LogIn",
-        "value": "登 录",
-        "loading": {
-          "path": "/loginLoading"
-        },
-        "className": "w-full h-10 text-md font-medium"
-      }
-    },
-    {
-      "id": "formActionLinks",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-between -mt-1"
-      },
-      "children": [
-        "formForgotPasswordBtn",
-        "formRegisterBtn"
-      ]
-    },
-    {
-      "id": "formForgotPasswordBtn",
-      "component": "Button",
-      "props": {
-        "type": "link",
-        "icon": "HelpCircle",
-        "value": "忘记密码？",
-        "className": "text-md p-0 h-auto"
-      }
-    },
-    {
-      "id": "formRegisterBtn",
-      "component": "Button",
-      "props": {
-        "type": "link",
-        "icon": "UserPlus",
-        "value": "立即注册",
-        "className": "text-md p-0 h-auto"
-      }
-    },
-    {
-      "id": "formSocialDivider",
-      "component": "Divider",
-      "props": {
-        "value": "其他方式登录",
-        "className": "text-sm text-on-surface-variant my-2"
-      }
-    },
-    {
-      "id": "formSocialSection",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-center gap-6"
+        "columns": [
+          {
+            "title": "条目",
+            "dataIndex": "order"
+          },
+          {
+            "title": "名称",
+            "dataIndex": "name",
+            "minWidth": 150
+          },
+          {
+            "title": "VLAN",
+            "dataIndex": "vlan"
+          },
+          {
+            "title": "网关/掩码",
+            "dataIndex": "gateway"
+          },
+          {
+            "title": "有线接入口",
+            "dataIndex": "wiredPort"
+          },
+          {
+            "title": "无线配置Wi-Fi",
+            "dataIndex": "wifiConfig"
+          },
+          {
+            "title": "配置状态",
+            "dataIndex": "configStatus"
+          },
+          {
+            "title": "网络状态",
+            "dataIndex": "networkStatus"
+          },
+          {
+            "title": "操作",
+            "dataIndex": "actions",
+            "fixed": "end",
+            "width": 100
+          }
+        ],
+        "className": "mb-section"
       },
       "children": {
-        "path": "/socialLogin/providers",
-        "componentId": "formSocialItem"
+        "path": "/tableData",
+        "componentId": "cntTableRow"
       }
     },
     {
-      "id": "formSocialItem",
+      "id": "cntTableRow",
+      "component": "TableRow",
+      "children": [
+        "cntOrderCell",
+        "cntNameCell",
+        "cntVlanCell",
+        "cntGatewayCell",
+        "cntWiredPortCell",
+        "cntWifiConfigCell",
+        "cntConfigStatusCell",
+        "cntNetworkStatusCell",
+        "cntActionsCell"
+      ],
+      "props": {}
+    },
+    {
+      "id": "cntOrderCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "order"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntNameCell",
       "component": "div",
       "props": {
-        "className": "flex flex-col items-center gap-1"
+        "className": "flex items-center gap-2"
       },
       "children": [
-        "formSocialIconBtn",
-        "formSocialLabel"
+        "cntNameText",
+        "cntNameTag"
       ]
     },
     {
-      "id": "formSocialIconBtn",
+      "id": "cntNameText",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "name"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntNameTag",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "nameTag.text"
+        },
+        "color": {
+          "path": "nameTag.color"
+        },
+        "size": "small"
+      }
+    },
+    {
+      "id": "cntVlanCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "vlan"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntGatewayCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "gateway"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntWiredPortCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "wiredPort"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntWifiConfigCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "wifiConfig"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntConfigStatusCell",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1"
+      },
+      "children": [
+        "cntConfigStatusDot",
+        "cntConfigStatusText"
+      ]
+    },
+    {
+      "id": "cntConfigStatusDot",
+      "component": "Icon",
+      "props": {
+        "name": "circle",
+        "shape": "fill",
+        "color": {
+          "path": "configStatus.status"
+        },
+        "className": "w-2 h-2"
+      }
+    },
+    {
+      "id": "cntConfigStatusText",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "configStatus.text"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntNetworkStatusCell",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1"
+      },
+      "children": [
+        "cntNetworkStatusDot",
+        "cntNetworkStatusText"
+      ]
+    },
+    {
+      "id": "cntNetworkStatusDot",
+      "component": "Icon",
+      "props": {
+        "name": "circle",
+        "shape": "fill",
+        "color": {
+          "path": "networkStatus.status"
+        },
+        "className": "w-2 h-2"
+      }
+    },
+    {
+      "id": "cntNetworkStatusText",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "networkStatus.text"
+        },
+        "className": "text-md"
+      }
+    },
+    {
+      "id": "cntActionsCell",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2"
+      },
+      "children": [
+        "cntEditAction",
+        "cntDeleteAction"
+      ]
+    },
+    {
+      "id": "cntEditAction",
       "component": "Button",
       "props": {
-        "shape": "circle",
-        "icon": {
-          "path": "icon"
-        },
-        "title": {
-          "path": "tooltip"
-        },
-        "className": "w-10 h-10"
+        "icon": "edit",
+        "size": "small",
+        "types": "link"
       }
     },
     {
-      "id": "formSocialLabel",
-      "component": "span",
+      "id": "cntDeleteAction",
+      "component": "Button",
       "props": {
-        "className": "text-xs text-on-surface-variant",
-        "value": {
-          "path": "providerName"
-        }
-      }
-    },
-    {
-      "id": "formCopyrightText",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-on-surface-variant text-center mt-4",
-        "value": "© 2026 DeepVision Technology. All rights reserved."
-      }
-    },
-    {
-      "id": "formVersionText",
-      "component": "span",
-      "props": {
-        "className": "text-xs text-on-surface-variant text-center",
-        "value": "v4.2.1"
+        "icon": "trash-2",
+        "size": "small",
+        "types": "link",
+        "color": "danger"
       }
     }
   ],
   "state": {
-    "brandSystemName": "DataPulse 智能分析平台",
-    "brandSlogan": "洞见数据价值，驱动业务决策",
-    "brandSloganIcon": "Sparkles",
-    "brandLogoIcon": "ShieldCheck",
-    "brandBackgroundImage": "https://fpoimg.com/800x900?gradient=1A1A2E,16213E&text_color=ffffff&text=ACCESS",
-    "brandCurrentLocale": "zh-CN",
-    "brandLanguageOptions": [
+    "brandName": "华为坤灵",
+    "projectName": "企业网络A",
+    "notificationCount": 3,
+    "userAvatarSrc": "https://randomuser.me/api/portraits/men/44.jpg",
+    "homeBtnText": "返回首页",
+    "selectedKeys": [
+      "sbr_menu_monitor"
+    ],
+    "topMenuItems": [
       {
-        "locale": "zh-CN",
-        "label": "简体中文",
-        "icon": "Languages"
+        "title": "仪表盘",
+        "key": "sbr_menu_dashboard",
+        "icon": "layout-dashboard"
       },
       {
-        "locale": "en-US",
-        "label": "English (US)",
-        "icon": "Languages"
+        "title": "服务器",
+        "key": "sbr_menu_server",
+        "icon": "server"
       },
       {
-        "locale": "ja-JP",
-        "label": "日本語",
-        "icon": "Languages"
+        "title": "无线网络",
+        "key": "sbr_menu_wifi",
+        "icon": "wifi"
       },
       {
-        "locale": "ko-KR",
-        "label": "한국어",
-        "icon": "Languages"
+        "title": "安全配置",
+        "key": "sbr_menu_shield",
+        "icon": "shield"
       },
       {
-        "locale": "fr-FR",
-        "label": "Français",
-        "icon": "Languages"
+        "title": "活动监控",
+        "key": "sbr_menu_activity",
+        "icon": "activity"
+      },
+      {
+        "title": "终端设备",
+        "key": "sbr_menu_monitor",
+        "icon": "monitor"
+      },
+      {
+        "title": "数据库",
+        "key": "sbr_menu_database",
+        "icon": "database"
+      },
+      {
+        "title": "系统设置",
+        "key": "sbr_menu_settings",
+        "icon": "settings"
       }
     ],
-    "brandCopyright": "© 2026 DeepVision Technology. All rights reserved.",
-    "brandVersion": "v4.2.1",
-    "username": "",
-    "password": "",
-    "captcha": "",
-    "rememberMe": true,
-    "loginLoading": false,
-    "socialLogin": {
-      "providers": [
-        {
-          "providerName": "WeChat",
-          "icon": "MessageCircle",
-          "tooltip": "微信扫码登录"
+    "bottomMenuItems": [
+      {
+        "title": "帮助中心",
+        "key": "sbr_menu_help",
+        "icon": "help-circle"
+      },
+      {
+        "title": "退出登录",
+        "key": "sbr_menu_logout",
+        "icon": "log-out"
+      }
+    ],
+    "firstLevelTabActive": "整网配置",
+    "secondLevelTabActive": "业务网",
+    "searchValue": "",
+    "tableData": [
+      {
+        "key": "1",
+        "order": 1,
+        "name": "15",
+        "nameTag": {
+          "text": "还原",
+          "color": "processing"
         },
-        {
-          "providerName": "DingTalk",
-          "icon": "Bell",
-          "tooltip": "钉钉扫码登录"
+        "vlan": 109,
+        "gateway": "255.255.255.0",
+        "wiredPort": "--",
+        "wifiConfig": 0,
+        "configStatus": {
+          "text": "正常",
+          "status": "success"
         },
-        {
-          "providerName": "Lark",
-          "icon": "Bird",
-          "tooltip": "飞书扫码登录"
-        },
-        {
-          "providerName": "EnterpriseSSO",
-          "icon": "Building",
-          "tooltip": "企业SSO单点登录"
+        "networkStatus": {
+          "text": "正常",
+          "status": "success"
         }
-      ]
-    }
+      },
+      {
+        "key": "2",
+        "order": 2,
+        "name": "16",
+        "nameTag": {
+          "text": "新建",
+          "color": "success"
+        },
+        "vlan": 201,
+        "gateway": "255.255.0.0",
+        "wiredPort": "GE0/0/1",
+        "wifiConfig": 1,
+        "configStatus": {
+          "text": "正常",
+          "status": "success"
+        },
+        "networkStatus": {
+          "text": "异常",
+          "status": "error"
+        }
+      },
+      {
+        "key": "3",
+        "order": 3,
+        "name": "17",
+        "nameTag": {
+          "text": "待下发",
+          "color": "warning"
+        },
+        "vlan": 302,
+        "gateway": "255.255.254.0",
+        "wiredPort": "GE0/0/2",
+        "wifiConfig": 2,
+        "configStatus": {
+          "text": "未配置",
+          "status": "warning"
+        },
+        "networkStatus": {
+          "text": "未连接",
+          "status": "default"
+        }
+      },
+      {
+        "key": "4",
+        "order": 4,
+        "name": "管理网络",
+        "nameTag": null,
+        "vlan": 103,
+        "gateway": "255.255.255.0",
+        "wiredPort": "--",
+        "wifiConfig": 0,
+        "configStatus": {
+          "text": "正常",
+          "status": "success"
+        },
+        "networkStatus": {
+          "text": "正常",
+          "status": "success"
+        }
+      },
+      {
+        "key": "5",
+        "order": 5,
+        "name": "访客网络",
+        "nameTag": null,
+        "vlan": 204,
+        "gateway": "255.255.0.0",
+        "wiredPort": "GE0/0/3",
+        "wifiConfig": 1,
+        "configStatus": {
+          "text": "正常",
+          "status": "success"
+        },
+        "networkStatus": {
+          "text": "正常",
+          "status": "success"
+        }
+      },
+      {
+        "key": "6",
+        "order": 6,
+        "name": "20",
+        "nameTag": {
+          "text": "还原",
+          "color": "processing"
+        },
+        "vlan": 105,
+        "gateway": "255.255.255.0",
+        "wiredPort": "--",
+        "wifiConfig": 3,
+        "configStatus": {
+          "text": "异常",
+          "status": "error"
+        },
+        "networkStatus": {
+          "text": "正常",
+          "status": "success"
+        }
+      },
+      {
+        "key": "7",
+        "order": 7,
+        "name": "21",
+        "nameTag": {
+          "text": "新建",
+          "color": "success"
+        },
+        "vlan": 306,
+        "gateway": "255.255.254.0",
+        "wiredPort": "GE0/0/4",
+        "wifiConfig": 0,
+        "configStatus": {
+          "text": "正常",
+          "status": "success"
+        },
+        "networkStatus": {
+          "text": "正常",
+          "status": "success"
+        }
+      },
+      {
+        "key": "8",
+        "order": 8,
+        "name": "22",
+        "nameTag": null,
+        "vlan": 207,
+        "gateway": "255.255.255.0",
+        "wiredPort": "GE0/0/5",
+        "wifiConfig": 2,
+        "configStatus": {
+          "text": "未配置",
+          "status": "warning"
+        },
+        "networkStatus": {
+          "text": "未连接",
+          "status": "default"
+        }
+      },
+      {
+        "key": "9",
+        "order": 9,
+        "name": "23",
+        "nameTag": {
+          "text": "待下发",
+          "color": "warning"
+        },
+        "vlan": 308,
+        "gateway": "255.255.0.0",
+        "wiredPort": "--",
+        "wifiConfig": 1,
+        "configStatus": {
+          "text": "正常",
+          "status": "success"
+        },
+        "networkStatus": {
+          "text": "异常",
+          "status": "error"
+        }
+      },
+      {
+        "key": "10",
+        "order": 10,
+        "name": "业务管理",
+        "nameTag": null,
+        "vlan": 109,
+        "gateway": "255.255.255.0",
+        "wiredPort": "GE0/0/6",
+        "wifiConfig": 0,
+        "configStatus": {
+          "text": "正常",
+          "status": "success"
+        },
+        "networkStatus": {
+          "text": "正常",
+          "status": "success"
+        }
+      }
+    ]
   }
 }
