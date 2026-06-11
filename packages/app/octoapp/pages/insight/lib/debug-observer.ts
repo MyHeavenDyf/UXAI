@@ -2,12 +2,14 @@
 // 自包含于 insight/lib/;不动上游核心;无 UI 入口;无自动上报。
 // 文档:docs/specs/ui/insight-debug-toolkit.md
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
+import { getDesktopApi } from "./electron-api"
 
 const LOG = "[octo:event]"
 
 // 环形缓冲容量
-const EVENT_RING_CAP = 200
-const SEND_RING_CAP = 30
+// ring 容量(内存 = IndexedDB 持久化上限,§5.5)
+const EVENT_RING_CAP = 500
+const SEND_RING_CAP = 50
 const LOG_RING_CAP = 200
 // 高频 delta 聚合间隔
 const DELTA_FLUSH_MS = 1000
@@ -216,6 +218,52 @@ function parseTimeSpec(spec: string, refNow: number): number | undefined {
   return undefined
 }
 
+// ── §5.5 IndexedDB 持久化(跨 reload/重启;无 IDB 时优雅降级为纯内存)──
+// per-origin,与工作目录无关;只存一条 key="current" 的 ring 快照。
+const DB_NAME = "octo-insight-debug"
+const DB_STORE = "ring"
+const PERSIST_DEBOUNCE_MS = 2000
+
+type PersistedRing = {
+  events: EventEntry[]
+  sends: SendRecord[]
+  logs: LogEntry[]
+  updatedAt: number
+}
+
+function openDebugDB(): Promise<IDBDatabase | undefined> {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === "undefined") return resolve(undefined)
+    try {
+      const req = indexedDB.open(DB_NAME, 1)
+      req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE)
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => resolve(undefined)
+    } catch { resolve(undefined) }
+  })
+}
+
+function loadPersisted(db: IDBDatabase): Promise<PersistedRing | undefined> {
+  return new Promise((resolve) => {
+    try {
+      const req = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).get("current")
+      req.onsuccess = () => resolve(req.result as PersistedRing | undefined)
+      req.onerror = () => resolve(undefined)
+    } catch { resolve(undefined) }
+  })
+}
+
+function savePersisted(db: IDBDatabase, ring: PersistedRing): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(DB_STORE, "readwrite")
+      tx.objectStore(DB_STORE).put(ring, "current")
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    } catch { resolve() }
+  })
+}
+
 // ── 主函数 ───────────────────────────────────────────────────
 
 export function installInsightDebug(deps: DebugDeps): InsightDebug {
@@ -225,14 +273,48 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
   const logRing: LogEntry[] = []
   let lastHeartbeatAt = 0 // 最后一次 server.heartbeat 时间(供 why 规则1 区分 SSE 断 vs server 没启动)
 
+  // ── §5.5 持久化:启动读回上次 ring,之后节流写回;无 IDB 时全程降级为纯内存 ──
+  let db: IDBDatabase | undefined
+  let persistTimer: ReturnType<typeof setTimeout> | undefined
+  let restoredCount = 0 // 从持久化读回的条数(供 snapshot 标注"含 N 条重启前")
+  const ringSnapshot = (): PersistedRing => ({
+    events: eventRing.slice(-EVENT_RING_CAP),
+    sends: sendRing.slice(-SEND_RING_CAP),
+    logs: logRing.slice(-LOG_RING_CAP),
+    updatedAt: Date.now(),
+  })
+  const schedulePersist = () => {
+    if (!db || persistTimer) return
+    persistTimer = setTimeout(() => {
+      persistTimer = undefined
+      if (db) void savePersisted(db, ringSnapshot())
+    }, PERSIST_DEBOUNCE_MS)
+  }
+  const capFront = <T>(arr: T[], cap: number) => {
+    if (arr.length > cap) arr.splice(0, arr.length - cap)
+  }
+  void (async () => {
+    db = await openDebugDB()
+    if (!db) return // 无 IDB:纯内存,功能不受影响
+    const saved = await loadPersisted(db)
+    if (!saved) return
+    // 读回的是"上次结束时"的旧数据,unshift 到头部(ts 更早),再 cap 保留最近
+    eventRing.unshift(...(saved.events ?? [])); capFront(eventRing, EVENT_RING_CAP)
+    sendRing.unshift(...(saved.sends ?? [])); capFront(sendRing, SEND_RING_CAP)
+    logRing.unshift(...(saved.logs ?? [])); capFront(logRing, LOG_RING_CAP)
+    restoredCount = (saved.events?.length ?? 0) + (saved.sends?.length ?? 0) + (saved.logs?.length ?? 0)
+  })()
+
   const pushEvent = (type: string, properties: Record<string, unknown>) => {
     eventRing.push({ ts: Date.now(), type, properties })
     if (eventRing.length > EVENT_RING_CAP) eventRing.shift()
+    schedulePersist()
   }
 
   const pushLog = (entry: LogEntry) => {
     logRing.push(entry)
     if (logRing.length > LOG_RING_CAP) logRing.shift()
+    schedulePersist()
   }
 
   // ── delta 聚合 ─────────────────────────────────────────────
@@ -537,7 +619,7 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
     const totalEntries = filteredEvents.length + filteredLogs.length + filteredSends.length
 
     lines.push(
-      `== snapshot @ ${fmtTime(now)} | session=${sid ?? "none"} status=${status} | 窗口=${windowDesc} | ${totalEntries} 条 ==`,
+      `== snapshot @ ${fmtTime(now)} | session=${sid ?? "none"} status=${status} | 窗口=${windowDesc} | ${totalEntries} 条${restoredCount > 0 ? ` | 含${restoredCount}条重启前` : ""} ==`,
     )
 
     // why() 摘要置顶
@@ -729,14 +811,16 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
 
     snapshot(opts?: SnapshotOpts) {
       const text = buildSnapshot(opts)
-      const copied = navigator.clipboard?.writeText?.(text)
-      if (copied) {
-        void copied.then(
-          () => console.log(`${LOG} snapshot 已复制到剪贴板(${text.length} 字符)`),
-          () => console.log(`${LOG} snapshot 已生成(${text.length} 字符),剪贴板不可用 → 从返回值复制`),
-        )
+      const ok = () => console.log(`${LOG} snapshot 已复制到剪贴板(${text.length} 字符)`)
+      const fail = (hint: string) => console.log(`${LOG} snapshot 已生成(${text.length} 字符),${hint} → 从返回值复制`)
+      // 优先走 Electron 主进程剪贴板(不受 DevTools console 缺用户手势限制);否则退 navigator.clipboard
+      const api = getDesktopApi()
+      if (api?.writeClipboardText) {
+        void api.writeClipboardText(text).then(ok, () => fail("复制失败"))
       } else {
-        console.log(`${LOG} snapshot 已生成(${text.length} 字符) → 从返回值复制`)
+        const copied = navigator.clipboard?.writeText?.(text)
+        if (copied) void copied.then(ok, () => fail("剪贴板不可用"))
+        else fail("剪贴板不可用")
       }
       console.log(text)
       return text
@@ -767,11 +851,19 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
     recordSend(rec: SendRecord) {
       sendRing.push(rec)
       if (sendRing.length > SEND_RING_CAP) sendRing.shift()
+      schedulePersist()
     },
 
     dispose() {
       unsub()
       if (deltaTimer) clearTimeout(deltaTimer)
+      // §5.5 flush:立即写一次最新 ring 再关连接(保住"重启前"最后一刻)
+      if (persistTimer) clearTimeout(persistTimer)
+      if (db) {
+        const d = db
+        void savePersisted(d, ringSnapshot()).finally(() => d.close())
+        db = undefined
+      }
       // 还原 window.onerror
       window.onerror = origOnError
       window.removeEventListener("unhandledrejection", onUnhandledRejection)

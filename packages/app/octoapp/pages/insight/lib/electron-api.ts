@@ -11,6 +11,7 @@ export type DesktopApi = {
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp?: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
+  writeClipboardText?: (text: string) => Promise<void>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
