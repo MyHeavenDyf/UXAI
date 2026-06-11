@@ -11,6 +11,7 @@ import { Binary } from "@opencode-ai/core/util/binary"
 import { useLanguage } from "@/context/language"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useLayout } from "@/context/layout"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { DialogSettings } from "@/components/dialog-settings"
@@ -36,12 +37,13 @@ export function Sidebar(props: {
   newTarget?: string
   onOpenSettings?: () => void
 }) {
-  const params = useParams()
+const params = useParams()
   const navigate = useNavigate()
   const language = useLanguage()
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
   const dialog = useDialog()
+  const layout = useLayout()
 
   const [sessions, { refetch }] = createResource(
     () => ({ dir: props.currentDir() ?? "", id: params.id }),
@@ -116,6 +118,7 @@ export function Sidebar(props: {
       await client.session.delete({ sessionID })
       closeContextMenu()
       if (params.id === sessionID) {
+        layout.lastSessionPerTab.setChat(directory, "")
         navigate(`/${params.dir}/chat`)
       } else if (idx >= 0) {
         setSessionList(sessionList.filter((s) => s.id !== sessionID))

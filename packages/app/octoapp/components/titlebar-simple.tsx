@@ -7,9 +7,8 @@ import { useLayout } from "@/context/layout"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
-import { useGlobalSync } from "@/context/global-sync"
 import { useCommand } from "@/context/command"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
+import { useProjectDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-start
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
@@ -54,9 +53,9 @@ export function TitlebarSimple() {
   const language = useLanguage()
   const location = useLocation()
   const navigate = useNavigate()
-  const globalSync = useGlobalSync()
   const command = useCommand()
   const layout = useLayout()
+  const projectDir = useProjectDir({ mode: "project" })
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
@@ -93,9 +92,8 @@ export function TitlebarSimple() {
   })
 
   const getConfigDirSlug = () => {
-    const config = globalSync.data.path.config
-    const directory = config ? octoSessionsDir(config) : ""
-    return directory ? base64Encode(directory) : undefined
+    const dir = projectDir()
+    return dir ? base64Encode(dir) : undefined
   }
 
   const handleTabClick = (tab: TabType) => {
@@ -112,9 +110,14 @@ export function TitlebarSimple() {
     }
 
     if (tab === "make") {
-      const make = layout.lastSessionPerTab.make()
-      if (make?.id) {
-        navigate(`/make/${make.id}`)
+      const dir = projectDir()
+      if (dir) {
+        const sessionId = layout.lastSessionPerTab.make(dir)
+        if (sessionId) {
+          navigate(`/make/${sessionId}`)
+        } else {
+          navigate("/make")
+        }
       } else {
         navigate("/make")
       }
