@@ -94,6 +94,14 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     return m?.[1]
   }
 
+  // 在导航到新对话时兜底刷新列表，防止事件竞争导致列表遗漏
+  createEffect(on(activeSessionId, (newId, oldId) => {
+    if (newId && newId !== oldId) {
+      clearTimeout(refetchTimer)
+      refetchTimer = setTimeout(() => void refetch(), 500)
+    }
+  }))
+
   const [patternCollapsed, setPatternCollapsed] = createSignal(false)
   const [creating, setCreating] = createSignal(false)
   let createTimer: ReturnType<typeof setTimeout> | undefined
