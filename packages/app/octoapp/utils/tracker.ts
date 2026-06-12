@@ -1,7 +1,7 @@
 interface PageParams {
   module: string
   name?: string
-  subType?: "enter" | "leave" | "switch"
+  subType?: string
   from?: string
   extend?: string
 }
@@ -9,7 +9,7 @@ interface PageParams {
 interface InteractionParams {
   module: string
   name: string
-  subType?: "click" | "input" | "scroll" | "hover"
+  subType?: string
   extend?: string
 }
 
@@ -85,7 +85,7 @@ async function sendPage(params: PageParams) {
         module: params.module,
         datas: [{
           type: "page",
-          subType: params.subType ?? "enter",
+          subType: params.subType,
           name: params.name,
           path: window.location.href,
           from: params.from ?? "",
