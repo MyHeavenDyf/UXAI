@@ -5,7 +5,6 @@ interface CanvasViewProps {
   targetWidth: number
   targetHeight: number
   children: JSX.Element
-  // 将复位方法暴露给父组件，供右上角按钮调用
   ref?: (api: { reset: () => void }) => void
 }
 
@@ -23,12 +22,16 @@ export function CanvasView(props: CanvasViewProps) {
 
   function applyTransform() {
     if (!wrapperRef) return
-    if (rafId !== null) return
-    
-    rafId = requestAnimationFrame(() => {
-      wrapperRef!.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(${currentScale})`
-      rafId = null
-    })
+    // 🛠️ 性能关键点：不要在此处 return 拦截变量的更新！
+    // 允许通过累计变量无损记录像素位移，通过硬件级 3D 加速瞬间同步。
+    if (rafId === null) {
+      rafId = requestAnimationFrame(() => {
+        if (wrapperRef) {
+          wrapperRef.style.transform = `translate3d(${posX}px, ${posY}px, 0) scale(${currentScale})`
+        }
+        rafId = null
+      })
+    }
   }
 
   function resetPosition() {
@@ -55,8 +58,10 @@ export function CanvasView(props: CanvasViewProps) {
     if (rafId !== null) cancelAnimationFrame(rafId)
   })
 
+  // 🛠️ 无损像素位移收集器
   const handleGlobalMouseMove = (e: MouseEvent) => {
     if (!isDragging()) return
+    // 不断地将鼠标运动的每个像素精准累加，绝不丢弃任何微小的位移增量
     posX += e.clientX - lastMousePos.x
     posY += e.clientY - lastMousePos.y
     lastMousePos = { x: e.clientX, y: e.clientY }
@@ -67,11 +72,21 @@ export function CanvasView(props: CanvasViewProps) {
     setIsDragging(false)
   }
 
+  // 🛠️ 核心修复点：强制拦截中键按住移动时的系统自动滚动图层，防止 mouseup 被系统吞噬导致断连
+  const handleGlobalPreventScroll = (e: MouseEvent) => {
+    if (isDragging() && e.button === 1) {
+      e.preventDefault()
+    }
+  }
+
   window.addEventListener("mousemove", handleGlobalMouseMove)
   window.addEventListener("mouseup", handleGlobalMouseUp)
+  window.addEventListener("mousedown", handleGlobalPreventScroll, { passive: false })
+  
   onCleanup(() => {
     window.removeEventListener("mousemove", handleGlobalMouseMove)
     window.removeEventListener("mouseup", handleGlobalMouseUp)
+    window.removeEventListener("mousedown", handleGlobalPreventScroll)
   })
 
   function bindViewportRef(el: HTMLDivElement) {
@@ -82,7 +97,6 @@ export function CanvasView(props: CanvasViewProps) {
     resizeObserver.observe(el)
 
     el.addEventListener("wheel", (e) => {
-      // 只要关闭了画布模式，或者鼠标直接在 iframe 内部，不触发画布缩放
       const iframe = el.querySelector("iframe")
       if (!props.canvasMode || e.target === iframe) return
       
@@ -107,7 +121,7 @@ export function CanvasView(props: CanvasViewProps) {
       ref={bindViewportRef}
       onMouseDown={(e) => {
         if (!props.canvasMode) return
-        if ((e.target as HTMLElement).closest(".preview-action-btn")) return
+        if ((e.target as HTMLElement).closest(".preview-action-btn") || (e.target as HTMLElement).closest(".preview-action-icon-btn")) return
         
         const isLeftClickOnCanvas = e.button === 0
         const isMiddleClick = e.button === 1
@@ -140,10 +154,11 @@ export function CanvasView(props: CanvasViewProps) {
           "transform-origin": "center center",
           "will-change": "transform",
           position: "relative",
+          // 🛠️ 核心修改点：强行覆盖外部任何可能存在的 transition 补间动画，保证显卡 3D 绝对瞬时响应
+          "transition": "none !important",
           cursor: isDragging() ? "grabbing" : "default"
         }}
       >
-        {/* 动态计算 iframe 的 pointer-events 状态 */}
         <div 
           style={{ 
             width: "100%", 
@@ -154,7 +169,6 @@ export function CanvasView(props: CanvasViewProps) {
           {props.children}
         </div>
         
-        {/* 保护拦截层 */}
         <div 
           style={{
             position: "absolute",
