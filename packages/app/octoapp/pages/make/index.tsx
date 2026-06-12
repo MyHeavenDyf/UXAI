@@ -917,6 +917,19 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
+    // Check if card is from Design Files (filePath exists and in artifacts directory)
+    const isFromDesignFiles = card.filePath && card.filePath.includes(".octo/artifacts/make")
+    
+    // For Design Files: try to match existing tab by title (without extension)
+    if (isFromDesignFiles) {
+      const fileTitleWithoutExt = card.title.replace(/\.[^.]+$/, '')
+      const existingTab = tabStore.tabs().find(t => t.title === fileTitleWithoutExt)
+      if (existingTab) {
+        tabStore.activate(existingTab.id)
+        return
+      }
+    }
+    
     // ★ Step 1: Check localStorage snapshot (edited version - highest priority)
     const snapshots = snapshotStore.snapshots()
     const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
@@ -970,7 +983,8 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       })
     }
 
-    if (projectDir()) {
+    // Skip autoSave if file is from Design Files panel (already exists on disk)
+    if (projectDir() && !isFromDesignFiles) {
       autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
         console.error("[MakePage] auto-save artifact failed:", err)
       })
@@ -1475,6 +1489,8 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                 onActivate={tabStore.activate}
                 onClose={tabStore.closeTab}
                 onContentChange={handleContentChange}
+                sessionId={params.id}
+                onOpenArtifact={handleOpenResult}
               />
             </div>
             <Show when={showVersionPanel()}>

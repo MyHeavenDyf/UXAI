@@ -9,6 +9,13 @@ import type {
   AppLogResponses,
   AppSkillsRefreshResponses,
   AppSkillsResponses,
+  ArtifactArchiveResponses,
+  ArtifactDeleteBatchResponses,
+  ArtifactDeleteResponses,
+  ArtifactListResponses,
+  ArtifactReadErrors,
+  ArtifactReadResponses,
+  ArtifactRenameResponses,
   Auth as Auth3,
   AuthRemoveErrors,
   AuthRemoveResponses,
@@ -44,6 +51,8 @@ import type {
   FilePartSource,
   FileReadResponses,
   FileStatusResponses,
+  FileWriteErrors,
+  FileWriteResponses,
   FindFilesResponses,
   FindSymbolsResponses,
   FindTextResponses,
@@ -169,6 +178,10 @@ import type {
   StudioGenerationsCreateResponses,
   StudioGenerationsGetErrors,
   StudioGenerationsGetResponses,
+  StudioPermissionsCheckErrors,
+  StudioPermissionsCheckResponses,
+  StudioPromptTagsListErrors,
+  StudioPromptTagsListResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -601,6 +614,217 @@ export class Event extends HeyApiClient {
       url: "/event",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Artifact extends HeyApiClient {
+  /**
+   * List artifacts
+   *
+   * List all artifact files in .octo/artifacts/make/<sessionId> directory.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactListResponses, unknown, ThrowOnError>({
+      url: "/artifact/list",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read artifact
+   *
+   * Read the content of an artifact file.
+   */
+  public read<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactReadResponses, ArtifactReadErrors, ThrowOnError>({
+      url: "/artifact/content",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete artifact
+   *
+   * Delete a single artifact file.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ArtifactDeleteResponses, unknown, ThrowOnError>({
+      url: "/artifact/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Rename artifact
+   *
+   * Rename an artifact file.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      from?: string
+      to?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "from" },
+            { in: "body", key: "to" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactRenameResponses, unknown, ThrowOnError>({
+      url: "/artifact/rename",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Archive artifacts
+   *
+   * Create a ZIP archive of selected artifact files.
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactArchiveResponses, unknown, ThrowOnError>({
+      url: "/artifact/archive",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Batch delete artifacts
+   *
+   * Delete multiple artifact files.
+   */
+  public deleteBatch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactDeleteBatchResponses, unknown, ThrowOnError>({
+      url: "/artifact/delete-batch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -1505,6 +1729,45 @@ export class File extends HeyApiClient {
       url: "/file/content",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Write file
+   *
+   * Write content to a specified file path.
+   */
+  public write<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<FileWriteResponses, FileWriteErrors, ThrowOnError>({
+      url: "/file/content",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -4811,6 +5074,85 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class PromptTags extends HeyApiClient {
+  /**
+   * Get prompt tags
+   *
+   * Returns prompt tag categories from the internal image API.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioPromptTagsListResponses,
+      StudioPromptTagsListErrors,
+      ThrowOnError
+    >({
+      url: "/studio/prompt-tags",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Permissions extends HeyApiClient {
+  /**
+   * Check Studio permission
+   *
+   * Checks whether the current user can access the internal Studio entry.
+   */
+  public check<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      uid?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "uid" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPermissionsCheckResponses,
+      StudioPermissionsCheckErrors,
+      ThrowOnError
+    >({
+      url: "/studio/permissions/check",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Generations extends HeyApiClient {
   /**
    * Create Studio image generation
@@ -4918,6 +5260,16 @@ export class Generations extends HeyApiClient {
 }
 
 export class Studio extends HeyApiClient {
+  private _promptTags?: PromptTags
+  get promptTags(): PromptTags {
+    return (this._promptTags ??= new PromptTags({ client: this.client }))
+  }
+
+  private _permissions?: Permissions
+  get permissions(): Permissions {
+    return (this._permissions ??= new Permissions({ client: this.client }))
+  }
+
   private _generations?: Generations
   get generations(): Generations {
     return (this._generations ??= new Generations({ client: this.client }))
@@ -4950,6 +5302,11 @@ export class OpencodeClient extends HeyApiClient {
   private _event?: Event
   get event(): Event {
     return (this._event ??= new Event({ client: this.client }))
+  }
+
+  private _artifact?: Artifact
+  get artifact(): Artifact {
+    return (this._artifact ??= new Artifact({ client: this.client }))
   }
 
   private _config?: Config2

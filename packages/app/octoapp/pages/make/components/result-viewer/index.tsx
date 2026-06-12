@@ -13,12 +13,16 @@ import { ReactComponentRenderer } from "./react-component-renderer"
 import { DiagramRenderer } from "./diagram-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
+import { DesignFilesPanel } from "../design-files"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { artifactFileToOutputCard, type ArtifactFile } from "../../utils/artifact-file-api"
+import type { OutputCard } from "../insight-turn"
 
 function extractCodeBlock(text: string, lang: string): string {
-    const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
-    const m = text.match(re)
-    return m ? m[1].trim() : text.trim()
-  }
+  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+  const m = text.match(re)
+  return m ? m[1].trim() : text.trim()
+}
 
 function JsonRenderer(props: { content: string }): JSX.Element {
   const code = createMemo(() => {
@@ -55,7 +59,10 @@ export function ResultViewer(props: {
   onActivate: (id: string) => void
   onClose: (id: string) => void
   onContentChange?: (id: string, content: string) => void
+  sessionId?: string
+  onOpenArtifact?: (card: OutputCard) => void
 }): JSX.Element {
+  const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -67,6 +74,7 @@ export function ResultViewer(props: {
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [editing, setEditing] = createSignal(false)
   const [drawing, setDrawing] = createSignal(false)
+  const [viewMode, setViewMode] = createSignal<"tabs" | "files">("tabs")
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
 
@@ -83,7 +91,7 @@ export function ResultViewer(props: {
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
 
-const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
+  const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
     const tab = props.tabs.find(t => t.id === tabId)
     if (!tab || overrides.length === 0) return
 
@@ -104,33 +112,51 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
     }
 
     const isFullDocument = htmlContent.includes("<html") || htmlContent.includes("<body")
-    const updatedHtml = isFullDocument 
-      ? doc.documentElement.outerHTML 
+    const updatedHtml = isFullDocument
+      ? doc.documentElement.outerHTML
       : doc.body.innerHTML
-    
-    // ★ Remove data-od-id attributes before saving (clean output)
+
     const cleanHtml = updatedHtml.replace(/ data-od-id="[^"]*"/g, '')
-    
+
     const finalContent = isMarkdown
       ? "```html\n" + cleanHtml + "\n```"
       : cleanHtml
-    
+
     props.onContentChange?.(tabId, finalContent)
-}
+  }
+
+  const handleOpenArtifactFile = (file: ArtifactFile) => {
+    const card = artifactFileToOutputCard(file)
+    props.onOpenArtifact?.(card)
+    setViewMode("tabs")
+  }
 
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0 || viewMode() === "files"} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
           onActivate={props.onActivate}
           onClose={props.onClose}
+          viewMode={viewMode()}
+          onViewModeChange={props.sessionId ? setViewMode : undefined}
         />
-        <Show when={activeTab()}>
+
+        <Show when={viewMode() === "files" && props.sessionId}>
+          {(sid) => (
+            <DesignFilesPanel
+              sessionId={sid()}
+              onOpenFile={handleOpenArtifactFile}
+              onClose={() => setViewMode("tabs")}
+            />
+          )}
+        </Show>
+
+        <Show when={viewMode() === "tabs" && activeTab()}>
           {(tab) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <ActionBar

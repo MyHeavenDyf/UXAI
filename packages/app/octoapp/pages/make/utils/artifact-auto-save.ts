@@ -33,6 +33,11 @@ function getExtension(type: OutputCard["type"]): string {
   }
 }
 
+function hasExtension(title: string, type: OutputCard["type"]): boolean {
+  const ext = getExtension(type)
+  return title.toLowerCase().endsWith(ext.toLowerCase())
+}
+
 export async function autoSaveArtifact(
   sessionId: string,
   card: OutputCard,
@@ -48,7 +53,8 @@ export async function autoSaveArtifact(
   if (!content) return
 
   const sep = projectDir.includes("\\") ? "\\" : "/"
-  const filename = sanitizeFilename(card.title) + getExtension(card.type)
+  const baseName = hasExtension(card.title, card.type) ? card.title : card.title + getExtension(card.type)
+  const filename = sanitizeFilename(baseName)
   const filePath = [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, filename].join(sep)
 
   const encoder = new TextEncoder()

@@ -5,12 +5,6 @@ export type ClientOptions = {
 }
 
 export type Event =
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -30,6 +24,10 @@ export type Event =
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -77,6 +75,8 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
+  | EventServerConnected
+  | EventGlobalDisposed
 
 export type OAuth = {
   type: "oauth"
@@ -102,61 +102,6 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
 
 export type PermissionRequest = {
   id: string
@@ -332,6 +277,61 @@ export type SessionStatus =
   | {
       type: "busy"
     }
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type Project = {
   id: string
@@ -777,12 +777,6 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
-    | EventServerConnected
-    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -802,6 +796,10 @@ export type GlobalEvent = {
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCompacted
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -849,6 +847,8 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
+    | EventServerConnected
+    | EventGlobalDisposed
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1105,6 +1105,7 @@ export type McpRemoteConfig = {
    */
   oauth?: McpOAuthConfig | false
   timeout?: number
+  proxy?: boolean
 }
 
 /**
@@ -2306,22 +2307,6 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -3036,6 +3021,22 @@ export type EventSessionNextCompactionEnded = {
   }
 }
 
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type SessionInfo = {
   id: string
   parentID?: string
@@ -3523,6 +3524,162 @@ export type EventSubscribeResponses = {
 
 export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscribeResponses]
 
+export type ArtifactListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+  }
+  url: "/artifact/list"
+}
+
+export type ArtifactListResponses = {
+  /**
+   * Artifact files
+   */
+  200: {
+    files: Array<{
+      name: string
+      path: string
+      sessionId: string
+      kind: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      mime: string
+    }>
+  }
+}
+
+export type ArtifactListResponse = ArtifactListResponses[keyof ArtifactListResponses]
+
+export type ArtifactReadData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/artifact/content"
+}
+
+export type ArtifactReadErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ArtifactReadError = ArtifactReadErrors[keyof ArtifactReadErrors]
+
+export type ArtifactReadResponses = {
+  /**
+   * Artifact content
+   */
+  200: {
+    content: string
+    mimeType: string
+  }
+}
+
+export type ArtifactReadResponse = ArtifactReadResponses[keyof ArtifactReadResponses]
+
+export type ArtifactDeleteData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/artifact/file"
+}
+
+export type ArtifactDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ArtifactDeleteResponse = ArtifactDeleteResponses[keyof ArtifactDeleteResponses]
+
+export type ArtifactRenameData = {
+  body?: {
+    from: string
+    to: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/artifact/rename"
+}
+
+export type ArtifactRenameResponses = {
+  /**
+   * Renamed file info
+   */
+  200: {
+    name: string
+    path: string
+    kind: string
+    mime: string
+  }
+}
+
+export type ArtifactRenameResponse = ArtifactRenameResponses[keyof ArtifactRenameResponses]
+
+export type ArtifactArchiveData = {
+  body?: {
+    files: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/artifact/archive"
+}
+
+export type ArtifactArchiveResponses = {
+  /**
+   * ZIP archive
+   */
+  200: Blob | File
+}
+
+export type ArtifactArchiveResponse = ArtifactArchiveResponses[keyof ArtifactArchiveResponses]
+
+export type ArtifactDeleteBatchData = {
+  body?: {
+    files: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/artifact/delete-batch"
+}
+
+export type ArtifactDeleteBatchResponses = {
+  /**
+   * Deleted count
+   */
+  200: {
+    ok: boolean
+    deleted: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type ArtifactDeleteBatchResponse = ArtifactDeleteBatchResponses[keyof ArtifactDeleteBatchResponses]
+
 export type ConfigGetData = {
   body?: never
   path?: never
@@ -3992,6 +4149,44 @@ export type FileReadResponses = {
 
 export type FileReadResponse = FileReadResponses[keyof FileReadResponses]
 
+export type FileWriteData = {
+  body?: {
+    path: string
+    content: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/content"
+}
+
+export type FileWriteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FileWriteError = FileWriteErrors[keyof FileWriteErrors]
+
+export type FileWriteResponses = {
+  /**
+   * Write result
+   */
+  200: {
+    ok: boolean
+    error?: string
+  }
+}
+
+export type FileWriteResponse = FileWriteResponses[keyof FileWriteResponses]
+
 export type FileStatusData = {
   body?: never
   path?: never
@@ -4215,6 +4410,7 @@ export type AppSkillsResponses = {
     description: string
     location: string
     content: string
+    type?: string
   }>
 }
 
@@ -6835,6 +7031,60 @@ export type ExperimentalWorkspaceWarpResponses = {
 
 export type ExperimentalWorkspaceWarpResponse =
   ExperimentalWorkspaceWarpResponses[keyof ExperimentalWorkspaceWarpResponses]
+
+export type StudioPromptTagsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-tags"
+}
+
+export type StudioPromptTagsListErrors = {
+  /**
+   * StudioGenerationError
+   */
+  400: StudioGenerationError
+}
+
+export type StudioPromptTagsListError = StudioPromptTagsListErrors[keyof StudioPromptTagsListErrors]
+
+export type StudioPromptTagsListResponses = {
+  /**
+   * Prompt tags list
+   */
+  200: unknown
+}
+
+export type StudioPermissionsCheckData = {
+  body?: {
+    uid?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/permissions/check"
+}
+
+export type StudioPermissionsCheckErrors = {
+  /**
+   * StudioGenerationError
+   */
+  400: StudioGenerationError
+}
+
+export type StudioPermissionsCheckError = StudioPermissionsCheckErrors[keyof StudioPermissionsCheckErrors]
+
+export type StudioPermissionsCheckResponses = {
+  /**
+   * Studio permission result
+   */
+  200: unknown
+}
 
 export type StudioGenerationsCreateData = {
   body?: {

@@ -500,7 +500,7 @@ export function DrawOverlay(props: Props): JSX.Element {
 
         window.setTimeout(() => {
           finish({ ok: false, message: 'Annotation timeout' })
-        }, 60000)
+        }, 3000000)
 
         const detail: AnnotationEventDetail = {
           file,

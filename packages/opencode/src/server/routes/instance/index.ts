@@ -1,10 +1,12 @@
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { Hono } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
+import { cors } from "hono/cors"
 import { Context, Effect } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import z from "zod"
 import { Format } from "@/format"
+import { ArtifactRoutes } from "./artifact"
 import { TuiRoutes } from "./tui"
 import { Instance } from "@/project/instance"
 import { InstanceRuntime } from "@/project/instance-runtime"
@@ -45,6 +47,28 @@ import { errors } from "@/server/error"
 
 export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): Hono => {
   const app = new Hono()
+  
+  // CORS middleware for Hono routes
+  app.use("*", cors({
+    origin: (origin) => {
+      if (!origin) return "*"
+      if (origin.startsWith("http://localhost") ||
+          origin.startsWith("http://127.0.0.1") ||
+          origin === "app://-" ||
+          origin.startsWith("app://") ||
+          origin.includes("tauri") ||
+          origin.includes("opencode.ai")) {
+        return origin
+      }
+      return null
+    },
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowHeaders: ["Content-Type", "Authorization", "x-opencode-directory", "Accept", "Origin"],
+    exposeHeaders: ["Content-Length", "X-Request-Id"],
+    maxAge: 600,
+    credentials: true,
+  }))
+  
   const handler = ExperimentalHttpApiServer.webHandler(opts).handler
   const context = Context.empty() as Context.Context<unknown>
 
@@ -161,10 +185,17 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
     app.get(WorkspacePaths.status, (c) => handler(c.req.raw, context))
     app.delete(WorkspacePaths.remove, (c) => handler(c.req.raw, context))
     app.post(WorkspacePaths.warp, (c) => handler(c.req.raw, context))
+    app.get("/artifact/list", (c) => handler(c.req.raw, context))
+    app.get("/artifact/content", (c) => handler(c.req.raw, context))
+    app.delete("/artifact/file", (c) => handler(c.req.raw, context))
+    app.post("/artifact/rename", (c) => handler(c.req.raw, context))
+    app.post("/artifact/archive", (c) => handler(c.req.raw, context))
+    app.post("/artifact/delete-batch", (c) => handler(c.req.raw, context))
   }
 
   return app
     .route("/project", ProjectRoutes())
+    .route("/artifact", ArtifactRoutes())
     .route("/pty", PtyRoutes(upgrade, opts))
     .route("/config", ConfigRoutes())
     .route("/experimental", ExperimentalRoutes())
