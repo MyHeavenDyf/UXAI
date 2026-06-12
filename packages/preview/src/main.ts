@@ -18,10 +18,10 @@ if (window && window.self !== window.top) {
 }
 
 // 监听来自 chat-project 的主题切换消息
-const { toggleTheme } = useTheme()
+const { setTheme } = useTheme()
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'TOGGLE_THEME') {
-    toggleTheme()
+    setTheme(event.data.theme ?? 'light')
   }
 })
 

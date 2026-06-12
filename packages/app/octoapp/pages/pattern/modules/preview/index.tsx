@@ -46,7 +46,7 @@ export function PreviewPage(props: {
     }
 
     if (type === "theme") {
-      previewIframeRef?.contentWindow?.postMessage({ type: "THEME_CHANGE", theme: value }, "*")
+      previewIframeRef?.contentWindow?.postMessage({ type: "TOGGLE_THEME", theme: value }, "*")
     }
   }
 
