@@ -211,6 +211,7 @@ function PatternContent() {
   const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
+
   // 历史文件存储目录，优先使用关联目录下的 .octo/pattern/history
   const patternHistoryDir = createMemo(() => {
     const dir = globalSync.data.path.directory
@@ -512,8 +513,24 @@ function PatternContent() {
       setLastPlanner(planner.layout_planner as unknown as Record<string, unknown>)
       setLastModules(modules)
 
+      // 存储到 .octo/design/{sid}/
+      if (sid && sdk.directory) {
+        const projectDir = sdk.directory
+        const sep = projectDir.includes("\\") ? "\\" : "/"
+        const designDir = [projectDir, ".octo", "design", sid].join(sep)
+        const encoder = new TextEncoder()
+        const write = window.api?.writeFileBuffer
+        if (write) {
+          await Promise.all([
+            write([designDir, "intent.json"].join(sep), encoder.encode(JSON.stringify(intentResult.intent_page, null, 2)).buffer as ArrayBuffer),
+            write([designDir, "planner.json"].join(sep), encoder.encode(JSON.stringify(planner.layout_planner, null, 2)).buffer as ArrayBuffer),
+            write([designDir, "modules.json"].join(sep), encoder.encode(JSON.stringify(modules, null, 2)).buffer as ArrayBuffer),
+          ])
+        }
+      }
       // 追加首次生成版本到历史文件
       const dir = patternHistoryDir()
+      debugger
       if (dir) {
         const vid = await appendPatternVersion(dir, sid, {
           lastIntent: lastIntent(),
