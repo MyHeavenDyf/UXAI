@@ -23,34 +23,43 @@ onMount(() => {
 })
 ```
 
+进入/离开/切换页面时可指定 `subType`（默认 `"enter"`）：
+
+```ts
+tracker.page({ module: "insight", name: "insight-page", subType: "leave" })
+```
+
 ### `tracker.interaction` — 交互打点
 
-用户完成一次操作后调用（按钮点击、流程完成等）：
+用户完成一次操作后调用，`name` 为必填事件标识：
 
 ```ts
-async function createAndNavigate() {
-  const session = await sdk.client.session.create(...)
-  navigate(`/insight/${session.id}`)
-  tracker.interaction({ module: "insight", name: "new-session" })
-}
+tracker.interaction({ module: "insight", name: "new-session" })
+tracker.interaction({ module: "insight", name: "send-message", subType: "click", extend: '{"from":"preset"}' })
 ```
 
-### `tracker.duration` — 时长打点
-
-```ts
-tracker.duration({ module: "insight", name: "session-active", extend: String(elapsedSeconds) })
-```
+`subType` 默认 `"click"`，可选 `"click" | "input" | "scroll" | "hover"`。
 
 ## 参数说明
+
+### `tracker.page` 参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `module` | `string` | ✓ | 来源模块，如 `"insight"`、`"chat"` |
-| `name` | `string` | ✓ | 事件名，描述这个打点的含义 |
-| `from` | `string` | — | 数据来源，可选 |
-| `extend` | `string` | — | 扩展参数，JSON 字符串或普通字符串 |
+| `name` | `string` | — | 页面名称 |
+| `subType` | `"enter" \| "leave" \| "switch"` | — | 默认 `"enter"` |
+| `from` | `string` | — | 来源路径，默认 `""` |
+| `extend` | `string` | — | 扩展 JSON 字符串 |
 
-`type`（page / interaction / duration）由调用方法自动推断，无需传入。
+### `tracker.interaction` 参数
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `module` | `string` | ✓ | 来源模块 |
+| `name` | `string` | ✓ | 事件标识，如 `"new-session"`、`"send-message"` |
+| `subType` | `"click" \| "input" \| "scroll" \| "hover"` | — | 默认 `"click"` |
+| `extend` | `string` | — | 扩展 JSON 字符串 |
 
 ## 自动采集字段
 
@@ -59,39 +68,39 @@ tracker.duration({ module: "insight", name: "session-active", extend: String(ela
 | 字段 | 来源 |
 |------|------|
 | `account` / `uid` | `localStorage.userInfo` |
-| `browserName` / `browserVersion` / `os` | 解析 `navigator.userAgent` |
+| `browserName` | 解析 `navigator.userAgent`，小写（如 `"chrome"`） |
+| `browserVersion` | 完整版本（如 `"147.0.0.0"`） |
+| `os` / `platform` | 解析 `navigator.userAgent`，platform 为整数（1=Windows, 2=macOS, 3=Linux） |
 | `userAgent` | `navigator.userAgent` 原值 |
-| `platform` | 固定 `3` |
 | `project` | 固定 `"octo-agent"` |
-| `datas.path` | `window.location.href` |
-| `datas.screenWidth` / `datas.screenHeight` | `window.screen` |
+| `datas[].path` | `window.location.href` |
+| `datas[].screenWidth/Height` | `window.screen`（仅页面打点） |
 
 ## 验证
 
 ### 外网 dev
 
-`bun run dev` 启动后触发任意打点，terminal 打印完整 payload，Network 面板可见请求响应 204：
+`bun run dev` 启动后触发打点，terminal 打印完整 payload（两个接口 tag 不同）：
 
 ```
-[octo:tracker-mock] {
+[octo:tracker-mock:page] {
   "account": "xxx",
-  "browserName": "Chrome",
-  "browserVersion": "130",
+  "browserName": "chrome",
+  "browserVersion": "148.0.0.0",
+  "platform": 2,
   "module": "insight",
-  "os": "macOS",
-  "platform": 3,
   "project": "octo-agent",
-  "userAgent": "...",
-  "datas": {
-    "name": "insight-page",
-    "path": "http://localhost:5173/#/insight",
-    "screenWidth": 1470,
-    "screenHeight": 956,
-    "type": "page"
-  }
+  "datas": [{ "type": "page", "subType": "enter", "name": "insight-page", ... }]
+}
+
+[octo:tracker-mock:interaction] {
+  ...
+  "datas": [{ "type": "interaction", "subType": "click", "name": "new-session", ... }]
 }
 ```
 
+Network 面板可见两个独立请求均响应 200。
+
 ### 内网 beta / prod
 
-`.env.beta` / `.env.prod` 中配置 `VITE_OCTO_REPORT_BASE_URL`，`bun run dev:beta` 即打真实接口，无需打包。Network 面板确认请求命中真实域名且响应 200/204。
+配置 `VITE_OCTO_REPORT_BASE_URL` 后，`bun run dev:beta` 即打真实接口，无需打包。
