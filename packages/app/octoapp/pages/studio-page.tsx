@@ -110,6 +110,17 @@ export default function StudioPage() {
     ),
   )
 
+  // 进入 studio 页面且没有指定 session 时，恢复上一次选中的 session
+  createEffect(() => {
+    if (params.id) return
+    if (new URLSearchParams(location.search).has("hint")) return
+    const dir = projectDir()
+    if (!dir) return
+    const lastId = layout.lastSessionPerTab.studio(dir)
+    if (!lastId || !isValidStudioSession(lastId)) return
+    navigate(`/${slug()}/studio/${lastId}`, { replace: true })
+  })
+
   const [prompt, setPrompt] = createSignal("")
   const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
   const [styleModel, setStyleModel] = createSignal("qwen")
@@ -195,6 +206,7 @@ export default function StudioPage() {
   })
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
+  let generationToken = 0
   const [studioLeftStore, setStudioLeftStore] = persisted(
     Persist.global("studio.left.width"),
     createStore({ width: 296 }),
@@ -601,6 +613,10 @@ export default function StudioPage() {
     batch(() => {
       if (nextId !== undefined) {
         setSelectedImageId(nextId)
+        const turn = displayTurns()
+          .map((t) => t.result)
+          .find((r) => r?.images.some((img) => img.id === nextId))
+        if (turn) setSelectedResultId(turn.id)
       } else {
         // 最后一个 tab：隐藏 canvas 和 details
         // 注意：不清空 selectedImageId，否则 auto-show effect 会重新创建 tab
@@ -861,11 +877,21 @@ export default function StudioPage() {
   }
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
-    const images = result()?.images ?? []
-    const index = image ? images.findIndex((item) => item.id === image.id) + 1 : 1
+    if (!image) return "studio-image.png"
     const video = isVideoMedia(image)
-    const prefix = currentTitle() === "Octo Studio" ? (video ? "studio-video" : "studio-image") : currentTitle().replace(/[\\/:*?\"<>|]/g, "-").slice(0, 24)
-    return `${prefix}-${Math.max(index, 1)}.${video ? "mp4" : "png"}`
+    const ext = video ? "mp4" : "png"
+    const images = canvasResult()?.images ?? []
+    const index = image ? images.findIndex((item) => item.id === image.id) + 1 : 1
+    const stored = canvasTabLabels()[image.id]
+    if (stored) return `${stored}-${Math.max(index, 1)}.${ext}`
+    const prompt = result()?.prompt ?? ""
+    const firstLine = prompt.split("\n")[0].trim()
+    const cleaned = firstLine
+      .replace(/[\\/:*?\"<>|，。！？、；：""''（）【】《》!?;:()\[\]{}@#$%^&+=~`]/g, " ")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "")
+    const prefix = cleaned.length > 20 ? cleaned.slice(0, 20).replace(/-+$/, "") : (cleaned || "image")
+    return `${prefix}-${Math.max(index, 1)}.${ext}`
   })
 
   async function downloadCurrentImage() {
@@ -1150,9 +1176,13 @@ export default function StudioPage() {
 
   function startNewStudioConversation() {
     pendingVideoFirstFrame = undefined
+    generationToken++
     setVideoRiskDialogOpen(false)
     setVideoRiskConfirmedSessionID(undefined)
     setDraftVideoRiskConfirmed(false)
+    setStatus("idle")
+    setPendingResult(undefined)
+    setSending(false)
     navigate(`/${slug()}/studio?hint=${Date.now()}`)
   }
 
@@ -1286,6 +1316,7 @@ export default function StudioPage() {
             : ""
     )
     if (!text || isBusy()) return
+    const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
     const videoReferenceImages = [
@@ -1331,6 +1362,7 @@ export default function StudioPage() {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
+      if (currentToken !== generationToken) return
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
         navigate(`/${slug()}/studio/${sessionID}`)
@@ -1354,19 +1386,21 @@ export default function StudioPage() {
             : {}),
         },
       })
+      if (currentToken !== generationToken) return
       setPendingResult({
         ...generation,
         sourceImage: overrides?.sourceImage,
       })
       setStatus(generation.status)
     } catch (error) {
+      if (currentToken !== generationToken) return
       console.error("[StudioPage] studio prompt failed", error)
       setPrompt(previousPrompt)
       if (nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
       setStatus("failed")
       setPendingResult((item) => item ? { ...item, status: "failed", error: error instanceof Error ? error.message : String(error) } : item)
     } finally {
-      setSending(false)
+      if (currentToken === generationToken) setSending(false)
     }
   }
 
