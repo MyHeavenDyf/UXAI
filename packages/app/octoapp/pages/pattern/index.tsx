@@ -312,19 +312,6 @@ function PatternContent() {
     })
   }
 
-  function getLastAssistantText(sessionId: string): string | null {
-    const messages = (sync.data.message[sessionId] ?? []) as Message[]
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.role !== "assistant") continue
-      const parts = (sync.data.part[msg.id] ?? []) as Array<{ type: string; text?: string }>
-      for (const p of [...parts].reverse()) {
-        if (p.type === "text" && p.text) return p.text
-      }
-    }
-    return null
-  }
-
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
