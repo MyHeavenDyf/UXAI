@@ -205,6 +205,7 @@ export const layer: Layer.Layer<
         const dotgit = dotgitMatches[0]
 
         if (!dotgit) {
+          log.info("fromDirectory:no-git", { directory })
           return {
             id: ProjectID.global,
             worktree: "/",
@@ -218,6 +219,7 @@ export const layer: Layer.Layer<
         let id = yield* readCachedProjectId(dotgit)
 
         if (!gitBinary) {
+          log.info("fromDirectory:no-git-binary", { directory, dotgit })
           return {
             id: id ?? ProjectID.global,
             worktree: sandbox,
@@ -228,6 +230,7 @@ export const layer: Layer.Layer<
 
         const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
         if (commonDir.code !== 0) {
+          log.info("fromDirectory:git-common-dir-failed", { directory, code: commonDir.code, stderr: commonDir.stderr })
           return {
             id: id ?? ProjectID.global,
             worktree: sandbox,
@@ -253,17 +256,20 @@ export const layer: Layer.Layer<
             .toSorted()
 
           id = roots[0] ? ProjectID.make(roots[0]) : undefined
+          log.info("fromDirectory:rev-list", { directory, rootsCount: roots.length, id })
           if (id) {
             yield* fs.writeFileString(pathSvc.join(common, "opencode"), id).pipe(Effect.ignore)
           }
         }
 
         if (!id) {
+          log.info("fromDirectory:no-id", { directory })
           return { id: ProjectID.global, worktree: sandbox, sandbox, vcs: "git" as const }
         }
 
         const topLevel = yield* git(["rev-parse", "--show-toplevel"], { cwd: sandbox })
         if (topLevel.code !== 0) {
+          log.info("fromDirectory:toplevel-failed", { directory, code: topLevel.code, stderr: topLevel.stderr })
           return {
             id,
             worktree: sandbox,
@@ -273,6 +279,7 @@ export const layer: Layer.Layer<
         }
         sandbox = resolveGitPath(sandbox, topLevel.text.trim())
 
+        log.info("fromDirectory:discovered", { directory, id, worktree, sandbox })
         return { id, sandbox, worktree, vcs: "git" as const }
       })
 

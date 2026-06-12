@@ -49,6 +49,11 @@ const getBase = (): Configuration => ({
       from: "../opencode/dist/node/skill",
       to: "skills",
     },
+    {
+      from: "resources/bin",
+      to: "bin",
+      filter: ["**/*"],
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",

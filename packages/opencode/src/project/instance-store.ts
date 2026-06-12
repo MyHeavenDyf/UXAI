@@ -3,10 +3,13 @@ import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { InstanceRef } from "@/effect/instance-ref"
 import { disposeInstance as runDisposers } from "@/effect/instance-registry"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import * as Log from "@opencode-ai/core/util/log"
 import { Context, Deferred, Duration, Effect, Exit, Layer, Scope } from "effect"
 import { type InstanceContext } from "./instance-context"
 import { InstanceBootstrap } from "./bootstrap-service"
 import * as Project from "./project"
+
+const log = Log.create({ service: "instance-store" })
 
 export interface LoadInput {
   directory: string
@@ -100,12 +103,24 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     })
 
     const load = (input: LoadInput): Effect.Effect<InstanceContext> => {
-      const directory = AppFileSystem.resolve(input.directory)
+      log.info("load:input", { directory: input.directory, hasProject: !!input.project, hasWorktree: !!input.worktree })
+      let directory: string
+      try {
+        directory = AppFileSystem.resolve(input.directory)
+      } catch (e) {
+        log.error("load:resolve-failed", { input: input.directory, error: e })
+        throw e
+      }
+      log.info("load:resolved", { input: input.directory, resolved: directory })
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const existing = cache.get(directory)
-          if (existing) return yield* restore(Deferred.await(existing.deferred))
+          if (existing) {
+            log.info("load:cache-hit", { directory })
+            return yield* restore(Deferred.await(existing.deferred))
+          }
 
+          log.info("load:cache-miss", { directory })
           const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>() }
           cache.set(directory, entry)
           yield* Effect.gen(function* () {
