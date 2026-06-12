@@ -19,25 +19,31 @@ export const errorLayer = HttpRouter.middleware<{ handles: unknown }>()((effect)
         if (HttpServerRespondable.isRespondable(reason.defect)) return false
         return true
       })
-      if (!defect) return Effect.failCause(cause)
+      if (!defect) {
+        log.warn("error-middleware:passthrough", { cause: Cause.pretty(cause) })
+        return Effect.failCause(cause)
+      }
 
       const error = defect.defect
       log.error("failed", { error, cause: Cause.pretty(cause) })
 
       if (error instanceof NamedError) {
+        const status = iife(() => {
+          if (error instanceof NotFoundError) return 404
+          if (error instanceof Provider.ModelNotFoundError) return 400
+          if (error.name === "ProviderAuthValidationFailed") return 400
+          if (error.name.startsWith("Worktree")) return 400
+          return 500
+        })
+        log.info("error-middleware:named", { name: error.name, status, message: error.message })
         return Effect.succeed(
           HttpServerResponse.jsonUnsafe(error.toObject(), {
-            status: iife(() => {
-              if (error instanceof NotFoundError) return 404
-              if (error instanceof Provider.ModelNotFoundError) return 400
-              if (error.name === "ProviderAuthValidationFailed") return 400
-              if (error.name.startsWith("Worktree")) return 400
-              return 500
-            }),
+            status,
           }),
         )
       }
       if (error instanceof Session.BusyError) {
+        log.info("error-middleware:busy", { message: error.message })
         return Effect.succeed(
           HttpServerResponse.jsonUnsafe(new NamedError.Unknown({ message: error.message }).toObject(), {
             status: 400,
@@ -45,6 +51,11 @@ export const errorLayer = HttpRouter.middleware<{ handles: unknown }>()((effect)
         )
       }
 
+      log.warn("error-middleware:unknown-defect", {
+        type: typeof error,
+        constructor: error?.constructor?.name,
+        message: error instanceof Error ? error.message : String(error),
+      })
       return Effect.succeed(
         HttpServerResponse.jsonUnsafe(
           new NamedError.Unknown({
