@@ -1,52 +1,30 @@
-import { createSignal, createMemo, createEffect, For, Show } from "solid-js"
+import { createSignal, createMemo, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { loadDesignSystemIndex, loadDesignSystemTokens, type DesignSystemEntry } from "../../utils/design-system-loader"
+import type { DesignSystemEntry } from "../../utils/design-system-loader"
 import "../../assets/style/chat/design_system_picker.css"
 
 export function DesignSystemPicker(props: {
   selected: string | null
   onSelect: (id: string | null) => void
 }): JSX.Element {
-  const [entries, setEntries] = createSignal<DesignSystemEntry[]>([])
+  const entries: DesignSystemEntry[] = [{ id: "ICT-3.1", title: "ICT-3.1" }]
   const [open, setOpen] = createSignal(false)
   const [search, setSearch] = createSignal("")
-  const [swatches, setSwatches] = createSignal<string[]>([])
   const [hoveredId, setHoveredId] = createSignal<string | null>(null)
-
-  createEffect(() => {
-    const id = props.selected
-    if (!id) { setSwatches([]); return }
-    loadDesignSystemTokens(id).then((tokens) => {
-      setSwatches(extractSwatches(tokens))
-    }).catch(() => setSwatches([]))
-  })
-
-
-  const loadIndex = async () => {
-    if (entries().length > 0) return
-    try {
-      const list = loadDesignSystemIndex()
-      setEntries(list)
-    } catch (err) {
-      console.error("[DesignSystemPicker] failed to load index", err)
-    }
-  }
 
   const filtered = createMemo(() => {
     const q = search().toLowerCase()
-    const list = entries()
-    if (!q) return list
-    return list.filter((e) => e.id.includes(q) || e.title.toLowerCase().includes(q))
+    if (!q) return entries
+    return entries.filter((e) => e.id.includes(q) || e.title.toLowerCase().includes(q))
   })
 
   return (
     <Kobalte
       open={open()}
       onOpenChange={(next) => {
-        if (next) loadIndex()
         setOpen(next)
       }}
       placement="top-start"
@@ -58,13 +36,6 @@ export function DesignSystemPicker(props: {
         class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium overflow-hidden group focus-visible:outline-none"
         data-picked={props.selected ? "true" : undefined}
       >
-        <Show when={swatches().length > 0}>
-          <span class="flex items-center gap-[2px]">
-            <For each={swatches().slice(0, 3)}>
-              {(color) => <span class="octo-ds-swatch" style={{ background: color }} />}
-            </For>
-          </span>
-        </Show>
         <span class="truncate">{props.selected ? props.selected : "Design System"}</span>
         <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180 chevron-down-icon" />
       </Kobalte.Trigger>
@@ -121,18 +92,4 @@ export function DesignSystemPicker(props: {
       </Kobalte.Portal>
     </Kobalte>
   )
-}
-
-function extractSwatches(tokensCss: string): string[] {
-  const colors: string[] = []
-  const patterns = [
-    /--accent\s*:\s*([^;]+)/,
-    /--bg\s*:\s*([^;]+)/,
-    /--fg\s*:\s*([^;]+)/,
-  ]
-  for (const p of patterns) {
-    const m = tokensCss.match(p)
-    if (m) colors.push(m[1].trim())
-  }
-  return colors
 }

@@ -186,9 +186,9 @@ export function ChatPanel(props: {
           <ProtoIntroduction />
           <div class="w-full max-w-[800px] px-8">
             <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
-            <div class="proto-tab-btns">
+            {/* <div class="proto-tab-btns">
               <ProtoTabSwitcher activeTab={state.activeTab} onChange={(tab) => setState("activeTab", tab)} />
-            </div>
+            </div> */}
             <ChartInput {...props.inputProps} rows={undefined} />
           </div>
         </div>

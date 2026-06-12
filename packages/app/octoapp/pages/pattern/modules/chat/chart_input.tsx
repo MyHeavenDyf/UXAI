@@ -50,7 +50,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
   let fileInputRef!: HTMLInputElement
   return (
     <div
-      class="rounded-[16px] transition-all duration-300 relative group chat-input-content"
+      class="rounded-[24px]  flex flex-col transition-all duration-300 relative group chat-input-content"
       style={{
         "margin-top": props.attachments.length > 0 ? "6px" : "0",
         ...(props.rows === undefined ? { height: "150px" } : {}),
@@ -63,7 +63,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
         placeholder="描述你想要的界面，按 Enter 生成页面原型"
         rows={props.rows}
         disabled={props.disabled}
-        class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
+        class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-3"
         style={{
           "font-family": "var(--octo-font)",
           ...(props.rows === undefined ? { flex: "1", "max-height": "none", "overflow-y": "auto" } : { "max-height": "120px", "overflow-y": "auto" }),

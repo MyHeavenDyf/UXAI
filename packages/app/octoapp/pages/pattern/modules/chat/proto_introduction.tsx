@@ -8,7 +8,7 @@ export function ProtoIntroduction(): JSX.Element {
     <div class="flex flex-col items-center gap-6 text-center pb-20 px-6 introduction">
       <img src={IconHost} width={166} height={166} alt="" draggable={false} />
       <div class="flex flex-col items-center gap-2">
-        <div class="text">Prototype</div>
+        <div class="text">Octo Prototype</div>
         <div class="info">
           按照描述需求，开始生成页面原型
         </div>
