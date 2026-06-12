@@ -98,16 +98,25 @@ function PatternContent() {
     }
   }
 
+  const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
+  let discoverVersion = 0
+
   createEffect(
     on(
       () => params.id,
       (id, prevId) => {
-        if (id) layout.lastSessionPerTab.setPattern(id)
+        if (id) {
+          layout.lastSessionPerTab.setPattern(id)
+          void sync.session.sync(id).then(() => {
+            if (params.id === id) discoverChildSessions(id)
+          })
+        }
         if (prevId !== undefined) {
           setSending(false)
           setPhase("idle")
-          setChildSessionIDs([])
         }
+        setChildSessionIDs([])
+        discoverVersion++
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -118,49 +127,44 @@ function PatternContent() {
       () => params.id,
       (id) => {
         if (!id) return
-        void sync.session.sync(id)
-        // 发现并同步子 session（恢复历史记录）
-        discoverChildSessions(id)
-      },
-    ),
-  )
-
-  // 打开已有 session 时从历史文件恢复页面状态
-  createEffect(
-    on(
-      () => params.id,
-      (id) => {
-        if (!id) return
+        setLastIntent(null)
+        setLastPlanner(null)
+        setLastModules([])
+        setVersions([])
+        setCurrentVersionId(null)
         const dir = patternHistoryDir()
         if (!dir) return
         void loadCurrentPatternState(dir, id).then((state) => {
-          if (!state) return
+          if (!state || params.id !== id) return
           if (state.lastIntent) setLastIntent(state.lastIntent)
           if (state.lastPlanner) setLastPlanner(state.lastPlanner)
           if (state.lastModules.length > 0) setLastModules(state.lastModules)
         })
         void listPatternVersions(dir, id).then(({ versions, current }) => {
+          if (params.id !== id) return
           setVersions(versions)
           setCurrentVersionId(current)
         })
       },
     ),
   )
+
   async function discoverChildSessions(rootID: string) {
+    const version = discoverVersion
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (version !== discoverVersion) return
       const all = res.data ?? []
       const children = all.filter((s: any) => s.parentID === rootID)
       const childIDs: string[] = []
       for (const child of children) {
         await sync.session.sync(child.id)
+        if (version !== discoverVersion) return
         childIDs.push(child.id)
       }
       setChildSessionIDs(childIDs)
     } catch {}
   }
-
-  const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
 
   const userMessages = createMemo((): Message[] => {
     const id = params.id
@@ -224,7 +228,15 @@ function PatternContent() {
     const mods = lastModules()
     return mods.length > 0 ? mods : null
   }
-  const hasContent = () => !!(params.id && (userMessages().length > 0 || phase() !== "idle"))
+  const hasContent = () => {
+    const id = params.id
+    if (!id) return false
+    if (userMessages().length > 0) return true
+    if (sending()) return true
+    const rootMsgs = sync.data.message[id]
+    if (rootMsgs && rootMsgs.length > 0) return true
+    return false
+  }
 
   // 从预览页选中元素后触发的修改回调
   function handlePickerSubmit(text: string, domPickerId: string) {
