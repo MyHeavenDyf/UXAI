@@ -244,19 +244,17 @@ function PatternContent() {
       },
     ),
   )
-  // 历史文件存储目录，优先使用关联目录下的 .octo/pattern/history
+  // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
-    const dir = globalSync.data.path.directory
-    if (dir && dir.length > 2) return `${dir}/.octo/pattern/history`
-    const wt = globalSync.data.path.worktree
-    if (wt && wt.length > 2) return `${wt}/.octo/pattern/history`
-    const home = sdk.directory
-    return home ? `${home}/.octo/pattern/history` : ""
+    const home = sdk.directory;
+    return `${home}/.octo/design/history`;
   })
+
   const getModuleResults = () => {
     const mods = lastModules()
     return mods.length > 0 ? mods : null
   }
+
   const hasContent = () => {
     const id = params.id
     if (!id) return false
@@ -333,19 +331,6 @@ function PatternContent() {
     }).then(() => {
       previewApi.refresh()
     })
-  }
-
-  function getLastAssistantText(sessionId: string): string | null {
-    const messages = (sync.data.message[sessionId] ?? []) as Message[]
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.role !== "assistant") continue
-      const parts = (sync.data.part[msg.id] ?? []) as Array<{ type: string; text?: string }>
-      for (const p of [...parts].reverse()) {
-        if (p.type === "text" && p.text) return p.text
-      }
-    }
-    return null
   }
 
   async function handleSubmit() {
@@ -567,8 +552,25 @@ function PatternContent() {
       setLastPlanner(planner.layout_planner as unknown as Record<string, unknown>)
       setLastModules(modules)
 
+      // 存储到 .octo/design/{sid}/
+      // if (sid && sdk.directory) {
+      //   const projectDir = sdk.directory
+      //   const sep = projectDir.includes("\\") ? "\\" : "/"
+      //   const designDir = [projectDir, ".octo", "design", sid].join(sep)
+      //   const encoder = new TextEncoder()
+      //   const write = window.api?.writeFileBuffer
+      //   if (write) {
+      //     await Promise.all([
+      //       write([designDir, "intent.json"].join(sep), encoder.encode(JSON.stringify(intentResult.intent_page, null, 2)).buffer as ArrayBuffer),
+      //       write([designDir, "planner.json"].join(sep), encoder.encode(JSON.stringify(planner.layout_planner, null, 2)).buffer as ArrayBuffer),
+      //       write([designDir, "modules.json"].join(sep), encoder.encode(JSON.stringify(modules, null, 2)).buffer as ArrayBuffer),
+      //     ])
+      //   }
+      // }
+
       // 追加首次生成版本到历史文件
       const dir = patternHistoryDir()
+      debugger
       if (dir) {
         const vid = await appendPatternVersion(dir, sid, {
           lastIntent: lastIntent(),
