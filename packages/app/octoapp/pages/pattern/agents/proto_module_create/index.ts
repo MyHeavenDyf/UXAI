@@ -29,20 +29,22 @@ type ProtoModuleCreateInput = {
 }
 
 export default async function proto_module_create(input: ProtoModuleCreateInput) {
-  const { 
-    sdk, 
-    sync, 
-    modelKey, 
-    rootSession, 
-    userInput, 
-    idPrefix, 
+  const {
+    sdk,
+    sync,
+    modelKey,
+    rootSession,
+    userInput,
+    idPrefix,
     sectionId,
-    elementId, 
+    elementId,
     layoutPlanner,
     intentDescription,
     onSessionCreated } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(idPrefix, sectionId, elementId, layoutPlanner, intentDescription)
+  const startTime = Date.now()
+  console.log("[Pattern ] module_create_agent运行中")
   // 执行模块渲染
   const moduleResult = await runChildSession({
     client: sdk.client,
@@ -54,6 +56,7 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     sync,
     onSessionCreated,
   })
+  console.log("[Pattern ] module_create_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   debugger
   // 转换成 a2ui json
   const moduleJson = extractJson(moduleResult)
@@ -63,11 +66,11 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     "section_id": sectionId,
     "element_id": elementId,
     "id_prefix": idPrefix
-  } 
+  }
 }
 
 // 组装模块生成的输入文本
-function buildHumanMessage(idPrefix: string, sectionId: string, elementId: string, layoutPlanner: any, intentDescription: any){
+function buildHumanMessage(idPrefix: string, sectionId: string, elementId: string, layoutPlanner: any, intentDescription: any) {
   // 拓展意图
   let userInput = intentDescription.userInput ?? "";
   let intentAnalysis = intentDescription.intentAnalysis ?? "";
@@ -76,15 +79,15 @@ function buildHumanMessage(idPrefix: string, sectionId: string, elementId: strin
   let layoutDesc = intentDescription.layoutDescription ?? "";
   let sections = intentDescription.sections ?? [];
   let sectionsStr = JSON.stringify(sections, null, 2);
-    
+
   // 布局规划
   let elements = layoutPlanner.elements ?? [];
-  let slotElement = elements.find((e:any) => e?.id === elementId) ?? {};
+  let slotElement = elements.find((e: any) => e?.id === elementId) ?? {};
   let slotElemnetStr = JSON.stringify(slotElement, null, 2);
 
   // 该模块详细意图
   let sectionDetailList = intentDescription.sectionDetailList ?? [];
-  let sectionDetail = sectionDetailList.find((item:any) => item?.id === sectionId) ?? {};
+  let sectionDetail = sectionDetailList.find((item: any) => item?.id === sectionId) ?? {};
   let sectionDetailStr = JSON.stringify(sectionDetail, null, 2);
   debugger
   let humanMessage: string;

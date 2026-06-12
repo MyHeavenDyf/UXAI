@@ -12,7 +12,6 @@ import {
   onCleanup,
   Show,
 } from "solid-js"
-import { createStore } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
@@ -35,6 +34,8 @@ import create_json from './workflow/create_json'
 import { runProtoPlannerModify } from "./agents/proto_planner_modify"
 import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
+import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
+import { rollbackToVersion } from "./utils/history"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
 import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
@@ -61,14 +62,12 @@ export default function PatternPage() {
 }
 
 function PatternContent() {
+  const globalSync = useGlobalSync()
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
   const sync = useSync()
   const layout = useLayout()
-  const dialog = useDialog()
-  const globalSync = useGlobalSync()
-
   const local = useLocal()
   const currentModel = () => local.model.current()
   const activeModelKey = createMemo(() => {
@@ -126,6 +125,27 @@ function PatternContent() {
     ),
   )
 
+  // 打开已有 session 时从历史文件恢复页面状态
+  createEffect(
+    on(
+      () => params.id,
+      (id) => {
+        if (!id) return
+        const dir = patternHistoryDir()
+        if (!dir) return
+        void loadCurrentPatternState(dir, id).then((state) => {
+          if (!state) return
+          if (state.lastIntent) setLastIntent(state.lastIntent)
+          if (state.lastPlanner) setLastPlanner(state.lastPlanner)
+          if (state.lastModules.length > 0) setLastModules(state.lastModules)
+        })
+        void listPatternVersions(dir, id).then(({ versions, current }) => {
+          setVersions(versions)
+          setCurrentVersionId(current)
+        })
+      },
+    ),
+  )
   async function discoverChildSessions(rootID: string) {
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
@@ -189,64 +209,26 @@ function PatternContent() {
   const [lastIntent, setLastIntent] = createSignal<Record<string, unknown> | null>(null)
   const [lastPlanner, setLastPlanner] = createSignal<Record<string, unknown> | null>(null)
   const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
+  const [versions, setVersions] = createSignal<VersionEntry[]>([])
+  const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
+  // 历史文件存储目录，优先使用关联目录下的 .octo/pattern/history
+  const patternHistoryDir = createMemo(() => {
+    const dir = globalSync.data.path.directory
+    if (dir && dir.length > 2) return `${dir}/.octo/pattern/history`
+    const wt = globalSync.data.path.worktree
+    if (wt && wt.length > 2) return `${wt}/.octo/pattern/history`
+    const home = sdk.directory
+    return home ? `${home}/.octo/pattern/history` : ""
+  })
   const getModuleResults = () => {
     const mods = lastModules()
-    return mods.length > 0 ? mods as unknown as Record<string, unknown> : null
+    return mods.length > 0 ? mods : null
   }
   const hasContent = () => !!(params.id && (userMessages().length > 0 || phase() !== "idle"))
-  const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
-  const [pickerText, setPickerText] = createSignal("")
 
-  function unfreezeDomPicker() {
-    previewApi.postMessage({ type: "DOM_PICKER_UNFREEZE" })
-  }
-
-  function showPickerDialog() {
-    dialog.show(() => (
-      <Dialog title="修改选中区域" fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <span class="text-14-regular text-text-strong">
-            选中元素: <b>{pickerDialog.tagName}</b> ({pickerDialog.domPickerId})
-          </span>
-          <div class="flex gap-2">
-            <button class="px-3 py-1 rounded-full text-13-medium transition-colors bg-primary text-on-primary">
-              AI 修改
-            </button>
-          </div>
-          <textarea
-            value={pickerText()}
-            onInput={(e) => setPickerText(e.currentTarget.value)}
-            placeholder="描述你想要的修改..."
-            rows={3}
-            class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
-          />
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              取消
-            </Button>
-            <Button variant="primary" size="large" onClick={submitPicker}>
-              确认修改
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    ), unfreezeDomPicker)
-  }
-
-  const handlePickerMessage = (e: MessageEvent) => {
-    if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
-    setPickerDialog({ domPickerId: e.data.domPickerId ?? "", tagName: e.data.tagName ?? "" })
-    setPickerText("")
-    showPickerDialog()
-  }
-  window.addEventListener("message", handlePickerMessage)
-  onCleanup(() => window.removeEventListener("message", handlePickerMessage))
-
-  function submitPicker() {
-    const text = pickerText().trim()
-    if (!text) return
-    setPrompt(`[选中元素: ${pickerDialog.domPickerId}] ${text}`)
-    dialog.close()
+  // 从预览页选中元素后触发的修改回调
+  function handlePickerSubmit(text: string, domPickerId: string) {
+    setPrompt(`[选中元素: ${domPickerId}] ${text}`)
     void handleSubmit()
   }
 
@@ -371,14 +353,13 @@ function PatternContent() {
         genuiJson: isEdit ? (lastIntent() ?? {}) : null,
         layoutPlanner: currentPlanner,
         moduleResults: getModuleResults(),
-        sessionId: isEdit ? sid : undefined,
+        sessionId: undefined,
         abortSignal: controller.signal,
       })
       console.log("[Pattern] triage:", triage.routing, triage.reason)
       console.log("[Pattern] triage output:", JSON.stringify(triage, null, 2))
 
       if (triage.routing === "modify") {
-        debugger
         if (!currentPlanner || !lastIntent()) {
           console.log("[Pattern] modify skipped: no previous page state")
           return
@@ -400,37 +381,32 @@ function PatternContent() {
         console.log("[Pattern] planner_modify output:", JSON.stringify(modifyResult, null, 2))
         console.log("[Pattern] removed sections:", modifyResult.removedSectionIds)
 
-        const updatedIntent = { ...lastIntent(), ...triage.updated_intent }
+        const updatedIntent = { ...triage.updated_intent }
         const prevModules = lastModules()
 
         setPhase("module")
-        const allModules: typeof prevModules = []
-
-        for (const slot of modifyResult.output.slots) {
+        const modulePromises = modifyResult.output.slots.map((slot) => {
           if (slot.operation === "none") {
             const existing = prevModules.find((m) => m.rootId === slot.element_id)
-            if (existing) allModules.push(existing)
-            continue
+            return existing ?? null
           }
           if (slot.operation === "create") {
             console.log("[Pattern] 进入代理: proto_module_create (modify/create)")
-            const moduleResult = await proto_module_create({
+            return proto_module_create({
               ...intentCtx,
               idPrefix: slot.id_prefix,
               sectionId: slot.section_id,
               elementId: slot.element_id,
               layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
               intentDescription: updatedIntent as any,
-            })
-            allModules.push(moduleResult.uiJson as typeof prevModules[number])
-            continue
+            }).then((r) => r.uiJson)
           }
           if (slot.operation === "modify") {
             const originModule = prevModules.find((m) => m.rootId === slot.element_id)
             const modAction = triage.modify.find((m) => m.section_id === slot.section_id)
-            if (!originModule || !modAction) continue
+            if (!originModule || !modAction) return null
             console.log("[Pattern] 进入代理: proto_module_modify")
-            const moduleResult = await runModuleModify({
+            return runModuleModify({
               ...ctx,
               input: {
                 layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
@@ -439,10 +415,12 @@ function PatternContent() {
                 originModules: originModule,
                 modifications: modAction as unknown as Record<string, unknown>,
               },
-            })
-            allModules.push(moduleResult.uiJson as typeof prevModules[number])
+            }).then((r) => r.uiJson)
           }
-        }
+          return null
+        })
+        const moduleResults = await Promise.all(modulePromises)
+        const allModules = moduleResults.filter(Boolean) as typeof prevModules
 
         const merged = mergeModules(
           { rootId: modifyResult.output.rootId, elements: modifyResult.output.elements },
@@ -457,6 +435,18 @@ function PatternContent() {
         setLastPlanner(modifyResult.output as unknown as Record<string, unknown>)
         setLastModules(allModules)
 
+        // 追加修改版本到历史文件
+        const dir = patternHistoryDir()
+        if (dir) {
+          const vid = await appendPatternVersion(dir, sid, {
+            lastIntent: lastIntent(),
+            lastPlanner: lastPlanner(),
+            lastModules: lastModules(),
+          }, text.slice(0, 80))
+          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+          setCurrentVersionId(vid)
+        }
+
         return
       }
       setPhase("intent")
@@ -464,7 +454,6 @@ function PatternContent() {
       debugger
       // 第一步：意图扩展
       let intentResult = await proto_intent(intentCtx)
-      
       // 第二步：意图检查 - 最多进行N(当前1)次审查
       // for (let attempt = 0; attempt < 1; attempt++) {
       //   let descriptionStr = JSON.stringify(intentResult.intent_description);
@@ -481,8 +470,6 @@ function PatternContent() {
       // 第三步：页面局部
       let pageDescriptionStr = JSON.stringify(intentResult.intent_description);
       const planner = await proto_planner_create({ ...intentCtx, intentDescription: pageDescriptionStr });
-      
-      debugger
       // 第四部：并行生成 A2UI JSON
       const modules = await Promise.all(
         (planner.layout_planner.slots as Array<any>).map(slot =>
@@ -496,7 +483,6 @@ function PatternContent() {
           }).then(r => r.ui_json)
         )
       )
-      
       const merged = mergeModules(
         { rootId: planner.layout_planner.rootId, elements: planner.layout_planner.elements },
         modules,
@@ -516,19 +502,30 @@ function PatternContent() {
       //   }
       //   modules.push(uiJson)
       // }
-      debugger
-      
+
       console.log("[Pattern] ========== MERGED A2UI JSON ==========")
       console.log(JSON.stringify(merged, null, 2))
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)
 
       setLastIntent(intentResult.intent_page as unknown as Record<string, unknown>)
-      setLastPlanner(planner as unknown as Record<string, unknown>)
+      setLastPlanner(planner.layout_planner as unknown as Record<string, unknown>)
       setLastModules(modules)
 
-      const genDuration = (performance.now() - genStartTime).toFixed(0)
-      console.log(`[Pattern] 第一次生成页面耗时: ${genDuration}ms`)
+      // 追加首次生成版本到历史文件
+      const dir = patternHistoryDir()
+      if (dir) {
+        const vid = await appendPatternVersion(dir, sid, {
+          lastIntent: lastIntent(),
+          lastPlanner: lastPlanner(),
+          lastModules: lastModules(),
+        }, text.slice(0, 80))
+        setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+        setCurrentVersionId(vid)
+      }
+
+      const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
+      console.log(`[Pattern] 第一次生成页面耗时: ${genDuration}s`)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
@@ -617,6 +614,19 @@ function PatternContent() {
     if (doc) sendToPreview(doc)
   }
 
+  // 回退到指定历史版本
+  async function handleSelectVersion(versionId: string) {
+    const id = params.id
+    const dir = patternHistoryDir()
+    if (!id || !dir) return
+    const state = await rollbackToVersion(dir, id, versionId, sendToPreview)
+    if (!state) return
+    setCurrentVersionId(versionId)
+    if (state.lastIntent) setLastIntent(state.lastIntent)
+    if (state.lastPlanner) setLastPlanner(state.lastPlanner)
+    if (state.lastModules.length > 0) setLastModules(state.lastModules)
+  }
+
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
 
   const chartInputProps = () => ({
@@ -676,9 +686,15 @@ function PatternContent() {
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
-        {/* 预览页 */}
+        {/* 预览页 — 通过 props 传入版本历史数据，预览区内时钟按钮触发 history dialog */}
         <Show when={hasContent()}>
-          <PreviewPage api={previewApi} />
+          <PreviewPage
+            api={previewApi}
+            onPickerSubmit={handlePickerSubmit}
+            versions={versions()}
+            currentVersionId={currentVersionId()}
+            onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+          />
         </Show>
       </div>
     </DataProvider>

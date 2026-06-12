@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join, basename } from "node:path"
 import { homedir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
@@ -220,6 +220,15 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("write-file-buffer", async (_event: IpcMainInvokeEvent, path: string, buffer: ArrayBuffer) => {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, Buffer.from(buffer))
+  })
+
+  ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      const buf = await readFile(path)
+      return buf.buffer
+    } catch {
+      return null
+    }
   })
 
   ipcMain.handle("read-clipboard-image", () => {

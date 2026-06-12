@@ -76,6 +76,7 @@ const api: ElectronAPI = {
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
+  readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
   // 从C盘中读取非Skill的设计资源名称 - By WangQiang - 该注释请勿删除
   getDesignList: () => ipcRenderer.invoke("get-design-list"),
   getDesignContent: (name) => ipcRenderer.invoke("get-design-content", name),

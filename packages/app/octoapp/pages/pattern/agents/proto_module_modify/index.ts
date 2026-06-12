@@ -81,6 +81,8 @@ function buildModifyPrompt(input: ModuleModifyInput): string {
 }
 
 export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleModifyResult> {
+  const startTime = Date.now()
+  console.log("[Pattern ] module_modify_agent运行中")
   const promptText = buildModifyPrompt(ctx.input)
   const raw = await runChildSession({
     client: ctx.sdk.client,
@@ -93,6 +95,7 @@ export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleM
     onSessionCreated: ctx.onSessionCreated,
   })
 
+  console.log("[Pattern ] module_modify_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   console.log("[module_modify] raw (first 300 chars):", raw.slice(0, 300))
   const moduleJson = extractA2UIJson(raw)
 

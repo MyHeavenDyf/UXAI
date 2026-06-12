@@ -29,6 +29,8 @@ export default async function proto_intent(input: ProtoIntentInput) {
   const { sdk, sync, modelKey, rootSession, userInput, auditFeedback, intentAuditPass, pageDescription, onSessionCreated } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(userInput, auditFeedback, intentAuditPass, pageDescription)
+  const startTime = Date.now()
+  console.log("[Pattern ] intent_agent运行中")
   // 执行 Agent
   const intentResult = await runChildSession({
     client: sdk.client,
@@ -40,6 +42,7 @@ export default async function proto_intent(input: ProtoIntentInput) {
     sync,
     onSessionCreated,
   })
+  console.log("[Pattern ] intent_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   // 转换成 audit json
   debugger
   const intentJson = extractJson(intentResult)

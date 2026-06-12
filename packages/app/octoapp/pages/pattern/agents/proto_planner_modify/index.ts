@@ -90,6 +90,8 @@ export async function runProtoPlannerModify(ctx: PlannerModifyContext): Promise<
   output: PlannerModifyOutput
   removedSectionIds: string[]
 }> {
+  const startTime = Date.now()
+  console.log("[Pattern ] planner_modify_agent运行中")
   const promptText = buildModifyPrompt(ctx.input)
   const raw = await runChildSession({
     client: ctx.sdk.client,
@@ -101,7 +103,7 @@ export async function runProtoPlannerModify(ctx: PlannerModifyContext): Promise<
     sync: ctx.sync,
     onSessionCreated: ctx.onSessionCreated,
   })
-
+  console.log("[Pattern ] planner_modify_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   console.log("[proto_planner_modify] raw (first 300 chars):", raw.slice(0, 300))
   const parsed = extractJson(raw)
   if (!parsed) throw new Error("proto_planner_modify did not return valid JSON\nraw: " + raw.slice(0, 500))
