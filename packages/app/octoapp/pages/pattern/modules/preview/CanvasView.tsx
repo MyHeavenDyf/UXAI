@@ -89,7 +89,7 @@ export function CanvasView(props: CanvasViewProps) {
       e.preventDefault()
       const delta = e.deltaY > 0 ? 0.9 : 1.1
       const oldScale = currentScale
-      currentScale = Math.min(Math.max(oldScale * delta, 0.5), 3)
+      currentScale = Math.min(Math.max(oldScale * delta, 0.3), 3)
       
       const rect = el.getBoundingClientRect()
       const mouseX = e.clientX - rect.left - rect.width / 2

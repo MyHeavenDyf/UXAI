@@ -89,7 +89,7 @@ export function TitleBar(props: TitleBarProps) {
                 <line x1="16" y1="13" x2="8" y2="13"></line>
                 <line x1="16" y1="17" x2="8" y2="17"></line>
               </svg>
-              <span>设计计划</span>
+              <span>界面设计</span>
             </button>
             <div class="btn-vertical-divider" />
           </div>
@@ -102,19 +102,6 @@ export function TitleBar(props: TitleBarProps) {
             </svg>
             <span>开发页面原型</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-
-          {/* 按钮 3：默认浅灰背景 + 双图标 */}
-          <button class="business-nav-btn btn-default">
-             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-              <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
-            <span>架构视图流</span>
-             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -265,6 +252,8 @@ export function TitleBar(props: TitleBarProps) {
               </svg>
             )}
           </button>
+
+            <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
 
           <button class="preview-action-icon-btn" title="下载">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
