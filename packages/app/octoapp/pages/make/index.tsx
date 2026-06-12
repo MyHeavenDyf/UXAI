@@ -1,8 +1,13 @@
 import "./octo-tokens.css"
+import "./components/starter-cards.css"
+import "./components/slash-popover.css"
+import { FEATURED_STARTERS } from "./utils/starter-prompts"
+import { StarterCards } from "./components/starter-cards"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import { Binary } from "@opencode-ai/core/util/binary"
 import { DataProvider } from "@opencode-ai/ui/context/data"
-import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { createAutoScroll, useFilteredList } from "@opencode-ai/ui/hooks"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -12,6 +17,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useCommand } from "@/context/command"
 import {
   createEffect,
   createMemo,
@@ -35,7 +41,7 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
-import { octoSessionsDir, useProjectDir } from "@/hooks/use-project-dir"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
@@ -51,15 +57,18 @@ import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { autoSaveArtifact } from "./utils/artifact-auto-save"
+import { persistTabChanges } from "./utils/tab-persistence"
+import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
-  const dir = useProjectDir()
+  const projectDir = useProjectDir({ mode: "project" })
 
   return (
-    <Show when={dir()} keyed>
-      {(directory) => (
-        <SDKProvider directory={() => directory}>
+    <Show when={projectDir()} keyed>
+      {(dir) => (
+        <SDKProvider directory={() => dir}>
           <SyncProvider>
             <LocalProvider>
               <MakeContent />
@@ -74,7 +83,7 @@ export default function MakePage() {
 function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
-  const sdk = useSDK()
+  const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
   const language = useLanguage()
@@ -82,13 +91,12 @@ function MakeContent() {
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
+  const sdk = useSDK()
+
+  // Register Make slash commands
+  useMakeCommands()
 
   const projectDir = useProjectDir()
-
-  const configDir = () => {
-    const config = globalSync.data.path.config
-    return config ? octoSessionsDir(config) : ""
-  }
 
   // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
   const local = useLocal()
@@ -203,8 +211,12 @@ function MakeContent() {
               }),
             )
             
+            // 清理子 session 追踪状态
+            loadedChildSessions.clear()
+            setChildSessionIDs(new Set<string>())
+            
             // 清除 lastSessionPerTab 记录，防止切换回来时恢复
-            layout.lastSessionPerTab.setMake("")
+            layout.lastSessionPerTab.setMake(sdk.directory, "")
             
             // 导航到空态
             navigate("/make")
@@ -214,13 +226,18 @@ function MakeContent() {
     ),
   )
 
-createEffect(
+const sessionMessagesLoaded = createMemo(() => {
+    const id = params.id
+    return !id || sync.data.message[id] !== undefined
+  })
+
+  createEffect(
     on(
-      () => params.id,
-      (newId, oldId) => {
-        if (newId) {
-          layout.lastSessionPerTab.setMake(newId)
-          void sync.session.sync(newId)
+      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
+      ([id, missing]) => {
+        if (id) {
+          layout.lastSessionPerTab.setMake(sdk.directory, id)
+          if (missing) void sync.session.sync(id).catch(() => {})
         }
 
         setSending(false)
@@ -229,6 +246,54 @@ createEffect(
       },
     ),
   )
+
+  // ── Annotation event listener (from DrawOverlay) ────────────────────────────────
+  createEffect(() => {
+    const handleAnnotation = async (e: Event) => {
+      const detail = (e as CustomEvent<AnnotationEventDetail>).detail
+      
+      // Convert File to Attachment (synchronously)
+      if (detail.file) {
+        const file = detail.file
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.readAsDataURL(file)
+        })
+        
+        const att: Attachment = {
+          id: crypto.randomUUID(),
+          filename: file.name,
+          mime: 'image/png',
+          dataUrl
+        }
+        setAttachments(prev => [...prev, att])
+      }
+      
+      // Build message text (note only)
+      const messageText = detail.note || ""
+      
+      // Send immediately if requested and not busy
+      if (detail.action === 'send' && !sending()) {
+        const sessionId = params.id
+        if (sessionId) {
+          await sendMessage(sessionId, messageText)
+          
+          // Clear attachments after send
+          setAttachments([])
+          setPrompt("")
+        }
+      }
+      
+      // Acknowledge success
+      if (detail.ack) {
+        detail.ack({ ok: true })
+      }
+    }
+    
+    window.addEventListener(ANNOTATION_EVENT, handleAnnotation)
+    onCleanup(() => window.removeEventListener(ANNOTATION_EVENT, handleAnnotation))
+  })
 
   // 调试日志：打印当前 session 相关的 SSE 事件
   createEffect(() => {
@@ -266,11 +331,24 @@ createEffect(
   const loadedChildSessions = new Set<string>()
 
   /** 加载子会话数据 */
-  function ensureChildSession(subSessionID: string) {
+  async function ensureChildSession(subSessionID: string) {
     if (!subSessionID || loadedChildSessions.has(subSessionID)) return
+    
+    // 防护：检查主 session 是否仍然有效（属于当前 sync.data）
+    const mainSessionId = params.id
+    if (!mainSessionId) return
+    const hasMainSession = Binary.search(sync.data.session, mainSessionId, (s) => s.id).found
+    if (!hasMainSession) return
+    
     loadedChildSessions.add(subSessionID)
     setChildSessionIDs((prev) => { const next = new Set(prev); next.add(subSessionID); return next })
-    void sync.session.sync(subSessionID)
+    
+    // 子 session 可能属于不同项目，sync 失败时静默忽略
+    try {
+      await sync.session.sync(subSessionID)
+    } catch {
+      // 忽略跨项目 session sync 错误
+    }
   }
 
   const userMessages = createMemo((): Message[] => {
@@ -359,6 +437,66 @@ createEffect(
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
+
+  // ── Slash Command Popover State ──
+  const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [slashIndex, setSlashIndex] = createSignal(0)
+  let textareaRef!: HTMLTextAreaElement
+
+  // ── Slash Command List ──
+  interface SlashCommand {
+    trigger: string
+    title: string
+    description?: string
+    id: string
+    source: "builtin" | "command" | "mcp"
+  }
+
+  const slashCommands = createMemo<SlashCommand[]>(() => {
+    const list: SlashCommand[] = []
+
+    // Builtin commands - TEMPORARILY HIDDEN (keep system configuration intact)
+    // const builtinCommands = command.options.filter(opt => opt.slash)
+    // for (const opt of builtinCommands) {
+    //   list.push({
+    //     trigger: opt.slash!,
+    //     title: opt.title,
+    //     description: opt.description,
+    //     id: opt.id,
+    //     source: "builtin",
+    //   })
+    // }
+
+    // Custom commands from sync.data.command - Only show MCP commands
+    const customCommands = sync.data?.command ?? []
+    for (const cmd of customCommands) {
+      // Temporary filter: hide project-level commands, only show MCP
+      if (cmd.source !== "mcp") continue
+      list.push({
+        trigger: cmd.name,
+        title: cmd.name,
+        description: cmd.description,
+        id: cmd.name,
+        source: cmd.source as "command" | "mcp",
+      })
+    }
+
+    // Sort alphabetically
+    list.sort((a, b) => a.trigger.localeCompare(b.trigger))
+    return list
+  })
+
+  const filteredSlash = createMemo(() => {
+    const query = slashState()?.query ?? ""
+    if (!query) return slashCommands()
+
+    const lowerQuery = query.toLowerCase()
+    return slashCommands().filter(cmd =>
+      (cmd.trigger?.toLowerCase() ?? "").includes(lowerQuery) ||
+      (cmd.title?.toLowerCase() ?? "").includes(lowerQuery) ||
+      (cmd.description?.toLowerCase() ?? "").includes(lowerQuery)
+    )
+  })
   const DS_KEY_PREFIX = "octo:make:design-system:"
   const PROMPT_KEY_PREFIX = "octo:make:prompt:"
   const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
@@ -478,21 +616,16 @@ createEffect(
   async function handleContentChange(tabId: string, content: string) {
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
-    if (tab?.filePath) {
-      try {
-        if (sdk.directory) {
-          await fetch(`${sdk.url}/content`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              "x-opencode-directory": sdk.directory,
-            },
-            body: JSON.stringify({ path: tab.filePath, content }),
-          })
-        }
-      } catch (err) {
-        console.error("[MakePage] failed to save file:", err)
-      }
+    
+    if (tab) {
+      await persistTabChanges(tab, {
+        sessionId: params.id!,
+        projectDir: projectDir(),
+        sdkUrl: sdk.url,
+        sdkDirectory: sdk.directory || "",
+        snapshotStore: snapshotStore,
+        refreshSnapshots: refreshSnapshots,
+      })
     }
   }
 
@@ -643,12 +776,83 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
-  /** Enter 发送，Shift+Enter 换行 */
+  /** Handle keyboard events including slash command navigation */
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    const slash = slashState()
+
+    // Slash command navigation
+    if (slash) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSlashIndex(i => Math.min(i + 1, filteredSlash().length - 1))
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSlashIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault()
+        e.stopPropagation()
+        const cmds = filteredSlash()
+        if (cmds.length > 0) {
+          pickSlash(cmds[slashIndex()])
+        }
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSlashState(null)
+        return
+      }
+    }
+
+    // Enter to send (only when slash popover is closed)
+    if (e.key === "Enter" && !e.shiftKey && !slash) {
       e.preventDefault()
       void handleSubmit()
     }
+  }
+
+  /** Handle input changes and detect slash trigger */
+  function handleInput(e: InputEvent) {
+    const ta = e.currentTarget as HTMLTextAreaElement
+    const value = ta.value
+    const cursor = ta.selectionStart
+
+    setPrompt(value)
+
+    // Detect slash trigger: /^\/([^\s/]*)$/
+    const slashMatch = value.match(/^\/([^\s/]*)$/)
+    if (slashMatch && cursor === value.length) {
+      setSlashState({ query: slashMatch[1] ?? "", cursor })
+      setSlashIndex(0)
+    } else {
+      setSlashState(null)
+    }
+  }
+
+  /** Pick a slash command and insert into textarea */
+  function pickSlash(cmd: SlashCommand) {
+    if (!slashState()) return
+
+    const ta = textareaRef
+    const before = prompt()
+    
+    // Replace `/query` with `/trigger `
+    const replaced = before.replace(/^\/([^\s/]*)$/, `/${cmd.trigger} `)
+    setPrompt(replaced)
+    setSlashState(null)
+
+    // Focus textarea and position cursor at end
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(replaced.length, replaced.length)
+    })
   }
 
   // ── 附件管理 ─────────────────────────────────────────────
@@ -711,18 +915,59 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
     if (files.length > 0) addAttachments(files)
   }
 
-  /** 打开结果到 ResultViewer（自动保存快照） */
-  function handleOpenResult(card: OutputCard) {
+  /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
+  async function handleOpenResult(card: OutputCard) {
+    // ★ Step 1: Check localStorage snapshot (edited version - highest priority)
+    const snapshots = snapshotStore.snapshots()
+    const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
+    
+    if (latestSnapshot) {
+      // Use edited version from localStorage
+      card = {
+        id: latestSnapshot.tab.id,
+        title: latestSnapshot.tab.title,
+        type: latestSnapshot.tab.type,
+        content: latestSnapshot.tab.content,
+        filePath: latestSnapshot.tab.filePath,
+        artifactIdentifier: latestSnapshot.tab.artifactIdentifier,
+        createdAt: new Date(latestSnapshot.timestamp),
+      }
+      console.log("[MakePage] Restored edited version from localStorage:", card.id)
+    } else if (card.filePath) {
+      // ★ Step 2: Load from file (original version - fallback)
+      try {
+        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
+          headers: {
+            "x-opencode-directory": sdk.directory || "",
+          },
+        })
+        if (response.ok) {
+          const data = await response.json()
+          if (data.content && typeof data.content === "string") {
+            card = { ...card, content: data.content }
+            console.log("[MakePage] Loaded from file:", card.filePath)
+          }
+        }
+      } catch (err) {
+        console.error("[MakePage] Failed to load file content:", err)
+      }
+    }
+    
     tabStore.openTab(card)
-    // Auto-activate composed artifact tab (identifier ends with "-composed")
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
     }
-    // Auto-save snapshot when a new result is opened
     const tab = tabStore.tabs().find((t) => t.id === card.id)
+    
     if (tab) {
-      snapshotStore.save(tab)
-      refreshSnapshots()
+      await persistTabChanges(tab, {
+        sessionId: params.id!,
+        projectDir: projectDir(),
+        sdkUrl: sdk.url,
+        sdkDirectory: sdk.directory || "",
+        snapshotStore: snapshotStore,
+        refreshSnapshots: refreshSnapshots,
+      })
     }
 
     if (projectDir()) {
@@ -752,7 +997,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
         style={{
           "grid-template-columns": !focusMode()
             ? hasContent()
-              ? `${chatWidth()}px 8px minmax(400px, 1fr)`
+              ? `${chatWidth()}px 8px minmax(0, 1fr)`
               : "1fr"
             : undefined,
         }}
@@ -863,9 +1108,19 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               </div>
             </Show>
             <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
-                <ChatEmptyState />
+              <Show when={sessionMessagesLoaded()} fallback={
+                <div class="size-full flex items-center justify-center">
+                  <div class="octo-spinner" />
+                </div>
+              }>
+                <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
+                  <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
+                  {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
+                  <StarterCards
+                    prompts={FEATURED_STARTERS}
+                    onClick={(starter) => setPrompt(starter.prompt)}
+                  />
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
@@ -889,9 +1144,42 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                       height: "150px",
                     }}
                   >
+                    {/* Slash Command Popover（新建对话） */}
+                    <Show when={slashState() && filteredSlash().length > 0}>
+                      <div class="slash-popover">
+                        <div class="slash-popover-head">
+                          <span class="slash-popover-title">命令</span>
+                          <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        </div>
+                        <For each={filteredSlash()}>
+                          {(cmd, i) => {
+                            const active = i() === slashIndex()
+                            return (
+                              <button
+                                type="button"
+                                class={`slash-item ${active ? "active" : ""}`}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onMouseEnter={() => setSlashIndex(i())}
+                                onClick={() => pickSlash(cmd)}
+                              >
+                                <span class="slash-trigger">/{cmd.trigger}</span>
+                                <span class="slash-desc">{cmd.description ?? cmd.title}</span>
+                                <Show when={cmd.source !== "builtin"}>
+                                  <span class={`slash-source badge-${cmd.source}`}>
+                                    {cmd.source === "mcp" ? "MCP" : "自定义"}
+                                  </span>
+                                </Show>
+                              </button>
+                            )
+                          }}
+                        </For>
+                      </div>
+                    </Show>
+
                     <textarea
+                      ref={textareaRef}
                       value={prompt()}
-                      onInput={(e) => setPrompt(e.currentTarget.value)}
+                      onInput={handleInput}
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}
@@ -955,12 +1243,13 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
                         disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
                         aria-label={isBusy() ? "停止生成" : undefined}
-                      />
+/>
                     </div>
-                  </div>
-                </div>
-              </div>
-            }>
+                   </div>
+                 </div>
+               </div>
+             </Show>
+           }>
               {/* 消息列表 */}
               <ScrollView
                 class="flex-1 min-h-0"
@@ -984,6 +1273,9 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
+                        onFormSubmit={(text) => {
+                          setPrompt(text)
+                        }}
                       />
                     )}
                   </For>
@@ -996,6 +1288,13 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   attachments={attachments()}
                   onRemove={removeAttachment}
                 />
+
+                {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
+                <StarterCards
+                  prompts={FEATURED_STARTERS}
+                  onClick={(starter) => setPrompt(starter.prompt)}
+                />
+
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group"
                   style={{
@@ -1014,9 +1313,42 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                     "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
+                  {/* Slash Command Popover */}
+                  <Show when={slashState() && filteredSlash().length > 0}>
+                    <div class="slash-popover">
+                      <div class="slash-popover-head">
+                        <span class="slash-popover-title">命令</span>
+                        <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                      </div>
+                      <For each={filteredSlash()}>
+                        {(cmd, i) => {
+                          const active = i() === slashIndex()
+                          return (
+                            <button
+                              type="button"
+                              class={`slash-item ${active ? "active" : ""}`}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onMouseEnter={() => setSlashIndex(i())}
+                              onClick={() => pickSlash(cmd)}
+                            >
+                              <span class="slash-trigger">/{cmd.trigger}</span>
+                              <span class="slash-desc">{cmd.description ?? cmd.title}</span>
+                              <Show when={cmd.source !== "builtin"}>
+                                <span class={`slash-source badge-${cmd.source}`}>
+                                  {cmd.source === "mcp" ? "MCP" : "自定义"}
+                                </span>
+                              </Show>
+                            </button>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+
                   <textarea
+                    ref={textareaRef}
                     value={prompt()}
-                    onInput={(e) => setPrompt(e.currentTarget.value)}
+                    onInput={handleInput}
                     onKeyDown={handleKeyDown}
                     placeholder="输入指令，按 Enter 发送…"
                     rows={3}

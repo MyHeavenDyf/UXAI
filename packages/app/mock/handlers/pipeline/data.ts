@@ -106,7 +106,7 @@ export function mockDomainInfoByProduct(productId: number) {
   const productLineId = product.parentId
   let domainId: number | undefined
   for (const [dId, lines] of Object.entries(MOCK_PRODUCT_LINES)) {
-    if (lines.some((l) => l.id === productLineId)) {
+    if ((lines as any[]).some((l) => l.id === productLineId)) {
       domainId = Number(dId)
       break
     }
@@ -121,10 +121,7 @@ export function mockDomainInfoByProduct(productId: number) {
 export function mockProductTop(productId: number) {
   for (const products of Object.values(MOCK_PRODUCTS)) {
     const product = products.find((p) => p.id === productId)
-    if (product) {
-      product.isTop = true
-      return true
-    }
+    if (product) { product.isTop = true; return true }
   }
   return false
 }
@@ -132,10 +129,7 @@ export function mockProductTop(productId: number) {
 export function mockProductCancelTop(productId: number) {
   for (const products of Object.values(MOCK_PRODUCTS)) {
     const product = products.find((p) => p.id === productId)
-    if (product) {
-      product.isTop = false
-      return true
-    }
+    if (product) { product.isTop = false; return true }
   }
   return false
 }
@@ -143,10 +137,7 @@ export function mockProductCancelTop(productId: number) {
 export function mockVersionTop(teamId: number) {
   for (const versions of Object.values(MOCK_VERSIONS)) {
     const version = versions.find((v) => v.baseTeam === teamId)
-    if (version) {
-      version.isTop = true
-      return true
-    }
+    if (version) { version.isTop = true; return true }
   }
   return false
 }
@@ -154,10 +145,7 @@ export function mockVersionTop(teamId: number) {
 export function mockVersionCancelTop(teamId: number) {
   for (const versions of Object.values(MOCK_VERSIONS)) {
     const version = versions.find((v) => v.baseTeam === teamId)
-    if (version) {
-      version.isTop = false
-      return true
-    }
+    if (version) { version.isTop = false; return true }
   }
   return false
 }

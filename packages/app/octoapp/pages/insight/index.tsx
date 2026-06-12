@@ -44,6 +44,7 @@ import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
+import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -166,6 +167,8 @@ function InsightContent() {
     document.head.appendChild(style)
     onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
   })
+
+  onMount(() => { tracker.page({ module: "insight", name: "insight-page" }) })
 
   // 数据/事件层目录:直接用 SDKProvider 注入的 sdk.directory(= keyed 的所选项目目录),
   // 保证与数据层 child store、以及所有 sdk.client 请求的 directory 是同一个值。
@@ -548,6 +551,7 @@ function InsightContent() {
         )
         local.session.promote(dir, session.id)
         navigate(`/insight/${session.id}`)
+        tracker.interaction({ module: "insight", name: "new-session" })
         return session.id
       }
     } catch (err) {
