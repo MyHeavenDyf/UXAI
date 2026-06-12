@@ -16,6 +16,10 @@ interface TitleBarProps {
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
   onOptionChange: (type: "preview" | "device" | "zoom" | "theme", value: string) => void
+  
+  // 容错升级：将这两个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
+  editing?: boolean
+  onToggleEditing?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -63,13 +67,10 @@ export function TitleBar(props: TitleBarProps) {
 
   // 统一的点击处理函数
   function handleItemClick(type: "preview" | "device" | "zoom", value: string) {
-    // 1. 关闭下拉框
     setOpenPreview(false)
     setOpenDesktop(false)
     setOpenZoom(false)
     setShowHistory(false)
-    
-    // 2. 触发外部事件
     props.onOptionChange(type, value)
   }
 
@@ -118,7 +119,7 @@ export function TitleBar(props: TitleBarProps) {
       {/* ================= 第二排：画布工具栏 ================= */}
       <div class="titlebar-row-second">
         
-        {/* 左边：刷新和 3 个数据控制的无边框下拉菜单 */}
+        {/* 左边：刷新和 3 个带有精密间距控制的无边框下拉菜单 */}
         <div class="toolbar-flex-left">
           <button class="preview-action-icon-btn" title="刷新页面" onClick={() => props.onRefresh()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="14" height="14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -126,7 +127,7 @@ export function TitleBar(props: TitleBarProps) {
             </svg>
           </button>
 
-          {/* 🛠️ 修改点 1：刷新按钮与预览之间的垂直分割小竖线 */}
+          {/* 刷新按钮与预览之间的垂直分割小竖线 */}
           <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 2px 0 6px" }} />
           
           {/* 下拉 1：预览 */}
@@ -202,6 +203,7 @@ export function TitleBar(props: TitleBarProps) {
 
         {/* 右边：常驻控制按钮组 */}
         <div class="toolbar-flex-right">
+          {/* 按钮 1：画布模式切换 */}
           <button 
             class={`preview-action-icon-btn ${props.canvasMode ? 'mode-active' : ''}`} 
             title={props.canvasMode ? "当前：画布模式（可自由拖拽缩放）" : "当前：页面操作模式（可触发内层交互）"}
@@ -216,6 +218,7 @@ export function TitleBar(props: TitleBarProps) {
             </svg>
           </button>
 
+          {/* 按钮 2：居中复位 */}
           <button class="preview-action-icon-btn" title="居中复位" onClick={() => props.onReset()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
               <circle cx="12" cy="12" r="3" stroke-width="2"/>
@@ -223,6 +226,35 @@ export function TitleBar(props: TitleBarProps) {
             </svg>
           </button>
           
+          {/* 🛠️ 终极彻底修复：使用 SolidJS 原生 classList 来进行高权重的状态映射校验 */}
+          <button 
+            class="preview-action-icon-btn" 
+            classList={{ 'edit-active': !!props.editing }}
+            title="编辑"
+            onClick={() => props.onToggleEditing?.()}
+            style={{
+              "color": (props.editing ?? false) ? "#3b82f6 !important" : "#666"
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+              <path 
+                d="M12 20h9" 
+                stroke="currentColor" 
+                stroke-width="2" 
+                stroke-linecap="round" 
+                stroke-linejoin="round"
+              />
+              <path 
+                d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" 
+                stroke="currentColor" 
+                stroke-width="2" 
+                stroke-linecap="round" 
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+
+          {/* 按钮 4：历史版本 */}
           <div class="dropdown-trigger-container">
             <button class="preview-action-icon-btn" title="历史版本" onClick={() => { setShowHistory(!showHistory()); setOpenPreview(false); setOpenDesktop(false); setOpenZoom(false) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
@@ -266,7 +298,7 @@ export function TitleBar(props: TitleBarProps) {
             </Show>
           </div>
 
-          {/* 主题模式切换按钮 */}
+          {/* 按钮 5：主题切换 */}
           <button 
             class="preview-action-icon-btn" 
             title={isDarkMode() ? "切换为白天模式" : "切换为暗黑模式"} 
@@ -291,8 +323,10 @@ export function TitleBar(props: TitleBarProps) {
             )}
           </button>
 
-            <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
+          {/* 下载前的垂直分割线 */}
+          <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
 
+          {/* 按钮 6：下载 */}
           <button class="preview-action-icon-btn" title="下载">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
               <path id="矢量 822" d="M9.08333 14.4C9.21667 14.5222 9.35833 14.6111 9.50833 14.6667C9.66389 14.7278 9.82778 14.7583 10 14.7583C10.1722 14.7583 10.3361 14.7278 10.4917 14.6667C10.6417 14.6111 10.7833 14.5222 10.9167 14.4L14.8167 10.4833L14.8583 10.4417C14.9639 10.3083 15.0139 10.1611 15.0083 9.99999C15.0028 9.83888 14.9389 9.70555 14.8167 9.59999C14.7111 9.49444 14.5778 9.43888 14.4167 9.43332C14.2611 9.42221 14.1167 9.46388 13.9833 9.55832L13.9417 9.59999L10.6167 12.8583L10.6167 2.39999C10.6167 2.22777 10.5583 2.08055 10.4417 1.95833C10.3194 1.84166 10.1722 1.78333 10 1.78333C9.82778 1.78333 9.68056 1.84166 9.55833 1.95833C9.44167 2.08055 9.38333 2.22777 9.38333 2.39999L9.38333 12.9L6.05833 9.59999C5.95278 9.47777 5.81389 9.41666 5.64167 9.41666C5.46944 9.41666 5.32222 9.47777 5.2 9.59999C5.06667 9.72221 5 9.86944 5 10.0417C5 10.2139 5.06667 10.3611 5.2 10.4833L9.08333 14.4Z" fill="rgb(25,25,25)" fill-rule="nonzero"></path>

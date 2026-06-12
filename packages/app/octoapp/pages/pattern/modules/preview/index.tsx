@@ -5,7 +5,6 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/persist"
 
-// 🛠️ 完美保留 HEAD 引入的全新重构模块与样式表
 import { TitleBar } from "./TitleBar"
 import { CanvasView } from "./CanvasView"
 import "./PreviewStyles.css"
@@ -25,34 +24,28 @@ export function PreviewPage(props: {
 }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
-  
-  // 🛠️ 完美保留 HEAD 的物理画布状态与 Ref 指针
+
   let canvasRef: { reset: () => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
+  const [editing, setEditing] = createSignal(false)
 
-  // 🛠️ 保留冲突分支的 UI 弹窗管理变量
   const dialog = useDialog()
 
   const TARGET_WIDTH = 1920
   const TARGET_HEIGHT = 1080
 
-  // 🛠️ 保留 HEAD 的原生干净刷新机制
   function triggerRefresh() {
     if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989"
   }
 
-  // === 核心：统一选项改变的处理逻辑 ===
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
     console.log(`切换类型: ${type}, 选中值: ${value}`)
-    
-    // 1. 联动：当缩放下拉选择 "适应屏幕" 时，触发画布复位
+
     if (type === "zoom" && value === "auto") {
       canvasRef?.reset()
     }
-    
-    // 2. 联动：当触发最新的主题和其它选项切换时，可在这里向外或向 iframe 发送指令
+
     if (type === "theme") {
-      // 预留给未来 iframe 换肤
       previewIframeRef?.contentWindow?.postMessage({ type: "THEME_CHANGE", theme: value }, "*")
     }
   }
@@ -122,13 +115,8 @@ export function PreviewPage(props: {
   window.addEventListener("message", handlePickerMessage)
   onCleanup(() => window.removeEventListener("message", handlePickerMessage))
 
-
-  // ==========================================================================
-  // 视图层完美组合渲染
-  // ==========================================================================
   return (
     <div ref={(el) => { previewPageRef = el }} class="preview-container">
-      {/* 🛠️ 高级内聚的双层 Top 工具栏 */}
       <TitleBar
         canvasMode={canvasMode()}
         onToggleCanvasMode={() => setCanvasMode(!canvasMode())}
@@ -140,19 +128,24 @@ export function PreviewPage(props: {
         versions={props.versions}
         currentVersionId={props.currentVersionId}
         onSelectVersion={props.onSelectVersion}
+        editing={editing()}
+        onToggleEditing={() => {
+          const next = !editing()
+          setEditing(next)
+          previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
+        }}
         onOptionChange={handleTitleBarOptionChange}
       />
 
-      {/* 🛠️ 无缝平铺的极致丝滑物理交互画布 */}
-      <CanvasView 
+      <CanvasView
         ref={(el) => { canvasRef = el }}
-        canvasMode={canvasMode()} 
-        targetWidth={TARGET_WIDTH} 
+        canvasMode={canvasMode()}
+        targetWidth={TARGET_WIDTH}
         targetHeight={TARGET_HEIGHT}
       >
-        <iframe 
-          ref={(el) => { previewIframeRef = el }} 
-          src="http://127.0.0.1:8989" 
+        <iframe
+          ref={(el) => { previewIframeRef = el }}
+          src="http://127.0.0.1:8989"
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>

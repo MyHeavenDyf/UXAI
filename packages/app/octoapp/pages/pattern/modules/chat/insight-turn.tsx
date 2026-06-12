@@ -2,7 +2,7 @@ import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk/v2/client
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../../utils/artifact-parser"
 import { stripArtifact } from "../../utils/artifact-strip"
@@ -469,14 +469,74 @@ export function InsightTurn(props: {
     return null
   })
 
+  const [userExpanded, setUserExpanded] = createSignal(false)
+  const [contentOverflows, setContentOverflows] = createSignal(false)
+  const [collapsedMaxHeight, setCollapsedMaxHeight] = createSignal("")
+  let bubbleContentRef: HTMLDivElement | undefined
+
+  const isUserRequirement = createMemo(() => userText().includes("[用户的需求:]"))
+
+  createEffect(() => {
+    const text = userText()
+    if (!bubbleContentRef || !isUserRequirement()) {
+      setContentOverflows(false)
+      setCollapsedMaxHeight("")
+      return
+    }
+    const measure = () => {
+      if (!bubbleContentRef) return
+      const lineHeight = parseFloat(getComputedStyle(bubbleContentRef).lineHeight) || 22
+      const fiveLineHeight = lineHeight * 5
+      setCollapsedMaxHeight((prev) => {
+        const val = `${fiveLineHeight}px`
+        return prev === val ? prev : val
+      })
+      setContentOverflows((prev) => {
+        const overflows = bubbleContentRef!.scrollHeight > fiveLineHeight
+        return prev === overflows ? prev : overflows
+      })
+    }
+    const raf = requestAnimationFrame(measure)
+    onCleanup(() => cancelAnimationFrame(raf))
+  })
+
+  const showCollapseBtn = createMemo(() => isUserRequirement() && contentOverflows())
+
   return (
     <div class="flex flex-col">
-      {/* 用户消息气泡（右侧对齐） */}
-      <div class="flex justify-end px-3 py-2.5 ">
-        <div
-          class="text-sm whitespace-pre-wrap break-words leading-relaxed max-w-[85%] px-3 py-2 bubble-content"
-        >
-          {userText()}
+      <div class="flex justify-end px-3 py-2.5">
+        <div class="flex flex-col items-end max-w-[85%]">
+          <div
+            class="user-bubble-wrapper"
+            classList={{
+              "user-bubble-collapsed": showCollapseBtn() && !userExpanded(),
+              "user-bubble-expanded": showCollapseBtn() && userExpanded(),
+            }}
+          >
+            <div class="text-sm whitespace-pre-wrap break-words leading-relaxed px-3 py-2 bubble-content">
+              <div
+                ref={bubbleContentRef}
+                class="bubble-text-inner"
+                style={showCollapseBtn() && !userExpanded() ? { "max-height": collapsedMaxHeight(), overflow: "hidden" } : undefined}
+              >
+                {userText()}
+              </div>
+            </div>
+            <Show when={showCollapseBtn()}>
+              <div class="user-bubble-toggle-wrap">
+                <Show when={!userExpanded()}>
+                  <div class="user-bubble-fade" />
+                </Show>
+                <button
+                  type="button"
+                  class="user-bubble-toggle-btn"
+                  onClick={() => setUserExpanded((v) => !v)}
+                >
+                  {userExpanded() ? "收起" : "展开"}
+                </button>
+              </div>
+            </Show>
+          </div>
         </div>
       </div>
 
