@@ -551,6 +551,12 @@ export function InsightTurn(props: {
       <Show when={reasoningTexts().length > 0}>
         <div class="mx-3 mb-1">
           <div
+            ref={(el) => {
+              createEffect(() => {
+                reasoningTexts()
+                el.scrollTop = el.scrollHeight
+              })
+            }}
             class="p-2.5 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
           >
             <For each={reasoningTexts()}>

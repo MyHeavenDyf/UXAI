@@ -84,10 +84,12 @@
 }
 
 .reasoning-text {
-  background: var(--octo-brand-a3);
+  background: var(--octo-surface-page);
   color: var(--octo-text-secondary);
   max-height: 300px;
-  border: 1px solid var(--octo-brand-a8);
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-md);
+  box-shadow: none;
 }
 
 .split-line {
