@@ -18,6 +18,10 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useProjectDir } from "@/hooks/use-project-dir"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
 import { type Attachment } from "./modules/chat/attachment_bar"
 import { type OutputCard } from "./modules/chat/insight-turn"
 import { runProtoTriage } from "./agents/proto_triage"
@@ -40,13 +44,12 @@ import { ChatPanel } from "./modules/chat/index"
 const AGENT_NAME = "proto_triage"
 
 export default function PatternPage() {
-  const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
+  const dir = useProjectDir()
 
   return (
-    <Show when={homeDir()} keyed>
-      {(dir) => (
-        <SDKProvider directory={() => dir}>
+    <Show when={dir()} keyed>
+      {(directory) => (
+        <SDKProvider directory={() => directory}>
           <SyncProvider>
             <LocalProvider>
               <PatternContent />
