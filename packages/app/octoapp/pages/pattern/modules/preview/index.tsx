@@ -5,7 +5,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/persist"
 
-// 🛠️ 完美保留 HEAD 引入的全新重构模块与样式表
+// 完美保留全新的重构模块与样式表
 import { TitleBar } from "./TitleBar"
 import { CanvasView } from "./CanvasView"
 import "./PreviewStyles.css"
@@ -26,17 +26,20 @@ export function PreviewPage(props: {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
   
-  // 🛠️ 完美保留 HEAD 的物理画布状态与 Ref 指针
+  // 完美保留的物理画布状态与 Ref 指针
   let canvasRef: { reset: () => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
 
-  // 🛠️ 保留冲突分支的 UI 弹窗管理变量
+  // 让 PreviewPage 内部完全自治编辑状态
+  const [editing, setEditing] = createSignal(false)
+
+  // 保留 UI 弹窗管理变量
   const dialog = useDialog()
 
   const TARGET_WIDTH = 1920
   const TARGET_HEIGHT = 1080
 
-  // 🛠️ 保留 HEAD 的原生干净刷新机制
+  // 保留的原生干净刷新机制
   function triggerRefresh() {
     if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989"
   }
@@ -50,9 +53,8 @@ export function PreviewPage(props: {
       canvasRef?.reset()
     }
     
-    // 2. 联动：当触发最新的主题和其它选项切换时，可在这里向外或向 iframe 发送指令
+    // 2. 联动：当触发最新的主题和其它选项切换时
     if (type === "theme") {
-      // 预留给未来 iframe 换肤
       previewIframeRef?.contentWindow?.postMessage({ type: "THEME_CHANGE", theme: value }, "*")
     }
   }
@@ -72,7 +74,7 @@ export function PreviewPage(props: {
   }
 
   // ==========================================================================
-  // 冲突分支的核心功能 1：DOM 区域元素选择 AI 修改弹窗
+  // DOM 区域元素选择 AI 修改弹窗
   // ==========================================================================
   const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
   const [pickerText, setPickerText] = createSignal("")
@@ -132,9 +134,8 @@ export function PreviewPage(props: {
 
 
   // ==========================================================================
-  // 冲突分支的核心功能 2：版本控制历史弹窗
+  // 版本控制历史弹窗
   // ==========================================================================
-  // 联动：当用户点击 TitleBar 的历史版本按钮时，优雅呼起这个弹窗
   function showHistoryDialog() {
     const versions = props.versions ?? []
     const currentVersionId = props.currentVersionId
@@ -180,11 +181,11 @@ export function PreviewPage(props: {
   }
 
   // ==========================================================================
-  // 3. 视图层完美组合渲染（彻底移除冲突分支的老旧绝对定位浮动 div 结构）
+  // 3. 视图层组合渲染
   // ==========================================================================
   return (
     <div ref={(el) => { previewPageRef = el }} class="preview-container">
-      {/* 🛠️ 高级内聚的双层 Top 工具栏 */}
+      {/* 双层 Top 工具栏 - 🛠️ 彻底收纳干净尾部格式，封死任何属性解析漏洞 */}
       <TitleBar
         canvasMode={canvasMode()}
         onToggleCanvasMode={() => setCanvasMode(!canvasMode())}
@@ -193,11 +194,12 @@ export function PreviewPage(props: {
         onFullscreen={() => {
           if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
         }}
-        // 绑定数据下拉及主题切换事件
+        editing={editing()}
+        onToggleEditing={() => setEditing(!editing())}
         onOptionChange={handleTitleBarOptionChange}
       />
 
-      {/* 🛠️ 无缝平铺的极致丝滑物理交互画布 */}
+      {/* 无缝平铺的物理交互画布 */}
       <CanvasView 
         ref={(el) => { canvasRef = el }}
         canvasMode={canvasMode()} 
