@@ -96,6 +96,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
     tracker.interaction({
       module: "project-onboarding",
       name: "confirm",
+      subType: "click",
       extend: JSON.stringify({
         domain: selections.domain,
         productLine: selections.productLine,
