@@ -134,7 +134,7 @@ export async function fetchProducts(subDomainId: number): Promise<Product[]> {
 }
 
 export async function fetchVersions(productId: number): Promise<Version[]> {
-  return request<Version[]>(`${BASE_URL}/version/getversionByProduct?productId=${productId}`)
+  return request<Version[]>(`${BASE_URL}/version/getVersionByProduct?productId=${productId}`)
 }
 
 export async function searchProducts(searchKey: string): Promise<SearchResult[]> {
@@ -143,5 +143,5 @@ export async function searchProducts(searchKey: string): Promise<SearchResult[]>
 }
 
 export async function fetchDomainInfoByProduct(productId: number): Promise<DomainInfoByProduct> {
-  return request<DomainInfoByProduct>(`${BASE_URL}/domain/getDomainInfoByproduct?productId=${productId}`)
+  return request<DomainInfoByProduct>(`${BASE_URL}/domain/getDomainInfoByProduct?productId=${productId}`)
 }
