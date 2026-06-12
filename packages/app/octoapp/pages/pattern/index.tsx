@@ -139,7 +139,19 @@ function PatternContent() {
           if (!state || params.id !== id) return
           if (state.lastIntent) setLastIntent(state.lastIntent)
           if (state.lastPlanner) setLastPlanner(state.lastPlanner)
-          if (state.lastModules.length > 0) setLastModules(state.lastModules)
+          if (state.lastModules.length > 0) {
+            setLastModules(state.lastModules)
+            const shell =
+              (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
+              state.lastPlanner
+            const merged = mergeModules(
+              { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
+              // @ts-expect-error pre-existing type mismatch in mergeModules
+              state.lastModules,
+            )
+            const mergedJson = detectA2UIJson(JSON.stringify(merged))
+            if (mergedJson) sendToPreview(mergedJson)
+          }
         })
         void listPatternVersions(dir, id).then(({ versions, current }) => {
           if (params.id !== id) return

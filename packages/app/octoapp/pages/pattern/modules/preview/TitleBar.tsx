@@ -1,6 +1,6 @@
-import { createSignal, onCleanup, For } from "solid-js"
+import { createSignal, onCleanup, For, Show } from "solid-js"
+import type { VersionEntry } from "../../utils/persist"
 
-// 定义下拉菜单项的数据结构
 interface DropdownItem {
   label: string
   value: string
@@ -12,8 +12,10 @@ interface TitleBarProps {
   onReset: () => void
   onRefresh: () => void
   onFullscreen: () => void
-  // 统一的选项改变回调事件
-  onOptionChange: (type: "preview" | "device" | "zoom" | "theme", value: string) => void // 增量补充 theme 类型提示
+  versions?: VersionEntry[]
+  currentVersionId?: string | null
+  onSelectVersion?: (versionId: string) => void
+  onOptionChange: (type: "preview" | "device" | "zoom" | "theme", value: string) => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -44,6 +46,8 @@ export function TitleBar(props: TitleBarProps) {
   // === 管理太阳/月亮主题的内部状态（默认白天 false） ===
   const [isDarkMode, setIsDarkMode] = createSignal(false)
 
+  const [showHistory, setShowHistory] = createSignal(false)
+
   // 点击外部自动收起
   const closeAllDropdowns = (e: MouseEvent) => {
     const target = e.target as HTMLElement
@@ -51,6 +55,7 @@ export function TitleBar(props: TitleBarProps) {
       setOpenPreview(false)
       setOpenDesktop(false)
       setOpenZoom(false)
+      setShowHistory(false)
     }
   }
   window.addEventListener("click", closeAllDropdowns)
@@ -62,6 +67,7 @@ export function TitleBar(props: TitleBarProps) {
     setOpenPreview(false)
     setOpenDesktop(false)
     setOpenZoom(false)
+    setShowHistory(false)
     
     // 2. 触发外部事件
     props.onOptionChange(type, value)
@@ -125,7 +131,7 @@ export function TitleBar(props: TitleBarProps) {
           
           {/* 下拉 1：预览 */}
           <div class={`dropdown-trigger-container ${openPreview() ? 'active-open' : ''}`}>
-            <button class="dropdown-borderless-btn" onClick={() => { setOpenPreview(!openPreview()); setOpenDesktop(false); setOpenZoom(false); }}>
+            <button class="dropdown-borderless-btn" onClick={() => { setOpenPreview(!openPreview()); setOpenDesktop(false); setOpenZoom(false); setShowHistory(false) }}>
               <span>预览</span>
               <svg class="arrow-polyline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" width="12" height="12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
@@ -149,7 +155,7 @@ export function TitleBar(props: TitleBarProps) {
 
           {/* 下拉 2：桌面 */}
           <div class={`dropdown-trigger-container ${openDesktop() ? 'active-open' : ''}`}>
-            <button class="dropdown-borderless-btn" onClick={() => { setOpenDesktop(!openDesktop()); setOpenPreview(false); setOpenZoom(false); }}>
+            <button class="dropdown-borderless-btn" onClick={() => { setOpenDesktop(!openDesktop()); setOpenPreview(false); setOpenZoom(false); setShowHistory(false) }}>
               <span>桌面</span>
               <svg class="arrow-polyline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" width="12" height="12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
@@ -173,7 +179,7 @@ export function TitleBar(props: TitleBarProps) {
 
           {/* 下拉 3：100% 缩放 */}
           <div class={`dropdown-trigger-container ${openZoom() ? 'active-open' : ''}`}>
-            <button class="dropdown-borderless-btn" onClick={() => { setOpenZoom(!openZoom()); setOpenPreview(false); setOpenDesktop(false); }}>
+            <button class="dropdown-borderless-btn" onClick={() => { setOpenZoom(!openZoom()); setOpenPreview(false); setOpenDesktop(false); setShowHistory(false) }}>
               <span>100%</span>
               <svg class="arrow-polyline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" width="12" height="12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
@@ -217,16 +223,48 @@ export function TitleBar(props: TitleBarProps) {
             </svg>
           </button>
           
-          <button class="preview-action-icon-btn" title="历史版本">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          </button>
+          <div class="dropdown-trigger-container">
+            <button class="preview-action-icon-btn" title="历史版本" onClick={() => { setShowHistory(!showHistory()); setOpenPreview(false); setOpenDesktop(false); setOpenZoom(false) }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </button>
+            <Show when={showHistory()}>
+              <div class="history-dropdown-panel">
+                <Show
+                  when={(props.versions?.length ?? 0) > 0}
+                  fallback={
+                    <div class="history-empty">暂无历史版本</div>
+                  }
+                >
+                  <For each={[...(props.versions ?? [])].reverse()}>
+                    {(v) => (
+                      <button
+                        class="history-dropdown-item"
+                        onClick={() => {
+                          props.onSelectVersion?.(v.id)
+                          setShowHistory(false)
+                        }}
+                      >
+                        <span class="history-dot" data-active={v.id === props.currentVersionId ? "" : undefined}>
+                          {v.id === props.currentVersionId ? "●" : "○"}
+                        </span>
+                        <span class="history-time">
+                          {new Date(v.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <span class="history-summary">{v.summary}</span>
+                      </button>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </Show>
+          </div>
 
           {/* 主题模式切换按钮 */}
           <button 

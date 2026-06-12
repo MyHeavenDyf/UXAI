@@ -203,6 +203,84 @@
   color: #111827;
 }
 
+/* 历史版本下拉面板（右对齐、窄宽、内容撑高） */
+.history-dropdown-panel {
+  position: absolute;
+  top: 100%;
+  right: -80px;
+  margin-top: 20px;
+  min-width: 260px;
+  max-width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+  z-index: 100;
+  padding: 4px 0;
+  box-sizing: border-box;
+  animation: dropdownAnimation 0.15s ease-out;
+}
+
+.history-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.history-dropdown-item:hover {
+  background-color: #f3f4f6;
+}
+
+.history-dot {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--octo-text-secondary, #9ca3af);
+}
+.history-dot[data-active] {
+  color: var(--octo-brand, #3b82f6);
+}
+
+.history-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--octo-text-secondary, #9ca3af);
+  min-width: 72px;
+}
+
+.history-summary {
+  font-size: 12px;
+  color: var(--octo-text-primary, #111827);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 12px;
+  font-size: 12px;
+  color: var(--octo-text-secondary, #9ca3af);
+}
+
+/* 底部弹出的修改对话框 */
+[data-component="dialog"]:has(.picker-dialog-bottom) {
+  align-items: flex-end;
+  padding-bottom: 16px;
+}
+
 /* 🛠️ 核心修改区：通用方块动作图标按钮（包含刷新、复位、全屏、模式切换、主题、下载等） */
 .preview-action-icon-btn {
   display: inline-flex;

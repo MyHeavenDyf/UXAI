@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup } from "solid-js"
+import { createSignal, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -72,7 +72,7 @@ export function PreviewPage(props: {
   }
 
   // ==========================================================================
-  // 冲突分支的核心功能 1：DOM 区域元素选择 AI 修改弹窗
+  // DOM 区域元素选择 AI 修改弹窗
   // ==========================================================================
   const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
   const [pickerText, setPickerText] = createSignal("")
@@ -91,16 +91,8 @@ export function PreviewPage(props: {
 
   function showPickerDialog() {
     dialog.show(() => (
-      <Dialog title="修改选中区域" fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <span class="text-14-regular text-text-strong">
-            选中元素: <b>{pickerDialog.tagName}</b> ({pickerDialog.domPickerId})
-          </span>
-          <div class="flex gap-2">
-            <button class="px-3 py-1 rounded-full text-13-medium transition-colors bg-primary text-on-primary">
-              AI 修改
-            </button>
-          </div>
+      <Dialog title={`修改选中区域: ${pickerDialog.tagName} (${pickerDialog.domPickerId})`} fit class="picker-dialog-bottom">
+        <div class="flex flex-col gap-4 pl-6 pr-6 pb-3">
           <textarea
             value={pickerText()}
             onInput={(e) => setPickerText(e.currentTarget.value)}
@@ -112,7 +104,7 @@ export function PreviewPage(props: {
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               取消
             </Button>
-            <Button variant="primary" size="large" onClick={submitPicker}>
+            <Button variant="primary" size="large" onClick={submitPicker} style={{"background-color":"rgb(10, 89, 247)", color:"white"}}>
               确认修改
             </Button>
           </div>
@@ -132,55 +124,7 @@ export function PreviewPage(props: {
 
 
   // ==========================================================================
-  // 冲突分支的核心功能 2：版本控制历史弹窗
-  // ==========================================================================
-  // 联动：当用户点击 TitleBar 的历史版本按钮时，优雅呼起这个弹窗
-  function showHistoryDialog() {
-    const versions = props.versions ?? []
-    const currentVersionId = props.currentVersionId
-    dialog.show(() => (
-      <Dialog title="历史版本" fit>
-        <div class="flex flex-col gap-1 py-1 min-w-[260px] min-h-[120px] max-h-[400px] overflow-auto">
-          <Show
-            when={versions.length > 0}
-            fallback={
-              <div class="flex items-center justify-center h-full text-xs" style={{ color: "var(--octo-text-secondary)" }}>
-                暂无历史版本
-              </div>
-            }
-          >
-            <For each={[...versions].reverse()}>
-              {(v) => (
-                <button
-                  class="flex items-center gap-2 px-3 py-2 rounded-md text-left hover:bg-[var(--octo-surface-hover)] shrink-0"
-                  onClick={() => {
-                    props.onSelectVersion?.(v.id)
-                    dialog.close()
-                  }}
-                >
-                  <span style={{
-                    color: v.id === currentVersionId ? "var(--octo-brand)" : "var(--octo-text-secondary)",
-                    "font-size": "10px",
-                  }}>
-                    {v.id === currentVersionId ? "●" : "○"}
-                  </span>
-                  <span class="text-xs shrink-0" style={{ color: "var(--octo-text-secondary)", "min-width": "70px" }}>
-                    {new Date(v.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  <span class="text-sm truncate" style={{ color: "var(--octo-text-primary)" }}>
-                    {v.summary}
-                  </span>
-                </button>
-              )}
-            </For>
-          </Show>
-        </div>
-      </Dialog>
-    ))
-  }
-
-  // ==========================================================================
-  // 3. 视图层完美组合渲染（彻底移除冲突分支的老旧绝对定位浮动 div 结构）
+  // 视图层完美组合渲染
   // ==========================================================================
   return (
     <div ref={(el) => { previewPageRef = el }} class="preview-container">
@@ -193,7 +137,9 @@ export function PreviewPage(props: {
         onFullscreen={() => {
           if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
         }}
-        // 绑定数据下拉及主题切换事件
+        versions={props.versions}
+        currentVersionId={props.currentVersionId}
+        onSelectVersion={props.onSelectVersion}
         onOptionChange={handleTitleBarOptionChange}
       />
 
