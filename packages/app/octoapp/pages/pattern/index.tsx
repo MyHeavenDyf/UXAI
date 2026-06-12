@@ -232,19 +232,17 @@ function PatternContent() {
       },
     ),
   )
-  // 历史文件存储目录，优先使用关联目录下的 .octo/pattern/history
+  // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
-    const dir = globalSync.data.path.directory
-    if (dir && dir.length > 2) return `${dir}/.octo/pattern/history`
-    const wt = globalSync.data.path.worktree
-    if (wt && wt.length > 2) return `${wt}/.octo/pattern/history`
-    const home = sdk.directory
-    return home ? `${home}/.octo/pattern/history` : ""
+    const home = sdk.directory;
+    return `${home}/.octo/design/history`;
   })
+
   const getModuleResults = () => {
     const mods = lastModules()
     return mods.length > 0 ? mods : null
   }
+
   const hasContent = () => {
     const id = params.id
     if (!id) return false
@@ -543,20 +541,21 @@ function PatternContent() {
       setLastModules(modules)
 
       // 存储到 .octo/design/{sid}/
-      if (sid && sdk.directory) {
-        const projectDir = sdk.directory
-        const sep = projectDir.includes("\\") ? "\\" : "/"
-        const designDir = [projectDir, ".octo", "design", sid].join(sep)
-        const encoder = new TextEncoder()
-        const write = window.api?.writeFileBuffer
-        if (write) {
-          await Promise.all([
-            write([designDir, "intent.json"].join(sep), encoder.encode(JSON.stringify(intentResult.intent_page, null, 2)).buffer as ArrayBuffer),
-            write([designDir, "planner.json"].join(sep), encoder.encode(JSON.stringify(planner.layout_planner, null, 2)).buffer as ArrayBuffer),
-            write([designDir, "modules.json"].join(sep), encoder.encode(JSON.stringify(modules, null, 2)).buffer as ArrayBuffer),
-          ])
-        }
-      }
+      // if (sid && sdk.directory) {
+      //   const projectDir = sdk.directory
+      //   const sep = projectDir.includes("\\") ? "\\" : "/"
+      //   const designDir = [projectDir, ".octo", "design", sid].join(sep)
+      //   const encoder = new TextEncoder()
+      //   const write = window.api?.writeFileBuffer
+      //   if (write) {
+      //     await Promise.all([
+      //       write([designDir, "intent.json"].join(sep), encoder.encode(JSON.stringify(intentResult.intent_page, null, 2)).buffer as ArrayBuffer),
+      //       write([designDir, "planner.json"].join(sep), encoder.encode(JSON.stringify(planner.layout_planner, null, 2)).buffer as ArrayBuffer),
+      //       write([designDir, "modules.json"].join(sep), encoder.encode(JSON.stringify(modules, null, 2)).buffer as ArrayBuffer),
+      //     ])
+      //   }
+      // }
+
       // 追加首次生成版本到历史文件
       const dir = patternHistoryDir()
       debugger
