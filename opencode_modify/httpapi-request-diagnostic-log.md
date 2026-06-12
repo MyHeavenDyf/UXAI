@@ -68,6 +68,22 @@
 - `list:enter`: 记录 scope/directory/path/start/limit
 - `list:success`: 记录返回数量
 
+### 8. session.ts groups: list endpoint 补充 error 声明 (Bug 1)
+
+**问题根因**：`SessionApi` 的 `list` endpoint 在声明时没有提供 `error` 字段。handler 内部一旦抛出 typed `Effect.fail`（例如 `project.fromDirectory` 失败），Effect HttpApi 框架无法把这个 typed 错误序列化到响应里，客户端就收到了 **400 Bad Request + 空响应体**。
+
+**修复**：在 `HttpApiEndpoint.get("list", ...)` 的 options 中加上 `error: HttpApiError.BadRequest`，让框架知道这条路径可能返回的错误类型，从而正确序列化。
+
+### 9. error.ts: errorLayer 增强 处理 typed NamedError fails (Bug 2)
+
+**问题根因**：`errorLayer` 中间件原本只处理 `Cause.isDieReason`（即 `Effect.die` 抛出的缺陷）。当 handler 用 `Effect.fail` 抛出 typed 错误（`NamedError` / `Session.BusyError`）且 endpoint 又没声明 `error` 类型时，错误既不进 errorLayer，也无法被框架序列化，最终变成空 body 的 400。
+
+**修复**：
+- 在 `Effect.catchCause` 中先用 `Cause.isFailReason` 筛选 fail 类型的原因
+- 如果是 `NamedError` 或 `Session.BusyError`，按其语义返回 400/404/500 JSON 响应
+- 抽出 `responseFor()` 和 `statusForNamedError()` 公共函数，避免 die/fail 两分支重复
+- 兜底：即使将来某个 endpoint 忘记声明 `error` 类型，也不会再出现空 body 400
+
 ## 涉及文件
 
 | 文件 | 操作 |
@@ -75,10 +91,11 @@
 | packages/desktop/src/main/windows.ts | 修改：添加 setWindowOpenHandler |
 | packages/opencode/src/server/routes/instance/httpapi/middleware/workspace-routing.ts | 修改：添加诊断日志 |
 | packages/opencode/src/server/routes/instance/httpapi/middleware/instance-context.ts | 修改：添加诊断日志 |
-| packages/opencode/src/server/routes/instance/httpapi/middleware/error.ts | 修改：添加诊断日志 |
+| packages/opencode/src/server/routes/instance/httpapi/middleware/error.ts | 修改：诊断日志 + Bug 2 typed fail 兜底 |
 | packages/opencode/src/project/instance-store.ts | 修改：添加诊断日志 |
 | packages/opencode/src/project/project.ts | 修改：添加诊断日志 |
 | packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts | 修改：添加诊断日志 |
+| packages/opencode/src/server/routes/instance/httpapi/groups/session.ts | 修改：Bug 1 给 list endpoint 补 error 声明 |
 
 ## 验证方式
 
