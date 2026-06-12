@@ -424,7 +424,7 @@ function PatternContent() {
               elementId: slot.element_id,
               layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
               intentDescription: updatedIntent as any,
-            }).then((r) => r.uiJson)
+            }).then((r) => r.ui_json)
           }
           if (slot.operation === "modify") {
             const originModule = prevModules.find((m) => m.rootId === slot.element_id)
@@ -440,7 +440,7 @@ function PatternContent() {
                 originModules: originModule,
                 modifications: modAction as unknown as Record<string, unknown>,
               },
-            }).then((r) => r.uiJson)
+            }).then((r) => r.ui_json)
           }
           return null
         })
@@ -448,8 +448,8 @@ function PatternContent() {
         const allModules = moduleResults.filter(Boolean) as typeof prevModules
 
         const merged = mergeModules(
-          { rootId: modifyResult.output.rootId, elements: modifyResult.output.elements },
-          allModules,
+          { rootId: modifyResult.output.rootId as string, elements: modifyResult.output.elements as any },
+          allModules as any,
         )
         console.log("[Pattern] ========== MERGED A2UI JSON ==========")
         console.log(JSON.stringify(merged, null, 2))
@@ -509,8 +509,8 @@ function PatternContent() {
         )
       )
       const merged = mergeModules(
-        { rootId: planner.layout_planner.rootId, elements: planner.layout_planner.elements },
-        modules,
+        { rootId: planner.layout_planner.rootId as string, elements: planner.layout_planner.elements as any },
+        modules as any,
       )
 
       // 第五步：合并顶层布局和各模块JSON
