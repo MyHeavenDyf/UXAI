@@ -157,6 +157,21 @@ export const IconCardSvg = mk("0 0 14 14", `
   <circle cx="7" cy="8.5" r="1.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
 `, 14)
 
+export const IconCardReact = mk("0 0 14 14", `
+  <circle cx="7" cy="7" r="1.8" fill="none" stroke="rgb(97,218,251)" stroke-width="1.2"/>
+  <ellipse cx="7" cy="7" rx="3.5" ry="1.3" fill="none" stroke="rgb(97,218,251)" stroke-width="0.9"/>
+  <ellipse cx="7" cy="7" rx="3.5" ry="1.3" transform="rotate(60 7 7)" fill="none" stroke="rgb(97,218,251)" stroke-width="0.9"/>
+  <ellipse cx="7" cy="7" rx="3.5" ry="1.3" transform="rotate(-60 7 7)" fill="none" stroke="rgb(97,218,251)" stroke-width="0.9"/>
+`, 14)
+
+export const IconCardDiagram = mk("0 0 14 14", `
+  <rect x="1" y="1" width="3" height="2" rx="0.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
+  <rect x="1" y="6" width="3" height="2" rx="0.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
+  <rect x="10" y="3.5" width="3" height="2" rx="0.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
+  <path d="M4 2h3l3 3.5" fill="none" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M4 7h3l3 -1.5" fill="none" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+`, 14)
+
 export const IconTabClose = mk("0 0 16 16", `
 	<g id="组合 30089">
 		<path id="矢量 31" d="M12.8686 3.81199C12.9562 3.71205 13 3.59963 13 3.4747C13 3.34978 12.9562 3.24152 12.8686 3.14991C12.7768 3.04997 12.6662 3 12.5369 3C12.4076 3 12.297 3.04997 12.2053 3.14991L8 7.34728L3.79474 3.14991C3.70296 3.04997 3.59241 3 3.46308 3C3.33375 3 3.21902 3.04997 3.1189 3.14991C3.03963 3.24152 3 3.34978 3 3.4747C3 3.59963 3.03963 3.71205 3.1189 3.81199L7.33667 8.00937L3.1189 12.1943C3.03963 12.2942 3 12.4087 3 12.5378C3 12.6669 3.03963 12.7772 3.1189 12.8688C3.21902 12.9479 3.33375 12.9896 3.46308 12.9938C3.59241 12.9979 3.70296 12.9563 3.79474 12.8688L8 8.67146L12.2053 12.8688C12.297 12.9563 12.4076 13 12.5369 13C12.6662 13 12.7768 12.9563 12.8686 12.8688C12.9562 12.7772 13 12.6669 13 12.5378C13 12.4087 12.9562 12.2942 12.8686 12.1943L8.66333 8.00937L12.8686 3.81199Z" fill="currentColor" fill-rule="nonzero" />

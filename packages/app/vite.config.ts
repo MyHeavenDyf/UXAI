@@ -1,6 +1,7 @@
 import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "vite"
 import desktopPlugin from "./vite"
+import { octoMockPlugin } from "./mock/index.ts"
 
 const sentry =
   process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
@@ -32,7 +33,7 @@ const mockProxy = process.env.MOCK_API === "false"
   : undefined
 
 export default defineConfig({
-  plugins: [desktopPlugin, sentry] as any,
+  plugins: [desktopPlugin, octoMockPlugin(), sentry] as any,
   server: {
     host: "0.0.0.0",
     allowedHosts: true,

@@ -9,6 +9,7 @@ import { formatPatch, structuredPatch } from "diff"
 import fuzzysort from "fuzzysort"
 import ignore from "ignore"
 import path from "path"
+import os from "os"
 import { Global } from "@opencode-ai/core/global"
 import { containsPath } from "../project/instance-context"
 import * as Log from "@opencode-ai/core/util/log"
@@ -505,10 +506,22 @@ export const layer = Layer.effect(
     const read: Interface["read"] = Effect.fn("File.read")(function* (file: string) {
       using _ = log.time("read", { file })
       const ctx = yield* InstanceState.context
-      const full = path.join(ctx.directory, file)
+      
+      // Support absolute paths in temp/opencode directory (for artifacts)
+      let full: string
+      if (path.isAbsolute(file)) {
+        full = file
+      } else {
+        full = path.join(ctx.directory, file)
+      }
 
-      if (!containsPath(full, ctx)) {
-        throw new Error("Access denied: path escapes project directory")
+      // Allow reading from temp/opencode directory or project directory
+      const tmpDir = path.join(os.tmpdir(), "opencode")
+      const isTempFile = full.startsWith(tmpDir)
+      const isProjectFile = containsPath(full, ctx)
+      
+      if (!isTempFile && !isProjectFile) {
+        throw new Error("Access denied: path escapes project directory and is not in temp/opencode")
       }
 
       if (isImageByExtension(file)) {
