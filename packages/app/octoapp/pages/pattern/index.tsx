@@ -82,6 +82,7 @@ function PatternContent() {
       if (!id) return null as Session | null
       try {
         const result = await sdk.client.session.get({ sessionID: id })
+        setSelectedDesignSystem("ICT-3.1")
         return (result.data as Session | undefined) ?? null
       } catch {
         return null as Session | null
@@ -215,6 +216,22 @@ function PatternContent() {
   const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
+
+  createEffect(
+    on(
+      () => params.id,
+      (id, prevId) => {
+        if (id) layout.lastSessionPerTab.setPattern(id)
+        if (prevId !== undefined) {
+          setSending(false)
+          setPhase("idle")
+          setChildSessionIDs([])
+          setSelectedDesignSystem("ICT-3.1")
+        }
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      },
+    ),
+  )
   // 历史文件存储目录，优先使用关联目录下的 .octo/pattern/history
   const patternHistoryDir = createMemo(() => {
     const dir = globalSync.data.path.directory
@@ -338,6 +355,7 @@ function PatternContent() {
         const session = result.data as Session | undefined
         if (!session) return
         setPhase("intent")
+        setSelectedDesignSystem("ICT-3.1")
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
