@@ -18,7 +18,7 @@ export const prefix = "/pipeline/rest.root/workflow"
 const mockEnabled = () => process.env.MOCK_API !== "false"
 
 function wrapResponse(content: any) {
-  return JSON.stringify({ data: { errorCode: 0, errorMessage: "", content } })
+  return JSON.stringify({ errorCode: 200, errorMessage: "", content })
 }
 
 function parseQuery(url: string) {
