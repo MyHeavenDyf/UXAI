@@ -1,4 +1,5 @@
 import { createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import "../../assets/style/chat/tool-call-card.css"
 
 export type ToolCallStatus = "running" | "done" | "error"
 
@@ -73,16 +74,11 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
   })
   return (
     <div
-      class="mx-3 mb-1 px-2.5 py-1.5 flex items-center gap-2 text-xs"
-      style={{
-        "border-radius": "var(--octo-radius-md)",
-        background: "var(--octo-surface-page)",
-        border: "1px solid var(--octo-border-default)",
-      }}
+      class="mx-3 mb-1 px-2.5 py-1.5 flex items-center gap-2 text-xs single-tool-card"
     >
-      <span style={{ color: "var(--octo-text-secondary)" }}>{label()}</span>
+      <span class="label">{label()}</span>
       <Show when={summary()}>
-        <span class="truncate flex-1 min-w-0" style={{ color: "var(--octo-text-primary)" }}>
+        <span class="truncate flex-1 min-w-0 summary">
           {summary()}
         </span>
       </Show>
@@ -129,21 +125,15 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
       when={isSingle()}
       fallback={
         <div
-          class="mx-3 mb-1"
-          style={{ "border-radius": "var(--octo-radius-md)" }}
+          class="mx-3 mb-1 tool-group-card"
         >
           <button
             type="button"
             onClick={() => setOpen(!open())}
-            class="w-full px-2.5 py-1.5 flex items-center gap-2 text-xs text-left"
-            style={{
-              background: "var(--octo-surface-page)",
-              border: "1px solid var(--octo-border-default)",
-              "border-radius": "var(--octo-radius-md)",
-            }}
+            class="w-full px-2.5 py-1.5 flex items-center gap-2 text-xs text-left btn"
           >
-            <span style={{ color: "var(--octo-text-secondary)" }}>{label()}</span>
-            <span style={{ color: "var(--octo-text-secondary)" }}>x{props.group.calls.length}</span>
+            <span class="label">{label()}</span>
+            <span class="calls">x{props.group.calls.length}</span>
             <span class="flex-1" />
             <StatusBadge status={overallStatus()} />
             <svg

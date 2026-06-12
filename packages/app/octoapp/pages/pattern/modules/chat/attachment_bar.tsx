@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import '../../assets/style/chat/attachment_bar.css'
 
 export type Attachment = {
   id: string
