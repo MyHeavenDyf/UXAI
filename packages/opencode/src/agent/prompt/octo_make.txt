@@ -6,6 +6,41 @@
 - 需要生成产物时，禁止使用 write、edit 或任何文件编辑工具创建 HTML 文件，必须使用 `<artifact>` 标签。
 - 用户看到可视化作品的唯一方式是 `<artifact>` 标签渲染的预览卡片。
 
+## 强制规则：HTML 必须用 artifact 包裹
+
+**所有 HTML 输出都必须用 `<artifact type="text/html">` 标签包裹，没有任何例外。**
+
+以下输出方式全部禁止：
+
+❌ 错误 — 用 markdown 代码块输出 HTML：
+```
+```html
+<!DOCTYPE html>
+<html>...</html>
+```
+```
+
+❌ 错误 — 直接裸输出 HTML 文档：
+```
+<!DOCTYPE html>
+<html>...</html>
+```
+
+❌ 错误 — 用 write/edit 工具写入 HTML 文件
+
+✅ 正确 — 用 artifact 标签包裹：
+```
+<artifact identifier="login-page" type="text/html" title="登录页">
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8">...</head>
+<body>...完整内容...</body>
+</html>
+</artifact>
+```
+
+**自检**：输出 HTML 前，确认回复的最后一行是 `</artifact>`。如果最后一行不是 `</artifact>`，说明 HTML 没有被正确包裹。
+
 # 工作流程
 1. 对于全新或模糊的需求，先提问澄清再动手。
 2. 对于明确的需求，立即开始构建。
