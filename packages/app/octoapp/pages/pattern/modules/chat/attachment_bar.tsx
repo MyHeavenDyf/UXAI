@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import '../../assets/style/chat/attachment_bar.css'
 
 export type Attachment = {
   id: string
@@ -35,20 +36,14 @@ export function AttachmentBar(props: {
   return (
     <Show when={props.attachments.length > 0}>
       <div
-        class="flex flex-wrap gap-1.5 px-3 py-2"
-        style={{ "border-bottom": "1px solid rgba(0,0,0,0.06)" }}
+        class="flex flex-wrap gap-1.5 px-3 py-2 attachment-bar-content"
       >
         <For each={props.attachments}>
           {(att) => (
             <div
-              class="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs"
-              style={{
-                background: "rgba(37,99,235,0.08)",
-                border: "1px solid rgba(37,99,235,0.16)",
-                color: "#1e40af",
-              }}
+              class="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs attachment-bar-item"
             >
-              <span style={{ "font-size": "12px" }}>{getMimeIcon(att.mime)}</span>
+              <span class="mime">{getMimeIcon(att.mime)}</span>
               <span class="max-w-[110px] truncate" title={att.filename}>
                 {truncateFilename(att.filename)}
               </span>

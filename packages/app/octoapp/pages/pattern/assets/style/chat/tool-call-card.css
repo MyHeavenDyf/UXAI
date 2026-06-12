@@ -1,0 +1,31 @@
+.single-tool-card {
+  border-radius: var(--octo-radius-md);
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+}
+
+.single-tool-card .label {
+  color: var(--octo-text-secondary);
+}
+
+.single-tool-card .summary {
+  color: var(--octo-text-primary);
+}
+
+.tool-group-card {
+  border-radius: var(--octo-radius-md);
+}
+
+.tool-group-card .btn {
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-md);
+}
+
+.tool-group-card .btn .label {
+  color: var(--octo-text-secondary);
+}
+
+.tool-group-card .btn .calls {
+  color: var(--octo-text-secondary);
+}

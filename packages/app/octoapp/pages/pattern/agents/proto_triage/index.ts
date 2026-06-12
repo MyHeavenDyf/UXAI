@@ -1,5 +1,4 @@
-import type { Session, Part } from "@opencode-ai/sdk/v2/client"
-import type { SDK } from "@/context/sdk"
+import { runChildSession } from "../run-child-session"
 
 export interface TriageModifyItem {
   section_id: string
@@ -17,39 +16,15 @@ export interface TriageResult {
 }
 
 export type TriageContext = {
-  sdk: { client: Client }
+  sdk: { client: any }
   directory: string
   modelKey: { providerID: string; modelID: string }
   userRequest: string
   genuiJson: Record<string, unknown> | null
   layoutPlanner: Record<string, unknown> | null
-  moduleResults: Record<string, unknown> | null
+  moduleResults: Array<Record<string, unknown>> | null
   sessionId?: string
   abortSignal: AbortSignal
-}
-
-async function waitForAssistant(sdk: TriageContext["sdk"], sessionId: string, signal: AbortSignal): Promise<string> {
-  while (!signal.aborted) {
-    await new Promise((r) => setTimeout(r, 2000))
-    if (signal.aborted) throw new Error("aborted")
-    try {
-      const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 10 })
-      const items = res.data as Array<{ info: { role: string; time: { completed?: number }; id: string }; parts: Part[] }> | undefined
-      if (!items) continue
-      for (let i = items.length - 1; i >= 0; i--) {
-        const msg = items[i].info
-        if (msg.role !== "assistant") continue
-        if (msg.time.completed == null) continue
-        for (let j = items[i].parts.length - 1; j >= 0; j--) {
-          // @ts-ignore
-          if (items[i].parts[j].type === "text" && items[i].parts[j].text)
-          // @ts-ignore
-            return items[i].parts[j].text
-        }
-      }
-    } catch {}
-  }
-  throw new Error("aborted")
 }
 
 function extractJson(text: string): Record<string, unknown> | null {
@@ -85,30 +60,22 @@ function buildRegenerateResult(): TriageResult {
 }
 
 export async function runProtoTriage(ctx: TriageContext): Promise<TriageResult> {
+  debugger
   if (!ctx.genuiJson) return buildRegenerateResult()
-
-  let sid = ctx.sessionId
-  if (!sid) {
-    const childResult = await ctx.sdk.client.session.create({
-      directory: ctx.directory,
-      parentID: "",
-      agent: "proto_triage",
-    })
-    const childSession = childResult.data as Session | undefined
-    if (!childSession) throw new Error("failed to create triage session")
-    sid = childSession.id
-  }
-
+  const startTime = Date.now()
+  console.log("[Pattern ] triage_agent运行中")
   const promptText = buildTriagePrompt(ctx)
-  await ctx.sdk.client.session.promptAsync({
-    sessionID: sid,
+  const raw = await runChildSession({
+    client: ctx.sdk.client,
+    directory: ctx.directory,
+    parentSessionID: ctx.sessionId ?? "",
     agent: "proto_triage",
-    ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
-    parts: [{ type: "text", text: promptText }],
+    modelKey: ctx.modelKey,
+    prompt: promptText,
   })
 
-  const raw = await waitForAssistant(ctx.sdk, sid, ctx.abortSignal)
   const parsed = extractJson(raw)
+  console.log("[Pattern ] triage_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
 
   if (!parsed) return { ...buildRegenerateResult(), reason: "解析失败，兜底进入重生成" }
 

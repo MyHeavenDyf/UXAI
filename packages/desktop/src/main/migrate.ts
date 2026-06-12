@@ -231,3 +231,25 @@ export function deployProtoToolFiles() {
     }
   }
 }
+
+export function deployDesignFiles() {
+  const octoConfigDir = join(homedir(), ".config", "octo")
+
+  const sourceDir = app.isPackaged
+    ? join(process.resourcesPath, "design")
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "design")
+
+  const destDir = join(octoConfigDir, "design")
+
+  if (!existsSync(sourceDir)) {
+    log.warn("design deployment: source directory not found", sourceDir)
+    return
+  }
+
+  try {
+    cpSync(sourceDir, destDir, { recursive: true })
+    log.log("design deployment: copied to", destDir)
+  } catch (err) {
+    log.warn("design deployment: failed", err)
+  }
+}

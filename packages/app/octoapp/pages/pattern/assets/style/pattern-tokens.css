@@ -1,0 +1,479 @@
+/**
+ * Octo 设计系统 Token
+ * 与上游 opencode token 完全隔离，统一用 --octo- 前缀。
+ * 所有 Octo 页面和 Shell 组件通过 var(--octo-*) 引用，不直接写颜色值。
+ */
+.octo-make {
+  /* ── Brand ─────────────────────────────── */
+  --octo-brand:        #0a59f7;
+  --octo-brand-hover:  #0950de;
+  --octo-brand-active: #0a55eb;
+  --octo-brand-subtle: #EFF6FF;   /* surface.selected */
+
+  /* brand alpha 层级 */
+  --octo-brand-a3:  rgba(10, 89, 247, 0.03);
+  --octo-brand-a8:  rgba(10, 89, 247, 0.08);
+  --octo-brand-a20: rgba(10, 89, 247, 0.20);
+  --octo-brand-a25: rgba(10, 89, 247, 0.25);
+  --octo-brand-a40: rgba(10, 89, 247, 0.40);
+
+  /* ── Text ───────────────────────────────── */
+  --octo-text-strong:      #101828;
+  --octo-text-primary:     #191919;
+  --octo-text-tertiary:    #364153;  /* nav 分组标题 */
+  --octo-text-secondary:   rgba(0,0,0,0.6);  /* 辅助说明 */
+  --octo-text-placeholder: #9CA3AF;  /* 输入框 placeholder */
+  --octo-text-disabled:    #BFBFBF;
+
+  /* ── Surface ────────────────────────────── */
+  --octo-surface-page:     #FFFFFF;
+  --octo-surface-selected: #EFF6FF;
+  --octo-surface-hover:    #F5F5F5;
+  --octo-surface-disabled: #F5F5F5;
+  --octo-surface-result:   #FFFFFF;  /* ResultViewer 背景 */
+  --octo-shell-bg:         #F3F6FB;  /* shell 整体背景 */
+
+  /* ── Border ─────────────────────────────── */
+  --octo-border-default: #E5E7EB;
+  --octo-border-input:   #C9C9C9;
+  --octo-border-divider: rgba(0, 0, 0, 0.07);  /* 面板间分隔线 */
+
+  /* ── Radius ─────────────────────────────── */
+  --octo-radius-sm: 4px;
+  --octo-radius-md: 6px;
+  --octo-radius-lg: 8px;
+  --octo-radius-xl: 12px;
+  --octo-radius-pill: 999px;
+
+  /* ── Shadow ─────────────────────────────── */
+  --octo-shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
+  --octo-shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
+  --octo-shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+
+  /* ── Typography ─────────────────────────── */
+  --octo-font: "HarmonyOS Sans", Inter, "Noto Sans JP", system-ui,
+               -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* ── Motion ─────────────────────────────── */
+  --octo-dur-fast:   100ms;
+  --octo-dur-normal: 200ms;
+  --octo-ease:       cubic-bezier(0.4, 0, 0.2, 1);
+  --octo-ease-out:   cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* ── Keyframes ─────────────────────────── */
+
+@keyframes session-progress-whip {
+  0% {
+    clip-path: inset(0 100% 0 0 round 999px);
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  48% {
+    clip-path: inset(0 0 0 0 round 999px);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  100% {
+    clip-path: inset(0 0 0 100% round 999px);
+  }
+}
+
+[data-component="session-progress"] {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 220ms ease-out;
+  z-index: 10;
+}
+
+[data-component="session-progress"][data-state="hiding"] {
+  opacity: 0;
+}
+
+[data-component="session-progress-bar"] {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--session-progress-color);
+  clip-path: inset(0 100% 0 0 round 999px);
+  animation: session-progress-whip var(--session-progress-ms, 1800ms) infinite;
+  will-change: clip-path;
+}
+
+@keyframes octo-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes octo-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Split layout (Grid) ───────────────── */
+
+.octo-split {
+  display: grid;
+  grid-template-columns: 460px 8px minmax(400px, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+.octo-split[data-focus="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Resize handle between chat and result */
+.octo-split-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  position: relative;
+  user-select: none;
+  background-color: #fff;
+  border-left: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+
+/* ── Tab bar ────────────────────────────── */
+
+.octo-tab {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(44,46,52,0.05);
+  color: rgba(0,0,0,0.6);
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease);
+  max-width: 180px;
+  flex: 0 0 auto;
+}
+.octo-tab:hover {
+  background: rgba(44,46,52,0.08);
+}
+.octo-tab[data-active="true"] {
+  background: rgba(10,89,247,0.08);
+  color: #0a58f7;
+}
+.octo-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+/* ── Action bar ─────────────────────────── */
+
+.octo-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  min-height: 56px;
+  border-bottom: 1px solid var(--octo-border-divider);
+  background: var(--octo-surface-page);
+  font-size: 14px;
+  line-height: 22px;
+}
+.octo-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--octo-radius-sm);
+  color: var(--octo-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-action-btn:hover {
+  color: var(--octo-text-primary);
+  background: rgba(0,0,0,0.04);
+}
+
+/* ── DS picker trigger (pill style) ──────── */
+
+.octo-ds-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--octo-radius-pill);
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+/* ── Focus mode toggle ──────────────────── */
+
+.octo-focus-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--octo-radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--octo-text-secondary);
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-focus-btn:hover {
+  background: rgba(0,0,0,0.05);
+  color: var(--octo-text-primary);
+}
+.octo-focus-btn[data-active="true"] {
+  background: var(--octo-brand-a8);
+  color: var(--octo-brand);
+}
+
+/* ── 组件覆盖 (Insight) ───────────────────────── */
+
+/* SessionTurn 基础文本和间距覆盖 */
+[data-component="session-turn"] [data-slot="message-part-text"] {
+  color: var(--octo-text-primary);
+  line-height: 22px;
+}
+[data-component="session-turn"] [data-slot="message-part-reasoning"],
+[data-component="session-turn"] [data-component="accordion"],
+[data-component="session-turn"] [data-slot="session-turn-diffs-header"],
+[data-component="session-turn"] [data-slot="session-turn-diff-meta"] {
+  color: var(--octo-text-secondary);
+  line-height: 20px;
+}
+
+/* SessionTurn 内部工具卡片和块级卡片覆盖 */
+[data-component="session-turn"] [data-component="card"],
+[data-component="session-turn"] [data-component="tool-error-card"] {
+  border: 1px solid var(--octo-border-default) !important;
+  box-shadow: none !important;
+  border-radius: var(--octo-radius-md) !important;
+}
+
+/* 用户消息气泡 */
+
+[data-component="session-turn"] [data-slot="user-message-attachment"] {
+  background: var(--octo-surface-page) !important;
+  border: 1px solid var(--octo-border-default) !important;
+  border-radius: var(--octo-radius-sm) !important;
+  padding: 6px 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  margin-bottom: 8px !important;
+  margin-right: 8px !important;
+}
+
+[data-component="session-turn"] [data-slot="user-message-attachment-file"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  gap: 6px;
+}
+
+/* ── 输入区按钮状态 ─────────────────────────── */
+
+.octo-split [data-action="prompt-submit"] {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-image: url(/IconSend-blue.svg);
+  background-size: 48.4px auto;
+  background-position: -8px -3.5px;
+  background-repeat: no-repeat;
+  background-color: transparent;
+  border: none;
+}
+
+.octo-split [data-action="prompt-submit"]:disabled {
+  opacity: 0.6;
+}
+
+.octo-split [data-action="prompt-submit"][data-icon="stop"] {
+  background-image: url(/pauseIcon.svg);
+}
+
+.octo-split [data-action="prompt-submit"] [data-slot="icon-svg"] {
+  display: none;
+}
+
+/* ── Viewport switcher ──────────────────── */
+
+.octo-viewport-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--octo-radius-sm);
+  background: transparent;
+  color: var(--octo-text-disabled);
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-viewport-btn:hover {
+  color: var(--octo-text-secondary);
+  background: rgba(0,0,0,0.04);
+}
+.octo-viewport-btn-active {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a8);
+}
+.octo-viewport-btn-active:hover {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a20);
+}
+
+button[title="版本历史"] {
+  display: none;
+}
+
+/* ── DropdownMenu (标题栏更多操作) ────────── */
+
+[data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
+  background-color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
+  border: none;
+  padding: 8px;
+  min-width: 132px !important;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {
+  height: 36px;
+  padding: 0 8px 0 12px;
+  font-size: 14px;
+  color: rgba(0,0,0,0.9);
+  line-height: 22px;
+  border-radius: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"][data-highlighted],
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"]:hover {
+  background: #eee;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 4px -8px 4px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
+}
+
+/* ── Delete Dialog ────────────────────────── */
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
+  width: 436px;
+}
+
+.delete-dialog[data-slot="dialog-content"] {
+  border-radius: 20px;
+  box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
+  padding: 24px 32px;
+  background: #fff;
+  border: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
+  display: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
+  font-size: 20px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+  padding: 0;
+}
+
+.delete-dialog-btn {
+  width: 88px !important;
+  height: 32px !important;
+  border-radius: 4px !important;
+  font-size: 14px !important;
+  line-height: 22px !important;
+  padding: 0 !important;
+}
+
+button.delete-dialog-btn {
+  border: 1px solid rgba(201, 201, 201, 1);
+  background: #fff;
+  color: rgb(25, 25, 25);
+  cursor: pointer;
+}
+
+button.delete-dialog-btn-primary {
+  background: #0a59f7;
+  border-color: #0a59f7;
+  color: #fff;
+}
+
+
+/* ── preview ────────────────────────── */
+.preview-action-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  color: #64748b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s;
+}
+.preview-action-btn:hover {
+  color: #2563eb;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.preview-iframe-wrapper {
+  position: relative;
+  background: white;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  transform-origin: center center;
+  transition: width 0.4s ease, height 0.4s ease, transform 0.4s ease;
+  overflow: hidden;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.preview-iframe-wrapper iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* proto-tab-btns */
+.proto-tab-btns {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 2px 16px 2px;
+}

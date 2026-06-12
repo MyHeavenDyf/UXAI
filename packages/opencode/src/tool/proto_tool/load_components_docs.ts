@@ -12,6 +12,7 @@ const EXAMPLE_DIR = path.join(CONFIG_DIR, "example")
 mkdirSync(API_DIR, { recursive: true })
 mkdirSync(EXAMPLE_DIR, { recursive: true })
 import * as Log from "@opencode-ai/core/util/log"
+
 const COMPONENT_CATALOG: Record<string, string[]> = {
   General: ["Button", "Icon"],
   Navigation: ["Tabs", "TabItem", "Steps", "StepItem", "Breadcrumb", "Dropdown", "Menu"],
@@ -21,6 +22,7 @@ const COMPONENT_CATALOG: Record<string, string[]> = {
   Chart: ["LineChart", "BarChart", "PieChart", "RadarChart", "GaugeChart", "ProcessChart", "BubbleChart", "AssembleBubbleChart", "BulletChart", "FunnelChart", "HillChart", "ScatterChart", "JadeJueChart", "CircleProcessChart"],
   Custom: ["PatGauge", "PatStackedBar"],
 }
+
 const log = Log.create({ service: "load_components_docs" })
 
 const COMPONENT_CHILDREN: Record<string, string[]> = {

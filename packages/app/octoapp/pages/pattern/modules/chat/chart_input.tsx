@@ -4,6 +4,7 @@ import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { DesignSystemPicker } from "./design_system_picker"
 import { useLocal } from "@/context/local"
 import type { JSX } from "solid-js"
+import "../../assets/style/chat/chart_input.css"
 
 export type Attachment = {
   id: string
@@ -49,18 +50,8 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
   let fileInputRef!: HTMLInputElement
   return (
     <div
-      class="rounded-[16px] transition-all duration-300 relative group"
+      class="rounded-[24px]  flex flex-col transition-all duration-300 relative group chat-input-content"
       style={{
-        border: "1px solid transparent",
-        background: `
-          linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
-          linear-gradient(135deg,
-            rgba(0, 103, 209, 0.7) 1%,
-            rgba(46, 134, 222, 0.7) 22%,
-            rgba(0, 103, 209, 0.7) 54%,
-            rgba(0, 78, 168, 0.7) 87%,
-            rgba(0, 103, 209, 0.7) 92%) border-box`,
-        "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(0, 103, 209, 0.18), 0 0 20px rgba(0, 78, 168, 0.12)",
         "margin-top": props.attachments.length > 0 ? "6px" : "0",
         ...(props.rows === undefined ? { height: "150px" } : {}),
       }}
@@ -69,10 +60,10 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
         value={props.value}
         onInput={(e) => props.onValueChange(e.currentTarget.value)}
         onKeyDown={props.onKeyDown}
-        placeholder="描述你想要的界面，按 Enter 生成 A2UI JSON…"
+        placeholder="描述你想要的界面，按 Enter 生成页面原型"
         rows={props.rows}
         disabled={props.disabled}
-        class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
+        class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-3"
         style={{
           "font-family": "var(--octo-font)",
           ...(props.rows === undefined ? { flex: "1", "max-height": "none", "overflow-y": "auto" } : { "max-height": "120px", "overflow-y": "auto" }),
@@ -92,7 +83,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             accept="*/*"
             onChange={props.onFileChange}
           />
-          <button
+          {/* <button
             type="button"
             onClick={() => { if (!props.maxAttachments) fileInputRef.click() }}
             disabled={props.maxAttachments}
@@ -100,7 +91,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             title={props.maxAttachments ? "最多 5 个文件" : "添加附件"}
           >
             <Icon name="plus" class="size-5" />
-          </button>
+          </button> */}
           <ModelSelectorPopover
             model={props.model}
             triggerAs="button"

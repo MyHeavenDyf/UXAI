@@ -85,7 +85,7 @@ if (fs.existsSync(skillsDir)) {
 // Copy proto_tool api/ and example/ to dist/node/ for load_components_docs
 const protoToolDir = path.join(dir, "src", "tool", "proto_tool")
 const distNodeDir = path.join(dir, "dist", "node")
-for (const sub of ["api", "example"]) {
+for (const sub of ["api", "example", "design"]) {
   const srcDir = path.join(protoToolDir, sub)
   const destDir = path.join(distNodeDir, sub)
   if (fs.existsSync(srcDir)) {

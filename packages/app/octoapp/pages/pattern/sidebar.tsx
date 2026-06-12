@@ -152,12 +152,9 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
               class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
             >
               <span class="flex items-center gap-[12px] min-w-0">
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <rect x="3" y="3" width="14" height="14" rx="3" stroke="currentColor" stroke-width="1.5" />
-                  <path d="M7 7h2v2H7zM11 7h2v2h-2zM7 11h2v2H7zM11 11h2v2h-2z" fill="currentColor" />
-                </svg>
+                <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
                 <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
-                  Octo Pattern
+                  Octo Prototype
                 </span>
               </span>
               <ChevronRightIcon collapsed={patternCollapsed()} />

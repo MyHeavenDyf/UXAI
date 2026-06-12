@@ -1,5 +1,5 @@
-import type { Message, Session } from '@opencode-ai/sdk/v2/client';
-import { extractJson, getResultFromMessages } from '../../utils/json_parser';
+import { extractJson } from '../../utils/json_parser';
+import { runChildSession } from '../run-child-session';
 import intentDescriptionSchema from './schema';
 
 const AGENT_NAME = "proto_intent"
@@ -21,14 +21,28 @@ type ProtoIntentInput = {
   intentAuditPass?: boolean
   // 上一轮的意图输出
   pageDescription?: string
+  // 子 session 创建回调
+  onSessionCreated?: (childSessionID: string) => void
 }
 
 export default async function proto_intent(input: ProtoIntentInput) {
-  const { sdk, sync, modelKey, rootSession, userInput, auditFeedback, intentAuditPass, pageDescription } = input
+  const { sdk, sync, modelKey, rootSession, userInput, auditFeedback, intentAuditPass, pageDescription, onSessionCreated } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(userInput, auditFeedback, intentAuditPass, pageDescription)
+  const startTime = Date.now()
+  console.log("[Pattern ] intent_agent运行中")
   // 执行 Agent
-  const intentResult = await runAgent(sdk, sync, modelKey, rootSession, humanMessage)
+  const intentResult = await runChildSession({
+    client: sdk.client,
+    directory: sdk.directory,
+    parentSessionID: rootSession,
+    agent: AGENT_NAME,
+    modelKey,
+    prompt: humanMessage,
+    sync,
+    onSessionCreated,
+  })
+  console.log("[Pattern ] intent_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   // 转换成 audit json
   debugger
   const intentJson = extractJson(intentResult)
@@ -38,31 +52,6 @@ export default async function proto_intent(input: ProtoIntentInput) {
     "intent_page": simplifyData(intentJson),
     "current_step": "intent_expansion"
   }
-}
-
-// 调用 opencode sdk
-async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: string, humanMessage: string): Promise<string> {
-  // create new session
-  const newSession = await sdk.client.session.create({
-    directory: sdk.directory,
-    parentID: rootSession,
-    agent: AGENT_NAME,
-  })
-  const sessionData = newSession.data as Session | undefined
-  if (!sessionData) throw new Error("----- Failed to create new session -----")
-
-  // run session 
-  await sdk.client.session.promptAsync({
-    sessionID: sessionData.id,
-    agent: AGENT_NAME,
-    model: modelKey,
-    parts: [{ type: "text", text: humanMessage }]
-  })
-
-  // get result
-  let result = await getResultFromMessages(sdk, sessionData.id, false);
-  if (!result) throw new Error("----- Intent gent returned NULL -----")
-  return result;
 }
 
 // 组装意图扩展的输入文本

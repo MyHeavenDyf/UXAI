@@ -95,6 +95,8 @@ declare global {
     }
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
+      designList: () => Promise<Array<{ name: string; filename: string }>>
+      designRead: (name: string) => Promise<string | null>
     }
   }
 }
