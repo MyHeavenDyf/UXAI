@@ -1,4 +1,4 @@
-import "./pattern-tokens.css"
+import "./assets/style/pattern-tokens.css"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
