@@ -19,6 +19,8 @@ import { InsightTurn, type OutputCard } from "./insight-turn"
 import { ProtoIntroduction } from "./proto_introduction"
 import { ChartInput, type ChartInputProps } from "./chart_input"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { ProtoTabSwitcher, type TabKey } from "./proto-tab-switcher"
+import "../../assets/style/chat/index.css"
 
 type AutoScrollApi = ReturnType<typeof createAutoScroll>
 
@@ -102,6 +104,8 @@ export function ChatPanel(props: {
     ))
   }
 
+  const [state, setState] = createStore<{ activeTab: TabKey }>({ activeTab: "fullpage" })
+
   return (
     <div
       class="flex flex-col overflow-hidden"
@@ -142,8 +146,7 @@ export function ChatPanel(props: {
               }
             >
               <h1
-                class="truncate min-w-0"
-                style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
+                class="truncate min-w-0 title"
                 onDblClick={openTitleEditor}
               >
                 {sessionTitle(props.sessionInfo?.title) ?? "Pattern"}
@@ -183,6 +186,9 @@ export function ChatPanel(props: {
           <ProtoIntroduction />
           <div class="w-full max-w-[800px] px-8">
             <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
+            <div class="proto-tab-btns">
+              <ProtoTabSwitcher activeTab={state.activeTab} onChange={(tab) => setState("activeTab", tab)} />
+            </div>
             <ChartInput {...props.inputProps} rows={undefined} />
           </div>
         </div>
@@ -198,7 +204,7 @@ export function ChatPanel(props: {
             <For each={props.userMessages}>
               {(msg) => (
                 <InsightTurn
-                  sessionID={params.id!}
+                  sessionID={(msg as any)._sessionID ?? params.id!}
                   messageID={msg.id}
                   status={props.sessionStatus}
                   active={props.isBusy}
@@ -209,7 +215,7 @@ export function ChatPanel(props: {
           </div>
         </ScrollView>
 
-        <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+        <div class="shrink-0 chat-content">
           <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
           <ChartInput {...props.inputProps} rows={3} />
         </div>

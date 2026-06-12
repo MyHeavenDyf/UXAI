@@ -1,5 +1,5 @@
-import type { Message, Session } from '@opencode-ai/sdk/v2/client';
-import { extractJson, getResultFromMessages } from '../../utils/json_parser';
+import { extractJson } from '../../utils/json_parser';
+import { runChildSession } from '../run-child-session';
 import intentAuditSchema from './schema';
 
 const AGENT_NAME = "proto_intent_audit"
@@ -17,14 +17,28 @@ type ProtoIntentAuditInput = {
   userInput: string
   // 待评审意图
   intentDescription: string
+  // 子 session 创建回调
+  onSessionCreated?: (childSessionID: string) => void
 }
 
 export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
-  const { sdk, sync, modelKey, rootSession, userInput, intentDescription } = input
+  const { sdk, sync, modelKey, rootSession, userInput, intentDescription, onSessionCreated } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(userInput, intentDescription)
+    const startTime = Date.now()
+  console.log("[Pattern ] intent_audit_agent运行中")
   // 执行 Agent
-  const auditResult = await runAgent(sdk, sync, modelKey, rootSession, humanMessage)
+  const auditResult = await runChildSession({
+    client: sdk.client,
+    directory: sdk.directory,
+    parentSessionID: rootSession,
+    agent: AGENT_NAME,
+    modelKey,
+    prompt: humanMessage,
+    sync,
+    onSessionCreated,
+  })
+   console.log("[Pattern ] intent_audit_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   debugger
   // 转换成 audit json
   const intentJson = extractJson(auditResult)
@@ -34,33 +48,6 @@ export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
     "intent_audit_feedback": intentJson.feedback,
     "current_step": "intent_audit"
   };
-}
-
-// run OpenCode SDK
-async function runAgent(sdk: any, sync: any, modelKey: string, rootSession: string, humanMessage: string): Promise<string> {
-  // create new session
-  const newSession = await sdk.client.session.create({
-    directory: sdk.directory,
-    parentID: rootSession,
-    agent: AGENT_NAME,
-  })
-  const sessionData = newSession.data as Session | undefined
-  if (!sessionData) throw new Error("----- Failed to create new session -----")
-  const startTime = Date.now()
-  console.log("[Pattern ] intent_audit_agent运行中")
-  // run session 
-  await sdk.client.session.promptAsync({
-    sessionID: sessionData.id,
-    agent: AGENT_NAME,
-    model: modelKey,
-    parts: [{ type: "text", text: humanMessage }]
-  })
-
-  // get result
-  let result = await getResultFromMessages(sdk, sessionData.id, false);
-  console.log("[Pattern ] intent_audit_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
-  if (!result) throw new Error("----- Intent Audit agent returned NULL -----")
-  return result;
 }
 
 // 组装意图审查的输入文本

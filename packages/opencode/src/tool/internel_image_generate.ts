@@ -1,19 +1,28 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
-import type { ImageGenerateInput, ImageGenerateOutput } from "@/studio/image-provider"
-import type { StudioCapability } from "@/studio/image-provider"
+import type {
+  ImageGenerateInput,
+  ImageGenerationQuery,
+  ImageGenerationTask,
+  ImageGenerateOutput,
+  StudioCapability,
+} from "@/studio/image-provider"
 
 const METHOD = "POST"
 // const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
 // const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
+// const DEFAULT_GET_PROMPT_TAG_URL = "http://localhost:3000/get_prompt_tags"
+// const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
+const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
+const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
 const DEFAULT_USER_IDX = "l00423136"
 const DEFAULT_TIMEOUT_MS = 120_000
 
 type JsonRecord = Record<string, unknown>
 type InternalTaskType = "txt2img" | "img2img"
-type InternalToolAction = "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+type InternalToolAction = "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
 type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
 type InternalStyleConfig = {
   taskType: string
@@ -131,32 +140,6 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function isRetriableHttpStatus(status: number): boolean {
-  return [408, 409, 425, 429, 500, 502, 503, 504].includes(status)
-}
-
-function isRetriableError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  const code = error && typeof error === "object" && "code" in error
-    ? String((error as { code?: unknown }).code)
-    : ""
-  return [
-    "fetch failed",
-    "Unable to connect",
-    "ECONNRESET",
-    "ECONNREFUSED",
-    "ConnectionRefused",
-    "FailedToOpenSocket",
-    "ETIMEDOUT",
-    "UND_ERR_CONNECT_TIMEOUT",
-    "UND_ERR_HEADERS_TIMEOUT",
-    "UND_ERR_BODY_TIMEOUT",
-    "socket hang up",
-    "The operation was aborted",
-    "AbortError",
-  ].some((keyword) => message.includes(keyword) || code.includes(keyword))
-}
-
 function describeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   const code = error && typeof error === "object" && "code" in error
@@ -178,10 +161,6 @@ function describeError(error: unknown) {
     .join("; ")
 }
 
-function getBackoffMs(attempt: number): number {
-  return Math.min(1000 * 2 ** (attempt - 1), 8000) + Math.floor(Math.random() * 500)
-}
-
 function parseJson(text: string): JsonRecord {
   try {
     return JSON.parse(text) as JsonRecord
@@ -192,6 +171,75 @@ function parseJson(text: string): JsonRecord {
 
 function isSupportedImageInput(value: string) {
   return /^(https?:\/\/\S+|data:image\/[a-z0-9.+-]+;base64,\S+)$/i.test(value)
+}
+
+export async function fetchPromptTags(): Promise<unknown> {
+  const url = env("IMAGE_GET_PROMPT_TAG_URL") ?? DEFAULT_GET_PROMPT_TAG_URL
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      accept: "application/json, text/plain, */*",
+      ...internalImageHeaders({ contentType: false }),
+    },
+  }).catch((error) => {
+    throw new Error(
+      [
+        "get_prompt_tags network failed.",
+        `url=${url}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "get_prompt_tags failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  return parseJson(text)
+}
+
+export async function checkStudioPermission(userIdx?: string): Promise<unknown> {
+  const url = env("IMAGE_CHECK_PERMISSION_URL") ?? DEFAULT_CHECK_PERMISSION_URL
+  if (!url) {
+    console.warn("[studio.permission] skipped: configure DEFAULT_CHECK_PERMISSION_URL or IMAGE_CHECK_PERMISSION_URL")
+    return { skipped: true }
+  }
+  const response = await fetch(url, {
+    method: METHOD,
+    headers: internalImageHeaders(),
+    body: JSON.stringify({
+      checkPermList: ["view:keling_entry"],
+      uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
+    }),
+  }).catch((error) => {
+    throw new Error(
+      [
+        "check_permission network failed.",
+        `url=${url}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "check_permission failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  const result = parseJson(text)
+  console.log("[studio.permission] response", result)
+  return result
 }
 
 export function resolveReferenceImages(input: Pick<ImageGenerateInput, "referenceImages" | "sourceImage">) {
@@ -317,6 +365,74 @@ function isRenderableImageUrl(url: string) {
   return /^https?:\/\/\S+|^data:image\/[a-z0-9.+-]+;base64,\S+$/i.test(url)
 }
 
+function isRenderableVideoUrl(url: string) {
+  if (!url) return false
+  if (/^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(url)) return true
+  if (!/^https?:\/\/\S+/i.test(url)) return false
+  return /\.(mp4|mov|webm)$/i.test(url.split(/[?#]/)[0] ?? "")
+}
+
+function collectDirectVideoUrls(value: unknown): string[] {
+  if (!value) return []
+  if (typeof value === "string") {
+    const normalized = value.replaceAll("\\/", "/").trim().replace(/[,.，。]+$/, "")
+    return /^https?:\/\/\S+$/i.test(normalized) || /^data:video\/[a-z0-9.+-]+;base64,\S+$/i.test(normalized)
+      ? [normalized]
+      : []
+  }
+  if (Array.isArray(value)) return Array.from(new Set(value.flatMap((item) => collectDirectVideoUrls(item))))
+  return []
+}
+
+function collectVideoUrls(value: unknown): string[] {
+  if (!value) return []
+  if (typeof value === "string") {
+    const normalized = value.replaceAll("\\/", "/").trim()
+    const parsed = (() => {
+      try {
+        return JSON.parse(normalized) as unknown
+      } catch {
+        return undefined
+      }
+    })()
+    const direct = isRenderableVideoUrl(normalized) ? [normalized] : []
+    const embedded = [
+      ...(normalized.match(/https?:\/\/[^\s"'<>\\)]+/g) ?? []),
+      ...(normalized.match(/data:video\/[a-z0-9.+-]+;base64,[^\s"'<>\\)]+/gi) ?? []),
+    ].filter(isRenderableVideoUrl)
+    return Array.from(new Set([...direct, ...embedded, ...collectVideoUrls(parsed)])).map((url) =>
+      url.replace(/[,.，。]+$/, ""),
+    )
+  }
+  if (Array.isArray(value)) return Array.from(new Set(value.flatMap((item) => collectVideoUrls(item))))
+  if (typeof value !== "object") return []
+
+  const record = value as JsonRecord
+  const direct = [
+    "videos",
+    "video",
+    "video_url",
+    "videoUrl",
+    "result_video",
+    "result_videos",
+    "results",
+    "urls",
+    "primaryVideo",
+    "primary_video",
+  ].flatMap((key) => collectDirectVideoUrls(record[key]))
+  const nested = [
+    record.result,
+    record.data,
+    record.output,
+    record.result && typeof record.result === "object" ? (record.result as JsonRecord).result : undefined,
+    record.result && typeof record.result === "object" ? (record.result as JsonRecord).data : undefined,
+    record.data && typeof record.data === "object" ? (record.data as JsonRecord).result : undefined,
+    record.data && typeof record.data === "object" ? (record.data as JsonRecord).data : undefined,
+  ].flatMap((item) => collectVideoUrls(item))
+
+  return Array.from(new Set([...direct, ...nested]))
+}
+
 export function extractInternalImages(response: QueryTaskResponse) {
   const directResults = Array.isArray(response.result?.results)
     ? response.result.results.filter((item): item is string => typeof item === "string" && item.length > 0)
@@ -334,6 +450,14 @@ export function extractInternalImages(response: QueryTaskResponse) {
   return Array.from(new Set([...imageUrls, ...binaryImages]))
 }
 
+export function extractInternalVideos(response: QueryTaskResponse) {
+  const versionedResults = Array.isArray(response.result?.results_v2)
+    ? response.result.results_v2
+        .flatMap((item) => collectVideoUrls(item.output))
+    : []
+  return Array.from(new Set([...versionedResults, ...collectVideoUrls(response)]))
+}
+
 export function summarizeInternalOutput(raw: unknown, bodyText = "") {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { bodyBytes: bodyText.length }
@@ -348,6 +472,7 @@ export function summarizeInternalOutput(raw: unknown, bodyText = "") {
     requestId: record.request_id,
     timeElapsed: record.time_elapsed,
     imageUrlCount: collectImageUrls(raw).length,
+    videoUrlCount: collectVideoUrls(raw).length,
     binaryImageCount: base64Images.length,
     binaryImageBytes: base64Images.map((item) => item.length),
     bodyBytes: bodyText.length,
@@ -392,101 +517,79 @@ function getTaskStatus(response: QueryTaskResponse): number | string {
 
 function getTaskProgress(response: QueryTaskResponse): number {
   const progress = response.result?.progress ?? response.data?.progress ?? response.progress ?? 0
-  return Number(progress)
+  const value = Number(progress)
+  if (!Number.isFinite(value)) return 0
+  return Math.min(100, Math.max(0, value))
+}
+
+function getTaskOrder(response: QueryTaskResponse) {
+  const value = Number(response.result?.order ?? response.data?.order)
+  return Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 function isSuccessResponse(response: QueryTaskResponse): boolean {
-  return response.resp_code === 200 && Number(getTaskStatus(response)) === 2 && getTaskProgress(response) >= 100
+  return response.resp_code === 200 && Number(getTaskStatus(response)) === 2
 }
 
 function isFailureResponse(response: QueryTaskResponse): boolean {
   const status = Number(getTaskStatus(response))
   if (response.resp_code !== undefined && response.resp_code !== 200) return true
-  return [3, 4, -1].includes(status)
+  return ![0, 1, 2, 6].includes(status)
 }
 
-async function createTaskWithRetry(
+function normalizeTaskStatus(response: QueryTaskResponse): ImageGenerationQuery["status"] {
+  if (isSuccessResponse(response)) return "succeeded"
+  if (isFailureResponse(response)) return "failed"
+  if (Number(getTaskStatus(response)) === 6) return "queued"
+  return "running"
+}
+
+async function createTask(
   createTaskUrl: string,
   createPayload: unknown,
-  maxCreateRetries: number,
   createTimeoutMs: number,
 ): Promise<CreateTaskResponse> {
-  let lastError: unknown = null
-
-  for (let attempt = 1; attempt <= maxCreateRetries; attempt++) {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), createTimeoutMs)
-
-      const response = await fetch(createTaskUrl, {
-        method: METHOD,
-        headers: internalImageHeaders(),
-        body: JSON.stringify(createPayload),
-        signal: controller.signal,
-      }).finally(() => {
-        clearTimeout(timeout)
-      })
-
-      const text = await response.text()
-
-      if (!response.ok) {
-        if (isRetriableHttpStatus(response.status) && attempt < maxCreateRetries) {
-          await sleep(getBackoffMs(attempt))
-          continue
-        }
-
-        throw new Error(
-          [
-            "create_task failed.",
-            `attempt=${attempt}/${maxCreateRetries}`,
-            `status=${response.status}`,
-            `statusText=${response.statusText}`,
-            `body=${text}`,
-          ].join("\n"),
-        )
-      }
-
-      const json = parseJson(text) as CreateTaskResponse
-
-      if (json.resp_code !== undefined && json.resp_code !== 200) {
-        if (attempt < maxCreateRetries) {
-          await sleep(getBackoffMs(attempt))
-          continue
-        }
-
-        throw new Error(
-          [
-            "create_task returned business failure.",
-            `attempt=${attempt}/${maxCreateRetries}`,
-            `resp_code=${json.resp_code}`,
-            `resp_msg=${json.resp_msg ?? ""}`,
-            `body=${JSON.stringify(json, null, 2)}`,
-          ].join("\n"),
-        )
-      }
-
-      return json
-    } catch (error) {
-      lastError = error
-      if (attempt < maxCreateRetries && isRetriableError(error)) {
-        await sleep(getBackoffMs(attempt))
-        continue
-      }
-      if (isRetriableError(error)) {
-        throw new Error(
-          [
-            "create_task network failed.",
-            `attempt=${attempt}/${maxCreateRetries}`,
-            `url=${createTaskUrl}`,
-            `error=${describeError(error)}`,
-          ].join("\n"),
-        )
-      }
-      throw error
-    }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), createTimeoutMs)
+  const response = await fetch(createTaskUrl, {
+    method: METHOD,
+    headers: internalImageHeaders(),
+    body: JSON.stringify(createPayload),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "create_task network failed.",
+        `url=${createTaskUrl}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => {
+    clearTimeout(timeout)
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "create_task failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
   }
-
-  throw new Error(`create_task failed after retries: ${String(lastError)}`)
+  const json = parseJson(text) as CreateTaskResponse
+  if (json.resp_code !== undefined && json.resp_code !== 200) {
+    throw new Error(
+      [
+        "create_task returned business failure.",
+        `resp_code=${json.resp_code}`,
+        `resp_msg=${json.resp_msg ?? ""}`,
+        `body=${JSON.stringify(json, null, 2)}`,
+      ].join("\n"),
+    )
+  }
+  return json
 }
 
 async function queryTask(
@@ -798,6 +901,7 @@ export function getTaskType(input: { generationMode: InternalTaskType; taskType?
 }
 
 function toolActionForCapability(capability: StudioCapability): InternalToolAction {
+  if (capability === "video.generate") return "generate_video"
   if (capability === "image.upscale") return "super_resolution"
   if (capability === "image.cutout") return "cutout"
   if (capability === "image.inpaint") return "inpainting"
@@ -858,7 +962,7 @@ async function buildUpscaleRequestBody(input: ImageGenerateInput, context: Inter
     task_type: "magnify",
     args: {
       mode:
-        mode === "restoration_8k" || mode === "restoration" || mode === "super_restoration"
+        mode === "restoration_8k" || mode === "restoration" || mode === "super_resolution"
           ? mode
           : "restoration",
       image_base64: await getSourceImageDataUrl(input),
@@ -890,6 +994,63 @@ function extraNumber(input: ImageGenerateInput, key: string, fallback: number) {
 function extraString(input: ImageGenerateInput, key: string) {
   const value = input.extra?.[key]
   return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function getVideoDuration(input: ImageGenerateInput) {
+  const value = extraString(input, "duration")
+  return value === "10" ? "10" : "5"
+}
+
+function getVideoMode(input: ImageGenerateInput) {
+  const value = extraString(input, "mode")
+  return value === "pro" ? "pro" : "std"
+}
+
+function getVideoAspectRatio(input: ImageGenerateInput) {
+  const aspectRatio = getStudioAspectRatio(input)
+  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9") return aspectRatio
+  return "16:9"
+}
+
+function getVideoFrames(input: ImageGenerateInput) {
+  const referenceImages = (input.referenceImages ?? []).filter((item) => item.startsWith("data:image/") && Boolean(dataUrlToBase64(item)))
+  const firstFrame = extraString(input, "firstFrame")
+  const lastFrame = extraString(input, "lastFrame")
+  return {
+    firstFrame: firstFrame ?? referenceImages[0] ?? referenceImages[1],
+    lastFrame: lastFrame ?? (firstFrame ? referenceImages[1] : undefined),
+  }
+}
+
+function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const frames = getVideoFrames(input)
+  const baseArgs = {
+    prompt: input.prompt,
+    aspect_ratio: getVideoAspectRatio(input),
+    duration: getVideoDuration(input),
+    count: getStudioCount(input),
+    mode: getVideoMode(input),
+  }
+  if (!frames.firstFrame) {
+    return {
+      user: { idx: context.userIdx },
+      task_type: "t2v_kl",
+      args: {
+        tag_name: "文生视频",
+        ...baseArgs,
+      },
+    }
+  }
+  return {
+    user: { idx: context.userIdx },
+    task_type: "i2v_kl",
+    args: {
+      tag_name: "图生视频",
+      ...baseArgs,
+      image: dataUrlToBase64(frames.firstFrame),
+      ...(frames.lastFrame ? { image_tail: dataUrlToBase64(frames.lastFrame) } : {}),
+    },
+  }
 }
 
 function buildInpaintRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
@@ -932,6 +1093,7 @@ async function buildOutpaintRequestBody(input: ImageGenerateInput, context: Inte
 
 async function buildInternalRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
   const capability = getStudioCapability(input)
+  if (capability === "video.generate") return buildVideoRequestBody(input, context)
   if (capability === "image.upscale") return buildUpscaleRequestBody(input, context)
   if (capability === "image.cutout") return buildCutoutRequestBody(input, context)
   if (capability === "image.inpaint") return buildInpaintRequestBody(input, context)
@@ -939,11 +1101,10 @@ async function buildInternalRequestBody(input: ImageGenerateInput, context: Inte
   return buildTextToImageRequestBody(input, context)
 }
 
-export async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
+export async function createInternalGeneration(input: ImageGenerateInput): Promise<ImageGenerationTask> {
   const capability = getStudioCapability(input)
   const toolAction = toolActionForCapability(capability)
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
-  const queryTaskBaseUrl = env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const ignoredReferenceImages = resolveReferenceImages(input)
   const generationMode: InternalTaskType = "txt2img"
@@ -973,50 +1134,68 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
     body: requestBody,
   }
 
-  const maxCreateRetries = Number(input.extra && typeof input.extra.maxCreateRetries === "number" ? input.extra.maxCreateRetries : 3)
   const createTimeoutMs = timeoutMsFor(
     "IMAGE_CREATE_TIMEOUT_MS",
     Number(input.extra && typeof input.extra.createTimeoutMs === "number" ? input.extra.createTimeoutMs : DEFAULT_TIMEOUT_MS),
   )
 
   console.log("[studio.internel] request", JSON.stringify(redactImagePayload(debugRequest), null, 2))
-  const createJson = await createTaskWithRetry(createTaskUrl, requestBody, maxCreateRetries, createTimeoutMs)
-  const taskId = getTaskId(createJson)
+  const createJson = await createTask(createTaskUrl, requestBody, createTimeoutMs)
+  return {
+    provider: "internel",
+    model: requestTaskType,
+    capability,
+    toolAction,
+    taskId: getTaskId(createJson),
+    request: requestBody,
+  }
+}
 
+export async function queryInternalGeneration(task: ImageGenerationTask): Promise<ImageGenerationQuery> {
+  const queryJson = await queryTask(env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL, task.taskId)
+  const status = normalizeTaskStatus(queryJson)
+  const videos = status === "succeeded" && task.capability === "video.generate" ? extractInternalVideos(queryJson) : []
+  const images = status === "succeeded"
+    ? extractInternalImages(queryJson).filter((url) => task.capability !== "video.generate" || !isRenderableVideoUrl(url) && !videos.includes(url))
+    : []
+  return {
+    provider: "internel",
+    model: task.model,
+    capability: task.capability,
+    toolAction: task.toolAction,
+    taskId: task.taskId,
+    status,
+    rawStatus: getTaskStatus(queryJson),
+    progress: getTaskProgress(queryJson),
+    order: getTaskOrder(queryJson),
+    images: [
+      ...images.map((url) => ({ kind: "image" as const, url })),
+      ...videos.map((url) => ({ kind: "video" as const, url })),
+    ],
+    request: task.request,
+    raw: queryJson,
+  }
+}
+
+export async function executeInternelImageGenerate(input: ImageGenerateInput): Promise<ImageGenerateOutput> {
+  const task = await createInternalGeneration(input)
   const pollIntervalMs = Number(input.extra && typeof input.extra.pollIntervalMs === "number" ? input.extra.pollIntervalMs : 2000)
-  const maxPollCount = Number(input.extra && typeof input.extra.maxPollCount === "number" ? input.extra.maxPollCount : 60)
-
-  let lastQueryJson: QueryTaskResponse | null = null
+  const maxPollCount = Number(input.extra && typeof input.extra.maxPollCount === "number" ? input.extra.maxPollCount : 900)
+  let lastQuery: ImageGenerationQuery | undefined
 
   for (let i = 1; i <= maxPollCount; i++) {
-    const queryJson = await queryTask(queryTaskBaseUrl, taskId)
-    lastQueryJson = queryJson
+    const query = await queryInternalGeneration(task)
+    lastQuery = query
+    if (query.status === "succeeded") return query
 
-    const status = getTaskStatus(queryJson)
-    const progress = getTaskProgress(queryJson)
-
-    if (isSuccessResponse(queryJson)) {
-      const images = extractInternalImages(queryJson)
-      return {
-        provider: "internel",
-        model: requestTaskType,
-        capability,
-        toolAction,
-        taskId,
-        images: images.map((url) => ({ url })),
-        request: requestBody,
-        raw: queryJson,
-      }
-    }
-
-    if (isFailureResponse(queryJson)) {
+    if (query.status === "failed") {
       throw new Error(
         [
           "query_task returned failure.",
-          `taskId=${taskId}`,
-          `status=${status}`,
-          `progress=${progress}`,
-          `response=${JSON.stringify(queryJson, null, 2)}`,
+          `taskId=${task.taskId}`,
+          `status=${query.rawStatus}`,
+          `progress=${query.progress}`,
+          `response=${JSON.stringify(query.raw, null, 2)}`,
         ].join("\n"),
       )
     }
@@ -1029,8 +1208,8 @@ export async function executeInternelImageGenerate(input: ImageGenerateInput): P
   throw new Error(
     [
       "query_task timed out.",
-      `taskId=${taskId}`,
-      `lastResponse=${JSON.stringify(lastQueryJson, null, 2)}`,
+      `taskId=${task.taskId}`,
+      `lastResponse=${JSON.stringify(lastQuery?.raw, null, 2)}`,
     ].join("\n"),
   )
 }

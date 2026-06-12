@@ -8,8 +8,9 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   createEffect,
@@ -22,9 +23,10 @@ import {
   Show,
   type JSX,
 } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
+import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
@@ -32,7 +34,8 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
-import { octoSessionsDir } from "@/hooks/use-project-dir"
+import { useSettings } from "@/context/settings"
+import { octoSessionsDir, useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
@@ -48,15 +51,15 @@ import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { autoSaveArtifact } from "./utils/artifact-auto-save"
 
 export default function MakePage() {
-  const globalSync = useGlobalSync()
-  const homeDir = () => globalSync.data.path.home
+  const dir = useProjectDir()
 
   return (
-    <Show when={homeDir()} keyed>
-      {(dir) => (
-        <SDKProvider directory={() => dir}>
+    <Show when={dir()} keyed>
+      {(directory) => (
+        <SDKProvider directory={() => directory}>
           <SyncProvider>
             <LocalProvider>
               <MakeContent />
@@ -75,8 +78,12 @@ function MakeContent() {
   const sync = useSync()
   const layout = useLayout()
   const language = useLanguage()
+  const settings = useSettings()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
+
+  const projectDir = useProjectDir()
 
   const configDir = () => {
     const config = globalSync.data.path.config
@@ -107,6 +114,19 @@ function MakeContent() {
     },
   )
 
+  const [overrideTitle, setOverrideTitle] = createSignal<string | null>(null)
+  createEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sessionID: string; title: string } | undefined
+      if (detail && detail.sessionID === params.id) {
+        setOverrideTitle(detail.title)
+      }
+      void Promise.resolve(refetchSession()).then(() => setOverrideTitle(null))
+    }
+    window.addEventListener("octo:make:session-renamed", handler)
+    onCleanup(() => window.removeEventListener("octo:make:session-renamed", handler))
+  })
+
   // 标题编辑状态
   const [titleState, setTitleState] = createStore({
     editing: false,
@@ -118,8 +138,8 @@ function MakeContent() {
 
   /** 打开标题编辑模式 */
   function openTitleEditor() {
-    const info = sessionInfo()
-    setTitleState({ editing: true, draft: sessionTitle(info?.title) ?? "" })
+    const sInfo = sessionInfo()
+    setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
 
@@ -153,27 +173,59 @@ function MakeContent() {
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Make"} onDelete={deleteSession} />)
+    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
   }
 
-createEffect(
+// 监听项目切换，清理不属于新项目的 session
+  createEffect(
     on(
-      () => params.id,
-      (id) => {
-        if (id) layout.lastSessionPerTab.setMake(id)
-        setSending(false)
-        setDeltaLog([])
-        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      projectDir,
+      (newDir, oldDir) => {
+        if (!newDir || !oldDir || newDir === oldDir) return
+        
+        const currentId = params.id
+        if (!currentId) return
+
+        // 检查当前 session 是否属于新项目
+        const client = globalSDK.createClient({ directory: newDir })
+        void client.session.list().then((result) => {
+          const sessions = (result.data ?? []) as Session[]
+          const belongsToNewProject = sessions.some(s => s.id === currentId && s.agent === "octo_make")
+          
+          if (!belongsToNewProject) {
+            // 清理旧 session 数据
+            const [store, setStore] = globalSync.child(sdk.directory)
+            dropSessionCaches(store, [currentId])
+            setStore(
+              produce((draft) => {
+                delete draft.message[currentId]
+                delete draft.session_status[currentId]
+              }),
+            )
+            
+            // 清除 lastSessionPerTab 记录，防止切换回来时恢复
+            layout.lastSessionPerTab.setMake("")
+            
+            // 导航到空态
+            navigate("/make")
+          }
+        })
       },
     ),
   )
 
-  createEffect(
+createEffect(
     on(
       () => params.id,
-      (id) => {
-        if (!id) return
-        void sync.session.sync(id)
+      (newId, oldId) => {
+        if (newId) {
+          layout.lastSessionPerTab.setMake(newId)
+          void sync.session.sync(newId)
+        }
+
+        setSending(false)
+        setDeltaLog([])
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -189,6 +241,8 @@ createEffect(
       if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
       
       if (e.type === "message.part.delta") {
+        setLastDeltaTime(Date.now())
+        setBlockTime(0)
         setDeltaLog(prev => [
           ...prev.slice(-19),
           {
@@ -225,20 +279,32 @@ createEffect(
     return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
 
+  const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
     return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => {
-    if (sessionStatus().type !== "idle") return true
-    const id = params.id
-    if (!id) return false
-    const msgs = (sync.data.message[id] ?? []) as Message[]
-    const lastAssistant = msgs.findLast((m) => m.role === "assistant")
-    return !!lastAssistant && typeof lastAssistant.time.completed !== "number"
+  const isBusy = createMemo(() => sessionStatus().type !== "idle")
+
+  // ── 会话进度条动画状态 ────────────────────────────────────
+  const [timeoutDone, setTimeoutDone] = createSignal(true)
+  const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
+    if (isBusy()) return "showing"
+    if (prev === "showing" || !timeoutDone()) return "hiding"
+    return "hidden"
   })
+  createEffect(() => {
+    if (workingStatus() !== "hiding") return
+    setTimeoutDone(false)
+    const id = setTimeout(() => setTimeoutDone(true), 260)
+    onCleanup(() => clearTimeout(id))
+  })
+
+  const [bar, setBar] = createStore({ ms: 1800 })
+
   // ── 执行计时器 ────────────────────────────────────────────
   const [elapsedText, setElapsedText] = createSignal("")
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
@@ -265,6 +331,27 @@ createEffect(
       setElapsedText("")
     }
     onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
+  })
+
+  // ── 阻塞检测计时器 ────────────────────────────────────────────
+  const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
+  const [blockTime, setBlockTime] = createSignal(0)
+  let blockTimer: ReturnType<typeof setInterval> | undefined
+  createEffect(() => {
+    if (isBusy()) {
+      setLastDeltaTime(Date.now())
+      blockTimer = setInterval(() => {
+        const blockedMs = Date.now() - lastDeltaTime()
+        if (blockedMs > 3000) {
+          setBlockTime(Math.floor(blockedMs / 1000))
+        }
+      }, 1000)
+    } else {
+      if (blockTimer) { clearInterval(blockTimer); blockTimer = undefined }
+      setLastDeltaTime(Date.now())
+      setBlockTime(0)
+    }
+    onCleanup(() => { if (blockTimer) clearInterval(blockTimer) })
   })
 
   const [prompt, setPrompt] = createSignal("")
@@ -336,30 +423,34 @@ createEffect(
     e.preventDefault()
     const startX = e.clientX
     const startWidth = chatWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    document.body.style.overflow = "hidden"
-    const resetBody = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
-      dragCleanup = null
-    }
+    
+    const overlay = document.createElement("div")
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      cursor: col-resize;
+      background: transparent;
+    `
+    document.body.appendChild(overlay)
+    
     const onMove = (ev: MouseEvent) => {
       setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
     }
     const onUp = () => {
-      resetBody()
+      overlay.remove()
       localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+      dragCleanup = null
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+    overlay.addEventListener("mousemove", onMove)
+    overlay.addEventListener("mouseup", onUp)
     dragCleanup = () => {
-      resetBody()
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      overlay.remove()
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+      dragCleanup = null
     }
   }
 
@@ -633,6 +724,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       snapshotStore.save(tab)
       refreshSnapshots()
     }
+
+    if (projectDir()) {
+      autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
+        console.error("[MakePage] auto-save artifact failed:", err)
+      })
+    }
   }
 
   /** 继续生成（追加被截断的内容作为 prompt） */
@@ -649,9 +746,8 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
-      <Toast.Region />
       <div
-        class="octo-split bg-background-base"
+        class="octo-make octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
         style={{
           "grid-template-columns": !focusMode()
@@ -676,17 +772,28 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
           >
             {/* 标题栏 */}
             <Show when={hasContent()}>
-              <div
-                class="shrink-0 flex items-center justify-between"
-                style={{ padding: "12px 24px", background: "#fff" }}
-              >
+              <div style={{ position: "relative" }}>
+                <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>
+                  <div
+                    data-component="session-progress"
+                    data-state={workingStatus()}
+                    aria-hidden="true"
+                    style={{
+                      "--session-progress-color": "var(--octo-brand)",
+                      "--session-progress-ms": `${bar.ms}ms`,
+                    }}
+                  >
+                    <div data-component="session-progress-bar" />
+                  </div>
+                </Show>
+                <div
+                  class="shrink-0 flex items-center justify-between"
+                  style={{ padding: "12px 24px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
+                >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
                   <Show when={isBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
-                      <Show when={elapsedText()}>
-                        <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>已执行 {elapsedText()}</span>
-                      </Show>
                     </div>
                   </Show>
                   <Show
@@ -711,7 +818,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(sessionInfo()?.title) ?? "Octo Make"}
+                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfo()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
@@ -722,12 +829,13 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   onOpenChange={(open) => setTitleState("menuOpen", open)}
                 >
                   <DropdownMenu.Trigger
-                    as={IconButton}
-                    icon="dot-grid"
-                    variant="ghost"
-                    class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
+                    as="button"
+                    class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
                     aria-label={language.t("common.moreOptions")}
-                  />
+                    style={{ color: "rgba(0,0,0,0.6)" }}
+                  >
+                    <Icon name="ellipsis" class="size-5" />
+                  </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
                       style={{ "min-width": "104px" }}
@@ -752,11 +860,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   </DropdownMenu.Portal>
                 </DropdownMenu>
               </div>
+              </div>
             </Show>
             <Show when={hasContent()} fallback={
-              <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+              <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
                 <ChatEmptyState />
-                <div class="w-full max-w-[800px] px-8">
+                <div class="w-full max-w-[800px]">
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
@@ -794,13 +903,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                     />
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <DesignSystemPicker
-                          selected={selectedDesignSystem()}
-                          onSelect={setSelectedDesignSystem}
-                        />
-                        <TemplatePicker
-                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                        />
+                        <span class="hidden">
+                          <DesignSystemPicker
+                            selected={selectedDesignSystem()}
+                            onSelect={setSelectedDesignSystem}
+                          />
+                        </span>
+                        <span class="hidden">
+                          <TemplatePicker
+                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                          />
+                        </span>
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -809,15 +922,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                           accept="*/*"
                           onChange={handleFileInputChange}
                         />
-                        <button
-                          type="button"
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          disabled={maxAttachments()}
-                          class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                          title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                        >
-                          <Icon name="plus" class="size-5" />
-                        </button>
+                        <Tooltip placement="top" value="添加附件">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            class="size-8 p-0"
+                            disabled={maxAttachments()}
+                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          >
+                            <Icon name="plus" class="size-5" />
+                          </Button>
+                        </Tooltip>
                         <ModelSelectorPopover
                           model={local.model}
                           triggerAs="button"
@@ -849,7 +964,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
               {/* 消息列表 */}
               <ScrollView
                 class="flex-1 min-h-0"
-                style={{ background: "#fff" }}
+                style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
@@ -862,6 +977,9 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         messageID={msg.id}
                         status={sessionStatus()}
                         active={isBusy()}
+                        elapsedText={elapsedText()}
+                        blockTime={blockTime()}
+                        onAbort={halt}
                         onOpenResult={handleOpenResult}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
@@ -912,13 +1030,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
-                        <DesignSystemPicker
-                          selected={selectedDesignSystem()}
-                          onSelect={setSelectedDesignSystem}
-                        />
-                        <TemplatePicker
-                          onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
-                        />
+                         <span class="hidden">
+                          <DesignSystemPicker
+                            selected={selectedDesignSystem()}
+                            onSelect={setSelectedDesignSystem}
+                          />
+                        </span>
+                        <span class="hidden">
+                          <TemplatePicker
+                            onSelect={(content) => setPrompt((prev) => prev ? prev + "\n\n" + content : content)}
+                          />
+                        </span>
                       <input
                         ref={fileInputRef!}
                         type="file"
@@ -927,15 +1049,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                         accept="*/*"
                         onChange={handleFileInputChange}
                       />
-                      <button
-                        type="button"
-                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                        disabled={maxAttachments()}
-                        class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-                        title={maxAttachments() ? "最多 5 个文件" : "添加附件"}
-                      >
-                        <Icon name="plus" class="size-5" />
-                      </button>
+                      <Tooltip placement="top" value="添加附件">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          class="size-8 p-0"
+                          disabled={maxAttachments()}
+                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        >
+                          <Icon name="plus" class="size-5" />
+                        </Button>
+                      </Tooltip>
                        <ModelSelectorPopover
                         model={local.model}
                         triggerAs="button"
@@ -944,10 +1068,10 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                           "data-action": "prompt-model",
                         }}
                       >
-                        <span class="truncate">
+                        <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                           {currentModel()?.name ?? "选择模型"}
                         </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" />
+                        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                       </ModelSelectorPopover>
                     </div>
                     <IconButton
@@ -976,10 +1100,10 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={hasContent()}>
         <div class="flex flex-col overflow-hidden" >
-          <div class="flex flex-1 min-h-0 overflow-scroll">
+          <div class="flex flex-1 min-h-0 overflow-auto">
             <div class="flex flex-col flex-1" style="min-width:800px">
               {/* 焦点模式 + 版本历史 切换按钮 */}
-              <div class="flex items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
+              <div class="flex hidden items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
                 <button
                   type="button"
                   class="octo-focus-btn"
@@ -1047,11 +1171,11 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 
 function ChatEmptyState(): JSX.Element {
   return (
-    <div class="flex flex-col items-center gap-4 text-center pb-8 px-6">
-      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
+    <div class="flex flex-col items-center gap-6 text-center pb-20 px-6">
+      <img src={IconHost} width={166} height={166} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
       <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "#191919", "font-size": "24px", "font-weight": "600", "line-height": "36px" }}>Octo Make</div>
-        <div style={{ color: "#6e737a", "font-size": "14px", "line-height": "20px" }}>
+        <div style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "36px", "font-weight": "600", "line-height": "42px" }}>Octo Design</div>
+        <div style={{ color: "rgba(0, 0, 0, 0.6)", "font-size": "16px", "line-height": "24px" }}>
           描述需求，开始生成原型
         </div>
       </div>
@@ -1063,23 +1187,27 @@ function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDel
   const language = useLanguage()
   const dialog = useDialog()
   return (
-    <Dialog title={language.t("session.delete.title")} fit>
-      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-        <span class="text-14-regular text-text-strong">
-          {language.t("session.delete.confirm", { name: props.name })}
-        </span>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-          >
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
+    <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
+      <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+        {language.t("session.delete.confirm", { name: props.name })}
+      </span>
+      <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
+        <Button
+          variant="ghost"
+          size="large"
+          class="delete-dialog-btn"
+          onClick={() => dialog.close()}
+        >
+          {language.t("common.cancel")}
+        </Button>
+        <Button
+          variant="primary"
+          size="large"
+          class="delete-dialog-btn delete-dialog-btn-primary"
+          onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
+        >
+          {language.t("session.delete.button")}
+        </Button>
       </div>
     </Dialog>
   )

@@ -1256,6 +1256,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
   }
 
+  createEffect(() => {
+    if (!working()) return
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault()
+        event.stopPropagation()
+        abort()
+      }
+    }
+    document.addEventListener("keydown", handler)
+    onCleanup(() => document.removeEventListener("keydown", handler))
+  })
+
   const [agentsQuery, globalProvidersQuery, providersQuery] = useQueries(() => ({
     queries: [
       loadAgentsQuery(sdk.directory, sdk.client),
@@ -1338,7 +1351,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           }}
         >
           <div
-            class="relative max-h-[240px] overflow-y-auto no-scrollbar"
+            class="relative max-h-[240px] min-h-[45px] overflow-y-auto no-scrollbar"
             ref={(el) => (scrollRef = el)}
             style={{ "scroll-padding-bottom": space }}
           >
@@ -1430,7 +1443,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 aria-label={language.t("prompt.action.attachFile")}
               >
-                <Icon name="plus" class="size-4.5" />
+                <Icon name="plus" class="size-5" />
               </Button>
             </TooltipKeybind>
           </div>
@@ -1508,7 +1521,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               class="min-w-0 max-w-[320px] text-13-regular text-text-base group focus-visible:outline-none"
                               style={control()}
                             >
-                              <span class="truncate">
+                              <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                                 {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                               </span>
                               <Icon class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" name="chevron-down" size="small" style="color: #000"/>
@@ -1535,7 +1548,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                           }}
                           onClose={restoreFocus}
                         >
-                          <span class="truncate">
+                          <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                             {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                           </span>
                           <Icon class="shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" name="chevron-down" size="small" style="color: #000"/>
@@ -1581,7 +1594,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               <IconButton
                 data-action="prompt-submit"
                 type="submit"
-                disabled={props.disabled || (!working() && blank())}
+                disabled={!stopping() && (props.disabled || (!working() && blank()))}
                 tabIndex={store.mode === "normal" ? undefined : -1}
                 icon={stopping() ? "stop" : store.mode === "shell" ? "arrow-undo-down" : "arrow-up"}
                 variant="primary"

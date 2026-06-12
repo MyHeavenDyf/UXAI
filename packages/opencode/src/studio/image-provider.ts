@@ -22,13 +22,31 @@ export type ImageGenerateOutput = {
   provider: "jimeng" | "internel"
   model: string
   capability?: StudioCapability
-  toolAction?: "generate_image" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+  toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskId?: string
-  images: { url: string; width?: number; height?: number }[]
+  images: { kind?: "image" | "video"; url: string; thumbnailUrl?: string; width?: number; height?: number; duration?: number }[]
   request?: unknown
   statusCode?: number
   rawBody?: string
   raw: unknown
+}
+
+export type ImageGenerationStatus = "queued" | "running" | "succeeded" | "failed"
+
+export type ImageGenerationTask = {
+  provider: "internel"
+  model: string
+  capability: StudioCapability
+  toolAction: NonNullable<ImageGenerateOutput["toolAction"]>
+  taskId: string
+  request: unknown
+}
+
+export type ImageGenerationQuery = ImageGenerateOutput & {
+  status: ImageGenerationStatus
+  rawStatus: number | string
+  progress: number
+  order?: number
 }
 
 export type ImageGenerationProvider = {

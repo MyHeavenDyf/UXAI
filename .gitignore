@@ -6,6 +6,7 @@ node_modules
 .idea
 .vscode
 .codex
+.claude
 *~
 playground
 tmp
@@ -28,8 +29,10 @@ opencode-dev
 UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
+CLAUDE.md
 tsconfig.tsbuildinfo
 
 bun.lock
+.bunfig.toml
 
 analysis/

@@ -11,7 +11,7 @@ import { app, BrowserWindow, dialog } from "electron"
 import pkg from "electron-updater"
 
 import contextMenu from "electron-context-menu"
-contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
+contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false, showSelectAll: false })
 
 // on macOS apps run in `/` which can cause issues with ripgrep
 try {
@@ -65,7 +65,7 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoToolFiles } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoToolFiles, deployDesignFiles } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -153,6 +153,7 @@ function setupApp() {
       deploySkillsJson()
       deployBuiltinSkills()
       deployProtoToolFiles()
+      deployDesignFiles()
     }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()

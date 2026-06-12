@@ -1,5 +1,5 @@
-import type { Session, Part } from "@opencode-ai/sdk/v2/client"
 import type { SDK } from "@/context/sdk"
+import { runChildSession } from "../run-child-session"
 
 export interface PlannerModifySlot {
   section_id: string
@@ -37,30 +37,8 @@ export type PlannerModifyContext = {
   parentSessionId: string
   input: PlannerModifyInput
   abortSignal: AbortSignal
-}
-
-async function waitForAssistant(sdk: PlannerModifyContext["sdk"], sessionId: string, signal: AbortSignal): Promise<string> {
-  while (!signal.aborted) {
-    await new Promise((r) => setTimeout(r, 2000))
-    if (signal.aborted) throw new Error("aborted")
-    try {
-      const res = await sdk.client.session.messages({ sessionID: sessionId, limit: 10 })
-      const items = res.data as Array<{ info: { role: string; time: { completed?: number } }; parts: Part[] }> | undefined
-      if (!items) continue
-      for (let i = items.length - 1; i >= 0; i--) {
-        const msg = items[i].info
-        if (msg.role !== "assistant") continue
-        if (msg.time.completed == null) continue
-        for (let j = items[i].parts.length - 1; j >= 0; j--) {
-          // @ts-ignore
-          if (items[i].parts[j].type === "text" && items[i].parts[j].text)
-          // @ts-ignore
-            return items[i].parts[j].text
-        }
-      }
-    } catch {}
-  }
-  throw new Error("aborted")
+  sync?: any
+  onSessionCreated?: (childSessionID: string) => void
 }
 
 function extractJson(text: string): Record<string, unknown> | null {
@@ -112,24 +90,19 @@ export async function runProtoPlannerModify(ctx: PlannerModifyContext): Promise<
   output: PlannerModifyOutput
   removedSectionIds: string[]
 }> {
-  const childResult = await ctx.sdk.client.session.create({
-    directory: ctx.directory,
-    parentID: ctx.parentSessionId,
-    agent: "proto_planner_modify",
-  })
-  const childSession = childResult.data as Session | undefined
-  if (!childSession) throw new Error("failed to create proto_planner_modify session")
   const startTime = Date.now()
   console.log("[Pattern ] planner_modify_agent运行中")
   const promptText = buildModifyPrompt(ctx.input)
-  await ctx.sdk.client.session.promptAsync({
-    sessionID: childSession.id,
+  const raw = await runChildSession({
+    client: ctx.sdk.client,
+    directory: ctx.directory,
+    parentSessionID: ctx.parentSessionId,
     agent: "proto_planner_modify",
-    ...(ctx.modelKey ? { model: ctx.modelKey } : {}),
-    parts: [{ type: "text", text: promptText }],
+    modelKey: ctx.modelKey,
+    prompt: promptText,
+    sync: ctx.sync,
+    onSessionCreated: ctx.onSessionCreated,
   })
-
-  const raw = await waitForAssistant(ctx.sdk, childSession.id, ctx.abortSignal)
   console.log("[Pattern ] planner_modify_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
   console.log("[proto_planner_modify] raw (first 300 chars):", raw.slice(0, 300))
   const parsed = extractJson(raw)

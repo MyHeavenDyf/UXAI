@@ -1,0 +1,14 @@
+<svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="14.000000" height="14.000000" fill="none" customFrame="#000000">
+	<defs>
+		<clipPath id="clipPath_0">
+			<rect width="14.000000" height="14.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" />
+		</clipPath>
+	</defs>
+	<rect id="前置图标" width="14.000000" height="14.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0" />
+	<g id="ic_public_trash" clip-path="url(#clipPath_0)" customFrame="url(#clipPath_0)">
+		<rect id="ic_public_trash" width="14.000000" height="14.000000" x="0.000000" y="0.000000" />
+		<path id="path" d="M12.25 4.55469L11.5092 11.8127C11.4333 12.7198 10.675 13.4169 9.765 13.4169L4.23208 13.4169C3.32208 13.4169 2.56375 12.7198 2.48792 11.8127L1.75 4.55469" stroke="rgb(25,25,25)" stroke-linecap="round" stroke-width="1.000000" />
+		<path id="path4" d="M5.54175 6.27051L5.54175 11.4038M8.45842 6.27051L8.45842 11.4038" stroke="rgb(25,25,25)" stroke-linecap="round" stroke-width="1.000000" />
+		<path id="path5" d="M0.583252 2.92509L4.04825 2.92509L4.64034 1.34134C4.81242 0.883425 5.247 0.583008 5.73409 0.583008L8.19867 0.583008C8.68575 0.583008 9.12034 0.883425 9.2895 1.34134L9.88159 2.92509L13.4166 2.92509" fill-rule="nonzero" stroke="rgb(25,25,25)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.000000" />
+	</g>
+</svg>
