@@ -348,6 +348,11 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
                             type="button"
                             onClick={() => {
                               notification.session.markViewed(session.id)
+                              // 确保session属于当前项目目录，否则刷新列表
+                              if (session.directory !== resolvedDir()) {
+                                void refetch()
+                                return
+                              }
                               navigate(`/make/${session.id}`)
                             }}
                             onContextMenu={(e) => {
