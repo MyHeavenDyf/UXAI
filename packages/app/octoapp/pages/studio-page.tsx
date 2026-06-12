@@ -110,6 +110,17 @@ export default function StudioPage() {
     ),
   )
 
+  // 进入 studio 页面且没有指定 session 时，恢复上一次选中的 session
+  createEffect(() => {
+    if (params.id) return
+    if (new URLSearchParams(location.search).has("hint")) return
+    const dir = projectDir()
+    if (!dir) return
+    const lastId = layout.lastSessionPerTab.studio(dir)
+    if (!lastId || !isValidStudioSession(lastId)) return
+    navigate(`/${slug()}/studio/${lastId}`, { replace: true })
+  })
+
   const [prompt, setPrompt] = createSignal("")
   const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
   const [styleModel, setStyleModel] = createSignal("qwen")
@@ -865,11 +876,21 @@ export default function StudioPage() {
   }
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
-    const images = result()?.images ?? []
-    const index = image ? images.findIndex((item) => item.id === image.id) + 1 : 1
+    if (!image) return "studio-image.png"
     const video = isVideoMedia(image)
-    const prefix = currentTitle() === "Octo Studio" ? (video ? "studio-video" : "studio-image") : currentTitle().replace(/[\\/:*?\"<>|]/g, "-").slice(0, 24)
-    return `${prefix}-${Math.max(index, 1)}.${video ? "mp4" : "png"}`
+    const ext = video ? "mp4" : "png"
+    const images = canvasResult()?.images ?? []
+    const index = image ? images.findIndex((item) => item.id === image.id) + 1 : 1
+    const stored = canvasTabLabels()[image.id]
+    if (stored) return `${stored}-${Math.max(index, 1)}.${ext}`
+    const prompt = result()?.prompt ?? ""
+    const firstLine = prompt.split("\n")[0].trim()
+    const cleaned = firstLine
+      .replace(/[\\/:*?\"<>|，。！？、；：""''（）【】《》!?;:()\[\]{}@#$%^&+=~`]/g, " ")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "")
+    const prefix = cleaned.length > 20 ? cleaned.slice(0, 20).replace(/-+$/, "") : (cleaned || "image")
+    return `${prefix}-${Math.max(index, 1)}.${ext}`
   })
 
   async function downloadCurrentImage() {
