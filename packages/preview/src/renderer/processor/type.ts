@@ -85,7 +85,7 @@ interface A2UIClientEventMessage {
     userAction?: Action
 }
 
-export {
+export type {
     SurfaceId,
     JsonInput,
     ResolvedValue,

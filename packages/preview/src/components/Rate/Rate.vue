@@ -23,8 +23,8 @@ const className = computed(() => node.properties.className)
 const count = computed(() => resolveValue(properties.count) as number)
 const value = computed(() => resolveValue(properties.value) as number)
 
-const allowClear = computed(() => properties?.allowClear || "")
-const disabled = computed(() => properties?.disabled || "")
+const allowClear = computed(() => properties?.allowClear || false)
+const disabled = computed(() => properties?.disabled || false)
 
 const size = computed(() => {
   return properties.size ? sizeEnum[properties.size] : "default"
@@ -39,7 +39,7 @@ const size = computed(() => {
     v-model="value"
     :clearable="allowClear"
     :disabled="disabled"
-    :size="size"
+    :size="size as any"
   >
   </ElRate>
 </template>

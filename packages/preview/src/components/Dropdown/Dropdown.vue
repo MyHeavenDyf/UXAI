@@ -30,10 +30,10 @@ const id = computed(() => props.node.id)
 const className = computed(() => properties.className)
 
 const trigger = computed(() => {
-  return properties.trigger ? triggerEnum[properties.trigger] : "hover"
+  return properties.trigger ? triggerEnum[properties.trigger as keyof typeof triggerEnum] as any : "hover"
 })
 const placement = computed(() => {
-  return properties.placement ? placementEnum[properties.placement] : "bottom"
+  return properties.placement ? placementEnum[properties.placement as keyof typeof placementEnum] as any : "bottom"
 })
 
 const children = computed(() => properties.children)

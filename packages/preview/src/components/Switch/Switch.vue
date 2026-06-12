@@ -41,10 +41,10 @@ watch(
   { immediate: true }
 )
 
-const onSwitch = (val: boolean) => {
-  const path = properties.value?.path
+const onSwitch = (val: string | number | boolean) => {
+  const path = (properties.value as any)?.path
   if (!path) return
-  setValue(path, val)
+  setValue(path, val as boolean)
 }
 </script>
 
@@ -53,11 +53,11 @@ const onSwitch = (val: boolean) => {
     :id="id"
     v-model="value"
     inline-prompt
-    :size="size"
+    :size="size as any"
     :active-text="checkedChildren"
     :inactive-text="unCheckedChildren"
-    :active-icon="checkedChildrenIcon"
-    :inactive-icon="unCheckedChildrenIcon"
+    :active-icon="checkedChildrenIcon as any"
+    :inactive-icon="unCheckedChildrenIcon as any"
     @change="onSwitch"
   />
 </template>

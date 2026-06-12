@@ -7,12 +7,12 @@ import type { A2UIComponentProps } from '../../renderer'
 
 const props = defineProps<A2UIComponentProps<LinkNode>>()
 const { node, surfaceId } = props
-const { text, className, href } = node.properties
+const { text } = node.properties
 const { resolveValue } = useA2UIComponent(node, surfaceId)
 
-const linkClassName = className ? className : ''
+const linkClassName = (node.properties as any).className ? (node.properties as any).className : ''
 const textValue = resolveValue(text) || ''
-const hrefValue = resolveValue(href) || ''
+const hrefValue = resolveValue((node.properties as any).href) || ''
 </script>
 
 <template>

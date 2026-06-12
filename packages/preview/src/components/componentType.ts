@@ -216,6 +216,9 @@ interface RowSelection {
   type: "checkbox" | "radio";
   selectedRowKeys: string[] | DataBinding;
 }
+interface Expandable {
+  expandedRowKeys?: string[] | DataBinding;
+}
 interface Column {
   title: string;
   dataIndex: string;
@@ -230,6 +233,7 @@ interface Column {
 interface ResolvedTableRow {
   id: string;
   component: "TableRow";
+  expandedRowRender?: AnyComponentNode[];
   children: AnyComponentNode[];
 }
 interface ResolvedTable {
@@ -239,6 +243,7 @@ interface ResolvedTable {
   pagination?: boolean;
   children: TableRowNode[];
   rowSelection?: RowSelection;
+  expandable?: Expandable;
   selectedKeys?: DataBinding;
   rowClassName?: string;
   className?: string;
@@ -492,38 +497,6 @@ interface LinkNode extends AnyComponentNode<ResolvedLink> {
   type: 'Link',
 }
 
-interface ResolvedPatGauge {
-  value: number | DataBinding;
-  max?: number | DataBinding;
-  className?: string;
-}
-interface PatGaugeNode extends AnyComponentNode<ResolvedPatGauge> {
-  type: "PatGauge";
-}
-
-interface ResolvedPatStackedBar {
-  normal: number | DataBinding;
-  warning: number | DataBinding;
-  danger: number | DataBinding;
-  error: number | DataBinding;
-  className?: string;
-}
-interface PatStackedBarNode extends AnyComponentNode<ResolvedPatStackedBar> {
-  type: "PatStackedBar";
-}
-
-interface ResolvedCircleProcessChart {
-  option: {
-    data: object[] | DataBinding;
-    color?: string[] | DataBinding;
-    title?: { text: string; subtext?: string };
-  };
-  className?: string;
-}
-interface CircleProcessChartNode extends AnyComponentNode<ResolvedCircleProcessChart> {
-  type: "CircleProcessChart";
-}
-
 
 
 export type {
@@ -561,8 +534,5 @@ export type {
   TreeNodeNode,
   ImageNode,
   StreamNode,
-  LinkNode,
-  PatGaugeNode,
-  PatStackedBarNode,
-  CircleProcessChartNode,
+  LinkNode
 }

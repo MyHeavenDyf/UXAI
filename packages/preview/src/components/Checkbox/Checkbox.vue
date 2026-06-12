@@ -6,7 +6,6 @@ import type { A2UIComponentProps } from '../../renderer'
 import { useA2UIComponent } from '../../renderer/render/hooks'
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 
-import './Checkbox.less'
 
 const props = defineProps<A2UIComponentProps<CheckboxNode>>()
 const { node, surfaceId } = props
@@ -28,8 +27,8 @@ const children = computed(() => {
   return node.properties.children || []
 })
 
-function handleChange(value) {
-  const path = node.properties.checked?.path
+function handleChange(value: any) {
+  const path = (node.properties.checked as any)?.path
   if (!path) return
 
   setValue(path, value)

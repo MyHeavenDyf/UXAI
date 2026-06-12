@@ -8,9 +8,6 @@
     "./node-transform": "./nodeTransform.js",
     "./runtime": "./runtime.js"
   },
-  "dependencies": {
-    "@dom-picker/core": "file:../dom-picker-core"
-  },
   "peerDependencies": {
     "vue": ">=3",
     "@vue/compiler-core": ">=3"

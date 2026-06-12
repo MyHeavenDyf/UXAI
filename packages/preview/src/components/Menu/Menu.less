@@ -1,17 +1,29 @@
 .el-menu {
   --el-menu-horizontal-height: 48px;
-  --el-menu-item-height: 42px;
-  --el-menu-base-level-padding: 24px;
+  --el-menu-item-height: 48px;
+  --el-menu-base-level-padding: 16px;
+  --el-menu-level-padding: 28px;
+  --el-menu-text-color: var(--text-default);
+  --el-menu-bg-color: var(--surface-default);
   border-right: none;
 
 
 }
 
 .el-sub-menu .el-sub-menu__icon-arrow {
-  font-size: 14px;
+  font-size: 10px;
+
+  svg path {
+    fill: none;
+    stroke: var(--text-default);
+    stroke-width: 80px;
+  }
 }
 
 .el-menu--vertical {
+  --el-menu-sub-item-height: 48px;
+  padding-top: 12px;
+  padding-bottom: 52px;
 
   .el-menu-item:hover,
   .el-sub-menu__title:hover {
@@ -44,16 +56,34 @@
 .el-menu--horizontal {
   &.el-menu {
     background-color: transparent;
-    border-bottom: none;
+    border-bottom-color: transparent !important;
   }
 
   .el-menu-item {
+    transition: none;
     font-weight: 400;
+
+    &:not(.is-disabled):hover,
+    &:not(.is-disabled):focus {
+      background-color: transparent;
+      color: var(--text-primary-hover);
+    }
   }
 
-  .el-menu-item:not(.is-disabled):hover,
-  .el-menu-item:not(.is-disabled):focus {
-    background-color: transparent;
+  &>.el-menu-item.is-active {
+    position: relative;
+    border-bottom-color: transparent;
+    color: var(--text-primary-active) !important;
+
+    &::after {
+      content: '';
+      position: absolute;
+      left: var(--el-menu-base-level-padding);
+      right: var(--el-menu-base-level-padding);
+      bottom: 0px;
+      height: 2px;
+      background-color: var(--text-primary-active);
+    }
   }
 }
 
@@ -61,4 +91,41 @@
 .el-menu--collapse>.el-sub-menu>.el-sub-menu__title,
 .el-menu--collapse>.el-menu-item-group>ul>.el-sub-menu>.el-sub-menu__title {
   justify-content: center;
+}
+
+
+
+
+.theme-dark {
+  .el-menu {
+   .el-menu-item:not(.is-active) .lucide {
+      stroke: var(--neutral-100);
+    }
+  }
+
+  .el-sub-menu .el-sub-menu__icon-arrow svg path {
+    stroke: var(--text-default);
+  }
+
+  .el-menu--vertical {
+
+    .el-menu-item:hover,
+    .el-sub-menu__title:hover {
+      background-color: rgba(243, 243, 243, 0.2);
+    }
+
+    .el-menu-item.is-active {
+      background-color: rgb(from var(--primary-500) r g b / 0.4);
+      color: var(--text-default);
+    }
+
+    .is-active.is-opened>.el-sub-menu__title {
+      color: var(--text-primary-active);
+
+      .el-sub-menu__icon-arrow svg path,
+      .lucide {
+        stroke: currentColor;
+      }
+    }
+  }
 }

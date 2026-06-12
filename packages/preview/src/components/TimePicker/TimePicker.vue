@@ -24,28 +24,24 @@ const size = computed(() => {
 })
 const format = computed(() => properties.format)
 
-const secondStep = computed(() => properties.secondStep)
-const minuteStep = computed(() => properties.minuteStep)
-const hourStep = computed(() => properties.hourStep)
-
-const range = computed(() => resolveValue(properties.range) as boolean)
+const range = computed(() => resolveValue(properties.range as any) as boolean)
 
 const placeholder = computed(() => {
-  const ph = resolveValue(properties.placeholder)
+  const ph = resolveValue(properties.placeholder as any)
   if (range.value) {
     if (Array.isArray(ph)) {
-      return { start: ph[0], end: ph[1] }
+      return { start: ph[0], end: ph[1] } as any
     }
-    return { start: "", end: "" }
+    return { start: "", end: "" } as any
   }
   return (ph as string) || ""
 })
 
 const initValue = computed(() => {
-  const parsed = resolveValue(properties.value)
+  const parsed = resolveValue(properties.value as any)
   return parsed
 })
-const inputValue = ref(initValue.value)
+const inputValue = ref<any>(initValue.value)
 watch(
   () => initValue.value,
   (newVal) => {
@@ -53,8 +49,8 @@ watch(
   }
 )
 
-function handleDateChange(val) {
-  const path = properties.value?.path
+function handleDateChange(val: any) {
+  const path = (properties.value as any)?.path
   if (!path) return
   setValue(path, val)
 }
@@ -69,7 +65,7 @@ function handleDateChange(val) {
     :start-placeholder="range ? placeholder?.start : undefined"
     :end-placeholder="range ? placeholder?.end : undefined"
     :is-range="range"
-    :size="size"
+    :size="size as any"
     :format="format"
     @change="handleDateChange"
   />

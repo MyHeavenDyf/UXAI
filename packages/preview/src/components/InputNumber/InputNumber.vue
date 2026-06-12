@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue"
+import { ref, computed } from "vue"
 import { ElInputNumber } from "element-plus"
 import type { InputNumberNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -37,8 +37,8 @@ const minVal = computed(() => (resolveValue(properties.min) as number) ?? 0)
 const maxVal = computed(() => (resolveValue(properties.max) as number) ?? 100)
 const stepVal = computed(() => (resolveValue(properties.step) as number) ?? 1)
 
-function change(newVal) {
-  const path = properties.value?.path
+function change(newVal: number | undefined) {
+  const path = (properties.value as any)?.path
   if (!path) return
   setValue(path, newVal ?? 0)
 }
@@ -52,8 +52,8 @@ function change(newVal) {
     :min="minVal"
     :max="maxVal"
     :step="stepVal"
-    :size="size"
-    :controls="controls"
+    :size="size as any"
+    :controls="controls as any"
     :placeholder="placeholder"
     @change="change"
   />

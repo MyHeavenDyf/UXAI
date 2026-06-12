@@ -89,3 +89,32 @@
     }
   }
 }
+
+
+.theme-dark {
+  .el-step__icon.is-text {
+    border: 1px solid var(--neutral-500);
+    background: rgba(243, 243, 243, 0.2);
+    color: var(--neutral-200);
+  }
+  .el-step__head {
+    &.is-finish {
+      .el-step__line {
+        background-color: var(--primary-500);
+      }
+      .el-step__icon.is-text {
+        border-color: var(--primary-400);
+        background-color: #112857;
+      }
+    }
+    &.is-process {
+      .el-step__icon.is-text {
+        background: var(--primary-500);
+        border: none;
+      }
+    }
+  }
+  
+}
+
+

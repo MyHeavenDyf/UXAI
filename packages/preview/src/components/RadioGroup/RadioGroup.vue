@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
 import { ElRadioGroup, ElRadio, ElRadioButton } from "element-plus"
 import type { RadioGroupNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -30,12 +30,12 @@ const className = computed(() => {
   return classes
 })
 const size = computed(() => {
-  const resSize = resolveValue(properties.size)
-  return resSize ? sizeEnum[resSize] : ""
+  const resSize = resolveValue(properties.size) as string
+  return resSize ? sizeEnum[resSize as keyof typeof sizeEnum] : ""
 })
 const type = computed(() => {
-  const optionType = resolveValue(properties.optionType)
-  return optionType ? typeEnum[optionType] : "radio"
+  const optionType = resolveValue(properties.optionType) as string
+  return optionType ? typeEnum[optionType as keyof typeof typeEnum] : "radio"
 })
 
 const data = computed(() => {
@@ -57,7 +57,7 @@ onMounted(() => {
 })
 
 function handleChange(value: any) {
-  const path = properties.value?.path
+  const path = (properties.value as any)?.path
   if (!path) return
   const item = data.value.find((i: any) => i.value === value)
   setValue(path, item?.label || "")
@@ -68,7 +68,7 @@ function handleChange(value: any) {
   <ElRadioGroup
     :id="id"
     :class="className"
-    :size="size"
+    :size="size as any"
     v-model="selectedValue"
     @change="handleChange"
   >

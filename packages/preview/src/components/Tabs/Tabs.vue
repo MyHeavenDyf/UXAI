@@ -16,7 +16,8 @@ const sizeEnum = {
 const typeEnum = {
   line: "",
   card: "card",
-  "editable-card": "",
+  "editable-card": "card",
+  "separator": "separator",
 }
 
 const positionEnum = {
@@ -32,16 +33,32 @@ const { properties } = props.node
 const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
 
 const id = computed(() => props.node.id)
-const className = computed(() => properties.className)
 
 const types = computed(() => properties.types)
 const type = computed(() => {
   return types.value ? typeEnum[types.value] : ""
 })
-
 const size = computed(() => {
   return properties.size ? sizeEnum[properties.size] : "default"
 })
+const className = computed(() => {
+  const classes = properties.className ?? ''
+  const typeClass = type.value ? ` tabs-${type.value}` : ''
+  const sizeClass = size.value ? ` is-${size.value}` : ''
+  return classes + typeClass + sizeClass
+})
+
+const editable = computed(() => types.value === 'editable-card')
+
+const iconSize = computed(() => {
+  switch (type.value) {
+    case 'card': return 14;
+    case 'line': return size.value === 'large' ? 18 : 16;
+    case 'separator': return size.value === 'small' ? 16 : 20;
+    default: return size.value === 'large' ? 18 : 16;
+  }
+})
+
 
 const position = computed(() => {
   return properties.tabPlacement ? positionEnum[properties.tabPlacement] : "top"
@@ -58,6 +75,8 @@ const items = computed(() => {
     const label = resolveValue(itemProps.label) as string
     const key = (resolveValue(itemProps.key) as string) || String(index)
     const icon = resolveValue(itemProps.icon) as string
+    const disabled = resolveValue(itemProps.disabled) as boolean
+
     const content =
       itemProps.content?.path || typeof itemProps.content === "string"
         ? resolveValue(itemProps.content)
@@ -66,6 +85,7 @@ const items = computed(() => {
       name: key,
       label: label,
       icon: icon,
+      disabled: disabled,
       content: content,
     }
   })
@@ -73,36 +93,16 @@ const items = computed(() => {
 </script>
 
 <template>
-  <ElTabs
-    :id="id"
-    :class="className"
-    :size="size"
-    :editable="types === 'editable-card'"
-    :type="type"
-    :tab-position="position"
-    v-model="activeKey"
-  >
-    <ElTabPane
-      v-for="(item, index) in items"
-      :key="item.name"
-      :label="item.label"
-      :name="item.name"
-    >
+  <ElTabs :id="id" :class="className" :editable="editable" :type="type === 'card' ? 'card' : ''" :tab-position="position as any"
+    v-model="activeKey">
+    <ElTabPane v-for="(item) in items" :key="item.name" :label="item.label" :disabled="item.disabled" :name="item.name">
       <template #label v-if="item.icon">
-        <span class="tab-header flex items-center">
-          <component
-            class="mr-2"
-            :is="getLucideIconComponentRef(item.icon)"
-            :color="
-              activeKey === item.name
-                ? 'var(--el-color-primary)'
-                : undefined
-            "
-            :size="14"
-            :stroke-width="1"
-            :absolute-stroke-width="true"
-          />
-          <span>{{ item.label }}</span>
+        <span class="item-content flex items-center">
+          <component class="mr-1" :is="getLucideIconComponentRef(item.icon)" :color="activeKey === item.name
+              ? 'var(--el-color-primary)'
+              : undefined
+            " :size="iconSize" :stroke-width="1" :absolute-stroke-width="true" />
+          <span class="item-label leading-none">{{ item.label }}</span>
         </span>
       </template>
       <template v-if="typeof item.content === 'string'">

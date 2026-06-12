@@ -17,22 +17,26 @@
   --el-button-hover-link-text-color: var(--el-text-color-secondary);
   --el-button-active-color: var(--el-text-color-primary); */
 }
+
+
+
+
+
 .el-button--primary {
   --el-button-active-text-color: var(--el-color-white);
   --el-button-text-color: var(--el-color-white);
   --el-button-bg-color: var(--el-color-primary);
   --el-button-border-color: var(--el-color-primary);
-  --el-button-outline-color: var(--el-color-primary-light-5);
-  --el-button-active-color: var(--el-color-primary-dark-2);
+  --el-button-active-color: var(--el-color-white);
   --el-button-hover-text-color: var(--el-color-white);
-  --el-button-hover-link-text-color: var(--el-color-primary-light-5);
-  --el-button-hover-bg-color: var(--el-color-primary-light-3);
-  --el-button-hover-border-color: var(--el-color-primary-light-3);
-  --el-button-active-bg-color: var(--el-color-primary-dark-2);
-  --el-button-active-border-color: var(--el-color-primary-dark-2);
+  --el-button-hover-link-text-color: var(--primary-200);
+  --el-button-hover-bg-color: var(--primary-400);
+  --el-button-hover-border-color: var(--primary-400);
+  --el-button-active-bg-color: var(--primary-600);
+  --el-button-active-border-color: var(--primary-600);
   --el-button-disabled-text-color: var(--el-color-white);
-  --el-button-disabled-bg-color: var(--el-color-primary-light-5);
-  --el-button-disabled-border-color: var(--el-color-primary-light-5);
+  --el-button-disabled-bg-color: var(--primary-200);
+  --el-button-disabled-border-color: var(--primary-200);
 }
 
 .el-button--danger {
@@ -40,7 +44,7 @@
   --el-button-text-color: var(--el-color-white);
   --el-button-bg-color: var(--el-color-danger);
   --el-button-border-color: var(--el-color-danger);
-  --el-button-outline-color: var(--el-color-danger-light-5);
+
   --el-button-active-color: var(--el-color-danger-dark-2);
   --el-button-hover-text-color: var(--el-color-white);
   --el-button-hover-link-text-color: var(--el-color-danger-light-5);
@@ -58,7 +62,7 @@
   --el-button-text-color: var(--el-color-white);
   --el-button-bg-color: var(--el-color-success);
   --el-button-border-color: var(--el-color-success);
-  --el-button-outline-color: var(--el-color-success-light-5);
+
   --el-button-active-color: var(--el-color-success-dark-2);
   --el-button-hover-text-color: var(--el-color-white);
   --el-button-hover-link-text-color: var(--el-color-success-light-5);
@@ -70,6 +74,7 @@
   --el-button-disabled-bg-color: var(--el-color-success-light-5);
   --el-button-disabled-border-color: var(--el-color-success-light-5);
 }
+
 .el-button--warning {
   --el-button-active-text-color: var(--el-color-white);
   --el-button-text-color: var(--el-color-white);
@@ -96,8 +101,8 @@
 }
 
 .el-button.icon-only-circle {
-  width:auto !important;
-  height:auto !important;
+  width: auto !important;
+  height: auto !important;
   min-width: auto !important;
   border: none;
   background-color: transparent;
@@ -108,15 +113,112 @@
 .el-button.icon-only-circle:focus {
   background-color: transparent;
 }
+
 .el-button--default.icon-only-circle {
   &:hover {
     color: var(--primary-400);
   }
+
   &:active {
     color: var(--primary-500);
   }
 }
 
-.el-button + .el-button {
+.el-button+.el-button {
   margin-left: 0px;
+}
+
+.theme-dark {
+  .el-button {
+    --el-button-border-color: var(--neutral-500);
+    --el-button-bg-color: rgb(from var(--neutral-950) r g b / 0);
+    --el-button-disabled-bg-color: rgb(from var(--neutral-50) r g b / 0.2);
+    --el-button-disabled-border-color: var(--neutral-600);
+    --el-button-hover-bg-color: rgb(from var(--neutral-950) r g b / 0);
+    --el-button-hover-border-color: var(--neutral-50);
+    --el-button-active-text-color: var(--el-text-color-primary);
+    --el-button-active-border-color: var(--primary-400);
+    --el-button-active-bg-color: rgb(from var(--neutral-950) r g b / 0);
+
+    // &:not(.el-button--primary):hover {
+    //   svg {
+    //     stroke: var(--neutral-100);
+    //   }
+    // }
+    &.icon-only-circle {
+      color: var(--neutral-100);
+    }
+  }
+
+  .el-button--primary {
+    --el-button-active-text-color: var(--el-color-white);
+    --el-button-text-color: var(--el-color-white);
+    --el-button-bg-color: var(--el-color-primary);
+    --el-button-border-color: var(--el-color-primary);
+    --el-button-active-color: var(--el-color-white);
+    --el-button-hover-text-color: var(--el-color-white);
+    --el-button-hover-link-text-color: var(--primary-200);
+    --el-button-hover-bg-color: var(--primary-400);
+    --el-button-hover-border-color: var(--primary-400);
+    --el-button-active-bg-color: var(--primary-600);
+    --el-button-active-border-color: var(--primary-600);
+    --el-button-disabled-text-color: var(--el-color-white);
+    --el-button-disabled-bg-color: var(--primary-200);
+    --el-button-disabled-border-color: var(--primary-200);
+  }
+
+  .el-button--danger {
+    --el-button-active-text-color: var(--el-color-white);
+    --el-button-text-color: var(--el-color-white);
+    --el-button-bg-color: var(--el-color-danger);
+    --el-button-border-color: var(--el-color-danger);
+
+    --el-button-active-color: var(--el-color-danger-dark-2);
+    --el-button-hover-text-color: var(--el-color-white);
+    --el-button-hover-link-text-color: var(--el-color-danger-light-5);
+    --el-button-hover-bg-color: var(--el-color-danger-light-3);
+    --el-button-hover-border-color: var(--el-color-danger-light-3);
+    --el-button-active-bg-color: var(--el-color-danger-dark-2);
+    --el-button-active-border-color: var(--el-color-danger-dark-2);
+    --el-button-disabled-text-color: var(--el-color-white);
+    --el-button-disabled-bg-color: var(--el-color-danger-light-5);
+    --el-button-disabled-border-color: var(--el-color-danger-light-5);
+  }
+
+  .el-button--success {
+    --el-button-active-text-color: var(--el-color-white);
+    --el-button-text-color: var(--el-color-white);
+    --el-button-bg-color: var(--el-color-success);
+    --el-button-border-color: var(--el-color-success);
+
+    --el-button-active-color: var(--el-color-success-dark-2);
+    --el-button-hover-text-color: var(--el-color-white);
+    --el-button-hover-link-text-color: var(--el-color-success-light-5);
+    --el-button-hover-bg-color: var(--el-color-success-light-3);
+    --el-button-hover-border-color: var(--el-color-success-light-3);
+    --el-button-active-bg-color: var(--el-color-success-dark-2);
+    --el-button-active-border-color: var(--el-color-success-dark-2);
+    --el-button-disabled-text-color: var(--el-color-white);
+    --el-button-disabled-bg-color: var(--el-color-success-light-5);
+    --el-button-disabled-border-color: var(--el-color-success-light-5);
+  }
+
+  .el-button--warning {
+    --el-button-active-text-color: var(--el-color-white);
+    --el-button-text-color: var(--el-color-white);
+    --el-button-bg-color: var(--el-color-warning);
+    --el-button-border-color: var(--el-color-warning);
+    --el-button-outline-color: var(--el-color-warning-light-5);
+    --el-button-active-color: var(--el-color-warning-dark-2);
+    --el-button-hover-text-color: var(--el-color-white);
+    --el-button-hover-link-text-color: var(--el-color-warning-light-5);
+    --el-button-hover-bg-color: var(--el-color-warning-light-3);
+    --el-button-hover-border-color: var(--el-color-warning-light-3);
+    --el-button-active-bg-color: var(--el-color-warning-dark-2);
+    --el-button-active-border-color: var(--el-color-warning-dark-2);
+    --el-button-disabled-text-color: var(--el-color-white);
+    --el-button-disabled-bg-color: var(--el-color-warning-light-5);
+    --el-button-disabled-border-color: var(--el-color-warning-light-5);
+  }
+
 }

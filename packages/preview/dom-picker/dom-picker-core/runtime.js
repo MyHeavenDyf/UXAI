@@ -261,7 +261,7 @@ export function installDomPicker(options = {}) {
     }
   }
 
-  const handleClick = (event) => {
+  const handleClick = async (event) => {
     if (frozen) {
       window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_MENU' }, '*')
       event.preventDefault()

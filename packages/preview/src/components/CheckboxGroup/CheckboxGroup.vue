@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElCheckboxGroup, ElCheckbox } from 'element-plus'
 import type { CheckboxGroupNode } from '../types'
 import type { A2UIComponentProps } from '../../renderer'
 import { useA2UIComponent } from '../../renderer/render/hooks'
-import './CheckboxGroup.less'
+
 
 const props = defineProps<A2UIComponentProps<CheckboxGroupNode>>()
 const { node, surfaceId } = props
@@ -33,7 +33,7 @@ onMounted(() => {
 })
 
 function handleChange(value: any[]) {
-  const path = node.properties.value?.path
+  const path = (node.properties.value as any)?.path
   if (!path) return
   const labels = value.map((val) => {
     const temp = data.value.find((i: any) => i.value === val)

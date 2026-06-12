@@ -1,4 +1,4 @@
-import { installDomPicker } from '@dom-picker/core/runtime'
+import { installDomPicker } from '../dom-picker-core/runtime.js'
 
 export function installVueDomPicker() {
   installDomPicker({

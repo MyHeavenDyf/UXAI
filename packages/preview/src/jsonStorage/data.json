@@ -1,632 +1,1374 @@
 {
-  "rootId": "loginPageContainer",
+  "rootId": "appShellRoot",
   "elements": [
     {
-      "id": "loginPageContainer",
+      "id": "appShellRoot",
       "component": "div",
       "props": {
-        "className": "flex flex-row min-h-screen relative bg-surface-container-lowest"
+        "className": "flex flex-col h-screen bg-surface-container-lowest"
       },
       "children": [
-        "brandingAreaContainer",
-        "loginAreaContainer",
-        "globalSettingsContainer"
+        "topNavSlot",
+        "appShellBody"
       ]
     },
     {
-      "id": "brandingAreaContainer",
-      "component": "div",
+      "id": "topNavSlot",
+      "component": "header",
       "props": {
-        "className": "flex flex-col items-center justify-center w-[45%]"
+        "className": "h-12 bg-surface-container-highest shadow-sm flex items-center px-page shrink-0 z-10"
       },
       "children": [
-        "brandLogoImage",
-        "brandTitle",
-        "brandSlogan",
-        "brandCarousel"
+        "topNavLeft",
+        "topNavRight"
       ]
     },
     {
-      "id": "loginAreaContainer",
+      "id": "appShellBody",
       "component": "div",
       "props": {
-        "className": "flex flex-col items-center justify-center w-[55%] bg-surface-container-highest shadow-sm"
+        "className": "flex flex-1 overflow-hidden"
       },
       "children": [
-        "loginFormCard"
+        "sideMenuSlot",
+        "mainContentSlot"
       ]
     },
     {
-      "id": "globalSettingsContainer",
-      "component": "div",
+      "id": "sideMenuSlot",
+      "component": "aside",
       "props": {
-        "className": "absolute top-4 right-4 z-10 flex items-center gap-2 bg-surface-container-highest shadow-sm px-3 py-2 rounded-lg"
+        "className": "w-[15.5rem] bg-surface-container-highest shadow-sm overflow-y-auto shrink-0"
       },
       "children": [
-        "globalLangIcon",
-        "globalLangSelect",
-        "globalThemeBtn"
+        "sideMenuLogo",
+        "sideMenuDivider",
+        "sideMenuNav"
       ]
     },
     {
-      "id": "globalLangIcon",
-      "component": "Icon",
+      "id": "mainContentSlot",
+      "component": "main",
       "props": {
-        "name": "languages",
-        "color": "primary",
-        "shape": "outline",
-        "className": "w-5 h-5"
-      }
-    },
-    {
-      "id": "globalLangSelect",
-      "component": "Select",
-      "props": {
-        "value": {
-          "path": "/currentLanguage"
-        },
-        "options": {
-          "path": "/languageOptions"
-        },
-        "className": "w-28"
-      }
-    },
-    {
-      "id": "globalThemeBtn",
-      "component": "Button",
-      "props": {
-        "icon": {
-          "path": "/themeToggleIcon"
-        }
-      }
-    },
-    {
-      "id": "brandLogoImage",
-      "component": "img",
-      "props": {
-        "src": {
-          "path": "/brandInfo/logoImage"
-        },
-        "className": "h-20 w-auto mb-6",
-        "alt": "系统Logo"
-      }
-    },
-    {
-      "id": "brandTitle",
-      "component": "span",
-      "props": {
-        "className": "text-3xl font-bold text-on-surface mb-2 text-center",
-        "value": {
-          "path": "/brandInfo/systemName"
-        }
-      }
-    },
-    {
-      "id": "brandSlogan",
-      "component": "span",
-      "props": {
-        "className": "text-lg text-on-surface-variant mb-10 text-center",
-        "value": {
-          "path": "/brandInfo/slogan"
-        }
-      }
-    },
-    {
-      "id": "brandCarousel",
-      "component": "Carousel",
-      "props": {
-        "arrows": true,
-        "dotPlacement": "bottom",
-        "className": "w-full max-w-lg rounded-xl overflow-hidden shadow-card"
-      },
-      "children": {
-        "path": "/brandInfo/carouselSlides",
-        "componentId": "brandSlide"
-      }
-    },
-    {
-      "id": "brandSlide",
-      "component": "div",
-      "props": {
-        "className": "relative flex flex-col items-center justify-center rounded-xl overflow-hidden bg-surface-container-highest"
+        "className": "flex-1 overflow-y-auto p-page"
       },
       "children": [
-        "brandSlideImage",
-        "brandSlideContent"
+        "mainContentInner"
       ]
     },
     {
-      "id": "brandSlideImage",
-      "component": "img",
-      "props": {
-        "src": {
-          "path": "slideImage"
-        },
-        "className": "w-full h-56 object-cover",
-        "alt": {
-          "path": "slideTitle"
-        }
-      }
-    },
-    {
-      "id": "brandSlideContent",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col items-center gap-2 p-6 text-center"
-      },
-      "children": [
-        "brandSlideTitle",
-        "brandSlideDesc"
-      ]
-    },
-    {
-      "id": "brandSlideTitle",
-      "component": "span",
-      "props": {
-        "className": "text-xl font-semibold text-on-surface",
-        "value": {
-          "path": "slideTitle"
-        }
-      }
-    },
-    {
-      "id": "brandSlideDesc",
-      "component": "span",
-      "props": {
-        "className": "text-md text-on-surface-variant leading-relaxed",
-        "value": {
-          "path": "slideDescription"
-        }
-      }
-    },
-    {
-      "id": "loginFormCard",
-      "component": "div",
-      "props": {
-        "className": "w-full max-w-md px-8 py-8"
-      },
-      "children": [
-        "loginCardHeader",
-        "loginErrorAlert",
-        "loginUsernameField",
-        "loginPasswordField",
-        "loginCaptchaField",
-        "loginOptionsRow",
-        "loginSubmitBtn",
-        "loginRegisterRow",
-        "loginDivider",
-        "loginSsoContainer",
-        "loginFooter"
-      ]
-    },
-    {
-      "id": "loginCardHeader",
-      "component": "div",
-      "props": {
-        "className": "mb-6 text-center"
-      },
-      "children": [
-        "loginCardTitle",
-        "loginCardDesc"
-      ]
-    },
-    {
-      "id": "loginCardTitle",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/cardTitle"
-        },
-        "className": "text-2xl font-bold text-on-surface block"
-      }
-    },
-    {
-      "id": "loginCardDesc",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/cardDesc"
-        },
-        "className": "text-md text-on-surface-variant block mt-2"
-      }
-    },
-    {
-      "id": "loginErrorAlert",
-      "component": "div",
-      "props": {
-        "className": "bg-error-container rounded-lg px-4 py-3 mb-4"
-      },
-      "children": [
-        "loginErrorText"
-      ]
-    },
-    {
-      "id": "loginErrorText",
-      "component": "span",
-      "props": {
-        "value": {
-          "path": "/errorMessage"
-        },
-        "className": "text-sm text-on-error-container"
-      }
-    },
-    {
-      "id": "loginUsernameField",
-      "component": "div",
-      "props": {
-        "className": "mb-4"
-      },
-      "children": [
-        "loginUsernameLabel",
-        "loginUsernameInput"
-      ]
-    },
-    {
-      "id": "loginUsernameLabel",
-      "component": "label",
-      "props": {
-        "value": "用户名",
-        "className": "text-sm font-medium text-on-surface block mb-1"
-      }
-    },
-    {
-      "id": "loginUsernameInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/username"
-        },
-        "placeholder": "请输入用户名",
-        "prefix": "user",
-        "size": "large",
-        "className": "w-full"
-      }
-    },
-    {
-      "id": "loginPasswordField",
-      "component": "div",
-      "props": {
-        "className": "mb-4"
-      },
-      "children": [
-        "loginPasswordLabel",
-        "loginPasswordInput"
-      ]
-    },
-    {
-      "id": "loginPasswordLabel",
-      "component": "label",
-      "props": {
-        "value": "密码",
-        "className": "text-sm font-medium text-on-surface block mb-1"
-      }
-    },
-    {
-      "id": "loginPasswordInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/password"
-        },
-        "placeholder": "请输入密码",
-        "prefix": "lock",
-        "password": true,
-        "size": "large",
-        "className": "w-full"
-      }
-    },
-    {
-      "id": "loginCaptchaField",
-      "component": "div",
-      "props": {
-        "className": "mb-4"
-      },
-      "children": [
-        "loginCaptchaLabel",
-        "loginCaptchaRow"
-      ]
-    },
-    {
-      "id": "loginCaptchaLabel",
-      "component": "label",
-      "props": {
-        "value": "验证码",
-        "className": "text-sm font-medium text-on-surface block mb-1"
-      }
-    },
-    {
-      "id": "loginCaptchaRow",
-      "component": "div",
-      "props": {
-        "className": "flex gap-3 items-start"
-      },
-      "children": [
-        "loginCaptchaInput",
-        "loginCaptchaRight"
-      ]
-    },
-    {
-      "id": "loginCaptchaInput",
-      "component": "Input",
-      "props": {
-        "value": {
-          "path": "/captcha"
-        },
-        "placeholder": "请输入验证码",
-        "prefix": "shield-check",
-        "maxLength": 5,
-        "size": "large",
-        "className": "flex-1"
-      }
-    },
-    {
-      "id": "loginCaptchaRight",
+      "id": "topNavLeft",
       "component": "div",
       "props": {
         "className": "flex items-center gap-2 shrink-0"
       },
       "children": [
-        "loginCaptchaImg",
-        "loginCaptchaRefresh"
+        "topNavLogoIcon",
+        "topNavLogoText"
       ]
     },
     {
-      "id": "loginCaptchaImg",
-      "component": "img",
+      "id": "topNavLogoIcon",
+      "component": "Icon",
       "props": {
-        "src": {
-          "path": "/captchaImage"
+        "name": {
+          "path": "/logoIcon"
         },
-        "alt": "验证码图片",
-        "className": "h-10 w-auto rounded-md border border-base"
-      }
-    },
-    {
-      "id": "loginCaptchaRefresh",
-      "component": "Button",
-      "props": {
-        "icon": "refresh-cw",
-        "value": "换一张",
-        "iconPlacement": "start",
-        "types": "link",
-        "className": "text-sm whitespace-nowrap"
-      }
-    },
-    {
-      "id": "loginOptionsRow",
-      "component": "div",
-      "props": {
-        "className": "flex items-center justify-between mb-6"
-      },
-      "children": [
-        "loginRememberCheckbox",
-        "loginForgotLink"
-      ]
-    },
-    {
-      "id": "loginRememberCheckbox",
-      "component": "Checkbox",
-      "props": {
-        "checked": {
-          "path": "/rememberMe"
-        },
-        "label": "记住我"
-      }
-    },
-    {
-      "id": "loginForgotLink",
-      "component": "a",
-      "props": {
-        "href": {
-          "path": "/forgotPasswordUrl"
-        },
-        "value": "忘记密码？",
-        "className": "text-sm text-primary hover:underline"
-      }
-    },
-    {
-      "id": "loginSubmitBtn",
-      "component": "Button",
-      "props": {
-        "value": "登 录",
         "color": "primary",
-        "size": "large",
-        "className": "w-full h-11 text-lg font-medium"
+        "shape": "outline",
+        "className": "w-6 h-6"
       }
     },
     {
-      "id": "loginRegisterRow",
-      "component": "div",
-      "props": {
-        "className": "text-center mt-4"
-      },
-      "children": [
-        "loginRegisterPrefix",
-        "loginRegisterLink"
-      ]
-    },
-    {
-      "id": "loginRegisterPrefix",
+      "id": "topNavLogoText",
       "component": "span",
       "props": {
-        "value": "还没有账号？",
-        "className": "text-sm text-on-surface-variant"
+        "className": "text-lg font-semibold text-on-surface select-none",
+        "value": "电商后台"
       }
     },
     {
-      "id": "loginRegisterLink",
-      "component": "a",
-      "props": {
-        "href": {
-          "path": "/registerUrl"
-        },
-        "value": "立即注册",
-        "className": "text-sm text-primary font-medium hover:underline ml-1"
-      }
-    },
-    {
-      "id": "loginDivider",
-      "component": "Divider",
-      "props": {
-        "value": {
-          "path": "/dividerText"
-        },
-        "titlePlacement": "center",
-        "className": "my-6"
-      }
-    },
-    {
-      "id": "loginSsoContainer",
+      "id": "topNavRight",
       "component": "div",
       "props": {
-        "className": "flex justify-center gap-5"
-      },
-      "children": {
-        "path": "/ssoProviders",
-        "componentId": "loginSsoBtn"
-      }
-    },
-    {
-      "id": "loginSsoBtn",
-      "component": "div",
-      "props": {
-        "className": "w-10 h-10 rounded-full overflow-hidden cursor-pointer hover:opacity-80 transition-opacity border border-base",
-        "title": {
-          "path": "name"
-        }
+        "className": "flex items-center gap-4 ml-auto"
       },
       "children": [
-        "loginSsoBtnImg"
+        "topNavSearch",
+        "topNavNotifyBadge",
+        "topNavUserArea"
       ]
     },
     {
-      "id": "loginSsoBtnImg",
+      "id": "topNavSearch",
+      "component": "Input",
+      "props": {
+        "value": "",
+        "placeholder": {
+          "path": "/searchPlaceholder"
+        },
+        "prefix": "search",
+        "className": "w-72"
+      }
+    },
+    {
+      "id": "topNavNotifyBadge",
+      "component": "Badge",
+      "props": {
+        "count": {
+          "path": "/notificationCount"
+        },
+        "overflowCount": 99,
+        "color": "error"
+      },
+      "children": [
+        "topNavNotifyIcon"
+      ]
+    },
+    {
+      "id": "topNavNotifyIcon",
+      "component": "Icon",
+      "props": {
+        "name": "bell",
+        "color": "on-surface-variant",
+        "shape": "outline",
+        "className": "w-5 h-5 cursor-pointer"
+      }
+    },
+    {
+      "id": "topNavUserArea",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 cursor-pointer ml-2"
+      },
+      "children": [
+        "topNavAvatar",
+        "topNavUserName"
+      ]
+    },
+    {
+      "id": "topNavAvatar",
       "component": "img",
       "props": {
         "src": {
-          "path": "icon"
+          "path": "/userInfo/avatarImage"
         },
-        "alt": {
-          "path": "name"
+        "alt": "用户头像",
+        "className": "w-8 h-8 rounded-full object-cover border border-divider"
+      }
+    },
+    {
+      "id": "topNavUserName",
+      "component": "span",
+      "props": {
+        "className": "text-md text-on-surface font-medium",
+        "value": {
+          "path": "/userInfo.userName"
+        }
+      }
+    },
+    {
+      "id": "sideMenuLogo",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 px-5 py-4"
+      },
+      "children": [
+        "sideMenuLogoIcon",
+        "sideMenuLogoText"
+      ]
+    },
+    {
+      "id": "sideMenuLogoIcon",
+      "component": "Icon",
+      "props": {
+        "name": "store",
+        "color": "primary",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "sideMenuLogoText",
+      "component": "span",
+      "props": {
+        "value": "电商管理后台",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "sideMenuDivider",
+      "component": "div",
+      "props": {
+        "className": "mx-4 border-t border-divider"
+      }
+    },
+    {
+      "id": "sideMenuNav",
+      "component": "Menu",
+      "props": {
+        "mode": "vertical",
+        "inlineCollapsed": false,
+        "selectedKeys": {
+          "path": "/selectedMenuKeys"
         },
+        "openKeys": {
+          "path": "/openMenuKeys"
+        },
+        "items": {
+          "path": "/menuItems"
+        },
+        "className": "w-full"
+      }
+    },
+    {
+      "id": "mainContentInner",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-section"
+      },
+      "children": [
+        "mainContentHeaderRow",
+        "mainContentBasicCard",
+        "mainContentSkuCard",
+        "mainContentSalesCard"
+      ]
+    },
+    {
+      "id": "mainContentHeaderRow",
+      "component": "div",
+      "props": {
+        "className": "flex justify-between items-center"
+      },
+      "children": [
+        "mainContentBreadcrumb",
+        "mainContentActionBtns"
+      ]
+    },
+    {
+      "id": "mainContentBreadcrumb",
+      "component": "Breadcrumb",
+      "props": {
+        "items": {
+          "path": "/breadcrumbData"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "mainContentActionBtns",
+      "component": "div",
+      "props": {
+        "className": "flex gap-2"
+      },
+      "children": [
+        "mainContentBtnEdit",
+        "mainContentBtnUpload",
+        "mainContentBtnDelete"
+      ]
+    },
+    {
+      "id": "mainContentBtnEdit",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/actionButtons/0/label"
+        },
+        "icon": {
+          "path": "/actionButtons/0/icon"
+        },
+        "iconPlacement": "start",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "mainContentBtnUpload",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/actionButtons/1/label"
+        },
+        "icon": {
+          "path": "/actionButtons/1/icon"
+        },
+        "iconPlacement": "start"
+      }
+    },
+    {
+      "id": "mainContentBtnDelete",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "/actionButtons/2/label"
+        },
+        "icon": {
+          "path": "/actionButtons/2/icon"
+        },
+        "iconPlacement": "start",
+        "color": "danger"
+      }
+    },
+    {
+      "id": "mainContentBasicCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentBasicCardTitle",
+        "mainContentBasicDivider",
+        "mainContentBasicCardBody"
+      ]
+    },
+    {
+      "id": "mainContentBasicCardTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentBasicDivider",
+      "component": "div",
+      "props": {
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentBasicCardBody",
+      "component": "div",
+      "props": {
+        "className": "flex gap-6"
+      },
+      "children": [
+        "mainContentCarouselWrap",
+        "mainContentInfoRight"
+      ]
+    },
+    {
+      "id": "mainContentCarouselWrap",
+      "component": "div",
+      "props": {
+        "className": "w-2/5 shrink-0"
+      },
+      "children": [
+        "mainContentCarousel"
+      ]
+    },
+    {
+      "id": "mainContentCarousel",
+      "component": "Carousel",
+      "props": {
+        "arrows": true,
+        "dotPlacement": "bottom",
+        "className": "w-full rounded-lg overflow-hidden"
+      },
+      "children": {
+        "path": "/basicInfoCard/productImages",
+        "componentId": "mainContentCarouselSlide"
+      }
+    },
+    {
+      "id": "mainContentCarouselSlide",
+      "component": "div",
+      "props": {
+        "className": "w-full aspect-square rounded-lg overflow-hidden"
+      },
+      "children": [
+        "mainContentCarouselImg"
+      ]
+    },
+    {
+      "id": "mainContentCarouselImg",
+      "component": "img",
+      "props": {
+        "src": {
+          "path": "urlImage"
+        },
+        "alt": "商品图片",
         "className": "w-full h-full object-cover"
       }
     },
     {
-      "id": "loginFooter",
+      "id": "mainContentInfoRight",
       "component": "div",
       "props": {
-        "className": "text-center mt-8 pt-6 border-t border-divider"
+        "className": "flex-1 flex flex-col gap-4"
       },
       "children": [
-        "loginFooterCopyright",
-        "loginFooterIcp"
+        "mainContentProductName",
+        "mainContentProductDesc",
+        "mainContentAttrList"
       ]
     },
     {
-      "id": "loginFooterCopyright",
-      "component": "span",
+      "id": "mainContentProductName",
+      "component": "h2",
       "props": {
         "value": {
-          "path": "/footerCopyright"
+          "path": "/basicInfoCard/productName"
         },
-        "className": "text-sm text-on-surface-variant block"
+        "className": "text-xl font-bold text-on-surface"
       }
     },
     {
-      "id": "loginFooterIcp",
+      "id": "mainContentProductDesc",
+      "component": "p",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/productDesc"
+        },
+        "className": "text-md text-on-surface-variant leading-relaxed"
+      }
+    },
+    {
+      "id": "mainContentAttrList",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3 mt-2"
+      },
+      "children": [
+        "mainContentAttrRow1",
+        "mainContentAttrRow2",
+        "mainContentAttrRow3",
+        "mainContentAttrRow4",
+        "mainContentAttrRow5"
+      ]
+    },
+    {
+      "id": "mainContentAttrRow1",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel1",
+        "mainContentAttrValue1"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel1",
       "component": "span",
       "props": {
         "value": {
-          "path": "/footerIcp"
+          "path": "/basicInfoCard/attributes/0/label"
         },
-        "className": "text-sm text-on-surface-variant block mt-1"
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue1",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/0/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow2",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel2",
+        "mainContentAttrValue2"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel2",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/1/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue2",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/1/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow3",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel3",
+        "mainContentAttrValue3"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel3",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/2/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue3",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/2/value"
+        },
+        "className": "text-md font-mono text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow4",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel4",
+        "mainContentAttrValue4"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel4",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/3/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue4",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/3/value"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentAttrRow5",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "mainContentAttrLabel5",
+        "mainContentAttrValue5"
+      ]
+    },
+    {
+      "id": "mainContentAttrLabel5",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/4/label"
+        },
+        "className": "text-sm text-on-surface-variant w-20 shrink-0"
+      }
+    },
+    {
+      "id": "mainContentAttrValue5",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "/basicInfoCard/attributes/4/value"
+        },
+        "color": {
+          "path": "/basicInfoCard/attributes/4/color"
+        }
+      }
+    },
+    {
+      "id": "mainContentSkuCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentSkuCardTitle",
+        "mainContentSkuDivider",
+        "mainContentSkuTableWrap"
+      ]
+    },
+    {
+      "id": "mainContentSkuCardTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/skuListTable/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuDivider",
+      "component": "div",
+      "props": {
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentSkuTableWrap",
+      "component": "div",
+      "props": {
+        "className": "-mx-6 -mb-6 overflow-hidden"
+      },
+      "children": [
+        "mainContentSkuTable"
+      ]
+    },
+    {
+      "id": "mainContentSkuTable",
+      "component": "Table",
+      "props": {
+        "rowKey": "key",
+        "dataSource": {
+          "path": "/skuListTable/items"
+        },
+        "columns": {
+          "path": "/skuListTable/columns"
+        },
+        "pagination": true,
+        "className": "mb-4"
+      },
+      "children": {
+        "path": "/skuListTable/items",
+        "componentId": "mainContentSkuRow"
+      }
+    },
+    {
+      "id": "mainContentSkuRow",
+      "component": "TableRow",
+      "children": [
+        "mainContentSkuCodeCell",
+        "mainContentSkuColorCell",
+        "mainContentSkuSizeCell",
+        "mainContentSkuPriceCell",
+        "mainContentSkuStockCell",
+        "mainContentSkuStatusCell",
+        "mainContentSkuActionCell"
+      ],
+      "props": {}
+    },
+    {
+      "id": "mainContentSkuCodeCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "skuCode"
+        },
+        "className": "text-md font-mono text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuColorCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "colorName"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuSizeCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "sizeName"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuPriceCell",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-0.5"
+      },
+      "children": [
+        "mainContentSkuPriceSymbol",
+        "mainContentSkuPriceNum"
+      ]
+    },
+    {
+      "id": "mainContentSkuPriceSymbol",
+      "component": "span",
+      "props": {
+        "value": "¥",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentSkuPriceNum",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "price"
+        },
+        "className": "text-md font-medium text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuStockCell",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "stock"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSkuStatusCell",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "stockStatus/text"
+        },
+        "color": {
+          "path": "stockStatus/status"
+        }
+      }
+    },
+    {
+      "id": "mainContentSkuActionCell",
+      "component": "Button",
+      "props": {
+        "value": {
+          "path": "actions/0"
+        },
+        "types": "link",
+        "size": "small"
+      }
+    },
+    {
+      "id": "mainContentSalesCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest shadow-sm rounded-container p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "mainContentSalesCardTitle",
+        "mainContentSalesDivider",
+        "mainContentMetricsGrid",
+        "mainContentChartWrap"
+      ]
+    },
+    {
+      "id": "mainContentSalesCardTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/salesMetricsCard/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentSalesDivider",
+      "component": "div",
+      "props": {
+        "className": "border-b border-divider"
+      }
+    },
+    {
+      "id": "mainContentMetricsGrid",
+      "component": "div",
+      "props": {
+        "className": "grid grid-cols-4 gap-section"
+      },
+      "children": {
+        "path": "/salesMetricsCard/metrics",
+        "componentId": "mainContentMetricItem"
+      }
+    },
+    {
+      "id": "mainContentMetricItem",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-variant rounded-container p-4 flex flex-col gap-2"
+      },
+      "children": [
+        "mainContentMetricTitle",
+        "mainContentMetricValueWrap",
+        "mainContentMetricTrendRow"
+      ]
+    },
+    {
+      "id": "mainContentMetricTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "title"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricValueWrap",
+      "component": "div",
+      "props": {
+        "className": "flex items-baseline gap-1"
+      },
+      "children": [
+        "mainContentMetricPrefix",
+        "mainContentMetricValueNum",
+        "mainContentMetricSuffix"
+      ]
+    },
+    {
+      "id": "mainContentMetricPrefix",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "prefix"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricValueNum",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "value"
+        },
+        "className": "text-2xl font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "mainContentMetricSuffix",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "suffix"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "mainContentMetricTrendRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1.5 mt-1"
+      },
+      "children": [
+        "mainContentMetricTrendIcon",
+        "mainContentMetricTrendTag"
+      ]
+    },
+    {
+      "id": "mainContentMetricTrendIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "trendIcon"
+        },
+        "color": {
+          "path": "trendColor"
+        },
+        "shape": "outline",
+        "className": "w-4 h-4"
+      }
+    },
+    {
+      "id": "mainContentMetricTrendTag",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "trendValue"
+        },
+        "color": {
+          "path": "trendColor"
+        },
+        "size": "small"
+      }
+    },
+    {
+      "id": "mainContentChartWrap",
+      "component": "div",
+      "props": {
+        "className": "mt-2"
+      },
+      "children": [
+        "mainContentSalesChart"
+      ]
+    },
+    {
+      "id": "mainContentSalesChart",
+      "component": "LineChart",
+      "props": {
+        "option": {
+          "data": {
+            "path": "/salesMetricsCard/salesTrendChartData"
+          },
+          "xAxis": {
+            "data": "日期"
+          },
+          "yAxisTitle": "销售额 (元) / 订单数 (笔)",
+          "smooth": true
+        },
+        "className": "h-80 w-full"
       }
     }
   ],
   "state": {
-    "currentLanguage": "zh-CN",
-    "currentTheme": "light",
-    "languageOptions": [
+    "logoIcon": "ShoppingBag",
+    "searchPlaceholder": "搜索商品、订单、SKU...",
+    "notificationCount": 5,
+    "userInfo": {
+      "avatarImage": "https://randomuser.me/api/portraits/women/44.jpg",
+      "userName": "赵明"
+    },
+    "selectedMenuKeys": [
+      "product-detail"
+    ],
+    "openMenuKeys": [
+      "product-center"
+    ],
+    "menuItems": [
       {
-        "value": "zh-CN",
-        "label": "中文"
+        "title": "概览大盘",
+        "key": "dashboard",
+        "icon": "layout-dashboard"
       },
       {
-        "value": "en-US",
-        "label": "English"
+        "title": "商品中心",
+        "key": "product-center",
+        "icon": "package",
+        "children": [
+          {
+            "title": "商品列表",
+            "key": "product-list"
+          },
+          {
+            "title": "分类管理",
+            "key": "product-category"
+          },
+          {
+            "title": "商品详情",
+            "key": "product-detail",
+            "disabled": true
+          }
+        ]
       },
       {
-        "value": "ja-JP",
-        "label": "日本語"
+        "title": "订单中心",
+        "key": "order-center",
+        "icon": "shopping-cart"
+      },
+      {
+        "title": "用户运营",
+        "key": "user-center",
+        "icon": "users"
+      },
+      {
+        "title": "财务结算",
+        "key": "finance",
+        "icon": "wallet"
       }
     ],
-    "themeOptions": [
+    "breadcrumbData": [
       {
-        "value": "light",
-        "label": "浅色模式",
-        "icon": "sun"
+        "title": "首页",
+        "path": "/dashboard"
       },
       {
-        "value": "dark",
-        "label": "深色模式",
-        "icon": "moon"
+        "title": "商品中心",
+        "path": "/products"
+      },
+      {
+        "title": "商品管理",
+        "path": "/products/list"
+      },
+      {
+        "title": "云端轻奢智能手表 Pro"
       }
     ],
-    "themeToggleIcon": "moon",
-    "brandInfo": {
-      "logoImage": "https://fpoimg.com/200x80?gradient=0067D1,004EA8&text_color=ffffff&text=LOGO",
-      "systemName": "企业管理系统",
-      "slogan": "高效管理，智慧决策",
-      "carouselSlides": [
+    "actionButtons": [
+      {
+        "label": "编辑商品",
+        "icon": "pencil",
+        "type": "primary"
+      },
+      {
+        "label": "上架商品",
+        "icon": "upload"
+      },
+      {
+        "label": "删除",
+        "icon": "trash-2",
+        "danger": true
+      }
+    ],
+    "basicInfoCard": {
+      "cardTitle": "基础信息",
+      "productName": "云端轻奢智能手表 Pro (Cloud Smart Watch Pro)",
+      "productDesc": "采用最新一代健康监测芯片，支持血压、血氧、心率全方位守护。蓝宝石镜面搭配钛合金表体，彰显极致工艺。",
+      "productImages": [
         {
-          "slideTitle": "全面数据看板",
-          "slideDescription": "实时展示企业核心运营数据，支持自定义报表，助力决策者洞察全局。",
-          "slideImage": "https://fpoimg.com/800x500?gradient=0067D1,004EA8&text_color=ffffff&text=Data+Dashboard"
+          "uid": "img-1",
+          "urlImage": "https://fpoimg.com/800x800?gradient=0067D1,E6F2FD&text_color=ffffff&text=WATCH+PRO+1"
         },
         {
-          "slideTitle": "智能审批流程",
-          "slideDescription": "自动化业务审批流程，支持移动端处理，大幅提升工作效率。",
-          "slideImage": "https://fpoimg.com/800x500?gradient=09AA71,004EA8&text_color=ffffff&text=Approval+Flow"
+          "uid": "img-2",
+          "urlImage": "https://fpoimg.com/800x800?gradient=09AA71,E7FBF2&text_color=ffffff&text=WATCH+PRO+2"
         },
         {
-          "slideTitle": "安全合规保障",
-          "slideDescription": "多层次安全防护体系，支持多因子认证，确保企业数据安全无忧。",
-          "slideImage": "https://fpoimg.com/800x500?gradient=0067D1,004EA8&text_color=ffffff&text=Security"
+          "uid": "img-3",
+          "urlImage": "https://fpoimg.com/800x800?gradient=004EA8,191919&text_color=ffffff&text=WATCH+PRO+3"
+        }
+      ],
+      "attributes": [
+        {
+          "label": "商品类目",
+          "value": "智能设备 / 智能穿戴 / 智能手表"
+        },
+        {
+          "label": "品牌",
+          "value": "CloudTech"
+        },
+        {
+          "label": "商品编码",
+          "value": "SKU-CT-WATCH-X1"
+        },
+        {
+          "label": "创建时间",
+          "value": "2025-11-20 14:30:00"
+        },
+        {
+          "label": "当前状态",
+          "value": "已上架",
+          "tag": true,
+          "color": "success"
         }
       ]
     },
-    "cardTitle": "用户登录",
-    "cardDesc": "欢迎回来，请登录您的账号",
-    "username": "",
-    "password": "",
-    "captcha": "",
-    "rememberMe": false,
-    "loading": false,
-    "errorShow": false,
-    "errorMessage": "用户名或密码错误，请重新输入",
-    "captchaImage": "https://fpoimg.com/120x40?gradient=0067d1,004ea8&text_color=ffffff&text=ABCDE",
-    "ssoProviders": [
-      {
-        "name": "企业微信",
-        "icon": "https://fpoimg.com/40x40?gradient=09aa71,09aa71&text_color=ffffff&text=WX",
-        "id": "wecom"
-      },
-      {
-        "name": "钉钉",
-        "icon": "https://fpoimg.com/40x40?gradient=0067d1,004ea8&text_color=ffffff&text=DD",
-        "id": "dingtalk"
-      },
-      {
-        "name": "飞书",
-        "icon": "https://fpoimg.com/40x40?gradient=0067d1,004ea8&text_color=ffffff&text=FS",
-        "id": "feishu"
-      }
-    ],
-    "dividerText": "其他登录方式",
-    "forgotPasswordUrl": "/forgot-password",
-    "registerUrl": "/register",
-    "footerCopyright": "© 2026 企业管理系统 All Rights Reserved.",
-    "footerIcp": "京ICP备XXXXXXXX号-1"
+    "skuListTable": {
+      "cardTitle": "规格与库存 (SKU)",
+      "columns": [
+        {
+          "title": "SKU编码",
+          "dataIndex": "skuCode",
+          "minWidth": 160
+        },
+        {
+          "title": "颜色",
+          "dataIndex": "colorName"
+        },
+        {
+          "title": "尺寸",
+          "dataIndex": "sizeName"
+        },
+        {
+          "title": "售价 (元)",
+          "dataIndex": "price"
+        },
+        {
+          "title": "库存",
+          "dataIndex": "stock"
+        },
+        {
+          "title": "库存状态",
+          "dataIndex": "stockStatus"
+        },
+        {
+          "title": "操作",
+          "dataIndex": "actions"
+        }
+      ],
+      "items": [
+        {
+          "key": "1",
+          "skuCode": "CT-W-X1-BLK-42",
+          "colorName": "曜石黑",
+          "sizeName": "42mm",
+          "price": 2499,
+          "stock": 342,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "2",
+          "skuCode": "CT-W-X1-BLK-46",
+          "colorName": "曜石黑",
+          "sizeName": "46mm",
+          "price": 2699,
+          "stock": 125,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "3",
+          "skuCode": "CT-W-X1-SLV-42",
+          "colorName": "流光银",
+          "sizeName": "42mm",
+          "price": 2599,
+          "stock": 89,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "4",
+          "skuCode": "CT-W-X1-SLV-46",
+          "colorName": "流光银",
+          "sizeName": "46mm",
+          "price": 2799,
+          "stock": 45,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "5",
+          "skuCode": "CT-W-X1-BLU-42",
+          "colorName": "海峰蓝",
+          "sizeName": "42mm",
+          "price": 2699,
+          "stock": 12,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "6",
+          "skuCode": "CT-W-X1-BLU-46",
+          "colorName": "海峰蓝",
+          "sizeName": "46mm",
+          "price": 2899,
+          "stock": 0,
+          "stockStatus": {
+            "text": "缺货",
+            "status": "default"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "7",
+          "skuCode": "CT-W-X1-PNK-42",
+          "colorName": "樱语粉",
+          "sizeName": "42mm",
+          "price": 2599,
+          "stock": 230,
+          "stockStatus": {
+            "text": "充足",
+            "status": "success"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "8",
+          "skuCode": "CT-W-X1-PNK-46",
+          "colorName": "樱语粉",
+          "sizeName": "46mm",
+          "price": 2799,
+          "stock": 88,
+          "stockStatus": {
+            "text": "预警",
+            "status": "warning"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "9",
+          "skuCode": "CT-W-X1-GLD-42",
+          "colorName": "尊贵金",
+          "sizeName": "42mm",
+          "price": 3299,
+          "stock": 15,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        },
+        {
+          "key": "10",
+          "skuCode": "CT-W-X1-GLD-46",
+          "colorName": "尊贵金",
+          "sizeName": "46mm",
+          "price": 3499,
+          "stock": 10,
+          "stockStatus": {
+            "text": "紧张",
+            "status": "error"
+          },
+          "actions": [
+            "编辑"
+          ]
+        }
+      ]
+    },
+    "salesMetricsCard": {
+      "cardTitle": "销售数据概览",
+      "metrics": [
+        {
+          "title": "总销售额",
+          "value": 125800,
+          "precision": 2,
+          "prefix": "¥",
+          "trendIcon": "trending-up",
+          "trendValue": "15.3%",
+          "suffix": "较上月",
+          "trendColor": "success"
+        },
+        {
+          "title": "总销量",
+          "value": 842,
+          "precision": 0,
+          "suffix": "件",
+          "trendIcon": "trending-down",
+          "trendValue": "-2.1%",
+          "prefix": "",
+          "trendColor": "error"
+        },
+        {
+          "title": "访客数 (UV)",
+          "value": 6420,
+          "precision": 0,
+          "suffix": "人",
+          "trendIcon": "trending-up",
+          "trendValue": "5.4%",
+          "prefix": "",
+          "trendColor": "success"
+        },
+        {
+          "title": "转化率",
+          "value": 13.1,
+          "suffix": "%",
+          "precision": 2,
+          "trendIcon": "trending-up",
+          "trendValue": "1.2%",
+          "prefix": "",
+          "trendColor": "success"
+        }
+      ],
+      "salesTrendChartData": [
+        {
+          "日期": "05-01",
+          "销售额": 4200,
+          "订单数": 28
+        },
+        {
+          "日期": "05-02",
+          "销售额": 3800,
+          "订单数": 25
+        },
+        {
+          "日期": "05-03",
+          "销售额": 5100,
+          "订单数": 34
+        },
+        {
+          "日期": "05-04",
+          "销售额": 4800,
+          "订单数": 32
+        },
+        {
+          "日期": "05-05",
+          "销售额": 6200,
+          "订单数": 41
+        },
+        {
+          "日期": "05-06",
+          "销售额": 5500,
+          "订单数": 36
+        },
+        {
+          "日期": "05-07",
+          "销售额": 4900,
+          "订单数": 33
+        },
+        {
+          "日期": "05-08",
+          "销售额": 7200,
+          "订单数": 48
+        },
+        {
+          "日期": "05-09",
+          "销售额": 8100,
+          "订单数": 54
+        },
+        {
+          "日期": "05-10",
+          "销售额": 6500,
+          "订单数": 43
+        },
+        {
+          "日期": "05-11",
+          "销售额": 5900,
+          "订单数": 39
+        },
+        {
+          "日期": "05-12",
+          "销售额": 6800,
+          "订单数": 45
+        },
+        {
+          "日期": "05-13",
+          "销售额": 7500,
+          "订单数": 50
+        },
+        {
+          "日期": "05-14",
+          "销售额": 8200,
+          "订单数": 55
+        },
+        {
+          "日期": "05-15",
+          "销售额": 7800,
+          "订单数": 52
+        }
+      ]
+    }
   }
 }

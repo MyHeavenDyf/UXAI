@@ -27,12 +27,12 @@ const color = computed(() => resolveValue(properties?.color) as string || "")
 const count = computed(() => (resolveValue(properties.count))?.toString() ?? "0")
 
 const dot = computed(() => properties?.dot || count.value === "")
-const offset = computed(() => properties?.offset || [0, 0])
+const offset = computed(() => (properties?.offset || [0, 0]) as [number, number])
 const overflowCount = computed(() => properties?.overflowCount || 99)
 const showZero = computed(() => properties?.showZero || true)
 const status = computed(() => {
-  const resStatus = resolveValue(properties.status) as string
-  return resStatus ? statusEnum[resStatus] : "danger"
+  const resStatus = resolveValue(properties.status as any) as string
+  return (resStatus ? statusEnum[resStatus as keyof typeof statusEnum] : "danger") as any
 })
 
 const children = computed(() => properties.children ?? [])

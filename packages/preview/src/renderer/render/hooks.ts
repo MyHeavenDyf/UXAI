@@ -1,19 +1,19 @@
 import { useA2UI } from './Provider'
-import { ref, onUnmounted, getCurrentInstance } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import type { SurfaceModel } from '../processor/surfaceModel'
 import type { DynamicString, DynamicNumber, DynamicBoolean, DataValue, AnyComponentNode, Action, DynamicStringList } from '../processor/type'
 
 export { useA2UI }
 
-export function useSurface(surfaceId: string): ReturnType<typeof ref<SurfaceModel | undefined>> {
+export function useSurface(surfaceId: string) {
     const { store } = useA2UI()
     const surface = ref<SurfaceModel | undefined>(undefined)
     
     const unsubscribe = store.subscribeToSurface(surfaceId, () => {
-        surface.value = store.getSurface(surfaceId)
+        surface.value = store.getSurface(surfaceId) as SurfaceModel | undefined
     })
     
-    surface.value = store.getSurface(surfaceId)
+    surface.value = store.getSurface(surfaceId) as SurfaceModel | undefined
     
     onUnmounted(() => {
         unsubscribe()
@@ -37,7 +37,6 @@ export function useA2UIComponent<T extends AnyComponentNode<any>>(
     surfaceId: string
 ): UseA2UIComponentResult {
     const context = useA2UI()
-    const instance = getCurrentInstance()
     const baseId = `id-${++globalIdCounter}`
 
     const resolveValue = (value: DynamicString | DynamicNumber | DynamicBoolean | null | undefined | DynamicStringList): string | null | number | boolean | DataValue => {
@@ -55,7 +54,7 @@ export function useA2UIComponent<T extends AnyComponentNode<any>>(
         if (value.path) {
             return context.getData(surfaceId, value.path) as DataValue
         }
-        return null
+        return value as unknown as DataValue
     }
 
     const setValue = (path: string, value: DataValue) => {

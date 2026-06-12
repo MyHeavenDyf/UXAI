@@ -3,7 +3,7 @@
  */
 import type { ComponentInstance, AnyComponentNode, ComponentChildren, ResolvedValue, ResolvedMap } from './type'
 import { isObject, isTemplateChildren, isDataBinding, isComponentNode } from "./guards.ts";
-import { DataModel } from './dataModel.ts';
+import { DataModel } from './dataModel';
 import { DataContext } from './dataContext'
 
 export class ComponentModel {
@@ -11,10 +11,10 @@ export class ComponentModel {
     private dataModel: DataModel;
     private dataContext: DataContext
     private idSuffix: string
-    private name: string
+    private name!: string
     private props: Record<string, any> = {}
     private children?: AnyComponentNode[] | null;
-    private initProperties: ComponentInstance
+    private initProperties!: ComponentInstance
     private components: Map<string, ComponentInstance>
     constructor(
         id: string,
@@ -39,7 +39,7 @@ export class ComponentModel {
         this.initProperties = componentData!
         this.name = componentData!.component
         const componentProps = componentData?.props ?? {};
-        const resolvedProperties = {}
+        const resolvedProperties: Record<string, any> = {}
         const children = componentData?.children
         for (const [key, value] of Object.entries(componentProps)) {
             resolvedProperties[key] = this.resolvePropertyValue(value);
@@ -81,10 +81,9 @@ export class ComponentModel {
             );
         }
 
-        // 3. path binding 对象：{ path: "..." }，用 ctx 转成绝对路径
+        // 3. path binding 对象：{ path: "..." }，直接从 state 中取值返回
         if (isDataBinding(value)) {
-            const absolutePath = this.dataContext.resolvePath(value.path)
-            return { path: absolutePath }
+            return this.dataContext.get(value.path) as ResolvedValue
         }
 
         // 4. 普通对象，递归每个字段
@@ -136,13 +135,13 @@ export class ComponentModel {
     }
 
     get componentTree(): AnyComponentNode {
-        const properties = this.props
+        const properties: Record<string, any> = this.props
         if (this.children) {
             properties.children = this.children
         }
         return {
             id: `${this.id}${this.idSuffix}`,
-            weight: this.initProperties?.weight ?? "initial",
+            weight: this.initProperties?.weight ?? "initial" as any,
             type: this.name,
             properties
         }

@@ -3,7 +3,6 @@ import { computed } from "vue"
 import { ElCarousel, ElCarouselItem } from "element-plus"
 import type { CarouselNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
-import { useA2UIComponent } from "../../renderer/render/hooks"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import "./Carousel.less"
 
@@ -17,7 +16,6 @@ const dotPlacementMap: Record<string, string> = {
 const props = defineProps<A2UIComponentProps<CarouselNode>>()
 const { node, surfaceId } = props
 const { properties } = node
-const { resolveValue } = useA2UIComponent(node, surfaceId)
 
 const id = computed(() => node.id)
 const className = computed(() => properties.className || "")

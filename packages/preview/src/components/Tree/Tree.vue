@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
 import { ElTree } from "element-plus"
-import type { TreeNode } from "../types"
+import type { TreeNodeNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getLucideIconComponentRef } from "../Icon/IconBase"
@@ -15,7 +15,7 @@ interface TreeNodeData {
   children?: TreeNodeData[]
 }
 
-const props = defineProps<A2UIComponentProps<TreeNode>>()
+const props = defineProps<A2UIComponentProps<TreeNodeNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)

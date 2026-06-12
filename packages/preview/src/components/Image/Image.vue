@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import type { A2UIComponentProps } from '../../renderer'
 import { useA2UIComponent } from '../../renderer/render/hooks'
 import type { ImageNode } from '../types'

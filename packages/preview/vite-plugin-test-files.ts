@@ -97,7 +97,7 @@ export default function testFilesPlugin(): Plugin {
 
       // 监听 test 目录下的文件变化
       s.watcher.add(testDir)
-      s.watcher.on('all', (event: string, filePath: string) => {
+      s.watcher.on('all', (_event: string, filePath: string) => {
         const normalizedTestDir = testDir.replace(/\\/g, '/')
         const normalizedPath = filePath.replace(/\\/g, '/')
         if (!normalizedPath.startsWith(normalizedTestDir)) return

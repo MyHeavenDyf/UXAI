@@ -7,3 +7,18 @@
 .el-progress__text {
   min-width: auto;
 }
+
+.theme-dark {
+  .el-progress-bar__inner {
+    background-color: var(--primary-400);
+  }
+  .el-progress-bar__outer {
+    background-color: rgb(from var(--neutral-50) r g b / 0.15);
+  }
+  .el-progress__text span{
+    color: var(--text-default);
+  }
+  .el-progress.is-success .el-progress-bar__inner {
+    background-color: var(--success-400);
+  }
+}

@@ -38,17 +38,22 @@ const items = computed(() => {
   return children.map((item: any) => {
     const itemProps = item.properties
 
-    const { title, icon, color, placement, className } = itemProps
+    const { icon, color, placement, className } = itemProps
     const iconName = resolveValue(icon) as string
     const content =
       itemProps.content?.path || typeof itemProps.content === "string"
         ? resolveValue(itemProps.content)
         : itemProps.content
+
+    const title =
+      itemProps.title?.path || typeof itemProps.title === "string"
+        ? resolveValue(itemProps.title)
+        : itemProps.title
     return {
-      title: resolveValue(title),
+      title: title,
       icon: h(getLucideIconComponentRef(iconName), { size: 16 }),
       color,
-      placement: placement ? placementEnum[placement] : "bottom",
+      placement: placement ? placementEnum[placement as keyof typeof placementEnum] as any : "top",
       className: className,
       content: content,
     }
@@ -60,7 +65,7 @@ const items = computed(() => {
   <ElTimeline
     :id="id"
     :class="className"
-    :mode="mode"
+    :mode="mode as any"
     v-if="items.length"
     direction="vertical"
   >
@@ -70,14 +75,30 @@ const items = computed(() => {
       :hollow="variant ==='outlined'"
       :icon="item.icon"
       :color="item.color"
-      :timestamp="item.title"
       :placement="item.placement"
       :class="item.className"
     >
-    <template v-if="typeof item.content === 'string'">
-      {{ item.content }}
-    </template>
+      <template v-if ="item.placement === 'top'">
+        <template v-if="typeof item.title === 'string'">
+          {{ item.title }}
+        </template>
+        <ComponentNode v-else :node="item.title" :surface-id="surfaceId" />
+      </template>
+      <template v-if="typeof item.content === 'string'">
+        {{ item.content }}
+      </template>
       <ComponentNode v-else :node="item.content" :surface-id="surfaceId" />
+      <template v-if ="item.placement === 'bottom'">
+        <template v-if="typeof item.title === 'string'">
+          {{ item.title }}
+        </template>
+        <ComponentNode v-else :node="item.title" :surface-id="surfaceId" />
+      </template>
+
     </ElTimelineItem>
+
+
+
+    
   </ElTimeline>
 </template>

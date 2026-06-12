@@ -325,12 +325,7 @@ function PatternContent() {
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
-    fetch("http://127.0.0.1:8989/api/data", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }).then(() => {
-      previewApi.refresh()
-    })
+    previewApi.sendToPreview(data)
   }
 
   async function handleSubmit() {

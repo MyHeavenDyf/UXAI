@@ -19,6 +19,11 @@ const router = createRouter({
       name: "Icon",
       component: () => import("../views/IconPage.vue"),
     },
+    {
+      path: "/custom",
+      name: "Custom",
+      component: () => import("../views/CustomPage.vue"),
+    },
   ],
 });
 

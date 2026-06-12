@@ -4,6 +4,7 @@ import { ElInput } from "element-plus"
 import type { TextAreaNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
+import "./TextArea.less"
 
 const sizeEnum = {
   large: "large",
@@ -50,7 +51,7 @@ function change(val: string) {
     :id="id"
     :class="className"
     v-model="value"
-    :size="size"
+    :size="size as any"
     type="textarea"
     :autosize="autosize"
     :maxlength="maxlength"

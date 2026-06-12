@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { ElDatePicker } from 'element-plus'
 import type { DatePickerNode } from '../types'
 import type { A2UIComponentProps } from '../../renderer'
@@ -51,30 +51,29 @@ const picker = computed(() => {
 })
 
 const placeholderBinding = computed(() => {
-  const ph = resolveValue(properties.placeholder)
+  const ph = resolveValue(properties.placeholder as any)
   if (range.value) {
     if (Array.isArray(ph)) {
-      return { 'start-placeholder': ph[0], 'end-placeholder': ph[1] }
+      return { 'start-placeholder': ph[0], 'end-placeholder': ph[1] } as any
     }
   } else if (ph as string) {
     return {
-      placeholder:ph
-    } 
+      placeholder: ph
+    } as any
 
   }
-  return {}
+  return {} as any
 })
 
 const initValue = computed(() => {
-  const parsed = resolveValue(properties.value)
-
+  const parsed = resolveValue(properties.value as any)
   return parsed
 })
-const inputValue = ref(initValue.value)
+const inputValue = ref<any>(initValue.value)
 
 
-function handleDateChange(val) {
-  const path = properties.value?.path
+function handleDateChange(val: any) {
+  const path = (properties.value as any)?.path
   if (!path) return
   setValue(path, val)
 }
@@ -82,12 +81,12 @@ function handleDateChange(val) {
 
 <template>
   <ElDatePicker 
-    :id="id"
+    :id="id as any"
     :class="className"
     v-model="inputValue" 
     v-bind="placeholderBinding"
-    :type="picker"
-    :size="size"
+    :type="picker as any"
+    :size="size as any"
     :format="format" 
     @change="handleDateChange" />
 </template>

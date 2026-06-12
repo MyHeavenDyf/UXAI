@@ -52,11 +52,10 @@ const selectedKeys = computed<string[]>(() => {
   return Array.isArray(resolved) ? resolved : []
 })
 
-const mode = computed(() => resolveValue(properties.mode) || "vertical")
-const inlineCollapsed = computed(() => resolveValue(properties.inlineCollapsed) || false)
+const mode = computed(() => (resolveValue(properties.mode) as string) || "vertical")
+const inlineCollapsed = computed(() => (resolveValue(properties.inlineCollapsed) as boolean) || false)
 
-const handleSelect = (key: string) => {
-  // Menu select event
+const handleSelect = (_key: string) => {
 }
 
 // 递归菜单项组件
@@ -74,8 +73,8 @@ const MenuItemNode = defineComponent({
       const iconComponent = item.icon
         ? h(getLucideIconComponentRef(item.icon), {
             size: 16,
-            strokeWidth: 1,
-            class: inlineCollapsed.value ? '' : 'mr-1'
+            strokeWidth: 2,
+            class: inlineCollapsed.value ? '' : 'mr-3'
           })
         : null
 
@@ -114,11 +113,11 @@ const MenuItemNode = defineComponent({
   <ElMenu
     :id="id"
     :class="className"
-    :mode="mode"
+    :mode="mode as any"
     :ellipsis="false"
     :default-openeds="openKeys"
     :default-active="selectedKeys.length > 0 ? String(selectedKeys[0]) : ''"
-    :collapse="inlineCollapsed"
+    :collapse="inlineCollapsed as any"
     @select="handleSelect"
   >
     <MenuItemNode

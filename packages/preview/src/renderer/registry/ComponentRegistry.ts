@@ -1,21 +1,20 @@
 import { type Component } from 'vue'
-import type { AnyComponentNode, A2UIComponentProps } from '../processor/type'
 
 
-interface Registration<T extends AnyComponentNode<any>> {
+interface Registration {
   component: Component
 }
 
 export class ComponentRegistry {
-  private registry = new Map<string, Registration<AnyComponentNode<any>>>()
+  private registry = new Map<string, Registration>()
   private lazyCache = new Map<string, Component>()
   private static _instance: ComponentRegistry | null = null
 
-  register<T extends AnyComponentNode<any>>(
-    type: T['type'],
-    registration: Registration<T>
+  register(
+    type: string,
+    registration: Registration
   ): void {
-    this.registry.set(type, registration as unknown as Registration<AnyComponentNode<any>>)
+    this.registry.set(type, registration)
   }
 
   get(type: string): Component | null {

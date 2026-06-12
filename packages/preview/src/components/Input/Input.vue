@@ -52,9 +52,9 @@ function change(val: string) {
     :id="id"
     :class="className"
     v-model="value"
-    :size="size"
+    :size="size as any"
     :type="type"
-    :maxlength="maxlength"
+    :maxlength="maxlength as any"
     :placeholder="placeholder"
     @change="change"
   >

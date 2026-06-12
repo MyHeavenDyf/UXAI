@@ -28,6 +28,33 @@ const className = computed(() => properties.className)
 const rowClassName = computed(() => properties.rowClassName)
 const rowKey = computed(() => properties.rowKey)
 
+// 行展开
+const expandable = computed(() => properties.expandable)
+const hasExpandable = computed(() => !!expandable.value)
+
+// 本地管理展开行 key 列表
+function getInitialExpandedKeys(): string[] {
+  const binding = expandable.value?.expandedRowKeys
+  if (Array.isArray(binding)) return [...binding]
+  if (binding && !Array.isArray(binding) && (binding as any).path) {
+    const resolved = resolveValue(binding)
+    return Array.isArray(resolved) ? [...(resolved as string[])] : []
+  }
+  return []
+}
+const expandedKeys = ref<string[]>(getInitialExpandedKeys())
+
+function handleExpandChange(_row: any, expandedRows: any[]) {
+  // expandedRows 是当前所有展开行的数据数组
+  const keys = expandedRows.map((r: any) => r[rowKey.value])
+  expandedKeys.value = keys
+  // 如果有绑定路径，同步写回 state
+  const binding = expandable.value?.expandedRowKeys
+  if (binding && !Array.isArray(binding) && (binding as any).path) {
+    setValue((binding as any).path, keys)
+  }
+}
+
 const dataSource = computed(
   () => (resolveValue(properties.dataSource) as []) ?? []
 )
@@ -85,7 +112,7 @@ function handleSelectionChange(selection: any[]) {
   const keys = selection.map((row: any) => row.key)
   rowSelectedKeys.value = keys
   const { rowSelection } = properties
-  const path = rowSelection?.selectedRowKeys?.path
+  const path = (rowSelection?.selectedRowKeys as any)?.path
   if (path) {
     setValue(path, keys)
   }
@@ -136,6 +163,11 @@ const tableData = computed(() => {
       }
     })
 
+    // 从 TableRow props.expandedRowRender 中获取展开内容
+    if (hasExpandable.value && itemProps.expandedRowRender) {
+      rowData["_expandedRowRender"] = itemProps.expandedRowRender
+    }
+
     return rowData
   })
 })
@@ -149,13 +181,31 @@ const tableData = computed(() => {
       :row-key="rowKey"
       :highlight-current-row="selectType === 'radio'"
       :row-class-name="rowClassName"
+      :expand-row-keys="hasExpandable ? expandedKeys : undefined"
       @selection-change="handleSelectionChange"
+      @expand-change="handleExpandChange"
     >
       <ElTableColumn
         v-if="selectType === 'checkbox'"
         type="selection"
         width="55"
       />
+      <ElTableColumn
+        v-if="hasExpandable"
+        type="expand"
+      >
+        <template #default="{ row }">
+          <div
+            v-if="row._expandedRowRender"
+            class="table-expanded-row"
+          >
+            <ComponentNode
+              :node="row._expandedRowRender"
+              :surface-id="surfaceId"
+            />
+          </div>
+        </template>
+      </ElTableColumn>
       <ElTableColumn
         :class="col.className"
         v-for="col in columns"
@@ -165,7 +215,7 @@ const tableData = computed(() => {
         :width="col.width"
         :min-width="col.minWidth"
         :align="col.align"
-        :filters="col.filters"
+        :filters="col.filters as any"
         :fixed="col.fixed"
         :sortable="col.sortable"
       >

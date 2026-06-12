@@ -23,8 +23,8 @@ const value = computed(() => resolveValue(properties.percent) as number)
 
 const showText = computed(() => properties.showInfo)
 const status = computed(() => {
-  const resStatus = resolveValue(properties.status)
-  return resStatus ? statusEnum[resStatus] : ""
+  const resStatus = resolveValue(properties.status as any) as string
+  return resStatus ? statusEnum[resStatus as keyof typeof statusEnum] : ""
 })
 const strokeColor = computed(() => resolveValue(properties.strokeColor) ?? undefined)
 const strokeWidth = computed(() => {
@@ -48,8 +48,8 @@ const strokeWidth = computed(() => {
     :class="className"
     :percentage="value"
     :show-text="showText"
-    :status="status"
-    :color="strokeColor"
+    :status="status as any"
+    :color="strokeColor as any"
     :stroke-width="strokeWidth"
   />
 </template>

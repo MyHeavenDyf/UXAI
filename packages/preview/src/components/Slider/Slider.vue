@@ -14,19 +14,19 @@ const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
 
-const initVal = computed(() => resolveValue(properties.value) as number)
+const initVal = computed(() => resolveValue(properties.value as any) as number)
 const value = ref(initVal.value)
-const minValue = computed(() => resolveValue(properties.min) ?? 0)
-const maxValue = computed(() => resolveValue(properties.max) ?? 100)
-const step = computed(() => resolveValue(properties.step) ?? 1)
-const range = computed(() => resolveValue(properties.range))
-const input = computed(() => resolveValue(properties.input))
+const minValue = computed(() => (resolveValue(properties.min as any) ?? 0) as number)
+const maxValue = computed(() => (resolveValue(properties.max as any) ?? 100) as number)
+const step = computed(() => (resolveValue(properties.step as any) ?? 1) as number)
+const range = computed(() => resolveValue(properties.range as any) as boolean)
+const input = computed(() => resolveValue(properties.input as any) as boolean)
 const vertical = computed(
-  () => resolveValue(properties.orientation) === "vertical"
+  () => resolveValue(properties.orientation as any) === "vertical"
 )
 const marks = computed(() => {
   if (properties.marks?.hasOwnProperty("path")) {
-    return resolveValue(properties.marks)
+    return resolveValue(properties.marks as any)
   }
 
   return properties.marks
@@ -39,8 +39,8 @@ watch(
   }
 )
 
-function onChange(val) {
-  const path = properties.value?.path
+function onChange(val: number | number[]) {
+  const path = (properties.value as any)?.path
   if (val === undefined || val === null || !path) return
   setValue(path, val)
 }
@@ -58,7 +58,7 @@ function onChange(val) {
     :vertical="vertical"
     :show-input="input"
     :show-tooltip="true"
-    :marks="marks"
+    :marks="marks as any"
     @change="onChange"
   />
 </template>

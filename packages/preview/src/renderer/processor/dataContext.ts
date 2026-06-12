@@ -1,5 +1,5 @@
 // DataContext.ts
-import { DataModel } from './DataModel'
+import { DataModel } from './dataModel'
 
 export class DataContext {
     readonly dataModel: DataModel

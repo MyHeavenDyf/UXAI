@@ -9,7 +9,7 @@ const props = defineProps<A2UIComponentProps<StreamNode>>()
 const className = computed(() => {
     const { node: { isCommon, properties } } = props
     if (isCommon) {
-        const { type, properties: parentProperties } = properties
+        const { type } = properties
         if (type === 'Column') return 'column-child-skeleton'
         if (type === 'Row') return 'row-child-skeleton'
         if (type === 'Grid') return 'grid-child-skeleton'

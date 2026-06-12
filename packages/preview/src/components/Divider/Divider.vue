@@ -20,7 +20,7 @@ const { resolveValue } = useA2UIComponent(node, surfaceId)
 const id = computed(() => node.id)
 const className = computed(() => properties.className)
 
-const value = computed(() => resolveValue(properties.value))
+const value = computed(() => resolveValue(properties.value as any))
 const orientation = computed(() => properties.orientation)
 const titlePlacement = computed(() => {
   const placement = properties.titlePlacement

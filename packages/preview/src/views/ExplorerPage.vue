@@ -3,17 +3,19 @@ import A2UIRenderer from "../renderer/render/Renderer.vue";
 import { provideA2UI } from "../renderer/render/Provider";
 import { ref, watch, onMounted, nextTick, computed, onUnmounted } from "vue";
 import treeData from "virtual:test-files";
-import { Folder, FileJson, ChevronRight, ChevronLeft } from "lucide-vue-next";
+import { Folder, FileJson, ChevronRight, ChevronLeft, Sun, Moon } from "lucide-vue-next";
+import { useTheme } from "../composables/useTheme";
 
 const { createSurface, updateSurface } = provideA2UI();
 
 const modelOptions = ref([
   { label: "gemini-3.0-flash", value: "gemini-3.0-flash" },
+  { label: "deepseek-v4-flash", value: "deepseek-v4-flash" },
   { label: "glm-5.1", value: "glm-5.1" },
   { label: "glm-5.1(多轮)", value: "glm-5.1(多轮)" },
 ]);
 
-const selectedModel = ref<string>("glm-5.1(多轮)");
+const selectedModel = ref<string>("gemini-3.0-flash");
 const selectedJsonPath = ref<string>("");
 const selectedJsonInfo = ref<any>(null);
 const currentContent = ref<any>(null);
@@ -26,6 +28,9 @@ let abortController: AbortController | null = null;
 
 // 侧边栏折叠状态
 const sidebarCollapsed = ref(false);
+
+// 主题切换（全局状态）
+const { isDark, toggleTheme } = useTheme();
 
 // 当前悬浮节点的 tooltip 内容（keyed by path）
 const tooltipMap = ref<Record<string, string>>({});
@@ -137,6 +142,51 @@ const menuTree = computed(() => {
   return buildTree(treeData);
 });
 
+// 扁平化所有叶子节点（JSON 文件），按顺序排列
+const flatLeaves = computed(() => {
+  const leaves: any[] = [];
+  function collectLeaves(nodes: any[]) {
+    for (const node of nodes) {
+      if (node.children) {
+        collectLeaves(node.children);
+      } else {
+        leaves.push(node);
+      }
+    }
+  }
+  collectLeaves(menuTree.value);
+  return leaves;
+});
+
+// 当前叶子节点在扁平列表中的索引
+const currentLeafIndex = computed(() => {
+  return flatLeaves.value.findIndex((leaf) => leaf.path === selectedJsonPath.value);
+});
+
+// 通过索引导航到叶子节点
+function navigateToLeaf(index: number) {
+  if (index < 0 || index >= flatLeaves.value.length) return;
+  const leaf = flatLeaves.value[index];
+  selectedJsonPath.value = leaf.path;
+  selectedJsonInfo.value = leaf;
+  loadJsonContent();
+  nextTick(() => {
+    treeRef.value?.setCurrentKey(leaf.path);
+  });
+}
+
+function navigatePrev() {
+  if (currentLeafIndex.value > 0) {
+    navigateToLeaf(currentLeafIndex.value - 1);
+  }
+}
+
+function navigateNext() {
+  if (currentLeafIndex.value < flatLeaves.value.length - 1) {
+    navigateToLeaf(currentLeafIndex.value + 1);
+  }
+}
+
 function getFetchUrl(): string {
   const info = selectedJsonInfo.value;
   if (!info) return "";
@@ -227,7 +277,20 @@ function findFirstLeaf(nodes: any[]): any | null {
   return null;
 }
 
+// 键盘导航：侧边栏收起时，按上下方向键切换页面
+function handleKeydown(e: KeyboardEvent) {
+  if (!sidebarCollapsed.value) return;
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    navigatePrev();
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    navigateNext();
+  }
+}
+
 onMounted(async () => {
+  toggleTheme()
   const firstLeaf = findFirstLeaf(menuTree.value);
   if (firstLeaf) {
     selectedJsonPath.value = firstLeaf.path;
@@ -237,6 +300,7 @@ onMounted(async () => {
       treeRef.value?.setCurrentKey(firstLeaf.path);
     });
   }
+  window.addEventListener('keydown', handleKeydown);
 });
 
 // 页面销毁时清理资源
@@ -245,25 +309,35 @@ onUnmounted(() => {
     abortController.abort();
     abortController = null;
   }
+  window.removeEventListener('keydown', handleKeydown);
 });
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden bg-gray-50">
+  <div class="flex h-screen overflow-hidden bg-surface-container-lowest">
     <!-- 悬浮展开按钮（侧边栏收起时显示） -->
     <div v-if="sidebarCollapsed"
-      class="fixed left-2 top-1/2 -translate-y-1/2 z-50 w-10 h-10 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center cursor-pointer hover:shadow-xl hover:bg-blue-50 transition-all duration-200 group"
+      class="fixed left-2 top-1/2 -translate-y-1/2 z-50 w-10 h-10 bg-white rounded-full shadow-lg border border-divider flex items-center justify-center cursor-pointer hover:shadow-xl hover:bg-blue-50 transition-all duration-200 group"
       @click="toggleSidebar">
       <ChevronRight class="w-5 h-5 text-gray-500 group-hover:text-blue-500 transition-colors" />
     </div>
 
     <!-- 左侧边栏 -->
-    <div class="relative flex shrink-0 transition-all duration-300"
+    <div class="left-content relative flex shrink-0 transition-all duration-300"
       :style="{ width: sidebarCollapsed ? '0px' : '256px', overflow: 'hidden' }">
       <!-- 侧边栏面板 -->
-      <div class="flex flex-col bg-white border-r border-gray-200 w-64 shrink-0">
+      <div class="flex flex-col border-r border-divider w-64 shrink-0 relative">
+        <!-- 主题切换悬浮按钮 -->
+        <div 
+          class="absolute right-2 top-2 z-9999 w-10 h-10 rounded-full shadow-lg border flex items-center justify-center cursor-pointer hover:shadow-xl transition-all duration-200 group"
+          :class="isDark ? 'bg-gray-800 border-gray-600 hover:bg-gray-700' : 'bg-white border-divider hover:bg-blue-50'"
+          @click="toggleTheme"
+        >
+          <Sun v-if="isDark" class="w-5 h-5 text-yellow-400 group-hover:text-yellow-300 transition-colors" />
+          <Moon v-else class="w-5 h-5 text-gray-500 group-hover:text-blue-500 transition-colors" />
+        </div>
         <!-- 模型选择器 -->
-        <div class="p-3 border-b border-gray-200 whitespace-nowrap">
+        <div class="p-3 pt-8 border-b border-divider whitespace-nowrap">
           <label class="block text-xs text-gray-500 mb-1.5 font-medium">模型切换</label>
           <el-select v-model="selectedModel" size="small" style="width: 100%" :teleported="true"
             popper-class="model-select-popper">
@@ -283,7 +357,7 @@ onUnmounted(() => {
                 :raw-content="false"
                 :teleported="true"
                 :popper-options="{ strategy: 'fixed' }"
-                :popper-style="{ maxWidth: '420px', maxHeight: '60vh', padding: '8px 12px', fontSize: '13px', overflow: 'auto' }"
+                :popper-style="{ padding: '8px 0px'}"
               >
                 <div class="flex items-center gap-1.5"
                   @mouseenter="handleLeafMouseEnter(data)">
@@ -293,7 +367,11 @@ onUnmounted(() => {
                     {{ node.label }}
                   </span>
                 </div>
-                <template #content>{{tooltipMap[data.path] || '加载中...'}}</template>
+                <template #content>
+                  <div class="max-w-[420px] max-h-[60vh] px-3 text-sm overflow-auto">
+                    {{tooltipMap[data.path] || '加载中...'}}
+                  </div>
+                </template>
               </el-tooltip>
               <div v-else class="flex items-center gap-1.5">
                 <Folder :size="14" class="text-gray-400" />
@@ -305,12 +383,15 @@ onUnmounted(() => {
 
         <!-- 底部折叠按钮 -->
         <div
-          class="flex items-center justify-center h-8 border-t border-gray-200 cursor-pointer hover:bg-blue-50 transition-colors group shrink-0"
+          class="flex items-center justify-center h-8 border-t border-divider cursor-pointer hover:bg-blue-50 transition-colors group shrink-0"
           @click="toggleSidebar">
           <ChevronLeft class="w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-transform duration-300" />
         </div>
       </div>
     </div>
+
+
+
 
     <!-- 右侧内容区 -->
     <div class="flex-1 overflow-auto flex flex-col">
@@ -326,11 +407,21 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-:deep(.el-tree-node__content) {
-  height: 32px;
+.left-content {
+  :deep(.el-tree-node__content) {
+    height: 32px;
+  }
+  
+  :deep(.el-tree-node.is-current > .el-tree-node__content) {
+    background-color: #e8f4fd;
+  }
 }
 
-:deep(.el-tree-node.is-current > .el-tree-node__content) {
-  background-color: #e8f4fd;
+.theme-dark {
+  .left-content {
+    :deep(.el-tree-node.is-current > .el-tree-node__content) {
+      background-color:  rgba(0,103,209,0.4);
+    }
+  }
 }
 </style>

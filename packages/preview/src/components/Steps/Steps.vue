@@ -22,8 +22,8 @@ const className = computed(() => properties.className)
 
 const orientation = computed(() => properties.orientation)
 const status = computed(() => {
-  const temp = resolveValue(properties.status)
-  return (temp ? statusEnum[temp] : "process") as StepsStatus
+  const temp = resolveValue(properties.status as any) as string
+  return (temp ? statusEnum[temp as keyof typeof statusEnum] : "process") as StepsStatus
 })
 const simple = computed(() => {
   return properties.types === "panel"
@@ -69,7 +69,7 @@ const items = computed(() => {
     <ElStep
       v-for="(item, index) in items"
       :key="index"
-      :status="item.status"
+      :status="item.status as any"
       :class="item.className"
     >
       <template #icon v-if="item.icon">

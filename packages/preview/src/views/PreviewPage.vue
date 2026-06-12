@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import A2UIRenderer from "../renderer/render/Renderer.vue";
 import { provideA2UI } from "../renderer/render/Provider";
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 
 const { createSurface, updateSurface } = provideA2UI();
 
@@ -21,15 +21,32 @@ function applyA2UIJson(data: any) {
   }
 }
 
-onMounted(async () => {
-  try {
-    const { default: testData } = await import("../jsonStorage/data.json");
-    applyA2UIJson(JSON.parse(JSON.stringify(testData)));
-  } catch (err) {
-    console.warn("[PreviewPage] 加载 data.json 失败:", err);
-  } finally {
-    loading.value = false;
+function handleMessage(event: MessageEvent) {
+  if (event.data?.type === "A2UI_UPDATE" && event.data?.payload) {
+    loading.value = false
+    applyA2UIJson(event.data.payload)
   }
+}
+
+onMounted(async () => {
+  window.addEventListener("message", handleMessage)
+
+  if (window.self !== window.top) {
+    window.parent.postMessage({ type: "A2UI_READY" }, "*")
+  } else {
+    try {
+      const { default: testData } = await import("@/jsonStorage/data.json");
+      applyA2UIJson(JSON.parse(JSON.stringify(testData)));
+    } catch (err) {
+      console.warn("[PreviewPage] 加载 data.json 失败:", err);
+    } finally {
+      loading.value = false;
+    }
+  }
+});
+
+onUnmounted(() => {
+  window.removeEventListener("message", handleMessage)
 });
 </script>
 
