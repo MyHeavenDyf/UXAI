@@ -28,6 +28,7 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { ModelsProvider } from "@/context/models"
 import { LocalProvider, useLocal } from "@/context/local"
+import { useLanguage } from "@/context/language"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
@@ -133,6 +134,7 @@ function InsightContent() {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
+  const language = useLanguage()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
 
@@ -752,6 +754,16 @@ function InsightContent() {
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || hasUploadingAttachments()) return
+
+    // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
+    if (!local.model.current()) {
+      showToast({
+        title: language.t("prompt.toast.modelAgentRequired.title"),
+        description: language.t("prompt.toast.modelAgentRequired.description"),
+      })
+      return
+    }
+
     setPrompt("")
 
     // busy 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
