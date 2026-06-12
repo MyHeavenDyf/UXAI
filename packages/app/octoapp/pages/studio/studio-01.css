@@ -228,6 +228,10 @@
   line-height: 22px;
 }
 
+.studio-composer-compliance-tooltip-content .studio-video-risk-link {
+  color: inherit;
+}
+
 .studio-composer-compliance-tooltip-arrow {
   position: absolute;
   top: 100%;
