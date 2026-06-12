@@ -5,6 +5,11 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/persist"
 
+// 🛠️ 完美保留 HEAD 引入的全新重构模块与样式表
+import { TitleBar } from "./TitleBar"
+import { CanvasView } from "./CanvasView"
+import "./PreviewStyles.css"
+
 export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
   postMessage: (data: unknown) => void
@@ -20,30 +25,36 @@ export function PreviewPage(props: {
 }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
-  const [previewScale, setPreviewScale] = createSignal(1)
+  
+  // 🛠️ 完美保留 HEAD 的物理画布状态与 Ref 指针
+  let canvasRef: { reset: () => void } | undefined
+  const [canvasMode, setCanvasMode] = createSignal(true)
+
+  // 🛠️ 保留冲突分支的 UI 弹窗管理变量
   const dialog = useDialog()
 
   const TARGET_WIDTH = 1920
   const TARGET_HEIGHT = 1080
 
-  function updatePreviewScale() {
-    if (!previewPageRef) return
-    const containerWidth = previewPageRef.clientWidth - 40
-    const containerHeight = previewPageRef.clientHeight - 40
-    const scaleX = containerWidth / TARGET_WIDTH
-    const scaleY = containerHeight / TARGET_HEIGHT
-    setPreviewScale(Math.min(scaleX, scaleY, 1))
+  // 🛠️ 保留 HEAD 的原生干净刷新机制
+  function triggerRefresh() {
+    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989"
   }
 
-  let previewResizeObserver: ResizeObserver | undefined
-  onCleanup(() => previewResizeObserver?.disconnect())
-
-  function bindpreviewPageRef(el: HTMLDivElement) {
-    previewPageRef = el
-    updatePreviewScale()
-    previewResizeObserver?.disconnect()
-    previewResizeObserver = new ResizeObserver(() => updatePreviewScale())
-    previewResizeObserver.observe(el)
+  // === 核心：统一选项改变的处理逻辑 ===
+  function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
+    console.log(`切换类型: ${type}, 选中值: ${value}`)
+    
+    // 1. 联动：当缩放下拉选择 "适应屏幕" 时，触发画布复位
+    if (type === "zoom" && value === "auto") {
+      canvasRef?.reset()
+    }
+    
+    // 2. 联动：当触发最新的主题和其它选项切换时，可在这里向外或向 iframe 发送指令
+    if (type === "theme") {
+      // 预留给未来 iframe 换肤
+      previewIframeRef?.contentWindow?.postMessage({ type: "THEME_CHANGE", theme: value }, "*")
+    }
   }
 
   function sendToPreview(data: unknown) {
@@ -57,11 +68,12 @@ export function PreviewPage(props: {
       if (!previewIframeRef?.contentWindow) return
       previewIframeRef.contentWindow.postMessage(data, "*")
     }
-    props.api.refresh = () => {
-      if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989"
-    }
+    props.api.refresh = triggerRefresh
   }
 
+  // ==========================================================================
+  // 冲突分支的核心功能 1：DOM 区域元素选择 AI 修改弹窗
+  // ==========================================================================
   const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
   const [pickerText, setPickerText] = createSignal("")
 
@@ -118,6 +130,11 @@ export function PreviewPage(props: {
   window.addEventListener("message", handlePickerMessage)
   onCleanup(() => window.removeEventListener("message", handlePickerMessage))
 
+
+  // ==========================================================================
+  // 冲突分支的核心功能 2：版本控制历史弹窗
+  // ==========================================================================
+  // 联动：当用户点击 TitleBar 的历史版本按钮时，优雅呼起这个弹窗
   function showHistoryDialog() {
     const versions = props.versions ?? []
     const currentVersionId = props.currentVersionId
@@ -162,75 +179,37 @@ export function PreviewPage(props: {
     ))
   }
 
+  // ==========================================================================
+  // 3. 视图层完美组合渲染（彻底移除冲突分支的老旧绝对定位浮动 div 结构）
+  // ==========================================================================
   return (
-    <div ref={bindpreviewPageRef} class="flex flex-col overflow-hidden" style="position:relative">
-      <div class="absolute right-[12px] top-[12px] flex gap-[6px]" style={{ "z-index": 10 }}>
-        <button class="preview-action-btn" title="历史版本" onClick={showHistoryDialog}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-        </button>
-        <button
-          class="preview-action-btn"
-          title="刷新"
-          onClick={() => {
-            if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989"
-          }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-        </button>
-        <button
-          class="preview-action-btn"
-          title="全屏"
-          onClick={() => {
-            if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
-          }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-            />
-          </svg>
-        </button>
-      </div>
-      <div
-        style={{
-          flex: "1",
-          "min-height": "0",
-          overflow: "hidden",
-          display: "flex",
-          "justify-content": "center",
-          "align-items": "center",
-          padding: "20px",
-          position: "relative",
+    <div ref={(el) => { previewPageRef = el }} class="preview-container">
+      {/* 🛠️ 高级内聚的双层 Top 工具栏 */}
+      <TitleBar
+        canvasMode={canvasMode()}
+        onToggleCanvasMode={() => setCanvasMode(!canvasMode())}
+        onReset={() => canvasRef?.reset()}
+        onRefresh={triggerRefresh}
+        onFullscreen={() => {
+          if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
         }}
+        // 绑定数据下拉及主题切换事件
+        onOptionChange={handleTitleBarOptionChange}
+      />
+
+      {/* 🛠️ 无缝平铺的极致丝滑物理交互画布 */}
+      <CanvasView 
+        ref={(el) => { canvasRef = el }}
+        canvasMode={canvasMode()} 
+        targetWidth={TARGET_WIDTH} 
+        targetHeight={TARGET_HEIGHT}
       >
-        <div
-          class="preview-iframe-wrapper"
-          style={{
-            width: `${TARGET_WIDTH}px`,
-            height: `${TARGET_HEIGHT}px`,
-            transform: `scale(${previewScale()})`,
-          }}
-        >
-          <iframe ref={(el) => { previewIframeRef = el }} src="http://127.0.0.1:8989" />
-        </div>
-      </div>
+        <iframe 
+          ref={(el) => { previewIframeRef = el }} 
+          src="http://127.0.0.1:8989" 
+          style={{ width: "100%", height: "100%", border: "none" }}
+        />
+      </CanvasView>
     </div>
   )
 }

@@ -200,19 +200,23 @@ export function ChatPanel(props: {
           onScroll={props.autoScroll.handleScroll}
           onMouseUp={props.autoScroll.handleInteraction}
         >
-          <div ref={props.autoScroll.contentRef} class="py-3 flex flex-col gap-0">
-            <For each={props.userMessages}>
-              {(msg) => (
-                <InsightTurn
-                  sessionID={(msg as any)._sessionID ?? params.id!}
-                  messageID={msg.id}
-                  status={props.sessionStatus}
-                  active={props.isBusy}
-                  onOpenResult={props.onOpenResult}
-                />
-              )}
-            </For>
-          </div>
+          <Show when={params.id} keyed>
+            {(sid) => (
+              <div ref={props.autoScroll.contentRef} class="py-3 flex flex-col gap-0">
+                <For each={props.userMessages}>
+                  {(msg) => (
+                    <InsightTurn
+                      sessionID={(msg as any)._sessionID ?? sid}
+                      messageID={msg.id}
+                      status={props.sessionStatus}
+                      active={props.isBusy}
+                      onOpenResult={props.onOpenResult}
+                    />
+                  )}
+                </For>
+              </div>
+            )}
+          </Show>
         </ScrollView>
 
         <div class="shrink-0 chat-content">

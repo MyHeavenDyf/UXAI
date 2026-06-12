@@ -82,6 +82,7 @@ function PatternContent() {
       if (!id) return null as Session | null
       try {
         const result = await sdk.client.session.get({ sessionID: id })
+        setSelectedDesignSystem("ICT-3.1")
         return (result.data as Session | undefined) ?? null
       } catch {
         return null as Session | null
@@ -98,16 +99,25 @@ function PatternContent() {
     }
   }
 
+  const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
+  let discoverVersion = 0
+
   createEffect(
     on(
       () => params.id,
       (id, prevId) => {
-        if (id) layout.lastSessionPerTab.setPattern(id)
+        if (id) {
+          layout.lastSessionPerTab.setPattern(id)
+          void sync.session.sync(id).then(() => {
+            if (params.id === id) discoverChildSessions(id)
+          })
+        }
         if (prevId !== undefined) {
           setSending(false)
           setPhase("idle")
-          setChildSessionIDs([])
         }
+        setChildSessionIDs([])
+        discoverVersion++
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -118,49 +128,44 @@ function PatternContent() {
       () => params.id,
       (id) => {
         if (!id) return
-        void sync.session.sync(id)
-        // 发现并同步子 session（恢复历史记录）
-        discoverChildSessions(id)
-      },
-    ),
-  )
-
-  // 打开已有 session 时从历史文件恢复页面状态
-  createEffect(
-    on(
-      () => params.id,
-      (id) => {
-        if (!id) return
+        setLastIntent(null)
+        setLastPlanner(null)
+        setLastModules([])
+        setVersions([])
+        setCurrentVersionId(null)
         const dir = patternHistoryDir()
         if (!dir) return
         void loadCurrentPatternState(dir, id).then((state) => {
-          if (!state) return
+          if (!state || params.id !== id) return
           if (state.lastIntent) setLastIntent(state.lastIntent)
           if (state.lastPlanner) setLastPlanner(state.lastPlanner)
           if (state.lastModules.length > 0) setLastModules(state.lastModules)
         })
         void listPatternVersions(dir, id).then(({ versions, current }) => {
+          if (params.id !== id) return
           setVersions(versions)
           setCurrentVersionId(current)
         })
       },
     ),
   )
+
   async function discoverChildSessions(rootID: string) {
+    const version = discoverVersion
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (version !== discoverVersion) return
       const all = res.data ?? []
       const children = all.filter((s: any) => s.parentID === rootID)
       const childIDs: string[] = []
       for (const child of children) {
         await sync.session.sync(child.id)
+        if (version !== discoverVersion) return
         childIDs.push(child.id)
       }
       setChildSessionIDs(childIDs)
     } catch {}
   }
-
-  const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
 
   const userMessages = createMemo((): Message[] => {
     const id = params.id
@@ -212,6 +217,21 @@ function PatternContent() {
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
 
+  createEffect(
+    on(
+      () => params.id,
+      (id, prevId) => {
+        if (id) layout.lastSessionPerTab.setPattern(id)
+        if (prevId !== undefined) {
+          setSending(false)
+          setPhase("idle")
+          setChildSessionIDs([])
+          setSelectedDesignSystem("ICT-3.1")
+        }
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
+      },
+    ),
+  )
   // 历史文件存储目录，优先使用关联目录下的 .octo/pattern/history
   const patternHistoryDir = createMemo(() => {
     const dir = globalSync.data.path.directory
@@ -225,7 +245,15 @@ function PatternContent() {
     const mods = lastModules()
     return mods.length > 0 ? mods : null
   }
-  const hasContent = () => !!(params.id && (userMessages().length > 0 || phase() !== "idle"))
+  const hasContent = () => {
+    const id = params.id
+    if (!id) return false
+    if (userMessages().length > 0) return true
+    if (sending()) return true
+    const rootMsgs = sync.data.message[id]
+    if (rootMsgs && rootMsgs.length > 0) return true
+    return false
+  }
 
   // 从预览页选中元素后触发的修改回调
   function handlePickerSubmit(text: string, domPickerId: string) {
@@ -314,6 +342,7 @@ function PatternContent() {
         const session = result.data as Session | undefined
         if (!session) return
         setPhase("intent")
+        setSelectedDesignSystem("ICT-3.1")
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
@@ -400,7 +429,7 @@ function PatternContent() {
               elementId: slot.element_id,
               layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
               intentDescription: updatedIntent as any,
-            }).then((r) => r.uiJson)
+            }).then((r) => r.ui_json)
           }
           if (slot.operation === "modify") {
             const originModule = prevModules.find((m) => m.rootId === slot.element_id)
@@ -416,7 +445,7 @@ function PatternContent() {
                 originModules: originModule,
                 modifications: modAction as unknown as Record<string, unknown>,
               },
-            }).then((r) => r.uiJson)
+            }).then((r) => r.ui_json)
           }
           return null
         })
@@ -424,8 +453,8 @@ function PatternContent() {
         const allModules = moduleResults.filter(Boolean) as typeof prevModules
 
         const merged = mergeModules(
-          { rootId: modifyResult.output.rootId, elements: modifyResult.output.elements },
-          allModules,
+          { rootId: modifyResult.output.rootId as string, elements: modifyResult.output.elements as any },
+          allModules as any,
         )
         console.log("[Pattern] ========== MERGED A2UI JSON ==========")
         console.log(JSON.stringify(merged, null, 2))
@@ -485,8 +514,8 @@ function PatternContent() {
         )
       )
       const merged = mergeModules(
-        { rootId: planner.layout_planner.rootId, elements: planner.layout_planner.elements },
-        modules,
+        { rootId: planner.layout_planner.rootId as string, elements: planner.layout_planner.elements as any },
+        modules as any,
       )
 
       // 第五步：合并顶层布局和各模块JSON

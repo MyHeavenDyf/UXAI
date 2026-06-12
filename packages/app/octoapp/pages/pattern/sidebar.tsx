@@ -1,8 +1,12 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { showToast } from "@opencode-ai/ui/toast"
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
+import { Portal } from "solid-js/web"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -94,11 +98,105 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     return m?.[1]
   }
 
+  // 在导航到新对话时兜底刷新列表，防止事件竞争导致列表遗漏
+  createEffect(on(activeSessionId, (newId, oldId) => {
+    if (newId && newId !== oldId) {
+      clearTimeout(refetchTimer)
+      refetchTimer = setTimeout(() => void refetch(), 500)
+    }
+  }))
+
   const [patternCollapsed, setPatternCollapsed] = createSignal(false)
   const [creating, setCreating] = createSignal(false)
   let createTimer: ReturnType<typeof setTimeout> | undefined
 
   onCleanup(() => clearTimeout(createTimer))
+
+  const [contextMenu, setContextMenu] = createStore<{
+    show: boolean
+    x: number
+    y: number
+    session: Session | null
+    hasMessages: boolean
+  }>({ show: false, x: 0, y: 0, session: null, hasMessages: false })
+
+  function closeContextMenu() {
+    setContextMenu("show", false)
+  }
+
+  async function deleteSession(sessionID: string, directory: string) {
+    const idx = sessionList.findIndex((s) => s.id === sessionID)
+    try {
+      const client = globalSDK.createClient({ directory })
+      await client.session.delete({ sessionID })
+      closeContextMenu()
+      if (idx >= 0) {
+        setSessionList(sessionList.filter((s) => s.id !== sessionID))
+      }
+      if (activeSessionId() === sessionID) {
+        navigate("/pattern")
+        void refetch()
+      }
+    } catch (err) {
+      showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  function handleContextMenuDelete() {
+    const session = contextMenu.session
+    if (!session) return
+    closeContextMenu()
+    dialog.show(() => (
+      <Dialog title="删除会话" fit class="delete-dialog">
+        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+          确定删除「{sessionTitle(session.title) || "无标题"}」？
+        </span>
+        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
+          <Button
+            variant="ghost"
+            size="large"
+            class="delete-dialog-btn"
+            onClick={() => dialog.close()}
+          >
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            size="large"
+            class="delete-dialog-btn delete-dialog-btn-primary"
+            onClick={() => { void deleteSession(session.id, session.directory).then(() => dialog.close()) }}
+          >
+            删除
+          </Button>
+        </div>
+      </Dialog>
+    ))
+  }
+
+  const [renamingId, setRenamingId] = createSignal<string | null>(null)
+  const [renameDraft, setRenameDraft] = createSignal("")
+  let renameInputRef: HTMLInputElement | undefined
+
+  function startRename(session: Session) {
+    setRenamingId(session.id)
+    setRenameDraft(sessionTitle(session.title) || "无标题")
+    requestAnimationFrame(() => renameInputRef?.focus())
+  }
+
+  async function saveRename(session: Session) {
+    const draft = renameDraft().trim()
+    if (!draft || !session.id) { setRenamingId(null); return }
+    const idx = sessionList.findIndex((s) => s.id === session.id)
+    if (idx >= 0) setSessionList(idx, "title", draft)
+    setRenamingId(null)
+    try {
+      const client = globalSDK.createClient({ directory: session.directory })
+      await client.session.update({ sessionID: session.id, title: draft })
+    } catch (err) {
+      showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
+      if (idx >= 0) setSessionList(idx, "title", session.title)
+    }
+  }
 
   function newSession() {
     if (creating()) return
@@ -189,55 +287,93 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
                       })
                       const unseenCount = createMemo(() => notification.session.unseenCount(session.id))
                       const hasError = createMemo(() => notification.session.unseenHasError(session.id))
+                      const hasMessages = createMemo(() => {
+                        return session.time.updated > session.time.created
+                      })
+                      const isRenaming = () => renamingId() === session.id
+                      const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
                       return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            notification.session.markViewed(session.id)
-                            navigate(`/pattern/${session.id}`)
-                          }}
-                          class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
-                          style={{
-                            height: "36px",
-                            padding: "0 24px 0 44px",
-                            color: isActive() ? "#0A59F7" : undefined,
-                          }}
-                          classList={{
-                            "bg-[rgba(10,89,247,0.08)]": isActive(),
-                            "hover:bg-surface-base-hover": !isActive(),
-                          }}
-                        >
-                          <Show when={isActive()}>
-                            <span
-                              class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
+                        <Show when={!isRenaming()} fallback={
+                          <div
+                            class="w-full rounded-[8px] flex items-center"
+                            style={{ height: "36px", padding: "0 24px 0 44px" }}
+                          >
+                            <input
+                              ref={renameInputRef}
+                              value={renameDraft()}
+                              onInput={(e) => setRenameDraft(e.currentTarget.value)}
+                              onKeyDown={(e) => {
+                                e.stopPropagation()
+                                if (e.key === "Enter") { e.preventDefault(); void saveRename(session) }
+                                if (e.key === "Escape") { e.preventDefault(); setRenamingId(null) }
+                              }}
+                              onBlur={() => void saveRename(session)}
+                              class="w-full text-[12px] leading-[20px]"
                               style={{
-                                height: "28px",
-                                width: "4px",
-                                background: "#0A59F7",
-                                transform: "translateY(-50%)",
+                                color: isActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+                                border: "1px solid #0a59f7",
+                                "border-radius": "6px",
+                                padding: "4px",
+                                background: "transparent",
+                                outline: "none",
                               }}
                             />
-                          </Show>
-                          <Show when={isWorking() || hasError() || unseenCount() > 0}>
-                            <div class="shrink-0 size-6 flex items-center justify-center">
-                              <Switch>
-                                <Match when={isWorking()}>
-                                  <svg class="size-[15px] animate-spin" viewBox="0 0 24 24" fill="none">
-                                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.2" />
-                                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
-                                  </svg>
-                                </Match>
-                                <Match when={hasError()}>
-                                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-                                </Match>
-                                <Match when={unseenCount() > 0}>
-                                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
-                                </Match>
-                              </Switch>
-                            </div>
-                          </Show>
-                          <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
-                        </button>
+                          </div>
+                        }>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              notification.session.markViewed(session.id)
+                              navigate(`/pattern/${session.id}`)
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: hasMessages() })
+                            }}
+                            class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
+                            style={{
+                              height: "36px",
+                              padding: "0 24px 0 44px",
+                              color: isActive() ? "#0A59F7" : undefined,
+                            }}
+                            classList={{
+                              "bg-[rgba(10,89,247,0.08)]": isActive(),
+                              "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
+                              "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
+                            }}
+                          >
+                            <Show when={isActive()}>
+                              <span
+                                class="absolute right-[12px] top-1/2 rounded-full pointer-events-none"
+                                style={{
+                                  height: "28px",
+                                  width: "4px",
+                                  background: "#0A59F7",
+                                  transform: "translateY(-50%)",
+                                }}
+                              />
+                            </Show>
+                            <Show when={isWorking() || hasError() || unseenCount() > 0}>
+                              <div class="shrink-0 size-6 flex items-center justify-center">
+                                <Switch>
+                                  <Match when={isWorking()}>
+                                    <svg class="size-[15px] animate-spin" viewBox="0 0 24 24" fill="none">
+                                      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.2" />
+                                      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+                                    </svg>
+                                  </Match>
+                                  <Match when={hasError()}>
+                                    <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+                                  </Match>
+                                  <Match when={unseenCount() > 0}>
+                                    <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                                  </Match>
+                                </Switch>
+                              </div>
+                            </Show>
+                            <span class="flex-1 min-w-0 truncate">{sessionTitle(session.title) || "无标题"}</span>
+                          </button>
+                        </Show>
                       )
                     }}
                   </For>
@@ -262,6 +398,51 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           <span class="text-[14px] leading-[22px]">设置</span>
         </button>
       </div>
+      <Show when={contextMenu.show && contextMenu.session}>
+        <Portal>
+          <div
+            class="fixed inset-0 z-50"
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={closeContextMenu}
+            onKeyDown={(e) => { if (e.key === "Escape") closeContextMenu() }}
+            tabIndex={-1}
+            ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
+          >
+            <div
+              data-component="dropdown-menu-content"
+              style={{
+                position: "absolute",
+                left: `${contextMenu.x}px`,
+                top: `${contextMenu.y}px`,
+                transform: "translateX(12px)",
+                "min-width": "132px",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Show when={contextMenu.hasMessages}>
+                <button
+                  data-slot="dropdown-menu-item"
+                  onClick={() => {
+                    const s = contextMenu.session
+                    if (!s) return
+                    closeContextMenu()
+                    startRename(s)
+                  }}
+                >
+                  <span data-slot="dropdown-menu-item-label">重命名</span>
+                </button>
+                <div data-slot="dropdown-menu-separator" />
+              </Show>
+              <button
+                data-slot="dropdown-menu-item"
+                onClick={handleContextMenuDelete}
+              >
+                <span data-slot="dropdown-menu-item-label">删除</span>
+              </button>
+            </div>
+          </div>
+        </Portal>
+      </Show>
     </div>
   )
 }

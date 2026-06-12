@@ -10,7 +10,7 @@ export interface ModuleModifyInput {
 }
 
 export interface ModuleModifyResult {
-  uiJson: Record<string, unknown>
+  ui_json: Record<string, unknown>
   sectionId: string
   elementId: string
   idPrefix: string
@@ -112,7 +112,7 @@ export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleM
 
 
   return {
-    uiJson: moduleJson,
+    ui_json: moduleJson,
     sectionId: ctx.input.sectionId,
     elementId: rootElementId,
     idPrefix: ctx.input.idPrefix,
