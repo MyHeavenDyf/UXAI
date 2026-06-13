@@ -4,7 +4,7 @@ import { List, type ListRef } from "@opencode-ai/ui/list"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { type Component, type JSX, Show } from "solid-js"
+import { type Component, type JSX, Show, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useLanguage } from "@/context/language"
@@ -33,6 +33,10 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState; children?:
     })
   }
 
+  const visibleList = createMemo(() =>
+    model.list().filter((m) => model.visible({ modelID: m.id, providerID: m.provider.id })),
+  )
+
   let listRef: ListRef | undefined
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") return
@@ -49,7 +53,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState; children?:
             <List
               class="[&_[data-slot=list-scroll]]:overflow-visible [&[data-component=list]]:!p-0 [&_[data-slot=list-group]:last-child]:!pb-0 [&_[data-slot=list-group]]:gap-1 [&_[data-slot=list-item]]:!h-9 [&_[data-slot=list-item]]:!px-3 [&_[data-slot=list-item]]:!rounded-[6px] [&_[data-slot=list-item]]:!text-[14px] [&_[data-slot=list-item]]:!leading-[22px] [&_[data-slot=list-item]]:!text-[#191919] [&_[data-slot=list-item]>span]:!truncate [&_[data-slot=list-item]]:mb-1 [&_[data-slot=list-item-selected-icon]]:!hidden [&_[data-slot=list-item][data-active=true]]:!bg-transparent [&_[data-slot=list-item][data-active=true]:hover]:!bg-[rgba(0,0,0,0.1)] [&_[data-slot=list-item][data-selected=true]]:!bg-[rgba(0,0,0,0.05)] [&_[data-slot=list-item]:active]:!bg-[rgba(0,0,0,0.15)]"
               ref={(ref) => (listRef = ref)}
-              items={model.list}
+              items={visibleList}
               current={model.current()}
               key={(x) => `${x.provider.id}:${x.id}`}
               itemWrapper={(item, node) => (

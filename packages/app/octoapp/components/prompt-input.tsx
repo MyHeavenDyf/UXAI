@@ -119,6 +119,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
   const { params, tabs, view } = useSessionLayout()
+
+  createEffect(
+    on(
+      () => {
+        const connectedStr = providers.connected().map((p) => p.id).sort().join(",")
+        const model = local.model.current()
+        return {
+          connected: connectedStr,
+          key: model ? `${model.provider.id}/${model.id}` : null,
+        }
+      },
+      (next, prev) => {
+        if (next.key == null || prev === undefined) return
+        if (next.key === prev.key) return
+        const [providerID, modelID] = next.key.split("/")
+        local.model.set({ providerID, modelID })
+      },
+      { defer: true },
+    ),
+  )
+
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
   let scrollRef!: HTMLDivElement
