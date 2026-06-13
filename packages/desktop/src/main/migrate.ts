@@ -1,9 +1,10 @@
 import { app } from "electron"
 import log from "electron-log/main.js"
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { xdgCache } from "xdg-basedir"
 import { CHANNEL } from "./constants"
 import { getStore } from "./store"
 
@@ -208,48 +209,47 @@ export function deployBuiltinSkills() {
   }
 }
 
-export function deployProtoToolFiles() {
-  const octoConfigDir = join(homedir(), ".config", "octo")
+export function deployRipgrep() {
+  const { platform, arch } = process
 
-  for (const sub of ["api", "example"]) {
-    const sourceDir = app.isPackaged
-      ? join(process.resourcesPath, sub)
-      : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", sub)
+  const platformKey = platform === "darwin"
+    ? `darwin-${arch === "arm64" ? "arm64" : "x64"}`
+    : platform === "linux"
+      ? `linux-${arch === "arm64" ? "arm64" : "x64"}`
+      : `windows-${arch === "arm64" ? "arm64" : "x64"}`
 
-    const destDir = join(octoConfigDir, sub)
-
-    if (!existsSync(sourceDir)) {
-      log.warn(`proto_tool ${sub} deployment: source directory not found`, sourceDir)
-      continue
-    }
-
-    try {
-      cpSync(sourceDir, destDir, { recursive: true })
-      log.log(`proto_tool ${sub} deployment: copied to`, destDir)
-    } catch (err) {
-      log.warn(`proto_tool ${sub} deployment: failed`, err)
-    }
-  }
-}
-
-export function deployDesignFiles() {
-  const octoConfigDir = join(homedir(), ".config", "octo")
+  const binaryName = platform === "win32" ? `rg-${platformKey}.exe` : `rg-${platformKey}`
+  const targetName = platform === "win32" ? "rg.exe" : "rg"
 
   const sourceDir = app.isPackaged
-    ? join(process.resourcesPath, "design")
-    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node", "design")
+    ? join(process.resourcesPath, "bin")
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "resources", "bin")
 
-  const destDir = join(octoConfigDir, "design")
+  const sourcePath = join(sourceDir, binaryName)
 
-  if (!existsSync(sourceDir)) {
-    log.warn("design deployment: source directory not found", sourceDir)
+  if (!existsSync(sourcePath)) {
+    log.warn("ripgrep deployment: source binary not found", sourcePath)
+    return
+  }
+
+  // Use xdgCache to match Global.Path.bin in opencode
+  const cacheDir = xdgCache ?? join(homedir(), ".cache")
+  const targetDir = join(cacheDir, "opencode", "bin")
+  const targetPath = join(targetDir, targetName)
+
+  if (existsSync(targetPath)) {
+    log.log("ripgrep deployment: already exists at", targetPath)
     return
   }
 
   try {
-    cpSync(sourceDir, destDir, { recursive: true })
-    log.log("design deployment: copied to", destDir)
+    mkdirSync(targetDir, { recursive: true })
+    copyFileSync(sourcePath, targetPath)
+    if (platform !== "win32") {
+      chmodSync(targetPath, 0o755)
+    }
+    log.log("ripgrep deployment: deployed to", targetPath)
   } catch (err) {
-    log.warn("design deployment: failed", err)
+    log.warn("ripgrep deployment: failed", err)
   }
 }

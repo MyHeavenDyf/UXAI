@@ -50,16 +50,9 @@ const getBase = (): Configuration => ({
       to: "skills",
     },
     {
-      from: "../opencode/dist/node/api",
-      to: "api",
-    },
-    {
-      from: "../opencode/dist/node/example",
-      to: "example",
-    },
-    {
-      from: "../opencode/dist/node/design",
-      to: "design",
+      from: "resources/bin",
+      to: "bin",
+      filter: ["**/*"],
     },
   ],
   mac: {

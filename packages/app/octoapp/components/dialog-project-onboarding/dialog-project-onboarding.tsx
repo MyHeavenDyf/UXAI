@@ -9,6 +9,7 @@ import { createEffect, createMemo, createSignal, Show } from "solid-js"
 import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
+import { tracker } from "@/utils/tracker"
 import type { Domain, ProductLine, Product, Version } from "./project-product-select-api"
 
 interface DialogProjectOnboardingProps {
@@ -92,6 +93,18 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   function handleConfirm() {
     const dir = directory()
     if (!dir) return
+    tracker.interaction({
+      module: "project-onboarding",
+      name: "confirm",
+      subType: "click",
+      extend: JSON.stringify({
+        domain: selections.domain,
+        productLine: selections.productLine,
+        product: selections.product,
+        version: selections.version,
+        dir
+      }),
+    })
     layout.projects.open(dir)
     server.projects.touch(dir)
     void globalSDK.createClient({ directory: dir }).session.list().catch(() => {})

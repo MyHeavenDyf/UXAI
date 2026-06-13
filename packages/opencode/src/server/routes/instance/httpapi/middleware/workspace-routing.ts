@@ -9,10 +9,13 @@ import * as Fence from "@/server/shared/fence"
 import { getWorkspaceRouteSessionID, isLocalWorkspaceRoute, workspaceProxyURL } from "@/server/shared/workspace-routing"
 import { NotFoundError } from "@/storage/storage"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import * as Log from "@opencode-ai/core/util/log"
 import { Context, Data, Effect, Layer } from "effect"
 import { HttpClient, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import * as Socket from "effect/unstable/socket/Socket"
+
+const log = Log.create({ service: "workspace-routing" })
 
 type RemoteTarget = Extract<Target, { type: "remote" }>
 
@@ -58,7 +61,12 @@ function selectedWorkspaceID(url: URL, sessionWorkspaceID?: WorkspaceID): Worksp
 }
 
 function defaultDirectory(request: HttpServerRequest.HttpServerRequest, url: URL): string {
-  return url.searchParams.get("directory") || request.headers["x-opencode-directory"] || process.cwd()
+  const fromQuery = url.searchParams.get("directory")
+  const fromHeader = request.headers["x-opencode-directory"]
+  const fallback = process.cwd()
+  const result = fromQuery || fromHeader || fallback
+  log.info("defaultDirectory", { fromQuery, fromHeader, fallback, result })
+  return result
 }
 
 function shouldStayOnControlPlane(request: HttpServerRequest.HttpServerRequest, url: URL): boolean {
@@ -142,15 +150,30 @@ function planRequest(
     const workspaceID = selectedWorkspaceID(url, sessionWorkspaceID)
     const workspace = yield* resolveWorkspace(workspaceID, envWorkspaceID)
 
+    log.info("planRequest:start", {
+      method: request.method,
+      pathname: url.pathname,
+      search: url.search,
+      directoryParam: url.searchParams.get("directory"),
+      workspaceID,
+      envWorkspaceID,
+      hasWorkspace: workspace !== undefined,
+    })
+
     if (workspaceID && workspace === undefined && !envWorkspaceID) {
+      log.warn("planRequest:missing-workspace", { workspaceID })
       return RequestPlan.MissingWorkspace({ workspaceID })
     }
 
     if (workspace !== undefined && !envWorkspaceID && !shouldStayOnControlPlane(request, url)) {
-      return yield* planWorkspaceRequest(request, url, workspace)
+      const plan = yield* planWorkspaceRequest(request, url, workspace)
+      log.info("planRequest:workspace-plan", { tag: plan._tag })
+      return plan
     }
 
-    return RequestPlan.Local({ directory: defaultDirectory(request, url), workspaceID: envWorkspaceID ?? workspaceID })
+    const directory = defaultDirectory(request, url)
+    log.info("planRequest:local", { directory, workspaceID: envWorkspaceID ?? workspaceID })
+    return RequestPlan.Local({ directory, workspaceID: envWorkspaceID ?? workspaceID })
   })
 }
 

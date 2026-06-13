@@ -13,6 +13,8 @@
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
+    "build:beta": "vite build --mode beta",
+    "build:prod": "vite build --mode prod",
     "serve": "vite preview",
     "test": "bun run test:unit",
     "test:ci": "mkdir -p .artifacts/unit && bun test --preload ./happydom.ts ./src --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",

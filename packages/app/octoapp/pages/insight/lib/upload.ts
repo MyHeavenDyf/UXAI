@@ -6,7 +6,7 @@
 //   不需要改源码（详见 spec §端点）
 // - 全链路 console 日志统一前缀 [octo:upload]，便于内外网隔空调试
 
-// 上传服务端地址。配置方式：packages/app/.env.local 里写 VITE_OCTO_UPLOAD_ENDPOINT=...
+// 上传服务端地址。配置方式：packages/desktop/.env 里写 VITE_OCTO_UPLOAD_ENDPOINT=...
 const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 
 const LOG = "[octo:upload]"
@@ -105,7 +105,7 @@ export async function uploadFile(file: File): Promise<UploadResult> {
     // 用户可见文案友好简洁;开发期排查提示(改 .env.local)只走 console,不糊给用户
     const err = new UploadError("ENDPOINT_NOT_CONFIGURED", "上传服务暂时不可用，请稍后重试")
     console.error(`${LOG} endpoint not configured`, {
-      hint: "在 packages/app/.env.local 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>,然后重启 dev",
+      hint: "在 packages/desktop/.env 设置 VITE_OCTO_UPLOAD_ENDPOINT=<内网地址>,然后重启 dev",
     })
     throw err
   }

@@ -729,7 +729,7 @@ function PatternContent() {
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
       <Toast.Region />
       <div
-        class="octo-split bg-background-base"
+        class="octo-prototype octo-split bg-background-base"
         data-focus={focusMode() ? "true" : undefined}
         style={{
           "grid-template-columns": !focusMode()

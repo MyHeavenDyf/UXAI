@@ -88,6 +88,17 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
             const props = event.payload.properties
             if (skip.has(deltaKey(event.directory, props.messageID, props.partID))) continue
           }
+          // 临时诊断:看 session 事件分发前带的 directory / title,定位标题事件是否被按目录丢弃。用完即删。
+          if (event.payload.type === "session.updated" || event.payload.type === "session.created") {
+            const info = (event.payload.properties as { info?: { id?: string; title?: string; agent?: string } }).info
+            console.log("[octo:evt] session", {
+              type: event.payload.type,
+              dir: event.directory,
+              id: info?.id,
+              agent: info?.agent,
+              title: info?.title,
+            })
+          }
           emitter.emit(event.directory, event.payload)
         }
       })

@@ -1,14 +1,16 @@
 import * as InstanceState from "@/effect/instance-state"
 import { File } from "@/file"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Ripgrep } from "@/file/ripgrep"
 import { Effect } from "effect"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 
 export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handlers) =>
   Effect.gen(function* () {
     const svc = yield* File.Service
     const ripgrep = yield* Ripgrep.Service
+    const fs = yield* AppFileSystem.Service
 
     const findText = Effect.fn("FileHttpApi.findText")(function* (ctx: { query: { pattern: string } }) {
       return (yield* ripgrep
@@ -39,6 +41,13 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
       return yield* svc.read(ctx.query.path)
     })
 
+    const write = Effect.fn("FileHttpApi.write")(function* (ctx: { payload: { path: string; content: string } }) {
+      yield* fs.writeWithDirs(ctx.payload.path, ctx.payload.content).pipe(
+        Effect.mapError(() => new HttpApiError.BadRequest({})),
+      )
+      return { ok: true }
+    })
+
     const status = Effect.fn("FileHttpApi.status")(function* () {
       return yield* svc.status()
     })
@@ -49,6 +58,7 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
       .handle("findSymbol", findSymbol)
       .handle("list", list)
       .handle("content", content)
+      .handle("write", write)
       .handle("status", status)
   }),
 )

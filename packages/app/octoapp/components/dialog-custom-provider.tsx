@@ -131,13 +131,17 @@ export function DialogCustomProvider(props: Props) {
         })
       }
 
-      await globalSync.updateConfig({
-        provider: { [result.providerID]: result.config },
-        disabled_providers: nextDisabled,
+      await globalSDK.client.global.config.update({
+        config: {
+          provider: { [result.providerID]: result.config },
+          disabled_providers: nextDisabled,
+        },
       })
+      await globalSDK.client.global.dispose()
       return result
     },
     onSuccess: (result) => {
+      globalSync.invalidateProviders()
       dialog.close()
       showToast({
         variant: "success",

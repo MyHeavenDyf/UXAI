@@ -239,6 +239,11 @@ export function registerIpcHandlers(deps: Deps) {
     return { buffer, width: size.width, height: size.height }
   })
 
+  // SPEC-INS-011:debug 工具 snapshot 用 —— 主进程写剪贴板(不受 renderer DevTools 缺用户手势限制)
+  ipcMain.handle("write-clipboard-text", (_event: IpcMainInvokeEvent, text: string) => {
+    clipboard.writeText(text)
+  })
+
   ipcMain.on("show-notification", (_event: IpcMainEvent, title: string, body?: string) => {
     new Notification({ title, body }).show()
   })
@@ -369,29 +374,16 @@ export function registerIpcHandlers(deps: Deps) {
     return pdfData.buffer as ArrayBuffer
   })
 
-  // 非Skill的设计资源MD保存地址 - By WangQiang - 该注释请勿删除
-  const designDir = () => {
-    const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
-    return join(xdgConfig, "octo", "design")
-  }
-
-  // 从C盘中读取非Skill的设计资源名称 - By WangQiang - 该注释请勿删除
-  ipcMain.handle("get-design-list", () => {
-    const dir = designDir()
-    if (!existsSync(dir)) return []
-    return readdirSync(dir)
-      .filter((f) => statSync(join(dir, f)).isFile())
-      .map((f) => ({ name: f.replace(/\.[^.]+$/, ""), filename: f }))
-  })
-
-  // 从C盘中读取非Skill的设计资源内容 - By WangQiang - 该注释请勿删除
-  ipcMain.handle("get-design-content", (_event: IpcMainInvokeEvent, name: string) => {
-    const dir = designDir()
-    if (!existsSync(dir)) return null
-    const target = readdirSync(dir).find((f) => f.replace(/\.[^.]+$/, "") === name)
-    if (!target) return null
-    return readFileSync(join(dir, target), "utf-8")
-  })
+  ipcMain.handle(
+    "capture-preview-rect",
+    async (event: IpcMainInvokeEvent, rect: { x: number; y: number; width: number; height: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) return null
+      const image = await win.webContents.capturePage(rect)
+      if (image.isEmpty()) return null
+      return image.toDataURL()
+    },
+  )
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

@@ -620,7 +620,7 @@ export function AppInterface(props: {
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
-                  <Route path="/" component={() => <Navigate href="/insight" />} />
+                  <Route path="/" component={() => <Navigate href="/make" />} />
                   <Route path="/cowork" component={() => <Navigate href="/insight" />} />
                   {/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册;生产构建里整块为死代码 */}
                   {import.meta.env.DEV && insightDevRoutes()}
