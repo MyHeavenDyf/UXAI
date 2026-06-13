@@ -218,8 +218,8 @@
   border-radius: 999px;
   background: var(--studio-blue);
   color: #fff;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   box-shadow: none;
 }
 
@@ -230,6 +230,22 @@
   flex: 0 0 14px;
   background: url("/studio/wand_and_stars.svg") center / contain no-repeat;
   filter: brightness(0) invert(1);
+}
+
+.studio-details-video-action {
+  margin-top: 12px;
+  background: rgba(25, 25, 25, 0.05);
+  color: #191919;
+}
+
+.studio-details-video-action::before {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+  background: currentColor;
+  mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
+  filter: none;
 }
 
 .studio-detail-action-grid {
@@ -245,6 +261,7 @@
   background: rgba(25, 25, 25, 0.05);
   color: #191919;
   font-size: 12px;
+  font-weight: 500;
 }
 
 .studio-detail-action-grid .studio-details-secondary-action::before {

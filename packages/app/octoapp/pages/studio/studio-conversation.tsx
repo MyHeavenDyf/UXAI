@@ -3,6 +3,7 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
 import { isStudioEditResult, isVideoMedia } from "./studio-shared"
+import { StudioVideoPlayer } from "./studio-video-player"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 export function StudioConversation(props: {
@@ -146,7 +147,16 @@ export function StudioResultCanvas(props: {
             </For>
           </div>
           <div class="studio-canvas-stage">
-            <StudioMediaPreview image={image()} class="studio-canvas-image" controls={isVideoMedia(image())} />
+            <Show
+              when={isVideoMedia(image())}
+              fallback={<StudioMediaPreview image={image()} class="studio-canvas-image" />}
+            >
+              <StudioVideoPlayer
+                src={image().remoteUrl ?? image().url}
+                poster={image().thumbnailUrl}
+                class="studio-canvas-image"
+              />
+            </Show>
           </div>
           <div class="studio-canvas-floating-actions">
             <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
@@ -227,8 +237,10 @@ export function StudioDetails(props: {
   selectedImageId?: string
   imageLabel: string
   regenerateDisabled: boolean
+  showVideoGeneration: boolean
   onSelectImage: (id: string) => void
   onRegenerate: () => void
+  onGenerateVideo: () => void
   onUpscale: () => void
   onCutout: () => void
   onInpaint: () => void
@@ -286,6 +298,16 @@ export function StudioDetails(props: {
           >
             再次生成
           </button>
+          <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
+            <button
+              type="button"
+              onClick={props.onGenerateVideo}
+              disabled={props.regenerateDisabled || !props.image}
+              class="studio-details-primary-action studio-details-secondary-action studio-details-video-action disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              视频生成
+            </button>
+          </Show>
         </Show>
         <Show when={!isVideoResult()}>
           <div class="studio-detail-action-grid">

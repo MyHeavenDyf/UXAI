@@ -230,6 +230,7 @@ export default function StudioPage() {
   let scrollFrame = 0
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
+  let pendingVideoFirstFrame: StudioAsset | undefined
   const blobUrlCache = new Map<string, string>()
 
   function replaceVideoFrames(frames: { first?: StudioAsset; last?: StudioAsset }) {
@@ -1130,10 +1131,12 @@ export default function StudioPage() {
 
   function selectStudioCapability(value: StudioCapability) {
     if (value !== "video.generate") {
+      pendingVideoFirstFrame = undefined
       applyStudioCapability(value)
       return
     }
     if (!canGenerateVideo()) return
+    pendingVideoFirstFrame = undefined
     if (params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed()) {
       applyStudioCapability(value)
       return
@@ -1142,6 +1145,7 @@ export default function StudioPage() {
   }
 
   function cancelVideoRiskDialog() {
+    pendingVideoFirstFrame = undefined
     setVideoRiskDialogOpen(false)
   }
 
@@ -1150,9 +1154,30 @@ export default function StudioPage() {
     if (!params.id) setDraftVideoRiskConfirmed(true)
     setVideoRiskDialogOpen(false)
     applyStudioCapability("video.generate")
+    if (pendingVideoFirstFrame) setVideoFrames("first", pendingVideoFirstFrame)
+    pendingVideoFirstFrame = undefined
+  }
+
+  function generateVideoFromSelectedImage() {
+    const image = selectedImage()
+    if (!image || isVideoMedia(image) || !canGenerateVideo()) return
+    pendingVideoFirstFrame = {
+      id: crypto.randomUUID(),
+      name: currentImageLabel(),
+      mime: "image/png",
+      dataUrl: image.remoteUrl ?? image.url,
+    }
+    if (!(params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed())) {
+      setVideoRiskDialogOpen(true)
+      return
+    }
+    applyStudioCapability("video.generate")
+    setVideoFrames("first", pendingVideoFirstFrame)
+    pendingVideoFirstFrame = undefined
   }
 
   function startNewStudioConversation() {
+    pendingVideoFirstFrame = undefined
     generationToken++
     setVideoRiskDialogOpen(false)
     setVideoRiskConfirmedSessionID(undefined)
@@ -1921,6 +1946,7 @@ export default function StudioPage() {
                 selectedImageId={selectedImageId()}
                 imageLabel={currentImageLabel()}
                 regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                showVideoGeneration={canGenerateVideo()}
                 onSelectImage={(id) => {
                   const r = result()
                   batch(() => {
@@ -1957,6 +1983,7 @@ export default function StudioPage() {
                   })
                 }}
                 onRegenerate={regenerateCurrentResult}
+                onGenerateVideo={generateVideoFromSelectedImage}
                 onUpscale={openHD}
                 onCutout={openCutout}
                 onInpaint={openInpaint}
