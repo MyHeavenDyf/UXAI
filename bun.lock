@@ -241,6 +241,7 @@
         "electron-updater": "^6",
         "electron-window-state": "^5.0.3",
         "marked": "^15",
+        "xdg-basedir": "5.1.0",
       },
       "devDependencies": {
         "@actions/artifact": "4.0.0",

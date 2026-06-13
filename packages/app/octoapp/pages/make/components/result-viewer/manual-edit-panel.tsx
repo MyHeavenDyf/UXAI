@@ -415,7 +415,7 @@ function UnitRow(props: {
   unit: string
   autoUnit?: boolean
 }) {
-  const display = () => props.unit === 'px' ? stripPxUnit(props.value) : props.value
+  const display = () => stripPxUnit(props.value)
   const canStep = () => isNumericInput(display())
 
   const valueFromDisplay = (raw: string) => {
@@ -448,7 +448,7 @@ function UnitRow(props: {
           onBlur={(e) => handle(e.currentTarget.value)}
         />
         <button type="button" class="cc-step" disabled={!canStep()} onClick={() => stepBy(1)}>+</button>
-        <Show when={props.unit}><em class="cc-unit">{props.unit}</em></Show>
+        <Show when={props.unit && !isKeyword(display())}><em class="cc-unit">{props.unit}</em></Show>
       </span>
     </label>
   )
@@ -652,6 +652,10 @@ function stripPxUnit(value: string): string {
 
 function isNumericInput(value: string): boolean {
   return /^-?\d+(\.\d+)?$/.test(value.trim())
+}
+
+function isKeyword(value: string): boolean {
+  return /^(normal|auto|inherit|initial|unset|none)$/i.test(value.trim())
 }
 
 function formatSteppedNumber(value: number, current: string, step: number): string {

@@ -1,6 +1,7 @@
 import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "vite"
 import desktopPlugin from "./vite"
+import { octoMockPlugin } from "./mock/index.ts"
 
 const sentry =
   process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
@@ -19,10 +20,12 @@ const sentry =
       })
     : false
 
+const octoBaseUrl = process.env.VITE_OCTO_BASE_URL
+
 const mockProxy = process.env.MOCK_API === "false"
   ? {
       "/pipeline/rest.root/workflow": {
-        target: "https://octo.hdesign.huawei.com",
+        target: octoBaseUrl,
         changeOrigin: true,
         secure: true,
       },
@@ -30,7 +33,7 @@ const mockProxy = process.env.MOCK_API === "false"
   : undefined
 
 export default defineConfig({
-  plugins: [desktopPlugin, sentry] as any,
+  plugins: [desktopPlugin, octoMockPlugin(), sentry] as any,
   server: {
     host: "0.0.0.0",
     allowedHosts: true,

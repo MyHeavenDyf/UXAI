@@ -1,4 +1,5 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, type JSX } from "solid-js"
+import { getDesktopApi } from "../../lib/electron-api"
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[] }
@@ -329,7 +330,37 @@ export function DrawOverlay(props: Props): JSX.Element {
     const timeouts = [1500, 3000, 6000]
     for (const timeout of timeouts) {
       const snapshot = await requestPreviewSnapshot(iframe, timeout)
-      if (snapshot) return snapshot
+      if (snapshot) {
+        if (!snapshot.dataUrl && snapshot.w > 0 && snapshot.h > 0) {
+          const nativeSnap = await tryNativeCapture(iframe, snapshot.w, snapshot.h)
+          if (nativeSnap) return nativeSnap
+        }
+        return snapshot
+      }
+    }
+    const rect = iframe.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0) {
+      const nativeSnap = await tryNativeCapture(iframe, rect.width, rect.height)
+      if (nativeSnap) return nativeSnap
+    }
+    return null
+  }
+
+  async function tryNativeCapture(iframe: HTMLIFrameElement, w: number, h: number): Promise<{ dataUrl: string; w: number; h: number } | null> {
+    const api = getDesktopApi()
+    if (!api?.capturePreviewRect) return null
+    const rect = iframe.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    console.log('[Draw] Trying native capture...')
+    try {
+      const dataUrl = await api.capturePreviewRect({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+      if (dataUrl) {
+        const dpr = window.devicePixelRatio || 1
+        console.log('[Draw] Native capture success')
+        return { dataUrl, w: Math.floor(rect.width * dpr), h: Math.floor(rect.height * dpr) }
+      }
+    } catch (err) {
+      console.error('[Draw] Native capture failed:', err)
     }
     return null
   }

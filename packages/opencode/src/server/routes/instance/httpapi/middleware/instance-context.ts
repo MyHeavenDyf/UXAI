@@ -1,9 +1,12 @@
 import { WorkspaceRef } from "@/effect/instance-ref"
 import { InstanceStore } from "@/project/instance-store"
+import * as Log from "@opencode-ai/core/util/log"
 import { Effect, Layer } from "effect"
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import { WorkspaceRouteContext } from "./workspace-routing"
+
+const log = Log.create({ service: "instance-context" })
 
 export class InstanceContextMiddleware extends HttpApiMiddleware.Service<
   InstanceContextMiddleware,
@@ -14,8 +17,11 @@ export class InstanceContextMiddleware extends HttpApiMiddleware.Service<
 
 function decode(input: string): string {
   try {
-    return decodeURIComponent(input)
-  } catch {
+    const result = decodeURIComponent(input)
+    log.info("decode", { input, result, changed: result !== input })
+    return result
+  } catch (e) {
+    log.warn("decode:failed", { input, error: e })
     return input
   }
 }
@@ -26,8 +32,14 @@ function provideInstanceContext<E>(
 ): Effect.Effect<HttpServerResponse.HttpServerResponse, E, WorkspaceRouteContext> {
   return Effect.gen(function* () {
     const route = yield* WorkspaceRouteContext
+    const directory = decode(route.directory)
+    log.info("provideInstanceContext", {
+      rawDirectory: route.directory,
+      decodedDirectory: directory,
+      workspaceID: route.workspaceID,
+    })
     return yield* store.provide(
-      { directory: decode(route.directory) },
+      { directory },
       effect.pipe(Effect.provideService(WorkspaceRef, route.workspaceID)),
     )
   })

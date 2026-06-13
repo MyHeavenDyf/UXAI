@@ -744,7 +744,7 @@ export type Session = {
   }
   title: string
   agent?: string
-  category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning"
+  category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
   model?: {
     id: string
     providerID: string
@@ -1397,7 +1397,7 @@ export type GlobalSession = {
   }
   title: string
   agent?: string
-  category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning"
+  category?: "dev" | "design" | "prototype" | "analysis" | "creative" | "planning" | "subagent"
   model?: {
     id: string
     providerID: string

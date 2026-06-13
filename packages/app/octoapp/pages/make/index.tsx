@@ -102,6 +102,21 @@ function MakeContent() {
   const local = useLocal()
   const currentModel = () => local.model.current()
 
+  createEffect(
+    on(
+      () => globalSync.data.config.model,
+      (modelStr) => {
+        if (!modelStr) return
+        const [providerID, modelID] = modelStr.split("/")
+        if (!providerID || !modelID) return
+        const cur = currentModel()
+        if (cur && cur.provider.id === providerID && cur.id === modelID) return
+        local.model.set({ providerID, modelID }, { recent: true })
+      },
+      { defer: true },
+    ),
+  )
+
   const activeModelKey = createMemo(() => {
     const m = currentModel()
     if (!m) return null
@@ -242,6 +257,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setSending(false)
         setDeltaLog([])
+
+        if (sendingNavigation) {
+          sendingNavigation = false
+        } else {
+          setAttachments([])
+        }
+
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -313,14 +335,66 @@ const sessionMessagesLoaded = createMemo(() => {
           {
             timestamp: Date.now(),
             eventType: e.type,
+            sessionID: eventSessionID ?? sid,
             messageID: props?.messageID as string,
             partID: props?.partID as string,
             field: (props as Record<string, unknown>)?.field as string,
             delta: (props as Record<string, unknown>)?.delta as string,
           }
         ])
+      } else if (e.type === "session.next.reasoning.delta") {
+        setLastDeltaTime(Date.now())
+        setBlockTime(0)
+        setDeltaLog(prev => [
+          ...prev.slice(-19),
+          {
+            timestamp: Date.now(),
+            eventType: e.type,
+            sessionID: eventSessionID ?? sid,
+            messageID: "",
+            partID: props?.reasoningID as string,
+            field: "reasoning",
+            delta: (props as Record<string, unknown>)?.delta as string,
+          }
+        ])
+      } else if (e.type === "message.part.updated") {
+        const part = props?.part as Record<string, unknown> | undefined
+        const partType = part?.type as string | undefined
+        const partText = part?.text as string | undefined
+        if (partType === "text" && partText && eventSessionID && eventSessionID !== sid) {
+          setLastDeltaTime(Date.now())
+          setBlockTime(0)
+          setDeltaLog(prev => [
+            ...prev.slice(-19),
+            {
+              timestamp: Date.now(),
+              eventType: e.type,
+              sessionID: eventSessionID,
+              messageID: part?.messageID as string,
+              partID: part?.id as string,
+              field: "text",
+              delta: partText,
+            }
+          ])
+        } else if (partType === "reasoning" && partText && eventSessionID && eventSessionID !== sid) {
+          setLastDeltaTime(Date.now())
+          setBlockTime(0)
+          setDeltaLog(prev => [
+            ...prev.slice(-19),
+            {
+              timestamp: Date.now(),
+              eventType: e.type,
+              sessionID: eventSessionID,
+              messageID: part?.messageID as string,
+              partID: part?.id as string,
+              field: "reasoning",
+              delta: partText,
+            }
+          ])
+        }
       } else {
-        console.log(`[make:event] ${e.type}`, props)
+        const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
+        console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
       }
     })
     onCleanup(unsub)
@@ -436,6 +510,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
@@ -752,11 +827,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       const session = result.data as Session | undefined
       if (!session) return
       const dsId = selectedDesignSystem()
-      if (dsId) {
-        localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
-      }
-      navigate(`/make/${session.id}`)
-      sid = session.id
+if (dsId) {
+          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+        }
+        sendingNavigation = true
+        navigate(`/make/${session.id}`)
+        sid = session.id
       }
       await sendMessage(sid, text)
     } catch (err) {
@@ -1011,7 +1087,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
         style={{
           "grid-template-columns": !focusMode()
             ? hasContent()
-              ? `${chatWidth()}px 8px minmax(400px, 1fr)`
+              ? `${chatWidth()}px 8px minmax(0, 1fr)`
               : "1fr"
             : undefined,
         }}
