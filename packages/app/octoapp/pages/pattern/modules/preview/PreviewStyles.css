@@ -275,10 +275,37 @@
   color: var(--octo-text-secondary, #9ca3af);
 }
 
-/* 底部弹出的修改对话框 */
-[data-component="dialog"]:has(.picker-dialog-bottom) {
-  align-items: flex-end;
-  padding-bottom: 16px;
+/* 修改选中区域弹窗 — 定位在 preview 容器内 */
+.picker-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.picker-dialog {
+  position: absolute;
+  bottom: 10%;
+  z-index: 100;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  width: 560px;
+  max-width: 90%;
+}
+
+.picker-header {
+  padding: 16px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.picker-body {
+  padding: 16px 20px;
 }
 
 /* 🛠️ 核心修改区：通用方块动作图标按钮（包含刷新、复位、全屏、模式切换、主题、下载等） */

@@ -1,7 +1,5 @@
-import { createSignal, onCleanup } from "solid-js"
+import { createSignal, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/persist"
 
@@ -29,8 +27,6 @@ export function PreviewPage(props: {
   let canvasRef: { reset: () => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
-
-  const dialog = useDialog()
 
   const TARGET_WIDTH = 1920
   const TARGET_HEIGHT = 1080
@@ -66,10 +62,11 @@ export function PreviewPage(props: {
   }
 
   // ==========================================================================
-  // DOM 区域元素选择 AI 修改弹窗
+  // DOM 区域元素选择 AI 修改弹窗（preview 容器内绝对定位）
   // ==========================================================================
   const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
   const [pickerText, setPickerText] = createSignal("")
+  const [pickerVisible, setPickerVisible] = createSignal(false)
 
   function unfreezeDomPicker() {
     if (previewIframeRef?.contentWindow){
@@ -77,42 +74,24 @@ export function PreviewPage(props: {
     }
   }
 
+  function closePicker() {
+    setPickerVisible(false)
+    unfreezeDomPicker()
+  }
+
   function submitPicker() {
     const text = pickerText().trim()
     if (!text) return
-    dialog.close()
+    setPickerVisible(false)
+    unfreezeDomPicker()
     props.onPickerSubmit?.(text, pickerDialog.domPickerId)
-  }
-
-  function showPickerDialog() {
-    dialog.show(() => (
-      <Dialog title={`修改选中区域: ${pickerDialog.tagName} (${pickerDialog.domPickerId})`} fit class="picker-dialog-bottom">
-        <div class="flex flex-col gap-4 pl-6 pr-6 pb-3">
-          <textarea
-            value={pickerText()}
-            onInput={(e) => setPickerText(e.currentTarget.value)}
-            placeholder="描述你想要的修改..."
-            rows={3}
-            class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
-          />
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              取消
-            </Button>
-            <Button variant="primary" size="large" onClick={submitPicker} style={{ "background-color": "rgb(10, 89, 247)", color: "white" }}>
-              确认修改
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    ), unfreezeDomPicker)
   }
 
   const handlePickerMessage = (e: MessageEvent) => {
     if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
     setPickerDialog({ domPickerId: e.data.domPickerId ?? "", tagName: e.data.tagName ?? "" })
     setPickerText("")
-    showPickerDialog()
+    setPickerVisible(true)
   }
 
   const handleIframeMessage = (e: MessageEvent) => {
@@ -158,6 +137,33 @@ export function PreviewPage(props: {
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>
+
+      <Show when={pickerVisible()}>
+        <div class="picker-overlay" onClick={closePicker}>
+          <div class="picker-dialog" onClick={(e) => e.stopPropagation()}>
+            <div class="picker-header">
+              修改选中区域: {pickerDialog.tagName} ({pickerDialog.domPickerId})
+            </div>
+            <div class="picker-body">
+              <textarea
+                value={pickerText()}
+                onInput={(e) => setPickerText(e.currentTarget.value)}
+                placeholder="描述你想要的修改..."
+                rows={3}
+                class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+              />
+              <div class="flex justify-end gap-2" style={{"margin-top": "16px"}}>
+                <Button variant="ghost" size="large" onClick={closePicker}>
+                  取消
+                </Button>
+                <Button variant="primary" size="large" onClick={submitPicker} style={{ "background-color": "rgb(10, 89, 247)", color: "white" }}>
+                  确认修改
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   )
 }
