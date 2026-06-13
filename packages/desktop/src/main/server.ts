@@ -238,6 +238,12 @@ function createSidecarEnv(): Record<string, string> {
   )
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
+  // 桥接业务接口 base 给 server 侧工具(knowledge_search 读 OCTO_KB_BASE_URL)。
+  // VITE_ 变量只在 renderer/编译期可见,server(sidecar)读不到,故在此从 main 的编译期值透传。
+  // 已显式设置 OCTO_KB_BASE_URL(如外网指向 mock)时不覆盖。
+  if (!env.OCTO_KB_BASE_URL && import.meta.env.VITE_OCTO_BASE_URL) {
+    env.OCTO_KB_BASE_URL = import.meta.env.VITE_OCTO_BASE_URL
+  }
   return env
 }
 

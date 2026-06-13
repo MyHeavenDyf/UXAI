@@ -1,5 +1,6 @@
 interface ImportMetaEnv {
   readonly OCTO_CHANNEL: string
+  readonly VITE_OCTO_BASE_URL: string
 }
 
 interface ImportMeta {
