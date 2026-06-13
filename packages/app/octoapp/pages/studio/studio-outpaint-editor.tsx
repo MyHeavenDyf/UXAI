@@ -188,10 +188,10 @@ export function StudioOutpaintEditor(props: {
   return (
     <div class="studio-enlarging">
       <div class="studio-enlarging-header">
-        <div class="min-w-0">
-          <div class="studio-enlarging-title">扩图</div>
-        </div>
-        <button type="button" onClick={props.onClose} class="studio-enlarging-close" aria-label="关闭扩图" title="关闭扩图" />
+        <span class="studio-canvas-tab">
+          <span class="studio-canvas-label-text">扩图</span>
+          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭扩图" title="关闭扩图" />
+        </span>
       </div>
       <div class="studio-enlarging-body">
         <div ref={stageRef!} class="studio-enlarging-canvas-wrap">

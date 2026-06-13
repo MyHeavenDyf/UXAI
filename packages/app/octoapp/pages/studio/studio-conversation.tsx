@@ -221,12 +221,13 @@ export function StudioEmptyState(): JSX.Element {
   return (
     <>
       <div class="studio-empty-state-dots">
-        <span class="studio-empty-dot" style={{ width: "10px", height: "10px", top: "74px", left: "98px", background: "#5ecb6b", animation: "studio-float-1 2s ease-in-out infinite" }} />
-        <span class="studio-empty-dot" style={{ width: "14px", height: "14px", top: "100px", left: "72px", background: "#45bcc9", animation: "studio-float-2 2s ease-in-out infinite 0.35s" }} />
-        <span class="studio-empty-dot" style={{ width: "22px", height: "22px", top: "98px", left: "116px", background: "#2e9dfb", animation: "studio-float-3 2s ease-in-out infinite 0.7s" }} />
-        <span class="studio-empty-dot" style={{ width: "16px", height: "16px", top: "127px", left: "93px", background: "#7c5cef", animation: "studio-float-4 2s ease-in-out infinite 1.05s" }} />
+        <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "80px", left: "44px", background: "#65a2e5", animation: "studio-float-1 2s ease-in-out infinite" }} />
+        <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "44px", left: "80px", background: "#c3e78b", animation: "studio-float-2 2s ease-in-out infinite 0.35s" }} />
+        <span class="studio-empty-dot" style={{ width: "16px", height: "16px", top: "80px", left: "80px", background: "#7bd5a4", animation: "studio-float-3 2s ease-in-out infinite 0.7s" }} />
+        <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "116px", left: "80px", background: "#7f78f1", animation: "studio-float-4 2s ease-in-out infinite 1.05s" }} />
+        <span class="studio-empty-dot" style={{ width: "20px", height: "20px", top: "80px", left: "116px", background: "#5c77f4", animation: "studio-float-5 2s ease-in-out infinite 1.4s" }} />
       </div>
-      <div class="text-[14px] font-bold -mt-[30px]">生成中...</div>
+      <div class="text-[14px] font-bold pl-[20px]">生成中...</div>
     </>
   )
 }

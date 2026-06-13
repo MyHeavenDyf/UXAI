@@ -1793,7 +1793,12 @@ export default function StudioPage() {
           </div>
 
           <ScrollView
-            viewportRef={(el) => { conversationScrollRef = el }}
+            viewportRef={(el) => {
+              conversationScrollRef = el
+              requestAnimationFrame(() => {
+                el.scrollTo({ top: el.scrollHeight })
+              })
+            }}
             class="studio-center-scroll"
           >
             <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
