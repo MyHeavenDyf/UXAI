@@ -23,6 +23,7 @@ export type PatternSessionState = {
   lastIntent: Record<string, unknown> | null
   lastPlanner: Record<string, unknown> | null
   lastModules: Array<Record<string, unknown>>
+  mergedA2UI?: Record<string, unknown>
 }
 
 /** 版本列表条目（不含具体 state，用于菜单展示） */

@@ -23,16 +23,18 @@ export async function rollbackToVersion(
   if (!state) return null
 
   if (state.lastModules.length > 0) {
-    // 兼容创建路径（layout_planner 包裹）和修改路径（展开）两种格式
-    const shell =
-      (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
-      state.lastPlanner
-    const merged = mergeModules(
-      { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
-      // @ts-expect-error pre-existing type mismatch in mergeModules
-      state.lastModules,
-    )
-    const mergedJson = detectA2UIJson(JSON.stringify(merged))
+    const a2ui = state.mergedA2UI
+      ?? (() => {
+        const shell =
+          (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
+          state.lastPlanner
+        return mergeModules(
+          { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
+          // @ts-expect-error pre-existing type mismatch in mergeModules
+          state.lastModules,
+        )
+      })()
+    const mergedJson = detectA2UIJson(JSON.stringify(a2ui))
     if (mergedJson) onPreview(mergedJson)
   }
 

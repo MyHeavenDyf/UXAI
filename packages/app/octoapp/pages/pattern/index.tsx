@@ -142,15 +142,18 @@ function PatternContent() {
               if (state.lastPlanner) setLastPlanner(state.lastPlanner)
               if (state.lastModules.length > 0) {
                 setLastModules(state.lastModules)
-                const shell =
-                  (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
-                  state.lastPlanner
-                const merged = mergeModules(
-                  { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
-                  // @ts-expect-error pre-existing type mismatch in mergeModules
-                  state.lastModules,
-                )
-                const mergedJson = detectA2UIJson(JSON.stringify(merged))
+                const a2ui = state.mergedA2UI
+                  ?? (() => {
+                    const shell =
+                      (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
+                      state.lastPlanner
+                    return mergeModules(
+                      { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
+                      // @ts-expect-error pre-existing type mismatch in mergeModules
+                      state.lastModules,
+                    )
+                  })()
+                const mergedJson = detectA2UIJson(JSON.stringify(a2ui))
                 if (mergedJson) sendToPreview(mergedJson)
               }
             })
@@ -469,6 +472,7 @@ function PatternContent() {
             lastIntent: lastIntent(),
             lastPlanner: lastPlanner(),
             lastModules: lastModules(),
+            mergedA2UI: merged as unknown as Record<string, unknown>,
           }, text.slice(0, 80))
           setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
           setCurrentVersionId(vid)
@@ -563,6 +567,7 @@ function PatternContent() {
           lastIntent: lastIntent(),
           lastPlanner: lastPlanner(),
           lastModules: lastModules(),
+          mergedA2UI: merged as unknown as Record<string, unknown>,
         }, text.slice(0, 80))
         setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
         setCurrentVersionId(vid)
