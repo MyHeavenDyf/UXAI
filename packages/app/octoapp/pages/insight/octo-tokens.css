@@ -518,3 +518,61 @@
   right: 0;
   transform: none;
 }
+
+/* ── Delete Dialog ──────────────────────────
+   左侧栏对话删除确认窗口,与 chat 侧栏(components/sidebar.tsx)完全一致。
+   Dialog 走 Portal 渲染到 document 根,故样式为全局选择器;此处随 insight
+   自带一份,保证不依赖 make/chat 的 octo-tokens.css 已加载(页面自包含)。 */
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
+  width: 436px;
+}
+
+.delete-dialog[data-slot="dialog-content"] {
+  border-radius: 20px;
+  box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
+  padding: 24px 32px;
+  background: #fff;
+  border: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
+  display: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
+  font-size: 20px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+  padding: 0;
+}
+
+.delete-dialog-btn {
+  width: 88px !important;
+  height: 32px !important;
+  border-radius: 4px !important;
+  font-size: 14px !important;
+  line-height: 22px !important;
+  padding: 0 !important;
+}
+
+button.delete-dialog-btn {
+  border: 1px solid rgba(201, 201, 201, 1);
+  background: #fff;
+  color: rgb(25, 25, 25);
+  cursor: pointer;
+}
+
+button.delete-dialog-btn-primary {
+  background: #0a59f7;
+  border-color: #0a59f7;
+  color: #fff;
+}
