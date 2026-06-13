@@ -16,6 +16,9 @@ export default defineConfig(({ mode }) => {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url))},
       extensions: ['.mjs', '.js', '.jsx', '.ts', '.tsx', '.json', '.vue'],
     },
+    optimizeDeps: {
+      exclude: ['@dom-picker/core', '@dom-picker/vue'],
+    },
     server: {
       port: parseInt(rootEnv.VUE_FRONTEND_PORT || '8989'),
     },

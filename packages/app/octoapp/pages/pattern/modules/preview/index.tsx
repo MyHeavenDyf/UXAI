@@ -71,8 +71,9 @@ export function PreviewPage(props: {
   const [pickerText, setPickerText] = createSignal("")
 
   function unfreezeDomPicker() {
-    if (previewIframeRef?.contentWindow)
+    if (previewIframeRef?.contentWindow){
       previewIframeRef.contentWindow.postMessage({ type: "DOM_PICKER_UNFREEZE" }, "*")
+    }
   }
 
   function submitPicker() {
@@ -97,7 +98,7 @@ export function PreviewPage(props: {
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               取消
             </Button>
-            <Button variant="primary" size="large" onClick={submitPicker} style={{"background-color":"rgb(10, 89, 247)", color:"white"}}>
+            <Button variant="primary" size="large" onClick={submitPicker} style={{ "background-color": "rgb(10, 89, 247)", color: "white" }}>
               确认修改
             </Button>
           </div>
