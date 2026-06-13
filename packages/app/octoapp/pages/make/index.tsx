@@ -257,6 +257,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setSending(false)
         setDeltaLog([])
+
+        if (sendingNavigation) {
+          sendingNavigation = false
+        } else {
+          setAttachments([])
+        }
+
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -451,6 +458,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
@@ -767,11 +775,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       const session = result.data as Session | undefined
       if (!session) return
       const dsId = selectedDesignSystem()
-      if (dsId) {
-        localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
-      }
-      navigate(`/make/${session.id}`)
-      sid = session.id
+if (dsId) {
+          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+        }
+        sendingNavigation = true
+        navigate(`/make/${session.id}`)
+        sid = session.id
       }
       await sendMessage(sid, text)
     } catch (err) {
