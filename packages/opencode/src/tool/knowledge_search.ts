@@ -12,7 +12,8 @@ export const Parameters = Schema.Struct({
   query: Schema.String.annotate({ description: "用户的自然语言问题,用于检索内网知识库" }),
 })
 
-const KB_PATH = "/main/rest.root/ucdAgent/ucdAgent/getKnowledgeVector"
+// 接口路径(env OCTO_KB_PATH 可覆盖 —— 内网若 base 已含部分前缀,可用它快速改对而不必重打包)。
+const DEFAULT_KB_PATH = "/main/rest.root/ucdAgent/ucdAgent/getKnowledgeVector"
 // 未配置 OCTO_KB_BASE_URL 时(典型外网调试)默认走本地 mock(见 script/kb-mock-server.ts)。
 // 真实构建里 OCTO_KB_BASE_URL 由 VITE_OCTO_BASE_URL 桥接注入,不会用到这个默认值。
 const DEFAULT_MOCK_BASE = "http://localhost:8787"
@@ -115,7 +116,21 @@ export const KnowledgeSearchTool = Tool.define(
           const topK = Number.isFinite(topKEnv) && topKEnv > 0 ? topKEnv : DEFAULT_TOP_K
           // account 非必传:缺省发空串(服务端容忍,仅用于记录/限流)。
           const account = env("OCTO_KB_ACCOUNT") ?? ""
-          const url = `${base.replace(/\/$/, "")}${KB_PATH}`
+          const kbPath = env("OCTO_KB_PATH") || DEFAULT_KB_PATH
+          const url = `${base.replace(/\/$/, "")}${kbPath}`
+          // 诊断:一次性打印环境变量、解析后的 base/path 与完整 URL(排查内网路径/env 问题)。
+          console.log("[octo:kb] config", {
+            envBaseUrl: env("OCTO_KB_BASE_URL"),
+            usingMockDefault: !env("OCTO_KB_BASE_URL"),
+            envPath: env("OCTO_KB_PATH"),
+            envAccount: env("OCTO_KB_ACCOUNT"),
+            envTopK: env("OCTO_KB_TOP_K"),
+            resolvedBase: base,
+            resolvedPath: kbPath,
+            url,
+            account,
+            query: params.query,
+          })
 
           const payload = yield* Effect.tryPromise({
             try: async () => {
@@ -129,18 +144,24 @@ export const KnowledgeSearchTool = Tool.define(
                   signal: controller.signal,
                 })
                 const text = await res.text()
-                if (!res.ok) throw new Error(`getKnowledgeVector status=${res.status} body=${text.slice(0, 500)}`)
+                console.log("[octo:kb] response", { url, status: res.status, ok: res.ok, bodyHead: text.slice(0, 300) })
+                if (!res.ok) throw new Error(`getKnowledgeVector status=${res.status} url=${url} body=${text.slice(0, 500)}`)
                 return JSON.parse(text) as unknown
               } finally {
                 clearTimeout(timer)
               }
             },
-            catch: (err) => new Error(`[octo:kb] 检索失败: ${err instanceof Error ? err.message : String(err)}`),
+            catch: (err) => {
+              const msg = `[octo:kb] 检索失败 url=${url}: ${err instanceof Error ? err.message : String(err)}`
+              console.error(msg)
+              return new Error(msg)
+            },
           }).pipe(Effect.orDie)
 
           const docs = parseDocs(payload)
             .sort((a, b) => b.score - a.score)
             .slice(0, topK)
+          console.log("[octo:kb] parsed", { totalDocs: docs.length, topScores: docs.map((d) => d.score), titles: docs.map((d) => d.title) })
 
           if (docs.length === 0) {
             return {
