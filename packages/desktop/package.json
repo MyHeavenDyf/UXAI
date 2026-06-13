@@ -12,7 +12,9 @@
   "scripts": {
     "typecheck": "tsgo -b",
     "predev": "bun ./scripts/predev.ts",
-    "dev": "electron-vite dev",
+    "dev": "concurrently \"electron-vite dev\" \"bun run dev:previewdist\"",
+    "dev:preview": "cd ../preview && npm run dev",
+    "dev:previewdist": "cd ../previewdist && npx serve -s -p 51856",
     "dev:beta": "cross-env OCTO_CHANNEL=beta bun run dev --mode beta",
     "dev:prod": "cross-env OCTO_CHANNEL=prod bun run dev --mode prod",
     "prebuild": "bun ./scripts/prebuild.ts",

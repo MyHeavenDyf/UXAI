@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
       exclude: ['@dom-picker/core', '@dom-picker/vue'],
     },
     server: {
-      port: parseInt(rootEnv.VUE_FRONTEND_PORT || '8989'),
+      port: parseInt(rootEnv.VUE_FRONTEND_PORT || '51856'),
     },
   }
 })

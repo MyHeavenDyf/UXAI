@@ -38,7 +38,7 @@ export function PreviewPage(props: {
 
   function triggerRefresh() {
     if (props.api) props.api.lastData = undefined
-    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989"
+    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51856"
   }
 
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
@@ -172,7 +172,7 @@ export function PreviewPage(props: {
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
-          src="http://127.0.0.1:8989"
+          src="http://127.0.0.1:51856"
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>
