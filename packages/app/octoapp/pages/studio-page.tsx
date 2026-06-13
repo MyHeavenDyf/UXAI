@@ -556,39 +556,41 @@ export default function StudioPage() {
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
       setSelectedResultId(input.resultID)
-      setSelectedImageId(input.imageID)
       const r = displayTurns().map((t) => t.result).find((item) => item?.id === input.resultID)
       if (!r) return
-      if (canvasTabImages().length === 0) {
-        // tabs 为空：点击任意图片都创建一个 tab
-        const clicked = r.images.find((img) => img.id === input.imageID)
-        if (clicked) {
-          setShowStudioCanvas(true)
-          setCanvasTabImages([clicked])
-          setCanvasTabLabels({ [clicked.id]: extractKeywords(r.prompt) })
-          setDeletedImageIds(new Set<string>())
-          setWorkspaceImage(undefined)
-          setWorkspaceUploadRequested(false)
-          setMode("preview")
-          return
+      // 该 result 是否已有 tab
+      const hasTab = canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))
+      if (hasTab) {
+        // 已有 tab → 只切选中，不新增
+        setSelectedImageId(input.imageID)
+        setShowStudioCanvas(true)
+        const imageIndex = r.images.findIndex((img) => img.id === input.imageID)
+        const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
+        if (tabImg && imageIndex !== -1) {
+          setCanvasTabLabels((prev) => ({
+            ...prev,
+            [tabImg.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}`,
+          }))
         }
+        setDeletedImageIds(new Set<string>())
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
+        setMode("preview")
+        return
       }
-      // 已有 tabs 时追加
-      setCanvasTabImages((prev) => {
-        if (prev.some((i) => i.id === input.imageID)) return prev
-        const clicked = r.images.find((img) => img.id === input.imageID)
-        return clicked ? [...prev, clicked] : prev
-      })
-      setShowStudioCanvas(true)
-      setCanvasTabLabels((prev) => {
-        if (prev[input.imageID]) return prev
-        const clicked = r.images.find((img) => img.id === input.imageID)
-        return clicked ? { ...prev, [clicked.id]: extractKeywords(r.prompt) } : prev
-      })
-      setDeletedImageIds(new Set<string>())
-      setWorkspaceImage(undefined)
-      setWorkspaceUploadRequested(false)
-      setMode("preview")
+      // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
+      const first = r.images[0]
+      if (first) {
+        const imageIndex = r.images.findIndex((img) => img.id === input.imageID)
+        setSelectedImageId(input.imageID)
+        setShowStudioCanvas(true)
+        setCanvasTabImages((prev) => [...prev, first])
+        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}` }))
+        setDeletedImageIds(new Set<string>())
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
+        setMode("preview")
+      }
     })
   }
 
@@ -1839,7 +1841,12 @@ export default function StudioPage() {
           </div>
 
           <ScrollView
-            viewportRef={(el) => { conversationScrollRef = el }}
+            viewportRef={(el) => {
+              conversationScrollRef = el
+              requestAnimationFrame(() => {
+                el.scrollTo({ top: el.scrollHeight })
+              })
+            }}
             class="studio-center-scroll"
           >
             <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
@@ -1996,22 +2003,36 @@ export default function StudioPage() {
                 onSelectImage={(id) => {
                   const r = result()
                   batch(() => {
-                    setSelectedImageId(id)
                     setShowStudioCanvas(true)
-                    setCanvasTabImages((prev) => {
-                      if (prev.some((i) => i.id === id)) return prev
-                      const clicked = r?.images.find((img) => img.id === id)
-                      return clicked ? [...prev, clicked] : prev
-                    })
-                    setCanvasTabLabels((prev) => {
-                      if (prev[id]) return prev
-                      const clicked = r?.images.find((img) => img.id === id)
-                      return clicked ? { ...prev, [clicked.id]: extractKeywords(r?.prompt ?? "") } : prev
-                    })
-                    setDeletedImageIds(new Set<string>())
-                    setWorkspaceImage(undefined)
-                    setWorkspaceUploadRequested(false)
-                    setMode("preview")
+                    if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
+                      // 已有 tab → 只切选中
+                      setSelectedImageId(id)
+                      const imageIndex = r.images.findIndex((img) => img.id === id)
+                      const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
+                      if (tabImg && imageIndex !== -1) {
+                        setCanvasTabLabels((prev) => ({
+                          ...prev,
+                          [tabImg.id]: `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}`,
+                        }))
+                      }
+                      setDeletedImageIds(new Set<string>())
+                      setWorkspaceImage(undefined)
+                      setWorkspaceUploadRequested(false)
+                      setMode("preview")
+                      return
+                    }
+                    // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
+                    const first = r?.images[0]
+                    if (first) {
+                      const imageIndex = r.images.findIndex((img) => img.id === id)
+                      setSelectedImageId(id)
+                      setCanvasTabImages((prev) => [...prev, first])
+                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` }))
+                      setDeletedImageIds(new Set<string>())
+                      setWorkspaceImage(undefined)
+                      setWorkspaceUploadRequested(false)
+                      setMode("preview")
+                    }
                   })
                 }}
                 onRegenerate={regenerateCurrentResult}
