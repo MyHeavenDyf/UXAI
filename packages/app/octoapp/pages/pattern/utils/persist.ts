@@ -1,8 +1,9 @@
 /**
  * 版本历史持久化 — 将 Pattern 页面每次生成/修改的状态保存到本地 JSON 文件。
  *
- * 存储位置：{directory}/.octo/pattern/history/{sessionId}.json
- * 文件格式：{ versions: HistoryEntry[], current: string | null }
+ * 存储位置：{directory}/.octo/design/history/{sessionId}/
+ *   每个版本独立存储为 {timestamp}-{description}.json
+ *   索引 _versions.json 记录版本列表和当前指针
  *
  * Electron 环境通过 IPC writeFileBuffer/readFileBuffer 读写本地磁盘，
  * 浏览器环境降级使用 localStorage。
@@ -13,7 +14,6 @@ type DesktopApi = {
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
 }
 
-/** 获取 Electron 渲染进程的 desktop API 桥接对象 */
 function getDesktopApi(): DesktopApi | undefined {
   return (window as unknown as { api?: DesktopApi }).api
 }
@@ -32,11 +32,11 @@ export type VersionEntry = {
   summary: string
 }
 
-/** 版本历史中的完整条目（含页面状态） */
-type HistoryEntry = VersionEntry & { state: PatternSessionState }
+/** 版本历史中的完整条目（含文件名，不含 state） */
+type HistoryEntry = VersionEntry & { filename: string }
 
-/** 历史文件顶层结构 */
-type PatternHistoryFile = {
+/** 索引文件结构 */
+type VersionIndex = {
   versions: HistoryEntry[]
   current: string | null
 }
@@ -44,53 +44,91 @@ type PatternHistoryFile = {
 /** localStorage 降级存储的前缀 */
 const STORAGE_PREFIX = "octo:pattern:history"
 
-/** 拼接文件路径 */
-function filePath(dir: string, sessionId: string) {
-  return `${dir}/${sessionId}.json`
+function indexFilePath(dir: string, sessionId: string) {
+  return `${dir}/${sessionId}/_versions.json`
 }
 
-/**
- * 读取历史文件。
- * Electron 环境通过 IPC 读磁盘，浏览器环境从 localStorage 读取。
- */
-async function readHistoryFile(dir: string, sessionId: string): Promise<PatternHistoryFile> {
+function versionFilePath(dir: string, sessionId: string, filename: string) {
+  return `${dir}/${sessionId}/${filename}`
+}
+
+function sanitizeFilename(summary: string): string {
+  return summary
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 80)
+}
+
+async function readIndex(dir: string, sessionId: string): Promise<VersionIndex> {
   const api = getDesktopApi()
-  const path = filePath(dir, sessionId)
+  const path = indexFilePath(dir, sessionId)
 
   if (api?.readFileBuffer) {
     try {
       const buf = await api.readFileBuffer(path)
       if (!buf) return { versions: [], current: null }
-      return JSON.parse(new TextDecoder().decode(buf)) as PatternHistoryFile
+      return JSON.parse(new TextDecoder().decode(buf)) as VersionIndex
     } catch {
       return { versions: [], current: null }
     }
   }
 
-  const stored = localStorage.getItem(`${STORAGE_PREFIX}:${sessionId}`)
+  const stored = localStorage.getItem(`${STORAGE_PREFIX}:${sessionId}:index`)
   if (!stored) return { versions: [], current: null }
   try {
-    return JSON.parse(stored) as PatternHistoryFile
+    return JSON.parse(stored) as VersionIndex
   } catch {
     return { versions: [], current: null }
   }
 }
 
-/**
- * 写入历史文件。
- * Electron 环境通过 IPC 写磁盘（自动 mkdir -p），浏览器环境写 localStorage。
- */
-async function writeHistoryFile(dir: string, sessionId: string, history: PatternHistoryFile) {
-  const payload = JSON.stringify(history, null, 2)
+async function writeIndex(dir: string, sessionId: string, index: VersionIndex) {
+  const payload = JSON.stringify(index, null, 2)
   const api = getDesktopApi()
-  const path = filePath(dir, sessionId)
+  const path = indexFilePath(dir, sessionId)
 
   if (api?.writeFileBuffer) {
     const encoder = new TextEncoder()
     await api.writeFileBuffer(path, encoder.encode(payload).buffer)
     return
   }
-  localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}`, payload)
+  localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}:index`, payload)
+}
+
+async function readVersionFile(dir: string, sessionId: string, filename: string): Promise<PatternSessionState | null> {
+  const api = getDesktopApi()
+  const path = versionFilePath(dir, sessionId, filename)
+
+  if (api?.readFileBuffer) {
+    try {
+      const buf = await api.readFileBuffer(path)
+      if (!buf) return null
+      return JSON.parse(new TextDecoder().decode(buf)) as PatternSessionState
+    } catch {
+      return null
+    }
+  }
+
+  const stored = localStorage.getItem(`${STORAGE_PREFIX}:${sessionId}:v:${filename}`)
+  if (!stored) return null
+  try {
+    return JSON.parse(stored) as PatternSessionState
+  } catch {
+    return null
+  }
+}
+
+async function writeVersionFile(dir: string, sessionId: string, filename: string, state: PatternSessionState) {
+  const payload = JSON.stringify(state, null, 2)
+  const api = getDesktopApi()
+  const path = versionFilePath(dir, sessionId, filename)
+
+  if (api?.writeFileBuffer) {
+    const encoder = new TextEncoder()
+    await api.writeFileBuffer(path, encoder.encode(payload).buffer)
+    return
+  }
+  localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}:v:${filename}`, payload)
 }
 
 /**
@@ -103,18 +141,20 @@ export async function appendPatternVersion(
   state: PatternSessionState,
   summary: string,
 ): Promise<string> {
-  const history = await readHistoryFile(dir, sessionId)
+  const index = await readIndex(dir, sessionId)
   const now = Date.now()
-  const version: HistoryEntry = {
+  const filename = `${now}-${sanitizeFilename(summary)}.json`
+  const entry: HistoryEntry = {
     id: `v${now}`,
     createdAt: now,
     summary,
-    state,
+    filename,
   }
-  history.versions.push(version)
-  history.current = version.id
-  await writeHistoryFile(dir, sessionId, history)
-  return version.id
+  await writeVersionFile(dir, sessionId, filename, state)
+  index.versions.push(entry)
+  index.current = entry.id
+  await writeIndex(dir, sessionId, index)
+  return entry.id
 }
 
 /**
@@ -125,10 +165,11 @@ export async function loadCurrentPatternState(
   dir: string,
   sessionId: string,
 ): Promise<PatternSessionState | null> {
-  const history = await readHistoryFile(dir, sessionId)
-  if (!history.current) return null
-  const entry = history.versions.find((v) => v.id === history.current)
-  return entry?.state ?? null
+  const index = await readIndex(dir, sessionId)
+  if (!index.current) return null
+  const entry = index.versions.find((v) => v.id === index.current)
+  if (!entry) return null
+  return readVersionFile(dir, sessionId, entry.filename)
 }
 
 /**
@@ -138,10 +179,10 @@ export async function listPatternVersions(
   dir: string,
   sessionId: string,
 ): Promise<{ versions: VersionEntry[]; current: string | null }> {
-  const history = await readHistoryFile(dir, sessionId)
+  const index = await readIndex(dir, sessionId)
   return {
-    versions: history.versions.map((v) => ({ id: v.id, createdAt: v.createdAt, summary: v.summary })),
-    current: history.current,
+    versions: index.versions.map((v) => ({ id: v.id, createdAt: v.createdAt, summary: v.summary })),
+    current: index.current,
   }
 }
 
@@ -154,12 +195,12 @@ export async function switchToVersion(
   sessionId: string,
   versionId: string,
 ): Promise<PatternSessionState | null> {
-  const history = await readHistoryFile(dir, sessionId)
-  const entry = history.versions.find((v) => v.id === versionId)
+  const index = await readIndex(dir, sessionId)
+  const entry = index.versions.find((v) => v.id === versionId)
   if (!entry) return null
-  history.current = versionId
-  await writeHistoryFile(dir, sessionId, history)
-  return entry.state
+  index.current = versionId
+  await writeIndex(dir, sessionId, index)
+  return readVersionFile(dir, sessionId, entry.filename)
 }
 
 /**
@@ -170,14 +211,14 @@ export async function deletePatternVersion(
   sessionId: string,
   versionId: string,
 ): Promise<void> {
-  const history = await readHistoryFile(dir, sessionId)
-  const idx = history.versions.findIndex((v) => v.id === versionId)
+  const index = await readIndex(dir, sessionId)
+  const idx = index.versions.findIndex((v) => v.id === versionId)
   if (idx === -1) return
-  history.versions.splice(idx, 1)
-  if (history.current === versionId) {
-    history.current = history.versions.length > 0
-      ? history.versions[history.versions.length - 1].id
+  index.versions.splice(idx, 1)
+  if (index.current === versionId) {
+    index.current = index.versions.length > 0
+      ? index.versions[index.versions.length - 1].id
       : null
   }
-  await writeHistoryFile(dir, sessionId, history)
+  await writeIndex(dir, sessionId, index)
 }

@@ -13,6 +13,7 @@ export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
   postMessage: (data: unknown) => void
   refresh: () => void
+  lastData?: unknown
 }
 
 export function PreviewPage(props: {
@@ -35,6 +36,7 @@ export function PreviewPage(props: {
   const TARGET_HEIGHT = 1080
 
   function triggerRefresh() {
+    if (props.api) props.api.lastData = undefined
     if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:8989"
   }
 
@@ -51,6 +53,7 @@ export function PreviewPage(props: {
   }
 
   function sendToPreview(data: unknown) {
+    if (props.api) props.api.lastData = data
     if (!previewIframeRef?.contentWindow) return
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
   }
@@ -113,8 +116,15 @@ export function PreviewPage(props: {
     setPickerText("")
     showPickerDialog()
   }
-  window.addEventListener("message", handlePickerMessage)
-  onCleanup(() => window.removeEventListener("message", handlePickerMessage))
+
+  const handleIframeMessage = (e: MessageEvent) => {
+    handlePickerMessage(e)
+    if (e.data?.type === "A2UI_READY" && props.api?.lastData) {
+      sendToPreview(props.api.lastData)
+    }
+  }
+  window.addEventListener("message", handleIframeMessage)
+  onCleanup(() => window.removeEventListener("message", handleIframeMessage))
 
   return (
     <div ref={(el) => { previewPageRef = el }} class="preview-container">

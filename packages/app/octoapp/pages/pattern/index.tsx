@@ -102,62 +102,68 @@ function PatternContent() {
   const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
   let discoverVersion = 0
 
+  // session 切换：按顺序执行清理 → 重置 → 异步加载 → 滚动
   createEffect(
     on(
       () => params.id,
       (id, prevId) => {
-        if (id) {
-          layout.lastSessionPerTab.setPattern(id)
-          void sync.session.sync(id).then(() => {
-            if (params.id === id) discoverChildSessions(id)
-          })
-        }
+        // ── 1. 切换 session 时同步清理 ──
         if (prevId !== undefined) {
           setSending(false)
           setPhase("idle")
+          setSelectedDesignSystem("ICT-3.1")
         }
+
+        // ── 2. 无条件同步重置 ──
         setChildSessionIDs([])
         discoverVersion++
-        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
-      },
-    ),
-  )
+        previewApi.lastData = undefined
 
-  createEffect(
-    on(
-      () => params.id,
-      (id) => {
-        if (!id) return
-        setLastIntent(null)
-        setLastPlanner(null)
-        setLastModules([])
-        setVersions([])
-        setCurrentVersionId(null)
-        const dir = patternHistoryDir()
-        if (!dir) return
-        void loadCurrentPatternState(dir, id).then((state) => {
-          if (!state || params.id !== id) return
-          if (state.lastIntent) setLastIntent(state.lastIntent)
-          if (state.lastPlanner) setLastPlanner(state.lastPlanner)
-          if (state.lastModules.length > 0) {
-            setLastModules(state.lastModules)
-            const shell =
-              (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
-              state.lastPlanner
-            const merged = mergeModules(
-              { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
-              // @ts-expect-error pre-existing type mismatch in mergeModules
-              state.lastModules,
-            )
-            const mergedJson = detectA2UIJson(JSON.stringify(merged))
-            if (mergedJson) sendToPreview(mergedJson)
+        // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
+        if (id) {
+          layout.lastSessionPerTab.setPattern(id)
+          setLastIntent(null)
+          setLastPlanner(null)
+          setLastModules([])
+          setVersions([])
+          setCurrentVersionId(null)
+
+          // 同步子 session 消息
+          void sync.session.sync(id).then(() => {
+            if (params.id === id) discoverChildSessions(id)
+          })
+
+          // 恢复历史版本状态并推送到预览
+          const dir = patternHistoryDir()
+          if (dir) {
+            void loadCurrentPatternState(dir, id).then((state) => {
+              if (!state || params.id !== id) return
+              if (state.lastIntent) setLastIntent(state.lastIntent)
+              if (state.lastPlanner) setLastPlanner(state.lastPlanner)
+              if (state.lastModules.length > 0) {
+                setLastModules(state.lastModules)
+                const shell =
+                  (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
+                  state.lastPlanner
+                const merged = mergeModules(
+                  { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
+                  // @ts-expect-error pre-existing type mismatch in mergeModules
+                  state.lastModules,
+                )
+                const mergedJson = detectA2UIJson(JSON.stringify(merged))
+                if (mergedJson) sendToPreview(mergedJson)
+              }
+            })
+            void listPatternVersions(dir, id).then(({ versions, current }) => {
+              if (params.id !== id) return
+              setVersions(versions)
+              setCurrentVersionId(current)
+            })
           }
-        })
-        void listPatternVersions(dir, id).then(({ versions, current }) => {
-          if (params.id !== id) return
-          setVersions(versions)
-          setCurrentVersionId(current)
-        })
+        }
+
+        // ── 4. 滚动到底部 ──
+        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -229,21 +235,6 @@ function PatternContent() {
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
 
-  createEffect(
-    on(
-      () => params.id,
-      (id, prevId) => {
-        if (id) layout.lastSessionPerTab.setPattern(id)
-        if (prevId !== undefined) {
-          setSending(false)
-          setPhase("idle")
-          setChildSessionIDs([])
-          setSelectedDesignSystem("ICT-3.1")
-        }
-        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
-      },
-    ),
-  )
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory;
@@ -325,6 +316,7 @@ function PatternContent() {
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
+    previewApi.lastData = data
     previewApi.sendToPreview(data)
   }
 
