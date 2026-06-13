@@ -38,6 +38,24 @@ export type StudioGenerationRequest = {
   extra?: Record<string, unknown>
 }
 
+export type StudioEditorCapability =
+  | "image.upscale"
+  | "image.cutout"
+  | "image.inpaint"
+  | "image.outpaint"
+
+export type StudioEditorEntryRequest = {
+  sessionID: string
+  capability: StudioEditorCapability
+  entryID: string
+}
+
+export type StudioEditorEntryResult = {
+  entryID: string
+  userMessageID: string
+  assistantMessageID: string
+}
+
 export type StudioGenerationResult = {
   id: string
   status: StudioGenerationStatus
@@ -137,6 +155,13 @@ function resultSummary(input: { provider: StudioProvider; raw: unknown; rawBody?
 
 function toolName(provider: StudioProvider) {
   return provider === "internel" ? "internel_image_generate" : "jimeng_image_generate"
+}
+
+function editorCapabilityLabel(capability: StudioEditorCapability) {
+  if (capability === "image.upscale") return "变清晰"
+  if (capability === "image.cutout") return "抠图"
+  if (capability === "image.inpaint") return "智能重绘"
+  return "扩图"
 }
 
 function stripUndefined(value: unknown): unknown {
@@ -262,6 +287,142 @@ function persistStudioSession(input: {
   return {
     assistantInfo,
     toolPart,
+  }
+}
+
+export async function createEditorEntry(input: StudioEditorEntryRequest): Promise<StudioEditorEntryResult> {
+  const sessionID = SessionID.zod.parse(input.sessionID)
+  const session = Database.use((db) =>
+    db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
+  )
+  if (!session) throw new Error(`Studio session not found: ${sessionID}`)
+  if (session.directory !== Instance.directory) throw new Error(`Studio session does not belong to the current directory: ${sessionID}`)
+  if (session.agent !== "octo_studio") throw new Error(`Session is not a Studio session: ${sessionID}`)
+
+  const callID = `studio_editor_entry_${input.entryID}`
+  const existing = Database.use((db) =>
+    db.select().from(PartTable).where(eq(PartTable.session_id, sessionID)).all(),
+  ).find((row) => {
+    const part = { ...row.data, id: row.id, messageID: row.message_id, sessionID: row.session_id } as MessageV2.Part
+    return part.type === "tool" && part.callID === callID
+  })
+  if (existing) {
+    const assistant = Database.use((db) =>
+      db.select().from(MessageTable).where(eq(MessageTable.id, existing.message_id)).get(),
+    )
+    const assistantInfo = assistant
+      ? { ...assistant.data, id: assistant.id, sessionID: assistant.session_id } as MessageV2.Info
+      : undefined
+    const parentID = assistantInfo?.role === "assistant" ? assistantInfo.parentID : undefined
+    if (parentID) {
+      return {
+        entryID: input.entryID,
+        userMessageID: parentID,
+        assistantMessageID: existing.message_id,
+      }
+    }
+  }
+
+  const createdAt = Date.now()
+  const userID = MessageID.ascending()
+  const assistantID = MessageID.ascending()
+  const providerID = session.model ? ProviderID.make(session.model.providerID) : ProviderID.make("octo_studio")
+  const modelID = session.model ? ModelID.make(session.model.id) : ModelID.make("octo_studio")
+  const userInfo: MessageV2.User = {
+    id: userID,
+    sessionID,
+    role: "user",
+    time: { created: createdAt },
+    agent: "octo_studio",
+    model: {
+      providerID,
+      modelID,
+      variant: session.model?.variant,
+    },
+  }
+  const assistantInfo: MessageV2.Assistant = {
+    id: assistantID,
+    sessionID,
+    role: "assistant",
+    time: { created: createdAt, completed: createdAt },
+    parentID: userID,
+    modelID,
+    providerID,
+    mode: "octo_studio",
+    agent: "octo_studio",
+    path: {
+      cwd: session.directory,
+      root: session.directory,
+    },
+    cost: 0,
+    tokens: {
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    finish: "tool-calls",
+    variant: session.model?.variant,
+  }
+  const userTextPart: MessageV2.TextPart = {
+    id: PartID.ascending(),
+    sessionID,
+    messageID: userID,
+    type: "text",
+    text: editorCapabilityLabel(input.capability),
+  }
+  const assistantTextPart: MessageV2.TextPart = {
+    id: PartID.ascending(),
+    sessionID,
+    messageID: assistantID,
+    type: "text",
+    text: "点击前往编辑区",
+  }
+  const toolPart: MessageV2.ToolPart = {
+    id: PartID.ascending(),
+    sessionID,
+    messageID: assistantID,
+    type: "tool",
+    callID,
+    tool: "studio_editor_entry",
+    state: {
+      status: "completed",
+      input: {
+        capability: input.capability,
+        entryID: input.entryID,
+      },
+      output: JSON.stringify({
+        type: "editor_entry",
+        capability: input.capability,
+        entryID: input.entryID,
+      }),
+      title: `进入${editorCapabilityLabel(input.capability)}编辑区`,
+      metadata: {
+        studio: {
+          type: "editor_entry",
+          capability: input.capability,
+          entryID: input.entryID,
+        },
+      },
+      time: {
+        start: createdAt,
+        end: createdAt,
+      },
+    },
+  }
+
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID, info: userInfo })
+  SyncEvent.run(MessageV2.Event.Updated, { sessionID, info: assistantInfo })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: userTextPart, time: createdAt })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: assistantTextPart, time: createdAt })
+  SyncEvent.run(MessageV2.Event.PartUpdated, { sessionID, part: toolPart, time: createdAt })
+  Database.use((db) =>
+    db.update(SessionTable).set({ time_updated: createdAt }).where(eq(SessionTable.id, sessionID)).run(),
+  )
+  return {
+    entryID: input.entryID,
+    userMessageID: userID,
+    assistantMessageID: assistantID,
   }
 }
 

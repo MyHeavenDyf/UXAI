@@ -1,6 +1,6 @@
 import { DataProvider } from "@opencode-ai/ui/context"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
@@ -10,7 +10,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 
 const SESSIONS_DIR_NAME = "sessions"
 
-function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
+function DirectoryDataProvider(props: ParentProps<{ directory: string; chatMode?: boolean }>) {
   const navigate = useNavigate()
   const params = useParams()
   const sync = useSync()
@@ -18,7 +18,7 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const slug = createMemo(() => base64Encode(props.directory))
 
   createEffect(() => {
-    if (props.directory && !props.directory.endsWith(SESSIONS_DIR_NAME)) {
+    if (!props.chatMode && props.directory && !props.directory.endsWith(SESSIONS_DIR_NAME)) {
       server.projects.touch(props.directory)
     }
   })
@@ -41,7 +41,13 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
 }
 
 export default function Layout(props: ParentProps) {
-  const projectDir = useProjectDir({ mode: "project" })
+  const location = useLocation()
+  const mode = () => {
+    const parts = location.pathname.split("/").filter(Boolean)
+    return parts.length < 2 || parts[1] === "chat" ? ("chat" as const) : ("project" as const)
+  }
+  const projectDir = useProjectDir({ mode })
+  const isChatRoute = createMemo(() => mode() === "chat")
 
   const resolved = createMemo(() => projectDir())
 
@@ -50,7 +56,9 @@ export default function Layout(props: ParentProps) {
       {(resolved) => (
         <SDKProvider directory={() => resolved}>
           <SyncProvider>
-            <DirectoryDataProvider directory={resolved}>{props.children}</DirectoryDataProvider>
+            <DirectoryDataProvider directory={resolved} chatMode={isChatRoute()}>
+              {props.children}
+            </DirectoryDataProvider>
           </SyncProvider>
         </SDKProvider>
       )}
