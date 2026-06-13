@@ -54,7 +54,13 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     const fn = newIsTop ? topVersion : cancelTopVersion
     fn(version.baseTeam).then(() => {
       setStore("version", "isTop", newIsTop)
-      mutateVersions(prev => prev?.map(v => v.id === version.id ? { ...v, isTop: newIsTop } : v))
+      mutateVersions(prev => {
+        const updated = prev?.map(v => v.id === version.id ? { ...v, isTop: newIsTop } : v)
+        return updated?.sort((a, b) => {
+          if (a.isTop !== b.isTop) return a.isTop ? -1 : 1
+          return a.sort - b.sort
+        })
+      })
       pinActionActive = false
     }).catch(() => {
       pinActionActive = false
@@ -122,7 +128,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           setStore("product", data.product)
         }}
       />
-<ErrorBoundary fallback={() => (
+      <ErrorBoundary fallback={() => (
         <Select
           class="version-select-content"
           options={[]}

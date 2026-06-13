@@ -18,7 +18,7 @@ export const prefix = "/pipeline/rest.root/workflow"
 const mockEnabled = () => process.env.MOCK_API !== "false"
 
 function wrapResponse(content: any) {
-  return JSON.stringify({ data: { errorCode: 0, errorMessage: "", content } })
+  return JSON.stringify({ errorCode: 200, errorMessage: "", content })
 }
 
 function parseQuery(url: string) {
@@ -50,12 +50,12 @@ export function handle(req: IncomingMessage, res: ServerResponse, next: () => vo
   const route = (() => {
     if (path.startsWith("/domain/getDomains")) return "domains"
     if (path.startsWith("/domain/getSubDomains")) return "productLines"
-    if (path.startsWith("/domain/getDomainInfoByproduct")) return "domainInfoByProduct"
+    if (path.startsWith("/domain/getDomainInfoByProduct")) return "domainInfoByProduct"
     if (path.startsWith("/product/getProducts")) return "products"
     if (path.startsWith("/product/search")) return "search"
     if (path.startsWith("/product/top")) return "productTop"
     if (path.startsWith("/product/cancelTop")) return "productCancelTop"
-    if (path.startsWith("/version/getversionByProduct")) return "versions"
+    if (path.startsWith("/version/getVersionByProduct")) return "versions"
     if (path.startsWith("/version/top")) return "versionTop"
     if (path.startsWith("/version/cancelTop")) return "versionCancelTop"
     return null

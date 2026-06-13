@@ -1,5 +1,5 @@
 import "./make/octo-tokens.css"
-import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, type JSX } from "solid-js"
+import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { Sidebar } from "@/components/sidebar"
@@ -40,14 +40,9 @@ export default function ChatPage() {
     return null
   })
 
-  createEffect(
-    on(
-      () => local.agent.list(),
-      () => {
-        local.agent.set("octo_ai")
-      }
-    )
-  )
+  onMount(() => {
+    local.agent.set("octo_ai")
+  })
 
   createEffect(
     on(
