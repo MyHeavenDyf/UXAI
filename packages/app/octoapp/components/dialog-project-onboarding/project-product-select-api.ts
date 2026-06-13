@@ -1,4 +1,6 @@
-const BASE_URL = "/pipeline/rest.root/workflow"
+import { showToast } from "@opencode-ai/ui/toast";
+
+const BASE_URL = (import.meta.env.VITE_OCTO_BASE_URL ?? "") + "/pipeline/rest.root/workflow"
 
 export type Domain = {
   id: number
@@ -78,17 +80,25 @@ export type DomainInfoByProduct = {
 
 async function request<T>(url: string, method: string = "GET"): Promise<T> {
   try {
-    const uiplusToken = localStorage.getItem("uiplustoken") ?? ""
+    const uiplusToken = localStorage.getItem("uiplusToken") ?? ""
     const res = await fetch(url, {
       method,
       headers: uiplusToken ? { uiplustoken: uiplusToken } : {},
     })
     if (!res.ok) throw new Error(`API request failed: ${res.status} ${res.statusText}`)
-    const json = await res.json()
-    const data = json.data
+    const text = await res.text();
+    const data = JSON.parse(text);
     if (!data) throw new Error("API response missing data field")
-    if (data.errorCode !== 0) throw new Error(`API error: ${data.errorCode} - ${data.errorMessage}`)
-    return data.content as T
+    const { content, errorCode, errorMessage } = data;
+    if (errorCode ===  400 || errorCode === 1417) {
+      (window as any).openLogin?.();
+      return null as T;
+    }
+    if (errorCode === 200) {
+      return content as T;
+    }
+    showToast({title: errorMessage});
+    throw new Error(`API error: ${content} - ${errorMessage}`);
   } catch (error) {
     console.error(`Failed to ${method} ${url}:`, error)
     return null as T
@@ -124,7 +134,7 @@ export async function fetchProducts(subDomainId: number): Promise<Product[]> {
 }
 
 export async function fetchVersions(productId: number): Promise<Version[]> {
-  return request<Version[]>(`${BASE_URL}/version/getversionByProduct?productId=${productId}`)
+  return request<Version[]>(`${BASE_URL}/version/getVersionByProduct?productId=${productId}`)
 }
 
 export async function searchProducts(searchKey: string): Promise<SearchResult[]> {
@@ -133,5 +143,5 @@ export async function searchProducts(searchKey: string): Promise<SearchResult[]>
 }
 
 export async function fetchDomainInfoByProduct(productId: number): Promise<DomainInfoByProduct> {
-  return request<DomainInfoByProduct>(`${BASE_URL}/domain/getDomainInfoByproduct?productId=${productId}`)
+  return request<DomainInfoByProduct>(`${BASE_URL}/domain/getDomainInfoByProduct?productId=${productId}`)
 }

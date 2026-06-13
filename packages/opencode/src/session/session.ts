@@ -187,6 +187,7 @@ export const Info = Schema.Struct({
     Schema.Literal("analysis"),
     Schema.Literal("creative"),
     Schema.Literal("planning"),
+    Schema.Literal("subagent"),
   ])),
   model: optionalOmitUndefined(Model),
   version: Schema.String,

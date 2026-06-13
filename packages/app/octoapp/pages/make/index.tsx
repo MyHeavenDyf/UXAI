@@ -102,6 +102,21 @@ function MakeContent() {
   const local = useLocal()
   const currentModel = () => local.model.current()
 
+  createEffect(
+    on(
+      () => globalSync.data.config.model,
+      (modelStr) => {
+        if (!modelStr) return
+        const [providerID, modelID] = modelStr.split("/")
+        if (!providerID || !modelID) return
+        const cur = currentModel()
+        if (cur && cur.provider.id === providerID && cur.id === modelID) return
+        local.model.set({ providerID, modelID }, { recent: true })
+      },
+      { defer: true },
+    ),
+  )
+
   const activeModelKey = createMemo(() => {
     const m = currentModel()
     if (!m) return null

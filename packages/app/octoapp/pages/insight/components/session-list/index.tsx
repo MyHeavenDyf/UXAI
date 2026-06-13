@@ -45,14 +45,22 @@ export function InsightSessionList(): JSX.Element {
   // 用户选了项目目录后 insight 仍查 home dir 而看不到自己历史对话的 directory 飘移 bug。
   const projectDir = useProjectDir()
 
-  const [sessions, { refetch }] = createResource(projectDir, async (dir) => {
+  const [sessions, { refetch }] = createResource<Session[], string>(projectDir, async (dir, info) => {
     if (!dir) return [] as Session[]
-    const result = await globalSDK.client.session.list({ directory: dir })
-    // strict 过滤:server 已把 agent 作为一等字段持久化。
-    const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
-      (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
-    )
-    return data.filter((s) => s.agent === INSIGHT_AGENT)
+    try {
+      const result = await globalSDK.client.session.list({ directory: dir })
+      // strict 过滤:server 已把 agent 作为一等字段持久化。
+      const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
+        (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
+      )
+      return data.filter((s) => s.agent === INSIGHT_AGENT)
+    } catch (err) {
+      // session.list 失败(如 server 端某行 Session.Info schema 编码失败 → 400 空 body)绝不能把整页
+      // 顶进 ErrorBoundary。降级为"列表保持上次内容、不刷新",而非整页崩 —— 用户仍可新建/继续对话。
+      // 根因类问题(脏数据/枚举越界)由 server 读取侧修;这里是"任意单次列表失败都不致命"的兜底。
+      console.error("[insight:session-list] list failed, keeping previous list", err)
+      return info.value ?? []
+    }
   })
 
   // reconcile(key=id):保持 <For> 行引用稳定,避免每次 refetch 重建每行的 globalSync.child
