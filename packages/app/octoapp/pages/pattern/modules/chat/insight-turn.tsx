@@ -5,7 +5,6 @@ import { Markdown } from "@opencode-ai/ui/markdown"
 import { createEffect, createMemo, createSignal, onCleanup, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../../utils/artifact-parser"
-import { stripArtifact } from "../../utils/artifact-strip"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 import { UserInputCard } from "./user-input-card"
@@ -232,6 +231,12 @@ export function InsightTurn(props: {
     return partStore?.[msg.id] ?? []
   })
 
+  const assistantGenerating = createMemo(() => {
+    const msg = assistantMsg()
+    if (!msg) return false
+    return typeof msg.time.completed !== "number"
+  })
+
   // 提取 reasoning 内容
   const reasoningTexts = createMemo(() => {
     const parts = assistantParts()
@@ -291,11 +296,37 @@ export function InsightTurn(props: {
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
-    const stripped = stripArtifact(textPart.text)
-    return stripped.trim()
+    const parser = createArtifactParser()
+    let prose = ""
+    for (const ev of parser.feed(textPart.text)) {
+      if (ev.type === "text") prose += ev.delta
+    }
+    const trimmed = prose.trim()
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      if (!assistantGenerating()) {
+        try {
+          const parsed = JSON.parse(trimmed)
+          return JSON.stringify(parsed, null, 2)
+        } catch { /* fall through */ }
+      }
+    }
+    return trimmed
   })
 
-  // ── NEW: streaming artifact (live preview during generation) ──
+  const proseIsJson = createMemo(() => {
+    const parts = assistantParts()
+    const textPart = [...parts]
+      .reverse()
+      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+    if (!textPart?.text) return false
+    const parser = createArtifactParser()
+    let prose = ""
+    for (const ev of parser.feed(textPart.text)) {
+      if (ev.type === "text") prose += ev.delta
+    }
+    return prose.trim().startsWith("{") || prose.trim().startsWith("[")
+  })
+
   const streamingArtifact = createMemo((): OutputCard | null => {
     if (!showGenerating()) return null
     const parts = assistantParts()
@@ -519,10 +550,10 @@ export function InsightTurn(props: {
 
       {/* AI 文字回复（剥离 artifact 标签） */}
       <Show when={proseText().length > 0}>
-        <div
-          class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed prose-text"
-        >
-          <Markdown text={proseText()} />
+        <div class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed prose-text">
+          <Show when={proseIsJson()} fallback={<Markdown text={proseText()} streaming={showGenerating()} />}>
+            <pre class="prose-json-pre" classList={{ completed: !assistantGenerating() }}>{proseText()}</pre>
+          </Show>
         </div>
       </Show>
 

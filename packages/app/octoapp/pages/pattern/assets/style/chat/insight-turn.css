@@ -46,6 +46,22 @@
   color: var(--octo-text-primary);
 }
 
+.prose-json-pre {
+  padding: 12px;
+  border-radius: var(--octo-radius-md);
+  overflow: auto;
+  font-size: 12px;
+  font-family: monospace;
+  white-space: pre;
+  overflow-wrap: normal;
+  background: var(--octo-brand-a3);
+  border: 1px dashed var(--octo-brand-a25);
+}
+
+.prose-json-pre.completed {
+  border: 1px solid var(--octo-brand-a8);
+}
+
 .gen-card-content {
   border-radius: var(--octo-radius-md);
   border: 1px dashed var(--octo-brand-a25);
