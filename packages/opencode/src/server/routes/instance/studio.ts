@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { createGeneration, getGeneration } from "@/studio/studio-service"
+import { createEditorEntry, createGeneration, getGeneration } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 
@@ -29,6 +29,17 @@ const StudioGenerationInput = z.object({
   referenceImages: z.array(z.string()).optional(),
   sourceImage: z.string().optional(),
   extra: z.record(z.string(), z.unknown()).optional(),
+})
+
+const StudioEditorEntryInput = z.object({
+  sessionID: z.string(),
+  capability: z.enum([
+    "image.upscale",
+    "image.cutout",
+    "image.inpaint",
+    "image.outpaint",
+  ]),
+  entryID: z.string().min(1),
 })
 
 export const StudioRoutes = lazy(() =>
@@ -68,6 +79,23 @@ export const StudioRoutes = lazy(() =>
       }),
       validator("json", StudioPermissionInput),
       async (c) => c.json(await checkStudioPermission(c.req.valid("json").uid)),
+    )
+    .post(
+      "/editor-entries",
+      describeRoute({
+        summary: "Create Studio editor entry",
+        description: "Persists a Studio editor entry conversation turn without starting a generation.",
+        operationId: "studio.editor-entries.create",
+        responses: {
+          200: {
+            description: "Studio editor entry created",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", StudioEditorEntryInput),
+      async (c) => c.json(await createEditorEntry(c.req.valid("json"))),
     )
     .post(
     "/generations",
