@@ -41,6 +41,7 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
+import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
@@ -92,6 +93,7 @@ function MakeContent() {
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
+  const providers = useProviders()
 
   // Register Make slash commands
   useMakeCommands()
@@ -112,6 +114,26 @@ function MakeContent() {
         const cur = currentModel()
         if (cur && cur.provider.id === providerID && cur.id === modelID) return
         local.model.set({ providerID, modelID }, { recent: true })
+      },
+      { defer: true },
+    ),
+  )
+
+  createEffect(
+    on(
+      () => {
+        const connectedStr = providers.connected().map((p) => p.id).sort().join(",")
+        const model = currentModel()
+        return {
+          connected: connectedStr,
+          key: model ? `${model.provider.id}/${model.id}` : null,
+        }
+      },
+      (next, prev) => {
+        if (next.key == null || prev === undefined) return
+        if (next.key === prev.key) return
+        const [providerID, modelID] = next.key.split("/")
+        local.model.set({ providerID, modelID })
       },
       { defer: true },
     ),
