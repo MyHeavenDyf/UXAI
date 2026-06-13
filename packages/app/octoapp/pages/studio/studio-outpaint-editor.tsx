@@ -79,6 +79,7 @@ export function StudioOutpaintEditor(props: {
   const [stage, setStage] = createSignal({ width: 828, height: 420 })
   const [rect, setRect] = createSignal<OutpaintBox>()
   const [imageSourceSize, setImageSourceSize] = createSignal({ width: props.image.width ?? 1024, height: props.image.height ?? 1024 })
+  const [localAspectRatio, setLocalAspectRatio] = createSignal<StudioAspectRatio | undefined>(undefined)
   const ratios = ["1:1", "9:16", "16:9"] as StudioAspectRatio[]
   let stageRef!: HTMLDivElement
 
@@ -135,7 +136,7 @@ export function StudioOutpaintEditor(props: {
   )
 
   function applyRatio(ratio: StudioAspectRatio) {
-    props.onAspectRatio(ratio)
+    setLocalAspectRatio(ratio)
     setRect(ratioBox(imageBox(), stage(), ratio))
   }
 
@@ -246,7 +247,7 @@ export function StudioOutpaintEditor(props: {
                 type="button"
                 onClick={() => applyRatio(item)}
                 class="studio-enlarging-ratio"
-                classList={{ active: item === props.aspectRatio }}
+                classList={{ active: item === localAspectRatio() }}
               >
                 {item}
               </button>
@@ -273,7 +274,7 @@ export function StudioOutpaintEditor(props: {
               extra: {
                 ...outpaintMetrics(),
                 numImage: 1,
-                ratio: props.aspectRatio,
+                ratio: localAspectRatio() ?? props.aspectRatio,
               },
             })}
             class="studio-hd-create disabled:opacity-45"

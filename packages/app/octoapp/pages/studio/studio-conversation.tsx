@@ -111,7 +111,7 @@ export function StudioResultCanvas(props: {
           const video = isVideoMedia(tabImage)
           const ext = video ? "mp4" : "png"
           const stored = props.tabLabels?.[tabImage.id]
-          if (stored) return `${stored}-${index + 1}.${ext}`
+          if (stored) return `${stored}.${ext}`
           const prompt = props.result?.prompt ?? ""
           const firstLine = prompt.split("\n")[0].trim()
           const cleaned = firstLine
@@ -130,7 +130,10 @@ export function StudioResultCanvas(props: {
                 return (
                   <span
                     class="studio-canvas-tab"
-                    classList={{ active: tabImage.id === (props.selectedImageId ?? tabSource[0]?.id) }}
+                    classList={{ active: (props.tabImages && props.tabImages.length > 0)
+                      ? (props.result?.images.some((img) => img.id === tabImage.id) ?? false)
+                      : tabImage.id === (props.selectedImageId ?? tabSource[0]?.id)
+                    }}
                     onClick={() => props.onSelectImage!(tabImage.id)}
                   >
                     <span class="studio-canvas-label-text">{tabLabelFor(tabImage, index())}</span>

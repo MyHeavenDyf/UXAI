@@ -156,7 +156,6 @@
   min-width: 431px;
   min-height: 236px;
   padding: 14px 16px;
-  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -237,6 +236,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  max-height: 450px;
+  overflow-y: auto;
+  margin-right: -13px;
+  padding-right: 16px;
+}
+
+.studio-material-tags::-webkit-scrollbar {
+  width: 4px;
+}
+
+.studio-material-tags::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: #e5e5e5;
 }
 
 .studio-material-tag-btn {
