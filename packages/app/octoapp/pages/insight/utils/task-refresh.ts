@@ -5,7 +5,8 @@ import { createSignal } from "solid-js"
  *
  * - 粒度:per task_id
  * - 冷却:3 分钟
- * - 存储:内存 Map,session 切换调 clearRefreshState() 清空
+ * - 存储:内存 Map,跨 session 常驻(task_id 全局唯一;切换 session 再切回必须延续倒计时,
+ *   不可清空,否则切换可绕过防抖);过期条目在 tick 内自动剔除
  * - 倒计时驱动:单一 setInterval(1s),仅在存在生效冷却时启动,所有冷却结束自动停止
  *
  * 注意:模块级 createSignal 没有 SolidJS owner,onCleanup 无效;timer 用"tick 内自停"
@@ -28,10 +29,12 @@ function ensureTimer(): void {
 
 function maybeStopTimer(): void {
   const t = Date.now()
-  for (const last of refreshState.values()) {
-    if (t - last < REFRESH_COOLDOWN_MS) return
+  let active = false
+  for (const [taskId, last] of refreshState) {
+    if (t - last < REFRESH_COOLDOWN_MS) active = true
+    else refreshState.delete(taskId)  // Map 跨 session 常驻,过期条目随 tick 剔除
   }
-  if (timer) {
+  if (!active && timer) {
     clearInterval(timer)
     timer = undefined
   }
@@ -54,14 +57,6 @@ export function remainingSeconds(taskId: string): number {
 
 export function isInCooldown(taskId: string): boolean {
   return remainingSeconds(taskId) > 0
-}
-
-export function clearRefreshState(): void {
-  refreshState.clear()
-  if (timer) {
-    clearInterval(timer)
-    timer = undefined
-  }
 }
 
 /** 格式化倒计时 mm:ss */

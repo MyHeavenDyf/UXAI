@@ -33,6 +33,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { zod as effectZod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
+import * as Reconnect from "./reconnect"
 
 const log = Log.create({ service: "mcp" })
 const elog = EffectLogger.create({ service: "mcp" })
@@ -157,7 +158,14 @@ function remoteURL(key: string, value: string) {
 }
 
 // Convert MCP tool definition to AI SDK Tool type
-function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number): Tool {
+// clientGetter: 动态获取当前 client（支持重连后自动切换到新 client）
+// 重连期间若 client 已死，调用会失败，但 try/catch 兜住返回 isError 结果而不是抛异常中断 LLM 流。
+function convertMcpTool(
+  mcpTool: MCPToolDef,
+  clientGetter: () => MCPClient | undefined,
+  clientName: string,
+  timeout?: number,
+): Tool {
   const inputSchema = mcpTool.inputSchema
 
   // Spread first, then override type to ensure it's always "object"
@@ -172,17 +180,38 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
     description: mcpTool.description ?? "",
     inputSchema: jsonSchema(schema),
     execute: async (args: unknown) => {
-      return client.callTool(
-        {
-          name: mcpTool.name,
-          arguments: (args || {}) as Record<string, unknown>,
-        },
-        CallToolResultSchema,
-        {
-          resetTimeoutOnProgress: true,
-          timeout,
-        },
-      )
+      const client = clientGetter()
+      if (!client) {
+        log.warn("tool execute skipped - client removed", { clientName, tool: mcpTool.name })
+        return {
+          content: [{ type: "text" as const, text: `MCP server "${clientName}" is not connected. Tool "${mcpTool.name}" cannot be executed.` }],
+          isError: true,
+        }
+      }
+      try {
+        return await client.callTool(
+          {
+            name: mcpTool.name,
+            arguments: (args || {}) as Record<string, unknown>,
+          },
+          CallToolResultSchema,
+          {
+            resetTimeoutOnProgress: true,
+            timeout,
+          },
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.error("tool execute failed - client possibly disconnected", {
+          clientName,
+          tool: mcpTool.name,
+          error: msg,
+        })
+        return {
+          content: [{ type: "text" as const, text: `Tool "${mcpTool.name}" on server "${clientName}" failed: ${msg}. The server may be reconnecting.` }],
+          isError: true,
+        }
+      }
     },
   })
 }
@@ -534,6 +563,9 @@ export const layer = Layer.effect(
       })
     }
 
+    // 前置声明：在 storeClient 之后赋值，但 state init 中 forked effect 使用时已赋值
+    let reconnectCtx!: Reconnect.ReconnectContext
+
     const state = yield* InstanceState.make<State>(
       Effect.fn("MCP.state")(function* () {
         const cfg = yield* cfgSvc.get()
@@ -589,6 +621,11 @@ export const layer = Layer.effect(
                     s.clients[key] = result.mcpClient
                     s.defs[key] = result.defs!
                     watch(s, key, result.mcpClient, bridge, mcp.timeout)
+                    // 为远程 client 设置断连检测和自动重连
+                    if (mcp.type === "remote") {
+                      Reconnect.storeRemoteConfig(key, mcp as ConfigMCP.Info & { type: "remote" })
+                      Reconnect.setupConnectionHandlers(s, key, result.mcpClient, bridge, reconnectCtx)
+                    }
                   }
                 }),
               )
@@ -616,6 +653,7 @@ export const layer = Layer.effect(
               { concurrency: "unbounded" },
             )
             pendingOAuthTransports.clear()
+            Reconnect.cleanup()
           }),
         )
 
@@ -627,6 +665,7 @@ export const layer = Layer.effect(
       const client = s.clients[name]
       delete s.defs[name]
       if (!client) return Effect.void
+      Reconnect.markIntentionalDisconnect(name)
       return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
     }
 
@@ -643,8 +682,21 @@ export const layer = Layer.effect(
       s.clients[name] = client
       s.defs[name] = listed
       watch(s, name, client, bridge, timeout)
+      // 为远程 client 设置断连检测和自动重连
+      if (Reconnect.hasRemoteConfig(name)) {
+        Reconnect.setupConnectionHandlers(s, name, client, bridge, reconnectCtx)
+      }
       return s.status[name]
     })
+
+    // 重连上下文（在 storeClient 定义之后赋值，打破循环依赖）
+    reconnectCtx = {
+      state: { get: () => InstanceState.get(state) },
+      createFn: create,
+      storeClientFn: storeClient,
+      bus,
+      toolsChanged: ToolsChanged,
+    }
 
     const status = Effect.fn("MCP.status")(function* () {
       const s = yield* InstanceState.get(state)
@@ -746,7 +798,13 @@ export const layer = Layer.effect(
 
             const timeout = entry?.timeout ?? defaultTimeout
             for (const mcpTool of listed) {
-              result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(mcpTool, client, timeout)
+              // 传 getter 而非直接传 client，确保重连后命中最新 client
+              result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(
+                mcpTool,
+                () => s.clients[clientName],
+                clientName,
+                timeout,
+              )
             }
           }),
         { concurrency: "unbounded" },

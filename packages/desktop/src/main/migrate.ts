@@ -1,9 +1,10 @@
 import { app } from "electron"
 import log from "electron-log/main.js"
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { xdgCache } from "xdg-basedir"
 import { CHANNEL } from "./constants"
 import { getStore } from "./store"
 
@@ -205,5 +206,50 @@ export function deployBuiltinSkills() {
     }
   } catch (err) {
     log.warn("builtin skills deployment: failed", err)
+  }
+}
+
+export function deployRipgrep() {
+  const { platform, arch } = process
+
+  const platformKey = platform === "darwin"
+    ? `darwin-${arch === "arm64" ? "arm64" : "x64"}`
+    : platform === "linux"
+      ? `linux-${arch === "arm64" ? "arm64" : "x64"}`
+      : `windows-${arch === "arm64" ? "arm64" : "x64"}`
+
+  const binaryName = platform === "win32" ? `rg-${platformKey}.exe` : `rg-${platformKey}`
+  const targetName = platform === "win32" ? "rg.exe" : "rg"
+
+  const sourceDir = app.isPackaged
+    ? join(process.resourcesPath, "bin")
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "resources", "bin")
+
+  const sourcePath = join(sourceDir, binaryName)
+
+  if (!existsSync(sourcePath)) {
+    log.warn("ripgrep deployment: source binary not found", sourcePath)
+    return
+  }
+
+  // Use xdgCache to match Global.Path.bin in opencode
+  const cacheDir = xdgCache ?? join(homedir(), ".cache")
+  const targetDir = join(cacheDir, "opencode", "bin")
+  const targetPath = join(targetDir, targetName)
+
+  if (existsSync(targetPath)) {
+    log.log("ripgrep deployment: already exists at", targetPath)
+    return
+  }
+
+  try {
+    mkdirSync(targetDir, { recursive: true })
+    copyFileSync(sourcePath, targetPath)
+    if (platform !== "win32") {
+      chmodSync(targetPath, 0o755)
+    }
+    log.log("ripgrep deployment: deployed to", targetPath)
+  } catch (err) {
+    log.warn("ripgrep deployment: failed", err)
   }
 }

@@ -30,6 +30,7 @@ export const Info = Schema.Struct({
   description: Schema.String,
   location: Schema.String,
   content: Schema.String,
+  type: Schema.optional(Schema.String),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 export type Info = Schema.Schema.Type<typeof Info>
 
@@ -59,6 +60,7 @@ type State = {
 type DiscoveryState = {
   matches: string[]
   dirs: string[]
+  typeMap: Record<string, string>
 }
 
 type ScanState = {
@@ -75,7 +77,7 @@ export interface Interface {
   readonly refresh: () => Effect.Effect<void>
 }
 
-const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface) {
+const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface, typeMap?: Record<string, string>) {
   const md = yield* Effect.tryPromise({
     try: () => ConfigMarkdown.parse(match),
     catch: (err) => err,
@@ -107,11 +109,13 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
   }
 
   state.dirs.add(path.dirname(match))
+  const skillDir = path.basename(path.dirname(match))
   state.skills[parsed.data.name] = {
     name: parsed.data.name,
     description: parsed.data.description,
     location: match,
     content: md.content,
+    type: typeMap?.[skillDir],
   }
 })
 
@@ -211,15 +215,19 @@ const discoverSkills = Effect.fnUntraced(function* (
   const skillConfig = yield* Effect.tryPromise({
     try: () =>
       import("fs/promises").then((fs) =>
-        fs.readFile(skillConfigPath, "utf-8").then((text) => JSON.parse(text) as Record<string, { description?: string; import?: boolean }>),
+        fs.readFile(skillConfigPath, "utf-8").then((text) => JSON.parse(text) as Record<string, { description?: string; import?: boolean; type?: string }>),
       ),
     catch: () => null,
   }).pipe(Effect.catch(() => Effect.succeed(null)))
+  const typeMap: Record<string, string> = {}
   if (skillConfig && typeof skillConfig === "object") {
     matches = matches.filter((match) => {
       const skillDir = path.basename(path.dirname(match))
       const entry = skillConfig[skillDir]
-      if (entry && typeof entry === "object") return entry.import !== false
+      if (entry && typeof entry === "object") {
+        if (entry.type) typeMap[skillDir] = entry.type
+        return entry.import !== false
+      }
       return true
     })
   }
@@ -227,11 +235,12 @@ const discoverSkills = Effect.fnUntraced(function* (
   return {
     matches,
     dirs: Array.from(state.dirs),
+    typeMap,
   }
 })
 
 const loadSkills = Effect.fnUntraced(function* (state: State, discovered: DiscoveryState, bus: Bus.Interface) {
-  yield* Effect.forEach(discovered.matches, (match) => add(state, match, bus), {
+  yield* Effect.forEach(discovered.matches, (match) => add(state, match, bus, discovered.typeMap), {
     concurrency: "unbounded",
     discard: true,
   })
@@ -285,7 +294,12 @@ export const layer = Layer.effect(
       const s = yield* InstanceState.get(state)
       const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
-      return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
+      return list.filter((skill) => {
+        if (Permission.evaluate("skill", skill.name, agent.permission).action === "deny") return false
+        if (!skill.type) return false
+        if (skill.type === "common") return true
+        return skill.type === agent.name
+      })
     })
 
     const refresh = Effect.fn("Skill.refresh")(function* () {

@@ -167,7 +167,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
     dialog.show(() => (
       <Dialog title="删除会话" fit class="delete-dialog">
         <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除「{sessionTitle(session.title) || "无标题"}」？
+          确定删除"{sessionTitle(session.title) || "无标题"}"？
         </span>
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
           <Button
@@ -348,6 +348,11 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
                             type="button"
                             onClick={() => {
                               notification.session.markViewed(session.id)
+                              // 确保session属于当前项目目录，否则刷新列表
+                              if (session.directory !== resolvedDir()) {
+                                void refetch()
+                                return
+                              }
                               navigate(`/make/${session.id}`)
                             }}
                             onContextMenu={(e) => {

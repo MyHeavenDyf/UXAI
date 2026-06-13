@@ -20,8 +20,14 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
 export const StudioPaths = {
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
+  editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
+  permission: `${root}/permissions/check`,
 } as const
+
+export const StudioPermissionPayload = Schema.Struct({
+  uid: Schema.optional(Schema.String),
+})
 
 export const StudioGenerationPayload = Schema.Struct({
   sessionID: Schema.optional(Schema.String),
@@ -42,6 +48,23 @@ export const StudioGenerationPayload = Schema.Struct({
   referenceImages: Schema.optional(Schema.Array(Schema.String)),
   sourceImage: Schema.optional(Schema.String),
   extra: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+})
+
+export const StudioEditorEntryPayload = Schema.Struct({
+  sessionID: Schema.String,
+  capability: Schema.Literals([
+    "image.upscale",
+    "image.cutout",
+    "image.inpaint",
+    "image.outpaint",
+  ]),
+  entryID: Schema.String,
+})
+
+const StudioEditorEntryResult = Schema.Struct({
+  entryID: Schema.String,
+  userMessageID: Schema.String,
+  assistantMessageID: Schema.String,
 })
 
 const StudioGenerationImage = Schema.Struct({
@@ -110,6 +133,17 @@ export const StudioApi = HttpApi.make("studio")
             description: "Returns prompt tag categories from the internal image API.",
           }),
         ),
+        HttpApiEndpoint.post("checkPermission", StudioPaths.permission, {
+          payload: StudioPermissionPayload,
+          success: described(Schema.Unknown, "Studio permission result"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.permissions.check",
+            summary: "Check Studio permission",
+            description: "Checks whether the current user can access the internal Studio entry.",
+          }),
+        ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
@@ -119,6 +153,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.create",
             summary: "Create Studio image generation",
             description: "Generate images using the built-in Studio image generation tool.",
+          }),
+        ),
+        HttpApiEndpoint.post("createEditorEntry", StudioPaths.editorEntries, {
+          payload: StudioEditorEntryPayload,
+          success: described(StudioEditorEntryResult, "Studio editor entry result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.editor-entries.create",
+            summary: "Create Studio editor entry",
+            description: "Persists a Studio editor entry conversation turn without starting a generation.",
           }),
         ),
       )

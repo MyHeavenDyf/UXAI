@@ -12,10 +12,12 @@ const METHOD = "POST"
 // const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
 // const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
 // const DEFAULT_GET_PROMPT_TAG_URL = "http://localhost:3000/get_prompt_tags"
+// const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
 const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
-const DEFAULT_USER_IDX = "l00423136"
+const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
+const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
 
 type JsonRecord = Record<string, unknown>
@@ -138,32 +140,6 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function isRetriableHttpStatus(status: number): boolean {
-  return [408, 409, 425, 429, 500, 502, 503, 504].includes(status)
-}
-
-function isRetriableError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  const code = error && typeof error === "object" && "code" in error
-    ? String((error as { code?: unknown }).code)
-    : ""
-  return [
-    "fetch failed",
-    "Unable to connect",
-    "ECONNRESET",
-    "ECONNREFUSED",
-    "ConnectionRefused",
-    "FailedToOpenSocket",
-    "ETIMEDOUT",
-    "UND_ERR_CONNECT_TIMEOUT",
-    "UND_ERR_HEADERS_TIMEOUT",
-    "UND_ERR_BODY_TIMEOUT",
-    "socket hang up",
-    "The operation was aborted",
-    "AbortError",
-  ].some((keyword) => message.includes(keyword) || code.includes(keyword))
-}
-
 function describeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   const code = error && typeof error === "object" && "code" in error
@@ -183,10 +159,6 @@ function describeError(error: unknown) {
   ]
     .filter((item): item is string => Boolean(item))
     .join("; ")
-}
-
-function getBackoffMs(attempt: number): number {
-  return Math.min(1000 * 2 ** (attempt - 1), 8000) + Math.floor(Math.random() * 500)
 }
 
 function parseJson(text: string): JsonRecord {
@@ -230,6 +202,44 @@ export async function fetchPromptTags(): Promise<unknown> {
     )
   }
   return parseJson(text)
+}
+
+export async function checkStudioPermission(userIdx?: string): Promise<unknown> {
+  const url = env("IMAGE_CHECK_PERMISSION_URL") ?? DEFAULT_CHECK_PERMISSION_URL
+  if (!url) {
+    console.warn("[studio.permission] skipped: configure DEFAULT_CHECK_PERMISSION_URL or IMAGE_CHECK_PERMISSION_URL")
+    return { skipped: true }
+  }
+  const response = await fetch(url, {
+    method: METHOD,
+    headers: internalImageHeaders(),
+    body: JSON.stringify({
+      checkPermList: ["view:keling_entry"],
+      uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
+    }),
+  }).catch((error) => {
+    throw new Error(
+      [
+        "check_permission network failed.",
+        `url=${url}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "check_permission failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  const result = parseJson(text)
+  console.log("[studio.permission] response", result)
+  return result
 }
 
 export function resolveReferenceImages(input: Pick<ImageGenerateInput, "referenceImages" | "sourceImage">) {
@@ -534,88 +544,52 @@ function normalizeTaskStatus(response: QueryTaskResponse): ImageGenerationQuery[
   return "running"
 }
 
-async function createTaskWithRetry(
+async function createTask(
   createTaskUrl: string,
   createPayload: unknown,
-  maxCreateRetries: number,
   createTimeoutMs: number,
 ): Promise<CreateTaskResponse> {
-  let lastError: unknown = null
-
-  for (let attempt = 1; attempt <= maxCreateRetries; attempt++) {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), createTimeoutMs)
-
-      const response = await fetch(createTaskUrl, {
-        method: METHOD,
-        headers: internalImageHeaders(),
-        body: JSON.stringify(createPayload),
-        signal: controller.signal,
-      }).finally(() => {
-        clearTimeout(timeout)
-      })
-
-      const text = await response.text()
-
-      if (!response.ok) {
-        if (isRetriableHttpStatus(response.status) && attempt < maxCreateRetries) {
-          await sleep(getBackoffMs(attempt))
-          continue
-        }
-
-        throw new Error(
-          [
-            "create_task failed.",
-            `attempt=${attempt}/${maxCreateRetries}`,
-            `status=${response.status}`,
-            `statusText=${response.statusText}`,
-            `body=${text}`,
-          ].join("\n"),
-        )
-      }
-
-      const json = parseJson(text) as CreateTaskResponse
-
-      if (json.resp_code !== undefined && json.resp_code !== 200) {
-        if (attempt < maxCreateRetries) {
-          await sleep(getBackoffMs(attempt))
-          continue
-        }
-
-        throw new Error(
-          [
-            "create_task returned business failure.",
-            `attempt=${attempt}/${maxCreateRetries}`,
-            `resp_code=${json.resp_code}`,
-            `resp_msg=${json.resp_msg ?? ""}`,
-            `body=${JSON.stringify(json, null, 2)}`,
-          ].join("\n"),
-        )
-      }
-
-      return json
-    } catch (error) {
-      lastError = error
-      if (attempt < maxCreateRetries && isRetriableError(error)) {
-        await sleep(getBackoffMs(attempt))
-        continue
-      }
-      if (isRetriableError(error)) {
-        throw new Error(
-          [
-            "create_task network failed.",
-            `attempt=${attempt}/${maxCreateRetries}`,
-            `url=${createTaskUrl}`,
-            `error=${describeError(error)}`,
-          ].join("\n"),
-        )
-      }
-      throw error
-    }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), createTimeoutMs)
+  const response = await fetch(createTaskUrl, {
+    method: METHOD,
+    headers: internalImageHeaders(),
+    body: JSON.stringify(createPayload),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "create_task network failed.",
+        `url=${createTaskUrl}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => {
+    clearTimeout(timeout)
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "create_task failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
   }
-
-  throw new Error(`create_task failed after retries: ${String(lastError)}`)
+  const json = parseJson(text) as CreateTaskResponse
+  if (json.resp_code !== undefined && json.resp_code !== 200) {
+    throw new Error(
+      [
+        "create_task returned business failure.",
+        `resp_code=${json.resp_code}`,
+        `resp_msg=${json.resp_msg ?? ""}`,
+        `body=${JSON.stringify(json, null, 2)}`,
+      ].join("\n"),
+    )
+  }
+  return json
 }
 
 async function queryTask(
@@ -1160,14 +1134,13 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
     body: requestBody,
   }
 
-  const maxCreateRetries = Number(input.extra && typeof input.extra.maxCreateRetries === "number" ? input.extra.maxCreateRetries : 3)
   const createTimeoutMs = timeoutMsFor(
     "IMAGE_CREATE_TIMEOUT_MS",
     Number(input.extra && typeof input.extra.createTimeoutMs === "number" ? input.extra.createTimeoutMs : DEFAULT_TIMEOUT_MS),
   )
 
   console.log("[studio.internel] request", JSON.stringify(redactImagePayload(debugRequest), null, 2))
-  const createJson = await createTaskWithRetry(createTaskUrl, requestBody, maxCreateRetries, createTimeoutMs)
+  const createJson = await createTask(createTaskUrl, requestBody, createTimeoutMs)
   return {
     provider: "internel",
     model: requestTaskType,

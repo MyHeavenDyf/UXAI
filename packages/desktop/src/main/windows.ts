@@ -1,5 +1,5 @@
 import windowState from "electron-window-state"
-import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol } from "electron"
+import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
@@ -114,6 +114,16 @@ export function createMainWindow() {
 
   allowClipboardWrite(win)
 
+  // 任何 target="_blank" / window.open 都强制走系统默认浏览器。
+  // 不拦截会创建一个新的 BrowserWindow，渲染进程协议不匹配外部 URL，
+  // 用户点击 /insight webfetch 这种外部链接时会让整个应用卡死/崩溃。
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url)
+    }
+    return { action: "deny" }
+  })
+
   win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
     const { requestHeaders } = details
     upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
@@ -182,6 +192,13 @@ export function createLoadingWindow() {
   })
 
   allowClipboardWrite(win)
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url)
+    }
+    return { action: "deny" }
+  })
 
   loadWindow(win, "loading.html")
 

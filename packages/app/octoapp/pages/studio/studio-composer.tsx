@@ -1,9 +1,13 @@
 import { createMemo, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
+import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
 import { STUDIO_VIDEO_ASPECT_RATIOS, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
+import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
+
+const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?lang=zh"
 
 export function StudioIntro(): JSX.Element {
   return (
@@ -20,6 +24,7 @@ export function StudioIntro(): JSX.Element {
 export function StudioComposer(props: {
   prompt: string
   capability: StudioCapability
+  canGenerateVideo: boolean
   styleModel: string
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
@@ -49,6 +54,8 @@ export function StudioComposer(props: {
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
 }): JSX.Element {
+  const platform = usePlatform()
+  let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
@@ -86,7 +93,9 @@ export function StudioComposer(props: {
               onPick={() => props.onPickVideoFrame("first")}
               onRemove={() => props.onRemoveVideoFrame("first")}
             />
-            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} aria-label="交换首尾帧" title="交换首尾帧" />
+            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} aria-label="交换首尾帧" title="交换首尾帧">
+              <img src="/studio/ic_public_switchover.svg" class="studio-composer-video-swap-icon" alt="" />
+            </button>
             <VideoFrameButton
               label="尾帧"
               asset={props.videoFrames.last}
@@ -126,21 +135,48 @@ export function StudioComposer(props: {
               </Show>
             </div>
           </Show>
-          <textarea
-            value={props.prompt}
-            onInput={(event) => props.onPrompt(event.currentTarget.value)}
-            onKeyDown={props.onKeyDown}
-            onPaste={handlePaste}
-            placeholder={isVideoGeneration() ? "请描述你想生成的视频内容，或使用反推描述图片，也可查看使用指南提升生成效果。" : "上传参考图、输入文字，描述你想生成的图片。"}
-            class="studio-composer-input"
-            disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
-          />
+          <div class="studio-composer-input-wrap">
+            <textarea
+              ref={inputRef}
+              value={props.prompt}
+              onInput={(event) => props.onPrompt(event.currentTarget.value)}
+              onKeyDown={props.onKeyDown}
+              onPaste={handlePaste}
+              placeholder={isVideoGeneration() ? undefined : props.capability === "image.upscale" ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
+              class="studio-composer-input"
+              disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
+            />
+            <Show when={isVideoGeneration() && !props.prompt}>
+              <div class="studio-composer-video-placeholder" onClick={() => inputRef.focus()}>
+                请描述你想生成的视频内容，或使用反推描述图片，也可查看
+                <a
+                  href={STUDIO_VIDEO_GUIDE_URL || undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="studio-composer-video-guide-link"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    if (!STUDIO_VIDEO_GUIDE_URL) return
+                    event.preventDefault()
+                    platform.openLink(STUDIO_VIDEO_GUIDE_URL)
+                  }}
+                >
+                  使用指南
+                </a>
+                提升生成效果。
+              </div>
+            </Show>
+          </div>
         </div>
 
         <div class="studio-composer-toolbar">
           <div class="relative">
             <Show when={props.openMenu === "capability"}>
-              <CapabilityMenu value={props.capability} onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }} />
+              <CapabilityMenu
+                value={props.capability}
+                canGenerateVideo={props.canGenerateVideo}
+                onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
+              />
             </Show>
             <ToolButton
               label={capabilityLabel(props.capability)}
@@ -181,7 +217,7 @@ export function StudioComposer(props: {
                 <MaterialMenu wordBook={props.wordBook!} onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
               </Show>
               <IconTool
-                label="素材"
+                label="词书"
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
               />
@@ -218,6 +254,18 @@ export function StudioComposer(props: {
           />
         </div>
       </div>
+      <div class="studio-composer-compliance">
+        <span>遵守</span>
+        <div class="studio-composer-compliance-guide">
+          <button type="button" class="studio-composer-compliance-trigger">合规指引</button>
+          <span>，</span>
+          <div role="tooltip" class="studio-composer-compliance-tooltip">
+            <StudioVideoRiskContent class="studio-composer-compliance-tooltip-content" />
+            <span class="studio-composer-compliance-tooltip-arrow" />
+          </div>
+        </div>
+        <span>严禁上传内部敏感信息</span>
+      </div>
     </div>
   )
 }
@@ -231,14 +279,14 @@ function ToolButton(props: { label: string; active?: boolean; onClick: () => voi
   )
 }
 
-function IconTool(props: { label: string; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
+function IconTool(props: { label: string; title?: string; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
     <button
       type="button"
       onPointerDown={props.onPointerDown}
       onClick={props.onClick}
       class={`studio-composer-icon-tool ${props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"}`}
-      title={props.label}
+      title={props.title ?? props.label}
       aria-label={props.label}
     />
   )
@@ -256,7 +304,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; onPick: (
       >
         <Show when={props.asset} fallback={
           <>
-            <span class="studio-composer-video-plus" />
+            <img src="/studio/studio_public_plus.svg" class="studio-composer-video-plus" alt="" />
             <span class="studio-composer-video-label">{props.label}</span>
           </>
         }>
@@ -281,27 +329,37 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; onPick: (
   )
 }
 
-function CapabilityMenu(props: { value: StudioCapability; onSelect: (value: StudioCapability) => void }): JSX.Element {
+function CapabilityMenu(props: {
+  value: StudioCapability
+  canGenerateVideo: boolean
+  onSelect: (value: StudioCapability) => void
+}): JSX.Element {
   return (
     <div class="studio-menu w-[175px] p-1">
-      <For each={STUDIO_CAPABILITIES}>
-        {(item, index) => (
+      <For each={STUDIO_CAPABILITIES
+        .map((item, index) => ({ item, index }))
+        .filter((entry) => entry.item.id !== "video.generate" || props.canGenerateVideo)}
+      >
+        {(entry) => (
           <>
             <button
               type="button"
-              onClick={() => props.onSelect(item.id)}
-              disabled={!SUPPORTED_STUDIO_CAPABILITIES.has(item.id)}
+              onClick={() => props.onSelect(entry.item.id)}
+              disabled={!SUPPORTED_STUDIO_CAPABILITIES.has(entry.item.id)}
               class="studio-capability-option"
               classList={{
-                active: item.id === props.value,
-                "opacity-45 cursor-not-allowed": !SUPPORTED_STUDIO_CAPABILITIES.has(item.id),
+                active: entry.item.id === props.value,
+                "opacity-45 cursor-not-allowed": !SUPPORTED_STUDIO_CAPABILITIES.has(entry.item.id),
               }}
-              title={SUPPORTED_STUDIO_CAPABILITIES.has(item.id) ? item.description : "即将支持"}
+              title={SUPPORTED_STUDIO_CAPABILITIES.has(entry.item.id) ? entry.item.description : "即将支持"}
             >
-              <span class={`studio-capability-icon studio-capability-icon-${index() + 1}`} />
-              <span class="studio-capability-label">{item.label}</span>
+              <span class={`studio-capability-icon studio-capability-icon-${entry.index + 1}`} />
+              <span class="studio-capability-label">{entry.item.label}</span>
             </button>
-            <Show when={index() === 1 || index() === 5}>
+            <Show when={
+              entry.item.id === (props.canGenerateVideo ? "video.generate" : "image.generate") ||
+              entry.item.id === "image.outpaint"
+            }>
               <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 12px" }} />
             </Show>
           </>

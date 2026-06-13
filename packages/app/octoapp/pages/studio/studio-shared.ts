@@ -9,7 +9,7 @@ export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
   "image.inpaint",
   "image.outpaint",
 ])
-export const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 30_000
+export const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 130_000
 export const STUDIO_GENERATION_STATUS_INTERVAL_MS = 7_500
 
 export type StudioPendingResult = StudioGenerationResult & {
@@ -49,7 +49,7 @@ export function stringValue(value: unknown, key: string) {
 }
 
 export function uiplusUserAccount() {
-  const account = recordValue(JSON.parse(localStorage.getItem("uiplusUser") || "{}"), "account")
+  const account = recordValue(JSON.parse(localStorage.getItem("userInfo") || "{}"), "account")
   return typeof account === "string" ? account : undefined
 }
 

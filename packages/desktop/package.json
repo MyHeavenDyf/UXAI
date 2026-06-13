@@ -20,6 +20,7 @@
     "build:beta": "cross-env OCTO_CHANNEL=beta bun run build --mode beta",
     "build:prod": "cross-env OCTO_CHANNEL=prod bun run build --mode prod",
     "preview": "electron-vite preview",
+    "package": "electron-builder --config electron-builder.config.ts",
     "package:dev": "cross-env OCTO_CHANNEL=dev electron-builder --config electron-builder.config.ts",
     "package:beta": "cross-env OCTO_CHANNEL=beta electron-builder --config electron-builder.config.ts",
     "package:prod": "cross-env OCTO_CHANNEL=prod electron-builder --config electron-builder.config.ts",
@@ -37,7 +38,8 @@
     "electron-updater": "^6",
     "electron-window-state": "^5.0.3",
     "drizzle-orm": "catalog:",
-    "marked": "^15"
+    "marked": "^15",
+    "xdg-basedir": "5.1.0"
   },
   "devDependencies": {
     "@actions/artifact": "4.0.0",
