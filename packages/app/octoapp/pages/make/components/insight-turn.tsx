@@ -454,6 +454,11 @@ export function InsightTurn(props: {
     return raw.trim()
   })
 
+  const userAttachments = createMemo(() => {
+    const parts = partStore?.[props.messageID] ?? []
+    return parts.filter((p) => p.type === "file") as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
+  })
+
   // Collect ALL assistant messages between this user message and the next user message.
   // Backend agent loop can produce multiple assistant messages per user turn
   // (e.g. first does reasoning + tool calls, second generates the actual artifact).
@@ -1049,22 +1054,51 @@ const stateStatus = state.status as string | undefined
     <div class="flex flex-col" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <div class="flex justify-end px-3 py-2.5">
-        <div
-          class="break-words"
-          style={{
-            background: "var(--octo-brand-a8)",
-            padding: "8px 12px",
-            "border-radius": "16px 16px 2px 16px",
-            color: "#191919",
-            "font-size": "14px",
-            "line-height": "22px",
-            "white-space": "pre-wrap",
-            display: "inline-block",
-            "max-width": "85%",
-          }}
-        >
-          {userText()}
-        </div>
+        <Show when={userText() || userAttachments().length === 0}>
+          <div
+            class="break-words"
+            style={{
+              background: "var(--octo-brand-a8)",
+              padding: "8px 12px",
+              "border-radius": "16px 16px 2px 16px",
+              color: "#191919",
+              "font-size": "14px",
+              "line-height": "22px",
+              "white-space": "pre-wrap",
+              display: "inline-block",
+              "max-width": "85%",
+            }}
+          >
+            {userText()}
+          </div>
+        </Show>
+        <Show when={userAttachments().length > 0}>
+          <For each={userAttachments()}>
+            {(att) => (
+              <div
+                class="break-words flex items-center gap-2"
+                style={{
+                  background: "var(--octo-brand-a8)",
+                  padding: "8px 12px",
+                  "border-radius": "12px",
+                  color: "#191919",
+                  "font-size": "13px",
+                  display: "inline-flex",
+                  "max-width": "200px",
+                }}
+              >
+                <Show when={att.mime?.startsWith("image/")}>
+                  <img
+                    src={att.url}
+                    alt={att.filename || "attachment"}
+                    style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
+                  />
+                </Show>
+                <span class="truncate">{att.filename || "attachment"}</span>
+              </div>
+            )}
+          </For>
+        </Show>
       </div>
 
       {/* 思考过程 */}

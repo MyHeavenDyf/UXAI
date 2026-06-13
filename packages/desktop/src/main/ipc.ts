@@ -364,6 +364,17 @@ export function registerIpcHandlers(deps: Deps) {
     win.destroy()
     return pdfData.buffer as ArrayBuffer
   })
+
+  ipcMain.handle(
+    "capture-preview-rect",
+    async (event: IpcMainInvokeEvent, rect: { x: number; y: number; width: number; height: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) return null
+      const image = await win.webContents.capturePage(rect)
+      if (image.isEmpty()) return null
+      return image.toDataURL()
+    },
+  )
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {
