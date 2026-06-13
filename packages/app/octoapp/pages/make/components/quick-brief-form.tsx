@@ -14,7 +14,7 @@ export function QuickBriefFormView(props: Props) {
   const [answers, setAnswers] = createSignal<Record<string, string | string[]>>(buildInitialState(props.form))
   const [locallySubmitted, setLocallySubmitted] = createSignal(false)
 
-  const locked = props.submitted || locallySubmitted() || props.interactive === false || !props.onSubmit
+  const isLocked = () => props.submitted || locallySubmitted() || props.interactive === false || !props.onSubmit
   const currentAnswers = () => answers()
 
   function buildInitialState(form: QuestionForm): Record<string, string | string[]> {
@@ -28,12 +28,12 @@ export function QuickBriefFormView(props: Props) {
   }
 
   const updateAnswer = (id: string, value: string | string[]) => {
-    if (locked) return
+    if (isLocked()) return
     setAnswers(prev => ({ ...prev, [id]: value }))
   }
 
   const toggleCheckbox = (id: string, optionValue: string, maxSelections?: number) => {
-    if (locked) return
+    if (isLocked()) return
     setAnswers(prev => {
       const current = Array.isArray(prev[id]) ? prev[id] as string[] : []
       const has = current.includes(optionValue)
@@ -73,7 +73,7 @@ export function QuickBriefFormView(props: Props) {
   }
 
   const handleSubmit = () => {
-    if (locked || !props.onSubmit) return
+    if (isLocked() || !props.onSubmit) return
     if (!withinSelectionLimits()) return
     const missing = missingRequired()
     if (missing) return
@@ -84,8 +84,6 @@ export function QuickBriefFormView(props: Props) {
   }
 
   const renderQuestion = (q: FormQuestion) => {
-    const value = currentAnswers()[q.id]
-
     return (
       <div class="qf-field">
         <label class="qf-label">
@@ -100,13 +98,13 @@ export function QuickBriefFormView(props: Props) {
             <For each={q.options}>
               {(opt: FormOption) => {
                 const optionValue = opt.value ?? opt.label
-                const selected = value === optionValue
+                const selected = () => answers()[q.id] === optionValue
                 return (
                   <button
                     type="button"
-                    class={`qf-chip ${selected ? 'qf-chip-on' : ''}`}
+                    class={`qf-chip ${selected() ? 'qf-chip-on' : ''}`}
                     onClick={() => updateAnswer(q.id, optionValue)}
-                    disabled={locked}
+                    disabled={isLocked()}
                   >
                     {opt.label}
                   </button>
@@ -121,15 +119,15 @@ export function QuickBriefFormView(props: Props) {
             <For each={q.options}>
               {(opt: FormOption) => {
                 const optionValue = opt.value ?? opt.label
-                const currentArray = Array.isArray(value) ? value as string[] : []
-                const selected = currentArray.includes(optionValue)
-                const atMax = q.maxSelections !== undefined && currentArray.length >= q.maxSelections && !selected
+                const currentArray = () => Array.isArray(answers()[q.id]) ? answers()[q.id] as string[] : []
+                const selected = () => currentArray().includes(optionValue)
+                const atMax = () => q.maxSelections !== undefined && currentArray().length >= q.maxSelections && !selected()
                 return (
                   <button
                     type="button"
-                    class={`qf-chip ${selected ? 'qf-chip-on' : ''}`}
+                    class={`qf-chip ${selected() ? 'qf-chip-on' : ''}`}
                     onClick={() => toggleCheckbox(q.id, optionValue, q.maxSelections)}
-                    disabled={locked || atMax}
+                    disabled={isLocked() || atMax()}
                   >
                     {opt.label}
                   </button>
@@ -143,21 +141,21 @@ export function QuickBriefFormView(props: Props) {
           <input
             type="text"
             class="qf-input"
-            value={typeof value === 'string' ? value : ''}
+            value={answers()[q.id] as string ?? ''}
             onInput={(e) => updateAnswer(q.id, e.currentTarget.value)}
             placeholder={q.placeholder ?? ''}
-            disabled={locked}
+            disabled={isLocked()}
           />
         </Show>
 
         <Show when={q.type === 'textarea'}>
           <textarea
             class="qf-textarea"
-            value={typeof value === 'string' ? value : ''}
+            value={answers()[q.id] as string ?? ''}
             onInput={(e) => updateAnswer(q.id, e.currentTarget.value)}
             placeholder={q.placeholder ?? ''}
             rows={3}
-            disabled={locked}
+            disabled={isLocked()}
           />
         </Show>
       </div>
@@ -165,14 +163,14 @@ export function QuickBriefFormView(props: Props) {
   }
 
   return (
-    <div class={`quick-brief-form ${locked ? 'quick-brief-form-locked' : ''}`} data-form-id={props.form.id}>
+    <div class={`quick-brief-form ${isLocked() ? 'quick-brief-form-locked' : ''}`} data-form-id={props.form.id}>
       <div class="quick-brief-form-head">
         <span class="quick-brief-form-icon" aria-hidden>?</span>
         <div class="quick-brief-form-titles">
           <div class="quick-brief-form-title">{props.form.title}</div>
           <div class="quick-brief-form-desc">{props.form.description}</div>
         </div>
-        <Show when={locked}>
+        <Show when={isLocked()}>
           <span class="quick-brief-form-pill">已回答</span>
         </Show>
       </div>
@@ -184,10 +182,10 @@ export function QuickBriefFormView(props: Props) {
       </div>
 
       <div class="quick-brief-form-foot">
-        <Show when={locked} fallback={<span class="qf-hint">填写完必填项后提交</span>}>
+        <Show when={isLocked()} fallback={<span class="qf-hint">填写完必填项后提交</span>}>
           <span class="qf-locked-note">已锁定，无法修改</span>
         </Show>
-        <Show when={!locked}>
+        <Show when={!isLocked()}>
           <button
             type="button"
             class="qf-submit-btn primary"
