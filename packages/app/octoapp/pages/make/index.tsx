@@ -45,6 +45,9 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
+import { MakeQuestionDock } from "./components/make-question-dock"
+import { sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
+import type { QuestionRequest } from "@opencode-ai/sdk/v2"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -1010,7 +1013,12 @@ if (dsId) {
     void handleSubmit()
   }
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey()
+  const questionRequest = createMemo<QuestionRequest | undefined>(() => {
+    if (!params.id) return
+    return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
+  })
+
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest()
   const maxAttachments = () => attachments().length >= 5
 
   return (
@@ -1312,6 +1320,15 @@ if (dsId) {
                   attachments={attachments()}
                   onRemove={removeAttachment}
                 />
+
+                {/* Question dock - 阻塞式提问 UI */}
+                <Show when={questionRequest()} keyed>
+                  {(request) => (
+                    <div class="w-full pb-3">
+                      <MakeQuestionDock request={request} onSubmitted={() => sync.session.sync(params.id!)} />
+                    </div>
+                  )}
+                </Show>
 
                 {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
                 <StarterCards
