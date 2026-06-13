@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, createEffect } from "solid-js"
+import { createSignal, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -13,7 +13,6 @@ export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
   postMessage: (data: unknown) => void
   refresh: () => void
-  lastData?: unknown
 }
 
 export function PreviewPage(props: {
@@ -37,7 +36,6 @@ export function PreviewPage(props: {
   const TARGET_HEIGHT = 1080
 
   function triggerRefresh() {
-    if (props.api) props.api.lastData = undefined
     if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51856"
   }
 
@@ -54,7 +52,6 @@ export function PreviewPage(props: {
   }
 
   function sendToPreview(data: unknown) {
-    if (props.api) props.api.lastData = data
     if (!previewIframeRef?.contentWindow) return
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
   }
@@ -120,27 +117,12 @@ export function PreviewPage(props: {
 
   const handleIframeMessage = (e: MessageEvent) => {
     handlePickerMessage(e)
-    if (e.data?.type === "A2UI_READY" && props.api?.lastData) {
-      sendToPreview(props.api.lastData)
+    if (e.data?.type === "A2UI_READY" && props.pendingData) {
+      sendToPreview(props.pendingData)
     }
   }
   window.addEventListener("message", handleIframeMessage)
   onCleanup(() => window.removeEventListener("message", handleIframeMessage))
-
-  // 发送待处理数据
-  const handleReadyMessage = (e: MessageEvent) => {
-    if (e.data?.type !== "A2UI_READY") return
-    if (props.pendingData) sendToPreview(props.pendingData)
-  }
-  window.addEventListener("message", handleReadyMessage)
-  onCleanup(() => window.removeEventListener("message", handleReadyMessage))
-
-  createEffect(() => {
-    const data = props.pendingData
-    if (data && previewIframeRef?.contentWindow) {
-      sendToPreview(data)
-    }
-  })
 
   return (
     <div ref={(el) => { previewPageRef = el }} class="preview-container">

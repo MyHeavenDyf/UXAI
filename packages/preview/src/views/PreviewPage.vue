@@ -22,9 +22,13 @@ function applyA2UIJson(data: any) {
 }
 
 function handleMessage(event: MessageEvent) {
-  if (event.data?.type === "A2UI_UPDATE" && event.data?.payload) {
+  if (event.data?.type === "A2UI_UPDATE") {
     loading.value = false
-    applyA2UIJson(event.data.payload)
+    if (event.data.payload === null) {
+      currentContent.value = null
+    } else if (event.data.payload) {
+      applyA2UIJson(event.data.payload)
+    }
   }
 }
 
