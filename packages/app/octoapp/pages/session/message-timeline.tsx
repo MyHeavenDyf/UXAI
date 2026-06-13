@@ -11,6 +11,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
+import { KnowledgeReferences, type KnowledgeSource } from "./knowledge-references"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { TextField } from "@opencode-ai/ui/text-field"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
@@ -78,6 +79,17 @@ const taskDescription = (part: Part, sessionID: string) => {
   if (metadata?.sessionId !== sessionID) return
   const value = part.state.input?.description
   if (typeof value === "string" && value) return value
+}
+
+// 从一条消息的 parts 里取出 knowledge_search 的 sources(供底部「引用 N 篇资料」列表)。
+const knowledgeSources = (parts: Part[]): KnowledgeSource[] => {
+  for (const part of parts) {
+    if (part.type !== "tool" || part.tool !== "knowledge_search") continue
+    const metadata = "metadata" in part.state ? part.state.metadata : undefined
+    const sources = (metadata as { sources?: unknown } | undefined)?.sources
+    if (Array.isArray(sources) && sources.length > 0) return sources as KnowledgeSource[]
+  }
+  return []
 }
 
 const pace = (width: number) => Math.round(Math.max(1200, Math.min(3200, (Math.max(width, 360) * 2000) / 900)))
@@ -1043,6 +1055,19 @@ export function MessageTimeline(props: {
                       ),
                   })
                   const commentCount = createMemo(() => comments().length)
+                  // messageID 是「用户消息」id,一个 turn 渲染「用户消息 + 其后的 assistant 回复」。
+                  // 思维链模型(如 DeepSeek R1)会把 reasoning+tool 与最终正文拆成多条 assistant 消息,
+                  // 故从本用户消息往后扫到下一条用户消息为止,在这些 assistant 消息里找 knowledge_search sources。
+                  const kbSources = createMemo<KnowledgeSource[]>(() => {
+                    const msgs = sessionMessages()
+                    const idx = msgs.findIndex((m) => m.id === messageID)
+                    if (idx < 0) return []
+                    for (let i = idx + 1; i < msgs.length && msgs[i].role !== "user"; i++) {
+                      const sources = knowledgeSources(sync.data.part[msgs[i].id] ?? [])
+                      if (sources.length > 0) return sources
+                    }
+                    return []
+                  })
                   return (
                     <div
                       id={props.anchor(messageID)}
@@ -1112,6 +1137,9 @@ export function MessageTimeline(props: {
                           container: "w-full px-4 md:px-5",
                         }}
                       />
+                      <Show when={kbSources().length > 0}>
+                        <KnowledgeReferences sources={kbSources()} />
+                      </Show>
                     </div>
                   )
                 }}

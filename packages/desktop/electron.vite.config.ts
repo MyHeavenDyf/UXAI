@@ -41,6 +41,8 @@ export default defineConfig(({ mode }) => {
     main: {
       define: {
         "import.meta.env.OCTO_CHANNEL": JSON.stringify(channel),
+        // 把业务接口 base 注入 main(供 sidecar 桥接给 server 侧工具,如 knowledge_search)。
+        "import.meta.env.VITE_OCTO_BASE_URL": JSON.stringify(env.VITE_OCTO_BASE_URL ?? ""),
       },
       build: {
         rollupOptions: {
