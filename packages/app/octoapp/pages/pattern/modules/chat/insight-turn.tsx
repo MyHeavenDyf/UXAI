@@ -8,6 +8,7 @@ import { createArtifactParser } from "../../utils/artifact-parser"
 import { stripArtifact } from "../../utils/artifact-strip"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
+import { UserInputCard } from "./user-input-card"
 import "../../assets/style/chat/insight-turn.css"
 
 export type OutputCardType =
@@ -469,76 +470,9 @@ export function InsightTurn(props: {
     return null
   })
 
-  const [userExpanded, setUserExpanded] = createSignal(false)
-  const [contentOverflows, setContentOverflows] = createSignal(false)
-  const [collapsedMaxHeight, setCollapsedMaxHeight] = createSignal("")
-  let bubbleContentRef: HTMLDivElement | undefined
-
-  const isUserRequirement = createMemo(() => userText().includes("[用户的需求:]"))
-
-  createEffect(() => {
-    const text = userText()
-    if (!bubbleContentRef || !isUserRequirement()) {
-      setContentOverflows(false)
-      setCollapsedMaxHeight("")
-      return
-    }
-    const measure = () => {
-      if (!bubbleContentRef) return
-      const lineHeight = parseFloat(getComputedStyle(bubbleContentRef).lineHeight) || 22
-      const fiveLineHeight = lineHeight * 5
-      setCollapsedMaxHeight((prev) => {
-        const val = `${fiveLineHeight}px`
-        return prev === val ? prev : val
-      })
-      setContentOverflows((prev) => {
-        const overflows = bubbleContentRef!.scrollHeight > fiveLineHeight
-        return prev === overflows ? prev : overflows
-      })
-    }
-    const raf = requestAnimationFrame(measure)
-    onCleanup(() => cancelAnimationFrame(raf))
-  })
-
-  const showCollapseBtn = createMemo(() => isUserRequirement() && contentOverflows())
-
   return (
     <div class="flex flex-col">
-      <div class="flex justify-end px-3 py-2.5">
-        <div class="flex flex-col items-end max-w-[85%]">
-          <div
-            class="user-bubble-wrapper"
-            classList={{
-              "user-bubble-collapsed": showCollapseBtn() && !userExpanded(),
-              "user-bubble-expanded": showCollapseBtn() && userExpanded(),
-            }}
-          >
-            <div class="text-sm whitespace-pre-wrap break-words leading-relaxed px-3 py-2 bubble-content">
-              <div
-                ref={bubbleContentRef}
-                class="bubble-text-inner"
-                style={showCollapseBtn() && !userExpanded() ? { "max-height": collapsedMaxHeight(), overflow: "hidden" } : undefined}
-              >
-                {userText()}
-              </div>
-            </div>
-            <Show when={showCollapseBtn()}>
-              <div class="user-bubble-toggle-wrap">
-                <Show when={!userExpanded()}>
-                  <div class="user-bubble-fade" />
-                </Show>
-                <button
-                  type="button"
-                  class="user-bubble-toggle-btn"
-                  onClick={() => setUserExpanded((v) => !v)}
-                >
-                  {userExpanded() ? "收起" : "展开"}
-                </button>
-              </div>
-            </Show>
-          </div>
-        </div>
-      </div>
+      <UserInputCard text={userText()} />
 
       {/* 文件操作摘要（生成完成后） */}
       <Show when={!showGenerating() && toolCalls().length > 0}>
