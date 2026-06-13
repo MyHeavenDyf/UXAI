@@ -335,14 +335,66 @@ const sessionMessagesLoaded = createMemo(() => {
           {
             timestamp: Date.now(),
             eventType: e.type,
+            sessionID: eventSessionID ?? sid,
             messageID: props?.messageID as string,
             partID: props?.partID as string,
             field: (props as Record<string, unknown>)?.field as string,
             delta: (props as Record<string, unknown>)?.delta as string,
           }
         ])
+      } else if (e.type === "session.next.reasoning.delta") {
+        setLastDeltaTime(Date.now())
+        setBlockTime(0)
+        setDeltaLog(prev => [
+          ...prev.slice(-19),
+          {
+            timestamp: Date.now(),
+            eventType: e.type,
+            sessionID: eventSessionID ?? sid,
+            messageID: "",
+            partID: props?.reasoningID as string,
+            field: "reasoning",
+            delta: (props as Record<string, unknown>)?.delta as string,
+          }
+        ])
+      } else if (e.type === "message.part.updated") {
+        const part = props?.part as Record<string, unknown> | undefined
+        const partType = part?.type as string | undefined
+        const partText = part?.text as string | undefined
+        if (partType === "text" && partText && eventSessionID && eventSessionID !== sid) {
+          setLastDeltaTime(Date.now())
+          setBlockTime(0)
+          setDeltaLog(prev => [
+            ...prev.slice(-19),
+            {
+              timestamp: Date.now(),
+              eventType: e.type,
+              sessionID: eventSessionID,
+              messageID: part?.messageID as string,
+              partID: part?.id as string,
+              field: "text",
+              delta: partText,
+            }
+          ])
+        } else if (partType === "reasoning" && partText && eventSessionID && eventSessionID !== sid) {
+          setLastDeltaTime(Date.now())
+          setBlockTime(0)
+          setDeltaLog(prev => [
+            ...prev.slice(-19),
+            {
+              timestamp: Date.now(),
+              eventType: e.type,
+              sessionID: eventSessionID,
+              messageID: part?.messageID as string,
+              partID: part?.id as string,
+              field: "reasoning",
+              delta: partText,
+            }
+          ])
+        }
       } else {
-        console.log(`[make:event] ${e.type}`, props)
+        const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
+        console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
       }
     })
     onCleanup(unsub)
