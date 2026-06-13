@@ -18,6 +18,7 @@ import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NotFoundError } from "@/storage/storage"
 import { NamedError } from "@opencode-ai/core/util/error"
+import * as Log from "@opencode-ai/core/util/log"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -39,6 +40,8 @@ import {
 } from "../groups/session"
 import * as SessionError from "./session-errors"
 
+const log = Log.create({ service: "session-httpapi" })
+
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* Session.Service
@@ -56,7 +59,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const scope = yield* Scope.Scope
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
-      return yield* session.list({
+      log.info("list:enter", {
+        scope: ctx.query.scope,
+        directory: ctx.query.directory,
+        path: ctx.query.path,
+        start: ctx.query.start,
+        limit: ctx.query.limit,
+      })
+      const result = yield* session.list({
         directory: ctx.query.scope === "project" ? undefined : ctx.query.directory,
         scope: ctx.query.scope,
         path: ctx.query.path,
@@ -66,6 +76,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         limit: ctx.query.limit,
         category: ctx.query.category,
       })
+      log.info("list:success", { count: Array.isArray(result) ? result.length : "n/a" })
+      return result
     })
 
     const status = Effect.fn("SessionHttpApi.status")(function* () {
