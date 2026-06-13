@@ -5,7 +5,7 @@ import { useData } from "@opencode-ai/ui/context"
 import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { OutputEntryCard } from "./output-entry-card"
-import { isMarkdownTable, scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
+import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType } from "../utils/resource-link"
 import { type TaskCardEntry } from "../utils/task-detect"
@@ -173,25 +173,14 @@ export function InsightTurn(props: {
     }
 
     // B-2. 非 HTML 规则:取最后一条 text part 跑一次
-    //   - markdown 表格 → table 入口卡(美化预览 + CSV/Excel 下载)
     //   - mindmap shape JSON → mindmap 入口卡(markmap 思维导图渲染)
-    //   - 其他 JSON / 代码 / markdown → **不出卡**(对话区 opencode <Markdown> 原渲染已足够)
-    // 设计:出卡的唯一目的是"追加预览能力";普通 JSON / 代码段有 shiki 高亮 + 复制即够,无追加价值。
-    // 详见 docs/specs/ui/output-renderers.md §2(嗅探规则:仅识别"值得追加预览"的内容)。
+    //   - 其他 JSON / 代码 / markdown / **markdown 表格** → **不出卡**(对话区 opencode <Markdown> 原渲染已足够)
+    // 设计:出卡的唯一目的是"追加预览能力";普通 JSON / 代码段 / markdown 表格有 shiki 高亮 + 复制即够,无追加价值。
+    // 注:md 表格曾在路径 B 嗅探成 table 卡,2026-06 移除——业务表格走路径 A(text/csv resource_link),
+    //    对话里 LLM 直出的 md 表格由上游 <Markdown> 原样渲染已足够;详见 output-renderers.md §2.1。
     const lastText = (textParts[textParts.length - 1]?.text ?? "").trim()
     if (lastText.length >= 10) {
       const matched: string[] = []
-      if (isMarkdownTable(lastText)) {
-        matched.push("table")
-        cards.push({
-          id: `card-${props.messageID}-table`,
-          title: lastText.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? "分析表格",
-          type: "table",
-          source: "inline",
-          content: lastText,
-          createdAt: msgDate,
-        })
-      }
       if (isMindmapJSON(lastText)) {
         matched.push("mindmap")
         cards.push({
