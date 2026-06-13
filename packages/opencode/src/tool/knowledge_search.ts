@@ -12,12 +12,15 @@ export const Parameters = Schema.Struct({
   query: Schema.String.annotate({ description: "用户的自然语言问题,用于检索内网知识库" }),
 })
 
-// 接口路径(env OCTO_KB_PATH 可覆盖 —— 内网若 base 已含部分前缀,可用它快速改对而不必重打包)。
-const DEFAULT_KB_PATH = "/main/rest.root/ucdAgent/ucdAgent/getKnowledgeVector"
+// 接口路径固定(beta/prod 仅 host 不同、路径相同);host 走 OCTO_KB_BASE_URL。
+const KB_PATH = "/main/rest.root/ucdAgent/ucdAgent/getKnowledgeVector"
 // 未配置 OCTO_KB_BASE_URL 时(典型外网调试)默认走本地 mock(见 script/kb-mock-server.ts)。
 // 真实构建里 OCTO_KB_BASE_URL 由 VITE_OCTO_BASE_URL 桥接注入,不会用到这个默认值。
 const DEFAULT_MOCK_BASE = "http://localhost:8787"
-const DEFAULT_TOP_K = 6
+// 以下是与环境无关的固定参数(不放 env):
+const TOP_K = 6
+// account 非必传(仅记录/限流):默认空串。如需按账号记账,在此填工号,或改走 session 注入(见 spec §6)。
+const ACCOUNT = ""
 const MAX_CHUNK_CHARS = 800
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -112,21 +115,14 @@ export const KnowledgeSearchTool = Tool.define(
       execute: (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) =>
         Effect.gen(function* () {
           const base = env("OCTO_KB_BASE_URL") || DEFAULT_MOCK_BASE
-          const topKEnv = Number(env("OCTO_KB_TOP_K"))
-          const topK = Number.isFinite(topKEnv) && topKEnv > 0 ? topKEnv : DEFAULT_TOP_K
-          // account 非必传:缺省发空串(服务端容忍,仅用于记录/限流)。
-          const account = env("OCTO_KB_ACCOUNT") ?? ""
-          const kbPath = env("OCTO_KB_PATH") || DEFAULT_KB_PATH
-          const url = `${base.replace(/\/$/, "")}${kbPath}`
-          // 诊断:一次性打印环境变量、解析后的 base/path 与完整 URL(排查内网路径/env 问题)。
+          const topK = TOP_K
+          const account = ACCOUNT
+          const url = `${base.replace(/\/$/, "")}${KB_PATH}`
+          // 诊断:打印 base / 完整 URL(排查内网 host / env 问题)。
           console.log("[octo:kb] config", {
             envBaseUrl: env("OCTO_KB_BASE_URL"),
             usingMockDefault: !env("OCTO_KB_BASE_URL"),
-            envPath: env("OCTO_KB_PATH"),
-            envAccount: env("OCTO_KB_ACCOUNT"),
-            envTopK: env("OCTO_KB_TOP_K"),
             resolvedBase: base,
-            resolvedPath: kbPath,
             url,
             account,
             query: params.query,
