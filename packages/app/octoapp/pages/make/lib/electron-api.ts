@@ -6,6 +6,7 @@ export type DesktopApi = {
   downloadResource?: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp?: (url: string, namespace: string, filename: string) => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
+  capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

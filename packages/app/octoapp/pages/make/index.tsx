@@ -41,10 +41,14 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
+import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
+import { MakeQuestionDock } from "./components/make-question-dock"
+import { sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
+import type { QuestionRequest } from "@opencode-ai/sdk/v2"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -92,6 +96,7 @@ function MakeContent() {
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
+  const providers = useProviders()
 
   // Register Make slash commands
   useMakeCommands()
@@ -112,6 +117,26 @@ function MakeContent() {
         const cur = currentModel()
         if (cur && cur.provider.id === providerID && cur.id === modelID) return
         local.model.set({ providerID, modelID }, { recent: true })
+      },
+      { defer: true },
+    ),
+  )
+
+  createEffect(
+    on(
+      () => {
+        const connectedStr = providers.connected().map((p) => p.id).sort().join(",")
+        const model = currentModel()
+        return {
+          connected: connectedStr,
+          key: model ? `${model.provider.id}/${model.id}` : null,
+        }
+      },
+      (next, prev) => {
+        if (next.key == null || prev === undefined) return
+        if (next.key === prev.key) return
+        const [providerID, modelID] = next.key.split("/")
+        local.model.set({ providerID, modelID })
       },
       { defer: true },
     ),
@@ -257,6 +282,13 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setSending(false)
         setDeltaLog([])
+
+        if (sendingNavigation) {
+          sendingNavigation = false
+        } else {
+          setAttachments([])
+        }
+
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -451,6 +483,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
@@ -767,11 +800,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       const session = result.data as Session | undefined
       if (!session) return
       const dsId = selectedDesignSystem()
-      if (dsId) {
-        localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
-      }
-      navigate(`/make/${session.id}`)
-      sid = session.id
+if (dsId) {
+          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+        }
+        sendingNavigation = true
+        navigate(`/make/${session.id}`)
+        sid = session.id
       }
       await sendMessage(sid, text)
     } catch (err) {
@@ -1001,7 +1035,12 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
     void handleSubmit()
   }
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey()
+  const questionRequest = createMemo<QuestionRequest | undefined>(() => {
+    if (!params.id) return
+    return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
+  })
+
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest()
   const maxAttachments = () => attachments().length >= 5
 
   return (
@@ -1303,6 +1342,15 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
                   attachments={attachments()}
                   onRemove={removeAttachment}
                 />
+
+                {/* Question dock - 阻塞式提问 UI */}
+                <Show when={questionRequest()} keyed>
+                  {(request) => (
+                    <div class="w-full pb-3">
+                      <MakeQuestionDock request={request} onSubmitted={() => sync.session.sync(params.id!)} />
+                    </div>
+                  )}
+                </Show>
 
                 {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
                 <StarterCards

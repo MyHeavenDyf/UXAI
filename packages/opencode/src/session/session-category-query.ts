@@ -1,5 +1,6 @@
 import { Database } from "@/storage/db"
 import { eq, and, gte, isNull, desc, like, inArray, lt, or, sql } from "drizzle-orm"
+import * as Log from "@opencode-ai/core/util/log"
 import { SessionTable, PartTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { SessionCategoryTable } from "./session-category.sql"
@@ -7,6 +8,8 @@ import { agentToCategory } from "./session-category"
 import { fromRow, type Info, type GlobalInfo, type ListInput } from "./session"
 import type { SessionID } from "./schema"
 import type { ProjectID } from "../project/schema"
+
+const log = Log.create({ service: "session-category-query" })
 
 export function getWithCategory(id: SessionID): Info | null {
   const row = Database.use((db) =>
@@ -18,7 +21,12 @@ export function getWithCategory(id: SessionID): Info | null {
       .get(),
   )
   if (!row) return null
-  return fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined)
+  try {
+    return fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined)
+  } catch (err) {
+    log.error("session-get:bad-row", { sessionID: id, error: String(err) })
+    return null
+  }
 }
 
 export function childrenWithCategory(parentID: SessionID): Info[] {
@@ -30,7 +38,14 @@ export function childrenWithCategory(parentID: SessionID): Info[] {
       .where(and(eq(SessionTable.parent_id, parentID)))
       .all(),
   )
-  return rows.map((row) => fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined))
+  return rows.flatMap((row) => {
+    try {
+      return [fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined)]
+    } catch (err) {
+      log.error("session-children:skip-bad-row", { sessionID: row.session.id, error: String(err) })
+      return []
+    }
+  })
 }
 
 export function* listByProjectWithCategory(
@@ -82,7 +97,11 @@ export function* listByProjectWithCategory(
       .all(),
   )
   for (const row of rows) {
-    yield fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined)
+    try {
+      yield fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined)
+    } catch (err) {
+      log.error("session-list:skip-bad-row", { sessionID: row.session.id, error: String(err) })
+    }
   }
 }
 
@@ -151,8 +170,12 @@ export function* listGlobalWithCategory(input?: {
   }
 
   for (const row of rows) {
-    const project = projects.get(row.session.project_id) ?? null
-    yield { ...fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined), project }
+    try {
+      const project = projects.get(row.session.project_id) ?? null
+      yield { ...fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined), project }
+    } catch (err) {
+      log.error("session-global-list:skip-bad-row", { sessionID: row.session.id, error: String(err) })
+    }
   }
 }
 
@@ -163,7 +186,14 @@ export function getAllWithCategory(): Info[] {
       .from(SessionTable)
       .leftJoin(SessionCategoryTable, eq(SessionTable.id, SessionCategoryTable.session_id))
       .all(),
-  ).map((row) => fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined))
+  ).flatMap((row) => {
+    try {
+      return [fromRow(row.session as typeof SessionTable.$inferSelect, row.category ?? undefined)]
+    } catch (err) {
+      log.error("session-all:skip-bad-row", { sessionID: row.session.id, error: String(err) })
+      return []
+    }
+  })
 }
 
 export function insertCategory(sessionID: SessionID, agentName: string): void {
