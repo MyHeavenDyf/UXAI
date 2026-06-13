@@ -23,7 +23,7 @@ export function UserInputCard(props: { text: string }): JSX.Element {
         return prev === val ? prev : val
       })
       setContentOverflows((prev) => {
-        const overflows = bubbleContentRef!.scrollHeight > fiveLineHeight
+        const overflows = bubbleContentRef!.scrollHeight > fiveLineHeight + lineHeight * 0.3
         return prev === overflows ? prev : overflows
       })
     }
