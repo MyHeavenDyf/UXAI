@@ -20,19 +20,12 @@ const sentry =
       })
     : false
 
-<<<<<<< HEAD
-const mockProxy = process.env.MOCK_API === "false"
-  ? {
-      "/pipeline/rest.root/workflow": {
-        target: "https://octo.hdesign.huawei.com",
-=======
 const octoBaseUrl = process.env.VITE_OCTO_BASE_URL
 
 const mockProxy = process.env.MOCK_API === "false"
   ? {
       "/pipeline/rest.root/workflow": {
         target: octoBaseUrl,
->>>>>>> origin/dev
         changeOrigin: true,
         secure: true,
       },
