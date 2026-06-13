@@ -13,9 +13,7 @@ import router from './router'
 
 initDefaultCatlog()
 initTheme()
-if (window && window.self !== window.top) {
-  installVueDomPicker()
-}
+installVueDomPicker()
 
 // 监听来自 chat-project 的主题切换消息
 const { setTheme } = useTheme()

@@ -11,6 +11,7 @@ import {
   on,
   onCleanup,
   Show,
+  type JSX,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -40,6 +41,7 @@ import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog
 import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { ChatPanel } from "./modules/chat/index"
+import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 
 const AGENT_NAME = "proto_triage"
 
@@ -58,6 +60,16 @@ export default function PatternPage() {
         </SDKProvider>
       )}
     </Show>
+  )
+}
+
+function PatternPreviewEmpty(): JSX.Element {
+  return (
+    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#f9fafb" }}>
+      <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
+      <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>对话产出将在这里展示</div>
+      <div class="text-[12px]" style={{ color: "var(--octo-text-disabled, #BFBFBF)" }}>点击左侧输出卡片即可打开</div>
+    </div>
   )
 }
 
@@ -127,6 +139,7 @@ function PatternContent() {
           setLastModules([])
           setVersions([])
           setCurrentVersionId(null)
+          setHasPreviewContent(false)
 
           // 同步子 session 消息
           void sync.session.sync(id).then(() => {
@@ -237,6 +250,8 @@ function PatternContent() {
   const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
+  const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
+  const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
@@ -320,7 +335,9 @@ function PatternContent() {
 
   function sendToPreview(data: unknown) {
     previewApi.lastData = data
+    setPendingPreviewData(data)
     previewApi.sendToPreview(data)
+    setHasPreviewContent(true)
   }
 
   async function handleSubmit() {
@@ -660,7 +677,20 @@ function PatternContent() {
 
   function handleOpenResult(card: OutputCard) {
     const doc = detectA2UIJson(card.content)
-    if (doc) sendToPreview(doc)
+    if (doc) {
+      sendToPreview(doc)
+    } else if (lastModules().length > 0) {
+      // Card isn't raw A2UI JSON but we have generated content — reshow it
+      const shell = lastPlanner()
+      const shellLayout = (shell?.layout_planner as Record<string, unknown> | undefined) ?? shell
+      const merged = mergeModules(
+        { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
+        // @ts-expect-error pre-existing type mismatch in mergeModules
+        lastModules(),
+      )
+      const mergedJson = detectA2UIJson(JSON.stringify(merged))
+      if (mergedJson) sendToPreview(mergedJson)
+    }
   }
 
   // 回退到指定历史版本
@@ -735,15 +765,18 @@ function PatternContent() {
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
-        {/* 预览页 — 通过 props 传入版本历史数据，预览区内时钟按钮触发 history dialog */}
+        {/* 预览页 — 默认空态，用户点击输出卡片或生成完成后切换到 iframe */}
         <Show when={hasContent()}>
-          <PreviewPage
-            api={previewApi}
-            onPickerSubmit={handlePickerSubmit}
-            versions={versions()}
-            currentVersionId={currentVersionId()}
-            onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
-          />
+          <Show when={hasPreviewContent()} fallback={<PatternPreviewEmpty />}>
+            <PreviewPage
+              api={previewApi}
+              pendingData={pendingPreviewData()}
+              onPickerSubmit={handlePickerSubmit}
+              versions={versions()}
+              currentVersionId={currentVersionId()}
+              onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+            />
+          </Show>
         </Show>
       </div>
     </DataProvider>

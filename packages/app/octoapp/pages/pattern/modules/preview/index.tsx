@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from "solid-js"
+import { createSignal, onCleanup, createEffect } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -18,6 +18,7 @@ export type PreviewPageAPI = {
 
 export function PreviewPage(props: {
   api?: PreviewPageAPI
+  pendingData?: unknown
   onPickerSubmit?: (text: string, domPickerId: string) => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
@@ -125,6 +126,21 @@ export function PreviewPage(props: {
   }
   window.addEventListener("message", handleIframeMessage)
   onCleanup(() => window.removeEventListener("message", handleIframeMessage))
+
+  // 发送待处理数据
+  const handleReadyMessage = (e: MessageEvent) => {
+    if (e.data?.type !== "A2UI_READY") return
+    if (props.pendingData) sendToPreview(props.pendingData)
+  }
+  window.addEventListener("message", handleReadyMessage)
+  onCleanup(() => window.removeEventListener("message", handleReadyMessage))
+
+  createEffect(() => {
+    const data = props.pendingData
+    if (data && previewIframeRef?.contentWindow) {
+      sendToPreview(data)
+    }
+  })
 
   return (
     <div ref={(el) => { previewPageRef = el }} class="preview-container">
