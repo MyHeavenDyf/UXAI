@@ -1,6 +1,5 @@
 import { extractJson } from '../../utils/json_parser';
-import { runChildSession } from '../run-child-session';
-import intentAuditSchema from './schema';
+import { runChildSession } from '../run_child_session';
 
 const AGENT_NAME = "proto_intent_audit"
 
@@ -25,8 +24,8 @@ export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
   const { sdk, sync, modelKey, rootSession, userInput, intentDescription, onSessionCreated } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(userInput, intentDescription)
-    const startTime = Date.now()
-  console.log("[Pattern ] intent_audit_agent运行中")
+  console.log("----- 意图诊断Agent开始执行 ----- ");
+  const startTime = Date.now()
   // 执行 Agent
   const auditResult = await runChildSession({
     client: sdk.client,
@@ -38,8 +37,7 @@ export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
     sync,
     onSessionCreated,
   })
-   console.log("[Pattern ] intent_audit_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
-  debugger
+  console.log("----- 意图诊断Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 audit json
   const intentJson = extractJson(auditResult)
   if (!intentJson) throw new Error("----- Intent Audit did not return valid JSON -----")

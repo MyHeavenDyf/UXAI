@@ -17,49 +17,59 @@ type ProtoCreateJsonInput = {
   userInput: string
 }
 
-export default async function create_json(inputCtx: ProtoCreateJsonInput){
+export default async function create_json(inputCtx: ProtoCreateJsonInput, onFinshed: (finalJson: any) => Promise<void>){
     // 第一步：意图扩展
     let intentResult = await proto_intent(inputCtx)
     
-    // 第二步：意图检查 - 最多进行N(当前1)次审查
-    for (let attempt = 0; attempt < 1; attempt++) {
-        let descriptionStr = JSON.stringify(intentResult.intent_description);
-        const audit = await proto_intent_audit({ ...inputCtx, intentDescription: descriptionStr });
-        if (audit.intent_audit_pass) break;
-        intentResult = await proto_intent({
-            ...inputCtx,
-            auditFeedback: audit.intent_audit_feedback as string,
-            intentAuditPass: audit.intent_audit_pass as boolean,
-            pageDescription: descriptionStr
-        })
-    }
-    
+    // 第二步：意图检查 - 最多进行N(当前1)次审查 --- 未提升运行速度，暂时屏蔽
+    // for (let attempt = 0; attempt < 1; attempt++) {
+    //   let descriptionStr = JSON.stringify(intentResult.intent_description);
+    //   const audit = await proto_intent_audit({ ...inputCtx, intentDescription: descriptionStr });
+    //   if (audit.intent_audit_pass) break;
+    //   intentResult = await proto_intent({
+    //     ...inputCtx,
+    //     auditFeedback: audit.intent_audit_feedback as string,
+    //     intentAuditPass: audit.intent_audit_pass as boolean,
+    //     pageDescription: descriptionStr
+    //   })
+    // }
+          
     // 第三步：页面局部
     let pageDescriptionStr = JSON.stringify(intentResult.intent_description);
     const planner = await proto_planner_create({ ...inputCtx, intentDescription: pageDescriptionStr });
-    
-    // 第四步：逐模块生成 A2UI JSON
-    const modules: Array<any> = []
-    for (const slot of planner.layout_planner.slots as Array<any>) {
-        const moduleResult = await proto_module_create({
-            ...inputCtx,
-            idPrefix: slot.id_prefix,
-            sectionId: slot.section_id,
-            elementId: slot.element_id,
-            layoutPlanner: planner,
-            intentDescription: intentResult
-        })
-        modules.push(moduleResult.ui_json)
-    }
           
-    // 第五步：合并
-    const merged = mergeModules(
-        { 
-            rootId: planner.layout_planner.rootId as string,
-            elements: planner.layout_planner.elements
-        },
-        modules,
+    // 第四步：并行生成 A2UI JSON
+    const modules = await Promise.all(
+        (planner.layout_planner.slots as Array<any>).map(slot =>
+            proto_module_create({
+                ...inputCtx,
+                idPrefix: slot.id_prefix,
+                sectionId: slot.section_id,
+                elementId: slot.element_id,
+                layoutPlanner: planner.layout_planner,
+                intentDescription: intentResult.intent_description
+            }).then(r => r.ui_json)
+        )
     )
 
-    return merged
+    // 第五步：合并完整UI JSON
+    const merged = mergeModules(
+        { 
+            rootId: planner.layout_planner.rootId as string, 
+            elements: planner.layout_planner.elements as any 
+        },
+        modules as any,
+    )
+
+    // 执行完成的回调
+    await onFinshed({
+        // 页面意图描述
+        pageIntent: intentResult.intent_page,
+        // 布局规划
+        layoutPlanner: planner.layout_planner,
+        // 每个模块的 JSON
+        modulesJson: modules,
+        // 完整页面的 JSON
+        pageJson: merged
+    })    
 }

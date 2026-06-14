@@ -1,5 +1,7 @@
-import type { SDK } from "@/context/sdk"
-import { runChildSession } from "../run-child-session"
+import { extractJson } from '../../utils/json_parser';
+import { runChildSession } from "../run_child_session"
+
+const AGENT_NAME = "proto_module_modify";
 
 export interface ModuleModifyInput {
   layoutPlanner: Record<string, unknown>
@@ -16,52 +18,71 @@ export interface ModuleModifyResult {
   idPrefix: string
 }
 
-export type ModuleModifyContext = {
-  sdk: { client: SDK["client"] }
-  directory: string
-  modelKey: { providerID: string; modelID: string }
-  parentSessionId: string
+type ModuleModifyContext = {
+  // 公共sdk
+  sdk: any
+  // 公共流式数据
+  sync: any
+  // 当前使用的模型
+  modelKey: any
+  // 根节点session
+  rootSession: string
+  // 用户输入
+  userInput: string
+  // 修改输入
   input: ModuleModifyInput
-  abortSignal: AbortSignal
-  sync?: any
+  // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
 }
 
-function extractA2UIJson(text: string): Record<string, unknown> | null {
-  const clean = text.replace(/\ufeff/g, "").replace(/\u200b/g, "").trim()
+export default async function proto_module_modify(ctx: ModuleModifyContext): Promise<ModuleModifyResult> {
+  const {
+    sdk,
+    sync,
+    modelKey,
+    rootSession,
+    userInput,
+    onSessionCreated 
+  } = ctx
+  // 组装输入提示词
+  const humanMessage = buildHumanMessage(ctx.input)
+  debugger
+  console.log("----- 模块修改Agent开始执行 ----- ");
+  const startTime = Date.now();
+  const modifyRes = await runChildSession({
+    sync,
+    modelKey,
+    onSessionCreated,
+    agent: AGENT_NAME,
+    client: sdk.client,
+    prompt: humanMessage,
+    directory: sdk.directory,
+    parentSessionID: rootSession
+  })
+  console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
+  // 转换成 json 数据
+  const modifyJson = extractJson(modifyRes)
+  if (!modifyJson) throw new Error("module_modify did not return valid JSON")
 
-  const codeBlockMatch = clean.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/)
-  if (codeBlockMatch) {
-    try {
-      const parsed = JSON.parse(codeBlockMatch[1].trim()) as Record<string, unknown>
-      if (parsed.rootId && parsed.elements) return parsed
-    } catch { }
-  }
-
-  const starts: number[] = []
-  for (let i = 0; i < clean.length; i++) {
-    if (clean[i] === "{") starts.push(i)
-  }
-
-  for (const start of starts) {
-    let depth = 0
-    for (let i = start; i < clean.length; i++) {
-      if (clean[i] === "{") depth++
-      if (clean[i] === "}") depth--
-      if (depth === 0) {
-        try {
-          const parsed = JSON.parse(clean.slice(start, i + 1)) as Record<string, unknown>
-          if (parsed.rootId && parsed.elements) return parsed
-        } catch { }
-        break
-      }
+  const rootElementId = ctx.input.originModules.rootId as string
+  if (modifyJson.rootId !== rootElementId) {
+    const target = (modifyJson.elements as Array<{ id: string }>)?.find((e) => e.id === modifyJson.rootId)
+    if (target) {
+      target.id = rootElementId
+      modifyJson.rootId = rootElementId
     }
   }
 
-  return null
+  return {
+    ui_json: modifyJson,
+    sectionId: ctx.input.sectionId,
+    elementId: rootElementId,
+    idPrefix: ctx.input.idPrefix,
+  }
 }
 
-function buildModifyPrompt(input: ModuleModifyInput): string {
+
+function buildHumanMessage(input: ModuleModifyInput): string {
   return [
     `[顶层布局和Slots]: ===============`,
     JSON.stringify(input.layoutPlanner),
@@ -78,43 +99,4 @@ function buildModifyPrompt(input: ModuleModifyInput): string {
     `[修改意见] ===============`,
     JSON.stringify(input.modifications),
   ].join("\n")
-}
-
-export async function runModuleModify(ctx: ModuleModifyContext): Promise<ModuleModifyResult> {
-  const startTime = Date.now()
-  console.log("[Pattern ] module_modify_agent运行中")
-  const promptText = buildModifyPrompt(ctx.input)
-  const raw = await runChildSession({
-    client: ctx.sdk.client,
-    directory: ctx.directory,
-    parentSessionID: ctx.parentSessionId,
-    agent: "proto_module_modify",
-    modelKey: ctx.modelKey,
-    prompt: promptText,
-    sync: ctx.sync,
-    onSessionCreated: ctx.onSessionCreated,
-  })
-
-  console.log("[Pattern ] module_modify_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
-  console.log("[module_modify] raw (first 300 chars):", raw.slice(0, 300))
-  const moduleJson = extractA2UIJson(raw)
-
-  if (!moduleJson) throw new Error("module_modify did not return valid JSON")
-
-  const rootElementId = ctx.input.originModules.rootId as string
-  if (moduleJson.rootId !== rootElementId) {
-    const target = (moduleJson.elements as Array<{ id: string }>)?.find((e) => e.id === moduleJson.rootId)
-    if (target) {
-      target.id = rootElementId
-      moduleJson.rootId = rootElementId
-    }
-  }
-
-
-  return {
-    ui_json: moduleJson,
-    sectionId: ctx.input.sectionId,
-    elementId: rootElementId,
-    idPrefix: ctx.input.idPrefix,
-  }
 }

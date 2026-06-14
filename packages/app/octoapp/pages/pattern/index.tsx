@@ -24,15 +24,18 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { type Attachment } from "./modules/chat/attachment_bar"
 import { type OutputCard } from "./modules/chat/insight-turn"
-import { runProtoTriage } from "./agents/proto_triage"
+
 import proto_intent from "./agents/proto_intent"
 import proto_intent_audit from "./agents/proto_intent_audit"
 import proto_planner_create from "./agents/proto_planner_create"
 import proto_module_create from "./agents/proto_module_create"
-import { getDesignMap, readDesignFile } from "./design/load_design"
+// import { getDesignMap, readDesignFile } from "./design/load_design"
+
 import create_json from './workflow/create_json'
-import { runProtoPlannerModify } from "./agents/proto_planner_modify"
-import { runModuleModify } from "./agents/proto_module_modify"
+import modify_json_ai from './workflow/modify_json_ai'
+
+// import { runProtoPlannerModify } from "./agents/proto_planner_modify"
+// import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
 import { rollbackToVersion } from "./utils/history"
@@ -321,6 +324,7 @@ function PatternContent() {
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
+    debugger
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
   }
@@ -336,6 +340,7 @@ function PatternContent() {
     const controller = new AbortController()
     const mk = activeModelKey()!
     try {
+      debugger
       let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
@@ -354,16 +359,7 @@ function PatternContent() {
         await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => { })
       }
 
-      const ctx = {
-        sdk: { client: sdk.client },
-        directory: sdk.directory,
-        modelKey: mk,
-        parentSessionId: sid,
-        abortSignal: controller.signal,
-        sync: sync,
-        onSessionCreated: (childID: string) => setChildSessionIDs((prev) => [...prev, childID]),
-      }
-
+      // 执行流程的基础上下文
       let intentCtx = {
         sdk: sdk,
         sync: sync,
@@ -372,207 +368,39 @@ function PatternContent() {
         userInput: text,
         onSessionCreated: (childID: string) => setChildSessionIDs((prev) => [...prev, childID]),
       }
-
-      // ── Step 0: triage → 判断首次还是修改 ──
-      const isEdit = !!lastIntent()
-      const currentPlanner = lastPlanner()
-      console.log("[Pattern] 进入代理: proto_triage")
-      const triage = await runProtoTriage({
-        sdk: { client: sdk.client },
-        directory: sdk.directory!,
-        modelKey: mk,
-        userRequest: text,
-        genuiJson: isEdit ? (lastIntent() ?? {}) : null,
-        layoutPlanner: currentPlanner,
-        moduleResults: getModuleResults(),
-        sessionId: undefined,
-        abortSignal: controller.signal,
-      })
-      console.log("[Pattern] triage:", triage.routing, triage.reason)
-      console.log("[Pattern] triage output:", JSON.stringify(triage, null, 2))
-
-      if (triage.routing === "modify") {
-        if (!currentPlanner || !lastIntent()) {
-          console.log("[Pattern] modify skipped: no previous page state")
-          return
-        }
-        setPhase("planner")
-        console.log("[Pattern] 进入代理: proto_planner_modify")
-        const modifyResult = await runProtoPlannerModify({
-          ...ctx,
-          input: {
-            intentReason: triage.reason,
-            intentDelete: triage.delete,
-            intentAdd: triage.add,
-            intentModify: triage.modify,
-            intentPage: triage.updated_intent,
-            layoutPlanner: currentPlanner,
-          },
-        })
-        console.log("[Pattern] planner_modify done, slots:", modifyResult.output.slots.length)
-        console.log("[Pattern] planner_modify output:", JSON.stringify(modifyResult, null, 2))
-        console.log("[Pattern] removed sections:", modifyResult.removedSectionIds)
-
-        const updatedIntent = { ...triage.updated_intent }
-        const prevModules = lastModules()
-
-        setPhase("module")
-        const modulePromises = modifyResult.output.slots.map((slot) => {
-          if (slot.operation === "none") {
-            const existing = prevModules.find((m) => m.rootId === slot.element_id)
-            return existing ?? null
-          }
-          if (slot.operation === "create") {
-            console.log("[Pattern] 进入代理: proto_module_create (modify/create)")
-            return proto_module_create({
-              ...intentCtx,
-              idPrefix: slot.id_prefix,
-              sectionId: slot.section_id,
-              elementId: slot.element_id,
-              layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
-              intentDescription: updatedIntent as any,
-            }).then((r) => r.ui_json)
-          }
-          if (slot.operation === "modify") {
-            const originModule = prevModules.find((m) => m.rootId === slot.element_id)
-            const modAction = triage.modify.find((m) => m.section_id === slot.section_id)
-            if (!originModule || !modAction) return null
-            console.log("[Pattern] 进入代理: proto_module_modify")
-            return runModuleModify({
-              ...ctx,
-              input: {
-                layoutPlanner: modifyResult.output as unknown as Record<string, unknown>,
-                idPrefix: slot.id_prefix,
-                sectionId: slot.section_id,
-                originModules: originModule,
-                modifications: modAction as unknown as Record<string, unknown>,
-              },
-            }).then((r) => r.ui_json)
-          }
-          return null
-        })
-        const moduleResults = await Promise.all(modulePromises)
-        const allModules = moduleResults.filter(Boolean) as typeof prevModules
-
-        const merged = mergeModules(
-          { rootId: modifyResult.output.rootId as string, elements: modifyResult.output.elements as any },
-          allModules as any,
-        )
-        console.log("[Pattern] ========== MERGED A2UI JSON ==========")
-        console.log(JSON.stringify(merged, null, 2))
-        const mergedJson = detectA2UIJson(JSON.stringify(merged))
-        if (mergedJson) sendToPreview(mergedJson)
-
-        setLastIntent(updatedIntent as unknown as Record<string, unknown>)
-        setLastPlanner(modifyResult.output as unknown as Record<string, unknown>)
-        setLastModules(allModules)
-
-        // 追加修改版本到历史文件
-        const dir = patternHistoryDir()
-        if (dir) {
+      debugger
+      // 流程执行完毕后的回调
+      let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
+          // 触发页面渲染
+          const pageJsonStr = JSON.stringify(pageJson)
+          if (pageJsonStr) sendToPreview(pageJsonStr)
+          // 内存数据更新
+          setLastIntent(pageIntent)
+          setLastPlanner(layoutPlanner)
+          setLastModules(modulesJson)
+          // 历史文件
+          const dir = patternHistoryDir()
           const vid = await appendPatternVersion(dir, sid, {
-            lastIntent: lastIntent(),
-            lastPlanner: lastPlanner(),
-            lastModules: lastModules(),
-            mergedA2UI: merged as unknown as Record<string, unknown>,
+              lastIntent: lastIntent(),
+              lastPlanner: lastPlanner(),
+              lastModules: lastModules(),
+              mergedA2UI: pageJson as unknown as Record<string, unknown>,
           }, text.slice(0, 80))
           setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
           setCurrentVersionId(vid)
-        }
-
-        return
       }
-      setPhase("intent")
 
-      debugger
-      // 第一步：意图扩展
-      let intentResult = await proto_intent(intentCtx)
-      // 第二步：意图检查 - 最多进行N(当前1)次审查
-      // for (let attempt = 0; attempt < 1; attempt++) {
-      //   let descriptionStr = JSON.stringify(intentResult.intent_description);
-      //   const audit = await proto_intent_audit({ ...intentCtx, intentDescription: descriptionStr });
-      //   if (audit.intent_audit_pass) break;
-      //   intentResult = await proto_intent({
-      //     ...intentCtx,
-      //     auditFeedback: audit.intent_audit_feedback as string,
-      //     intentAuditPass: audit.intent_audit_pass as boolean,
-      //     pageDescription: descriptionStr
-      //   })
-      // }
-      
-      // 第三步：页面局部
-      let pageDescriptionStr = JSON.stringify(intentResult.intent_description);
-      const planner = await proto_planner_create({ ...intentCtx, intentDescription: pageDescriptionStr });
-      // 第四部：并行生成 A2UI JSON
-      const modules = await Promise.all(
-        (planner.layout_planner.slots as Array<any>).map(slot =>
-          proto_module_create({
-            ...intentCtx,
-            idPrefix: slot.id_prefix,
-            sectionId: slot.section_id,
-            elementId: slot.element_id,
-            layoutPlanner: planner.layout_planner,
-            intentDescription: intentResult.intent_description
-          }).then(r => r.ui_json)
-        )
-      )
-      const merged = mergeModules(
-        { rootId: planner.layout_planner.rootId as string, elements: planner.layout_planner.elements as any },
-        modules as any,
-      )
-
-      // 第五步：合并顶层布局和各模块JSON
-      // for (let i = 0; i < planner.slots.length; i++) {
-      //   const slot = planner.slots[i]
-      //   const mod = await import(`./slot${i + 1}.json`)
-      //   const uiJson = mod.default.rootId && mod.default.elements ? mod.default : mod.default.uiJson
-      //   if (uiJson.rootId !== slot.element_id) {
-      //     const target = (uiJson.elements as Array<{ id: string }>)?.find((e) => e.id === uiJson.rootId)
-      //     if (target) {
-      //       target.id = slot.element_id
-      //       uiJson.rootId = slot.element_id
-      //     }
-      //   }
-      //   modules.push(uiJson)
-      // }
-
-      console.log("[Pattern] ========== MERGED A2UI JSON ==========")
-      console.log(JSON.stringify(merged, null, 2))
-      const mergedJson = detectA2UIJson(JSON.stringify(merged))
-      if (mergedJson) sendToPreview(mergedJson)
-
-      setLastIntent(intentResult.intent_page as unknown as Record<string, unknown>)
-      setLastPlanner(planner.layout_planner as unknown as Record<string, unknown>)
-      setLastModules(modules)
-
-      // 存储到 .octo/design/{sid}/
-      // if (sid && sdk.directory) {
-      //   const projectDir = sdk.directory
-      //   const sep = projectDir.includes("\\") ? "\\" : "/"
-      //   const designDir = [projectDir, ".octo", "design", sid].join(sep)
-      //   const encoder = new TextEncoder()
-      //   const write = window.api?.writeFileBuffer
-      //   if (write) {
-      //     await Promise.all([
-      //       write([designDir, "intent.json"].join(sep), encoder.encode(JSON.stringify(intentResult.intent_page, null, 2)).buffer as ArrayBuffer),
-      //       write([designDir, "planner.json"].join(sep), encoder.encode(JSON.stringify(planner.layout_planner, null, 2)).buffer as ArrayBuffer),
-      //       write([designDir, "modules.json"].join(sep), encoder.encode(JSON.stringify(modules, null, 2)).buffer as ArrayBuffer),
-      //     ])
-      //   }
-      // }
-
-      // 追加首次生成版本到历史文件
-      const dir = patternHistoryDir()
-      debugger
-      if (dir) {
-        const vid = await appendPatternVersion(dir, sid, {
+      if(lastIntent()){
+        let lastData = {
           lastIntent: lastIntent(),
           lastPlanner: lastPlanner(),
           lastModules: lastModules(),
-          mergedA2UI: merged as unknown as Record<string, unknown>,
-        }, text.slice(0, 80))
-        setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
-        setCurrentVersionId(vid)
+        }
+        // AI 修改页面
+        await modify_json_ai(intentCtx, lastData, onFinshed);
+      }else{
+        // 首次创建页面
+        await create_json(intentCtx, onFinshed);
       }
 
       const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)

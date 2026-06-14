@@ -1,5 +1,5 @@
 import { extractJson } from '../../utils/json_parser';
-import { runChildSession } from '../run-child-session';
+import { runChildSession } from '../run_child_session';
 
 const AGENT_NAME = "proto_planner_create"
 
@@ -21,11 +21,19 @@ type ProtoPlannerCreateInput = {
 }
 
 export default async function proto_planner_create(input: ProtoPlannerCreateInput) {
-  const { sdk, sync, modelKey, rootSession, userInput, intentDescription, onSessionCreated } = input
+  const { 
+    sdk, 
+    sync, 
+    modelKey, 
+    userInput, 
+    rootSession, 
+    intentDescription, 
+    onSessionCreated 
+  } = input
   // 组装输入提示词
   const humanMessage = buildHumanMessage(intentDescription)
+  console.log("----- 布局规划Agent开始执行 ----- ");
   const startTime = Date.now()
-  console.log("[Pattern ] planner_create_agent运行中")
   // 执行 Agent
   const plannerResult = await runChildSession({
     client: sdk.client,
@@ -37,9 +45,7 @@ export default async function proto_planner_create(input: ProtoPlannerCreateInpu
     sync,
     onSessionCreated,
   })
-  debugger
-  console.log("[Pattern ] planner_create_agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's')
-
+  console.log("----- 布局规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 planner json
   const plannerJson = extractJson(plannerResult)
   if (!plannerJson) throw new Error("----- Planner Create did not return valid JSON -----")
