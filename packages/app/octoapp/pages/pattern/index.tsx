@@ -239,6 +239,9 @@ function PatternContent() {
       const childMsgs = (sync.data.message[childID] ?? []) as Message[]
       const lastChildAssistant = childMsgs.findLast((m) => m.role === "assistant")
       if (!!lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") return true
+      // 有 user 消息但还没有 assistant 消息 → agent 刚启动，还在生成
+      const hasUser = childMsgs.some((m) => m.role === "user")
+      if (hasUser && !lastChildAssistant) return true
     }
     return false
   })

@@ -5,7 +5,7 @@ import type { VersionEntry } from "../../utils/persist"
 
 import { TitleBar } from "./TitleBar"
 import { CanvasView } from "./CanvasView"
-import "./PreviewStyles.css"
+import "../../assets/style/preview/index.css"
 
 export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
