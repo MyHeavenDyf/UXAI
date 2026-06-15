@@ -13,11 +13,12 @@ export default defineConfig(({ mode }) => {
       testFilesPlugin()
     ],
     resolve: {
-      alias: { '@': fileURLToPath(new URL('./src', import.meta.url))},
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        '@dom-picker/vue': fileURLToPath(new URL('./dom-picker/dom-picker-vue', import.meta.url)),
+        '@dom-picker/core': fileURLToPath(new URL('./dom-picker/dom-picker-core', import.meta.url)),
+      },
       extensions: ['.mjs', '.js', '.jsx', '.ts', '.tsx', '.json', '.vue'],
-    },
-    optimizeDeps: {
-      exclude: ['@dom-picker/core', '@dom-picker/vue'],
     },
     server: {
       port: parseInt(rootEnv.VUE_FRONTEND_PORT || '51856'),

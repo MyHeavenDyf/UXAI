@@ -35,11 +35,6 @@ function toggleTheme() {
   applyTheme();
 }
 
-function setTheme(mode: 'dark' | 'light') {
-  isDark.value = mode === 'dark';
-  applyTheme();
-}
-
 function applyTheme() {
   if (isDark.value) {
     document.body.classList.add('theme-dark');
@@ -65,6 +60,5 @@ export function useTheme() {
   return {
     isDark,
     toggleTheme,
-    setTheme,
   };
 }

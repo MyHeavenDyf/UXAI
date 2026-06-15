@@ -1,5 +1,3 @@
-@import "./base.css";
-
 :root {
   /* ==========================================================================
      语义化色彩 Token (暗色模式映射)
@@ -319,23 +317,11 @@
   --el-input-hover-border-color: var(--el-border-color-hover);
   --el-input-focus-border-color: var(--primary-400);
   --el-input-bg-color: transparent;
-  /* --el-input-font-size: var(--el-font-size-base);
-  --el-input-border: var(--el-border);
-  --el-input-hover-border: var(--el-border-color-hover);
-  --el-input-focus-border: var(--el-color-primary);
-  --el-input-transparent-border: 0 0 0 1px transparent inset;
-  --el-input-border-color: var(--el-border-color);
-  --el-input-border-radius: var(--el-border-radius-base);
-  --el-input-icon-color: var(--el-text-color-placeholder);
-  --el-input-placeholder-color: var(--el-text-color-placeholder);
-  --el-input-clear-hover-color: var(--el-text-color-secondary);
-  */
   --el-input-height: 32px;
 }
 
 
 .el-popper {
-  /* --el-popper-border-radius: var(--el-popover-border-radius, 4px);*/
   --el-popper-bg-color-light: var(--neutral-700);
   --el-popper-bg-color-dark: var(--el-text-color-primary);
 }

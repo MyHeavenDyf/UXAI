@@ -216,7 +216,6 @@ export function installDomPicker(options = {}) {
   let activeElement = null
   let activeLocation = ''
   let frozen = false
-  let disabled = true
 
   const resolveMarkedTarget = (target) => {
     if (!(target instanceof Element)) {
@@ -249,7 +248,6 @@ export function installDomPicker(options = {}) {
   }
 
   const handlePointerMove = (event) => {
-    if (disabled) return
     if (frozen) return
     const resolvedTarget = resolveMarkedTarget(event.target)
     activeElement = resolvedTarget?.element || null
@@ -264,7 +262,6 @@ export function installDomPicker(options = {}) {
   }
 
   const handleClick = async (event) => {
-    if (disabled) return
     if (frozen) {
       window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_MENU' }, '*')
       event.preventDefault()
@@ -292,7 +289,6 @@ export function installDomPicker(options = {}) {
   }
 
   const handleContextMenu = (event) => {
-    if (disabled) return
     if (frozen) {
       window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_MENU' }, '*')
       event.preventDefault()
@@ -331,14 +327,11 @@ export function installDomPicker(options = {}) {
   }
 
   const handleScrollOrResize = () => {
-    if (disabled) return
     updateOverlay(overlay, activeElement)
     updateBadge(badge, activeElement, activeLocation)
   }
 
   document.body.append(overlay, badge)
-  overlay.style.display = 'none'
-  badge.style.display = 'none'
   window.addEventListener('pointermove', handlePointerMove, true)
   window.addEventListener('click', handleClick, true)
   window.addEventListener('contextmenu', handleContextMenu, true)
@@ -347,16 +340,6 @@ export function installDomPicker(options = {}) {
   window.addEventListener('message', (event) => {
     if (event.data.type === 'DOM_PICKER_UNFREEZE') {
       frozen = false
-    }
-    if (event.data.type === 'DOM_PICKER_TOGGLE') {
-      disabled = !event.data.active
-      if (disabled) {
-        overlay.style.display = 'none'
-        badge.style.display = 'none'
-      } else {
-        overlay.style.display = ''
-        badge.style.display = 'flex'
-      }
     }
   })
   console.log(`[${logPrefix}] ready`)

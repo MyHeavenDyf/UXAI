@@ -44,9 +44,10 @@ function getInitialExpandedKeys(): string[] {
 }
 const expandedKeys = ref<string[]>(getInitialExpandedKeys())
 
-function handleExpandChange(_row: any, expandedRows: any[]) {
+function handleExpandChange(_row: any, expandedRows: any) {
   // expandedRows 是当前所有展开行的数据数组
-  const keys = expandedRows.map((r: any) => r[rowKey.value])
+  const arr = Array.isArray(expandedRows) ? expandedRows : []
+  const keys = arr.map((r: any) => r[rowKey.value])
   expandedKeys.value = keys
   // 如果有绑定路径，同步写回 state
   const binding = expandable.value?.expandedRowKeys
