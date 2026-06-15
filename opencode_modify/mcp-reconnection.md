@@ -13,6 +13,46 @@
 
 ## 提交记录
 
+### 2026-06-15 10:30: 终端错误计数升级为模块级状态
+
+**问题**：用户日志显示连续两次 `SSE stream disconnected` 的 `consecutiveErrors` 都从 0 → 1，而不是累积到 2。
+
+```
+09:22:17 +38568ms SSE stream disconnected  consecutiveErrors=0  → counted=1
+09:22:17 +1ms    SSE stream disconnected  consecutiveErrors=0  → counted=1（应该是 2）
+```
+
+**根因分析**（SDK 源码确认）：
+
+SDK `StreamableHTTPClientTransport` 内部维护两个独立的 SSE stream：
+- GET 长连接 SSE（`_startOrAuthSse` → `_handleSseStream`）
+- POST response SSE（`send` → `_handleSseStream`）
+
+两者各自有独立的 `processStream()` async 函数，都调用同一个 `client.onerror`。
+
+当网络断开时，两个 stream 的 `await reader.read()` 几乎同时抛错 → 两个 catch 分支 → 两次 `onerror`。但 JS microtask 调度的边界行为可能导致两次 catch 在读取闭包变量时还没累积（第一次 ++ 还没被第二次读取到）。
+
+**修复**：
+
+把 `consecutiveErrors` 和 `hasTriggeredClose` 从 `setupConnectionHandlers` 内的闭包变量升级为模块级状态：
+
+```ts
+// reconnect.ts 模块顶部新增
+const terminalErrorCounts = new Map<string, number>()
+const triggeredCloseFlags = new Set<string>()
+```
+
+- `terminalErrorCounts`：每个 server name 一份终端错误计数，所有 handler 共享
+- `triggeredCloseFlags`：每个 server name 一份"已触发 close"标志，避免重复 close
+
+改动点：
+1. `setupConnectionHandlers`：移除 `let consecutiveErrors = 0` 和 `let hasTriggeredClose = false`，改用 `terminalErrorCounts.get(name)` 和 `triggeredCloseFlags.has(name)`
+2. `cleanup()`：清理新增的两个状态
+3. `reconnectWithBackoff` succeeded 分支：清理 `terminalErrorCounts.delete(name)` 和 `triggeredCloseFlags.delete(name)`，让下次断开能重新触发
+4. `onclose` handler 的 `triggeredByOnerror` 字段：改用 `triggeredCloseFlags.has(name)`
+
+**效果**：无论 SDK 有多少个并行 SSE stream 触发 onerror，状态都按 server name 全局累积，不再受闭包变量竞争影响。
+
 ### 2026-06-15: 修复 onclose 永不触发的死链（SDK give-up 信号）
 
 **问题日志（运行 37 分钟后远程服务断开）**：
