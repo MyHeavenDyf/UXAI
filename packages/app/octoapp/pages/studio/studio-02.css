@@ -492,16 +492,10 @@
 .studio-conversation {
   display: flex;
   flex-direction: column;
-  gap: 44px;
+  gap: 20px;
   width: 100%;
   margin: 0 auto;
 }
-
-.studio-conversation-turn.separated {
-  padding-top: 44px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-}
-
 .studio-user-bubble {
   width: fit-content;
   max-width: 374px;
@@ -519,7 +513,7 @@
 }
 
 .studio-assistant-copy {
-  margin-top: 32px;
+  margin-top: 20px;
   color: #191919;
   font-size: 14px;
   line-height: 28px;
@@ -537,7 +531,6 @@
   margin-top: 28px;
   padding: 0 18px;
   border-radius: 999px;
-  background: #eaf2ff;
   color: #0a59f7;
   font-size: 15px;
   font-weight: 700;
@@ -565,7 +558,7 @@
 }
 
 .studio-result-card {
-  margin-top: 34px;
+  margin-top: 20px;
   min-height: 288px;
   padding: 16px 20px 22px;
   border: 1px solid rgba(15, 23, 42, 0.12);
