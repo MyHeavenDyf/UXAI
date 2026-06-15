@@ -54,7 +54,7 @@ function decodeDataUrl(url: string): string {
 }
 
 function detectCard(){
-  return { type: "json", title: '当前阶段已完' }
+  return { type: "json", title: '当前阶段已完成' }
 }
 
 function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
