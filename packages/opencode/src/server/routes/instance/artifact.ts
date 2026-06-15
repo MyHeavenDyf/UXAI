@@ -347,6 +347,81 @@ export const ArtifactRoutes = lazy(() =>
           }
           return { ok: true, deleted }
         }),
+    )
+    .post(
+      "/upload",
+      describeRoute({
+        summary: "Upload artifact",
+        description: "Upload a file to the artifact directory. Auto-renames if file exists.",
+        operationId: "artifact.upload",
+        responses: {
+          200: {
+            description: "Uploaded file info",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    name: z.string(),
+                    path: z.string(),
+                    sessionId: z.string(),
+                    kind: z.string(),
+                    size: z.number(),
+                    mtime: z.number(),
+                    mime: z.string(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          sessionId: z.string(),
+          filename: z.string(),
+          content: z.string(),
+        }),
+      ),
+      async (c) =>
+        jsonRequest("ArtifactRoutes.upload", c, function* () {
+          const body = c.req.valid("json")
+          const fs = yield* AppFileSystem.Service
+          const artifactDir = path.join(Instance.directory, ARTIFACTS_BASE_DIR, body.sessionId)
+
+          yield* fs.ensureDir(artifactDir).pipe(Effect.catch(() => Effect.void))
+
+          let finalFilename = body.filename
+          let counter = 1
+          const ext = path.extname(body.filename)
+          const baseName = path.basename(body.filename, ext)
+
+          while (true) {
+            const fullPath = path.join(artifactDir, finalFilename)
+            const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
+            if (!fileExists) break
+            finalFilename = `${baseName}-${counter}${ext}`
+            counter++
+          }
+
+          const fullPath = path.join(artifactDir, finalFilename)
+          const contentBuffer = Buffer.from(body.content, "base64")
+          yield* fs.writeFile(fullPath, contentBuffer)
+
+          const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
+          const sizeNum = stat ? (typeof stat.size === "bigint" ? Number(stat.size) : stat.size) : contentBuffer.length
+          const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+
+          return {
+            name: finalFilename,
+            path: fullPath,
+            sessionId: body.sessionId,
+            kind: getKind(finalFilename),
+            size: sizeNum,
+            mtime: mtimeNum,
+            mime: getMime(finalFilename),
+          }
+        }),
     ),
 )
 

@@ -6,6 +6,7 @@ export type Attachment = {
   filename: string
   mime: string
   dataUrl: string
+  path?: string
 }
 
 function getMimeIcon(mime: string): string {

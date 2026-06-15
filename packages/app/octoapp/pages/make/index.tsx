@@ -1,7 +1,15 @@
 import "./octo-tokens.css"
 import "./components/starter-cards.css"
 import "./components/slash-popover.css"
+import "./components/mention-popover.css"
 import { FEATURED_STARTERS } from "./utils/starter-prompts"
+import {
+  fetchArtifactList,
+  fetchArtifactContent,
+  formatFileSize,
+  type ArtifactFile,
+  type ArtifactFileKind,
+} from "./utils/artifact-file-api"
 import { StarterCards } from "./components/starter-cards"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
@@ -543,6 +551,32 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
 
+  // ── Mention (@) Popover State ──
+  const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [mentionIndex, setMentionIndex] = createSignal(0)
+
+  // ── Artifact Files Resource (for @ mention) ──
+  const [artifactFiles] = createResource(
+    () => ({ sessionId: params.id, url: globalSDK.url, directory: sdk.directory }),
+    async ({ sessionId, url, directory }) => {
+      if (!sessionId) return []
+      try {
+        const result = await fetchArtifactList(url, directory ?? "", sessionId)
+        return result.files
+      } catch {
+        return []
+      }
+    },
+  )
+
+  const mentionFiles = createMemo(() => {
+    const state = mentionState()
+    if (!state) return []
+    const query = state.query.toLowerCase()
+    const files = artifactFiles() ?? []
+    return files.filter(f => f.name.toLowerCase().includes(query)).slice(0, 12)
+  })
+
   // ── Slash Command List ──
   interface SlashCommand {
     trigger: string
@@ -709,8 +743,12 @@ const sessionMessagesLoaded = createMemo(() => {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
-  createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
+  // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
+  createEffect(on(() => params.id, () => {
+    tabStore.reset()
+    setMentionState(null)
+    setSlashState(null)
+  }, { defer: true }))
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
@@ -877,9 +915,41 @@ if (dsId) {
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
-  /** Handle keyboard events including slash command navigation */
+  /** Handle keyboard events including slash command/mention navigation */
   function handleKeyDown(e: KeyboardEvent) {
     const slash = slashState()
+    const mention = mentionState()
+
+    // Mention navigation (优先于 slash，因为两者互斥)
+    if (mention && mentionFiles().length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        e.stopPropagation()
+        setMentionIndex(i => Math.min(i + 1, mentionFiles().length - 1))
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        e.stopPropagation()
+        setMentionIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault()
+        e.stopPropagation()
+        const files = mentionFiles()
+        if (files.length > 0) {
+          pickMention(files[mentionIndex()])
+        }
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        setMentionState(null)
+        return
+      }
+    }
 
     // Slash command navigation
     if (slash) {
@@ -912,14 +982,14 @@ if (dsId) {
       }
     }
 
-    // Enter to send (only when slash popover is closed)
-    if (e.key === "Enter" && !e.shiftKey && !slash) {
+    // Enter to send (only when both popovers are closed)
+    if (e.key === "Enter" && !e.shiftKey && !slash && !mention) {
       e.preventDefault()
       void handleSubmit()
     }
   }
 
-  /** Handle input changes and detect slash trigger */
+  /** Handle input changes and detect slash/@ mention trigger */
   function handleInput(e: InputEvent) {
     const ta = e.currentTarget as HTMLTextAreaElement
     const value = ta.value
@@ -932,8 +1002,19 @@ if (dsId) {
     if (slashMatch && cursor === value.length) {
       setSlashState({ query: slashMatch[1] ?? "", cursor })
       setSlashIndex(0)
+      setMentionState(null)
+      return
+    }
+    setSlashState(null)
+
+    // Detect @ mention trigger: @ after word boundary
+    const before = value.slice(0, cursor)
+    const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(before)
+    if (mentionMatch) {
+      setMentionState({ query: mentionMatch[1] ?? "", cursor })
+      setMentionIndex(0)
     } else {
-      setSlashState(null)
+      setMentionState(null)
     }
   }
 
@@ -954,6 +1035,83 @@ if (dsId) {
       ta.focus()
       ta.setSelectionRange(replaced.length, replaced.length)
     })
+  }
+
+  /** Pick a Design Files file and add as attachment */
+  async function pickMention(file: ArtifactFile) {
+    const state = mentionState()
+    if (!state) return
+
+    const ta = textareaRef
+    const value = prompt()
+
+    // Remove @query text from prompt
+    const before = value.slice(0, state.cursor - state.query.length - 1)
+    const after = value.slice(ta.selectionStart)
+    const next = before + after
+    setPrompt(next)
+    setMentionState(null)
+
+    // Check if already added
+    if (attachments().some(a => a.path === file.path)) {
+      showToast({ title: "已添加", description: file.name })
+      return
+    }
+
+    // Check attachment limit (复用现有 maxAttachments)
+    if (maxAttachments()) return
+
+    // Load file content
+    try {
+      const content = await fetchArtifactContent(globalSDK.url, sdk.directory ?? "", file.path)
+      const mime = getMimeForKind(file.kind)
+      const dataUrl = file.kind === "image"
+        ? content.content
+        : `data:${mime};base64,${btoa(unescape(encodeURIComponent(content.content)))}`
+
+      setAttachments(prev => [...prev, {
+        id: crypto.randomUUID(),
+        filename: file.name,
+        mime,
+        dataUrl,
+        path: file.path,
+      }])
+      showToast({ title: "已添加附件", description: file.name })
+    } catch (err) {
+      showToast({
+        title: "添加失败",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      })
+    }
+
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(before.length, before.length)
+    })
+  }
+
+  function getMimeForKind(kind: ArtifactFileKind): string {
+    const map: Record<ArtifactFileKind, string> = {
+      image: "image/png",
+      html: "text/html",
+      svg: "image/svg+xml",
+      markdown: "text/markdown",
+      code: "text/plain",
+      text: "text/plain",
+      pdf: "application/pdf",
+      document: "application/octet-stream",
+      video: "video/mp4",
+      audio: "audio/mp3",
+      binary: "application/octet-stream",
+    }
+    return map[kind] ?? "application/octet-stream"
+  }
+
+  function getFileIcon(kind: ArtifactFileKind): "photo" | "code" | "file-tree" {
+    if (kind === "image" || kind === "svg" || kind === "video" || kind === "audio") return "photo"
+    if (kind === "html" || kind === "code") return "code"
+    return "file-tree"
   }
 
   // ── 附件管理 ─────────────────────────────────────────────
@@ -1296,6 +1454,34 @@ if (dsId) {
                       </div>
                     </Show>
 
+                    {/* Mention Popover（新建对话） */}
+                    <Show when={mentionState() && mentionFiles().length > 0}>
+                      <div class="mention-popover">
+                        <div class="mention-popover-head">
+                          <span class="mention-popover-title">Design Files</span>
+                          <span class="mention-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        </div>
+                        <For each={mentionFiles()}>
+                          {(file, i) => {
+                            const active = i() === mentionIndex()
+                            return (
+                              <button
+                                type="button"
+                                class={`mention-item ${active ? "active" : ""}`}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onMouseEnter={() => setMentionIndex(i())}
+                                onClick={() => pickMention(file)}
+                              >
+                                <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                <span class="mention-item-name">{file.name}</span>
+                                <span class="mention-item-size">{formatFileSize(file.size)}</span>
+                              </button>
+                            )
+                          }}
+                        </For>
+                      </div>
+                    </Show>
+
                     <textarea
                       ref={textareaRef}
                       value={prompt()}
@@ -1467,6 +1653,34 @@ if (dsId) {
                                   {cmd.source === "mcp" ? "MCP" : "自定义"}
                                 </span>
                               </Show>
+                            </button>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+
+                  {/* Mention Popover */}
+                  <Show when={mentionState() && mentionFiles().length > 0}>
+                    <div class="mention-popover">
+                      <div class="mention-popover-head">
+                        <span class="mention-popover-title">项目文件</span>
+                        <span class="mention-popover-hint"> Enter/Tab 确认 · Esc 关闭</span>
+                      </div>
+                      <For each={mentionFiles()}>
+                        {(file, i) => {
+                          const active = i() === mentionIndex()
+                          return (
+                            <button
+                              type="button"
+                              class={`mention-item ${active ? "active" : ""}`}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onMouseEnter={() => setMentionIndex(i())}
+                              onClick={() => pickMention(file)}
+                            >
+                              <Icon name={getFileIcon(file.kind)} class="size-4" />
+                              <span class="mention-item-name">{file.name}</span>
+                              <span class="mention-item-size">{formatFileSize(file.size)}</span>
                             </button>
                           )
                         }}

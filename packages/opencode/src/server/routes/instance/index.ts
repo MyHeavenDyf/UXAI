@@ -191,6 +191,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
     app.post("/artifact/rename", (c) => handler(c.req.raw, context))
     app.post("/artifact/archive", (c) => handler(c.req.raw, context))
     app.post("/artifact/delete-batch", (c) => handler(c.req.raw, context))
+    app.post("/artifact/upload", (c) => handler(c.req.raw, context))
   }
 
   return app

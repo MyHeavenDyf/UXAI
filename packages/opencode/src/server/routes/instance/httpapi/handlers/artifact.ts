@@ -213,7 +213,12 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const result = yield* fileSvc.read(filePath).pipe(
         Effect.mapError(() => new HttpApiError.NotFound({})),
       )
-      return { content: result.content, mimeType: result.mimeType ?? getMime(filePath) }
+      // 增加encoding字段到返回值，前端用此判断返回文件编码
+      return {
+        content: result.content,
+        mimeType: result.mimeType ?? getMime(filePath),
+        encoding: result.encoding,
+      }
     })
 
     const delete_ = Effect.fn("ArtifactHttpApi.delete")(function* (ctx: { query: { path: string } }) {
@@ -268,6 +273,45 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       return { ok: true, deleted }
     })
 
+    const upload = Effect.fn("ArtifactHttpApi.upload")(function* (ctx: { payload: { sessionId: string; filename: string; content: string } }) {
+      const body = ctx.payload
+      const instanceCtx = yield* InstanceState.context
+      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
+
+      yield* fs.ensureDir(artifactDir).pipe(Effect.orDie)
+
+      let finalFilename = body.filename
+      let counter = 1
+      const ext = path.extname(body.filename)
+      const baseName = path.basename(body.filename, ext)
+
+      while (true) {
+        const fullPath = path.join(artifactDir, finalFilename)
+        const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
+        if (!fileExists) break
+        finalFilename = `${baseName}-${counter}${ext}`
+        counter++
+      }
+
+      const fullPath = path.join(artifactDir, finalFilename)
+      const contentBuffer = Buffer.from(body.content, "base64")
+      yield* fs.writeFile(fullPath, contentBuffer).pipe(Effect.orDie)
+
+      const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
+      const sizeNum = stat ? (typeof stat.size === "bigint" ? Number(stat.size) : stat.size) : contentBuffer.length
+      const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+
+      return {
+        name: finalFilename,
+        path: fullPath,
+        sessionId: body.sessionId,
+        kind: getKind(finalFilename),
+        size: sizeNum,
+        mtime: mtimeNum,
+        mime: getMime(finalFilename),
+      }
+    })
+
     return handlers
       .handle("list", list)
       .handle("content", content)
@@ -275,5 +319,6 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       .handle("rename", rename)
       .handle("archive", archive)
       .handle("deleteBatch", deleteBatch)
+      .handle("upload", upload)
   }),
 )

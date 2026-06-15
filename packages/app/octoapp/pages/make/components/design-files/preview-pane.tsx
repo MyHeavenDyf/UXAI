@@ -75,22 +75,13 @@ export function PreviewPane(props: Props): JSX.Element {
         <Show when={!content.loading && !content.error}>
           <Switch>
             <Match when={isImage()}>
-              <Show when={props.file.mime === "image/svg+xml"}>
-                <div class="w-full h-full overflow-auto">
-                  <pre class="text-[11px] font-mono whitespace-pre-wrap" style={{ color: "var(--octo-text-primary)" }}>
-                    {content()?.content ?? ""}
-                  </pre>
-                </div>
-              </Show>
-              <Show when={props.file.mime !== "image/svg+xml"}>
-                <div class="flex items-center justify-center h-full">
-                  <img
-                    src={`data:${props.file.mime};base64,${base64Content()}`}
-                    alt={props.file.name}
-                    class="max-w-full max-h-full object-contain"
-                  />
-                </div>
-              </Show>
+              <div class="flex items-center justify-center h-full">
+                <img
+                  src={`data:${props.file.mime};base64,${base64Content()}`}
+                  alt={props.file.name}
+                  class="max-w-full max-h-full object-contain"
+                />
+              </div>
             </Match>
 
             <Match when={isVideo()}>

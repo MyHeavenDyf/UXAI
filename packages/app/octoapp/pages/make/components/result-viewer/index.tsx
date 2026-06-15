@@ -74,7 +74,7 @@ export function ResultViewer(props: {
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [editing, setEditing] = createSignal(false)
   const [drawing, setDrawing] = createSignal(false)
-  const [viewMode, setViewMode] = createSignal<"tabs" | "files">("tabs")
+  const [viewMode, setViewMode] = createSignal<"tabs" | "files">("files")
   const [refreshKey, setRefreshKey] = createSignal(0)
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -156,7 +156,6 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
             <DesignFilesPanel
               sessionId={sid()}
               onOpenFile={handleOpenArtifactFile}
-              onClose={() => setViewMode("tabs")}
             />
           )}
         </Show>

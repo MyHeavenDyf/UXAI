@@ -25,6 +25,7 @@ import {
   deleteArtifactBatch,
   archiveArtifacts,
   renameArtifactFile,
+  uploadArtifactFile,
   kindLabel,
   formatFileSize,
   formatTimestamp,
@@ -42,7 +43,6 @@ const PAGE_SIZE_OPTIONS = [15, 30, 45, 60, "all"] as const
 interface Props {
   sessionId: string
   onOpenFile: (file: ArtifactFile) => void
-  onClose: () => void
 }
 
 export function DesignFilesPanel(props: Props): JSX.Element {
@@ -51,6 +51,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const dialog = useDialog()
   const fileStore = createArtifactFileStore(props.sessionId)
   const [previewFile, setPreviewFile] = createSignal<ArtifactFile | null>(null)
+  let fileInputRef!: HTMLInputElement
 
   const [fetcher] = createResource(
     () => ({ sessionId: props.sessionId, url: globalSDK.url, directory: sdk.directory }),
@@ -210,6 +211,30 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
   }
 
+  const handleUpload = async (files: FileList) => {
+    for (const file of Array.from(files)) {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const base64 = ev.target?.result as string
+        const content = base64.split(",")[1] || base64
+        try {
+          const result = await uploadArtifactFile(
+            globalSDK.url,
+            sdk.directory || "",
+            props.sessionId,
+            file.name,
+            content,
+          )
+          showToast({ title: "Uploaded", description: result.name })
+          await refresh()
+        } catch (err) {
+          showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const kindGroupEntries = createMemo(() =>
     Array.from(fileStore.kindGroups().entries())
       .sort(([a], [b]) => kindSortPriority(a) - kindSortPriority(b)),
@@ -218,79 +243,94 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   return (
     <div class="flex h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <input
+          type="file"
+          multiple
+          ref={fileInputRef}
+          onChange={(e) => {
+            if (e.currentTarget.files) {
+              handleUpload(e.currentTarget.files)
+              e.currentTarget.value = ""
+            }
+          }}
+          class="hidden"
+        />
+        <Show when={fileStore.store.files.length > 0}>
         <div
-        class="flex items-center justify-between px-4 py-2 shrink-0"
-        style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
-      >
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={refresh}
-            disabled={fileStore.store.loading}
-            class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
-            title="Refresh"
-          >
-            <Show when={fileStore.store.loading} fallback={<Icon name="ellipsis" size="small" />}>
-              <Spinner class="size-[14px]" />
-            </Show>
-          </button>
-
-          <div class="flex items-center gap-1 text-[12px]" role="group">
-            <span style={{ color: "var(--octo-text-secondary)" }}>Group:</span>
+          class="flex items-center justify-between px-4 py-2 shrink-0"
+          style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
+        >
+          <div class="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => fileStore.setGroupMode("kind")}
-              classList={{
-                "px-2 py-1 rounded transition-colors text-[12px]": true,
-                "bg-surface-base-interactive-active text-text-interactive-base": fileStore.store.groupMode === "kind",
-                "hover:bg-surface-base-hover": fileStore.store.groupMode !== "kind",
-              }}
+              onClick={refresh}
+              disabled={fileStore.store.loading}
+              class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
+              title="Refresh"
             >
-              Kind
+              <Show when={fileStore.store.loading} fallback={<Icon name="ellipsis" size="small" />}>
+                <Spinner class="size-[14px]" />
+              </Show>
             </button>
+
+            <div class="flex items-center gap-1 text-[12px]" role="group">
+              <span style={{ color: "var(--octo-text-secondary)" }}>Group:</span>
+              <button
+                type="button"
+                onClick={() => fileStore.setGroupMode("kind")}
+                classList={{
+                  "px-2 py-1 rounded transition-colors text-[12px]": true,
+                  "bg-surface-base-interactive-active text-text-interactive-base": fileStore.store.groupMode === "kind",
+                  "hover:bg-surface-base-hover": fileStore.store.groupMode !== "kind",
+                }}
+              >
+                Kind
+              </button>
+              <button
+                type="button"
+                onClick={() => fileStore.setGroupMode("modified")}
+                classList={{
+                  "px-2 py-1 rounded transition-colors text-[12px]": true,
+                  "bg-surface-base-interactive-active text-text-interactive-base": fileStore.store.groupMode === "modified",
+                  "hover:bg-surface-base-hover": fileStore.store.groupMode !== "modified",
+                }}
+              >
+                Modified
+              </button>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Show when={fileStore.store.selected.size > 0}>
+              <button
+                type="button"
+                onClick={handleBatchDownload}
+                class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
+              >
+                <Icon name="chevron-down" size="small" />
+                <span>Download ({fileStore.store.selected.size})</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleBatchDelete}
+                class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px] text-text-diff-delete-base"
+              >
+                <span>Delete ({fileStore.store.selected.size})</span>
+              </button>
+            </Show>
+
             <button
               type="button"
-              onClick={() => fileStore.setGroupMode("modified")}
-              classList={{
-                "px-2 py-1 rounded transition-colors text-[12px]": true,
-                "bg-surface-base-interactive-active text-text-interactive-base": fileStore.store.groupMode === "modified",
-                "hover:bg-surface-base-hover": fileStore.store.groupMode !== "modified",
-              }}
+              onClick={() => fileInputRef?.click()}
+              class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
+              title="Upload files"
             >
-              Modified
+              <Icon name="chevron-down" size="small" />
+              <span>Add</span>
             </button>
           </div>
         </div>
-
-        <div class="flex items-center gap-2">
-          <Show when={fileStore.store.selected.size > 0}>
-            <button
-              type="button"
-              onClick={handleBatchDownload}
-              class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
-            >
-              <Icon name="chevron-down" size="small" />
-              <span>Download ({fileStore.store.selected.size})</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleBatchDelete}
-              class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px] text-text-diff-delete-base"
-            >
-              <span>Delete ({fileStore.store.selected.size})</span>
-            </button>
-          </Show>
-
-          <button
-            type="button"
-            onClick={props.onClose}
-            class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
-            title="Close"
-          >
-            <Icon name="close" size="small" />
-          </button>
-        </div>
-      </div>
+      </Show>
 
       <div class="flex-1 min-h-0 overflow-auto">
         <Show when={fileStore.store.loading && fileStore.store.files.length === 0}>
@@ -306,13 +346,19 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         </Show>
 
         <Show when={!fileStore.store.loading && fileStore.store.files.length === 0}>
-          <div class="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-            <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
-              No artifact files
-            </div>
-            <div class="text-[12px]" style={{ color: "var(--octo-text-disabled)" }}>
-              Files will appear here after AI generates artifacts
-            </div>
+          <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+            <button
+              type="button"
+              onClick={() => fileInputRef?.click()}
+              class="flex items-center gap-2 px-4 py-2 rounded-lg text-[14px] font-medium transition-colors"
+              style={{
+                background: "var(--octo-brand)",
+                color: "white",
+              }}
+            >
+              <Icon name="plus" size="small" />
+              <span>Upload File</span>
+            </button>
           </div>
         </Show>
 

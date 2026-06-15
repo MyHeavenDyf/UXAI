@@ -1,0 +1,73 @@
+/* Mention (@) Popover Styles - octoAI Design System */
+
+.mention-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-width: 400px;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-md);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: 8px;
+  z-index: 100;
+  margin-bottom: 8px;
+}
+
+.mention-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  margin-bottom: 4px;
+}
+
+.mention-popover-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--octo-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.mention-popover-hint {
+  font-size: 11px;
+  color: var(--octo-text-disabled);
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--octo-radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  border: none;
+  background: transparent;
+  text-align: left;
+}
+
+.mention-item:hover {
+  background: var(--octo-surface-hover);
+}
+
+.mention-item.active {
+  background: var(--octo-surface-active);
+}
+
+.mention-item-name {
+  font-size: 13px;
+  color: var(--octo-text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-item-size {
+  font-size: 11px;
+  color: var(--octo-text-disabled);
+  flex-shrink: 0;
+}

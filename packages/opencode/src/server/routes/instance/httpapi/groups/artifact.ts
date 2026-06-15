@@ -40,6 +40,12 @@ const ArtifactDeleteBatchPayload = Schema.Struct({
   files: Schema.Array(Schema.String),
 })
 
+const ArtifactUploadPayload = Schema.Struct({
+  sessionId: Schema.String,
+  filename: Schema.String,
+  content: Schema.String,
+})
+
 const ArtifactPaths = {
   list: "/artifact/list",
   content: "/artifact/content",
@@ -47,6 +53,7 @@ const ArtifactPaths = {
   rename: "/artifact/rename",
   archive: "/artifact/archive",
   deleteBatch: "/artifact/delete-batch",
+  upload: "/artifact/upload",
 } as const
 
 export const ArtifactApi = HttpApi.make("artifact")
@@ -112,6 +119,16 @@ export const ArtifactApi = HttpApi.make("artifact")
             identifier: "artifact.deleteBatch",
             summary: "Batch delete artifacts",
             description: "Delete multiple artifact files.",
+          }),
+        ),
+        HttpApiEndpoint.post("upload", ArtifactPaths.upload, {
+          payload: ArtifactUploadPayload,
+          success: described(ArtifactFileSchema, "Uploaded file info"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "artifact.upload",
+            summary: "Upload artifact",
+            description: "Upload a file to the artifact directory. Auto-renames if file exists.",
           }),
         ),
       )

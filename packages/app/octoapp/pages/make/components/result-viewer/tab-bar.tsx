@@ -25,7 +25,7 @@ export function TabBar(props: {
       <Show when={props.onViewModeChange}>
         <button
           type="button"
-          onClick={() => props.onViewModeChange?.(props.viewMode === "files" ? "tabs" : "files")}
+          onClick={() => props.onViewModeChange?.("files")}
           classList={{
             "flex items-center gap-1 px-2 py-1 rounded transition-colors text-[12px]": true,
             "bg-surface-base-interactive-active text-text-interactive-base": props.viewMode === "files",
@@ -34,42 +34,41 @@ export function TabBar(props: {
           style={{ color: props.viewMode === "files" ? undefined : "var(--octo-text-secondary)" }}
         >
           <Icon name="folder" size="small" />
-          <span class="font-medium">Files</span>
+          <span class="font-medium">文件</span>
         </button>
+        
+        <Show when={props.tabs.length > 0}>
+          <div class="w-px h-4 shrink-0" style={{ background: "var(--octo-border-divider)" }} />
+        </Show>
       </Show>
 
-      <Show when={props.viewMode === "tabs"}>
-        <For each={props.tabs}>
-          {(tab) => {
-            const isActive = () => tab.id === props.activeId
-            return (
-              <div
-                class="octo-tab"
-                data-active={isActive() ? "true" : undefined}
-                onClick={() => props.onActivate(tab.id)}
+      <For each={props.tabs}>
+        {(tab) => {
+          const isActive = () => tab.id === props.activeId && props.viewMode === "tabs"
+          return (
+            <div
+              class="octo-tab"
+              data-active={isActive() ? "true" : undefined}
+              onClick={() => {
+                props.onActivate(tab.id)
+                props.onViewModeChange?.("tabs")
+              }}
+            >
+              <span class="truncate min-w-0 text-left outline-none">{tab.title}</span>
+              <button
+                type="button"
+                class="octo-tab-close"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  props.onClose(tab.id)
+                }}
               >
-                <span class="truncate min-w-0 text-left outline-none">{tab.title}</span>
-                <button
-                  type="button"
-                  class="octo-tab-close"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    props.onClose(tab.id)
-                  }}
-                >
-                  <IconTabClose size={16} />
-                </button>
-              </div>
-            )
-          }}
-        </For>
-      </Show>
-
-      <Show when={props.viewMode === "files"}>
-        <div class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
-          Design Files View
-        </div>
-      </Show>
+                <IconTabClose size={16} />
+              </button>
+            </div>
+          )
+        }}
+      </For>
     </div>
   )
 }

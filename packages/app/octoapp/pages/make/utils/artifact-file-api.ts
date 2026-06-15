@@ -125,6 +125,24 @@ export async function deleteArtifactBatch(
   return { deleted: data.deleted }
 }
 
+export async function uploadArtifactFile(
+  sdkUrl: string,
+  sdkDirectory: string,
+  sessionId: string,
+  filename: string,
+  content: string,
+): Promise<ArtifactFile> {
+  const response = await fetch(`${sdkUrl}/artifact/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
+    body: JSON.stringify({ sessionId, filename, content }),
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to upload artifact: ${response.statusText}`)
+  }
+  return response.json()
+}
+
 export function kindLabel(kind: ArtifactFileKind): string {
   const labels: Record<ArtifactFileKind, string> = {
     html: "HTML",
