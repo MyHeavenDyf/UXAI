@@ -62,6 +62,11 @@ const getBase = (): Configuration => ({
       to: "bin",
       filter: ["**/*"],
     },
+    {
+      from: "../previewdist",
+      to: "previewdist",
+      filter: ["**/*"],
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",
