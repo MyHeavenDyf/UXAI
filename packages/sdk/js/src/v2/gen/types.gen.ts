@@ -1105,6 +1105,7 @@ export type McpRemoteConfig = {
    */
   oauth?: McpOAuthConfig | false
   timeout?: number
+  proxy?: boolean
 }
 
 /**
@@ -3992,6 +3993,44 @@ export type FileReadResponses = {
 
 export type FileReadResponse = FileReadResponses[keyof FileReadResponses]
 
+export type FileWriteData = {
+  body?: {
+    path: string
+    content: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/content"
+}
+
+export type FileWriteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FileWriteError = FileWriteErrors[keyof FileWriteErrors]
+
+export type FileWriteResponses = {
+  /**
+   * Write result
+   */
+  200: {
+    ok: boolean
+    error?: string
+  }
+}
+
+export type FileWriteResponse = FileWriteResponses[keyof FileWriteResponses]
+
 export type FileStatusData = {
   body?: never
   path?: never
@@ -4215,6 +4254,7 @@ export type AppSkillsResponses = {
     description: string
     location: string
     content: string
+    type?: string
   }>
 }
 
@@ -5113,6 +5153,15 @@ export type SessionListData = {
   }
   url: "/session"
 }
+
+export type SessionListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionListError = SessionListErrors[keyof SessionListErrors]
 
 export type SessionListResponses = {
   /**
@@ -6836,6 +6885,60 @@ export type ExperimentalWorkspaceWarpResponses = {
 export type ExperimentalWorkspaceWarpResponse =
   ExperimentalWorkspaceWarpResponses[keyof ExperimentalWorkspaceWarpResponses]
 
+export type StudioPromptTagsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-tags"
+}
+
+export type StudioPromptTagsListErrors = {
+  /**
+   * StudioGenerationError
+   */
+  400: StudioGenerationError
+}
+
+export type StudioPromptTagsListError = StudioPromptTagsListErrors[keyof StudioPromptTagsListErrors]
+
+export type StudioPromptTagsListResponses = {
+  /**
+   * Prompt tags list
+   */
+  200: unknown
+}
+
+export type StudioPermissionsCheckData = {
+  body?: {
+    uid?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/permissions/check"
+}
+
+export type StudioPermissionsCheckErrors = {
+  /**
+   * StudioGenerationError
+   */
+  400: StudioGenerationError
+}
+
+export type StudioPermissionsCheckError = StudioPermissionsCheckErrors[keyof StudioPermissionsCheckErrors]
+
+export type StudioPermissionsCheckResponses = {
+  /**
+   * Studio permission result
+   */
+  200: unknown
+}
+
 export type StudioGenerationsCreateData = {
   body?: {
     sessionID?: string
@@ -6926,6 +7029,116 @@ export type StudioGenerationsCreateResponses = {
 }
 
 export type StudioGenerationsCreateResponse = StudioGenerationsCreateResponses[keyof StudioGenerationsCreateResponses]
+
+export type StudioEditorEntriesCreateData = {
+  body?: {
+    sessionID: string
+    capability: "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+    entryID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/editor-entries"
+}
+
+export type StudioEditorEntriesCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioEditorEntriesCreateError = StudioEditorEntriesCreateErrors[keyof StudioEditorEntriesCreateErrors]
+
+export type StudioEditorEntriesCreateResponses = {
+  /**
+   * Studio editor entry result
+   */
+  200: {
+    entryID: string
+    userMessageID: string
+    assistantMessageID: string
+  }
+}
+
+export type StudioEditorEntriesCreateResponse =
+  StudioEditorEntriesCreateResponses[keyof StudioEditorEntriesCreateResponses]
+
+export type StudioGenerationsCancelData = {
+  body?: never
+  path: {
+    generationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/cancel"
+}
+
+export type StudioGenerationsCancelErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsCancelError = StudioGenerationsCancelErrors[keyof StudioGenerationsCancelErrors]
+
+export type StudioGenerationsCancelResponses = {
+  /**
+   * Cancelled Studio generation
+   */
+  200: {
+    id: string
+    sessionID: string
+    status: "queued" | "running" | "succeeded" | "failed"
+    capability:
+      | "image.generate"
+      | "video.generate"
+      | "image.upscale"
+      | "image.cutout"
+      | "image.inpaint"
+      | "image.outpaint"
+      | "image.fusion"
+    prompt: string
+    provider: "jimeng" | "internel"
+    toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+    taskType?: string
+    task_type?: string
+    taskId?: string
+    model: string
+    aspectRatio: string
+    videoMode?: "text" | "first_last_frame"
+    duration?: "5" | "10"
+    videoQualityMode?: "std" | "pro"
+    images: Array<{
+      id: string
+      kind?: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      remoteUrl?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      duration?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    progress: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    rawStatus?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | string
+    error?: string
+    request?: unknown
+    response?: unknown
+    rawBody?: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioGenerationsCancelResponse = StudioGenerationsCancelResponses[keyof StudioGenerationsCancelResponses]
 
 export type StudioGenerationsGetData = {
   body?: never

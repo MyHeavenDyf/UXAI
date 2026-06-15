@@ -5,6 +5,7 @@ import {
   getInternalStyleConfig,
   getTargetSizeForAspectRatio,
   getTaskType,
+  isCancelTaskSuccess,
   resolveReferenceImages as resolveInternelReferenceImages,
 } from "@/tool/internel_image_generate"
 
@@ -111,5 +112,17 @@ describe("image generate input filtering", () => {
     expect(getTargetSizeForAspectRatio({ width: 1024, height: 1024 }, "3:4")).toEqual({ width: 768, height: 1024 })
     expect(getTargetSizeForAspectRatio({ width: 1024, height: 1024 }, "16:9")).toEqual({ width: 1024, height: 576 })
     expect(getTargetSizeForAspectRatio({ width: 1280, height: 1280 }, "3:4")).toEqual({ width: 960, height: 1280 })
+  })
+
+  test("accepts cancellation only when the provider confirms success", () => {
+    expect(isCancelTaskSuccess({ resp_code: 200, resp_msg: "success", result: true })).toBe(true)
+    expect(isCancelTaskSuccess({ resp_code: 200, resp_msg: "not cancelled", result: false })).toBe(false)
+    expect(isCancelTaskSuccess({ resp_code: 500, resp_msg: "failed", result: true })).toBe(false)
+  })
+
+  test("rejects incomplete cancellation responses", () => {
+    expect(isCancelTaskSuccess({})).toBe(false)
+    expect(isCancelTaskSuccess({ resp_code: 200 })).toBe(false)
+    expect(isCancelTaskSuccess({ result: true })).toBe(false)
   })
 })

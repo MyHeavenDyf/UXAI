@@ -8,6 +8,8 @@ type StudioResultCardProps = {
   turn: StudioTurnData
   fallbackCapability?: StudioCapability
   busy: boolean
+  cancelling: boolean
+  onCancelGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
@@ -41,6 +43,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     return "failed"
   }
   const generating = () => status() === "queued" || status() === "running"
+  const cancellable = () => generating() && props.turn.result?.id.startsWith("studio_gen")
   const progress = () => {
     if (status() === "succeeded") return 100
     return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
@@ -87,6 +90,16 @@ export function StudioResultCard(props: StudioResultCardProps) {
               <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
             </div>
             <span class="studio-result-progress-percent">{progress()}%</span>
+            <Show when={cancellable()}>
+              <button
+                type="button"
+                class="studio-result-cancel"
+                disabled={props.cancelling}
+                onClick={() => props.turn.result && props.onCancelGeneration(props.turn.result.id)}
+              >
+                {props.cancelling ? "取消中..." : "取消生成"}
+              </button>
+            </Show>
           </>
         </Show>
       </div>
