@@ -17,6 +17,7 @@ export function PreviewPage(props: {
   api?: PreviewPageAPI
   pendingData?: unknown
   onPickerSubmit?: (text: string, domPickerId: string) => void
+  onDownload?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -120,6 +121,7 @@ export function PreviewPage(props: {
         onFullscreen={() => {
           if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
         }}
+        onDownload={props.onDownload}
         versions={props.versions}
         currentVersionId={props.currentVersionId}
         onSelectVersion={props.onSelectVersion}

@@ -268,11 +268,6 @@ function PatternContent() {
     return `${home}/.octo/design/history`;
   })
 
-  const getModuleResults = () => {
-    const mods = lastModules()
-    return mods.length > 0 ? mods : null
-  }
-
   const hasContent = () => {
     const id = params.id
     if (!id) return false
@@ -563,6 +558,24 @@ function PatternContent() {
     if (state.lastModules.length > 0) setLastModules(state.lastModules)
   }
 
+  function handleDownload() {
+    const data = pendingPreviewData()
+    if (!data) {
+      showToast({ title: "暂无可下载的内容" })
+      return
+    }
+    const jsonStr = typeof data === "string" ? data : JSON.stringify(data, null, 2)
+    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `pattern-${params.id ?? "export"}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
 
   const chartInputProps = () => ({
@@ -633,6 +646,7 @@ function PatternContent() {
                 api={previewApi}
                 pendingData={pendingPreviewData()}
                 onPickerSubmit={handlePickerSubmit}
+                onDownload={handleDownload}
                 versions={versions()}
                 currentVersionId={currentVersionId()}
                 onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
