@@ -16,11 +16,13 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
+import { useQueryClient } from "@tanstack/solid-query"
 
 export function DialogConnectProvider(props: { provider: string }) {
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
+  const queryClient = useQueryClient()
   const language = useLanguage()
   const providers = useProviders()
 
@@ -348,10 +350,12 @@ export function DialogConnectProvider(props: { provider: string }) {
       // opencode: updateConfig 后端已自动 dispose + SSE 重加载
       // 只需刷新前端缓存，不需要再次 dispose
       globalSync.invalidateProviders()
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     } else {
       // 其他 provider: auth.set 后需后端重初始化才能读取新 key
       await globalSDK.client.global.dispose()
       globalSync.invalidateProviders()
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     }
 
     showToast({

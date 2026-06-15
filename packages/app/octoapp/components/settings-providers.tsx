@@ -8,6 +8,7 @@ import { createMemo, type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useQueryClient } from "@tanstack/solid-query"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
@@ -32,6 +33,7 @@ export const SettingsProviders: Component = () => {
   const language = useLanguage()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const queryClient = useQueryClient()
   const providers = useProviders()
 
   const connected = createMemo(() => {
@@ -111,6 +113,11 @@ export const SettingsProviders: Component = () => {
     return Boolean(globalSync.data.config.provider?.[providerID]?.options?.apiKey)
   }
 
+  const invalidateAllProviders = () => {
+    globalSync.invalidateProviders()
+    queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
+  }
+
   const disconnectOpencode = async (name: string) => {
     await globalSDK.client.auth.remove({ providerID: "opencode" }).catch(() => undefined)
     const provider = globalSync.data.config.provider ?? {}
@@ -122,7 +129,7 @@ export const SettingsProviders: Component = () => {
     await globalSync.updateConfig({ provider: next })
     await globalSDK.client.global.dispose()
     await disableProvider("opencode", name)
-    globalSync.invalidateProviders()
+    invalidateAllProviders()
   }
 
   const disconnect = async (providerID: string, name: string) => {
@@ -140,7 +147,7 @@ export const SettingsProviders: Component = () => {
 
     await globalSDK.client.global.config.update({ config: { provider: next, disabled_providers: nextDisabled } })
     await globalSDK.client.global.dispose()
-    globalSync.invalidateProviders()
+    invalidateAllProviders()
 
     showToast({
       variant: "success",

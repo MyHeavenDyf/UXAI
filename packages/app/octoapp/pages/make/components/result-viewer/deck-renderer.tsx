@@ -44,6 +44,7 @@ export function DeckRenderer(props: { content: string }): JSX.Element {
           onLoad={() => {
             window.removeEventListener("message", handleIframeMessage)
             window.addEventListener("message", handleIframeMessage)
+            iframeRef?.contentWindow?.postMessage({ type: "od:slide", action: "go", index: 0 }, "*")
           }}
         />
       </div>

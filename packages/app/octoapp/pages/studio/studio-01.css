@@ -34,8 +34,6 @@
 .studio-detail-section-title,
 .studio-detail-row,
 .studio-detail-prompt,
-.studio-hd-title,
-.studio-cutout-title,
 .studio-enlarging-title {
   -webkit-user-select: text;
   user-select: text;
@@ -226,6 +224,10 @@
   font-size: 14px;
   font-weight: 400;
   line-height: 22px;
+}
+
+.studio-composer-compliance-tooltip-content .studio-video-risk-link {
+  color: inherit;
 }
 
 .studio-composer-compliance-tooltip-arrow {

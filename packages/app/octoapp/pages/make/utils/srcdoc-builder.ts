@@ -506,7 +506,10 @@ function renderSnapshot(id){
   var html='<div xmlns="http://www.w3.org/1999/xhtml" style="'+escapeAttribute(wrapperStyle)+'">'+bodyContent+'</div>';
   var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'"><foreignObject x="0" y="0" width="'+docW+'" height="'+docH+'">'+html+'</foreignObject></svg>';
   var img=new Image();
+  var blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});
+  var blobUrl=URL.createObjectURL(blob);
   img.onload=function(){
+    URL.revokeObjectURL(blobUrl);
     try{
       var canvas=document.createElement('canvas');
       canvas.width=Math.max(1,Math.floor(w*dpr));
@@ -520,16 +523,13 @@ function renderSnapshot(id){
       window.parent.postMessage({type:'od:snapshot:result',id:id,error:String(err&&err.message||err)},'*');
     }
   };
-  function encodedSvgDataUrl(){
-    var encoded=encodeURIComponent(svg);
-    return'data:image/svg+xml;charset=utf-8,'+encoded;
-  }
   img.onerror=function(){
+    URL.revokeObjectURL(blobUrl);
     console.error('[Snapshot Bridge] Image load failed, SVG length:', svg.length);
     console.error('[Snapshot Bridge] Trying fallback: return empty snapshot (drawing only)');
     window.parent.postMessage({type:'od:snapshot:result',id:id,dataUrl:'',w:w,h:h,fallback:true},'*');
   };
-  img.src=encodedSvgDataUrl();
+  img.src=blobUrl;
 }
 window.addEventListener('message',function(ev){
   var data=ev&&ev.data;

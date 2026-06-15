@@ -90,6 +90,35 @@ const runningToolPart = (
     },
   }) as Part
 
+const editorEntryToolPart = (
+  id: string,
+  messageID: string,
+  capability: "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint",
+  entryID: string,
+) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
+    type: "tool",
+    callID: `studio_editor_entry_${entryID}`,
+    tool: "studio_editor_entry",
+    state: {
+      status: "completed",
+      title: "进入编辑区",
+      time: { start: 1, end: 1 },
+      input: { capability, entryID },
+      output: JSON.stringify({ type: "editor_entry", capability, entryID }),
+      metadata: {
+        studio: {
+          type: "editor_entry",
+          capability,
+          entryID,
+        },
+      },
+    },
+  }) as Part
+
 const contentFileToolPart = (id: string, messageID: string, url: string, tool = "internel_image_generate") =>
   ({
     id,
@@ -121,6 +150,48 @@ const pendingResult = (status: StudioGenerationResult["status"] = "succeeded"): 
   }) as StudioGenerationResult
 
 describe("buildStudioTurns", () => {
+  test("restores persisted editor entry turns", () => {
+    const user = userMessage("msg_editor_user")
+    const assistant = assistantMessage("msg_editor_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_editor_user", user.id, "变清晰")],
+        [assistant.id]: [
+          textPart("p_editor_assistant", assistant.id, "点击前往编辑区"),
+          editorEntryToolPart("p_editor_tool", assistant.id, "image.upscale", "entry_1"),
+        ],
+      },
+    })
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0].editCapability).toBe("image.upscale")
+    expect(turns[0].editorEntryID).toBe("entry_1")
+    expect(turns[0].result).toBeUndefined()
+    expect(turns[0].toolTitle).toBeUndefined()
+    expect(turns[0].isLatest).toBe(true)
+  })
+
+  test("keeps multiple editor entry turns in order", () => {
+    const user1 = userMessage("msg_editor_user_1", 1)
+    const assistant1 = assistantMessage("msg_editor_assistant_1", 2)
+    const user2 = userMessage("msg_editor_user_2", 3)
+    const assistant2 = assistantMessage("msg_editor_assistant_2", 4)
+    const turns = buildStudioTurns({
+      messages: [user2, assistant2, user1, assistant1],
+      parts: {
+        [user1.id]: [textPart("p_editor_user_1", user1.id, "变清晰")],
+        [assistant1.id]: [editorEntryToolPart("p_editor_tool_1", assistant1.id, "image.upscale", "entry_1")],
+        [user2.id]: [textPart("p_editor_user_2", user2.id, "扩图")],
+        [assistant2.id]: [editorEntryToolPart("p_editor_tool_2", assistant2.id, "image.outpaint", "entry_2")],
+      },
+    })
+
+    expect(turns.map((turn) => turn.editCapability)).toEqual(["image.upscale", "image.outpaint"])
+    expect(turns[0].isLatest).toBe(false)
+    expect(turns[1].isLatest).toBe(true)
+  })
+
   test("keeps earlier turns when a second user message arrives", () => {
     const m1 = userMessage("msg_1")
     const a1 = assistantMessage("msg_2")

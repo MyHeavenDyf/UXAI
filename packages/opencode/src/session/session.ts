@@ -30,6 +30,7 @@ import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { zod } from "@/util/effect-zod"
 import { NonNegativeInt, optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as CategoryQuery from "./session-category-query"
+import { CATEGORY_VALUES } from "./session-category"
 
 const log = Log.create({ service: "session" })
 
@@ -70,7 +71,7 @@ export function fromRow(row: SessionRow, category?: string): Info {
     parentID: row.parent_id ?? undefined,
     title: row.title,
     agent: row.agent ?? undefined,
-    category: category as Info["category"],
+    category: CATEGORY_VALUES.has(category ?? "") ? (category as Info["category"]) : undefined,
     model: row.model
       ? {
           id: ModelID.make(row.model.id),
