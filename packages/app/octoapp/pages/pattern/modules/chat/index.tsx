@@ -16,6 +16,7 @@ import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./attachment_bar"
 import { InsightTurn, type OutputCard } from "./insight-turn"
+import { GenerationCard } from "./generation-card"
 import { ProtoIntroduction } from "./proto_introduction"
 import { ChartInput, type ChartInputProps } from "./chart_input"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
@@ -53,6 +54,12 @@ export function ChatPanel(props: {
   onDrop: (e: DragEvent) => void
   /** 点击消息中的结果卡片回调 */
   onOpenResult: (card: OutputCard) => void
+  /** 主流程是否正在生成 */
+  pipelineBusy: boolean
+  /** 是否有可预览内容 */
+  hasPreview: boolean
+  /** 点击预览回调 */
+  onOpenPreview: () => void
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
   /** 标题修改后通知父组件刷新 */
@@ -209,11 +216,15 @@ export function ChatPanel(props: {
                       sessionID={(msg as any)._sessionID ?? sid}
                       messageID={msg.id}
                       status={props.sessionStatus}
-                      active={props.isBusy}
                       onOpenResult={props.onOpenResult}
                     />
                   )}
                 </For>
+                <GenerationCard
+                  generating={props.pipelineBusy}
+                  canPreview={props.hasPreview}
+                  onOpenPreview={props.onOpenPreview}
+                />
               </div>
             )}
           </Show>

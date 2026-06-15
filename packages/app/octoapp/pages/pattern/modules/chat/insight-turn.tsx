@@ -151,8 +151,7 @@ function WaitingPill(props: { parts: Array<{ type: string; text?: string }> }): 
   })
 
   return (
-    <div
-      class="mx-3 mb-2 px-3 py-2 flex items-center gap-2 waiting-pill-content">
+      <div       class="mx-3 mb-2 px-3 py-2 flex items-center gap-2 waiting-pill-content">
       <div
         class="w-1.5 h-1.5 rounded-full animate-pulse status-content"
       />
@@ -196,7 +195,6 @@ export function InsightTurn(props: {
   sessionID: string
   messageID: string
   status: SessionStatus
-  active: boolean
   onOpenResult: (card: OutputCard) => void
 }): JSX.Element {
   const data = useData()
@@ -253,14 +251,6 @@ export function InsightTurn(props: {
     }
     return texts
   })
-
-  const isLatestTurn = createMemo(() => {
-    const messages = msgStore?.[props.sessionID] ?? []
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
-    return lastUser?.id === props.messageID
-  })
-
-  const showGenerating = createMemo(() => props.active && isLatestTurn())
 
   // ── NEW: tool calls ──
   const toolCalls = createMemo((): ToolCallInfo[] => {
@@ -328,7 +318,7 @@ export function InsightTurn(props: {
   })
 
   const streamingArtifact = createMemo((): OutputCard | null => {
-    if (!showGenerating()) return null
+    if (!assistantGenerating()) return null
     const parts = assistantParts()
     const textPart = [...parts]
       .reverse()
@@ -366,7 +356,7 @@ export function InsightTurn(props: {
 
   // Track whether we've seen an artifact during streaming (effect, not memo)
   createEffect(() => {
-    if (!showGenerating()) {
+    if (!assistantGenerating()) {
       setHasSeenArtifact(false)
       setLastSeenCard(null)
       return
@@ -379,7 +369,7 @@ export function InsightTurn(props: {
   })
 
   const stableStreamingCard = createMemo((): OutputCard | null => {
-    if (!showGenerating()) return null
+    if (!assistantGenerating()) return null
     return streamingArtifact() ?? (hasSeenArtifact() ? lastSeenCard() : null)
   })
 
@@ -398,8 +388,8 @@ export function InsightTurn(props: {
   // ── output card (final, after generation) ──
   const outputCard = createMemo((): OutputCard | null => {
     const parts = assistantParts()
-    if (parts.length === 0 && !showGenerating()) return null
-    if (showGenerating()) return null
+    if (parts.length === 0 && !assistantGenerating()) return null
+    if (assistantGenerating()) return null
 
     // ── 优先级 1：带文件路径的 write tool（HTML 文件写入） ──
     for (const p of [...parts].reverse()) {
@@ -502,11 +492,11 @@ export function InsightTurn(props: {
   })
 
   return (
-    <div class="flex flex-col">
+    <div class="flex flex-col insight-turn-root">
       <UserInputCard text={userText()} />
 
       {/* 文件操作摘要（生成完成后） */}
-      <Show when={!showGenerating() && toolCalls().length > 0}>
+      <Show when={!assistantGenerating() && toolCalls().length > 0}>
         <div class="mb-1">
           <FileOpsSummary calls={toolCalls()} />
         </div>
@@ -514,32 +504,30 @@ export function InsightTurn(props: {
 
       {/* 思考过程（直接展示） */}
       <Show when={reasoningTexts().length > 0}>
-        <div class="mx-3 mb-1">
-          <div
-            ref={(el) => {
-              createEffect(() => {
-                reasoningTexts()
-                el.scrollTop = el.scrollHeight
-              })
-            }}
-            class="p-2.5 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
-          >
-            <For each={reasoningTexts()}>
-              {(text, i) => (
-                <>
-                  <Show when={i() > 0}>
-                    <div class="my-1.5 split-line" />
-                  </Show>
-                  <div class="whitespace-pre-wrap">{text}</div>
-                </>
-              )}
-            </For>
-          </div>
+        <div
+          ref={(el) => {
+            createEffect(() => {
+              reasoningTexts()
+              el.scrollTop = el.scrollHeight
+            })
+          }}
+          class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
+        >
+          <For each={reasoningTexts()}>
+            {(text, i) => (
+              <>
+                <Show when={i() > 0}>
+                  <div class="my-1.5 split-line" />
+                </Show>
+                <div class="whitespace-pre-wrap">{text}</div>
+              </>
+            )}
+          </For>
         </div>
       </Show>
 
       {/* 生成中状态指示 */}
-      <Show when={showGenerating()}>
+      <Show when={assistantGenerating()}>
         <WaitingPill parts={assistantParts()} />
       </Show>
 
@@ -550,30 +538,39 @@ export function InsightTurn(props: {
 
       {/* AI 文字回复（剥离 artifact 标签） */}
       <Show when={proseText().length > 0}>
-        <div class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed prose-text">
-          <Show when={proseIsJson()} fallback={<Markdown text={proseText()} streaming={showGenerating()} />}>
-            <pre class="prose-json-pre" classList={{ completed: !assistantGenerating() }}>{proseText()}</pre>
-          </Show>
-        </div>
+        <Show when={proseIsJson()} fallback={
+          <div class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed prose-text">
+            <Markdown text={proseText()} streaming={assistantGenerating()} />
+          </div>
+        }>
+          <pre
+            ref={(el) => {
+              createEffect(() => {
+                proseText()
+                el.scrollTop = el.scrollHeight
+              })
+            }}
+            class="prose-json-pre mx-3 mb-2"
+            classList={{ completed: !assistantGenerating() }}
+          >{proseText()}</pre>
+        </Show>
       </Show>
 
       {/* 生成中的 artifact 卡片（非点击，带进度指示） */}
-      <Show when={showGenerating() && stableStreamingCard()}>
+      <Show when={assistantGenerating() && stableStreamingCard()}>
         {(card) => {
           const genCard = card()
           return (
-            <div
-              class="mx-3 mb-3 p-3 gen-card-content"
-            >
-              <div class="flex items-center gap-2">
-                <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={genCard.type} /></span>
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate card-title">{genCard.title}</span>
-                  <span class="text-xs card-label">正在生成…</span>
+            <div class="mx-3 mb-3 gen-card-content">
+              <div class="flex items-center gap-3">
+                <span class="flex-shrink-0 flex items-center">
+                  <img src="/AI_doc_plaintext.svg" width={28} height={28} alt="" />
+                </span>
+                <div class="flex flex-col min-w-0 flex-1">
+                  <span class="truncate card-title">{genCard.title}</span>
+                  <span class="card-label">正在生成…</span>
                 </div>
-                <span
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium card-rounded"
-                >
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium card-rounded">
                   <span class="w-1.5 h-1.5 rounded-full animate-pulse card-rounded-full"/>
                   生成中
                 </span>
@@ -591,21 +588,16 @@ export function InsightTurn(props: {
             <button
               type="button"
               onClick={() => props.onOpenResult(capturedCard)}
-              class="mx-3 mb-3 p-3 text-left transition-all captured-card-btn"
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--octo-brand-a20)"
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--octo-border-default)"
-              }}
+              class="mx-3 mb-3 text-left transition-all captured-card-btn"
             >
-              <div class="flex items-center gap-2">
-                <span class="flex-shrink-0 flex items-center"><CardTypeIcon type={capturedCard.type} /></span>
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
-                  <span class="text-sm font-medium truncate title">{capturedCard.title}</span>
-                  <span class="text-xs time">{formatTime(capturedCard.createdAt)}</span>
+              <div class="flex items-center gap-3">
+                <span class="flex-shrink-0 flex items-center">
+                  <img src="/AI_doc_plaintext.svg" width={28} height={28} alt="" />
+                </span>
+                <div class="flex flex-col min-w-0 flex-1">
+                  <span class="truncate title">{capturedCard.title}</span>
+                  <span class="time">{formatTime(capturedCard.createdAt)}</span>
                 </div>
-                <span class="text-xs flex-shrink-0 text">→</span>
               </div>
             </button>
           )
@@ -613,7 +605,7 @@ export function InsightTurn(props: {
       </Show>
 
       {/* 产出文件列表 */}
-      <Show when={!showGenerating() && producedFiles().length > 0}>
+      <Show when={!assistantGenerating() && producedFiles().length > 0}>
         <ProducedFilesList files={producedFiles()} />
       </Show>
     </div>

@@ -523,6 +523,20 @@ function PatternContent() {
     }
   }
 
+  function handleOpenPreview() {
+    if (lastModules().length > 0) {
+      const shell = lastPlanner()
+      const shellLayout = (shell?.layout_planner as Record<string, unknown> | undefined) ?? shell
+      const merged = mergeModules(
+        { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
+        // @ts-expect-error pre-existing type mismatch in mergeModules
+        lastModules(),
+      )
+      const mergedJson = detectA2UIJson(JSON.stringify(merged))
+      if (mergedJson) sendToPreview(mergedJson)
+    }
+  }
+
   // 回退到指定历史版本
   async function handleSelectVersion(versionId: string) {
     const id = params.id
@@ -586,6 +600,9 @@ function PatternContent() {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onOpenResult={handleOpenResult}
+            pipelineBusy={isBusy() || sending()}
+            hasPreview={lastModules().length > 0 && !isBusy()}
+            onOpenPreview={handleOpenPreview}
             onDeleteSession={deleteSession}
             onTitleChanged={() => void refetchSession()}
           />
