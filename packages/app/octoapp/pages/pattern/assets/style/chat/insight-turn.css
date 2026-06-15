@@ -40,6 +40,8 @@
   border: 1px solid var(--octo-border-default);
   border-radius: var(--octo-radius-md);
   box-shadow: none;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .split-line {
@@ -48,6 +50,8 @@
 
 .prose-text {
   color: var(--octo-text-primary);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .prose-json-pre {
@@ -61,6 +65,8 @@
   background: var(--octo-brand-a3);
   border: 1px dashed var(--octo-brand-a25);
   max-height: 300px;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .prose-json-pre.completed {

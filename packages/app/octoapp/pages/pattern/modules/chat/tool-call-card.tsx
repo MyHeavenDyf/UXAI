@@ -75,14 +75,11 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
     return ""
   })
   return (
-    <div
-      class="mx-3 mb-1 px-2.5 py-1.5 flex items-center gap-2 text-xs single-tool-card"
-    >
+    <div class="mx-3 mb-1 px-2.5 py-1.5 flex items-center gap-2 text-xs single-tool-card">
       <span class="label">{label()}</span>
+      <span class="summary">{props.call.name}</span>
       <Show when={summary()}>
-        <span class="truncate flex-1 min-w-0 summary">
-          {summary()}
-        </span>
+        <span class="truncate flex-1 min-w-0 summary">{summary()}</span>
       </Show>
       <StatusBadge status={props.call.status} />
     </div>
