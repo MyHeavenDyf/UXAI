@@ -107,7 +107,14 @@ export function PreviewPage(props: {
     <div ref={(el) => { previewPageRef = el }} class="preview-container">
       <TitleBar
         canvasMode={canvasMode()}
-        onToggleCanvasMode={() => setCanvasMode(!canvasMode())}
+        onToggleCanvasMode={() => {
+          const next = !canvasMode()
+          setCanvasMode(next)
+          if (next) {
+            setEditing(false)
+            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+          }
+        }}
         onReset={() => canvasRef?.reset()}
         onRefresh={triggerRefresh}
         onFullscreen={() => {
@@ -121,6 +128,7 @@ export function PreviewPage(props: {
           const next = !editing()
           setEditing(next)
           previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
+          if (next) setCanvasMode(false)
         }}
         onOptionChange={handleTitleBarOptionChange}
       />
