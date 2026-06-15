@@ -102,7 +102,6 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
 
         const moduleResults = await Promise.all(modulePromises)
         const allModules = moduleResults.filter(Boolean) as typeof prevModules
-        debugger
         const merged = mergeModules(
             { 
                 rootId: modifyResult.output.rootId as string, 

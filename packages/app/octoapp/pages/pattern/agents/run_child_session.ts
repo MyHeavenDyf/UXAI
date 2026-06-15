@@ -28,7 +28,7 @@ export async function runChildSession(input: RunChildSessionInput): Promise<stri
     aborted // 是否需要立即停止，暂未用，全部停止另外写了一个方法
   } = input
   let childSession: Session | undefined
-
+  debugger
   if (isRoot) {
     // root session 已经在外面创建好了，直接获取
     const result = await client.session.get({ sessionID: parentSessionID })

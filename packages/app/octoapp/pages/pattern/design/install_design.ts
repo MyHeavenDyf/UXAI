@@ -5,5 +5,4 @@
       const content = await readDesignFile(firstName)
       console.log("[Pattern] design content:", content)
     }
-    debugger
     return;

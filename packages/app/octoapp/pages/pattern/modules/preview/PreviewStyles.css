@@ -301,7 +301,7 @@
   font-size: 14px;
   font-weight: 600;
   color: #1f2937;
-  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0px;
 }
 
 .picker-body {
