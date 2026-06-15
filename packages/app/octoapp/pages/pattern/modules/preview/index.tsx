@@ -142,6 +142,9 @@ export function PreviewPage(props: {
         <iframe
           ref={(el) => { previewIframeRef = el }}
           src="http://127.0.0.1:51856"
+          onLoad={() => {
+            if (props.pendingData) sendToPreview(props.pendingData)
+          }}
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>

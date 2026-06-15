@@ -11,6 +11,7 @@ import {
   on,
   onCleanup,
   Show,
+  type JSX,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -43,6 +44,7 @@ import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog
 import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { ChatPanel } from "./modules/chat/index"
+import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 
 const AGENT_NAME = "proto_triage"
 
@@ -61,6 +63,16 @@ export default function PatternPage() {
         </SDKProvider>
       )}
     </Show>
+  )
+}
+
+function PatternPreviewEmpty(): JSX.Element {
+  return (
+    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#f9fafb" }}>
+      <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
+      <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>对话产出将在这里展示</div>
+      <div class="text-[12px]" style={{ color: "var(--octo-text-disabled, #BFBFBF)" }}>点击左侧输出卡片即可打开</div>
+    </div>
   )
 }
 
@@ -131,6 +143,8 @@ function PatternContent() {
           setLastModules([])
           setVersions([])
           setCurrentVersionId(null)
+          setHasPreviewContent(false)
+          setIsModifying(false)
 
           // 同步子 session 消息
           void sync.session.sync(id).then(() => {
@@ -241,7 +255,9 @@ function PatternContent() {
   const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
+  const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
+  const [isModifying, setIsModifying] = createSignal(false)
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
@@ -324,9 +340,9 @@ function PatternContent() {
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
-    debugger
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
+    setHasPreviewContent(true)
   }
 
   async function handleSubmit() {
@@ -340,7 +356,6 @@ function PatternContent() {
     const controller = new AbortController()
     const mk = activeModelKey()!
     try {
-      debugger
       let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
@@ -368,26 +383,26 @@ function PatternContent() {
         userInput: text,
         onSessionCreated: (childID: string) => setChildSessionIDs((prev) => [...prev, childID]),
       }
-      debugger
       // 流程执行完毕后的回调
       let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
           // 触发页面渲染
-          const pageJsonStr = JSON.stringify(pageJson)
-          if (pageJsonStr) sendToPreview(pageJsonStr)
+          if (pageJson) sendToPreview(pageJson)
           // 内存数据更新
           setLastIntent(pageIntent)
           setLastPlanner(layoutPlanner)
           setLastModules(modulesJson)
           // 历史文件
           const dir = patternHistoryDir()
-          const vid = await appendPatternVersion(dir, sid, {
-              lastIntent: lastIntent(),
-              lastPlanner: lastPlanner(),
-              lastModules: lastModules(),
-              mergedA2UI: pageJson as unknown as Record<string, unknown>,
-          }, text.slice(0, 80))
-          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
-          setCurrentVersionId(vid)
+          if (dir) {
+            const vid = await appendPatternVersion(dir, sid, {
+                lastIntent: lastIntent(),
+                lastPlanner: lastPlanner(),
+                lastModules: lastModules(),
+                mergedA2UI: pageJson as unknown as Record<string, unknown>,
+            }, text.slice(0, 80))
+            setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+            setCurrentVersionId(vid)
+          }
       }
 
       if(lastIntent()){
@@ -396,8 +411,10 @@ function PatternContent() {
           lastPlanner: lastPlanner(),
           lastModules: lastModules(),
         }
-        // AI 修改页面
+        // AI 修改页面 — 先切到加载态
+        setIsModifying(true)
         await modify_json_ai(intentCtx, lastData, onFinshed);
+        setIsModifying(false)
       }else{
         // 首次创建页面
         await create_json(intentCtx, onFinshed);
@@ -580,14 +597,37 @@ function PatternContent() {
 
         {/* 预览页 */}
         <Show when={hasContent()}>
-          <PreviewPage
-            api={previewApi}
-            pendingData={pendingPreviewData()}
-            onPickerSubmit={handlePickerSubmit}
-            versions={versions()}
-            currentVersionId={currentVersionId()}
-            onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
-          />
+          <div style={{ position: "relative", overflow: "hidden" }}>
+            <Show when={hasPreviewContent()} fallback={<PatternPreviewEmpty />}>
+              <PreviewPage
+                api={previewApi}
+                pendingData={pendingPreviewData()}
+                onPickerSubmit={handlePickerSubmit}
+                versions={versions()}
+                currentVersionId={currentVersionId()}
+                onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+              />
+            </Show>
+            <Show when={isModifying()}>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: "0",
+                  "z-index": "50",
+                  background: "rgba(249, 250, 251, 0.85)",
+                  display: "flex",
+                  "flex-direction": "column",
+                  "align-items": "center",
+                  "justify-content": "center",
+                  gap: "12px",
+                }}
+              >
+                <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
+                <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>AI 正在修改页面中...</div>
+                <div class="text-[12px]" style={{ color: "var(--octo-text-disabled, #BFBFBF)" }}>请稍候</div>
+              </div>
+            </Show>
+          </div>
         </Show>
       </div>
     </DataProvider>
