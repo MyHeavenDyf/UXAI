@@ -27,8 +27,8 @@
 }
 
 .studio-result-card.failed .studio-result-progress-status {
-  background: rgba(180, 35, 24, 0.1);
-  color: #b42318;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .studio-result-progress-track {
@@ -66,11 +66,16 @@
   font-size: 15px;
   line-height: 24px;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.studio-result-cancel:hover:not(:disabled) {
+  color: #615bff;
 }
 
 .studio-result-cancel:disabled {
-  cursor: default;
-  opacity: 1;
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .studio-result-progress-preview {
