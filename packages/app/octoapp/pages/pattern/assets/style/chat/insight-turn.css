@@ -1,3 +1,7 @@
+.insight-turn-root {
+  padding: 0 12px;
+}
+
 .waiting-pill-content {
   border-radius: var(--octo-radius-md);
   background: var(--octo-brand-a3);
@@ -56,6 +60,7 @@
   overflow-wrap: normal;
   background: var(--octo-brand-a3);
   border: 1px dashed var(--octo-brand-a25);
+  max-height: 300px;
 }
 
 .prose-json-pre.completed {
@@ -63,18 +68,24 @@
 }
 
 .gen-card-content {
-  border-radius: var(--octo-radius-md);
+  border-radius: 12px;
+  padding: 16px 20px;
+  background: linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%);
   border: 1px dashed var(--octo-brand-a25);
-  background: var(--octo-surface-page);
   width: calc(100% - 1.5rem);
 }
 
 .card-title {
-  color: var(--octo-text-primary);
+  color: rgb(25,25,25);
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
 }
 
 .card-label {
-  color: var(--octo-text-secondary);
+  color: #777;
+  font-size: 12px;
+  line-height: 22px;
 }
 
 .card-rounded {
@@ -87,18 +98,24 @@
 }
 
 .captured-card-btn {
-  border-radius: var(--octo-radius-md);
-  border: 1px solid var(--octo-border-default);
-  background: var(--octo-surface-page);
+  border-radius: 12px;
+  padding: 16px 20px;
+  background: linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%);
+  border: 1px solid rgba(0,0,0,0.1);
   width: calc(100% - 1.5rem);
 }
 
 .captured-card-btn .title {
-  color: var(--octo-text-primary);
+  color: rgb(25,25,25);
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
 }
 
 .captured-card-btn .time {
-  color: var(--octo-text-secondary);
+  color: #777;
+  font-size: 12px;
+  line-height: 22px;
 }
 
 .captured-card-btn .text {
