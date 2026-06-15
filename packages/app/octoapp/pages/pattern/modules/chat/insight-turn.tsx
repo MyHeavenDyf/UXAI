@@ -243,13 +243,18 @@ export function InsightTurn(props: {
         const filePath = input
           ? ((input.path ?? input.filepath ?? input.filePath ?? "") as string)
           : ""
+        const stateStatus = state.status as string | undefined
+        const stateError = state.error as string | undefined
         const hasOutput = typeof state.output === "string" && (state.output as string).length > 0
-        const isError = state.meta
-          ? ((state.meta as Record<string, unknown>).exitCode as number) !== 0
-          : false
+        const metadata = state.metadata as Record<string, unknown> | undefined
+        const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
+        const isErrorFromStatus = stateStatus === "error" && !isCancelled
+        const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
+        const isError = isErrorFromStatus || isErrorFromMetadata
+        const isCompleted = stateStatus === "completed"
         return {
-          name: (state.name as string) ?? (raw.name as string) ?? "unknown",
-          status: !hasOutput ? ("running" as const) : isError ? ("error" as const) : ("done" as const),
+          name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
+          status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
