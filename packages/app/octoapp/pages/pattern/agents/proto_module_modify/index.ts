@@ -46,7 +46,6 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
   } = ctx
   // 组装输入提示词
   const humanMessage = buildHumanMessage(ctx.input)
-  debugger
   console.log("----- 模块修改Agent开始执行 ----- ");
   const startTime = Date.now();
   const modifyRes = await runChildSession({

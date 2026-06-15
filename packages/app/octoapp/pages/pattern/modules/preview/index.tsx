@@ -160,10 +160,10 @@ export function PreviewPage(props: {
                 value={pickerText()}
                 onInput={(e) => setPickerText(e.currentTarget.value)}
                 placeholder="描述你想要的修改..."
-                rows={3}
+                rows={2}
                 class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
               />
-              <div class="flex justify-end gap-2" style={{"margin-top": "16px"}}>
+              <div class="flex justify-end gap-2" style={{"margin-top": "12px"}}>
                 <Button variant="ghost" size="large" onClick={closePicker}>
                   取消
                 </Button>
