@@ -428,7 +428,7 @@ export const layer = Layer.effect(
             name: "proto_triage",
             description: "Proto triage agent.",
             prompt: PROMPT_PROTO_TRIAGE,
-            permission: defaults,
+            permission: Permission.fromConfig({ "*": "deny"}),
             options: {},
             mode: "primary",
             native: false,
