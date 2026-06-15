@@ -53,34 +53,8 @@ function decodeDataUrl(url: string): string {
   }
 }
 
-function detectCard(text: string): { type: OutputCardType; title: string } | null {
-  const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
-
-  if (/```html/i.test(text) || /<!DOCTYPE\s+html/i.test(text) || /<html[\s>]/i.test(text)) {
-    if (/<div[^>]*class=["']slide["']/.test(text) || /\.slide\b/.test(text)) {
-      return { type: "deck", title: heading(text) ?? "幻灯片" }
-    }
-    return { type: "html", title: heading(text) ?? "HTML 原型" }
-  }
-  if (/<svg[\s>]/i.test(text) || /```svg\b/i.test(text)) {
-    return { type: "svg", title: heading(text) ?? "SVG 图形" }
-  }
-  if (isMarkdownTable(text)) {
-    return { type: "table", title: heading(text) ?? "分析结果" }
-  }
-  if (/```mermaid/i.test(text)) {
-    return { type: "mindmap", title: heading(text) ?? "思维导图" }
-  }
-  if (/```json/i.test(text)) {
-    return { type: "json", title: heading(text) ?? "JSON 数据" }
-  }
-  if (/```(tsx?|jsx?|python|css|yaml|toml|rust|go|java|sh|bash)\b/i.test(text)) {
-    return { type: "code-snippet", title: heading(text) ?? "代码片段" }
-  }
-  if (text.trim().length > 200) {
-    return { type: "markdown", title: heading(text) ?? "分析报告" }
-  }
-  return null
+function detectCard(){
+  return { type: "json", title: '当前阶段已完' }
 }
 
 function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
@@ -211,28 +185,32 @@ export function InsightTurn(props: {
     return raw.trim()
   })
 
-  const assistantMsg = createMemo((): AssistantMessage | undefined => {
+  const allAssistantMsgs = createMemo((): AssistantMessage[] => {
     const messages = msgStore?.[props.sessionID] ?? []
     const idx = messages.findIndex((m) => m.id === props.messageID)
-    if (idx === -1) return undefined
+    if (idx === -1) return []
+    const result: AssistantMessage[] = []
     for (let i = idx + 1; i < messages.length; i++) {
       const m = messages[i]
-      if (m.role === "assistant") return m as AssistantMessage
+      if (m.role === "assistant") result.push(m as AssistantMessage)
       if (m.role === "user") break
     }
-    return undefined
+    return result
   })
 
   const assistantParts = createMemo(() => {
-    const msg = assistantMsg()
-    if (!msg) return []
-    return partStore?.[msg.id] ?? []
+    const parts: { type: string; text?: string }[] = []
+    for (const msg of allAssistantMsgs()) {
+      const msgParts = partStore?.[msg.id] ?? []
+      parts.push(...msgParts)
+    }
+    return parts
   })
 
   const assistantGenerating = createMemo(() => {
-    const msg = assistantMsg()
-    if (!msg) return false
-    return typeof msg.time.completed !== "number"
+    const msgs = allAssistantMsgs()
+    if (msgs.length === 0) return true
+    return msgs.some((m) => typeof m.time.completed !== "number")
   })
 
   // 提取 reasoning 内容
@@ -293,12 +271,10 @@ export function InsightTurn(props: {
     }
     const trimmed = prose.trim()
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      if (!assistantGenerating()) {
-        try {
-          const parsed = JSON.parse(trimmed)
-          return JSON.stringify(parsed, null, 2)
-        } catch { /* fall through */ }
-      }
+      try {
+        const parsed = JSON.parse(trimmed)
+        return JSON.stringify(parsed, null, 2)
+      } catch { /* incomplete JSON, fall through */ }
     }
     return trimmed
   })
@@ -526,11 +502,6 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
-      {/* 生成中状态指示 */}
-      <Show when={assistantGenerating()}>
-        <WaitingPill parts={assistantParts()} />
-      </Show>
-
       {/* 工具调用进度 */}
       <Show when={toolCalls().length > 0}>
         <ToolCallGroupCard calls={toolCalls()} />
@@ -580,15 +551,18 @@ export function InsightTurn(props: {
         }}
       </Show>
 
+       {/* 生成中状态指示 */}
+      <Show when={assistantGenerating()}>
+        <WaitingPill parts={assistantParts()} />
+      </Show>
+
       {/* 输出卡片（生成完成后） */}
       <Show when={outputCard()}>
         {(card) => {
           const capturedCard = card() as OutputCard
           return (
-            <button
-              type="button"
-              onClick={() => props.onOpenResult(capturedCard)}
-              class="mx-3 mb-3 text-left transition-all captured-card-btn"
+            <div
+              class="mx-3 mb-3 transition-all captured-card-btn"
             >
               <div class="flex items-center gap-3">
                 <span class="flex-shrink-0 flex items-center">
@@ -599,7 +573,7 @@ export function InsightTurn(props: {
                   <span class="time">{formatTime(capturedCard.createdAt)}</span>
                 </div>
               </div>
-            </button>
+            </div>
           )
         }}
       </Show>

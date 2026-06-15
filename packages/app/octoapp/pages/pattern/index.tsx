@@ -537,6 +537,16 @@ function PatternContent() {
     }
   }
 
+  // 生成完成后自动发送预览
+  let wasBusy = false
+  createEffect(() => {
+    const busy = isBusy() || sending()
+    if (wasBusy && !busy && lastModules().length > 0) {
+      handleOpenPreview()
+    }
+    wasBusy = busy
+  })
+
   // 回退到指定历史版本
   async function handleSelectVersion(versionId: string) {
     const id = params.id
