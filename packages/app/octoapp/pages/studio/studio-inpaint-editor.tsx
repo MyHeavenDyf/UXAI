@@ -386,7 +386,12 @@ export function StudioInpaintEditor(props: {
                   min="10"
                   max="126"
                   value={brushSize()}
-                  onInput={(event) => setBrushSize(Number(event.currentTarget.value))}
+                  style={{ '--slider-progress': `${((brushSize() - 10) / 116) * 100}%` }}
+                  onInput={(event) => {
+                    const v = Number(event.currentTarget.value);
+                    setBrushSize(v);
+                    event.currentTarget.style.setProperty('--slider-progress', `${((v - 10) / 116) * 100}%`);
+                  }}
                 />
               </label>
             </div>

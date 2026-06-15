@@ -53,6 +53,8 @@ import {
   formatStudioGenerationError,
   hasVideoFrameAssets,
   isVideoMedia,
+  isStudioGenerationStatusRegression,
+  STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
   STUDIO_VIDEO_ASPECT_RATIOS,
@@ -133,6 +135,7 @@ export default function StudioPage() {
   const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
+  const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
@@ -646,6 +649,7 @@ export default function StudioPage() {
     if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
     if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
       const next = studioTurn()!.result!
+      if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
         return { ...current, ...next, sourceImage: current.sourceImage }
@@ -671,6 +675,7 @@ export default function StudioPage() {
     }
     if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
       const next = studioTurn()!.result!
+      if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
         return { ...current, ...next, sourceImage: current.sourceImage }
@@ -1345,6 +1350,52 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
+  async function cancelStudioGeneration(id: string) {
+    if (cancellingGenerationIDs().has(id)) return
+    const current = server.current
+    if (!current) {
+      console.error("[StudioPage] cancel generation failed", new Error("No active server."))
+      return
+    }
+    setCancellingGenerationIDs((ids) => new Set([...ids, id]))
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        "x-opencode-directory": projectDir(),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_CANCEL_TIMEOUT_MS)
+      const response = await fetch(
+        new URL(`/studio/generations/${encodeURIComponent(id)}/cancel`, current.http.url),
+        { method: "POST", headers, signal: controller.signal },
+      ).finally(() => clearTimeout(timeout))
+      const bodyText = await response.text()
+      if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+      const generation = JSON.parse(bodyText) as StudioGenerationResult
+      setPendingResult((item) => {
+        if (!item || item.id !== generation.id) return item
+        return { ...generation, sourceImage: item.sourceImage }
+      })
+      setStatus(generation.status)
+      const sessionID = generation.sessionID ?? params.id
+      if (sessionID) {
+        void loadSessionMessages(sessionID).catch((error) => {
+          console.error("[StudioPage] cancelled session load failed", error)
+        })
+      }
+    } catch (error) {
+      console.error("[StudioPage] cancel generation failed", error)
+    } finally {
+      setCancellingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
+    }
+  }
+
   function isStudioGenerationID(id: string) {
     return id.startsWith("studio_gen")
   }
@@ -1483,6 +1534,8 @@ export default function StudioPage() {
           try {
             const generation = await getStudioGeneration(id, controller.signal)
             if (stopped) return
+            const current = pendingResult()
+            if (current && current.id === id && isStudioGenerationStatusRegression(current.status, generation.status)) return
 
             setPendingResult((current) => {
               if (current && current.id !== id) return current
@@ -1854,6 +1907,8 @@ export default function StudioPage() {
                 result={result()}
                 turns={displayTurns()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                cancellingGenerationIDs={cancellingGenerationIDs()}
+                onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
               />

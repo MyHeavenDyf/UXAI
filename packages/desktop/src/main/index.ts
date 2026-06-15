@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
-import { app, BrowserWindow, dialog } from "electron"
+import { app, BrowserWindow, dialog, session } from "electron"
 import pkg from "electron-updater"
 
 import contextMenu from "electron-context-menu"
@@ -147,6 +147,9 @@ function setupApp() {
   }
 
   void app.whenReady().then(async () => {
+    await session.defaultSession.setProxy({
+      mode: "direct"
+    });
     if (!TEST_ONBOARDING) {
       migrateAppId()
       migrate()

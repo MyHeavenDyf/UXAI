@@ -1,5 +1,6 @@
 import { executeJimengImageGenerate, summarizeJimengOutput } from "@/tool/jimeng_image_generate"
 import {
+  cancelInternalGeneration,
   createInternalGeneration,
   queryInternalGeneration,
   summarizeInternalOutput,
@@ -86,7 +87,7 @@ export type StudioGenerationResult = {
 
 export type StudioGenerationAccepted = Pick<
   StudioGenerationResult,
-  "id" | "status" | "capability" | "prompt" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "createdAt" | "updatedAt"
+  "id" | "status" | "capability" | "prompt" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "error" | "createdAt" | "updatedAt" | "completedAt"
 > & {
   sessionID: string
 }
@@ -508,6 +509,7 @@ function failStudioSession(input: {
   sessionID: SessionID
   turn: StudioPersistedTurn
   error: unknown
+  rawStatus?: number | string
 }) {
   const completedAt = Date.now()
   const message = input.error instanceof Error ? input.error.message : String(input.error)
@@ -531,6 +533,7 @@ function failStudioSession(input: {
         studio: {
           ...((input.turn.toolPart.state.metadata?.studio as Record<string, unknown> | undefined) ?? {}),
           status: "failed",
+          ...(input.rawStatus === undefined ? {} : { rawStatus: input.rawStatus }),
         },
       },
       time: {
@@ -591,12 +594,44 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     progress: record.progress,
     order: record.queue_order ?? undefined,
     rawStatus: record.raw_status ?? undefined,
+    ...(record.error ? { error: record.error } : {}),
     createdAt: record.time_created,
     updatedAt: record.time_updated,
+    ...(record.completed_at ? { completedAt: record.completed_at } : {}),
   }
 }
 
 function updateStudioGenerationProgress(record: StudioGenerationRecord, query: ImageGenerationQuery) {
+  const updatedAt = Date.now()
+  const updated = Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        status: query.status,
+        raw_status: String(query.rawStatus),
+        progress: query.progress,
+        queue_order: query.order,
+        error: null,
+        poll_attempts: record.poll_attempts + 1,
+        next_poll_at: updatedAt + (query.status === "queued" ? 4000 : 2500),
+        time_updated: updatedAt,
+      })
+      .where(and(
+        eq(StudioGenerationTable.id, record.id),
+        inArray(StudioGenerationTable.status, ["queued", "running"]),
+      ))
+      .returning({ id: StudioGenerationTable.id })
+      .get(),
+  )
+  if (!updated) return false
+  const current = Database.use((db) =>
+    db
+      .select({ status: StudioGenerationTable.status })
+      .from(StudioGenerationTable)
+      .where(eq(StudioGenerationTable.id, record.id))
+      .get(),
+  )
+  if (!current || current.status !== "queued" && current.status !== "running") return false
   const turn = loadPersistedTurn(record)
   const toolPart: MessageV2.ToolPart = {
     ...turn.toolPart,
@@ -617,8 +652,9 @@ function updateStudioGenerationProgress(record: StudioGenerationRecord, query: I
   SyncEvent.run(MessageV2.Event.PartUpdated, {
     sessionID: record.session_id,
     part: toolPart,
-    time: Date.now(),
+    time: updatedAt,
   })
+  return true
 }
 
 function buildGenerationResult(
@@ -664,22 +700,40 @@ function buildGenerationResult(
   }) as StudioGenerationResult & { completedAt: number }
 }
 
-async function failGeneration(record: StudioGenerationRecord, error: unknown) {
+async function failGeneration(record: StudioGenerationRecord, error: unknown, rawStatus?: number | string) {
   const message = error instanceof Error ? error.message : String(error)
-  Database.use((db) =>
-    db
-      .update(StudioGenerationTable)
-      .set({
-        status: "failed",
-        error: message,
-        completed_at: Date.now(),
-        next_poll_at: Number.MAX_SAFE_INTEGER,
-        time_updated: Date.now(),
-      })
-      .where(eq(StudioGenerationTable.id, record.id))
-      .run(),
+  const completedAt = Date.now()
+  const claimed = Database.transaction(
+    (db) => {
+      const current = db
+        .select({ status: StudioGenerationTable.status })
+        .from(StudioGenerationTable)
+        .where(eq(StudioGenerationTable.id, record.id))
+        .get()
+      if (!current || current.status !== "queued" && current.status !== "running") return false
+      db
+        .update(StudioGenerationTable)
+        .set({
+          status: "failed",
+          ...(rawStatus === undefined ? {} : { raw_status: String(rawStatus) }),
+          error: message,
+          completed_at: completedAt,
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          time_updated: completedAt,
+        })
+        .where(eq(StudioGenerationTable.id, record.id))
+        .run()
+      return true
+    },
+    { behavior: "immediate" },
   )
-  failStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), error })
+  if (!claimed) return
+  failStudioSession({
+    sessionID: record.session_id,
+    turn: loadPersistedTurn(record),
+    error,
+    rawStatus,
+  })
 }
 
 async function completeGeneration(record: StudioGenerationRecord, output: ImageGenerationQuery | ImageGenerateOutput) {
@@ -693,24 +747,35 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
     )
   }
   const result = buildGenerationResult(record, output)
-  completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
-  Database.use((db) =>
-    db
-      .update(StudioGenerationTable)
-      .set({
-        status: "succeeded",
-        raw_status: String(result.rawStatus ?? 2),
-        progress: 100,
-        queue_order: null,
-        error: null,
-        result: result as unknown as Record<string, unknown>,
-        completed_at: result.completedAt,
-        next_poll_at: Number.MAX_SAFE_INTEGER,
-        time_updated: result.completedAt,
-      })
-      .where(eq(StudioGenerationTable.id, record.id))
-      .run(),
+  const claimed = Database.transaction(
+    (db) => {
+      const current = db
+        .select({ status: StudioGenerationTable.status })
+        .from(StudioGenerationTable)
+        .where(eq(StudioGenerationTable.id, record.id))
+        .get()
+      if (!current || current.status !== "queued" && current.status !== "running") return false
+      db
+        .update(StudioGenerationTable)
+        .set({
+          status: "succeeded",
+          raw_status: String(result.rawStatus ?? 2),
+          progress: 100,
+          queue_order: null,
+          error: null,
+          result: result as unknown as Record<string, unknown>,
+          completed_at: result.completedAt,
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          time_updated: result.completedAt,
+        })
+        .where(eq(StudioGenerationTable.id, record.id))
+        .run()
+      return true
+    },
+    { behavior: "immediate" },
   )
+  if (!claimed) return
+  completeStudioSession({ sessionID: record.session_id, turn: loadPersistedTurn(record), result })
 }
 
 async function processGeneration(record: StudioGenerationRecord) {
@@ -753,30 +818,21 @@ async function processGeneration(record: StudioGenerationRecord) {
       )
     }
     const query = await queryInternalGeneration(task)
-    updateStudioGenerationProgress(record, query)
     if (query.status === "succeeded") {
       await completeGeneration(record, query)
       return
     }
     if (query.status === "failed") {
-      throw new Error(`query_task returned failure. taskId=${task.taskId} status=${query.rawStatus}`)
+      await failGeneration(
+        record,
+        Number(query.rawStatus) === 4
+          ? "用户取消生成"
+          : `query_task returned failure. taskId=${task.taskId} status=${query.rawStatus}`,
+        query.rawStatus,
+      )
+      return
     }
-    Database.use((db) =>
-      db
-        .update(StudioGenerationTable)
-        .set({
-          status: query.status,
-          raw_status: String(query.rawStatus),
-          progress: query.progress,
-          queue_order: query.order,
-          error: null,
-          poll_attempts: record.poll_attempts + 1,
-          next_poll_at: Date.now() + (query.status === "queued" ? 4000 : 2500),
-          time_updated: Date.now(),
-        })
-        .where(eq(StudioGenerationTable.id, record.id))
-        .run(),
-    )
+    updateStudioGenerationProgress(record, query)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (
@@ -792,7 +848,10 @@ async function processGeneration(record: StudioGenerationRecord) {
             next_poll_at: Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(record.poll_attempts, 5)),
             time_updated: Date.now(),
           })
-          .where(eq(StudioGenerationTable.id, record.id))
+          .where(and(
+            eq(StudioGenerationTable.id, record.id),
+            inArray(StudioGenerationTable.status, ["queued", "running"]),
+          ))
           .run(),
       )
       return
@@ -841,15 +900,21 @@ async function tickStudioGenerationWorker(directory: string) {
         const claimed = Database.transaction(
           (db) => {
             const current = db
-              .select({ next_poll_at: StudioGenerationTable.next_poll_at })
+              .select({
+                next_poll_at: StudioGenerationTable.next_poll_at,
+                status: StudioGenerationTable.status,
+              })
               .from(StudioGenerationTable)
               .where(eq(StudioGenerationTable.id, record.id))
               .get()
-            if (!current || current.next_poll_at > now) return false
+            if (!current || current.status !== "queued" && current.status !== "running" || current.next_poll_at > now) return false
             db
               .update(StudioGenerationTable)
               .set({ next_poll_at: now + 60_000, time_updated: now })
-              .where(eq(StudioGenerationTable.id, record.id))
+              .where(and(
+                eq(StudioGenerationTable.id, record.id),
+                inArray(StudioGenerationTable.status, ["queued", "running"]),
+              ))
               .run()
             return true
           },
@@ -950,4 +1015,63 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
     updatedAt: record.time_updated,
     completedAt: record.completed_at ?? undefined,
   }
+}
+
+export async function cancelGeneration(id: string): Promise<StudioGenerationResult & { sessionID: string }> {
+  const record = Database.use((db) =>
+    db
+      .select()
+      .from(StudioGenerationTable)
+      .where(and(eq(StudioGenerationTable.id, id), eq(StudioGenerationTable.directory, Instance.directory)))
+      .get(),
+  )
+  if (!record) throw new Error(`Studio generation not found: ${id}`)
+  if (record.status === "failed" && record.raw_status === "4") return getGeneration(id)
+  if (record.status === "succeeded") throw new Error(`Studio generation is already completed and cannot be cancelled: ${id}`)
+  if (record.status === "failed") throw new Error(`Studio generation has already failed and cannot be cancelled: ${id}`)
+  if (record.provider !== "internel") throw new Error(`Studio generation provider does not support cancellation: ${record.provider}`)
+  if (!record.provider_task_id) throw new Error(`Studio generation has no provider task id and cannot be cancelled: ${id}`)
+
+  await cancelInternalGeneration(record.provider_task_id)
+
+  const completedAt = Date.now()
+  const claimed = Database.transaction(
+    (db) => {
+      const current = db
+        .select({ status: StudioGenerationTable.status, raw_status: StudioGenerationTable.raw_status })
+        .from(StudioGenerationTable)
+        .where(eq(StudioGenerationTable.id, id))
+        .get()
+      if (!current) return "missing" as const
+      if (current.status !== "queued" && current.status !== "running") {
+        return current.status === "failed" && current.raw_status === "4" ? "cancelled" as const : "terminal" as const
+      }
+      db
+        .update(StudioGenerationTable)
+        .set({
+          status: "failed",
+          raw_status: "4",
+          error: "用户取消生成",
+          queue_order: null,
+          next_poll_at: Number.MAX_SAFE_INTEGER,
+          completed_at: completedAt,
+          time_updated: completedAt,
+        })
+        .where(eq(StudioGenerationTable.id, id))
+        .run()
+      return "claimed" as const
+    },
+    { behavior: "immediate" },
+  )
+  if (claimed === "missing") throw new Error(`Studio generation not found: ${id}`)
+  if (claimed === "terminal") return getGeneration(id)
+  if (claimed === "claimed") {
+    failStudioSession({
+      sessionID: record.session_id,
+      turn: loadPersistedTurn(record),
+      error: "用户取消生成",
+      rawStatus: 4,
+    })
+  }
+  return getGeneration(id)
 }
