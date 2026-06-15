@@ -130,6 +130,6 @@ function getConfig() {
     }
   }
 }
-        // jk-j60099994-replace-with-electron-builder-config-1-end
+// jk-j60099994-replace-with-electron-builder-config-1-end
 
 export default getConfig()
