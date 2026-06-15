@@ -6,8 +6,8 @@ import { readdirSync, statSync, mkdirSync } from "fs"
 import { readFile } from "fs/promises"
 
 const CONFIG_DIR = path.join(homedir(), ".config", "octo")
-const API_DIR = path.join(CONFIG_DIR, "api")
-const EXAMPLE_DIR = path.join(CONFIG_DIR, "example")
+const API_DIR = path.join(CONFIG_DIR, "components", "api")
+const EXAMPLE_DIR = path.join(CONFIG_DIR, "components", "example")
 
 mkdirSync(API_DIR, { recursive: true })
 mkdirSync(EXAMPLE_DIR, { recursive: true })

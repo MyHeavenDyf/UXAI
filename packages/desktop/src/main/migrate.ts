@@ -209,6 +209,30 @@ export function deployBuiltinSkills() {
   }
 }
 
+export function deployProtoTools() {
+  const configDir = join(homedir(), ".config", "octo")
+
+  const builtinSource = app.isPackaged
+    ? process.resourcesPath
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node")
+
+  try {
+    for (const sub of ["components", "design"]) {
+      const srcDir = join(builtinSource, sub)
+      if (!existsSync(srcDir)) {
+        log.warn("proto tools deployment: source directory not found", srcDir)
+        continue
+      }
+      const destDir = join(configDir, sub)
+      if (existsSync(destDir)) continue
+      cpSync(srcDir, destDir, { recursive: true })
+      log.log("proto tools deployment: copied", sub, "to", destDir)
+    }
+  } catch (err) {
+    log.warn("proto tools deployment: failed", err)
+  }
+}
+
 export function deployRipgrep() {
   const { platform, arch } = process
 

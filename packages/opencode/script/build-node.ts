@@ -82,10 +82,10 @@ if (fs.existsSync(skillsDir)) {
   console.log(`Copied built-in skills to ${distSkillDir}`)
 }
 
-// Copy proto_tool api/ and example/ to dist/node/ for load_components_docs
+// Copy proto_tool components/ and design/ to dist/node/ for load_components_docs
 const protoToolDir = path.join(dir, "src", "tool", "proto_tool")
 const distNodeDir = path.join(dir, "dist", "node")
-for (const sub of ["api", "example", "design"]) {
+for (const sub of ["components", "design"]) {
   const srcDir = path.join(protoToolDir, sub)
   const destDir = path.join(distNodeDir, sub)
   if (fs.existsSync(srcDir)) {
