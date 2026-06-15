@@ -217,7 +217,7 @@ export function deployProtoTools() {
     : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node")
 
   try {
-    for (const sub of ["components", "design"]) {
+    for (const sub of ["design"]) {
       const srcDir = join(builtinSource, sub)
       if (!existsSync(srcDir)) {
         log.warn("proto tools deployment: source directory not found", srcDir)
@@ -227,6 +227,19 @@ export function deployProtoTools() {
       if (existsSync(destDir)) continue
       cpSync(srcDir, destDir, { recursive: true })
       log.log("proto tools deployment: copied", sub, "to", destDir)
+    }
+
+    const componentsSrc = join(builtinSource, "components")
+    if (existsSync(componentsSrc)) {
+      const componentsDest = join(configDir, "components")
+      mkdirSync(componentsDest, { recursive: true })
+      for (const dir of readdirSync(componentsSrc, { withFileTypes: true })) {
+        if (!dir.isDirectory()) continue
+        const destDir = join(componentsDest, dir.name)
+        if (existsSync(destDir) && readdirSync(destDir).length > 0) continue
+        cpSync(join(componentsSrc, dir.name), destDir, { recursive: true })
+        log.log("proto tools deployment: copied components/" + dir.name, "to", destDir)
+      }
     }
   } catch (err) {
     log.warn("proto tools deployment: failed", err)
