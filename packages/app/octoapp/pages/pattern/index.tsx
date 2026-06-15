@@ -640,8 +640,7 @@ function PatternContent() {
                 }}
               >
                 <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-                <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>AI 正在修改页面中...</div>
-                <div class="text-[12px]" style={{ color: "var(--octo-text-disabled, #BFBFBF)" }}>请稍候</div>
+                <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>正在修改页面中...</div>
               </div>
             </Show>
           </div>
