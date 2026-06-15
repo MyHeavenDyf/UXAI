@@ -5310,6 +5310,15 @@ export type SessionListData = {
   url: "/session"
 }
 
+export type SessionListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionListError = SessionListErrors[keyof SessionListErrors]
+
 export type SessionListResponses = {
   /**
    * List of sessions
@@ -7176,6 +7185,116 @@ export type StudioGenerationsCreateResponses = {
 }
 
 export type StudioGenerationsCreateResponse = StudioGenerationsCreateResponses[keyof StudioGenerationsCreateResponses]
+
+export type StudioEditorEntriesCreateData = {
+  body?: {
+    sessionID: string
+    capability: "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+    entryID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/editor-entries"
+}
+
+export type StudioEditorEntriesCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioEditorEntriesCreateError = StudioEditorEntriesCreateErrors[keyof StudioEditorEntriesCreateErrors]
+
+export type StudioEditorEntriesCreateResponses = {
+  /**
+   * Studio editor entry result
+   */
+  200: {
+    entryID: string
+    userMessageID: string
+    assistantMessageID: string
+  }
+}
+
+export type StudioEditorEntriesCreateResponse =
+  StudioEditorEntriesCreateResponses[keyof StudioEditorEntriesCreateResponses]
+
+export type StudioGenerationsCancelData = {
+  body?: never
+  path: {
+    generationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/cancel"
+}
+
+export type StudioGenerationsCancelErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsCancelError = StudioGenerationsCancelErrors[keyof StudioGenerationsCancelErrors]
+
+export type StudioGenerationsCancelResponses = {
+  /**
+   * Cancelled Studio generation
+   */
+  200: {
+    id: string
+    sessionID: string
+    status: "queued" | "running" | "succeeded" | "failed"
+    capability:
+      | "image.generate"
+      | "video.generate"
+      | "image.upscale"
+      | "image.cutout"
+      | "image.inpaint"
+      | "image.outpaint"
+      | "image.fusion"
+    prompt: string
+    provider: "jimeng" | "internel"
+    toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+    taskType?: string
+    task_type?: string
+    taskId?: string
+    model: string
+    aspectRatio: string
+    videoMode?: "text" | "first_last_frame"
+    duration?: "5" | "10"
+    videoQualityMode?: "std" | "pro"
+    images: Array<{
+      id: string
+      kind?: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      remoteUrl?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      duration?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    progress: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    rawStatus?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | string
+    error?: string
+    request?: unknown
+    response?: unknown
+    rawBody?: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioGenerationsCancelResponse = StudioGenerationsCancelResponses[keyof StudioGenerationsCancelResponses]
 
 export type StudioGenerationsGetData = {
   body?: never

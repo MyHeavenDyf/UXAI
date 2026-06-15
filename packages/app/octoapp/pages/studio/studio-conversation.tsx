@@ -3,12 +3,15 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
 import { isStudioEditResult, isVideoMedia } from "./studio-shared"
+import { StudioVideoPlayer } from "./studio-video-player"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
   busy: boolean
+  cancellingGenerationIDs: ReadonlySet<string>
+  onCancelGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
 }): JSX.Element {
@@ -41,6 +44,8 @@ export function StudioConversation(props: {
                 turn={turn}
                 fallbackCapability={props.result?.capability}
                 busy={props.busy && turn.isLatest}
+                cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
+                onCancelGeneration={props.onCancelGeneration}
                 onSelectImage={props.onSelectImage}
               />
             </Show>
@@ -111,7 +116,7 @@ export function StudioResultCanvas(props: {
           const video = isVideoMedia(tabImage)
           const ext = video ? "mp4" : "png"
           const stored = props.tabLabels?.[tabImage.id]
-          if (stored) return `${stored}-${index + 1}.${ext}`
+          if (stored) return `${stored}.${ext}`
           const prompt = props.result?.prompt ?? ""
           const firstLine = prompt.split("\n")[0].trim()
           const cleaned = firstLine
@@ -130,7 +135,10 @@ export function StudioResultCanvas(props: {
                 return (
                   <span
                     class="studio-canvas-tab"
-                    classList={{ active: tabImage.id === (props.selectedImageId ?? tabSource[0]?.id) }}
+                    classList={{ active: (props.tabImages && props.tabImages.length > 0)
+                      ? (props.result?.images.some((img) => img.id === tabImage.id) ?? false)
+                      : tabImage.id === (props.selectedImageId ?? tabSource[0]?.id)
+                    }}
                     onClick={() => props.onSelectImage!(tabImage.id)}
                   >
                     <span class="studio-canvas-label-text">{tabLabelFor(tabImage, index())}</span>
@@ -143,7 +151,16 @@ export function StudioResultCanvas(props: {
             </For>
           </div>
           <div class="studio-canvas-stage">
-            <StudioMediaPreview image={image()} class="studio-canvas-image" controls={isVideoMedia(image())} />
+            <Show
+              when={isVideoMedia(image())}
+              fallback={<StudioMediaPreview image={image()} class="studio-canvas-image" />}
+            >
+              <StudioVideoPlayer
+                src={image().remoteUrl ?? image().url}
+                poster={image().thumbnailUrl}
+                class="studio-canvas-image"
+              />
+            </Show>
           </div>
           <div class="studio-canvas-floating-actions">
             <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
@@ -208,12 +225,13 @@ export function StudioEmptyState(): JSX.Element {
   return (
     <>
       <div class="studio-empty-state-dots">
-        <span class="studio-empty-dot" style={{ width: "10px", height: "10px", top: "74px", left: "98px", background: "#5ecb6b", animation: "studio-float-1 2s ease-in-out infinite" }} />
-        <span class="studio-empty-dot" style={{ width: "14px", height: "14px", top: "100px", left: "72px", background: "#45bcc9", animation: "studio-float-2 2s ease-in-out infinite 0.35s" }} />
-        <span class="studio-empty-dot" style={{ width: "22px", height: "22px", top: "98px", left: "116px", background: "#2e9dfb", animation: "studio-float-3 2s ease-in-out infinite 0.7s" }} />
-        <span class="studio-empty-dot" style={{ width: "16px", height: "16px", top: "127px", left: "93px", background: "#7c5cef", animation: "studio-float-4 2s ease-in-out infinite 1.05s" }} />
+        <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "80px", left: "44px", background: "#65a2e5", animation: "studio-float-1 2s ease-in-out infinite" }} />
+        <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "44px", left: "80px", background: "#c3e78b", animation: "studio-float-2 2s ease-in-out infinite 0.35s" }} />
+        <span class="studio-empty-dot" style={{ width: "16px", height: "16px", top: "80px", left: "80px", background: "#7bd5a4", animation: "studio-float-3 2s ease-in-out infinite 0.7s" }} />
+        <span class="studio-empty-dot" style={{ width: "12px", height: "12px", top: "116px", left: "80px", background: "#7f78f1", animation: "studio-float-4 2s ease-in-out infinite 1.05s" }} />
+        <span class="studio-empty-dot" style={{ width: "20px", height: "20px", top: "80px", left: "116px", background: "#5c77f4", animation: "studio-float-5 2s ease-in-out infinite 1.4s" }} />
       </div>
-      <div class="text-[14px] font-bold -mt-[30px]">生成中...</div>
+      <div class="text-[14px] font-bold pl-[20px]">生成中...</div>
     </>
   )
 }
@@ -224,8 +242,10 @@ export function StudioDetails(props: {
   selectedImageId?: string
   imageLabel: string
   regenerateDisabled: boolean
+  showVideoGeneration: boolean
   onSelectImage: (id: string) => void
   onRegenerate: () => void
+  onGenerateVideo: () => void
   onUpscale: () => void
   onCutout: () => void
   onInpaint: () => void
@@ -283,6 +303,16 @@ export function StudioDetails(props: {
           >
             再次生成
           </button>
+          <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
+            <button
+              type="button"
+              onClick={props.onGenerateVideo}
+              disabled={props.regenerateDisabled || !props.image}
+              class="studio-details-primary-action studio-details-secondary-action studio-details-video-action disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              视频生成
+            </button>
+          </Show>
         </Show>
         <Show when={!isVideoResult()}>
           <div class="studio-detail-action-grid">

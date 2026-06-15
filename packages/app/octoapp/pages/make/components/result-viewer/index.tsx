@@ -75,6 +75,7 @@ export function ResultViewer(props: {
   const [editing, setEditing] = createSignal(false)
   const [drawing, setDrawing] = createSignal(false)
   const [viewMode, setViewMode] = createSignal<"tabs" | "files">("tabs")
+  const [refreshKey, setRefreshKey] = createSignal(0)
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
 
@@ -91,7 +92,11 @@ export function ResultViewer(props: {
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
 
-  const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
+  const handleRefresh = () => {
+    setRefreshKey((prev) => prev + 1)
+  }
+
+const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
     const tab = props.tabs.find(t => t.id === tabId)
     if (!tab || overrides.length === 0) return
 
@@ -200,6 +205,7 @@ export function ResultViewer(props: {
                     setEditing(false)
                   }
                 }}
+                onRefresh={tab().type === "html" ? handleRefresh : undefined}
               />
               <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch
@@ -235,6 +241,7 @@ export function ResultViewer(props: {
                       onInspectTarget={setInspectTarget}
                       onSaveOverrides={(overrides) => applyInspectOverrides(tab().id, overrides)}
                       onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                      refreshKey={refreshKey()}
                     />
                   </Match>
                   <Match when={tab().type === "deck"}>

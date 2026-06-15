@@ -200,10 +200,19 @@
   font-size: 14px;
   cursor: pointer;
   transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
+  max-width: 100%;
 }
 .octo-action-btn:hover {
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.04);
+}
+.octo-action-btn > svg {
+  flex-shrink: 0;
+}
+.octo-action-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── DS picker trigger (pill style) ──────── */
@@ -334,6 +343,116 @@
   background: var(--octo-brand-a8);
 }
 .octo-viewport-btn-active:hover {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a20);
+}
+
+/* ── Action bar layout ──────────────────── */
+
+.octo-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.octo-action-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.octo-action-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.octo-action-bar-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--octo-border-divider);
+  margin-left: 8px;
+}
+
+/* ── Dropdown ──────────────────── */
+
+.octo-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.octo-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--octo-radius-sm);
+  color: var(--octo-text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
+  width: 60px;
+}
+
+.octo-dropdown-trigger:hover {
+  color: var(--octo-text-primary);
+  background: rgba(0,0,0,0.04);
+}
+
+.octo-dropdown-trigger > svg {
+  flex-shrink: 0;
+}
+
+.octo-dropdown-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.octo-dropdown-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.octo-dropdown-menu {
+  position: fixed;
+  z-index: 99999;
+  background: #ffffff;
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-md);
+  box-shadow: var(--octo-shadow-md);
+  width: 60px;
+  animation: octo-pop-in 120ms var(--octo-ease-out);
+}
+
+.octo-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: var(--octo-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
+}
+
+.octo-dropdown-item:hover {
+  background: rgba(0,0,0,0.04);
+  color: var(--octo-text-primary);
+}
+
+.octo-dropdown-item-active {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a8);
+}
+
+.octo-dropdown-item-active:hover {
   color: var(--octo-brand);
   background: var(--octo-brand-a20);
 }

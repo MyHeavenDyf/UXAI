@@ -13,27 +13,30 @@ export function octoSessionsDir(config: string): string {
   return base + sep + SESSIONS_DIR_NAME
 }
 
-export function useProjectDir(opts?: { mode?: "project" | "config" }) {
+export function useProjectDir(opts?: {
+  mode?: (() => "project" | "config" | "chat") | "project" | "config" | "chat"
+}) {
   const server = useServer()
   const globalSync = useGlobalSync()
   const params = useParams<{ dir?: string }>()
-  const mode = opts?.mode ?? "project"
+  const modeFn = typeof opts?.mode === "function" ? opts.mode : () => opts?.mode ?? "project"
 
   return () => {
+    const mode = modeFn()
     if (mode === "config") {
       const config = globalSync.data.path.config
       return config ? octoSessionsDir(config) : ""
     }
-    if (params.dir) {
-      const decoded = decode64(params.dir)
-      if (decoded && isValidUserPath(decoded)) return decoded
+    if (mode !== "chat") {
+      if (params.dir) {
+        const decoded = decode64(params.dir)
+        if (decoded && isValidUserPath(decoded)) return decoded
+      }
+      const last = server.projects.last()
+      if (last && isValidUserPath(last)) return last
     }
-    const last = server.projects.last()
-    if (last && isValidUserPath(last)) return last
-    
     const home = globalSync.data.path.home
     if (home && isValidUserPath(home)) return home
-    
     return ""
   }
 }

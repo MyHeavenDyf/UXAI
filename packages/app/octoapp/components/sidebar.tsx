@@ -135,7 +135,7 @@ const params = useParams()
     dialog.show(() => (
       <Dialog title="删除会话" fit class="delete-dialog">
         <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除「{sessionTitle(session.title) || language.t("command.session.new")}」？
+          确定删除"{sessionTitle(session.title) || language.t("command.session.new")}"？
         </span>
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
           <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>

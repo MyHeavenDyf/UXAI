@@ -147,6 +147,7 @@ import type {
   SessionGetResponses,
   SessionInitErrors,
   SessionInitResponses,
+  SessionListErrors,
   SessionListResponses,
   SessionMessageErrors,
   SessionMessageResponses,
@@ -174,6 +175,10 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  StudioEditorEntriesCreateErrors,
+  StudioEditorEntriesCreateResponses,
+  StudioGenerationsCancelErrors,
+  StudioGenerationsCancelResponses,
   StudioGenerationsCreateErrors,
   StudioGenerationsCreateResponses,
   StudioGenerationsGetErrors,
@@ -3248,7 +3253,7 @@ export class Session2 extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).get<SessionListResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).get<SessionListResponses, SessionListErrors, ThrowOnError>({
       url: "/session",
       ...options,
       ...params,
@@ -5223,6 +5228,42 @@ export class Generations extends HeyApiClient {
   }
 
   /**
+   * Cancel Studio generation
+   *
+   * Cancels an active asynchronous Studio generation.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsCancelResponses,
+      StudioGenerationsCancelErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get Studio generation
    *
    * Get the current status and result of an asynchronous Studio generation.
@@ -5259,6 +5300,53 @@ export class Generations extends HeyApiClient {
   }
 }
 
+export class EditorEntries extends HeyApiClient {
+  /**
+   * Create Studio editor entry
+   *
+   * Persists a Studio editor entry conversation turn without starting a generation.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      capability?: "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+      entryID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "capability" },
+            { in: "body", key: "entryID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioEditorEntriesCreateResponses,
+      StudioEditorEntriesCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/editor-entries",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Studio extends HeyApiClient {
   private _promptTags?: PromptTags
   get promptTags(): PromptTags {
@@ -5273,6 +5361,11 @@ export class Studio extends HeyApiClient {
   private _generations?: Generations
   get generations(): Generations {
     return (this._generations ??= new Generations({ client: this.client }))
+  }
+
+  private _editorEntries?: EditorEntries
+  get editorEntries(): EditorEntries {
+    return (this._editorEntries ??= new EditorEntries({ client: this.client }))
   }
 }
 

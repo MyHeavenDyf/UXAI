@@ -507,3 +507,72 @@
   right: 0;
   transform: none;
 }
+
+/* 右侧栏代码视图(SourceCodeView):代码块紧贴滚动容器顶部,复制按钮 tooltip 上游默认
+   向上展开(bottom:100%),被 overflow-auto 容器上边界裁切(见截图"复制"上半截被切)。
+   改为向按钮下方展开 + 右对齐(同样规避右溢出)。仅 insight 作用域覆盖,不动 packages/ui。 */
+.octo-source-code-view [data-slot="markdown-copy-button"]::after {
+  top: calc(100% + 4px);
+  bottom: auto;
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+/* ── Delete Dialog ──────────────────────────
+   左侧栏对话删除确认窗口,与 chat 侧栏(components/sidebar.tsx)完全一致。
+   Dialog 走 Portal 渲染到 document 根,故样式为全局选择器;此处随 insight
+   自带一份,保证不依赖 make/chat 的 octo-tokens.css 已加载(页面自包含)。 */
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
+  width: 436px;
+}
+
+.delete-dialog[data-slot="dialog-content"] {
+  border-radius: 20px;
+  box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
+  padding: 24px 32px;
+  background: #fff;
+  border: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
+  display: none;
+}
+
+[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
+  font-size: 20px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+  padding: 0;
+}
+
+.delete-dialog-btn {
+  width: 88px !important;
+  height: 32px !important;
+  border-radius: 4px !important;
+  font-size: 14px !important;
+  line-height: 22px !important;
+  padding: 0 !important;
+}
+
+button.delete-dialog-btn {
+  border: 1px solid rgba(201, 201, 201, 1);
+  background: #fff;
+  color: rgb(25, 25, 25);
+  cursor: pointer;
+}
+
+button.delete-dialog-btn-primary {
+  background: #0a59f7;
+  border-color: #0a59f7;
+  color: #fff;
+}

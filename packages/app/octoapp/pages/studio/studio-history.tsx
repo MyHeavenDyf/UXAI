@@ -5,9 +5,8 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -72,10 +71,18 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
   const [title, setTitle] = createStore({
     draft: "",
     editingID: "",
-    menuOpenID: "",
-    pendingRenameID: "",
     savingID: "",
   })
+  const [contextMenu, setContextMenu] = createStore<{
+    show: boolean
+    x: number
+    y: number
+    session: Session | null
+  }>({ show: false, x: 0, y: 0, session: null })
+
+  function closeContextMenu() {
+    setContextMenu("show", false)
+  }
   let titleRef: HTMLInputElement | undefined
 
   const errorMessage = (err: unknown) => {
@@ -91,7 +98,6 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
     setTitle({
       draft: sessionTitle(session.title) ?? "",
       editingID: session.id,
-      pendingRenameID: "",
     })
     requestAnimationFrame(() => {
       titleRef?.focus()
@@ -262,6 +268,7 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
                   <For each={sessionList}>
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
+                      const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
                       return (
                         <div class="group/item relative">
                           <Show
@@ -273,7 +280,12 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
                                 style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
                                 classList={{
                                   "bg-[rgba(10,89,247,0.08)]": isActive(),
-                                  "hover:bg-surface-base-hover": !isActive(),
+                                  "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
+                                  "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
+                                }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault()
+                                  setContextMenu({ show: true, x: e.clientX, y: e.clientY, session })
                                 }}
                               >
                                 <span class="flex-1 min-w-0 truncate">
@@ -323,51 +335,50 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
                               }}
                             />
                           </Show>
-                          <DropdownMenu
-                            gutter={4}
-                            placement="bottom-end"
-                            open={title.menuOpenID === session.id}
-                            onOpenChange={(open) => setTitle("menuOpenID", open ? session.id : "")}
-                          >
-                            <DropdownMenu.Trigger
-                              as={IconButton}
-                              icon="dot-grid"
-                              variant="ghost"
-                              class="absolute right-[10px] top-1/2 -translate-y-1/2 size-6 rounded-md opacity-0 group-hover/item:opacity-100 data-[expanded]:opacity-100 data-[expanded]:bg-surface-base-active"
-                              classList={{
-                                "opacity-100 bg-surface-base-active": title.menuOpenID === session.id,
-                              }}
-                              aria-label={language.t("common.moreOptions")}
-                              aria-expanded={title.menuOpenID === session.id}
-                            />
-                            <DropdownMenu.Portal>
-                              <DropdownMenu.Content
-                                style={{ "min-width": "104px" }}
-                                onCloseAutoFocus={(event) => {
-                                  if (title.pendingRenameID !== session.id) return
-                                  event.preventDefault()
-                                  openTitleEditor(session)
-                                }}
+                          <Show when={contextMenu.show && contextMenu.session?.id === session.id}>
+                            <Portal>
+                              <div
+                                class="fixed inset-0 z-50"
+                                onContextMenu={(e) => e.preventDefault()}
+                                onClick={closeContextMenu}
+                                onKeyDown={(e) => { if (e.key === "Escape") closeContextMenu() }}
+                                tabIndex={-1}
+                                ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
                               >
-                                <DropdownMenu.Item
-                                  onSelect={() => {
-                                    setTitle({
-                                      pendingRenameID: session.id,
-                                      menuOpenID: "",
-                                    })
+                                <div
+                                  data-component="dropdown-menu-content"
+                                  style={{
+                                    position: "absolute",
+                                    left: `${contextMenu.x}px`,
+                                    top: `${contextMenu.y}px`,
+                                    transform: "translateX(12px)",
+                                    "min-width": "132px",
                                   }}
+                                  onClick={(e) => e.stopPropagation()}
                                 >
-                                  <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                                </DropdownMenu.Item>
-                                <DropdownMenu.Separator />
-                                <DropdownMenu.Item
-                                  onSelect={() => dialog.show(() => <DialogDeleteSession session={session} />)}
-                                >
-                                  <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                                </DropdownMenu.Item>
-                              </DropdownMenu.Content>
-                            </DropdownMenu.Portal>
-                          </DropdownMenu>
+                                  <button
+                                    data-slot="dropdown-menu-item"
+                                    onClick={() => {
+                                      closeContextMenu()
+                                      openTitleEditor(session)
+                                    }}
+                                  >
+                                    <span data-slot="dropdown-menu-item-label">重命名</span>
+                                  </button>
+                                  <div data-slot="dropdown-menu-separator" />
+                                  <button
+                                    data-slot="dropdown-menu-item"
+                                    onClick={() => {
+                                      closeContextMenu()
+                                      dialog.show(() => <DialogDeleteSession session={session} />)
+                                    }}
+                                  >
+                                    <span data-slot="dropdown-menu-item-label">删除</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </Portal>
+                          </Show>
                         </div>
                       )
                     }}

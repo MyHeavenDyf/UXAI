@@ -10,7 +10,7 @@ import type { ProjectID } from "../project/schema"
 
 const log = Log.create({ service: "session-category" })
 
-const AGENT_TO_CATEGORY: Record<string, SessionCategory> = {
+export const AGENT_TO_CATEGORY: Record<string, SessionCategory> = {
   octo_ai: "dev",
   build: "dev",
   octo_design: "design",
@@ -20,6 +20,8 @@ const AGENT_TO_CATEGORY: Record<string, SessionCategory> = {
   plan: "planning",
   subagent: "subagent",
 }
+
+export const CATEGORY_VALUES: ReadonlySet<string> = new Set<string>(Object.values(AGENT_TO_CATEGORY))
 
 export function agentToCategory(agentName: string): SessionCategory {
   return AGENT_TO_CATEGORY[agentName] ?? "dev"
@@ -98,7 +100,14 @@ export const layer = Layer.effect(
               .all(),
           )
 
-          return (rows ?? []).map((r) => fromRow(r.session, category))
+          return (rows ?? []).flatMap((r) => {
+            try {
+              return [fromRow(r.session, category)]
+            } catch (err) {
+              log.error("session-list-by-category:skip-bad-row", { sessionID: r.session.id, error: String(err) })
+              return []
+            }
+          })
         }),
 
       listCategories: (sessionIDs: SessionID[]) =>
