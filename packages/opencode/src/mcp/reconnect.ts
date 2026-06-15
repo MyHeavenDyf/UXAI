@@ -10,7 +10,7 @@ const log = Log.create({ service: "mcp.reconnect" })
 const MAX_RECONNECT_ATTEMPTS = 5
 const INITIAL_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 30000
-const MAX_ERRORS_BEFORE_RECONNECT = 3
+const MAX_ERRORS_BEFORE_RECONNECT = 2
 
 // === 状态跟踪 ===
 const intentionalDisconnects = new Set<string>()
@@ -31,6 +31,13 @@ function isTerminalConnectionError(msg: string): boolean {
     msg.includes("SSE stream disconnected") ||
     msg.includes("Failed to reconnect SSE stream")
   )
+}
+
+// SDK 内部重连放弃信号（StreamableHTTPClientTransport._scheduleReconnection 末尾抛出）
+// SDK 放弃重连后只触发 onerror，不触发 onclose → transport 处于"僵死"状态。
+// 我们识别此信号后主动 client.close()，借由 transport.close() 显式调用 onclose 来启动 Layer 2。
+function isSdkGiveUpSignal(msg: string): boolean {
+  return /Maximum reconnection attempts.*exceeded/.test(msg)
 }
 
 function backoffMs(attempt: number): number {
@@ -114,12 +121,35 @@ export function setupConnectionHandlers(
   let hasTriggeredClose = false
 
   client.onerror = (error: Error) => {
-    const isTerminal = isTerminalConnectionError(error.message)
+    const msg = error.message
+
+    // 优先级 1：SDK 放弃重连信号 — 一次即触发 close。
+    // SDK 在放弃重连后只调用 onerror，绝不调用 onclose，transport 进入"僵死"状态。
+    // 我们主动 client.close() 让 transport.close() 显式触发 onclose → Layer 2 接管。
+    if (isSdkGiveUpSignal(msg)) {
+      log.warn("[reconnect] SDK gave up reconnecting - forcing close", {
+        name,
+        error: msg,
+        consecutiveErrors,
+      })
+      if (!hasTriggeredClose) {
+        hasTriggeredClose = true
+        consecutiveErrors = 0
+        client.close().catch((e) => {
+          log.error("[reconnect] error during force close (give-up)", { name, error: String(e) })
+        })
+      }
+      return
+    }
+
+    // 优先级 2：终端错误累积（兜底，应对 SDK 没抛 give-up 但 transport 实际僵死的场景）
+    const isTerminal = isTerminalConnectionError(msg)
     log.error("[reconnect] transport error", {
       name,
-      error: error.message,
+      error: msg,
       isTerminal,
-      consecutiveErrors: isTerminal ? consecutiveErrors + 1 : 0,
+      isGiveUp: false,
+      consecutiveErrors,
     })
 
     if (isTerminal) {
@@ -140,9 +170,9 @@ export function setupConnectionHandlers(
           log.error("[reconnect] error during force close", { name, error: String(e) })
         })
       }
-    } else {
-      consecutiveErrors = 0
     }
+    // 非终端错误不再清零 consecutiveErrors —— SDK 内部重连时会先抛 fetch failed（非终端）再抛
+    // Failed to reconnect SSE stream（终端），夹在中间的清零会让计数永远振荡 0↔1。
   }
 
   // Layer 2: onclose 触发重连
