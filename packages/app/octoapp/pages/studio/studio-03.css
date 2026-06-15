@@ -601,44 +601,20 @@
   height: 100%;
   min-width: 0;
   display: grid;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: 56px minmax(0, 1fr);
   background: #fff;
 }
 
 .studio-hd-header {
-  height: 64px;
+  height: 56px;
+  min-height: 56px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 8px;
   padding: 0 24px;
+  overflow: hidden;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.studio-hd-title {
-  color: #191919;
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 24px;
-}
-
-.studio-hd-close {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  border-radius: 999px;
-  background: rgba(25, 25, 25, 0.06);
-}
-
-.studio-hd-close::before {
-  content: "";
-  width: 16px;
-  height: 16px;
-  display: block;
-  margin: 8px;
-  background: rgba(25, 25, 25, 0.74);
-  mask: url("/studio/xmark.svg") center / contain no-repeat;
-  -webkit-mask: url("/studio/xmark.svg") center / contain no-repeat;
+  background: #fff;
 }
 
 .studio-hd-body {

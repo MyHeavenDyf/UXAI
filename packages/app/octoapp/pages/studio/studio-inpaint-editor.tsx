@@ -274,10 +274,10 @@ export function StudioInpaintEditor(props: {
   return (
     <div class="studio-inpaint">
       <div class="studio-inpaint-header">
-        <div class="min-w-0">
-          <div class="studio-inpaint-title">智能重绘</div>
-        </div>
-        <button type="button" onClick={props.onClose} class="studio-inpaint-close" aria-label="关闭智能重绘" title="关闭智能重绘" />
+        <span class="studio-canvas-tab">
+          <span class="studio-canvas-label-text">智能重绘</span>
+          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭智能重绘" title="关闭智能重绘" />
+        </span>
       </div>
       <div class="studio-inpaint-body">
         <div class="studio-inpaint-hint">

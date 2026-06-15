@@ -1,21 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { isMarkdownTable, isHTML, stripCodeFence, scanFencedHtml } from "./detect"
+import { isHTML, stripCodeFence, scanFencedHtml } from "./detect"
 import { isMindmapJSON, uxrJsonToMarkdown } from "./mindmap-adapter"
 import { parseMarkdownTable, tableToCSV } from "./markdown-table"
 
-describe("isMarkdownTable", () => {
-  test("识别标准 markdown 表格", () => {
-    const md = `| A | B |\n|---|---|\n| 1 | 2 |`
-    expect(isMarkdownTable(md)).toBe(true)
-  })
-  test("识别没有标准分隔行但 |>=3 的多行", () => {
-    const md = `| A | B | C |\n| 1 | 2 | 3 |`
-    expect(isMarkdownTable(md)).toBe(true)
-  })
-  test("普通文本不命中", () => {
-    expect(isMarkdownTable("这是一段普通文本，没有表格。")).toBe(false)
-  })
-})
+// 注:isMarkdownTable 已移除(路径 B 不再嗅探 md 表格成卡,2026-06)。
+// 表格解析/导出的单测见下方 parseMarkdownTable / tableToCSV(路径 A csv→table 复用)。
 
 describe("isMindmapJSON", () => {
   test("识别 UXR 双层数组 shape", () => {
