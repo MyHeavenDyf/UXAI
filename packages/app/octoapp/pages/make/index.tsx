@@ -274,10 +274,10 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(
     on(
       () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
-      ([id, missing]) => {
+      ([id, missing], prev) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
-          if (missing) void sync.session.sync(id).catch(() => {})
+          if (missing && id !== prev?.[0]) void sync.session.sync(id).catch(() => {})
         }
 
         setSending(false)
