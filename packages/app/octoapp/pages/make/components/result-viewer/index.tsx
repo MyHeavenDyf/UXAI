@@ -61,6 +61,9 @@ export function ResultViewer(props: {
   onContentChange?: (id: string, content: string) => void
   sessionId?: string
   onOpenArtifact?: (card: OutputCard) => void
+  viewMode: "tabs" | "files"
+  onViewModeChange: (mode: "tabs" | "files") => void
+  onAddArtifactToSession?: (file: ArtifactFile) => void
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -74,7 +77,6 @@ export function ResultViewer(props: {
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [editing, setEditing] = createSignal(false)
   const [drawing, setDrawing] = createSignal(false)
-  const [viewMode, setViewMode] = createSignal<"tabs" | "files">("files")
   const [refreshKey, setRefreshKey] = createSignal(0)
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -133,7 +135,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
   const handleOpenArtifactFile = (file: ArtifactFile) => {
     const card = artifactFileToOutputCard(file)
     props.onOpenArtifact?.(card)
-    setViewMode("tabs")
+    props.onViewModeChange("tabs")
   }
 
   return (
@@ -141,26 +143,27 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <Show when={props.tabs.length > 0 || viewMode() === "files"} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0 || props.viewMode === "files"} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
           onActivate={props.onActivate}
           onClose={props.onClose}
-          viewMode={viewMode()}
-          onViewModeChange={props.sessionId ? setViewMode : undefined}
+          viewMode={props.viewMode}
+          onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
         />
 
-        <Show when={viewMode() === "files" && props.sessionId}>
+        <Show when={props.viewMode === "files" && props.sessionId}>
           {(sid) => (
             <DesignFilesPanel
               sessionId={sid()}
               onOpenFile={handleOpenArtifactFile}
+              onAddToSession={props.onAddArtifactToSession}
             />
           )}
         </Show>
 
-        <Show when={viewMode() === "tabs" && activeTab()}>
+        <Show when={props.viewMode === "tabs" && activeTab()}>
           {(tab) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <ActionBar

@@ -734,6 +734,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
+  const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -747,6 +748,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   createEffect(on(() => params.id, () => {
     tabStore.reset()
+    setResultViewMode("files")
     setMentionState(null)
     setSlashState(null)
   }, { defer: true }))
@@ -765,6 +767,14 @@ const sessionMessagesLoaded = createMemo(() => {
         snapshotStore: snapshotStore,
         refreshSnapshots: refreshSnapshots,
       })
+    }
+  }
+
+  /** 关闭 tab：关闭最后一个时切换到 files 视图 */
+  function handleCloseTab(id: string) {
+    tabStore.closeTab(id)
+    if (tabStore.tabs().length === 0) {
+      setResultViewMode("files")
     }
   }
 
@@ -1053,14 +1063,27 @@ if (dsId) {
     setPrompt(next)
     setMentionState(null)
 
+    await addArtifactToSession(file)
+
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(before.length, before.length)
+    })
+  }
+
+  /** Add artifact file to session attachments (独立函数，不依赖 mentionState) */
+  async function addArtifactToSession(file: ArtifactFile) {
     // Check if already added
     if (attachments().some(a => a.path === file.path)) {
       showToast({ title: "已添加", description: file.name })
       return
     }
 
-    // Check attachment limit (复用现有 maxAttachments)
-    if (maxAttachments()) return
+    // Check attachment limit
+    if (maxAttachments()) {
+      showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      return
+    }
 
     // Load file content
     try {
@@ -1085,11 +1108,6 @@ if (dsId) {
         variant: "error",
       })
     }
-
-    requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(before.length, before.length)
-    })
   }
 
   function getMimeForKind(kind: ArtifactFileKind): string {
@@ -1177,6 +1195,8 @@ if (dsId) {
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
+    setResultViewMode("tabs")
+    
     // Check if card is from Design Files (filePath exists and in artifacts directory)
     const isFromDesignFiles = card.filePath && card.filePath.includes(".octo/artifacts/make")
     
@@ -1818,10 +1838,13 @@ if (dsId) {
                 tabs={tabStore.tabs()}
                 activeId={tabStore.activeId()}
                 onActivate={tabStore.activate}
-                onClose={tabStore.closeTab}
+                onClose={handleCloseTab}
                 onContentChange={handleContentChange}
                 sessionId={params.id}
                 onOpenArtifact={handleOpenResult}
+                viewMode={resultViewMode()}
+                onViewModeChange={setResultViewMode}
+                onAddArtifactToSession={addArtifactToSession}
               />
             </div>
             <Show when={showVersionPanel()}>

@@ -732,6 +732,12 @@ export const dict = {
   "session.delete.title": "세션 삭제",
   "session.delete.confirm": '"{{name}}" 세션을 삭제하시겠습니까?',
   "session.delete.button": "세션 삭제",
+
+  "file.delete.title": "파일 삭제",
+  "file.delete.confirm": '파일 "{{name}}"을(를) 삭제하시겠습니까?',
+  "file.delete.plural.confirm": "{{count}}개 선택한 파일을 삭제하시겠습니까?",
+  "file.delete.button": "삭제",
+
   "workspace.new": "새 작업 공간",
   "workspace.type.local": "로컬",
   "workspace.type.sandbox": "샌드박스",

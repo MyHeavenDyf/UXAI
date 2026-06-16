@@ -825,6 +825,11 @@ export const dict = {
   "session.delete.confirm": '删除会话 "{{name}}"？',
   "session.delete.button": "删除会话",
 
+  "file.delete.title": "删除文件",
+  "file.delete.confirm": '删除文件 "{{name}}"？',
+  "file.delete.plural.confirm": "删除 {{count}} 个选中文件？",
+  "file.delete.button": "删除",
+
   "workspace.new": "新建工作区",
   "workspace.type.local": "本地",
   "workspace.type.sandbox": "沙盒",

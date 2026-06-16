@@ -8,6 +8,7 @@ import {
   Match,
   onCleanup,
   createSignal,
+  on,
 } from "solid-js"
 import type { JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -26,6 +27,7 @@ import {
   archiveArtifacts,
   renameArtifactFile,
   uploadArtifactFile,
+  fetchArtifactContent,
   kindLabel,
   formatFileSize,
   formatTimestamp,
@@ -36,6 +38,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useLanguage } from "@/context/language"
 import { PreviewPane } from "./preview-pane"
 
 const PAGE_SIZE_OPTIONS = [15, 30, 45, 60, "all"] as const
@@ -43,15 +46,23 @@ const PAGE_SIZE_OPTIONS = [15, 30, 45, 60, "all"] as const
 interface Props {
   sessionId: string
   onOpenFile: (file: ArtifactFile) => void
+  onAddToSession?: (file: ArtifactFile) => void
 }
 
 export function DesignFilesPanel(props: Props): JSX.Element {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
   const dialog = useDialog()
+  const language = useLanguage()
   const fileStore = createArtifactFileStore(props.sessionId)
   const [previewFile, setPreviewFile] = createSignal<ArtifactFile | null>(null)
+  const [renamingPath, setRenamingPath] = createSignal<string | null>(null)
+  const [renameDraft, setRenameDraft] = createSignal("")
   let fileInputRef!: HTMLInputElement
+
+  createEffect(on(() => props.sessionId, () => {
+    setPreviewFile(null)
+  }))
 
   const [fetcher] = createResource(
     () => ({ sessionId: props.sessionId, url: globalSDK.url, directory: sdk.directory }),
@@ -88,21 +99,24 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const handleDelete = async (file: ArtifactFile) => {
     dialog.show(() => (
-      <Dialog title="Delete file" fit>
-        <span class="text-[14px]">Delete "{file.name}"?</span>
+      <Dialog title={language.t("file.delete.title")} fit class="delete-dialog">
+        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+          {language.t("file.delete.confirm", { name: file.name })}
+        </span>
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            Cancel
+          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
           </Button>
           <Button
             variant="primary"
             size="large"
+            class="delete-dialog-btn delete-dialog-btn-primary"
             onClick={() => {
               void doDelete(file)
               dialog.close()
             }}
           >
-            Delete
+            {language.t("file.delete.button")}
           </Button>
         </div>
       </Dialog>
@@ -113,6 +127,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     try {
       await deleteArtifactFile(globalSDK.url, sdk.directory, file.path)
       fileStore.deleteFile(file.path)
+      if (previewFile()?.path === file.path) setPreviewFile(null)
       showToast({ title: "Deleted", description: file.name })
     } catch (err) {
       showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
@@ -124,21 +139,24 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     if (files.length === 0) return
 
     dialog.show(() => (
-      <Dialog title="Delete files" fit>
-        <span class="text-[14px]">Delete {files.length} selected files?</span>
+      <Dialog title={language.t("file.delete.title")} fit class="delete-dialog">
+        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+          {language.t("file.delete.plural.confirm", { count: files.length })}
+        </span>
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            Cancel
+          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
           </Button>
           <Button
             variant="primary"
             size="large"
+            class="delete-dialog-btn delete-dialog-btn-primary"
             onClick={() => {
               void doBatchDelete(files)
               dialog.close()
             }}
           >
-            Delete
+            {language.t("file.delete.button")}
           </Button>
         </div>
       </Dialog>
@@ -151,6 +169,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       for (const path of paths) {
         fileStore.deleteFile(path)
       }
+      if (previewFile() && paths.includes(previewFile()!.path)) setPreviewFile(null)
       fileStore.clearSelection()
       showToast({ title: "Deleted", description: `${result.deleted} files deleted` })
     } catch (err) {
@@ -175,19 +194,60 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
   }
 
-  const handleRename = async (file: ArtifactFile) => {
-    const newName = prompt("New name:", file.name)
-    if (!newName || newName === file.name) return
+  async function handleDownload(file: ArtifactFile) {
+    try {
+      const content = await fetchArtifactContent(globalSDK.url, sdk.directory, file.path)
+      const blob = content.encoding === "base64"
+        ? await fetch(`data:${content.mimeType};base64,${content.content}`).then(r => r.blob())
+        : new Blob([content.content], { type: content.mimeType })
+
+      // Electron 环境：使用原生 API（阻塞等待用户选择）
+      if ((window as any).api?.saveFilePicker) {
+        const filePath = await (window as any).api.saveFilePicker({
+          defaultPath: file.name,
+        })
+        if (!filePath) return
+        await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        showToast({ title: "下载完成", description: file.name })
+        return
+      }
+
+      // 浏览器环境：fallback 到传统下载
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = file.name
+      a.click()
+      URL.revokeObjectURL(url)
+      showToast({ title: "下载完成", description: file.name })
+    } catch (err) {
+      showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  function startRename(file: ArtifactFile) {
+    setRenamingPath(file.path)
+    setRenameDraft(file.name)
+  }
+
+  async function saveRename(file: ArtifactFile) {
+    const draft = renameDraft().trim()
+    if (!draft || draft === file.name) {
+      setRenamingPath(null)
+      return
+    }
 
     const dir = file.path.slice(0, file.path.lastIndexOf(file.name))
-    const newPath = dir + newName
+    const newPath = dir + draft
 
     try {
       await renameArtifactFile(globalSDK.url, sdk.directory, file.path, newPath)
       await refresh()
-      showToast({ title: "Renamed", description: file.name + " → " + newName })
+      showToast({ title: "Renamed", description: file.name + " → " + draft })
     } catch (err) {
       showToast({ title: "Rename failed", description: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setRenamingPath(null)
     }
   }
 
@@ -315,7 +375,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                 onClick={handleBatchDelete}
                 class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px] text-text-diff-delete-base"
               >
-                <span>Delete ({fileStore.store.selected.size})</span>
+                <span>删除 ({fileStore.store.selected.size})</span>
               </button>
             </Show>
 
@@ -323,10 +383,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
               type="button"
               onClick={() => fileInputRef?.click()}
               class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
-              title="Upload files"
+              title="上传文件"
             >
               <Icon name="chevron-down" size="small" />
-              <span>Add</span>
+              <span>添加</span>
             </button>
           </div>
         </div>
@@ -457,11 +517,22 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                             <FileRow
                               file={file}
                               selected={fileStore.store.selected.has(file.path)}
+                              renaming={renamingPath() === file.path}
+                              renameDraft={renameDraft()}
                               onToggleSelection={() => handleToggleSelection(file)}
                               onPreview={() => handlePreview(file)}
                               onOpen={() => handleOpenFile(file)}
                               onDelete={() => handleDelete(file)}
-                              onRename={() => handleRename(file)}
+                              onRename={() => startRename(file)}
+                              onRenameInput={(v) => setRenameDraft(v)}
+                              onRenameKeyDown={(e) => {
+                                e.stopPropagation()
+                                if (e.key === "Enter") { e.preventDefault(); void saveRename(file) }
+                                if (e.key === "Escape") { e.preventDefault(); setRenamingPath(null) }
+                              }}
+                              onRenameBlur={() => void saveRename(file)}
+                              onAddToSession={() => props.onAddToSession?.(file)}
+                              onDownload={() => handleDownload(file)}
                             />
                           )}
                         </For>
@@ -498,11 +569,22 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                               <FileRow
                                 file={file}
                                 selected={fileStore.store.selected.has(file.path)}
+                                renaming={renamingPath() === file.path}
+                                renameDraft={renameDraft()}
                                 onToggleSelection={() => handleToggleSelection(file)}
                                 onPreview={() => handlePreview(file)}
                                 onOpen={() => handleOpenFile(file)}
                                 onDelete={() => handleDelete(file)}
-                                onRename={() => handleRename(file)}
+                                onRename={() => startRename(file)}
+                                onRenameInput={(v) => setRenameDraft(v)}
+                                onRenameKeyDown={(e) => {
+                                  e.stopPropagation()
+                                  if (e.key === "Enter") { e.preventDefault(); void saveRename(file) }
+                                  if (e.key === "Escape") { e.preventDefault(); setRenamingPath(null) }
+                                }}
+                                onRenameBlur={() => void saveRename(file)}
+                                onAddToSession={() => props.onAddToSession?.(file)}
+                                onDownload={() => handleDownload(file)}
                               />
                             )}
                           </For>
@@ -590,13 +672,27 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 function FileRow(props: {
   file: ArtifactFile
   selected: boolean
+  renaming?: boolean
+  renameDraft?: string
   onToggleSelection: () => void
   onPreview: () => void
   onOpen: () => void
   onDelete: () => void
   onRename: () => void
+  onRenameInput?: (value: string) => void
+  onRenameKeyDown?: (e: KeyboardEvent) => void
+  onRenameBlur?: () => void
+  onAddToSession?: () => void
+  onDownload?: () => void
 }): JSX.Element {
   const [showMenu, setShowMenu] = createSignal(false)
+  let renameInputRef: HTMLInputElement | undefined
+
+  createEffect(() => {
+    if (props.renaming && renameInputRef) {
+      renameInputRef.focus()
+    }
+  })
 
   return (
     <tr
@@ -620,7 +716,20 @@ function FileRow(props: {
         />
       </td>
       <td class="px-2 py-1.5 truncate max-w-[200px]" title={props.file.name}>
-        {props.file.name}
+        <Show when={!props.renaming} fallback={
+          <input
+            ref={renameInputRef}
+            value={props.renameDraft}
+            onInput={(e) => props.onRenameInput?.(e.currentTarget.value)}
+            onKeyDown={(e) => props.onRenameKeyDown?.(e)}
+            onBlur={() => props.onRenameBlur?.()}
+            onClick={(e) => e.stopPropagation()}
+            class="w-full text-[12px] px-1 py-0.5 rounded"
+            style={{ border: "1px solid #0a59f7", outline: "none" }}
+          />
+        }>
+          {props.file.name}
+        </Show>
       </td>
       <td class="px-2 py-1.5 text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>
         {kindLabel(props.file.kind)}
@@ -646,10 +755,22 @@ function FileRow(props: {
 
           <Show when={showMenu()}>
             <div
-              class="absolute right-0 top-full z-50 min-w-[100px] bg-surface-raised-base rounded-md shadow-lg py-1"
-              style={{ border: "1px solid var(--octo-border-divider)" }}
+              class="absolute right-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1"
+              style={{ border: "1px solid var(--octo-border-divider)", width: "183px" }}
               onClick={(e) => e.stopPropagation()}
             >
+              <Show when={props.onAddToSession}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onAddToSession!()
+                    setShowMenu(false)
+                  }}
+                  class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors"
+                >
+                  添加至会话区
+                </button>
+              </Show>
               <button
                 type="button"
                 onClick={() => {
@@ -658,7 +779,7 @@ function FileRow(props: {
                 }}
                 class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors"
               >
-                Open
+                在标签页中打开
               </button>
               <button
                 type="button"
@@ -668,8 +789,20 @@ function FileRow(props: {
                 }}
                 class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors"
               >
-                Rename
+                重命名
               </button>
+              <Show when={props.onDownload}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onDownload!()
+                    setShowMenu(false)
+                  }}
+                  class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors"
+                >
+                  下载
+                </button>
+              </Show>
               <button
                 type="button"
                 onClick={() => {
@@ -678,7 +811,7 @@ function FileRow(props: {
                 }}
                 class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors text-text-diff-delete-base"
               >
-                Delete
+                删除
               </button>
             </div>
           </Show>

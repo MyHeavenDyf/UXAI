@@ -957,6 +957,11 @@ export const dict = {
   "session.delete.confirm": 'Delete session "{{name}}"?',
   "session.delete.button": "Delete session",
 
+  "file.delete.title": "Delete file",
+  "file.delete.confirm": 'Delete file "{{name}}"?',
+  "file.delete.plural.confirm": "Delete {{count}} selected files?",
+  "file.delete.button": "Delete",
+
   "workspace.new": "New workspace",
   "workspace.type.local": "local",
   "workspace.type.sandbox": "sandbox",

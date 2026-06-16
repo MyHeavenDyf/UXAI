@@ -72,7 +72,14 @@ export const ArtifactApi = HttpApi.make("artifact")
         ),
         HttpApiEndpoint.get("content", ArtifactPaths.content, {
           query: ArtifactContentQuery,
-          success: described(Schema.Struct({ content: Schema.String, mimeType: Schema.String }), "Artifact content"),
+          success: described(
+            Schema.Struct({
+              content: Schema.String,
+              mimeType: Schema.String,
+              encoding: Schema.optional(Schema.Literal("base64")),
+            }),
+            "Artifact content",
+          ),
           error: [HttpApiError.NotFound],
         }).annotateMerge(
           OpenApi.annotations({
