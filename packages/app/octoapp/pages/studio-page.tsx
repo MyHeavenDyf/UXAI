@@ -36,6 +36,7 @@ import type {
   StudioMode,
 } from "./studio/types"
 import {
+  buildStudioConversationContext,
   buildStudioDisplayPrompt,
   buildStudioTurns,
   type StudioTurnData,
@@ -1469,6 +1470,12 @@ export default function StudioPage() {
         : nextCapability === "video.generate"
           ? videoReferenceImages
           : []
+    const studioContext = params.id
+      ? buildStudioConversationContext({
+          messages: dataStore.message[params.id] ?? [],
+          parts: dataStore.part,
+        })
+      : ""
     setOpenMenu(null)
     setMode("preview")
     setSending(true)
@@ -1513,6 +1520,7 @@ export default function StudioPage() {
         sourceImage: overrides?.sourceImage,
         extra: {
           ...(overrides?.extra ?? {}),
+          ...(studioContext ? { studioContext } : {}),
           ...(nextCapability === "video.generate"
             ? {
                 videoMode: nextHasVideoFrames ? "first_last_frame" : "text",

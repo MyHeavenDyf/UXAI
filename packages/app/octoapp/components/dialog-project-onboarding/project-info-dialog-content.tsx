@@ -1,7 +1,7 @@
 import { ProjectProductSelect } from "./project-product-select"
 import { Select } from "./select"
 import { createStore } from "solid-js/store"
-import { createEffect, createResource, createSignal, Suspense, ErrorBoundary, Show } from "solid-js"
+import { createEffect, createResource, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import type { Domain, ProductLine, Product, Version } from "./project-product-select-api"
 import { fetchVersions, topVersion, cancelTopVersion } from "./project-product-select-api"
@@ -24,29 +24,29 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   })
 
   const [versionPopoverOpen, setVersionPopoverOpen] = createSignal(false)
+  const [versionFetchProductId, setVersionFetchProductId] = createSignal<number | undefined>(undefined)
   let pinActionActive = false
+  let versionCloseGuard = false
 
-  const [versionOptions, { refetch: refetchVersions, mutate: mutateVersions }] = createResource(() => store.product?.id ?? undefined, fetchVersions)
+  const [versionOptions, { refetch: refetchVersions, mutate: mutateVersions }] = createResource(() =>  versionFetchProductId() ?? undefined, fetchVersions)
+
+  const safeVersionOptions = () => {
+    if (versionOptions.loading || versionOptions.error) return []
+    return versionOptions() ?? []
+  }
 
   createEffect(() => {
-    const options = versionOptions()
-    if (!options?.length) return
+    const options = safeVersionOptions()
+    if (!options.length) return
+    setTimeout(() => { versionCloseGuard = false }, 0)
     const current = store.version
-    const match = current && options.some((v) => v.id === current.id)
-    setStore("version", match ? current : options[0])
+    if (!current) return
+    if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
   })
 
   createEffect(() => {
     props.onSelectionChange?.({ domain: store.domain, productLine: store.productLine, product: store.product, version: store.version })
   })
-
-  const safeVersionOptions = () => {
-    try {
-      return versionOptions() ?? []
-    } catch {
-      return []
-    }
-  }
 
   const handleVersionTopToggle = (version: Version) => {
     pinActionActive = true
@@ -103,6 +103,11 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     </div>
   )
 
+  const versionEmptyContent = () =>
+    versionOptions.loading
+      ? <div style={{ padding: "12px 16px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" }}>加载中...</div>
+      : emptyVersionContent
+
   const versionSelectTriggerStyle = {
     width: "110px",
     height: "40px",
@@ -126,55 +131,38 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           setStore("domain", data.domain)
           setStore("productLine", data.productLine)
           setStore("product", data.product)
+          setStore("version", undefined)
+          setVersionFetchProductId(undefined)
         }}
       />
-      <ErrorBoundary fallback={() => (
-        <Select
-          class="version-select-content"
-          options={[]}
-          placeholder="选择版本"
-          emptyContent={emptyVersionContent}
-          disabled={props.disabled}
-          triggerStyle={versionSelectTriggerStyle}
-          triggerProps={{ class: "version-select-trigger" }}
-        />
-      )}>
-        <Suspense fallback={
-          <Select
-            class="version-select-content"
-            options={[]}
-            placeholder="选择版本"
-            emptyContent={emptyVersionContent}
-            disabled={props.disabled}
-            triggerStyle={versionSelectTriggerStyle}
-            triggerProps={{ class: "version-select-trigger" }}
-          />
-        }>
-          <Select
-            class="version-select-content"
-            options={safeVersionOptions()}
-            current={store.version}
-            value={(o) => String(o.id)}
-            label={(o) => o.name}
-            children={versionItemContent}
-            placeholder="选择版本"
-            emptyContent={emptyVersionContent}
-            disabled={props.disabled}
-            triggerStyle={versionSelectTriggerStyle}
-            triggerProps={{ class: "version-select-trigger" }}
-            open={versionPopoverOpen()}
-            onOpenChange={(open) => {
-              if (pinActionActive && !open) return
-              if (props.disabled) return
-              setVersionPopoverOpen(open)
-            }}
-            onSelect={(o) => {
-              if (pinActionActive) return
-              o && setStore("version", o)
-            }}
-          />
-        </Suspense>
-      </ErrorBoundary>
+      <Select
+        class="version-select-content"
+        options={safeVersionOptions()}
+        current={store.version}
+        value={(o) => String(o.id)}
+        label={(o) => o.name}
+        children={versionItemContent}
+        placeholder="选择版本"
+        emptyContent={versionEmptyContent()}
+        disabled={props.disabled}
+        triggerStyle={versionSelectTriggerStyle}
+        triggerProps={{ class: "version-select-trigger" }}
+        open={versionPopoverOpen()}
+        onOpenChange={(open) => {
+          if (pinActionActive && !open) return
+          if (props.disabled) return
+          if (!open && (versionCloseGuard || versionOptions.loading)) return
+          if (open) {
+            versionCloseGuard = true
+            setVersionFetchProductId(store.product?.id)
+          }
+          setVersionPopoverOpen(open)
+        }}
+        onSelect={(o) => {
+          if (pinActionActive) return
+          o && setStore("version", o)
+        }}
+      />
     </div>
   )
 }
