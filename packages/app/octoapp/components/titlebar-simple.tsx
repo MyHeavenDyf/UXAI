@@ -13,13 +13,14 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
 
-type TabType = "chat" | "make" | "cowork" | "studio"
+type TabType = "chat" | "make" | "cowork" | "studio" | "dslToHex"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "chat", label: "Chat" },
   { key: "cowork", label: "Insight" },
   { key: "make", label: "Design" },
   { key: "studio", label: "Studio" },
+  { key: "dslToHex", label: "dslToHex" },
 ]
 
 type TauriDesktopWindow = {
@@ -85,7 +86,7 @@ export function TitlebarSimple() {
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined
 
-    const tabMatch = path.match(/^\/[^/]+\/(chat|make|cowork|studio)/)
+    const tabMatch = path.match(/^\/[^/]+\/(chat|make|cowork|studio|dslToHex)/)
     if (tabMatch) return tabMatch[1] as TabType
 
     return "chat"
@@ -147,6 +148,8 @@ export function TitlebarSimple() {
       } else {
         navigate(`/${dirSlug}/studio`)
       }
+    } else if (tab === "dslToHex") {
+      navigate(`/${dirSlug}/dslToHex`)
     }
   }
 

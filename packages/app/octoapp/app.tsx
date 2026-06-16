@@ -54,6 +54,7 @@ const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
+const DslToHex = lazy(() => import("@/pages/dslToHex"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
 const Loading = () => (
@@ -424,6 +425,7 @@ export function AppInterface(props: {
                     <Route path="/chat/:id?" component={ChatPage} />
                     <Route path="/cowork/:id?" component={CoworkRedirectRoute} />
                     <Route path="/studio" component={StudioPage} />
+                    <Route path="/dslToHex/:id?" component={DslToHex} />
                     <Route path="/session/:id?" component={SessionRedirectRoute} />
                   </Route>
                 </Dynamic>
