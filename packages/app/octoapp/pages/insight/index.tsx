@@ -1454,7 +1454,7 @@ function InsightContent() {
                     value={prompt()}
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
+                    placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
