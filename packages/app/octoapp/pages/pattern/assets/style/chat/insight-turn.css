@@ -127,3 +127,13 @@
 .captured-card-btn .text {
   color: var(--octo-text-secondary);
 }
+
+.turn-duration {
+  text-align: right;
+  margin-right: 24px;
+  margin-top: 4px;
+  color: var(--octo-text-tertiary, #999);
+  font-size: 12px;
+  line-height: 18px;
+  user-select: text;
+}

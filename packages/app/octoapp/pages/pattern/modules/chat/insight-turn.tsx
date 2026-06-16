@@ -53,7 +53,7 @@ function decodeDataUrl(url: string): string {
   }
 }
 
-function detectCard(){
+function detectCard(): { type: OutputCardType; title: string } {
   return { type: "json", title: '当前阶段已完成' }
 }
 
@@ -430,7 +430,7 @@ export function InsightTurn(props: {
         const artifact = parseArtifactFromText(text)
         if (artifact) return { ...artifact, id: `card-${props.messageID}-artifact`, createdAt: new Date() }
 
-        const info = detectCard(text)
+        const info = detectCard()
         if (info) return { id: `card-${props.messageID}`, ...info, content: textPart.text, createdAt: new Date() }
 
         return {
@@ -457,7 +457,7 @@ export function InsightTurn(props: {
       const artifact = parseArtifactFromText(content)
       if (artifact) return { ...artifact, id: `card-${props.messageID}-artifact`, createdAt: new Date() }
 
-      const info = detectCard(content)
+      const info = detectCard()
       if (info) return { id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date() }
 
       return {

@@ -220,6 +220,71 @@ function PatternContent() {
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
+  const roundMessages = createMemo(() => {
+    const id = params.id
+    if (!id) return []
+    const allRootMsgs = (sync.data.message[id] ?? []) as Message[]
+    const rootUserMsgs = allRootMsgs.filter((m) => m.role === "user")
+    const childIDs = childSessionIDs()
+    if (childIDs.length === 0 && rootUserMsgs.length === 0) return []
+
+    type Item = { sessionID: string; messageID: string; time: number }
+    type Round = { startTime: number; endTime?: number; items: Item[] }
+
+    // Collect all round boundary timestamps.
+    // Create mode (round 1): no root user messages, child sessions exist → boundary at 0.
+    // Modify mode (round 2+): each root user message (triage prompt) is a boundary.
+    const roundStarts: number[] = []
+    const firstRootTime = rootUserMsgs.length > 0 ? (rootUserMsgs[0].time?.created ?? Infinity) : Infinity
+    const hasEarlyChildren = childIDs.some((cid) => {
+      const msgs = (sync.data.message[cid] ?? []) as Message[]
+      return (msgs[0]?.time?.created ?? Infinity) < firstRootTime
+    })
+    if (hasEarlyChildren) roundStarts.push(0)
+    for (const m of rootUserMsgs) roundStarts.push(m.time?.created ?? 0)
+    if (roundStarts.length === 0) return []
+
+    return roundStarts.map((roundStart, ri): Round => {
+      const roundEnd = ri < roundStarts.length - 1 ? roundStarts[ri + 1] : Infinity
+      const items: Item[] = []
+      let startTime = roundStart === 0 ? Infinity : roundStart
+      let endTime: number | undefined
+
+      // Track earliest created & latest completed across all messages in this round
+      const trackTime = (m: Message) => {
+        const t = m.time as { created: number; completed?: number }
+        if (t.created < startTime) startTime = t.created
+        if (typeof t.completed === "number" && (!endTime || t.completed > endTime)) endTime = t.completed
+      }
+
+      // Root session: only user messages go into items; track time from user + its assistant response
+      for (const m of rootUserMsgs) {
+        const t = m.time?.created ?? 0
+        if (t < roundStart || t >= roundEnd) continue
+        items.push({ sessionID: id, messageID: m.id, time: t })
+        trackTime(m)
+        const idx = allRootMsgs.findIndex((mm) => mm.id === m.id)
+        const assistant = allRootMsgs.slice(idx + 1).find((mm) => mm.role === "assistant")
+        if (assistant) trackTime(assistant)
+      }
+
+      // Child sessions in this round's time window: user messages → items, all messages → timing
+      for (const childID of childIDs) {
+        const childMsgs = (sync.data.message[childID] ?? []) as Message[]
+        const childCreated = childMsgs[0]?.time?.created ?? Infinity
+        if (childCreated < roundStart || childCreated >= roundEnd) continue
+        for (const m of childMsgs) {
+          if (m.role === "user") items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
+          trackTime(m)
+        }
+      }
+
+      items.sort((a, b) => a.time - b.time)
+      if (startTime === Infinity) startTime = items.length > 0 ? items[0].time : Date.now()
+      return { startTime, endTime, items }
+    })
+  })
+
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
     if (!id) return { type: "idle" }
@@ -379,7 +444,9 @@ function PatternContent() {
         modelKey: mk,
         rootSession: sid,
         userInput: text,
-        onSessionCreated: (childID: string) => setChildSessionIDs((prev) => [...prev, childID]),
+        onSessionCreated: (childID: string) => {
+          setChildSessionIDs((prev) => [...prev, childID])
+        },
       }
       // 流程执行完毕后的回调
       let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
@@ -627,6 +694,7 @@ function PatternContent() {
             onDrop={handleDrop}
             onOpenResult={handleOpenResult}
             pipelineBusy={isBusy() || sending()}
+            roundMessages={roundMessages()}
             hasPreview={lastModules().length > 0 && !isBusy()}
             onOpenPreview={handleOpenPreview}
             onDeleteSession={deleteSession}

@@ -1,5 +1,5 @@
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
-import { For, Show, type JSX } from "solid-js"
+import { For, Index, Show, createMemo, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -17,6 +17,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./attachment_bar"
 import { InsightTurn, type OutputCard } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
+import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto_introduction"
 import { ChartInput, type ChartInputProps } from "./chart_input"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
@@ -24,6 +25,32 @@ import { ProtoTabSwitcher, type TabKey } from "./proto-tab-switcher"
 import "../../assets/style/chat/index.css"
 
 type AutoScrollApi = ReturnType<typeof createAutoScroll>
+
+function RoundCard(props: {
+  roundIndex: number
+  totalRounds: number
+  pipelineBusy: boolean
+  hasPreview: boolean
+  startTime: number
+  endTime?: number
+  onOpenPreview: () => void
+}): JSX.Element {
+  const isLatest = () => props.roundIndex === props.totalRounds - 1
+  const generating = () => isLatest() && props.pipelineBusy
+  const done = () => !isLatest() || !props.pipelineBusy
+  return (
+    <>
+      <GenerationCard
+        generating={generating()}
+        canPreview={done()}
+        onOpenPreview={props.onOpenPreview}
+      />
+      <Show when={done() || generating()}>
+        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} />
+      </Show>
+    </>
+  )
+}
 
 export function ChatPanel(props: {
   /** 是否有对话内容（控制空态/对话态切换） */
@@ -56,6 +83,8 @@ export function ChatPanel(props: {
   onOpenResult: (card: OutputCard) => void
   /** 主流程是否正在生成 */
   pipelineBusy: boolean
+  /** 按轮分组的消息 */
+  roundMessages: { startTime: number; endTime?: number; items: { sessionID: string; messageID: string }[] }[]
   /** 是否有可预览内容 */
   hasPreview: boolean
   /** 点击预览回调 */
@@ -210,21 +239,47 @@ export function ChatPanel(props: {
           <Show when={params.id} keyed>
             {(sid) => (
               <div ref={props.autoScroll.contentRef} class="py-3 flex flex-col gap-0">
-                <For each={props.userMessages}>
-                  {(msg) => (
-                    <InsightTurn
-                      sessionID={(msg as any)._sessionID ?? sid}
-                      messageID={msg.id}
-                      status={props.sessionStatus}
-                      onOpenResult={props.onOpenResult}
-                    />
-                  )}
-                </For>
-                <GenerationCard
-                  generating={props.pipelineBusy}
-                  canPreview={props.hasPreview}
-                  onOpenPreview={props.onOpenPreview}
-                />
+                <Show
+                  when={props.roundMessages.length > 0}
+                  fallback={
+                    <For each={props.userMessages}>
+                      {(msg) => (
+                        <InsightTurn
+                          sessionID={(msg as any)._sessionID ?? sid}
+                          messageID={msg.id}
+                          status={props.sessionStatus}
+                          onOpenResult={props.onOpenResult}
+                        />
+                      )}
+                    </For>
+                  }
+                >
+                  <Index each={props.roundMessages}>
+                    {(round, ri) => (
+                      <>
+                        <For each={round().items}>
+                          {(item) => (
+                            <InsightTurn
+                              sessionID={item.sessionID}
+                              messageID={item.messageID}
+                              status={props.sessionStatus}
+                              onOpenResult={props.onOpenResult}
+                            />
+                          )}
+                        </For>
+                        <RoundCard
+                          roundIndex={ri}
+                          totalRounds={props.roundMessages.length}
+                          pipelineBusy={props.pipelineBusy}
+                          hasPreview={props.hasPreview}
+                          startTime={round().startTime}
+                          endTime={round().endTime}
+                          onOpenPreview={props.onOpenPreview}
+                        />
+                      </>
+                    )}
+                  </Index>
+                </Show>
               </div>
             )}
           </Show>
