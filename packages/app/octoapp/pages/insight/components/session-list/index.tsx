@@ -14,6 +14,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 
@@ -93,17 +94,14 @@ export function InsightSessionList(): JSX.Element {
   }
 
   // ── 右键改名/删除(我方在 1:1 之上的功能并集;UXAI 会话列表无此菜单)──────
+  // 菜单视觉复用 @opencode-ai/ui 的 DropdownMenu(与对话区顶部 ConversationHeader 的三点
+  // 菜单同源同样式),光标位置通过一个 0 尺寸的虚拟 Trigger 锚定,Kobalte 负责定位/Esc/外点关闭。
   const [contextMenu, setContextMenu] = createSignal<{ id: string; x: number; y: number } | null>(null)
+  // 选「重命名」后延迟到菜单关闭动画结束(onCloseAutoFocus)再进编辑态,并在那里 preventDefault
+  // 拦掉 Kobalte 把焦点抢回 Trigger 的默认行为,否则输入框刚 focus 就被夺走触发 onBlur,只闪一下。
+  const [pendingRenameId, setPendingRenameId] = createSignal<string | null>(null)
   const [renamingId, setRenamingId] = createSignal<string | null>(null)
   const [renameDraft, setRenameDraft] = createSignal("")
-
-  // Esc 关菜单
-  createEffect(() => {
-    if (!contextMenu()) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeContextMenu() }
-    document.addEventListener("keydown", onKey)
-    onCleanup(() => document.removeEventListener("keydown", onKey))
-  })
 
   function closeContextMenu() {
     setContextMenu(null)
@@ -277,55 +275,51 @@ export function InsightSessionList(): JSX.Element {
         </Show>
       </Show>
 
-      {/* ── 右键上下文菜单 ───────────────────────────────────── */}
-      <Show when={contextMenu()}>
-        {(menu) => (
-          <>
-            {/* 全屏透明遮罩，点击关闭菜单 */}
-            <div
-              style={{ position: "fixed", inset: "0", "z-index": "9998" }}
-              onClick={closeContextMenu}
-              onContextMenu={(e) => { e.preventDefault(); closeContextMenu() }}
-            />
-            <div
-              style={{
-                position: "fixed",
-                top: `${menu().y}px`,
-                left: `${menu().x}px`,
-                "z-index": "9999",
-                background: "var(--octo-surface-page, #fff)",
-                border: "1px solid var(--octo-border-default, #E5E7EB)",
-                "border-radius": "6px",
-                "box-shadow": "0 4px 16px rgba(0,0,0,0.10)",
-                padding: "4px",
-                "min-width": "128px",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => openRename(menu().id)}
-                class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
-                style={{ color: "var(--octo-text-primary, #191919)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
-              >
-                重命名
-              </button>
-              <div style={{ height: "1px", background: "var(--octo-border-default, #E5E7EB)", margin: "2px 0" }} />
-              <button
-                type="button"
-                onClick={() => confirmDelete(menu().id)}
-                class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
-                style={{ color: "var(--octo-danger, #DC2626)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.06)" }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
-              >
-                删除
-              </button>
-            </div>
-          </>
-        )}
-      </Show>
+      {/* ── 右键上下文菜单(与 ConversationHeader 三点菜单同源同样式)───────── */}
+      <DropdownMenu
+        gutter={4}
+        placement="bottom-start"
+        open={!!contextMenu()}
+        onOpenChange={(open) => { if (!open) closeContextMenu() }}
+      >
+        <DropdownMenu.Trigger
+          aria-hidden="true"
+          tabindex={-1}
+          style={{
+            position: "fixed",
+            left: `${contextMenu()?.x ?? 0}px`,
+            top: `${contextMenu()?.y ?? 0}px`,
+            width: "0",
+            height: "0",
+            padding: "0",
+            border: "none",
+            background: "transparent",
+            "pointer-events": "none",
+            opacity: "0",
+          }}
+        />
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            style={{ "min-width": "104px" }}
+            onCloseAutoFocus={(event) => {
+              const id = pendingRenameId()
+              if (id) {
+                event.preventDefault()
+                setPendingRenameId(null)
+                openRename(id)
+              }
+            }}
+          >
+            <DropdownMenu.Item onSelect={() => { const m = contextMenu(); if (m) setPendingRenameId(m.id) }}>
+              <DropdownMenu.ItemLabel>重命名</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator />
+            <DropdownMenu.Item onSelect={() => { const m = contextMenu(); if (m) confirmDelete(m.id) }}>
+              <DropdownMenu.ItemLabel>删除</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu>
     </div>
   )
 }
