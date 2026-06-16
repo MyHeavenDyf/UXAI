@@ -1130,10 +1130,13 @@ function InsightContent() {
     revealPanel()
   }
 
-  // ── 自动 openTab(ResultViewer 当前为空时,首个 completed 任务自动开;spec §8.3)──
+  // ── 自动 openTab(ResultViewer 当前为空时,把会话内所有 completed 任务的产物一次性全开;spec §8.3)──
+  // 一进对话右侧栏就铺满本会话生成的全部文件(x,y,m,n…),而不是只开第一个任务、要求用户逐个叉掉
+  // 才看到下一个。autoOpenedTaskIds 已记录开过的 task,用户手动关掉后不会再被重新弹开。
   const autoOpenedTaskIds = new Set<string>()
   createEffect(() => {
     if (tabStore.tabs().length > 0) return
+    let firstOpenedId: string | undefined
     for (const card of taskCards().values()) {
       if (card.status !== "completed") continue
       if (autoOpenedTaskIds.has(card.taskId)) continue
@@ -1146,9 +1149,11 @@ function InsightContent() {
         tabs: ocs.map((oc) => ({ type: oc.type, file: oc.fileName })),
       })
       const openedIds = ocs.map((oc) => tabStore.openTab(oc))
-      tabStore.activate(openedIds[0])
+      if (firstOpenedId === undefined) firstOpenedId = openedIds[0]
+    }
+    if (firstOpenedId !== undefined) {
+      tabStore.activate(firstOpenedId)  // 激活首个任务的首张,其余作为待选 tab 并存
       revealPanel()
-      break  // 一次只自动开一个 task 的全部产物
     }
   })
 
@@ -1438,6 +1443,7 @@ function InsightContent() {
                         onTaskRefresh={handleTaskRefresh}
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
+                        resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
                       />
                     )}
                   </For>

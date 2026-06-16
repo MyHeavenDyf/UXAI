@@ -183,6 +183,11 @@ export function aggregateTaskCards(items: AggregateInput[]): Map<string, TaskCar
     const first = group[0]
     const latest = group[group.length - 1]
     const businessItem = group.find((g) => isBusinessTool(g.toolName))
+    // resourceLinks 锁定到「首次 completed 且带 resource_link」那次捕获:completed 任务产物不可变,
+    // 但用户每次"查询任务进度"都会重新调用 get_task_result(同一 task_id),server 可能为同一任务
+    // 返回一批新 URI。若取 latest 会让新 URI 顶替原始文件,用户感知成"又重新生成了一遍"。
+    // 取首次产物 = 把最初那批文件稳定地拿回来(spec: task-card.md 重复查询不重生成产物)。
+    const firstWithLinks = group.find((g) => g.status === "completed" && g.resourceLinks.length > 0)
     result.set(taskId, {
       taskId,
       status: latest.status,
@@ -192,7 +197,7 @@ export function aggregateTaskCards(items: AggregateInput[]): Map<string, TaskCar
       submittedAt: new Date(first.time),
       lastUpdatedAt: new Date(latest.time),
       resultText: latest.resultText,
-      resourceLinks: latest.resourceLinks,
+      resourceLinks: firstWithLinks?.resourceLinks ?? latest.resourceLinks,
     })
   }
   return result

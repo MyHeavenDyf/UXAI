@@ -7,8 +7,8 @@ import type { JSX } from "solid-js"
 import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
-import { findResourceLinks, linkToOutputType } from "../utils/resource-link"
-import { type TaskCardEntry } from "../utils/task-detect"
+import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
+import { readTaskInfo, type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
@@ -46,6 +46,12 @@ export function InsightTurn(props: {
   onTaskRefresh: (taskId: string) => void
   onTaskStop: (taskId: string) => void
   onTaskOpenResult: (taskId: string) => void
+  /**
+   * 给定 task_id 返回该任务「首次完成时确定的产物链接」(跨 turn 聚合后的稳定结果)。
+   * 用于 get_task_result 重复查询 turn:server 每次重查可能返回一批新 URI,
+   * 这里据 task_id 换回最初那批文件,保证每次查询回答下方挂的都是同一批产物(spec: task-card.md 重复查询不重生成)。
+   */
+  resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
 }): JSX.Element {
   const data = useData()
 
@@ -112,7 +118,14 @@ export function InsightTurn(props: {
     //   - "mindmap" → 单张 mindmap 卡(打开后 预览/代码 切换看 markmap 或原始 JSON)
     //   - 其他(key_findings / search_reports / run_*_analysis 等)→ 按 mimeType 路由
     // 详见 output-renderers.md §1 视图切换 / §2.5.2 + mcp-contract.md §business_type
-    const links = findResourceLinks(parts)
+    //
+    // get_task_result 重复查询 turn 优先换回该任务「首次确定的产物链接」:
+    // 用户每次「查询任务 X 进度」都会重调 get_task_result,server 可能每次返回一批新 URI(i,j…);
+    // 若直接用本 turn 原始 links,会让最新查询回答下方挂出"又重新生成"的新文件。改为按 task_id
+    // 取最初那批(x,y),保证每次查询回答下方挂的都是同一批原始产物。非任务结果(无 task_id)走原 links。
+    const taskId = parts.reduce<string | undefined>((acc, part) => acc ?? readTaskInfo(part)?.taskId, undefined)
+    const canonical = taskId ? props.resolveTaskLinks?.(taskId) : undefined
+    const links = canonical && canonical.length > 0 ? canonical : findResourceLinks(parts)
     if (links.length > 0) {
       console.log("[octo:card] resource_links (no task)", {
         count: links.length,
