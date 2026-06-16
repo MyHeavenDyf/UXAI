@@ -67,6 +67,14 @@
   color: var(--octo-text-primary);
   line-height: 22px;
 }
+/* 对话内行内代码(特殊标记文字)颜色覆盖：
+   上游 markdown.css 用 var(--syntax-string)(opencode 主题解析为绿色 #3d9a57)，
+   insight 改为品牌蓝 rgb(10,89,247)=#0A59F7。不动上游核心，这里按作用域覆盖。
+   注：insight 的 --octo-brand 是 #0067D1，与本值不同，故直接用字面量(与用户气泡 rgba(10,89,247,.08) 一致)。 */
+[data-component="session-turn"] [data-component="markdown"] :not(pre) > code {
+  color: rgb(10, 89, 247);
+}
+
 [data-component="session-turn"] [data-slot="message-part-reasoning"],
 [data-component="session-turn"] [data-component="accordion"],
 [data-component="session-turn"] [data-slot="session-turn-diffs-header"],
