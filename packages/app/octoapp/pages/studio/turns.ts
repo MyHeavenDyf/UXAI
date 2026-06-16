@@ -8,6 +8,7 @@ export type StudioTurnData = {
   userText: string
   assistantText: string
   editCapability?: StudioCapability
+  editorEntryID?: string
   toolTitle?: string
   toolError?: string
   toolName?: string
@@ -248,6 +249,30 @@ function toolInput(part?: Extract<Part, { type: "tool" }>) {
   return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined
 }
 
+function isStudioEditorCapability(value: unknown): value is StudioCapability {
+  return (
+    value === "image.upscale" ||
+    value === "image.cutout" ||
+    value === "image.inpaint" ||
+    value === "image.outpaint"
+  )
+}
+
+function editorEntry(tools: Extract<Part, { type: "tool" }>[]) {
+  return tools
+    .filter((part) => part.tool === "studio_editor_entry")
+    .map((part) => {
+      const state = part.state as Record<string, unknown>
+      const metadata = recordField(recordField(state, "metadata"), "studio")
+      const input = recordField(state, "input")
+      const capability = metadata?.capability ?? input?.capability
+      const entryID = stringField(metadata, "entryID") ?? stringField(input, "entryID")
+      if (!isStudioEditorCapability(capability) || !entryID) return
+      return { capability, entryID }
+    })
+    .find((item): item is { capability: StudioCapability; entryID: string } => Boolean(item))
+}
+
 function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
   const state = part.state as Record<string, unknown>
   const attachments = Array.isArray(state.attachments) ? state.attachments : []
@@ -415,6 +440,18 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       .join("\n")
       .trim()
     const tools = assistantParts.filter(isToolPart)
+    const entry = editorEntry(tools)
+    if (entry) {
+      return {
+        id: `studio_editor_${entry.entryID}`,
+        userText,
+        assistantText,
+        editCapability: entry.capability,
+        editorEntryID: entry.entryID,
+        createdAt: user.time.created,
+        isLatest: false,
+      } satisfies StudioTurnData
+    }
 
     return buildResult({
       messageID: user.id,

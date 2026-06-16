@@ -156,7 +156,6 @@
   min-width: 431px;
   min-height: 236px;
   padding: 14px 16px;
-  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -237,6 +236,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  max-height: 450px;
+  overflow-y: auto;
+  margin-right: -13px;
+  padding-right: 16px;
+}
+
+.studio-material-tags::-webkit-scrollbar {
+  width: 4px;
+}
+
+.studio-material-tags::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: #e5e5e5;
 }
 
 .studio-material-tag-btn {
@@ -480,16 +492,10 @@
 .studio-conversation {
   display: flex;
   flex-direction: column;
-  gap: 44px;
+  gap: 20px;
   width: 100%;
   margin: 0 auto;
 }
-
-.studio-conversation-turn.separated {
-  padding-top: 44px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-}
-
 .studio-user-bubble {
   width: fit-content;
   max-width: 374px;
@@ -507,7 +513,7 @@
 }
 
 .studio-assistant-copy {
-  margin-top: 32px;
+  margin-top: 20px;
   color: #191919;
   font-size: 14px;
   line-height: 28px;
@@ -525,7 +531,6 @@
   margin-top: 28px;
   padding: 0 18px;
   border-radius: 999px;
-  background: #eaf2ff;
   color: #0a59f7;
   font-size: 15px;
   font-weight: 700;
@@ -553,7 +558,7 @@
 }
 
 .studio-result-card {
-  margin-top: 34px;
+  margin-top: 20px;
   min-height: 288px;
   padding: 16px 20px 22px;
   border: 1px solid rgba(15, 23, 42, 0.12);
@@ -598,4 +603,38 @@
   font-weight: 400;
   line-height: 100%;
   white-space: nowrap;
+}
+
+/* ── DropdownMenu（右键菜单，与 chat 页面一致） ────────── */
+
+[data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
+  background-color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
+  border: none;
+  padding: 8px;
+  min-width: 132px !important;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {
+  height: 36px;
+  padding: 0 8px 0 12px;
+  font-size: 14px;
+  color: rgba(0,0,0,0.9);
+  line-height: 22px;
+  border-radius: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"][data-highlighted],
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"]:hover {
+  background: #eee;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 4px -8px 4px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
 }

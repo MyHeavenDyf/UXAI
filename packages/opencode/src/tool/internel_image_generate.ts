@@ -11,14 +11,17 @@ import type {
 const METHOD = "POST"
 // const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
 // const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
+// const DEFAULT_CANCEL_TASK_URL = "http://localhost:3000/cancel_task"
 // const DEFAULT_GET_PROMPT_TAG_URL = "http://localhost:3000/get_prompt_tags"
 // const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
+const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancel_task"
 const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
 const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
-const DEFAULT_USER_IDX = "l00423136"
+const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
+const DEFAULT_CANCEL_TIMEOUT_MS = 15_000
 
 type JsonRecord = Record<string, unknown>
 type InternalTaskType = "txt2img" | "img2img"
@@ -98,6 +101,16 @@ type QueryTaskResponse = {
     [key: string]: unknown
   }
   [key: string]: unknown
+}
+
+export type CancelTaskResponse = {
+  resp_code?: number
+  resp_msg?: string
+  result?: boolean
+}
+
+export function isCancelTaskSuccess(response: CancelTaskResponse) {
+  return response.resp_code === 200 && response.result === true
 }
 
 const Parameters = Schema.Struct({
@@ -626,6 +639,59 @@ async function queryTask(
   }
 
   return parseJson(text) as QueryTaskResponse
+}
+
+export async function cancelInternalGeneration(taskId: string): Promise<CancelTaskResponse> {
+  const cancelUrl = new URL(env("IMAGE_CANCEL_TASK_URL") ?? DEFAULT_CANCEL_TASK_URL)
+  cancelUrl.searchParams.set("task_id", taskId)
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMsFor("IMAGE_CANCEL_TIMEOUT_MS", DEFAULT_CANCEL_TIMEOUT_MS),
+  )
+  const response = await fetch(cancelUrl, {
+    method: "GET",
+    headers: {
+      accept: "application/json, text/plain, */*",
+      ...internalImageHeaders({ contentType: false }),
+    },
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "cancel_task network failed.",
+        `taskId=${taskId}`,
+        `url=${cancelUrl}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => clearTimeout(timeout))
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "cancel_task failed.",
+        `taskId=${taskId}`,
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  const json = parseJson(text) as CancelTaskResponse
+  if (!isCancelTaskSuccess(json)) {
+    throw new Error(
+      [
+        "cancel_task returned business failure.",
+        `taskId=${taskId}`,
+        `resp_code=${json.resp_code ?? ""}`,
+        `resp_msg=${json.resp_msg ?? ""}`,
+        `result=${String(json.result)}`,
+        `body=${JSON.stringify(json, null, 2)}`,
+      ].join("\n"),
+    )
+  }
+  return json
 }
 
 function env(name: string) {

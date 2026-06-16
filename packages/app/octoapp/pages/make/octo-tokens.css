@@ -200,10 +200,19 @@
   font-size: 14px;
   cursor: pointer;
   transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
+  max-width: 100%;
 }
 .octo-action-btn:hover {
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.04);
+}
+.octo-action-btn > svg {
+  flex-shrink: 0;
+}
+.octo-action-btn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── DS picker trigger (pill style) ──────── */

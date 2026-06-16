@@ -12,6 +12,10 @@ import { usePermission } from "@/context/permission"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { sessionTitle } from "@/utils/session-title"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useLanguage } from "@/context/language"
 
 /**
  * InsightSessionList —— Insight 会话段(SPEC-INS-010 §11.3 / D11)
@@ -39,20 +43,30 @@ export function InsightSessionList(): JSX.Element {
   const location = useLocation()
   const notification = useNotification()
   const permission = usePermission()
+  const dialog = useDialog()
+  const language = useLanguage()
 
   // 走全栈统一 useProjectDir():路由 :dir → server.projects.last() → globalSync.data.path.home 兜底,
   // 与 _shell/sidebar.tsx / make / studio 完全一致;避免"insight 自读 home 而其他模块走 selection"造成
   // 用户选了项目目录后 insight 仍查 home dir 而看不到自己历史对话的 directory 飘移 bug。
   const projectDir = useProjectDir()
 
-  const [sessions, { refetch }] = createResource(projectDir, async (dir) => {
+  const [sessions, { refetch }] = createResource<Session[], string>(projectDir, async (dir, info) => {
     if (!dir) return [] as Session[]
-    const result = await globalSDK.client.session.list({ directory: dir })
-    // strict 过滤:server 已把 agent 作为一等字段持久化。
-    const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
-      (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
-    )
-    return data.filter((s) => s.agent === INSIGHT_AGENT)
+    try {
+      const result = await globalSDK.client.session.list({ directory: dir })
+      // strict 过滤:server 已把 agent 作为一等字段持久化。
+      const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
+        (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
+      )
+      return data.filter((s) => s.agent === INSIGHT_AGENT)
+    } catch (err) {
+      // session.list 失败(如 server 端某行 Session.Info schema 编码失败 → 400 空 body)绝不能把整页
+      // 顶进 ErrorBoundary。降级为"列表保持上次内容、不刷新",而非整页崩 —— 用户仍可新建/继续对话。
+      // 根因类问题(脏数据/枚举越界)由 server 读取侧修;这里是"任意单次列表失败都不致命"的兜底。
+      console.error("[insight:session-list] list failed, keeping previous list", err)
+      return info.value ?? []
+    }
   })
 
   // reconcile(key=id):保持 <For> 行引用稳定,避免每次 refetch 重建每行的 globalSync.child
@@ -80,7 +94,6 @@ export function InsightSessionList(): JSX.Element {
 
   // ── 右键改名/删除(我方在 1:1 之上的功能并集;UXAI 会话列表无此菜单)──────
   const [contextMenu, setContextMenu] = createSignal<{ id: string; x: number; y: number } | null>(null)
-  const [confirmDeleteId, setConfirmDeleteId] = createSignal<string | null>(null)
   const [renamingId, setRenamingId] = createSignal<string | null>(null)
   const [renameDraft, setRenameDraft] = createSignal("")
 
@@ -94,7 +107,6 @@ export function InsightSessionList(): JSX.Element {
 
   function closeContextMenu() {
     setContextMenu(null)
-    setConfirmDeleteId(null)
   }
 
   function openRename(sessionId: string) {
@@ -117,13 +129,34 @@ export function InsightSessionList(): JSX.Element {
   }
 
   async function handleDelete(sessionId: string) {
-    closeContextMenu()
     try {
       await globalSDK.client.session.delete({ sessionID: sessionId })
       if (activeSessionId() === sessionId) navigate("/insight")
     } catch (err) {
       console.error("[insight:session-list] delete failed", err)
     }
+  }
+
+  // 删除确认:与 chat 侧栏(components/sidebar.tsx)一致——居中模态 Dialog,
+  // 复用 .delete-dialog 样式与 session.delete.button / common.cancel 文案。
+  function confirmDelete(sessionId: string) {
+    const session = sessionList.find((s) => s.id === sessionId)
+    closeContextMenu()
+    dialog.show(() => (
+      <Dialog title="删除会话" fit class="delete-dialog">
+        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+          确定删除「{sessionTitle(session?.title) || language.t("command.session.new")}」？
+        </span>
+        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
+          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => { void handleDelete(sessionId).then(() => dialog.close()) }}>
+            {language.t("session.delete.button")}
+          </Button>
+        </div>
+      </Dialog>
+    ))
   }
 
   return (
@@ -171,7 +204,6 @@ export function InsightSessionList(): JSX.Element {
                       }}
                       onContextMenu={(e) => {
                         e.preventDefault()
-                        setConfirmDeleteId(null)
                         setContextMenu({ id: session.id, x: e.clientX, y: e.clientY })
                       }}
                       class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
@@ -269,57 +301,27 @@ export function InsightSessionList(): JSX.Element {
                 "min-width": "128px",
               }}
             >
-              <Show
-                when={confirmDeleteId() === menu().id}
-                fallback={
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => openRename(menu().id)}
-                      class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
-                      style={{ color: "var(--octo-text-primary, #191919)" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
-                    >
-                      重命名
-                    </button>
-                    <div style={{ height: "1px", background: "var(--octo-border-default, #E5E7EB)", margin: "2px 0" }} />
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteId(menu().id)}
-                      class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
-                      style={{ color: "var(--octo-danger, #DC2626)" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.06)" }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
-                    >
-                      删除
-                    </button>
-                  </>
-                }
+              <button
+                type="button"
+                onClick={() => openRename(menu().id)}
+                class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
+                style={{ color: "var(--octo-text-primary, #191919)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--octo-surface-hover, #F5F5F5)" }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
               >
-                {/* 二次确认态 */}
-                <div class="px-[10px] py-[6px] text-[12px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                  确认删除？
-                </div>
-                <div class="flex gap-[4px] px-[6px] pb-[4px]">
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(menu().id)}
-                    class="flex-1 px-[8px] py-[4px] text-[12px] rounded-[4px] transition-colors"
-                    style={{ background: "var(--octo-danger, #DC2626)", color: "#fff" }}
-                  >
-                    删除
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeContextMenu}
-                    class="flex-1 px-[8px] py-[4px] text-[12px] rounded-[4px] transition-colors"
-                    style={{ background: "var(--octo-surface-hover, #F5F5F5)", color: "var(--octo-text-primary, #191919)" }}
-                  >
-                    取消
-                  </button>
-                </div>
-              </Show>
+                重命名
+              </button>
+              <div style={{ height: "1px", background: "var(--octo-border-default, #E5E7EB)", margin: "2px 0" }} />
+              <button
+                type="button"
+                onClick={() => confirmDelete(menu().id)}
+                class="w-full text-left px-[10px] py-[6px] text-[12px] rounded-[4px] transition-colors"
+                style={{ color: "var(--octo-danger, #DC2626)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(220,38,38,0.06)" }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "" }}
+              >
+                删除
+              </button>
             </div>
           </>
         )}

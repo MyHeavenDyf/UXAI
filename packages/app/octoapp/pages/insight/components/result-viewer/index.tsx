@@ -30,7 +30,7 @@ function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
     return "```" + props.lang + "\n" + body + "\n```"
   })
   return (
-    <div class="p-4 h-full overflow-auto">
+    <div class="octo-source-code-view p-4 h-full overflow-auto">
       <Markdown text={fenced()} />
     </div>
   )
