@@ -436,6 +436,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
                 title={item.label}
                 classList={{
                   "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,
+                  hidden: item.key === "knowledge_base",
                 }}
                 style={{
                   height: "36px",

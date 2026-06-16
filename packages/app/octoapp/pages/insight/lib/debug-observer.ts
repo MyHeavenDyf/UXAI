@@ -3,6 +3,7 @@
 // 文档:docs/specs/ui/insight-debug-toolkit.md
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
 import { getDesktopApi } from "./electron-api"
+import { copyLastError, installFetchBeacon, readBeacons, recordError } from "./error-beacon"
 
 const LOG = "[octo:event]"
 
@@ -273,6 +274,9 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
   const logRing: LogEntry[] = []
   let lastHeartbeatAt = 0 // 最后一次 server.heartbeat 时间(供 why 规则1 区分 SSE 断 vs server 没启动)
 
+  // §9.2 钩子1:patch window.fetch 抓 HTTP 失败 + 响应体(dispose 时还原)
+  const disposeFetchBeacon = installFetchBeacon()
+
   // ── §5.5 持久化:启动读回上次 ring,之后节流写回;无 IDB 时全程降级为纯内存 ──
   let db: IDBDatabase | undefined
   let persistTimer: ReturnType<typeof setTimeout> | undefined
@@ -399,13 +403,17 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
         source: "window.error",
         args: [{ message, source, lineno, colno, error }],
       })
+      recordError("uncaught", error, typeof message === "string" ? message : undefined) // §9.2 钩子2
     } catch { /* noop */ }
     if (origOnError) return origOnError.call(window, message, source, lineno, colno, error) as boolean
     return false
   }
 
   const onUnhandledRejection = (e: PromiseRejectionEvent) => {
-    try { pushLog({ ts: Date.now(), source: "unhandledrejection", args: [e.reason] }) } catch { /* noop */ }
+    try {
+      pushLog({ ts: Date.now(), source: "unhandledrejection", args: [e.reason] })
+      recordError("uncaught", e.reason) // §9.2 钩子2
+    } catch { /* noop */ }
   }
   window.addEventListener("unhandledrejection", onUnhandledRejection)
 
@@ -720,6 +728,7 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
           "  octoDebug.lastSend()      上一次发送详情",
           "  octoDebug.pending()       当前未回复的 permission/question",
           "  octoDebug.why()           速诊:规则引擎给最可能方向 + 下一步",
+          "  octoDebug.lastError(n=1)  带出最近 n 条自动捕获的错误信标(HTTP失败+响应体/异常/整页崩),复制到剪贴板",
           "  octoDebug.snapshot(opts?) 一键现场快照并复制到剪贴板;缺省=最近一次发送→现在",
           "    opts: { last:'30s'|'2m', since:'14:30', until:'14:32',",
           "           around:'msg_x', window:'30s',",
@@ -809,6 +818,18 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
       return results
     },
 
+    lastError(n = 1) {
+      const all = readBeacons()
+      if (all.length === 0) {
+        console.log(`${LOG} lastError: 暂无错误信标(localStorage 里没有 HTTP失败/异常/整页崩记录)`)
+        return ""
+      }
+      const text = copyLastError(n)
+      console.log(`${LOG} lastError 已复制到剪贴板(最近 ${Math.min(n, all.length)}/${all.length} 条)`)
+      console.log(text)
+      return text
+    },
+
     snapshot(opts?: SnapshotOpts) {
       const text = buildSnapshot(opts)
       const ok = () => console.log(`${LOG} snapshot 已复制到剪贴板(${text.length} 字符)`)
@@ -856,6 +877,7 @@ export function installInsightDebug(deps: DebugDeps): InsightDebug {
 
     dispose() {
       unsub()
+      disposeFetchBeacon() // §9.2 还原 window.fetch
       if (deltaTimer) clearTimeout(deltaTimer)
       // §5.5 flush:立即写一次最新 ring 再关连接(保住"重启前"最后一刻)
       if (persistTimer) clearTimeout(persistTimer)

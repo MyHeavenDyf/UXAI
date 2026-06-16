@@ -1,7 +1,12 @@
 
 .studio-enlarging-controls {
+    min-height: 140px;
   display: grid;
   gap: 14px;
+  background: #fff;
+  margin:32px 0;
+  border-radius: 8px;
+  padding:24px 32px;
 }
 
 .studio-enlarging-ratios {

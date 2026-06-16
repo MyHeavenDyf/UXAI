@@ -505,6 +505,7 @@ export function InsightTurn(props: {
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
+  hasQuestionRequest?: boolean
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -1114,7 +1115,7 @@ const stateStatus = state.status as string | undefined
   return (
     <div class="flex flex-col" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
-      <div class="flex justify-end px-3 py-2.5">
+      <div class="flex flex-col items-end gap-2 px-3 py-2.5">
         <Show when={userText() || userAttachments().length === 0}>
           <div
             class="break-words"
@@ -1134,31 +1135,33 @@ const stateStatus = state.status as string | undefined
           </div>
         </Show>
         <Show when={userAttachments().length > 0}>
-          <For each={userAttachments()}>
-            {(att) => (
-              <div
-                class="break-words flex items-center gap-2"
-                style={{
-                  background: "var(--octo-brand-a8)",
-                  padding: "8px 12px",
-                  "border-radius": "12px",
-                  color: "#191919",
-                  "font-size": "13px",
-                  display: "inline-flex",
-                  "max-width": "200px",
-                }}
-              >
-                <Show when={att.mime?.startsWith("image/")}>
-                  <img
-                    src={att.url}
-                    alt={att.filename || "attachment"}
-                    style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
-                  />
-                </Show>
-                <span class="truncate">{att.filename || "attachment"}</span>
-              </div>
-            )}
-          </For>
+          <div class="flex flex-col gap-2">
+            <For each={userAttachments()}>
+              {(att) => (
+                <div
+                  class="break-words flex items-center gap-2"
+                  style={{
+                    background: "var(--octo-brand-a8)",
+                    padding: "8px 12px",
+                    "border-radius": "12px",
+                    color: "#191919",
+                    "font-size": "13px",
+                    display: "inline-flex",
+                    "max-width": "200px",
+                  }}
+                >
+                  <Show when={att.mime?.startsWith("image/")}>
+                    <img
+                      src={att.url}
+                      alt={att.filename || "attachment"}
+                      style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
+                    />
+                  </Show>
+                  <span class="truncate">{att.filename || "attachment"}</span>
+                </div>
+              )}
+            </For>
+          </div>
         </Show>
       </div>
 
@@ -1471,8 +1474,8 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 阻塞提示 — 渐进式显示 */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
+      {/* 阻塞提示 — 渐进式显示（question 状态时不显示） */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
         {(() => {
           const bt = props.blockTime!
           const isWarning = bt >= 80

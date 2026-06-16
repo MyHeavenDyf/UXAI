@@ -30,8 +30,8 @@ export function StudioHDEditor(props: {
         </span>
       </div>
       <div class="studio-hd-body">
-        <div class="studio-inpaint-hint">
-          <img src="/studio/studio_help_tips.png" alt="" class="studio-inpaint-hint-icon" />
+        <div class="studio-hd-hint">
+          <img src="/studio/studio_help_tips.png" alt="" class="studio-hd-hint-icon" />
           <span>画质提升、基于原图快速超分放大</span>
         </div>
         <div class="studio-hd-canvas-wrap">
@@ -106,8 +106,8 @@ export function StudioCutoutEditor(props: {
         </span>
       </div>
       <div class="studio-cutout-body">
-        <div class="studio-inpaint-hint">
-          <img src="/studio/studio_help_tips.png" alt="" class="studio-inpaint-hint-icon" />
+        <div class="studio-cutout-hint">
+          <img src="/studio/studio_help_tips.png" alt="" class="studio-cutout-hint-icon" />
           <span>基于大模型背景去除</span>
         </div>
         <div class="studio-cutout-canvas-wrap">
