@@ -53,6 +53,8 @@ import {
   formatStudioGenerationError,
   hasVideoFrameAssets,
   isVideoMedia,
+  isStudioGenerationStatusRegression,
+  STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
   STUDIO_VIDEO_ASPECT_RATIOS,
@@ -70,6 +72,7 @@ import {
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
 
+type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
@@ -132,6 +135,7 @@ export default function StudioPage() {
   const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
+  const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
@@ -141,7 +145,7 @@ export default function StudioPage() {
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
-  const [editEntryTurn, setEditEntryTurn] = createSignal<StudioTurnData>()
+  const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
@@ -230,6 +234,7 @@ export default function StudioPage() {
   let scrollFrame = 0
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
+  let pendingVideoFirstFrame: StudioAsset | undefined
   const blobUrlCache = new Map<string, string>()
 
   function replaceVideoFrames(frames: { first?: StudioAsset; last?: StudioAsset }) {
@@ -407,16 +412,20 @@ export default function StudioPage() {
           result: normalizeResultValue(pending),
         }
       })
-      const entry = editEntryTurn()
-      if (entry) {
-        const withLatest = next.map((turn) => ({ ...turn, isLatest: false }))
-        return [...withLatest, { ...entry, isLatest: true }]
+      const mergeEditorEntries = (items: StudioTurnData[]) => {
+        const persisted = new Set(items.map((turn) => turn.editorEntryID).filter((id): id is string => Boolean(id)))
+        return [
+          ...items,
+          ...pendingEditorEntries().filter((turn) => !persisted.has(turn.editorEntryID!)),
+        ]
+          .sort((left, right) => left.createdAt - right.createdAt)
+          .map((turn, index, all) => ({ ...turn, isLatest: index === all.length - 1 }))
       }
-      if (!pending) return next
+      if (!pending) return mergeEditorEntries(next)
       const latest = next.at(-1)
       if (latest?.userText === pending.prompt && !latest.result?.images.length && latest.toolRunning) {
         if (pending.status === "failed") {
-          return [
+          return mergeEditorEntries([
             ...next.slice(0, -1),
             {
               ...latest,
@@ -425,10 +434,10 @@ export default function StudioPage() {
               toolRunning: false,
               result: normalizeResultValue(pending),
             },
-          ]
+          ])
         }
-        if (pending.status !== "succeeded" || pending.images.length === 0) return next
-        return [
+        if (pending.status !== "succeeded" || pending.images.length === 0) return mergeEditorEntries(next)
+        return mergeEditorEntries([
           ...next.slice(0, -1),
           {
             ...latest,
@@ -442,11 +451,11 @@ export default function StudioPage() {
             toolRunning: false,
             result: normalizeResultValue(pending),
           },
-        ]
+        ])
       }
-      if (!sending() && pending.status !== "failed" && next.length > 0) return next
-      if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return next
-      return [
+      if (!sending() && pending.status !== "failed" && next.length > 0) return mergeEditorEntries(next)
+      if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return mergeEditorEntries(next)
+      return mergeEditorEntries([
         ...next,
         {
           id: pending.id,
@@ -462,9 +471,14 @@ export default function StudioPage() {
           createdAt: pending.createdAt,
           isLatest: true,
         } satisfies StudioTurnData,
-      ]
+      ])
     })(),
   )
+  createEffect(() => {
+    const persisted = new Set(turns().map((turn) => turn.editorEntryID).filter((id): id is string => Boolean(id)))
+    if (persisted.size === 0) return
+    setPendingEditorEntries((entries) => entries.filter((entry) => !persisted.has(entry.editorEntryID!)))
+  })
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
   const defaultResult = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
@@ -545,39 +559,41 @@ export default function StudioPage() {
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
       setSelectedResultId(input.resultID)
-      setSelectedImageId(input.imageID)
       const r = displayTurns().map((t) => t.result).find((item) => item?.id === input.resultID)
       if (!r) return
-      if (canvasTabImages().length === 0) {
-        // tabs 为空：点击任意图片都创建一个 tab
-        const clicked = r.images.find((img) => img.id === input.imageID)
-        if (clicked) {
-          setShowStudioCanvas(true)
-          setCanvasTabImages([clicked])
-          setCanvasTabLabels({ [clicked.id]: extractKeywords(r.prompt) })
-          setDeletedImageIds(new Set<string>())
-          setWorkspaceImage(undefined)
-          setWorkspaceUploadRequested(false)
-          setMode("preview")
-          return
+      // 该 result 是否已有 tab
+      const hasTab = canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))
+      if (hasTab) {
+        // 已有 tab → 只切选中，不新增
+        setSelectedImageId(input.imageID)
+        setShowStudioCanvas(true)
+        const imageIndex = r.images.findIndex((img) => img.id === input.imageID)
+        const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
+        if (tabImg && imageIndex !== -1) {
+          setCanvasTabLabels((prev) => ({
+            ...prev,
+            [tabImg.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}`,
+          }))
         }
+        setDeletedImageIds(new Set<string>())
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
+        setMode("preview")
+        return
       }
-      // 已有 tabs 时追加
-      setCanvasTabImages((prev) => {
-        if (prev.some((i) => i.id === input.imageID)) return prev
-        const clicked = r.images.find((img) => img.id === input.imageID)
-        return clicked ? [...prev, clicked] : prev
-      })
-      setShowStudioCanvas(true)
-      setCanvasTabLabels((prev) => {
-        if (prev[input.imageID]) return prev
-        const clicked = r.images.find((img) => img.id === input.imageID)
-        return clicked ? { ...prev, [clicked.id]: extractKeywords(r.prompt) } : prev
-      })
-      setDeletedImageIds(new Set<string>())
-      setWorkspaceImage(undefined)
-      setWorkspaceUploadRequested(false)
-      setMode("preview")
+      // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
+      const first = r.images[0]
+      if (first) {
+        const imageIndex = r.images.findIndex((img) => img.id === input.imageID)
+        setSelectedImageId(input.imageID)
+        setShowStudioCanvas(true)
+        setCanvasTabImages((prev) => [...prev, first])
+        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}` }))
+        setDeletedImageIds(new Set<string>())
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
+        setMode("preview")
+      }
     })
   }
 
@@ -633,6 +649,7 @@ export default function StudioPage() {
     if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
     if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
       const next = studioTurn()!.result!
+      if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
         return { ...current, ...next, sourceImage: current.sourceImage }
@@ -658,6 +675,7 @@ export default function StudioPage() {
     }
     if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
       const next = studioTurn()!.result!
+      if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
         return { ...current, ...next, sourceImage: current.sourceImage }
@@ -704,7 +722,7 @@ export default function StudioPage() {
           setPendingResult(undefined)
         }
         if (!preserveEditorEntry) {
-          setEditEntryTurn(undefined)
+          setPendingEditorEntries([])
           if (!preserveGenerationCapability) setCapability("image.generate")
         }
         setCanvasTabImages([])
@@ -1076,19 +1094,48 @@ export default function StudioPage() {
     })
   }
 
+  async function createStudioEditorEntry(input: {
+    sessionID: string
+    capability: StudioEditorCapability
+    entryID: string
+  }) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      "x-opencode-directory": projectDir(),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/editor-entries", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+  }
+
   function createEditorEntry(value: StudioCapability) {
     const nextMode = workspaceModeForCapability(value)
     if (!nextMode) return
+    const capability = value as StudioEditorCapability
     const label = capabilityLabel(value)
+    const entryID = crypto.randomUUID()
     batch(() => {
-      setEditEntryTurn({
-        id: `studio_edit_${value}_${Date.now()}`,
+      setPendingEditorEntries((entries) => [...entries, {
+        id: `studio_editor_pending_${entryID}`,
         userText: label,
         assistantText: "点击前往编辑区",
-        editCapability: value,
+        editCapability: capability,
+        editorEntryID: entryID,
         createdAt: Date.now(),
         isLatest: true,
-      })
+      }])
       setPrompt("")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(true)
@@ -1096,15 +1143,26 @@ export default function StudioPage() {
       setSelectedImageId(undefined)
       setMode(nextMode)
     })
-    if (params.id) return
-    createStudioSession(label)
-      .then((sessionID) => {
-        if (!sessionID) return
-        pendingEditorSessionID = sessionID
-        navigate(`/${slug()}/studio/${sessionID}`)
-        requestAnimationFrame(() => openEditorEntry(value))
-      })
-      .catch((error) => console.error("[StudioPage] editor session create failed", error))
+    void (async () => {
+      try {
+        const existingSession = isValidStudioSession(params.id)
+        const sessionID = existingSession ? params.id! : await createStudioSession(label)
+        if (!sessionID) throw new Error("Unable to create Studio session.")
+        if (!existingSession) {
+          pendingEditorSessionID = sessionID
+          navigate(`/${slug()}/studio/${sessionID}`)
+        }
+        await createStudioEditorEntry({ sessionID, capability, entryID })
+        void loadSessionMessages(sessionID)
+          .catch((error) => console.error("[StudioPage] editor entry reload failed", error))
+      } catch (error) {
+        setPendingEditorEntries((entries) => entries.filter((entry) => entry.editorEntryID !== entryID))
+        showToast({
+          title: "入口消息保存失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      }
+    })()
   }
 
   function applyStudioCapability(value: StudioCapability) {
@@ -1119,7 +1177,6 @@ export default function StudioPage() {
       return
     }
     batch(() => {
-      setEditEntryTurn(undefined)
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("preview")
@@ -1128,10 +1185,12 @@ export default function StudioPage() {
 
   function selectStudioCapability(value: StudioCapability) {
     if (value !== "video.generate") {
+      pendingVideoFirstFrame = undefined
       applyStudioCapability(value)
       return
     }
     if (!canGenerateVideo()) return
+    pendingVideoFirstFrame = undefined
     if (params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed()) {
       applyStudioCapability(value)
       return
@@ -1140,6 +1199,7 @@ export default function StudioPage() {
   }
 
   function cancelVideoRiskDialog() {
+    pendingVideoFirstFrame = undefined
     setVideoRiskDialogOpen(false)
   }
 
@@ -1148,9 +1208,30 @@ export default function StudioPage() {
     if (!params.id) setDraftVideoRiskConfirmed(true)
     setVideoRiskDialogOpen(false)
     applyStudioCapability("video.generate")
+    if (pendingVideoFirstFrame) setVideoFrames("first", pendingVideoFirstFrame)
+    pendingVideoFirstFrame = undefined
+  }
+
+  function generateVideoFromSelectedImage() {
+    const image = selectedImage()
+    if (!image || isVideoMedia(image) || !canGenerateVideo()) return
+    pendingVideoFirstFrame = {
+      id: crypto.randomUUID(),
+      name: currentImageLabel(),
+      mime: "image/png",
+      dataUrl: image.remoteUrl ?? image.url,
+    }
+    if (!(params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed())) {
+      setVideoRiskDialogOpen(true)
+      return
+    }
+    applyStudioCapability("video.generate")
+    setVideoFrames("first", pendingVideoFirstFrame)
+    pendingVideoFirstFrame = undefined
   }
 
   function startNewStudioConversation() {
+    pendingVideoFirstFrame = undefined
     generationToken++
     setVideoRiskDialogOpen(false)
     setVideoRiskConfirmedSessionID(undefined)
@@ -1269,6 +1350,52 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
+  async function cancelStudioGeneration(id: string) {
+    if (cancellingGenerationIDs().has(id)) return
+    const current = server.current
+    if (!current) {
+      console.error("[StudioPage] cancel generation failed", new Error("No active server."))
+      return
+    }
+    setCancellingGenerationIDs((ids) => new Set([...ids, id]))
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        "x-opencode-directory": projectDir(),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_CANCEL_TIMEOUT_MS)
+      const response = await fetch(
+        new URL(`/studio/generations/${encodeURIComponent(id)}/cancel`, current.http.url),
+        { method: "POST", headers, signal: controller.signal },
+      ).finally(() => clearTimeout(timeout))
+      const bodyText = await response.text()
+      if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+      const generation = JSON.parse(bodyText) as StudioGenerationResult
+      setPendingResult((item) => {
+        if (!item || item.id !== generation.id) return item
+        return { ...generation, sourceImage: item.sourceImage }
+      })
+      setStatus(generation.status)
+      const sessionID = generation.sessionID ?? params.id
+      if (sessionID) {
+        void loadSessionMessages(sessionID).catch((error) => {
+          console.error("[StudioPage] cancelled session load failed", error)
+        })
+      }
+    } catch (error) {
+      console.error("[StudioPage] cancel generation failed", error)
+    } finally {
+      setCancellingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
+    }
+  }
+
   function isStudioGenerationID(id: string) {
     return id.startsWith("studio_gen")
   }
@@ -1306,7 +1433,6 @@ export default function StudioPage() {
           : []
     setOpenMenu(null)
     setMode("preview")
-    setEditEntryTurn(undefined)
     setSending(true)
     setStatus("submitting")
     setSelectedResultId(undefined)
@@ -1408,6 +1534,8 @@ export default function StudioPage() {
           try {
             const generation = await getStudioGeneration(id, controller.signal)
             if (stopped) return
+            const current = pendingResult()
+            if (current && current.id === id && isStudioGenerationStatusRegression(current.status, generation.status)) return
 
             setPendingResult((current) => {
               if (current && current.id !== id) return current
@@ -1598,7 +1726,7 @@ export default function StudioPage() {
 
   const hasStudioConversation = createMemo(() =>
     turns().length > 0 ||
-    Boolean(editEntryTurn()) ||
+    pendingEditorEntries().length > 0 ||
     Boolean(pendingResult()) ||
     sending() ||
     isEditingWorkspaceMode() ||
@@ -1766,7 +1894,12 @@ export default function StudioPage() {
           </div>
 
           <ScrollView
-            viewportRef={(el) => { conversationScrollRef = el }}
+            viewportRef={(el) => {
+              conversationScrollRef = el
+              requestAnimationFrame(() => {
+                el.scrollTo({ top: el.scrollHeight })
+              })
+            }}
             class="studio-center-scroll"
           >
             <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
@@ -1774,6 +1907,8 @@ export default function StudioPage() {
                 result={result()}
                 turns={displayTurns()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                cancellingGenerationIDs={cancellingGenerationIDs()}
+                onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
               />
@@ -1919,28 +2054,44 @@ export default function StudioPage() {
                 selectedImageId={selectedImageId()}
                 imageLabel={currentImageLabel()}
                 regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                showVideoGeneration={canGenerateVideo()}
                 onSelectImage={(id) => {
                   const r = result()
                   batch(() => {
-                    setSelectedImageId(id)
                     setShowStudioCanvas(true)
-                    setCanvasTabImages((prev) => {
-                      if (prev.some((i) => i.id === id)) return prev
-                      const clicked = r?.images.find((img) => img.id === id)
-                      return clicked ? [...prev, clicked] : prev
-                    })
-                    setCanvasTabLabels((prev) => {
-                      if (prev[id]) return prev
-                      const clicked = r?.images.find((img) => img.id === id)
-                      return clicked ? { ...prev, [clicked.id]: extractKeywords(r?.prompt ?? "") } : prev
-                    })
-                    setDeletedImageIds(new Set<string>())
-                    setWorkspaceImage(undefined)
-                    setWorkspaceUploadRequested(false)
-                    setMode("preview")
+                    if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
+                      // 已有 tab → 只切选中
+                      setSelectedImageId(id)
+                      const imageIndex = r.images.findIndex((img) => img.id === id)
+                      const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
+                      if (tabImg && imageIndex !== -1) {
+                        setCanvasTabLabels((prev) => ({
+                          ...prev,
+                          [tabImg.id]: `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}`,
+                        }))
+                      }
+                      setDeletedImageIds(new Set<string>())
+                      setWorkspaceImage(undefined)
+                      setWorkspaceUploadRequested(false)
+                      setMode("preview")
+                      return
+                    }
+                    // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
+                    const first = r?.images[0]
+                    if (first) {
+                      const imageIndex = r.images.findIndex((img) => img.id === id)
+                      setSelectedImageId(id)
+                      setCanvasTabImages((prev) => [...prev, first])
+                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` }))
+                      setDeletedImageIds(new Set<string>())
+                      setWorkspaceImage(undefined)
+                      setWorkspaceUploadRequested(false)
+                      setMode("preview")
+                    }
                   })
                 }}
                 onRegenerate={regenerateCurrentResult}
+                onGenerateVideo={generateVideoFromSelectedImage}
                 onUpscale={openHD}
                 onCutout={openCutout}
                 onInpaint={openInpaint}

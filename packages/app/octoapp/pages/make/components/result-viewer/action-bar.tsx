@@ -5,7 +5,7 @@ import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId } from "./html-renderer"
 import type { ArtifactExportKind } from "../insight-turn"
 import { PALETTE_PRESETS } from "./html-renderer"
-import { IconActionCopy, IconActionDownload, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconInspect } from "../../icons"
+import { IconActionCopy, IconActionDownload, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconInspect, IconEditLine } from "../../icons"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
 
@@ -307,12 +307,37 @@ export function ActionBar(props: {
         {showViewport && props.onInspectToggle && (
           <button
             type="button"
-            class="octo-viewport-btn"
+            class="octo-action-btn"
             classList={{ "octo-viewport-btn-active": !!props.inspecting }}
             onClick={props.onInspectToggle}
             title="元素检查"
           >
             <IconInspect size={13} />
+            <span>检查</span>
+          </button>
+        )}
+        {showViewport && props.onDrawToggle && (
+          <button
+            type="button"
+            class="octo-action-btn"
+            classList={{ "octo-viewport-btn-active": !!props.drawing }}
+            onClick={props.onDrawToggle}
+            title="标注绘图"
+          >
+            <span style={{ "font-size": "13px" }}>✎</span>
+            <span>标注</span>
+          </button>
+        )}
+        {showViewport && props.onEditToggle && (
+          <button
+            type="button"
+            class="octo-action-btn"
+            classList={{ "octo-viewport-btn-active": !!props.editing }}
+            onClick={props.onEditToggle}
+            title="可视化元素编辑（文本、链接、图片、样式）"
+          >
+            <IconEditLine size={13} />
+            <span>编辑</span>
           </button>
         )}
         {showViewport && props.onDrawToggle && (
