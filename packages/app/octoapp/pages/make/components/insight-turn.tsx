@@ -505,6 +505,7 @@ export function InsightTurn(props: {
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
+  hasQuestionRequest?: boolean
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -1473,8 +1474,8 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 阻塞提示 — 渐进式显示 */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
+      {/* 阻塞提示 — 渐进式显示（question 状态时不显示） */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
         {(() => {
           const bt = props.blockTime!
           const isWarning = bt >= 80
