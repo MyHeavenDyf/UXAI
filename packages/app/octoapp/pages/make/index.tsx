@@ -515,7 +515,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [blockTime, setBlockTime] = createSignal(0)
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
-    if (isBusy()) {
+    const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
+    if (isBusy() && !hasQuestion) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -1382,6 +1383,7 @@ if (dsId) {
                         onFormSubmit={(text) => {
                           setPrompt(text)
                         }}
+                        hasQuestionRequest={!!questionRequest()}
                       />
                     )}
                   </For>
