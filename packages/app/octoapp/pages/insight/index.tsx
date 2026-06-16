@@ -324,6 +324,13 @@ function InsightContent() {
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
+  // AI 正在工作(busy 或 retry):retry 也算"忙"——否则重试期间停止键会置灰,
+  // 一旦无限重试就再也无法终止该轮、对话彻底卡死。停止/排队判定都用它。
+  const isWorking = createMemo(() => {
+    const t = sessionStatus().type
+    return t === "busy" || t === "retry"
+  })
+
   // busy → idle 时:把刚结束的最新 assistant 消息原始内容完整 dump 到 console。
   // 内网无法抓 SSE network 时,把这条 console 粘到外网即可定位"LLM 究竟返回了什么"。
   createEffect(on(isBusy, (busy, prev) => {
@@ -789,8 +796,8 @@ function InsightContent() {
 
     setPrompt("")
 
-    // busy 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
-    if (isBusy()) {
+    // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
+    if (isWorking()) {
       setQueue((q) => [...q, text])
       console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length, depth: queue().length })
       return
@@ -841,8 +848,8 @@ function InsightContent() {
     }
   }
 
-  // 输入框空 + AI 忙 → 发送键变为停止键
-  const stopping = createMemo(() => isBusy() && !prompt().trim() && !hasUploadingAttachments())
+  // 输入框空 + AI 忙(含 retry)→ 发送键变为停止键;retry 期间同样可点终止
+  const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
   function handlePresetClick(preset: PresetPrompt) {
     setPrompt(preset.text)
@@ -1305,7 +1312,7 @@ function InsightContent() {
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                           disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
                             opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
@@ -1505,7 +1512,7 @@ function InsightContent() {
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                       disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
                         opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
