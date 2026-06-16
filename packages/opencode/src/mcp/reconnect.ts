@@ -10,12 +10,16 @@ const log = Log.create({ service: "mcp.reconnect" })
 const MAX_RECONNECT_ATTEMPTS = 5
 const INITIAL_BACKOFF_MS = 1000
 const MAX_BACKOFF_MS = 30000
-const MAX_ERRORS_BEFORE_RECONNECT = 3
+const MAX_ERRORS_BEFORE_RECONNECT = 2
 
 // === 状态跟踪 ===
 const intentionalDisconnects = new Set<string>()
 const activeReconnects = new Set<string>()
 const remoteConfigs = new Map<string, ConfigMCP.Info & { type: "remote" }>()
+// 模块级终端错误计数（每个 server name 一份）—— 避免 SDK 多 SSE stream 并行触发时闭包变量竞争
+const terminalErrorCounts = new Map<string, number>()
+// 模块级"已触发 close"标志 —— 避免 SDK 多 stream 并行重复触发 close
+const triggeredCloseFlags = new Set<string>()
 
 // === 辅助函数 ===
 
@@ -31,6 +35,13 @@ function isTerminalConnectionError(msg: string): boolean {
     msg.includes("SSE stream disconnected") ||
     msg.includes("Failed to reconnect SSE stream")
   )
+}
+
+// SDK 内部重连放弃信号（StreamableHTTPClientTransport._scheduleReconnection 末尾抛出）
+// SDK 放弃重连后只触发 onerror，不触发 onclose → transport 处于"僵死"状态。
+// 我们识别此信号后主动 client.close()，借由 transport.close() 显式调用 onclose 来启动 Layer 2。
+function isSdkGiveUpSignal(msg: string): boolean {
+  return /Maximum reconnection attempts.*exceeded/.test(msg)
 }
 
 function backoffMs(attempt: number): number {
@@ -64,6 +75,8 @@ export function cleanup() {
   intentionalDisconnects.clear()
   activeReconnects.clear()
   remoteConfigs.clear()
+  terminalErrorCounts.clear()
+  triggeredCloseFlags.clear()
 }
 
 // === 类型定义（与 index.ts 内部类型对接） ===
@@ -107,31 +120,63 @@ export function setupConnectionHandlers(
   ctx: ReconnectContext,
 ) {
   const handlerInstalledAt = Date.now()
+  // 装新 handler 前清理该 server 的模块级状态，避免以下场景的标志残留导致新 client 永远不触发 close:
+  //  - 用户主动 disconnect → connect（closeClient 跳过 reconnect 但不清状态）
+  //  - 重连 5 次全失败 → 用户重新 connect（reconnectWithBackoff 失败分支不清状态）
+  //  - authenticate/add RPC 重复调用 storeClient
+  terminalErrorCounts.delete(name)
+  triggeredCloseFlags.delete(name)
   log.info("[reconnect] connection handlers installed", { name, at: handlerInstalledAt })
 
   // Layer 1: onerror 检测（弥补 SDK 不触发 onclose 的缺口）
-  let consecutiveErrors = 0
-  let hasTriggeredClose = false
+  // 注意：consecutiveErrors 和 hasTriggeredClose 使用模块级 Map/Set，
+  // 因为 SDK StreamableHTTPClientTransport 内部有两个独立的 SSE stream（GET 长连接 + POST response）
+  // 并行运行，网络断开时两者几乎同时触发 onerror，闭包变量可能被并行读取导致计数不准确。
 
   client.onerror = (error: Error) => {
-    const isTerminal = isTerminalConnectionError(error.message)
+    const msg = error.message
+
+    // 优先级 1：SDK 放弃重连信号 — 一次即触发 close。
+    // SDK 在放弃重连后只调用 onerror，绝不调用 onclose，transport 进入"僵死"状态。
+    // 我们主动 client.close() 让 transport.close() 显式触发 onclose → Layer 2 接管。
+    if (isSdkGiveUpSignal(msg)) {
+      log.warn("[reconnect] SDK gave up reconnecting - forcing close", {
+        name,
+        error: msg,
+        consecutiveErrors: terminalErrorCounts.get(name) ?? 0,
+      })
+      if (!triggeredCloseFlags.has(name)) {
+        triggeredCloseFlags.add(name)
+        terminalErrorCounts.set(name, 0)
+        client.close().catch((e) => {
+          log.error("[reconnect] error during force close (give-up)", { name, error: String(e) })
+        })
+      }
+      return
+    }
+
+    // 优先级 2：终端错误累积（兜底，应对 SDK 没抛 give-up 但 transport 实际僵死的场景）
+    const isTerminal = isTerminalConnectionError(msg)
+    const currentCount = terminalErrorCounts.get(name) ?? 0
     log.error("[reconnect] transport error", {
       name,
-      error: error.message,
+      error: msg,
       isTerminal,
-      consecutiveErrors: isTerminal ? consecutiveErrors + 1 : 0,
+      isGiveUp: false,
+      consecutiveErrors: currentCount,
     })
 
     if (isTerminal) {
-      consecutiveErrors++
+      const newCount = currentCount + 1
+      terminalErrorCounts.set(name, newCount)
       log.info("[reconnect] terminal connection error counted", {
         name,
-        consecutiveErrors,
+        consecutiveErrors: newCount,
         maxErrors: MAX_ERRORS_BEFORE_RECONNECT,
       })
-      if (consecutiveErrors >= MAX_ERRORS_BEFORE_RECONNECT && !hasTriggeredClose) {
-        hasTriggeredClose = true
-        consecutiveErrors = 0
+      if (newCount >= MAX_ERRORS_BEFORE_RECONNECT && !triggeredCloseFlags.has(name)) {
+        triggeredCloseFlags.add(name)
+        terminalErrorCounts.set(name, 0)
         log.info("[reconnect] max terminal errors reached - forcing close to trigger reconnect", {
           name,
           threshold: MAX_ERRORS_BEFORE_RECONNECT,
@@ -140,9 +185,9 @@ export function setupConnectionHandlers(
           log.error("[reconnect] error during force close", { name, error: String(e) })
         })
       }
-    } else {
-      consecutiveErrors = 0
     }
+    // 非终端错误不再清零 consecutiveErrors —— SDK 内部重连时会先抛 fetch failed（非终端）再抛
+    // Failed to reconnect SSE stream（终端），夹在中间的清零会让计数永远振荡 0↔1。
   }
 
   // Layer 2: onclose 触发重连
@@ -162,7 +207,7 @@ export function setupConnectionHandlers(
     log.warn("[reconnect] connection closed unexpectedly - triggering auto reconnect", {
       name,
       aliveMs,
-      triggeredByOnerror: hasTriggeredClose,
+      triggeredByOnerror: triggeredCloseFlags.has(name),
       currentStatus: s.status[name]?.status,
       toolCount: s.defs[name]?.length ?? 0,
     })
@@ -248,7 +293,8 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
           continue
         }
 
-        // 成功 — 存储新 client（storeClient 会原子替换旧的死 client）
+        // 成功 — 存储新 client（storeClient 会原子替换旧的死 client；
+        // setupConnectionHandlers 入口已清理 terminalErrorCounts/triggeredCloseFlags）
         let s = yield* ctx.state.get()
         yield* ctx.storeClientFn(s, name, result.mcpClient, result.defs!, mcp.timeout)
         log.info("[reconnect] succeeded", {

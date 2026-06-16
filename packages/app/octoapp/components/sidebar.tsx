@@ -11,6 +11,7 @@ import { Binary } from "@opencode-ai/core/util/binary"
 import { useLanguage } from "@/context/language"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useLayout } from "@/context/layout"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { DialogSettings } from "@/components/dialog-settings"
@@ -36,12 +37,13 @@ export function Sidebar(props: {
   newTarget?: string
   onOpenSettings?: () => void
 }) {
-  const params = useParams()
+const params = useParams()
   const navigate = useNavigate()
   const language = useLanguage()
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
   const dialog = useDialog()
+  const layout = useLayout()
 
   const [sessions, { refetch }] = createResource(
     () => ({ dir: props.currentDir() ?? "", id: params.id }),
@@ -49,7 +51,10 @@ export function Sidebar(props: {
       const d = source.dir
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
+      // scope=project 让后端跳过 directory 过滤，跨所有 directory 取当前 project 的 session
+      // category=dev 后端预过滤，减少非 dev session 的传输（octo_ai + build 都属于 dev）
+      // 前端再用 agent === "octo_ai" 严格过滤，排除 build agent 的 session
+      const result = await client.session.list({ scope: "project", category: "dev" })
       const data = (result.data ?? [] as Session[])
         .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       return data.filter(s => s.agent === "octo_ai")
@@ -116,6 +121,7 @@ export function Sidebar(props: {
       await client.session.delete({ sessionID })
       closeContextMenu()
       if (params.id === sessionID) {
+        layout.lastSessionPerTab.setChat(directory, "")
         navigate(`/${params.dir}/chat`)
       } else if (idx >= 0) {
         setSessionList(sessionList.filter((s) => s.id !== sessionID))
@@ -132,7 +138,7 @@ export function Sidebar(props: {
     dialog.show(() => (
       <Dialog title="删除会话" fit class="delete-dialog">
         <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除「{sessionTitle(session.title) || language.t("command.session.new")}」？
+          确定删除"{sessionTitle(session.title) || language.t("command.session.new")}"？
         </span>
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
           <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>

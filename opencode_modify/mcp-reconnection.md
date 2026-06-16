@@ -13,6 +13,117 @@
 
 ## 提交记录
 
+### 2026-06-16: 修复 setupConnectionHandlers 重复装时残留标志导致重连死链
+
+**问题**：状态升级为模块级后，触发过 close 的 server name 在以下场景下重新连接时，`triggeredCloseFlags` 残留导致新 client 永远不触发 close：
+
+| 路径 | 状态清理时机 | 是否残留 |
+|------|------------|---------|
+| ① 应用启动 init | Map 本来空 | ✓ 不残留 |
+| ② 断开 → 重连成功 | succeeded 分支清理 | ✓ 不残留 |
+| ③ 断开 → 重连全失败 | 失败分支未清理 | ❌ 残留 |
+| ④ 用户主动 disconnect → connect | closeClient 跳过 reconnect 不清状态 | ❌ 残留 |
+| ⑤ authenticate → storeClient | 同 ④ | ❌ 残留 |
+| ⑥ add → storeClient | 同 ④ | ❌ 残留 |
+
+**根因**：闭包变量版本是 per-handler，每次 `setupConnectionHandlers` 自动重新开始；改成 per-name 后，状态跨 handler 实例残留。
+
+**修复**：在 `setupConnectionHandlers` 入口清理两个状态：
+
+```ts
+terminalErrorCounts.delete(name)
+triggeredCloseFlags.delete(name)
+```
+
+同时移除 `reconnectWithBackoff` succeeded 分支的冗余清理（入口已统一处理）。
+
+**效果**：所有触发 `setupConnectionHandlers` 的路径（init / storeClient / reconnect succeeded）都从干净状态开始，标志残留问题彻底解决。
+
+### 2026-06-15 10:30: 终端错误计数升级为模块级状态
+
+**问题**：用户日志显示连续两次 `SSE stream disconnected` 的 `consecutiveErrors` 都从 0 → 1，而不是累积到 2。
+
+```
+09:22:17 +38568ms SSE stream disconnected  consecutiveErrors=0  → counted=1
+09:22:17 +1ms    SSE stream disconnected  consecutiveErrors=0  → counted=1（应该是 2）
+```
+
+**根因分析**（SDK 源码确认）：
+
+SDK `StreamableHTTPClientTransport` 内部维护两个独立的 SSE stream：
+- GET 长连接 SSE（`_startOrAuthSse` → `_handleSseStream`）
+- POST response SSE（`send` → `_handleSseStream`）
+
+两者各自有独立的 `processStream()` async 函数，都调用同一个 `client.onerror`。
+
+当网络断开时，两个 stream 的 `await reader.read()` 几乎同时抛错 → 两个 catch 分支 → 两次 `onerror`。但 JS microtask 调度的边界行为可能导致两次 catch 在读取闭包变量时还没累积（第一次 ++ 还没被第二次读取到）。
+
+**修复**：
+
+把 `consecutiveErrors` 和 `hasTriggeredClose` 从 `setupConnectionHandlers` 内的闭包变量升级为模块级状态：
+
+```ts
+// reconnect.ts 模块顶部新增
+const terminalErrorCounts = new Map<string, number>()
+const triggeredCloseFlags = new Set<string>()
+```
+
+- `terminalErrorCounts`：每个 server name 一份终端错误计数，所有 handler 共享
+- `triggeredCloseFlags`：每个 server name 一份"已触发 close"标志，避免重复 close
+
+改动点：
+1. `setupConnectionHandlers`：移除 `let consecutiveErrors = 0` 和 `let hasTriggeredClose = false`，改用 `terminalErrorCounts.get(name)` 和 `triggeredCloseFlags.has(name)`
+2. `cleanup()`：清理新增的两个状态
+3. `reconnectWithBackoff` succeeded 分支：清理 `terminalErrorCounts.delete(name)` 和 `triggeredCloseFlags.delete(name)`，让下次断开能重新触发
+4. `onclose` handler 的 `triggeredByOnerror` 字段：改用 `triggeredCloseFlags.has(name)`
+
+**效果**：无论 SDK 有多少个并行 SSE stream 触发 onerror，状态都按 server name 全局累积，不再受闭包变量竞争影响。
+
+### 2026-06-15: 修复 onclose 永不触发的死链（SDK give-up 信号）
+
+**问题日志（运行 37 分钟后远程服务断开）**：
+
+```
+03:00:31  SSE stream disconnected                              isTerminal=true  consecutiveErrors=1
+03:00:34  fetch failed                                         isTerminal=false consecutiveErrors=0  ← 清零
+03:00:34  Failed to reconnect SSE stream: fetch failed         isTerminal=true  consecutiveErrors=1  ← 回 1
+03:00:38  Maximum reconnection attempts (2) exceeded           ← SDK 放弃信号被忽略
+（整段日志从未出现 [reconnect] onclose fired — Layer 2 死链）
+```
+
+**根因（调研 @modelcontextprotocol/sdk v1.27.1 源码确认）**：
+
+- `StreamableHTTPClientTransport._scheduleReconnection`（`streamableHttp.js:138-157`）在重连失败后**只调用 `this.onerror`，绝不调用 `this.onclose`**。
+- 我们的设计依赖 `onclose` 触发 `reconnectWithBackoff`，但 SDK 放弃后 transport 进入"僵死"状态（流已停、abortController 未 abort、onclose 从未触发），Layer 2 永远等不到。
+- 同时 `reconnect.ts:143-145` 的"非终端错误清零 consecutiveErrors"逻辑让计数永远 0↔1 振荡（SDK 重连时会先抛 `fetch failed` 非终端，再抛 `Failed to reconnect SSE stream` 终端），Layer 1 兜底永远到不了 3。
+- 关键事实：`transport.close()` 会显式调用 `this.onclose`（`streamableHttp.js:280-287`）→ 经 `protocol.js:220-225` 桥接到 `client.onclose`。这是可靠触发 onclose 的路径。
+
+**修复（仅改 `packages/opencode/src/mcp/reconnect.ts`）**：
+
+1. **新增 `isSdkGiveUpSignal(msg)` 辅助函数**（在 `isTerminalConnectionError` 旁）：匹配 `/Maximum reconnection attempts.*exceeded/`
+2. **重写 `client.onerror`**（`setupConnectionHandlers` 内）按优先级处理：
+   - **优先级 1（give-up 信号，一次即触发）**：`isSdkGiveUpSignal(msg)` 命中 → 若 `!hasTriggeredClose`，置位并 `client.close()` → 显式触发 `transport.onclose` → Layer 2 接管。不计数，直接 return。
+   - **优先级 2（终端错误累积，兜底）**：`isTerminalConnectionError(msg)` 命中 → `consecutiveErrors++` → 达到阈值时同上 close 流程。
+   - **非终端错误不再清零 consecutiveErrors**（移除 `else { consecutiveErrors = 0 }`）。
+3. **常量调整**：`MAX_ERRORS_BEFORE_RECONNECT` 从 `3` 降为 `2`（加快兜底）。
+4. **日志增强**：`[reconnect] transport error` 增加 `isGiveUp: boolean` 字段；新增 `[reconnect] SDK gave up reconnecting - forcing close` warn 日志（关键字段 `name, error, consecutiveErrors`）。
+
+**未改动**：
+- `reconnectWithBackoff` 主流程（5 次 1s→16s 保持不变）
+- `onclose` handler（已含 stale 检查）
+- `index.ts` 接入点（remote 条件分支保持不变，local/stdio 类型仍未覆盖）
+- 前端 SSE 监听、`convertMcpTool` getter
+
+**预期效果**：
+- 远程服务重启后，`Maximum reconnection attempts (2) exceeded` 错误一出现 → 主动 close → 触发 onclose → 启动 5 次指数退避重连
+- 远程服务恢复后下一次 attempt 成功 → storeClient 替换新 client → tool 调用恢复
+- 前端收到 `mcp.tools.changed` SSE 事件 → 自动 refetch mcp status
+
+**验证路径**：
+- 启动后配置 remote SSE MCP（如 uxr-tool）→ 确认 `connection handlers installed` + 工具 fetch 成功
+- kill 远程服务 → 期望日志序列：`transport error (isGiveUp=false)` ×N → `transport error (isGiveUp=true)` 或终端计数达 2 → `SDK gave up reconnecting - forcing close` → `onclose fired` → `connection closed unexpectedly` → `starting reconnect loop` → 重启远程服务 → `succeeded`
+- tool 调用恢复（如 `/insight` 的 `key_findings`）
+
 ### 2024-06-11: 修复重连期间 tools() 阻塞 + tool 执行健壮化
 
 **问题**：

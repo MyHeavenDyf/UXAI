@@ -4,7 +4,7 @@ import type { OutputCard, ArtifactExportKind } from "../insight-turn"
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet"
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram"
   content: string
   filePath?: string
   exports?: ArtifactExportKind[]

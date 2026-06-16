@@ -160,6 +160,7 @@ export const DialogSettings: Component = () => {
                 "justify-content": "center",
                 gap: "12px",
                 padding: "0",
+                "margin-top": "24px"
               }}
             >
               <img src="/setting/OctoAgentLogo.png" width={114} height={28} alt="" />

@@ -157,6 +157,21 @@ export const IconCardSvg = mk("0 0 14 14", `
   <circle cx="7" cy="8.5" r="1.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
 `, 14)
 
+export const IconCardReact = mk("0 0 14 14", `
+  <circle cx="7" cy="7" r="1.8" fill="none" stroke="rgb(97,218,251)" stroke-width="1.2"/>
+  <ellipse cx="7" cy="7" rx="3.5" ry="1.3" fill="none" stroke="rgb(97,218,251)" stroke-width="0.9"/>
+  <ellipse cx="7" cy="7" rx="3.5" ry="1.3" transform="rotate(60 7 7)" fill="none" stroke="rgb(97,218,251)" stroke-width="0.9"/>
+  <ellipse cx="7" cy="7" rx="3.5" ry="1.3" transform="rotate(-60 7 7)" fill="none" stroke="rgb(97,218,251)" stroke-width="0.9"/>
+`, 14)
+
+export const IconCardDiagram = mk("0 0 14 14", `
+  <rect x="1" y="1" width="3" height="2" rx="0.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
+  <rect x="1" y="6" width="3" height="2" rx="0.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
+  <rect x="10" y="3.5" width="3" height="2" rx="0.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
+  <path d="M4 2h3l3 3.5" fill="none" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M4 7h3l3 -1.5" fill="none" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+`, 14)
+
 export const IconTabClose = mk("0 0 16 16", `
 	<g id="组合 30089">
 		<path id="矢量 31" d="M12.8686 3.81199C12.9562 3.71205 13 3.59963 13 3.4747C13 3.34978 12.9562 3.24152 12.8686 3.14991C12.7768 3.04997 12.6662 3 12.5369 3C12.4076 3 12.297 3.04997 12.2053 3.14991L8 7.34728L3.79474 3.14991C3.70296 3.04997 3.59241 3 3.46308 3C3.33375 3 3.21902 3.04997 3.1189 3.14991C3.03963 3.24152 3 3.34978 3 3.4747C3 3.59963 3.03963 3.71205 3.1189 3.81199L7.33667 8.00937L3.1189 12.1943C3.03963 12.2942 3 12.4087 3 12.5378C3 12.6669 3.03963 12.7772 3.1189 12.8688C3.21902 12.9479 3.33375 12.9896 3.46308 12.9938C3.59241 12.9979 3.70296 12.9563 3.79474 12.8688L8 8.67146L12.2053 12.8688C12.297 12.9563 12.4076 13 12.5369 13C12.6662 13 12.7768 12.9563 12.8686 12.8688C12.9562 12.7772 13 12.6669 13 12.5378C13 12.4087 12.9562 12.2942 12.8686 12.1943L8.66333 8.00937L12.8686 3.81199Z" fill="currentColor" fill-rule="nonzero" />
@@ -190,6 +205,18 @@ export const IconInspect = mk("0 0 20 20", `
   <circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.4" fill="none"/>
   <path d="M13.5 13.5L17.5 17.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 `, 16)
+
+export const IconEditLine = mk("0 0 24 24", `
+  <path d="M16.7574 3.00024L21.0002 7.24307L10.2427 18.0007H6.00009V13.7581L16.7574 3.00024ZM18.1716 1.58603L4.58602 15.1716C4.21094 15.5467 4.00009 16.0623 4.00009 16.586V19.0007C4.00009 19.553 4.44777 20.0007 5.00009 20.0007H7.4148C7.9385 20.0007 8.45413 19.7899 8.8292 19.4148L22.4147 5.82925C23.1957 5.04824 23.1957 3.7877 22.4147 3.00669L20.9945 1.58603C20.2135 0.805023 18.9526 0.805023 18.1716 1.58603Z" fill="currentColor"/>
+`, 24)
+
+export const IconRefresh = mk("0 0 24 24", `
+  <path d="M5.46273 6.88474C7.00837 5.34881 9.08689 4.5 12 4.5C16.9706 4.5 21 8.52944 21 13.5C21 18.4706 16.9706 22.5 12 22.5C7.02944 22.5 3 18.4706 3 13.5H5C5 17.366 8.13401 20.5 12 20.5C15.866 20.5 19 17.366 19 13.5C19 9.63401 15.866 6.5 12 6.5C9.62137 6.5 7.74873 7.28873 6.30273 8.72727L5.46273 9.56474L8.07107 12.173H2V6.103L5.46273 9.56474V6.88474Z" fill="currentColor"/>
+`, 16)
+
+export const IconChevronDown = mk("0 0 16 16", `
+  <path d="M8 10.5L4 6.5L4.94 5.56L8 8.62L11.06 5.56L12 6.5L8 10.5Z" fill="currentColor"/>
+`, 12)
 
 export const IllustrationInsightEmpty = mkIllustration("0 0 414 433", `
 	<defs>

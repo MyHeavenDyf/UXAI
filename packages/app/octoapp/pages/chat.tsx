@@ -1,10 +1,11 @@
 import "./make/octo-tokens.css"
-import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, type JSX } from "solid-js"
+import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
+import { useSDK } from "@/context/sdk"
 import { decode64 } from "@/utils/base64"
 import { persisted, Persist } from "@/utils/persist"
 import { lazy } from "solid-js"
@@ -31,23 +32,13 @@ export default function ChatPage() {
   const params = useParams<{ dir?: string; id?: string }>()
   const local = useLocal()
   const layout = useLayout()
+  const sdk = useSDK()
 
-  const resolvedDirectory = createMemo(() => {
-    if (params.dir) {
-      const decoded = decode64(params.dir)
-      if (decoded) return decoded
-    }
-    return null
+  const resolvedDirectory = createMemo(() => sdk.directory || null)
+
+  onMount(() => {
+    local.agent.set("octo_ai")
   })
-
-  createEffect(
-    on(
-      () => local.agent.list(),
-      () => {
-        local.agent.set("octo_ai")
-      }
-    )
-  )
 
   createEffect(
     on(

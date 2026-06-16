@@ -7,6 +7,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  ErrorBoundary,
   For,
   on,
   onCleanup,
@@ -18,7 +19,6 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
-import { useServer } from "@/context/server"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { INSIGHT_AGENT } from "@/constants/agent"
@@ -26,8 +26,8 @@ import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
-import { ModelsProvider } from "@/context/models"
 import { LocalProvider, useLocal } from "@/context/local"
+import { useLanguage } from "@/context/language"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
@@ -42,10 +42,13 @@ import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
+import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
+import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
-import { clearRefreshState, markRefreshed, isInCooldown } from "./utils/task-refresh"
+import { markRefreshed, isInCooldown } from "./utils/task-refresh"
+import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
 
 /**
@@ -68,24 +71,11 @@ export default function InsightPage() {
   // 用 useProjectDir():跟随所选项目目录(insight 路由无 :dir → 取 server.projects.last(),回退 home),
   // 与 session-list 的 useProjectDir() 完全同源,保证三处一致。
   const projectDir = useProjectDir()
-  const server = useServer()
-  const navigate = useNavigate()
 
-  // 用户主动切换项目目录时,回到新建空态(/insight)。
-  // 切目录只改 projects.last() / 触发 keyed 重挂,但不会自动改路由 —— url 仍停在上个目录的
-  // /insight/:oldId,而该会话不属于新目录(新目录 store 里没有它)→ 加载空 / 串台。这里检测到
-  // 切换就跳首页,让用户从新目录的新建态开始。
-  // 用 server.projects.last()(不含 home 兜底)做信号:启动期 undefined→首个值 prev 为空被 defer+判空
-  // 跳过,不会冲掉"刷新保路由"的 boot-restore(那只在整页加载、url 无 id 时恢复);仅真实切换(D→E)才跳。
-  createEffect(
-    on(
-      () => server.projects.last(),
-      (cur, prev) => {
-        if (prev && cur && cur !== prev) navigate("/insight")
-      },
-      { defer: true },
-    ),
-  )
+  // 切目录后回新建空态的守卫不在这里:旧方案在此监听 server.projects.last() 过渡再 navigate,
+  // 但 effect 跑在 render(keyed 重挂)之后,且 prev 判空在 store 水合时序下会吞掉首个过渡、
+  // 在 make/_shell 切目录时本组件未挂载监听不存在 → 偶现旧目录会话串台。
+  // 现改为 InsightContent 挂载时对比模块级 lastInsightDir 的确定性守卫(见 InsightContent 顶部)。
 
   // projectDir 异步就绪(home/projects 来自 globalSync)。等就绪再挂 SDK/Sync providers,
   // 否则 useSDK 拿到空字符串 directory 会异常。keyed: dir 变化时整体重挂,确保状态干净。
@@ -94,14 +84,22 @@ export default function InsightPage() {
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
-            <ModelsProvider>
-              {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
-                  会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
-                  原 InsightModelSelectionProvider/隔离 store 已删除。 */}
-              <LocalProvider>
+            {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
+                会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
+                原 InsightModelSelectionProvider/隔离 store 已删除。
+                这里不再套自己的 <ModelsProvider>:模型可见性(设置-模型 switch)持久化是
+                全局的(Persist.global("model")),但每个 ModelsProvider 是独立的 createStore
+                实例,运行期不互相响应。insight 已在 RouterRoot 外层 ModelsProvider 之内
+                (octo.tsx),且设置弹窗经 dialog.show 以调用处 owner 运行(runWithOwner),
+                若此处再嵌套一层,insight 的设置开关会绑到这层隔离 store,与 design/chat
+                的外层 store 不打通。复用外层 ModelsProvider 即三端共享同一 store。 */}
+            <LocalProvider>
+              {/* §SPEC-INS-011 §9 钩子3:整页崩兜底。fallback 记 beacon + 给「复制错误」按钮——
+                  整页崩时 console 往往够不着(白屏),这是唯一带 UI 的地方(§9.5 对 §0 的有意例外)。 */}
+              <ErrorBoundary fallback={(err) => <InsightCrashFallback error={err} />}>
                 <InsightContent />
-              </LocalProvider>
-            </ModelsProvider>
+              </ErrorBoundary>
+            </LocalProvider>
           </SyncProvider>
         </SDKProvider>
       )}
@@ -121,10 +119,52 @@ const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round
 
 // 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
 // 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
-// 首页态时恢复到上次位置——实现浏览器式"原地刷新"。值为 session id;空串 = 上次在新建空态。
+// 首页态时恢复到上次位置——实现浏览器式"原地刷新"。
+// 值为 JSON {dir, id}(id 空串 = 上次在新建空态):id 绑定其所属目录,恢复时目录不符不跳——
+// 服务端 session.get 按 id 全局查(不按 project 过滤),仅靠存在性校验拦不住跨目录复活旧会话。
 const LAST_SESSION_KEY = "octo:insight:last-session"
+// 兼容历史纯 id 字符串记录:无目录信息无法校验归属,视为无记录(宁可落空态,不串台)。
+function readLastSession(): { dir: string; id: string } | undefined {
+  const raw = localStorage.getItem(LAST_SESSION_KEY)
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as { dir?: string; id?: string }
+    if (typeof parsed?.dir === "string" && typeof parsed?.id === "string") return { dir: parsed.dir, id: parsed.id }
+  } catch { /* 历史格式/损坏 → 视为无记录 */ }
+  return undefined
+}
 // 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
 let didBootRestore = false
+// 上次挂载 InsightContent 时的目录:keyed 重挂时与之对比,检测"用户切了项目目录"。
+// 整页 reload 时自然重置为 undefined → 首挂不触发守卫,不影响上面的刷新保路由。
+let lastInsightDir: string | undefined
+
+// §SPEC-INS-011 §9.5:整页崩兜底 UI。组件体在错误被捕获那一刻执行一次 → 记 boundary beacon;
+// 「复制错误」= lastError(),让用户在崩溃态(console 够不着)也能一键带出 → 粘给 Claude 定位。
+function InsightCrashFallback(props: { error: unknown }) {
+  recordError("boundary", props.error)
+  const [copied, setCopied] = createSignal(false)
+  const message = (props.error as { message?: string })?.message ?? String(props.error)
+  const onCopy = () => {
+    copyLastError(1)
+    setCopied(true)
+    showToast({ title: "错误信息已复制", description: "可粘贴给排查方 / Claude 定位" })
+  }
+  return (
+    <div style={{ padding: "32px", display: "flex", "flex-direction": "column", gap: "12px", "max-width": "640px", margin: "0 auto" }}>
+      <div style={{ "font-size": "16px", "font-weight": "600" }}>页面出错了</div>
+      <div style={{ "font-size": "13px", color: "#666", "word-break": "break-word" }}>{message}</div>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <button type="button" onClick={onCopy} style={{ padding: "6px 14px", "border-radius": "6px", border: "1px solid #ccc", cursor: "pointer" }}>
+          {copied() ? "已复制 ✓" : "复制错误"}
+        </button>
+        <button type="button" onClick={() => location.reload()} style={{ padding: "6px 14px", "border-radius": "6px", border: "1px solid #ccc", cursor: "pointer" }}>
+          刷新重试
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function InsightContent() {
   const params = useParams<{ id?: string }>()
@@ -132,6 +172,7 @@ function InsightContent() {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
+  const language = useLanguage()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
 
@@ -145,6 +186,9 @@ function InsightContent() {
     currentSessionID: () => params.id,
   })
   onCleanup(() => insightDebug.dispose())
+
+  // §SPEC-INS-011 §9:错误信标随响应式上下文更新,使自动捕获的 beacon 带当时 directory/session
+  createEffect(() => setBeaconContext({ directory: sdk.directory, sessionID: params.id }))
 
   // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
   // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
@@ -167,6 +211,8 @@ function InsightContent() {
     onCleanup(() => { document.getElementById("oc-insight-force-light")?.remove() })
   })
 
+  onMount(() => { tracker.page({ module: "insight", name: "insight-page" }) })
+
   // 数据/事件层目录:直接用 SDKProvider 注入的 sdk.directory(= keyed 的所选项目目录),
   // 保证与数据层 child store、以及所有 sdk.client 请求的 directory 是同一个值。
   // 关键:会话操作(create/prompt/abort/get)必须走 scoped sdk.client —— 它带 directory;
@@ -175,29 +221,48 @@ function InsightContent() {
   // 这正是 insight 之前在非 home 目录白屏、而 make(用 scoped sdk)无此问题的根因。
   const projectDir = () => sdk.directory
 
+  // ── 切目录守卫:回新建空态(确定性,取代旧的 last() 过渡监听)────
+  // 切换项目目录只触发 keyed 重挂(render 阶段),不会自动改路由——url 仍停在旧目录的
+  // /insight/:oldId;而服务端 session.get 按 id 全局查,旧会话在新目录下照样加载 → 串台。
+  // 这里只看"重挂 + 目录确实变了"这一确定事实:不依赖 store 水合时序,也覆盖在
+  // make/_shell 切目录后返回 insight 的路径。目录变了且 url 还带旧会话 id → 立即 replace 回空态。
+  // 注:重挂首帧下方 sync effect 可能仍对旧 id 多发一次请求,无害(数据进 store 但已不渲染)。
+  const prevInsightDir = lastInsightDir
+  lastInsightDir = sdk.directory
+  onMount(() => {
+    if (prevInsightDir === undefined || prevInsightDir === sdk.directory || !params.id) return
+    console.log("[octo:sync] dir-switched", { from: prevInsightDir, to: sdk.directory, staleSessionID: params.id })
+    navigate("/insight", { replace: true })
+  })
+
   // ── 刷新保路由 ─────────────────────────────────────────────
-  // bootSavedId:在下方 save effect 覆盖前,同步捕获"刷新前"存的对话 id。
-  const bootSavedId = localStorage.getItem(LAST_SESSION_KEY)
+  // bootSaved:在下方 save effect 覆盖前,同步捕获"刷新前"存的记录。
+  const bootSaved = readLastSession()
   onMount(() => {
     if (didBootRestore) return
     didBootRestore = true
     // 仅当本次整页加载落在"无 id 首页态"且上次确实在某对话时才尝试恢复。
-    // 若上次就在新建空态(bootSavedId 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
-    if (params.id || !bootSavedId) return
+    // 若上次就在新建空态(id 为空串)→ 不跳,保持空态(浏览器式原地刷新)。
+    if (params.id || !bootSaved?.id) return
     const dir = projectDir() // InsightContent 仅在 sdk.directory 就绪后挂载,理论恒有值
     if (!dir) return
+    // 目录不符不恢复:上次对话属于别的目录(如在其他页面切过目录后整页重载),
+    // 跨目录复活旧会话即串台 → 保持新目录的空态。
+    if (bootSaved.dir !== dir) return
     // 先校验上次会话仍存在再跳(replace 不污染历史):避免跳到已删会话卡在加载态。
     // directory 由 sdk.client 注入,无需显式传。
     void sdk.client.session
-      .get({ sessionID: bootSavedId })
+      .get({ sessionID: bootSaved.id })
       .then((r: { data?: unknown }) => {
-        if (r?.data) navigate(`/insight/${bootSavedId}`, { replace: true })
+        if (r?.data) navigate(`/insight/${bootSaved.id}`, { replace: true })
         else localStorage.removeItem(LAST_SESSION_KEY) // 已删 → 留首页 + 清记录
       })
       .catch(() => { /* 网络/未知错误:不跳,保持首页,记录留待下次 */ })
   })
-  // 记录当前所在对话(空 = 新建空态),供下次整页加载恢复。
-  createEffect(() => { localStorage.setItem(LAST_SESSION_KEY, params.id ?? "") })
+  // 记录当前所在对话(id 空 = 新建空态)及其所属目录,供下次整页加载恢复。
+  createEffect(() => {
+    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify({ dir: projectDir(), id: params.id ?? "" }))
+  })
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
@@ -296,6 +361,13 @@ function InsightContent() {
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
+  // AI 正在工作(busy 或 retry):retry 也算"忙"——否则重试期间停止键会置灰,
+  // 一旦无限重试就再也无法终止该轮、对话彻底卡死。停止/排队判定都用它。
+  const isWorking = createMemo(() => {
+    const t = sessionStatus().type
+    return t === "busy" || t === "retry"
+  })
+
   // busy → idle 时:把刚结束的最新 assistant 消息原始内容完整 dump 到 console。
   // 内网无法抓 SSE network 时,把这条 console 粘到外网即可定位"LLM 究竟返回了什么"。
   createEffect(on(isBusy, (busy, prev) => {
@@ -358,9 +430,15 @@ function InsightContent() {
 
   const [prompt, setPrompt] = createSignal("")
   // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
-  // 多容量:入队 push 追加(不再覆盖);abort / 切 session 时整体清空
-  const [queue, setQueue] = createSignal<string[]>([])
-  const clearQueue = () => setQueue([])
+  // 多容量:入队 push 追加(不再覆盖);abort 时清空当前 session 队列。
+  // 存储提到模块级(utils/send-queue):按 sessionID 分桶,跨 session 且跨顶层 tab
+  // (chat/design/insight)切换常驻——insight 页切走 tab 会卸载,组件内 signal 会被销毁
+  // 导致排队丢失;天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
+  // 当前所视 session 的队列(空 id 视为空队列)
+  const queue = createMemo(() => sessionQueue(params.id))
+  const setQueueFor = updateSessionQueue
+  /** 清空当前所视 session 的队列(abort 用) */
+  const clearQueue = () => clearSessionQueue(params.id)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
@@ -463,15 +541,16 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 任务卡片防抖 / 自动 openTab 记录 / queue / 未发送附件 / 输入框草稿
-  // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
+  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件 / 输入框草稿
+  // queue 不清:已按 sessionID 分桶,切走再切回同一 session 必须延续其排队;
+  //   分桶天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
   // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
   //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
+  // 任务卡片刷新冷却(task-refresh)不清:per task_id 全局唯一,切走再切回必须延续倒计时
+  //   (否则切换 session 可绕过 3 分钟防抖,spec task-card.md §7.1)。
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
-    clearQueue()
-    clearRefreshState()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
     if (sendingNavigation) {
@@ -481,7 +560,7 @@ function InsightContent() {
       setAttachments([])
       setPrompt("")
     }
-    console.log("[octo:task] session switched, refresh state cleared", { sessionID: params.id })
+    console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
   }, { defer: true }))
 
   // 切换 / 打开 session 后把对话区滚到底部：消息异步加载(message[id] 先 undefined),
@@ -548,6 +627,7 @@ function InsightContent() {
         )
         local.session.promote(dir, session.id)
         navigate(`/insight/${session.id}`)
+        tracker.interaction({ module: "insight", name: "new-session" })
         return session.id
       }
     } catch (err) {
@@ -747,11 +827,21 @@ function InsightContent() {
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || hasUploadingAttachments()) return
+
+    // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
+    if (!local.model.current()) {
+      showToast({
+        title: language.t("prompt.toast.modelAgentRequired.title"),
+        description: language.t("prompt.toast.modelAgentRequired.description"),
+      })
+      return
+    }
+
     setPrompt("")
 
-    // busy 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
-    if (isBusy()) {
-      setQueue((q) => [...q, text])
+    // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
+    if (isWorking()) {
+      setQueueFor(params.id, (q) => [...q, text])
       console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length, depth: queue().length })
       return
     }
@@ -767,24 +857,36 @@ function InsightContent() {
     await sendMessage(sid, text)
   }
 
-  // busy → idle 自动 flush 队首一条(SPEC-INS-007 §3.3.3)
-  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn
-  createEffect(on(isBusy, (busy, prev) => {
-    if (!prev || busy) return
-    const q = queue()
+  // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
+  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn。
+  function flushQueueHead() {
     const sid = params.id
-    if (q.length === 0 || !sid) return
+    if (!sid || isWorking()) return // 仍在忙则等 idle
+    const q = queue()
+    if (q.length === 0) return
     const [next, ...rest] = q
-    setQueue(rest)
+    setQueueFor(sid, () => rest)
     console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
     void sendMessage(sid, next)
+  }
+
+  // busy → idle 那一刻自动 flush 队首
+  createEffect(on(isBusy, (busy, prev) => {
+    if (!prev || busy) return
+    flushQueueHead()
+  }, { defer: true }))
+
+  // 切回某 session 时,若它已 idle 且仍有排队(在别处看时它在后台跑完了),补一次 flush;
+  // 仍 busy 则保留排队展示,交给上面的 busy→idle 触发器。
+  createEffect(on(() => params.id, () => {
+    flushQueueHead()
   }, { defer: true }))
 
   // 单条移除:剔除该条;输入框为空时回填便于编辑,非空则直接丢弃不覆盖草稿(SPEC-INS-007 §3.3.4)
   function removeQueued(index: number) {
     const item = queue()[index]
     if (item === undefined) return
-    setQueue((q) => q.filter((_, i) => i !== index))
+    setQueueFor(params.id, (q) => q.filter((_, i) => i !== index))
     setPrompt((cur) => cur ? cur : item)
     console.log("[octo:queue] removed", { index, remaining: queue().length })
   }
@@ -801,8 +903,8 @@ function InsightContent() {
     }
   }
 
-  // 输入框空 + AI 忙 → 发送键变为停止键
-  const stopping = createMemo(() => isBusy() && !prompt().trim() && !hasUploadingAttachments())
+  // 输入框空 + AI 忙(含 retry)→ 发送键变为停止键;retry 期间同样可点终止
+  const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
   function handlePresetClick(preset: PresetPrompt) {
     setPrompt(preset.text)
@@ -1028,10 +1130,13 @@ function InsightContent() {
     revealPanel()
   }
 
-  // ── 自动 openTab(ResultViewer 当前为空时,首个 completed 任务自动开;spec §8.3)──
+  // ── 自动 openTab(ResultViewer 当前为空时,把会话内所有 completed 任务的产物一次性全开;spec §8.3)──
+  // 一进对话右侧栏就铺满本会话生成的全部文件(x,y,m,n…),而不是只开第一个任务、要求用户逐个叉掉
+  // 才看到下一个。autoOpenedTaskIds 已记录开过的 task,用户手动关掉后不会再被重新弹开。
   const autoOpenedTaskIds = new Set<string>()
   createEffect(() => {
     if (tabStore.tabs().length > 0) return
+    let firstOpenedId: string | undefined
     for (const card of taskCards().values()) {
       if (card.status !== "completed") continue
       if (autoOpenedTaskIds.has(card.taskId)) continue
@@ -1044,9 +1149,11 @@ function InsightContent() {
         tabs: ocs.map((oc) => ({ type: oc.type, file: oc.fileName })),
       })
       const openedIds = ocs.map((oc) => tabStore.openTab(oc))
-      tabStore.activate(openedIds[0])
+      if (firstOpenedId === undefined) firstOpenedId = openedIds[0]
+    }
+    if (firstOpenedId !== undefined) {
+      tabStore.activate(firstOpenedId)  // 激活首个任务的首张,其余作为待选 tab 并存
       revealPanel()
-      break  // 一次只自动开一个 task 的全部产物
     }
   })
 
@@ -1265,7 +1372,7 @@ function InsightContent() {
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                           disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
                             opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
@@ -1336,6 +1443,7 @@ function InsightContent() {
                         onTaskRefresh={handleTaskRefresh}
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
+                        resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
                       />
                     )}
                   </For>
@@ -1407,7 +1515,7 @@ function InsightContent() {
                     value={prompt()}
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
+                    placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
@@ -1465,7 +1573,7 @@ function InsightContent() {
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                       disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
                         opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,

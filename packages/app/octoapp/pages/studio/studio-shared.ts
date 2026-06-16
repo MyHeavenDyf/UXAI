@@ -10,7 +10,15 @@ export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
   "image.outpaint",
 ])
 export const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 130_000
+export const STUDIO_GENERATION_CANCEL_TIMEOUT_MS = 20_000
 export const STUDIO_GENERATION_STATUS_INTERVAL_MS = 7_500
+
+export function isStudioGenerationStatusRegression(
+  current: StudioGenerationResult["status"],
+  next: StudioGenerationResult["status"],
+) {
+  return (current === "failed" || current === "succeeded") && (next === "queued" || next === "running")
+}
 
 export type StudioPendingResult = StudioGenerationResult & {
   sourceImage?: string

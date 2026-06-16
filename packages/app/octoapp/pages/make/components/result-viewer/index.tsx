@@ -2,44 +2,23 @@ import { createMemo, createSignal, Show, Switch, Match } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import type { ResultTab } from "./tab-store"
-import type { ViewportPreset, PaletteId } from "./html-renderer"
+import type { ViewportPreset, PaletteId, InspectTarget } from "./html-renderer"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { DeckRenderer } from "./deck-renderer"
 import { SvgRenderer } from "./svg-renderer"
+import { ReactComponentRenderer } from "./react-component-renderer"
+import { DiagramRenderer } from "./diagram-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
+import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 
 function extractCodeBlock(text: string, lang: string): string {
-  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
-  const m = text.match(re)
-  return m ? m[1].trim() : text.trim()
-}
-
-function MermaidPlaceholder(props: { content: string }): JSX.Element {
-  const code = createMemo(() => extractCodeBlock(props.content, "mermaid"))
-  return (
-    <div class="p-4 h-full overflow-auto flex flex-col gap-3">
-      <div
-        class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-        style={{
-          background: "rgba(251,191,36,0.08)",
-          border: "1px solid rgba(251,191,36,0.25)",
-          color: "#92400e",
-        }}
-      >
-        <span>Mermaid 图表渲染将在后续实现，当前显示源码</span>
-      </div>
-      <pre
-        class="flex-1 text-sm text-[var(--octo-text-primary)] p-4 rounded-lg overflow-auto"
-        style={{ background: "rgba(243,244,246,1)", "font-family": "monospace" }}
-      >
-        {code()}
-      </pre>
-    </div>
-  )
-}
+    const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+    const m = text.match(re)
+    return m ? m[1].trim() : text.trim()
+  }
 
 function JsonRenderer(props: { content: string }): JSX.Element {
   const code = createMemo(() => {
@@ -85,15 +64,64 @@ export function ResultViewer(props: {
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
   const [palette, setPalette] = createSignal<PaletteId | null>(null)
   const [inspecting, setInspecting] = createSignal(false)
+  const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
+  const [editing, setEditing] = createSignal(false)
+  const [drawing, setDrawing] = createSignal(false)
+  const [refreshKey, setRefreshKey] = createSignal(0)
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
 
   const toggleHtmlMode = (id: string) => {
     const current = getHtmlMode(id)
-    setHtmlModes((prev) => ({ ...prev, [id]: current === "preview" ? "edit" : "preview" }))
+    const nextMode = current === "preview" ? "edit" : "preview"
+    setHtmlModes((prev) => ({ ...prev, [id]: nextMode }))
+    if (nextMode === "edit") {
+      setInspecting(false)
+      setEditing(false)
+      setDrawing(false)
+    }
   }
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
+
+  const handleRefresh = () => {
+    setRefreshKey((prev) => prev + 1)
+  }
+
+const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
+    const tab = props.tabs.find(t => t.id === tabId)
+    if (!tab || overrides.length === 0) return
+
+    const rawContent = tab.content
+    const htmlContent = extractCodeBlock(rawContent, "html")
+    const isMarkdown = rawContent.includes("```html")
+
+    const annotatedHtml = annotateElementsWithIds(htmlContent)
+
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(annotatedHtml, "text/html")
+
+    for (const { elementId, prop, value } of overrides) {
+      const el = doc.querySelector(`[data-od-id="${elementId}"]`)
+      if (el && el instanceof HTMLElement) {
+        el.style.setProperty(prop, value, "important")
+      }
+    }
+
+    const isFullDocument = htmlContent.includes("<html") || htmlContent.includes("<body")
+    const updatedHtml = isFullDocument 
+      ? doc.documentElement.outerHTML 
+      : doc.body.innerHTML
+    
+    // ★ Remove data-od-id attributes before saving (clean output)
+    const cleanHtml = updatedHtml.replace(/ data-od-id="[^"]*"/g, '')
+    
+    const finalContent = isMarkdown
+      ? "```html\n" + cleanHtml + "\n```"
+      : cleanHtml
+    
+    props.onContentChange?.(tabId, finalContent)
+}
 
   return (
     <div
@@ -119,7 +147,39 @@ export function ResultViewer(props: {
                 palette={palette()}
                 onPaletteChange={setPalette}
                 inspecting={inspecting()}
-                onInspectToggle={() => setInspecting((v) => !v)}
+                onInspectToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
+                  const nextInspecting = !inspecting()
+                  setInspecting(nextInspecting)
+                  if (nextInspecting && editing()) {
+                    setEditing(false)
+                  }
+                  if (nextInspecting && drawing()) {
+                    setDrawing(false)
+                  }
+                }}
+                editing={editing()}
+                onEditToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
+                  const nextEditing = !editing()
+                  setEditing(nextEditing)
+                  if (nextEditing && inspecting()) {
+                    setInspecting(false)
+                  }
+                  if (nextEditing && drawing()) {
+                    setDrawing(false)
+                  }
+                }}
+                drawing={drawing()}
+                onDrawToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
+                  const nextDrawing = !drawing()
+                  setDrawing(nextDrawing)
+                  if (nextDrawing && inspecting()) {
+                    setInspecting(false)
+                  }
+                  if (nextDrawing && editing()) {
+                    setEditing(false)
+                  }
+                }}
+                onRefresh={tab().type === "html" ? handleRefresh : undefined}
               />
               <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch
@@ -135,8 +195,8 @@ export function ResultViewer(props: {
                   <Match when={tab().type === "markdown" || tab().type === "markdown-document"}>
                     <MarkdownRenderer content={tab().content} />
                   </Match>
-                  <Match when={tab().type === "mindmap"}>
-                    <MermaidPlaceholder content={tab().content} />
+                  <Match when={tab().type === "mindmap" || tab().type === "diagram"}>
+                    <DiagramRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "json"}>
                     <JsonRenderer content={tab().content} />
@@ -148,7 +208,14 @@ export function ResultViewer(props: {
                       viewport={viewport()}
                       palette={palette()}
                       inspecting={inspecting()}
+                      editing={editing()}
+                      drawing={drawing()}
+                      onDrawActiveChange={setDrawing}
+                      inspectPanel={true}
+                      onInspectTarget={setInspectTarget}
+                      onSaveOverrides={(overrides) => applyInspectOverrides(tab().id, overrides)}
                       onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                      refreshKey={refreshKey()}
                     />
                   </Match>
                   <Match when={tab().type === "deck"}>
@@ -160,6 +227,9 @@ export function ResultViewer(props: {
                       mode={getHtmlMode(tab().id)}
                       onContentChange={(content) => props.onContentChange?.(tab().id, content)}
                     />
+                  </Match>
+                  <Match when={tab().type === "react-component"}>
+                    <ReactComponentRenderer content={tab().content} title={tab().title} />
                   </Match>
                 </Switch>
               </div>
