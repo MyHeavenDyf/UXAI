@@ -51,7 +51,10 @@ const params = useParams()
       const d = source.dir
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
+      // scope=project 让后端跳过 directory 过滤，跨所有 directory 取当前 project 的 session
+      // category=dev 后端预过滤，减少非 dev session 的传输（octo_ai + build 都属于 dev）
+      // 前端再用 agent === "octo_ai" 严格过滤，排除 build agent 的 session
+      const result = await client.session.list({ scope: "project", category: "dev" })
       const data = (result.data ?? [] as Session[])
         .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       return data.filter(s => s.agent === "octo_ai")
