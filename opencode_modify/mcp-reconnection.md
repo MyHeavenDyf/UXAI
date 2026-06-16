@@ -13,6 +13,32 @@
 
 ## 提交记录
 
+### 2026-06-16: 修复 setupConnectionHandlers 重复装时残留标志导致重连死链
+
+**问题**：状态升级为模块级后，触发过 close 的 server name 在以下场景下重新连接时，`triggeredCloseFlags` 残留导致新 client 永远不触发 close：
+
+| 路径 | 状态清理时机 | 是否残留 |
+|------|------------|---------|
+| ① 应用启动 init | Map 本来空 | ✓ 不残留 |
+| ② 断开 → 重连成功 | succeeded 分支清理 | ✓ 不残留 |
+| ③ 断开 → 重连全失败 | 失败分支未清理 | ❌ 残留 |
+| ④ 用户主动 disconnect → connect | closeClient 跳过 reconnect 不清状态 | ❌ 残留 |
+| ⑤ authenticate → storeClient | 同 ④ | ❌ 残留 |
+| ⑥ add → storeClient | 同 ④ | ❌ 残留 |
+
+**根因**：闭包变量版本是 per-handler，每次 `setupConnectionHandlers` 自动重新开始；改成 per-name 后，状态跨 handler 实例残留。
+
+**修复**：在 `setupConnectionHandlers` 入口清理两个状态：
+
+```ts
+terminalErrorCounts.delete(name)
+triggeredCloseFlags.delete(name)
+```
+
+同时移除 `reconnectWithBackoff` succeeded 分支的冗余清理（入口已统一处理）。
+
+**效果**：所有触发 `setupConnectionHandlers` 的路径（init / storeClient / reconnect succeeded）都从干净状态开始，标志残留问题彻底解决。
+
 ### 2026-06-15 10:30: 终端错误计数升级为模块级状态
 
 **问题**：用户日志显示连续两次 `SSE stream disconnected` 的 `consecutiveErrors` 都从 0 → 1，而不是累积到 2。

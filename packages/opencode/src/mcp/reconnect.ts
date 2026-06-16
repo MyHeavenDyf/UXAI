@@ -120,6 +120,12 @@ export function setupConnectionHandlers(
   ctx: ReconnectContext,
 ) {
   const handlerInstalledAt = Date.now()
+  // 装新 handler 前清理该 server 的模块级状态，避免以下场景的标志残留导致新 client 永远不触发 close:
+  //  - 用户主动 disconnect → connect（closeClient 跳过 reconnect 但不清状态）
+  //  - 重连 5 次全失败 → 用户重新 connect（reconnectWithBackoff 失败分支不清状态）
+  //  - authenticate/add RPC 重复调用 storeClient
+  terminalErrorCounts.delete(name)
+  triggeredCloseFlags.delete(name)
   log.info("[reconnect] connection handlers installed", { name, at: handlerInstalledAt })
 
   // Layer 1: onerror 检测（弥补 SDK 不触发 onclose 的缺口）
@@ -287,12 +293,10 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
           continue
         }
 
-        // 成功 — 存储新 client（storeClient 会原子替换旧的死 client）
+        // 成功 — 存储新 client（storeClient 会原子替换旧的死 client；
+        // setupConnectionHandlers 入口已清理 terminalErrorCounts/triggeredCloseFlags）
         let s = yield* ctx.state.get()
         yield* ctx.storeClientFn(s, name, result.mcpClient, result.defs!, mcp.timeout)
-        // 重连成功后清理终端错误计数和触发标志，让下次断开能重新触发
-        terminalErrorCounts.delete(name)
-        triggeredCloseFlags.delete(name)
         log.info("[reconnect] succeeded", {
           name,
           attempt,
