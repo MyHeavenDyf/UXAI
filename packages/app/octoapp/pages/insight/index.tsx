@@ -7,6 +7,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  ErrorBoundary,
   For,
   on,
   onCleanup,
@@ -41,6 +42,7 @@ import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
+import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { tracker } from "@/utils/tracker"
@@ -91,7 +93,11 @@ export default function InsightPage() {
                 若此处再嵌套一层,insight 的设置开关会绑到这层隔离 store,与 design/chat
                 的外层 store 不打通。复用外层 ModelsProvider 即三端共享同一 store。 */}
             <LocalProvider>
-              <InsightContent />
+              {/* §SPEC-INS-011 §9 钩子3:整页崩兜底。fallback 记 beacon + 给「复制错误」按钮——
+                  整页崩时 console 往往够不着(白屏),这是唯一带 UI 的地方(§9.5 对 §0 的有意例外)。 */}
+              <ErrorBoundary fallback={(err) => <InsightCrashFallback error={err} />}>
+                <InsightContent />
+              </ErrorBoundary>
             </LocalProvider>
           </SyncProvider>
         </SDKProvider>
@@ -132,6 +138,33 @@ let didBootRestore = false
 // 整页 reload 时自然重置为 undefined → 首挂不触发守卫,不影响上面的刷新保路由。
 let lastInsightDir: string | undefined
 
+// §SPEC-INS-011 §9.5:整页崩兜底 UI。组件体在错误被捕获那一刻执行一次 → 记 boundary beacon;
+// 「复制错误」= lastError(),让用户在崩溃态(console 够不着)也能一键带出 → 粘给 Claude 定位。
+function InsightCrashFallback(props: { error: unknown }) {
+  recordError("boundary", props.error)
+  const [copied, setCopied] = createSignal(false)
+  const message = (props.error as { message?: string })?.message ?? String(props.error)
+  const onCopy = () => {
+    copyLastError(1)
+    setCopied(true)
+    showToast({ title: "错误信息已复制", description: "可粘贴给排查方 / Claude 定位" })
+  }
+  return (
+    <div style={{ padding: "32px", display: "flex", "flex-direction": "column", gap: "12px", "max-width": "640px", margin: "0 auto" }}>
+      <div style={{ "font-size": "16px", "font-weight": "600" }}>页面出错了</div>
+      <div style={{ "font-size": "13px", color: "#666", "word-break": "break-word" }}>{message}</div>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <button type="button" onClick={onCopy} style={{ padding: "6px 14px", "border-radius": "6px", border: "1px solid #ccc", cursor: "pointer" }}>
+          {copied() ? "已复制 ✓" : "复制错误"}
+        </button>
+        <button type="button" onClick={() => location.reload()} style={{ padding: "6px 14px", "border-radius": "6px", border: "1px solid #ccc", cursor: "pointer" }}>
+          刷新重试
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function InsightContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -152,6 +185,9 @@ function InsightContent() {
     currentSessionID: () => params.id,
   })
   onCleanup(() => insightDebug.dispose())
+
+  // §SPEC-INS-011 §9:错误信标随响应式上下文更新,使自动捕获的 beacon 带当时 directory/session
+  createEffect(() => setBeaconContext({ directory: sdk.directory, sessionID: params.id }))
 
   // Insight 暂不适配暗色模式：mount 时注入全局亮色 token 覆盖（selector 为 html 自身），
   // 使 portal（模型选择弹窗等）也能被覆盖到；insight 是全屏页，不影响其他页面。
