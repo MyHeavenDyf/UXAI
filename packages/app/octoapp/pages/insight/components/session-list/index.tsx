@@ -172,7 +172,7 @@ export function InsightSessionList(): JSX.Element {
         <Show
           when={sessionList.length > 0}
           fallback={
-            <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
+            <div class="text-12-regular text-text-weak py-4 text-center">
               暂无对话
             </div>
           }
