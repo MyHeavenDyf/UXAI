@@ -80,4 +80,10 @@ export const invalidate = <A, E, R>(self: InstanceState<A, E, R>) =>
     return yield* ScopedCache.invalidate(self.cache, yield* directory)
   })
 
+// skills.json 是全局配置(~/.config/octo/skills.json),影响所有 directory 的实例。
+// 单 key invalidate 只清当前 directory,会让其它 directory 的实例继续读到旧缓存。
+// invalidateAll 直接清掉所有已缓存 directory 的 entry,确保全局配置变更即时生效。
+export const invalidateAll = <A, E, R>(self: InstanceState<A, E, R>) =>
+  ScopedCache.invalidateAll(self.cache)
+
 export * as InstanceState from "./instance-state"

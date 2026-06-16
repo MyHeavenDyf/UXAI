@@ -303,8 +303,11 @@ export const layer = Layer.effect(
     })
 
     const refresh = Effect.fn("Skill.refresh")(function* () {
-      yield* InstanceState.invalidate(discovered)
-      yield* InstanceState.invalidate(state)
+      // skills.json / skill 目录是全局配置,所有 directory 的实例共享。
+      // 用 invalidateAll 清掉所有 directory 的缓存,避免单 directory invalidate
+      // 让其它 directory 的实例仍读到旧 skill 列表(详见 opencode_modify 记录)。
+      yield* InstanceState.invalidateAll(discovered)
+      yield* InstanceState.invalidateAll(state)
     })
 
     return Service.of({ get, getMany, all, dirs, available, refresh })
