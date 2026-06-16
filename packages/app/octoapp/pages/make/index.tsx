@@ -274,7 +274,10 @@ const sessionMessagesLoaded = createMemo(() => {
       ([id, missing]) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
-          if (missing) void sync.session.sync(id).catch(() => {})
+          if (missing) {
+            const exists = Binary.search(sync.data.session, id, (s) => s.id).found
+            if (exists) void sync.session.sync(id).catch(() => {})
+          }
         }
 
         setSending(false)
