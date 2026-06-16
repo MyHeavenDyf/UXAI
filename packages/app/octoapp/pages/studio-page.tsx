@@ -369,7 +369,7 @@ export default function StudioPage() {
     const startWidth = studioCenterWidth()
     function onMove(e: MouseEvent) {
       const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
+      setStudioCenterWidth(Math.min(700, Math.max(468, startWidth + delta)))
     }
     function onUp() {
       document.removeEventListener("mousemove", onMove)
