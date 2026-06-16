@@ -255,6 +255,7 @@ export function InsightSessionList(): JSX.Element {
                   >
                     <input
                       type="text"
+                      maxlength={1000}
                       value={renameDraft()}
                       onInput={(e) => setRenameDraft(e.currentTarget.value)}
                       onKeyDown={(e) => {

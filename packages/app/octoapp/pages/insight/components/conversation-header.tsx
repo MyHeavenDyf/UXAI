@@ -175,6 +175,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
                   titleRef = el
                 }}
                 value={title.draft}
+                maxlength={1000}
                 disabled={pending()}
                 class="text-[14px] font-medium grow min-w-0 rounded-[6px] pl-1 -ml-1"
                 onInput={(event) => setTitle("draft", event.currentTarget.value)}
