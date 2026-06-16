@@ -36,6 +36,7 @@ import type {
   StudioMode,
 } from "./studio/types"
 import {
+  buildStudioConversationContext,
   buildStudioDisplayPrompt,
   buildStudioTurns,
   type StudioTurnData,
@@ -369,7 +370,7 @@ export default function StudioPage() {
     const startWidth = studioCenterWidth()
     function onMove(e: MouseEvent) {
       const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
+      setStudioCenterWidth(Math.min(700, Math.max(468, startWidth + delta)))
     }
     function onUp() {
       document.removeEventListener("mousemove", onMove)
@@ -985,6 +986,31 @@ export default function StudioPage() {
     })
   }
 
+  function readBlobAsDataUrl(blob: Blob) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result !== "string") {
+          reject(new Error("Unable to read image data."))
+          return
+        }
+        resolve(reader.result)
+      }
+      reader.onerror = () => reject(reader.error ?? new Error("Unable to read image data."))
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  async function resolveImageDataUrl(image: StudioImage) {
+    if (image.remoteUrl?.startsWith("data:image/")) return image.remoteUrl
+    if (image.url.startsWith("data:image/")) return image.url
+    const response = await fetch(image.remoteUrl ?? image.url)
+    if (!response.ok) throw new Error(`Unable to load selected image. status=${response.status}`)
+    const blob = await response.blob()
+    if (!blob.type.startsWith("image/")) throw new Error(`Selected media is not an image. content-type=${blob.type || "unknown"}`)
+    return readBlobAsDataUrl(blob)
+  }
+
   async function validateVideoFrame(file: File) {
     if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
     if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
@@ -1215,19 +1241,29 @@ export default function StudioPage() {
   function generateVideoFromSelectedImage() {
     const image = selectedImage()
     if (!image || isVideoMedia(image) || !canGenerateVideo()) return
-    pendingVideoFirstFrame = {
-      id: crypto.randomUUID(),
-      name: currentImageLabel(),
-      mime: "image/png",
-      dataUrl: image.remoteUrl ?? image.url,
-    }
-    if (!(params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed())) {
-      setVideoRiskDialogOpen(true)
-      return
-    }
-    applyStudioCapability("video.generate")
-    setVideoFrames("first", pendingVideoFirstFrame)
-    pendingVideoFirstFrame = undefined
+    void resolveImageDataUrl(image)
+      .then((dataUrl) => {
+        pendingVideoFirstFrame = {
+          id: crypto.randomUUID(),
+          name: currentImageLabel(),
+          mime: "image/png",
+          dataUrl,
+        }
+        if (!(params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed())) {
+          setVideoRiskDialogOpen(true)
+          return
+        }
+        applyStudioCapability("video.generate")
+        setVideoFrames("first", pendingVideoFirstFrame)
+        pendingVideoFirstFrame = undefined
+      })
+      .catch((error) => {
+        pendingVideoFirstFrame = undefined
+        showToast({
+          title: "图片处理失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   function startNewStudioConversation() {
@@ -1402,7 +1438,10 @@ export default function StudioPage() {
 
   async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string; extra?: Record<string, unknown> }) {
     const nextCapability = overrides?.capability ?? capability()
-    const nextVideoFrames = videoFrames
+    const nextVideoFrames = {
+      first: videoFrames.first,
+      last: videoFrames.last,
+    }
     const nextHasVideoFrames = nextCapability === "video.generate" && hasVideoFrameAssets(nextVideoFrames)
     const text = (overrides?.prompt ?? prompt()).trim() || (
       nextCapability === "image.upscale"
@@ -1431,6 +1470,12 @@ export default function StudioPage() {
         : nextCapability === "video.generate"
           ? videoReferenceImages
           : []
+    const studioContext = params.id
+      ? buildStudioConversationContext({
+          messages: dataStore.message[params.id] ?? [],
+          parts: dataStore.part,
+        })
+      : ""
     setOpenMenu(null)
     setMode("preview")
     setSending(true)
@@ -1458,7 +1503,6 @@ export default function StudioPage() {
     })
     setPrompt("")
     setAssets([])
-    if (nextCapability === "video.generate") clearVideoFrames()
     try {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
@@ -1476,6 +1520,7 @@ export default function StudioPage() {
         sourceImage: overrides?.sourceImage,
         extra: {
           ...(overrides?.extra ?? {}),
+          ...(studioContext ? { studioContext } : {}),
           ...(nextCapability === "video.generate"
             ? {
                 videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
@@ -1487,6 +1532,7 @@ export default function StudioPage() {
             : {}),
         },
       })
+      if (nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
       setPendingResult({
         ...generation,

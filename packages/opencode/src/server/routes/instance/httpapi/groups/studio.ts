@@ -192,19 +192,6 @@ export const StudioApi = HttpApi.make("studio")
           }),
         ),
       )
-      .add(
-        HttpApiEndpoint.get("getGeneration", StudioPaths.generation, {
-          params: { generationID: Schema.String },
-          success: described(StudioGenerationResult, "Studio generation status"),
-          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
-        }).annotateMerge(
-          OpenApi.annotations({
-            identifier: "studio.generations.get",
-            summary: "Get Studio generation",
-            description: "Get the current status and result of an asynchronous Studio generation.",
-          }),
-        ),
-      )
       .annotateMerge(
         OpenApi.annotations({
           title: "studio",

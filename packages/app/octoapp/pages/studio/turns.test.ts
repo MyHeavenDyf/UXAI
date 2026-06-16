@@ -355,9 +355,34 @@ describe("buildStudioTurns", () => {
       },
     })
 
-    expect(summary).toContain("上一轮用户需求：生成一张卡通小猫的图")
-    expect(summary).toContain("上一轮助手说明：保持可爱风格，背景更明亮")
-    expect(summary).toContain("上一轮生成结果：模型 jimeng_image_generate，比例 3:4，1 张图")
+    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).not.toContain("上一轮助手说明")
+    expect(summary).not.toContain("3:4")
+    expect(summary).not.toContain("https://example.com/one.png")
+  })
+
+  test("uses the last successful generation when the latest turn is not completed", () => {
+    const m1 = userMessage("msg_1", 1)
+    const a1 = assistantMessage("msg_2", 2)
+    const m2 = userMessage("msg_3", 3)
+    const a2 = assistantMessage("msg_4", 4)
+
+    const summary = buildStudioConversationContext({
+      messages: [m1, a1, m2, a2],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
+        [a1.id]: [
+          textPart("p_2", a1.id, "第一轮完成"),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+        ],
+        [m2.id]: [textPart("p_4", m2.id, "把它改成夜景")],
+        [a2.id]: [runningToolPart("p_5", a2.id)],
+      },
+    })
+
+    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).not.toContain("https://example.com/one.png")
+    expect(summary).not.toContain("把它改成夜景")
   })
 
   test("marks internel tool results with the internel provider", () => {
