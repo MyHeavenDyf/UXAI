@@ -25,7 +25,6 @@ import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
-import { ModelsProvider } from "@/context/models"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLanguage } from "@/context/language"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
@@ -82,14 +81,18 @@ export default function InsightPage() {
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
-            <ModelsProvider>
-              {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
-                  会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
-                  原 InsightModelSelectionProvider/隔离 store 已删除。 */}
-              <LocalProvider>
-                <InsightContent />
-              </LocalProvider>
-            </ModelsProvider>
+            {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
+                会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
+                原 InsightModelSelectionProvider/隔离 store 已删除。
+                这里不再套自己的 <ModelsProvider>:模型可见性(设置-模型 switch)持久化是
+                全局的(Persist.global("model")),但每个 ModelsProvider 是独立的 createStore
+                实例,运行期不互相响应。insight 已在 RouterRoot 外层 ModelsProvider 之内
+                (octo.tsx),且设置弹窗经 dialog.show 以调用处 owner 运行(runWithOwner),
+                若此处再嵌套一层,insight 的设置开关会绑到这层隔离 store,与 design/chat
+                的外层 store 不打通。复用外层 ModelsProvider 即三端共享同一 store。 */}
+            <LocalProvider>
+              <InsightContent />
+            </LocalProvider>
           </SyncProvider>
         </SDKProvider>
       )}
