@@ -30,3 +30,22 @@
 ### `e8ee2dc0a` 预制 skill 默认关闭
 
 - `script/build-node.ts`：`skills.json` 中默认 `import` 值从 `true` → `false`（预构建 skill 默认禁用）
+
+### `dev_dyf` skills.json 修改后全局即时生效（方案 B）
+
+**背景**：用户在技能库 UI 切换 skill 的 import 开关后，新建 session 仍然使用旧 skill 列表，必须重启才能生效。
+
+**根因**：
+- 前端 `fetch(${url}/skill/refresh)` 不带 `x-opencode-directory` header（`packages/app/octoapp/components/skills-content.tsx:135,168`）
+- 后端 middleware `directory` 回落链 `query → header → process.cwd()`（`packages/opencode/src/server/routes/instance/middleware.ts:9`），最终解析为 Electron 启动 CWD，**不是用户实际工作的项目目录**
+- `Skill.refresh` → `InstanceState.invalidate(discovered/state)` 只 invalidate 当前 directory 这一个 key（`packages/opencode/src/effect/instance-state.ts:78-81`）
+- 用户项目目录的 Skill 缓存从未被清，`SystemPrompt.skills`（`packages/opencode/src/session/system.ts:65-77`）拿到的仍是旧 `skill.available(agent)` 结果
+- 同样 `Command.state` 也缓存了 skill（`packages/opencode/src/command/index.ts:147-158`），且 `Skill.refresh` 完全不通知 Command 失效
+
+**修改**（让 `/skill/refresh` 成为"全局生效"语义，因为 skills.json 本身就是全局配置）：
+- `packages/opencode/src/effect/instance-state.ts`：新增 `invalidateAll`，包装 `ScopedCache.invalidateAll`，一次清掉所有已缓存 directory 的 entry
+- `packages/opencode/src/skill/index.ts`：`Skill.refresh` 改用 `InstanceState.invalidateAll(discovered)` + `invalidateAll(state)`，替代单 key `invalidate`
+- `packages/opencode/src/command/index.ts`：`Command` Interface 新增 `refresh()` 方法，实现用 `InstanceState.invalidateAll(state)`；Command.state 派生自 `skill.all()`，必须同步刷新否则 slash command 残留 / 缺失
+- `packages/opencode/src/server/routes/instance/index.ts` 和 `httpapi/handlers/instance.ts`：`/skill/refresh` 两个处理器在 `skill.refresh()` 后追加 `command.refresh()`
+
+**为什么不走前端传 directory 的方案 A**：skills.json 是 `~/.config/octo/skills.json` 全局配置，影响所有 instance。即便前端正确传了当前项目目录，用户切换到另一个项目目录时缓存仍会读到旧值。方案 B 一处 refresh 全部 directory 生效，符合配置语义。
