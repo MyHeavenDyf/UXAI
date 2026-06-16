@@ -15,13 +15,9 @@ export function stripCodeFence(text: string): string {
   return (m ? m[1] : text).trim()
 }
 
-export function isMarkdownTable(text: string): boolean {
-  if (/\|[\s]*[-:]+[-:\s|]*\|/.test(text)) return true
-  const tableLines = text
-    .split("\n")
-    .filter((l) => l.trim().startsWith("|") && (l.match(/\|/g) ?? []).length >= 3)
-  return tableLines.length >= 2
-}
+// markdown 表格检测(isMarkdownTable)已于 2026-06 移除:路径 B 不再把对话里的 md 表格嗅探成 table 卡。
+// 业务表格走路径 A(text/csv resource_link → TableRenderer);对话里 LLM 直出表格由上游 <Markdown> 原样渲染。
+// 表格解析/导出仍在 markdown-table.ts(parseMarkdownTable / tableToCSV),供路径 A 的 csv→table 复用。
 
 // mindmap 检测已迁至 mindmap-adapter.isMindmapJSON(与渲染共用 uxrJsonToMarkdown 同一规则,
 // 避免"判定命中但渲染为空"的漂移)。detect 不再重复实现 shape 嗅探。

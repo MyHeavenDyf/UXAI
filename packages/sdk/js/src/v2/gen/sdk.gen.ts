@@ -44,6 +44,8 @@ import type {
   FilePartSource,
   FileReadResponses,
   FileStatusResponses,
+  FileWriteErrors,
+  FileWriteResponses,
   FindFilesResponses,
   FindSymbolsResponses,
   FindTextResponses,
@@ -138,6 +140,7 @@ import type {
   SessionGetResponses,
   SessionInitErrors,
   SessionInitResponses,
+  SessionListErrors,
   SessionListResponses,
   SessionMessageErrors,
   SessionMessageResponses,
@@ -165,10 +168,18 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  StudioEditorEntriesCreateErrors,
+  StudioEditorEntriesCreateResponses,
+  StudioGenerationsCancelErrors,
+  StudioGenerationsCancelResponses,
   StudioGenerationsCreateErrors,
   StudioGenerationsCreateResponses,
   StudioGenerationsGetErrors,
   StudioGenerationsGetResponses,
+  StudioPermissionsCheckErrors,
+  StudioPermissionsCheckResponses,
+  StudioPromptTagsListErrors,
+  StudioPromptTagsListResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -1505,6 +1516,45 @@ export class File extends HeyApiClient {
       url: "/file/content",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Write file
+   *
+   * Write content to a specified file path.
+   */
+  public write<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<FileWriteResponses, FileWriteErrors, ThrowOnError>({
+      url: "/file/content",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -2985,7 +3035,7 @@ export class Session2 extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).get<SessionListResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).get<SessionListResponses, SessionListErrors, ThrowOnError>({
       url: "/session",
       ...options,
       ...params,
@@ -4811,6 +4861,85 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class PromptTags extends HeyApiClient {
+  /**
+   * Get prompt tags
+   *
+   * Returns prompt tag categories from the internal image API.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioPromptTagsListResponses,
+      StudioPromptTagsListErrors,
+      ThrowOnError
+    >({
+      url: "/studio/prompt-tags",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Permissions extends HeyApiClient {
+  /**
+   * Check Studio permission
+   *
+   * Checks whether the current user can access the internal Studio entry.
+   */
+  public check<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      uid?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "uid" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPermissionsCheckResponses,
+      StudioPermissionsCheckErrors,
+      ThrowOnError
+    >({
+      url: "/studio/permissions/check",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Generations extends HeyApiClient {
   /**
    * Create Studio image generation
@@ -4881,6 +5010,42 @@ export class Generations extends HeyApiClient {
   }
 
   /**
+   * Cancel Studio generation
+   *
+   * Cancels an active asynchronous Studio generation.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsCancelResponses,
+      StudioGenerationsCancelErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get Studio generation
    *
    * Get the current status and result of an asynchronous Studio generation.
@@ -4917,10 +5082,72 @@ export class Generations extends HeyApiClient {
   }
 }
 
+export class EditorEntries extends HeyApiClient {
+  /**
+   * Create Studio editor entry
+   *
+   * Persists a Studio editor entry conversation turn without starting a generation.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      capability?: "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+      entryID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "capability" },
+            { in: "body", key: "entryID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioEditorEntriesCreateResponses,
+      StudioEditorEntriesCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/editor-entries",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Studio extends HeyApiClient {
+  private _promptTags?: PromptTags
+  get promptTags(): PromptTags {
+    return (this._promptTags ??= new PromptTags({ client: this.client }))
+  }
+
+  private _permissions?: Permissions
+  get permissions(): Permissions {
+    return (this._permissions ??= new Permissions({ client: this.client }))
+  }
+
   private _generations?: Generations
   get generations(): Generations {
     return (this._generations ??= new Generations({ client: this.client }))
+  }
+
+  private _editorEntries?: EditorEntries
+  get editorEntries(): EditorEntries {
+    return (this._editorEntries ??= new EditorEntries({ client: this.client }))
   }
 }
 

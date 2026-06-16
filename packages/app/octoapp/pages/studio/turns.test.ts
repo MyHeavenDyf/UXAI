@@ -1,7 +1,24 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
+import { isStudioGenerationStatusRegression } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns } from "./turns"
 import type { StudioGenerationResult } from "./types"
+
+describe("Studio generation status merging", () => {
+  test("rejects active states after a terminal state", () => {
+    expect(isStudioGenerationStatusRegression("failed", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("failed", "queued")).toBe(true)
+    expect(isStudioGenerationStatusRegression("succeeded", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("succeeded", "queued")).toBe(true)
+  })
+
+  test("allows active progress and terminal transitions", () => {
+    expect(isStudioGenerationStatusRegression("queued", "running")).toBe(false)
+    expect(isStudioGenerationStatusRegression("running", "queued")).toBe(false)
+    expect(isStudioGenerationStatusRegression("running", "failed")).toBe(false)
+    expect(isStudioGenerationStatusRegression("running", "succeeded")).toBe(false)
+  })
+})
 
 const userMessage = (id: string, time = 1) =>
   ({
