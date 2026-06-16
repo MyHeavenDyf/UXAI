@@ -26,7 +26,6 @@ import { Identifier } from "@/utils/id"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
-import { ModelsProvider } from "@/context/models"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLanguage } from "@/context/language"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
@@ -49,6 +48,7 @@ import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry }
 import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
+import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
 
 /**
@@ -84,18 +84,22 @@ export default function InsightPage() {
       {(dir) => (
         <SDKProvider directory={() => dir}>
           <SyncProvider>
-            <ModelsProvider>
-              {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
-                  会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
-                  原 InsightModelSelectionProvider/隔离 store 已删除。 */}
-              <LocalProvider>
-                {/* §SPEC-INS-011 §9 钩子3:整页崩兜底。fallback 记 beacon + 给「复制错误」按钮——
-                    整页崩时 console 往往够不着(白屏),这是唯一带 UI 的地方(§9.5 对 §0 的有意例外)。 */}
-                <ErrorBoundary fallback={(err) => <InsightCrashFallback error={err} />}>
-                  <InsightContent />
-                </ErrorBoundary>
-              </LocalProvider>
-            </ModelsProvider>
+            {/* 模型选择统一走 useLocal().model(SPEC-INS-010 D2):自带
+                会话级→agent 默认→全局兜底 回退链,初次进入不再"显示未选却可发送"。
+                原 InsightModelSelectionProvider/隔离 store 已删除。
+                这里不再套自己的 <ModelsProvider>:模型可见性(设置-模型 switch)持久化是
+                全局的(Persist.global("model")),但每个 ModelsProvider 是独立的 createStore
+                实例,运行期不互相响应。insight 已在 RouterRoot 外层 ModelsProvider 之内
+                (octo.tsx),且设置弹窗经 dialog.show 以调用处 owner 运行(runWithOwner),
+                若此处再嵌套一层,insight 的设置开关会绑到这层隔离 store,与 design/chat
+                的外层 store 不打通。复用外层 ModelsProvider 即三端共享同一 store。 */}
+            <LocalProvider>
+              {/* §SPEC-INS-011 §9 钩子3:整页崩兜底。fallback 记 beacon + 给「复制错误」按钮——
+                  整页崩时 console 往往够不着(白屏),这是唯一带 UI 的地方(§9.5 对 §0 的有意例外)。 */}
+              <ErrorBoundary fallback={(err) => <InsightCrashFallback error={err} />}>
+                <InsightContent />
+              </ErrorBoundary>
+            </LocalProvider>
           </SyncProvider>
         </SDKProvider>
       )}
@@ -357,6 +361,13 @@ function InsightContent() {
 
   const isBusy = createMemo(() => sessionStatus().type === "busy")
 
+  // AI 正在工作(busy 或 retry):retry 也算"忙"——否则重试期间停止键会置灰,
+  // 一旦无限重试就再也无法终止该轮、对话彻底卡死。停止/排队判定都用它。
+  const isWorking = createMemo(() => {
+    const t = sessionStatus().type
+    return t === "busy" || t === "retry"
+  })
+
   // busy → idle 时:把刚结束的最新 assistant 消息原始内容完整 dump 到 console。
   // 内网无法抓 SSE network 时,把这条 console 粘到外网即可定位"LLM 究竟返回了什么"。
   createEffect(on(isBusy, (busy, prev) => {
@@ -419,9 +430,15 @@ function InsightContent() {
 
   const [prompt, setPrompt] = createSignal("")
   // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
-  // 多容量:入队 push 追加(不再覆盖);abort / 切 session 时整体清空
-  const [queue, setQueue] = createSignal<string[]>([])
-  const clearQueue = () => setQueue([])
+  // 多容量:入队 push 追加(不再覆盖);abort 时清空当前 session 队列。
+  // 存储提到模块级(utils/send-queue):按 sessionID 分桶,跨 session 且跨顶层 tab
+  // (chat/design/insight)切换常驻——insight 页切走 tab 会卸载,组件内 signal 会被销毁
+  // 导致排队丢失;天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
+  // 当前所视 session 的队列(空 id 视为空队列)
+  const queue = createMemo(() => sessionQueue(params.id))
+  const setQueueFor = updateSessionQueue
+  /** 清空当前所视 session 的队列(abort 用) */
+  const clearQueue = () => clearSessionQueue(params.id)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
@@ -524,8 +541,9 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / queue / 未发送附件 / 输入框草稿
-  // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
+  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件 / 输入框草稿
+  // queue 不清:已按 sessionID 分桶,切走再切回同一 session 必须延续其排队;
+  //   分桶天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
   // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
   //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
   // 任务卡片刷新冷却(task-refresh)不清:per task_id 全局唯一,切走再切回必须延续倒计时
@@ -533,7 +551,6 @@ function InsightContent() {
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
-    clearQueue()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
     if (sendingNavigation) {
@@ -822,9 +839,9 @@ function InsightContent() {
 
     setPrompt("")
 
-    // busy 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
-    if (isBusy()) {
-      setQueue((q) => [...q, text])
+    // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
+    if (isWorking()) {
+      setQueueFor(params.id, (q) => [...q, text])
       console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length, depth: queue().length })
       return
     }
@@ -840,24 +857,36 @@ function InsightContent() {
     await sendMessage(sid, text)
   }
 
-  // busy → idle 自动 flush 队首一条(SPEC-INS-007 §3.3.3)
-  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn
-  createEffect(on(isBusy, (busy, prev) => {
-    if (!prev || busy) return
-    const q = queue()
+  // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
+  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn。
+  function flushQueueHead() {
     const sid = params.id
-    if (q.length === 0 || !sid) return
+    if (!sid || isWorking()) return // 仍在忙则等 idle
+    const q = queue()
+    if (q.length === 0) return
     const [next, ...rest] = q
-    setQueue(rest)
+    setQueueFor(sid, () => rest)
     console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
     void sendMessage(sid, next)
+  }
+
+  // busy → idle 那一刻自动 flush 队首
+  createEffect(on(isBusy, (busy, prev) => {
+    if (!prev || busy) return
+    flushQueueHead()
+  }, { defer: true }))
+
+  // 切回某 session 时,若它已 idle 且仍有排队(在别处看时它在后台跑完了),补一次 flush;
+  // 仍 busy 则保留排队展示,交给上面的 busy→idle 触发器。
+  createEffect(on(() => params.id, () => {
+    flushQueueHead()
   }, { defer: true }))
 
   // 单条移除:剔除该条;输入框为空时回填便于编辑,非空则直接丢弃不覆盖草稿(SPEC-INS-007 §3.3.4)
   function removeQueued(index: number) {
     const item = queue()[index]
     if (item === undefined) return
-    setQueue((q) => q.filter((_, i) => i !== index))
+    setQueueFor(params.id, (q) => q.filter((_, i) => i !== index))
     setPrompt((cur) => cur ? cur : item)
     console.log("[octo:queue] removed", { index, remaining: queue().length })
   }
@@ -874,8 +903,8 @@ function InsightContent() {
     }
   }
 
-  // 输入框空 + AI 忙 → 发送键变为停止键
-  const stopping = createMemo(() => isBusy() && !prompt().trim() && !hasUploadingAttachments())
+  // 输入框空 + AI 忙(含 retry)→ 发送键变为停止键;retry 期间同样可点终止
+  const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
   function handlePresetClick(preset: PresetPrompt) {
     setPrompt(preset.text)
@@ -1101,10 +1130,13 @@ function InsightContent() {
     revealPanel()
   }
 
-  // ── 自动 openTab(ResultViewer 当前为空时,首个 completed 任务自动开;spec §8.3)──
+  // ── 自动 openTab(ResultViewer 当前为空时,把会话内所有 completed 任务的产物一次性全开;spec §8.3)──
+  // 一进对话右侧栏就铺满本会话生成的全部文件(x,y,m,n…),而不是只开第一个任务、要求用户逐个叉掉
+  // 才看到下一个。autoOpenedTaskIds 已记录开过的 task,用户手动关掉后不会再被重新弹开。
   const autoOpenedTaskIds = new Set<string>()
   createEffect(() => {
     if (tabStore.tabs().length > 0) return
+    let firstOpenedId: string | undefined
     for (const card of taskCards().values()) {
       if (card.status !== "completed") continue
       if (autoOpenedTaskIds.has(card.taskId)) continue
@@ -1117,9 +1149,11 @@ function InsightContent() {
         tabs: ocs.map((oc) => ({ type: oc.type, file: oc.fileName })),
       })
       const openedIds = ocs.map((oc) => tabStore.openTab(oc))
-      tabStore.activate(openedIds[0])
+      if (firstOpenedId === undefined) firstOpenedId = openedIds[0]
+    }
+    if (firstOpenedId !== undefined) {
+      tabStore.activate(firstOpenedId)  // 激活首个任务的首张,其余作为待选 tab 并存
       revealPanel()
-      break  // 一次只自动开一个 task 的全部产物
     }
   })
 
@@ -1338,7 +1372,7 @@ function InsightContent() {
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                           disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                          title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
                             opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
@@ -1409,6 +1443,7 @@ function InsightContent() {
                         onTaskRefresh={handleTaskRefresh}
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
+                        resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
                       />
                     )}
                   </For>
@@ -1480,7 +1515,7 @@ function InsightContent() {
                     value={prompt()}
                     onInput={(e) => setPrompt(e.currentTarget.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="上传评估任务书、逐字稿，智能整理问题和观点"
+                    placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
@@ -1538,7 +1573,7 @@ function InsightContent() {
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                       disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
-                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isBusy() ? "LLM 响应中,发送会进入排队" : undefined))}
+                      title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
                         opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
