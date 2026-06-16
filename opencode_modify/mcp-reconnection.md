@@ -241,8 +241,4 @@ connected ──onclose(非主动)──> 保持 connected + 启动重连
 | `cancelled` | info | 用户断开中断 | `name, attempt` |
 | `succeeded` | info | 重连成功 | `name, attempt, attemptDurationMs, totalDurationMs, toolCount` |
 | `failed - max attempts reached` | error | 全部失败 | `name, totalDurationMs` |
-<<<<<<< HEAD
 | `loop ended` | info | finally 清理 | `name` |
-=======
-| `loop ended` | info | finally 清理 | `name` |
->>>>>>> origin/dev
