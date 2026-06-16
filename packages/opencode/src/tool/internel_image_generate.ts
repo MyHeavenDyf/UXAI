@@ -16,7 +16,7 @@ const METHOD = "POST"
 // const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
-const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancel_task"
+const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancle_task"
 const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
 const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
 const DEFAULT_USER_IDX = ""
@@ -993,6 +993,18 @@ async function getSourceImageDataUrl(input: ImageGenerateInput) {
   return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
 }
 
+async function resolveImageInputDataUrl(value: string) {
+  if (value.startsWith("data:image/")) {
+    if (!dataUrlToBase64(value)) throw new Error("Studio image data URL is missing base64 content.")
+    return value
+  }
+  const response = await fetch(value)
+  if (!response.ok) throw new Error(`Failed to fetch Studio image. status=${response.status}`)
+  const mime = response.headers.get("content-type") ?? "image/png"
+  if (!mime.startsWith("image/")) throw new Error(`Studio source URL is not an image. content-type=${mime}`)
+  return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
+}
+
 function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
   const refImgList = (input.referenceImages ?? [])
     .filter((item) => item.startsWith("data:image/") && Boolean(dataUrlToBase64(item)))
@@ -1078,24 +1090,31 @@ function getVideoAspectRatio(input: ImageGenerateInput) {
   return "16:9"
 }
 
-function getVideoFrames(input: ImageGenerateInput) {
-  const referenceImages = (input.referenceImages ?? []).filter((item) => item.startsWith("data:image/") && Boolean(dataUrlToBase64(item)))
+async function getVideoFrames(input: ImageGenerateInput) {
+  const referenceImages = (await Promise.all(
+    (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
+  )).filter((item): item is string => Boolean(item))
   const firstFrame = extraString(input, "firstFrame")
   const lastFrame = extraString(input, "lastFrame")
+  const resolvedFirstFrame = firstFrame ? await resolveImageInputDataUrl(firstFrame) : undefined
+  const resolvedLastFrame = lastFrame ? await resolveImageInputDataUrl(lastFrame) : undefined
   return {
-    firstFrame: firstFrame ?? referenceImages[0] ?? referenceImages[1],
-    lastFrame: lastFrame ?? (firstFrame ? referenceImages[1] : undefined),
+    firstFrame: resolvedFirstFrame ?? referenceImages[0] ?? referenceImages[1],
+    lastFrame: resolvedLastFrame ?? (resolvedFirstFrame ? referenceImages[1] : undefined),
   }
 }
 
-function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
-  const frames = getVideoFrames(input)
+async function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const frames = await getVideoFrames(input)
   const baseArgs = {
     prompt: input.prompt,
     aspect_ratio: getVideoAspectRatio(input),
     duration: getVideoDuration(input),
     count: getStudioCount(input),
     mode: getVideoMode(input),
+  }
+  if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
+    throw new Error("Image-to-video generation requires a first frame.")
   }
   if (!frames.firstFrame) {
     return {
