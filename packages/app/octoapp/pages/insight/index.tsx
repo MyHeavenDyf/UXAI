@@ -48,6 +48,7 @@ import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry }
 import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
+import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
 
 /**
@@ -429,9 +430,15 @@ function InsightContent() {
 
   const [prompt, setPrompt] = createSignal("")
   // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
-  // 多容量:入队 push 追加(不再覆盖);abort / 切 session 时整体清空
-  const [queue, setQueue] = createSignal<string[]>([])
-  const clearQueue = () => setQueue([])
+  // 多容量:入队 push 追加(不再覆盖);abort 时清空当前 session 队列。
+  // 存储提到模块级(utils/send-queue):按 sessionID 分桶,跨 session 且跨顶层 tab
+  // (chat/design/insight)切换常驻——insight 页切走 tab 会卸载,组件内 signal 会被销毁
+  // 导致排队丢失;天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
+  // 当前所视 session 的队列(空 id 视为空队列)
+  const queue = createMemo(() => sessionQueue(params.id))
+  const setQueueFor = updateSessionQueue
+  /** 清空当前所视 session 的队列(abort 用) */
+  const clearQueue = () => clearSessionQueue(params.id)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
@@ -534,8 +541,9 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / queue / 未发送附件 / 输入框草稿
-  // queue 必须清:在 session A 排队的 text 不能错发到 session B(SPEC-INS-007 §3.3.5)
+  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件 / 输入框草稿
+  // queue 不清:已按 sessionID 分桶,切走再切回同一 session 必须延续其排队;
+  //   分桶天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
   // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
   //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
   // 任务卡片刷新冷却(task-refresh)不清:per task_id 全局唯一,切走再切回必须延续倒计时
@@ -543,7 +551,6 @@ function InsightContent() {
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
-    clearQueue()
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
     if (sendingNavigation) {
@@ -834,7 +841,7 @@ function InsightContent() {
 
     // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
     if (isWorking()) {
-      setQueue((q) => [...q, text])
+      setQueueFor(params.id, (q) => [...q, text])
       console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length, depth: queue().length })
       return
     }
@@ -850,24 +857,36 @@ function InsightContent() {
     await sendMessage(sid, text)
   }
 
-  // busy → idle 自动 flush 队首一条(SPEC-INS-007 §3.3.3)
-  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn
-  createEffect(on(isBusy, (busy, prev) => {
-    if (!prev || busy) return
-    const q = queue()
+  // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
+  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn。
+  function flushQueueHead() {
     const sid = params.id
-    if (q.length === 0 || !sid) return
+    if (!sid || isWorking()) return // 仍在忙则等 idle
+    const q = queue()
+    if (q.length === 0) return
     const [next, ...rest] = q
-    setQueue(rest)
+    setQueueFor(sid, () => rest)
     console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
     void sendMessage(sid, next)
+  }
+
+  // busy → idle 那一刻自动 flush 队首
+  createEffect(on(isBusy, (busy, prev) => {
+    if (!prev || busy) return
+    flushQueueHead()
+  }, { defer: true }))
+
+  // 切回某 session 时,若它已 idle 且仍有排队(在别处看时它在后台跑完了),补一次 flush;
+  // 仍 busy 则保留排队展示,交给上面的 busy→idle 触发器。
+  createEffect(on(() => params.id, () => {
+    flushQueueHead()
   }, { defer: true }))
 
   // 单条移除:剔除该条;输入框为空时回填便于编辑,非空则直接丢弃不覆盖草稿(SPEC-INS-007 §3.3.4)
   function removeQueued(index: number) {
     const item = queue()[index]
     if (item === undefined) return
-    setQueue((q) => q.filter((_, i) => i !== index))
+    setQueueFor(params.id, (q) => q.filter((_, i) => i !== index))
     setPrompt((cur) => cur ? cur : item)
     console.log("[octo:queue] removed", { index, remaining: queue().length })
   }
