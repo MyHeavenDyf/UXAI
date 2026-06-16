@@ -348,7 +348,7 @@ export function ActionBar(props: {
       </div>
       <div class="octo-action-bar-right">
         {showViewport && props.onPaletteChange && (
-          <div class="flex items-center gap-[2px] mr-1">
+          <div class="flex items-center gap-[2px] mr-1 hidden">
             <button
               type="button"
               class="octo-viewport-btn"
