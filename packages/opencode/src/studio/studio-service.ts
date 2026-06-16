@@ -175,6 +175,21 @@ function stripUndefined(value: unknown): unknown {
   )
 }
 
+function studioContext(input: StudioGenerationRequest) {
+  const value = input.extra?.studioContext
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function needsStudioContext(prompt: string) {
+  return /它|这个|这张|上一张|上一轮|原图|保持|继续|改成|换成|调整|优化|风格|构图/.test(prompt)
+}
+
+function buildEffectivePrompt(input: StudioGenerationRequest) {
+  const context = studioContext(input)
+  if (!context || !needsStudioContext(input.prompt)) return input.prompt
+  return `延续上一轮画面：${context}。${input.prompt}`
+}
+
 function persistStudioSession(input: {
   generationID: string
   sessionID: SessionID
@@ -263,6 +278,7 @@ function persistStudioSession(input: {
         count: input.request.count,
         referenceImages: input.request.referenceImages,
         sourceImage: input.request.sourceImage,
+        effectivePrompt: buildEffectivePrompt(input.request),
         extra: input.request.extra,
       },
       title: "图片生成",
@@ -789,7 +805,7 @@ async function processGeneration(record: StudioGenerationRecord) {
         record,
         await executeJimengImageGenerate({
           capability: data.input.capability,
-          prompt: data.input.prompt,
+          prompt: buildEffectivePrompt(data.input),
           styleModel: data.input.styleModel,
           aspectRatio: data.input.aspectRatio,
           count: data.input.count,
@@ -864,7 +880,7 @@ async function createProviderTask(input: StudioGenerationRequest, provider: Stud
   if (provider !== "internel") return
   return createInternalGeneration({
     capability: input.capability,
-    prompt: input.prompt,
+    prompt: buildEffectivePrompt(input),
     styleModel: input.styleModel,
     aspectRatio: input.aspectRatio,
     count: input.count,
