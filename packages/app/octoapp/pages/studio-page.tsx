@@ -25,6 +25,7 @@ import { useServer } from "@/context/server"
 import {
   capabilityLabel,
   styleModelLabel,
+  styleModelRequiresSeedreamPermission,
 } from "./studio/data"
 import type {
   StudioAsset,
@@ -149,6 +150,8 @@ export default function StudioPage() {
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
+  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
+  const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
@@ -201,13 +204,24 @@ export default function StudioPage() {
       .then(async (response) => {
         const bodyText = await response.text()
         if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
-        const result = JSON.parse(bodyText) as { code?: number; data?: unknown[] }
-        setCanGenerateVideo(result.code === 200 && result.data?.[0] === true)
+        const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
+        const permissionData = Array.isArray(result.data) ? result.data : []
+        const permissionOk = result.code === 200 || result.resp_code === 200
+        setCanGenerateVideo(permissionOk && permissionData[0] === true)
+        setCanUseSeedream(permissionOk && permissionData[1] === true)
+        setStudioPermissionReady(true)
       })
       .catch((error) => {
         setCanGenerateVideo(false)
+        setCanUseSeedream(false)
+        setStudioPermissionReady(true)
         console.error("[StudioPage] permission check failed", error)
       })
+  })
+  createEffect(() => {
+    if (!studioPermissionReady()) return
+    if (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) return
+    setStyleModel("qwen")
   })
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
@@ -755,6 +769,7 @@ export default function StudioPage() {
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isBusy() &&
+    (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
         ? prompt().trim().length > 0 || hasVideoFrames()
@@ -1863,6 +1878,7 @@ export default function StudioPage() {
                   prompt={prompt()}
                   capability={capability()}
                   canGenerateVideo={canGenerateVideo()}
+                  canUseSeedream={canUseSeedream()}
                   styleModel={styleModel()}
                   aspectRatio={aspectRatio()}
                   count={count()}
@@ -2004,6 +2020,7 @@ export default function StudioPage() {
             prompt={prompt()}
             capability={capability()}
             canGenerateVideo={canGenerateVideo()}
+            canUseSeedream={canUseSeedream()}
             styleModel={styleModel()}
             aspectRatio={aspectRatio()}
             count={count()}

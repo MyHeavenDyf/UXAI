@@ -227,7 +227,7 @@ export async function checkStudioPermission(userIdx?: string): Promise<unknown> 
     method: METHOD,
     headers: internalImageHeaders(),
     body: JSON.stringify({
-      checkPermList: ["view:keling_entry"],
+      checkPermList: ["view:keling_entry", "view:jimeng_entry"],
       uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
     }),
   }).catch((error) => {
