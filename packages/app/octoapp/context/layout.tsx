@@ -56,6 +56,7 @@ type LastSessionPerTab = {
   make: Record<string, string>
   chat: Record<string, string>
   studio: Record<string, string>
+  pattern?: { id: string }
 }
 
 type SidebarSource = "cowork" | "make"
@@ -277,6 +278,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       make: {},
       chat: {},
       studio: {},
+      pattern: undefined,
     })
 
     const [sidebarSource, setSidebarSource] = createStore<{ source: SidebarSource }>({
