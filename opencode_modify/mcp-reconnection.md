@@ -2,16 +2,237 @@
 
 ## 概述
 
-为远程 MCP 服务器添加自动重连机制，参考 claude-code 的两层检测架构（onerror 计数 → onclose 重连）。
+为远程 MCP 服务器添加自动重连机制。
+
+**架构（2026-06-16 改造后）**：单层触发 — onerror 在满足条件时直接调用 `triggerReconnect()` 启动 `reconnectWithBackoff`，绕过 SDK 的 `onclose` 死链。onclose 仅作可观测性日志和最后兜底。
 
 ## 设计决策
 
 - **独立文件**：重连核心逻辑放在 `src/mcp/reconnect.ts`，`index.ts` 仅做 ~20 行集成调用
-- **不新增 Status 变体**：重连期间复用 `"connecting"` 状态，前端无需改动
+- **不新增 Status 变体**：重连期间保持 `"connected"` 状态，前端无需改动
 - **仅远程重连**：stdio 不自动重连（与 claude-code 一致）
 - **Graceful degradation**：重连期间保持旧 client/defs 缓存，tool 调用失败时返回 isError 结果而不是抛异常中断 LLM 流
+- **单层触发（2026-06-16）**：onerror 直接触发重连，不依赖 `client.close() → onclose` 链路。绕过 SDK 多个 race condition（give-up 后不调 onclose / 多 SSE stream 共享 `_reconnectionTimeout` / `transport.close()` 异步边界）
 
 ## 提交记录
+
+### 2026-06-17: 新增 D2+B 方案 — preflight ping + 工具调用失败兜底
+
+**问题**：2026-06-16 的架构改造（onerror 直接触发重连）覆盖了所有 SDK 触发 onerror/onclose 的场景，但仍有一个未覆盖的边界：
+
+- **静默 TCP 丢包**：网络中间设备丢包，TCP 连接看似存活但实际已死。SDK 不触发任何回调，onerror/onclose 都不来。
+
+**两个互补方案**：
+
+#### 方案 D2：tools() 调用前 preflight ping
+
+**触发时机**：`tools()` 是 agent 启动时第一次拿工具列表的入口。用户每次"发新会话"必然走这条路。
+
+**实现**：
+- 在 `tools()` 入口（wait loop 之后）加 `Reconnect.verifyAndReconnectIfNeeded(bridge, reconnectCtx)`
+- 并行对所有 remote client 调 `client.ping()`，3s 超时
+- ping 失败 → 调用 `triggerReconnect(s, name, client, bridge, ctx, "tools-preflight", "ping failed: ...")`
+- preflight 完成后重新 `s = InstanceState.get(state)`（client 可能已替换）
+
+**优势**：
+- 正好覆盖静默死连接（最常见场景：服务端刚重启后用户开新会话）
+- 用户感知最低（每次会话开始时验证一次，不需要定时心跳）
+- 正常情况 ping 几十 ms，用户无感；异常情况最多 3s 后触发重连
+
+#### 方案 B：工具调用失败兜底
+
+**触发时机**：`convertMcpTool.execute` 内 catch 网络错误后。
+
+**实现**：
+- `convertMcpTool` 新增 `onFailure?: (err) => void` 参数
+- catch 块内调 `onFailure?.(err)`，外层 `try/catch` 防止回调抛错
+- `tools()` 内 `handleToolFailure(clientName, toolName)` 通过 `bridge.promise(Reconnect.triggerReconnectFromToolFailure(...))` fire-and-forget 触发重连
+
+**优势**：
+- 覆盖 "preflight ping 通过后、工具实际调用期间连接死了" 的边界
+- 零额外开销（只在失败时触发）
+
+#### 双重保险逻辑
+
+```
+agent 启动 (tools() 调用)
+  ↓
+  ├─ D2: 并行 ping 所有 remote client
+  │   ├─ ping OK → 用现有 client
+  │   └─ ping 失败 → triggerReconnect(source="tools-preflight")
+  │
+  └─ 工具实际调用时 (execute)
+      └─ B: catch 网络错误 → triggerReconnect(source="tool-execute")
+```
+
+**新增类型**：
+```ts
+type TriggerSource =
+  | "onerror-giveup"      // SDK give-up 信号
+  | "onerror-counter"     // 终端错误累积到阈值
+  | "onclose-fallback"    // onclose 兜底
+  | "tools-preflight"     // D2: preflight ping 失败
+  | "tool-execute"        // B: 工具调用失败
+```
+
+**新增公开 API**（`reconnect.ts`）：
+- `verifyAndReconnectIfNeeded(bridge, ctx, timeoutMs=3000): Effect<void>` — 并行 ping 所有 remote client
+- `triggerReconnectFromToolFailure(name, bridge, ctx, error, toolName?): Effect<void>` — 工具失败时触发
+
+**新增辅助函数**：
+- `withClientTimeout(promise, timeoutMs): Promise<T>` — 纯 JS 的 Promise 超时包装
+
+**关键改动文件**：
+- `packages/opencode/src/mcp/reconnect.ts`：扩展 `TriggerSource` union；新增两个公开 API；新增 `withClientTimeout`
+- `packages/opencode/src/mcp/index.ts`：
+  - `convertMcpTool` 新增 `onFailure` 参数 + catch 内调用
+  - `tools()` 入口加 preflight（带 `EffectBridge.make()` + 重新拿 state）
+  - `tools()` 内创建 `handleToolFailure` 闭包注入 `convertMcpTool`
+
+**新日志点**：
+
+| 日志 | 级别 | 触发时机 | 关键字段 |
+|------|------|----------|----------|
+| `preflight starting` | debug | verifyAndReconnectIfNeeded 开始 | `serverCount, names` |
+| `preflight skipped - already in progress / intentional` | debug | 跳过单个 server | `name` |
+| `preflight ping ok` | debug | 单个 server ping 成功 | `name` |
+| `preflight ping failed - triggering reconnect` | warn | 单个 server ping 失败 | `name, error, timeoutMs` |
+| `preflight completed` | debug | 全部完成 | `serverCount` |
+| `preflight aborted with error` | warn | 整个 preflight 异常（兜底） | `error` |
+| `tool-failure trigger skipped - no client in state` | info | client 已被替换 | `name, toolName, error` |
+| `tool-failure trigger aborted` | warn | 整个 tool-failure 异常（兜底） | `name, toolName, error` |
+
+**完整性保障**：
+- preflight 永不让 tools() 失败（包 `Effect.catch` 兜底，吞为日志）
+- tool-failure 永不让上层调用失败（同样 `Effect.catch` 兜底）
+- 多个 remote client 并行 ping（`Effect.forEach` concurrency unbounded）
+- 同一 server 的多次失败用 `triggeredReconnectFlags` 幂等
+
+**未改动**：
+- 已有的 onerror / onclose / reconnectWithBackoff 逻辑保持不变
+- MAX_ERRORS_BEFORE_RECONNECT / MAX_RECONNECT_ATTEMPTS / backoff 序列不变
+- 前端 SSE 监听不变
+- `convertMcpTool` 的 client getter 不变
+
+**风险**：
+- 每次 tools() 多 ~50ms 正常 / 最多 3s 异常。可接受。
+- `EffectBridge.make()` 在 tools() 内创建 2 次（preflight + toolFailure）。开销小，不优化。
+
+### 2026-06-16: 架构改造 — 重连触发从 onclose 改为 onerror 直调 + 全链路日志补齐
+
+**问题**：之前的三轮修复（识别 SDK give-up 信号 / 模块级状态 / 入口清理）虽然覆盖了已知的失败路径，但仍有用户报告"远程 MCP 服务重启后客户端无法恢复"。在不复现的前提下进行代码审查，发现核心架构存在以下不确定性：
+
+1. **onclose 触发链路依赖 SDK 内部状态**：
+   - SDK 在 give-up 后只调 `onerror`，不调 `onclose`
+   - SDK 内部 `_reconnectionTimeout` 被多个 SSE stream 共享，close() 的 clearTimeout 只能清当前 stream 的 timeout，旧 stream 的 timeout 仍可能触发
+   - `transport.close()` 是 async function，理论上同步调用 `this.onclose?.()`，但中间存在多个 race condition
+
+2. **onclose handler 的 stale check 可能误判**：
+   - 如果在 onerror 触发 close 后、onclose 实际回调前，有其他代码路径调用了 `storeClient`（如重连成功的 race），`s.clients[name] !== client` 会跳过重连
+
+3. **日志粒度不足**：无法在不下断点的情况下精确定位卡在哪个环节
+
+**架构变更（彻底性改造）**：
+
+将"触发重连"从 onclose 链路改为 **onerror 直接调用**，绕过 SDK 的所有不确定性：
+
+```
+旧架构：
+  onerror (give-up / count >= 2) → client.close() → transport.close() → onclose → reconnectWithBackoff
+                                        ↑ 多个 race condition，可能死链
+
+新架构：
+  onerror (give-up / count >= 2) → triggerReconnect() → reconnectWithBackoff
+                                  ↓ (异步清理)
+                                  client.close() — 不依赖其 onclose
+```
+
+**关键改动（仅 `packages/opencode/src/mcp/reconnect.ts`）**：
+
+1. **新增统一触发入口 `triggerReconnect()`**：
+   - 参数 `source` 标记触发来源（`onerror-giveup` / `onerror-counter` / `onclose-fallback`）
+   - 三重检查：`triggeredReconnectFlags`（防重入）+ `intentionalDisconnects`（用户主动断开）+ stale client
+   - 异步调用 `client.close()` 做兜底清理，不依赖其 onclose 触发
+   - 通过 `bridge.promise(reconnectWithBackoff(...))` 直接启动重连
+
+2. **`client.onerror` 重构**：
+   - 优先级 1（give-up 信号）：一次即触发，不计数
+   - 优先级 2（终端错误累积到 2）：触发重连
+   - 非终端错误：不清零、不计数（仅 debug 日志）
+
+3. **`client.onclose` 降级为可观测性日志**：
+   - 不再触发重连
+   - 仅记录 SDK 是否真的调用了 onclose，以及当时的 stale/intentional/triggered 状态
+   - **唯一兜底场景**：如果 onerror 因任何原因没触发，onclose 仍能作为最后保险（带 `source: "onclose-fallback"` 标记）
+
+4. **handler 安装时间戳改为模块级 `handlerInstalledAt: Map<string, number>`**：
+   - 用于 aliveMs 计算
+   - 跨 handler 实例共享
+
+5. **`triggeredCloseFlags` 改名为 `triggeredReconnectFlags`**（语义更准确）
+
+**新日志点（全部带 `[reconnect]` 前缀，便于过滤）**：
+
+| 日志 | 级别 | 触发时机 | 关键字段 |
+|------|------|----------|----------|
+| `connection handlers installed` | info | client 创建后 | `name, at, previousHandlerAgeMs, hadPreviousHandler, hasActiveReconnect` |
+| `mark intentional disconnect` | info | closeClient 调用 | `name` |
+| `transport error` | error | 每次 onerror | `name, error, isTerminal, isGiveUp, consecutiveErrors, clientAgeMs, currentStatus` |
+| `SDK gave up reconnecting` | warn | give-up 信号命中 | `name, error, consecutiveErrors` |
+| `terminal connection error counted` | info | 终端错误计数 +1 | `name, consecutiveErrors, maxErrors, error` |
+| `non-terminal error ignored` | debug | 非终端错误 | `name, error, consecutiveErrors` |
+| `trigger fired - starting reconnect loop` | warn | triggerReconnect 通过检查 | `name, source, reason, consecutiveErrors, currentStatus, clientAgeMs, toolCount` |
+| `trigger suppressed - already triggered` | info | 幂等检查命中 | `name, source, reason` |
+| `trigger suppressed - intentional disconnect` | info | 主动断开 | `name, source, reason` |
+| `trigger suppressed - stale handler` | info | state client 已替换 | `name, source, reason, hasCurrentClient, clientAgeMs` |
+| `old client close error` | debug | close 抛错（兜底） | `name, error` |
+| `onclose fired (observability only)` | info | SDK 调 onclose | `name, aliveMs, isIntentional, isStale, hasActiveReconnect, alreadyTriggered, currentStatus` |
+| `onclose fallback triggered` | warn | onclose 兜底（onerror missed） | `name, aliveMs` |
+| `starting reconnect loop` | info | reconnectWithBackoff 开始 | `name, maxAttempts, clientAgeMs, url` |
+| `reconnect loop skipped - already active` | info | 防重入 | `name` |
+| `no remote config - cannot reconnect` | warn | 配置丢失 | `name` |
+| `attempt starting` | info | 每次 attempt 开始 | `name, attempt, maxAttempts, elapsedSinceStartMs` |
+| `attempt failed` | warn | attempt 失败 | `name, attempt, durationMs, status, error` |
+| `backoff` | info | sleep before next | `name, nextAttempt, delayMs` |
+| `succeeded` | info | 重连成功 | `name, attempt, attemptDurationMs, totalDurationMs, toolCount` |
+| `cancelled - user disconnected` | info | 用户断开中断 | `name, attempt, elapsedMs` |
+| `cancelled during backoff` | info | backoff 期间用户断开 | `name, attempt, elapsedMs` |
+| `failed - max attempts reached` | error | 全部失败 | `name, totalDurationMs, lastError` |
+| `loop ended` | info | finally 清理 | `name, totalDurationMs, outcome` |
+| `module state cleaned up` | info | 应用关闭 | `intentional, active, configs, counters, flags, handlers` |
+
+**预期日志序列（服务端重启场景）**：
+
+```
+[reconnect] connection handlers installed  name=uxr-tool previousHandlerAgeMs=...
+...
+# 服务端重启 → SSE 断开
+[reconnect] transport error  name=uxr-tool error="SSE stream disconnected: ..." isTerminal=true consecutiveErrors=0
+[reconnect] terminal connection error counted  name=uxr-tool consecutiveErrors=1
+# SDK 内部重连失败
+[reconnect] transport error  name=uxr-tool error="Failed to reconnect SSE stream: ..." isTerminal=true consecutiveErrors=1
+[reconnect] terminal connection error counted  name=uxr-tool consecutiveErrors=2
+# 计数到阈值 → 直接触发重连
+[reconnect] trigger fired - starting reconnect loop  name=uxr-tool source=onerror-counter reason="terminal errors reached threshold (2/2)"
+[reconnect] starting reconnect loop  name=uxr-tool
+[reconnect] attempt starting  name=uxr-tool attempt=1
+# 服务端起来了
+[reconnect] succeeded  name=uxr-tool attempt=1
+[reconnect] loop ended  name=uxr-tool outcome=completed
+# SDK 兜底调 onclose（如果调了）
+[reconnect] onclose fired (observability only)  name=uxr-tool alreadyTriggered=true
+```
+
+**未改动**：
+- `MAX_ERRORS_BEFORE_RECONNECT = 2` / `MAX_RECONNECT_ATTEMPTS = 5` / backoff 序列（1s→16s）
+- `index.ts` 接入点（storeClient / closeClient / setupConnectionHandlers 调用关系不变）
+- `convertMcpTool` 的 client getter（重连后自动命中新 client）
+- 前端 SSE 监听（`mcp.tools.changed` 事件触发 refetch）
+- `isTerminalConnectionError` 的 9 种匹配条件
+- `isSdkGiveUpSignal` 的正则匹配
+
+**风险点**：
+- onclose 不再触发重连意味着如果 onerror 因任何原因没触发（极端边界场景），唯一兜底是 `onclose fallback`。如果连 onclose 也没触发，重连不会启动。但实际场景下 SDK 至少会触发其中一个。
 
 ### 2026-06-16: 修复 setupConnectionHandlers 重复装时残留标志导致重连死链
 
@@ -206,39 +427,59 @@ const triggeredCloseFlags = new Set<string>()
 - HTTP 4xx（鉴权失败等）— 由上层 needs_auth/needs_client_registration 处理
 - 其他未知错误 — consecutiveErrors 清零
 
-## 状态流转
+## 状态流转（2026-06-16 架构改造后）
 
 ```
-connected ──onclose(非主动)──> 保持 connected + 启动重连
-    │                           │
-    │                           ├─ attempt 1-5: 保持 connected, try create()
-    │                           │   ├─ 成功 → storeClient → connected (新 client)
-    │                           │   └─ 失败 → backoff sleep, continue
-    │                           │
-    │                           └─ 全部失败 → delete defs/clients → failed
-    │
-    └──onclose(主动)──> 不触发重连，跳过
+connected ──onerror(give-up signal)──> 保持 connected + triggerReconnect(source=onerror-giveup)
+        │                                      │
+        │                                      └─> reconnectWithBackoff (异步)
+        │
+        └──onerror(terminal error count >= 2)──> 保持 connected + triggerReconnect(source=onerror-counter)
+
+reconnectWithBackoff:
+  ├─ attempt 1-5: 保持 connected, try create()
+  │   ├─ 成功 → storeClient → connected (新 client, 装新 handler, 清状态)
+  │   └─ 失败 → backoff sleep, continue
+  │
+  └─ 全部失败 → delete defs/clients → failed
+
+onclose (可观测性日志，不触发重连):
+  ├─ isIntentional=true → 仅日志
+  ├─ isStale=true → 仅日志
+  ├─ alreadyTriggered=true → 仅日志
+  └─ 都为 false → onclose fallback 触发 triggerReconnect(source=onclose-fallback)
 ```
 
-## 日志点（可观测性）
+## 日志点（可观测性，2026-06-16 改造后）
 
-所有日志带 `[reconnect]` 前缀，便于过滤：
+所有日志带 `[reconnect]` 前缀，便于过滤。详细字段见 2026-06-16 章节的「新日志点」表格。
 
-| 日志 | 级别 | 触发时机 | 关键字段 |
-|------|------|----------|----------|
-| `connection handlers installed` | info | client 创建后 | `name, at` |
-| `transport error` | error | onerror | `name, error, isTerminal, consecutiveErrors` |
-| `terminal connection error counted` | info | onerror 累计 | `name, consecutiveErrors, maxErrors` |
-| `max terminal errors reached - forcing close` | info | onerror ≥3 | `name, threshold` |
-| `onclose fired` | info | SDK 触发 onclose | `name, aliveMs` |
-| `connection closed intentionally` | info | 主动断开 | `name, aliveMs` |
-| `stale onclose handler` | info | 过期 handler | `name, aliveMs` |
-| `connection closed unexpectedly` | warn | 非主动断开 | `name, aliveMs, triggeredByOnerror, currentStatus, toolCount` |
-| `starting reconnect loop` | info | 重连开始 | `name, maxAttempts` |
-| `attempt` | info | 每次 attempt | `name, attempt, maxAttempts, elapsedSinceStartMs` |
-| `attempt failed` | warn | attempt 失败 | `name, attempt, durationMs, status, error` |
-| `backoff` | info | sleep before next | `name, nextAttempt, delayMs` |
-| `cancelled` | info | 用户断开中断 | `name, attempt` |
-| `succeeded` | info | 重连成功 | `name, attempt, attemptDurationMs, totalDurationMs, toolCount` |
-| `failed - max attempts reached` | error | 全部失败 | `name, totalDurationMs` |
+核心日志：
+- `connection handlers installed` — 装上 handler 时
+- `transport error` — 每次 onerror（含 `isTerminal` / `isGiveUp` / `consecutiveErrors` 字段）
+- `trigger fired - starting reconnect loop` — 重连启动（含 `source` 标记来源）
+- `trigger suppressed - *` — 重连被跳过（含具体原因）
+- `attempt starting` / `attempt failed` / `succeeded` / `failed - max attempts reached`
+- `onclose fired (observability only)` — SDK 调 onclose（不再触发重连）
+
+## 异常码处理
+
+**终端错误（计数 +1，累积到 2 触发重连）**：
+- `ECONNRESET` — 连接被远程重置
+- `ETIMEDOUT` — 连接超时
+- `EPIPE` — 写入已关闭的管道
+- `EHOSTUNREACH` — 主机不可达
+- `ECONNREFUSED` — 连接被拒绝
+- `Body Timeout Error` — HTTP body 超时
+- `terminated` — SDK/transport 终止
+- `SSE stream disconnected` — SSE 断开
+- `Failed to reconnect SSE stream` — SSE 重连失败
+
+**SDK give-up 信号（一次即触发重连，不计数）**：
+- `Maximum reconnection attempts (N) exceeded`
+
+**非终端错误（不计数，不触发重连）**：
+- HTTP 4xx（鉴权失败等）— 由上层 needs_auth/needs_client_registration 处理
+- 其他未知错误 — 不清零计数（旧逻辑清零导致振荡，已修复）
+
 | `loop ended` | info | finally 清理 | `name` |

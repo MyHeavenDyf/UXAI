@@ -150,13 +150,11 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     },
   )
 
-  // Reconciled store with key="id" so <For> items keep stable references
   const [sessionList, setSessionList] = createStore<Session[]>([])
   createEffect(on(sessions, (data) => {
     if (data) setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
-  // Insight data is "stable" when fetched dir matches current dir
   const insightStable = createMemo(() => insightFetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined

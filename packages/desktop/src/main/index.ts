@@ -49,6 +49,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
+import { startPreviewServer } from "./preview-server"
 import {
   getDefaultServerUrl,
   getWslConfig,
@@ -65,7 +66,7 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployRipgrep } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoTools, deployRipgrep } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -155,11 +156,13 @@ function setupApp() {
       migrate()
       deploySkillsJson()
       deployBuiltinSkills()
+      deployProtoTools()
       deployRipgrep()
     }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()
     setDockIcon()
+    startPreviewServer()
     setupAutoUpdater()
     await initialize()
   })
