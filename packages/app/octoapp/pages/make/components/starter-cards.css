@@ -1,0 +1,73 @@
+/* ── Starter Cards 预置提示词按钮组 ────── */
+
+.octo-preset-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 2px 16px 2px;
+}
+
+.octo-preset-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  flex: 1;
+  scroll-behavior: smooth;
+}
+.octo-preset-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.octo-preset-chip {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(44, 46, 52, 0.05);
+  color: var(--octo-text-primary);
+  font-size: 12px;
+  font-family: var(--octo-font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease);
+}
+.octo-preset-chip:hover:not(:disabled) {
+  background: var(--octo-brand-a8);
+  color: var(--octo-brand);
+}
+.octo-preset-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.octo-preset-scroll-left,
+.octo-preset-scroll-right {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--octo-border-divider);
+  background: var(--octo-surface-page);
+  color: var(--octo-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.octo-preset-scroll-left {
+  margin-right: 4px;
+  box-shadow: 6px 0 8px -4px rgba(255, 255, 255, 0.9);
+}
+.octo-preset-scroll-right {
+  margin-left: 4px;
+  box-shadow: -6px 0 8px -4px rgba(255, 255, 255, 0.9);
+}
+.octo-preset-scroll-left:hover,
+.octo-preset-scroll-right:hover {
+  color: var(--octo-brand);
+  border-color: var(--octo-brand-a25);
+}

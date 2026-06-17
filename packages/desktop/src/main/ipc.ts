@@ -230,6 +230,11 @@ export function registerIpcHandlers(deps: Deps) {
     return { buffer, width: size.width, height: size.height }
   })
 
+  // SPEC-INS-011:debug 工具 snapshot 用 —— 主进程写剪贴板(不受 renderer DevTools 缺用户手势限制)
+  ipcMain.handle("write-clipboard-text", (_event: IpcMainInvokeEvent, text: string) => {
+    clipboard.writeText(text)
+  })
+
   ipcMain.on("show-notification", (_event: IpcMainEvent, title: string, body?: string) => {
     new Notification({ title, body }).show()
   })
@@ -359,6 +364,17 @@ export function registerIpcHandlers(deps: Deps) {
     win.destroy()
     return pdfData.buffer as ArrayBuffer
   })
+
+  ipcMain.handle(
+    "capture-preview-rect",
+    async (event: IpcMainInvokeEvent, rect: { x: number; y: number; width: number; height: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win) return null
+      const image = await win.webContents.capturePage(rect)
+      if (image.isEmpty()) return null
+      return image.toDataURL()
+    },
+  )
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

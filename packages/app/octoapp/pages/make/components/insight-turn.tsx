@@ -5,8 +5,11 @@ import { Markdown } from "@opencode-ai/ui/markdown"
 import { Button } from "@opencode-ai/ui/button"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
+import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
+import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
+import { QuickBriefFormView } from "./quick-brief-form"
+import './quick-brief-form.css'
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -14,6 +17,7 @@ import { FileOpsSummary } from "./file-ops-summary"
 export type DeltaLogEntry = {
   timestamp: number
   eventType: string
+  sessionID: string
   messageID: string
   partID: string
   field: string
@@ -23,6 +27,7 @@ export type DeltaLogEntry = {
 export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
+  | "react-component" | "diagram"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -49,6 +54,8 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "image/svg+xml": "svg",
   "markdown-document": "markdown-document",
   "code-snippet": "code-snippet",
+  "react-component": "react-component",
+  diagram: "diagram",
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -72,6 +79,12 @@ function decodeDataUrl(url: string): string {
 function detectCard(text: string): { type: OutputCardType; title: string } | null {
   const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
 
+  if (/```tsx\b/i.test(text) || /```jsx\b/i.test(text) || /^import\s+React/i.test(text)) {
+    return { type: "react-component", title: heading(text) ?? "React 组件" }
+  }
+  if (/```mermaid\b/i.test(text)) {
+    return { type: "diagram", title: heading(text) ?? "流程图" }
+  }
   if (/```html/i.test(text) || /<!DOCTYPE\s+html/i.test(text) || /<html[\s>]/i.test(text) || /<script[\s>]/i.test(text)) {
     if (/<div[^>]*class=["']slide["']/.test(text) || /\.slide\b/.test(text)) {
       return { type: "deck", title: heading(text) ?? "幻灯片" }
@@ -83,9 +96,6 @@ function detectCard(text: string): { type: OutputCardType; title: string } | nul
   }
   if (isMarkdownTable(text)) {
     return { type: "table", title: heading(text) ?? "分析结果" }
-  }
-  if (/```mermaid/i.test(text)) {
-    return { type: "mindmap", title: heading(text) ?? "思维导图" }
   }
   if (/```json/i.test(text)) {
     return { type: "json", title: heading(text) ?? "JSON 数据" }
@@ -123,6 +133,8 @@ function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
     case "svg": return <IconCardSvg size={16} />
     case "markdown-document": return <IconCardMarkdown size={16} />
     case "code-snippet": return <IconCardFile size={16} />
+    case "react-component": return <IconCardReact size={16} />
+    case "diagram": return <IconCardDiagram size={16} />
   }
 }
 
@@ -218,16 +230,30 @@ function formatBlockTime(secs: number): string {
 
 // ── Internal: WaitingPill ──────────────────────────────────
 
+type SubtaskInfo = {
+  taskDescription: string
+  subSessionID: string
+  status: "running" | "done" | "error" | "cancelled"
+  textParts: string[]
+  artifactOutputs: Array<{ identifier: string; title: string; content: string }>
+  completedAt?: number
+}
+
 function WaitingPill(props: {
   parts: Array<{ type: string; text?: string }>
   partStore: Record<string, { type: string; text?: string }[]>
   messageID: string
+  sessionID: string
   deltaLog: DeltaLogEntry[]
+  msgStore: Record<string, Message[]>
+  subtasks: SubtaskInfo[]
 }): JSX.Element {
   const statusLabel = createMemo(() => {
     const parts = props.parts
     const toolParts = parts.filter((p) => p.type === "tool")
     const hasText = parts.some((p) => p.type === "text")
+    const hasReasoning = props.deltaLog.some(e => e.sessionID !== props.sessionID && e.field === "reasoning")
+    if (hasReasoning) return "深度思考中"
     if (hasText) return "生成中"
     if (toolParts.length === 0) return "思考中"
     const lastTool = toolParts[toolParts.length - 1] as Record<string, unknown>
@@ -237,34 +263,88 @@ function WaitingPill(props: {
   })
 
   const accumulatedText = createMemo(() => {
-    if (!props.messageID) return ""
+    if (!props.messageID) return { reasoning: "", artifact: "" }
+    
+    let reasoningContent = ""
+    let artifactContent = ""
+    
     const parts = props.partStore?.[props.messageID] ?? []
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (!textPart?.text) return ""
+    if (textPart?.text) {
+      const parser = createArtifactParser()
+      for (const ev of parser.feed(textPart.text)) {
+        if (ev.type === "artifact:chunk") artifactContent += ev.delta
+      }
+      for (const ev of parser.flush()) {
+        if (ev.type === "artifact:chunk") artifactContent += ev.delta
+      }
+    }
     
-    const parser = createArtifactParser()
-    let artifactContent = ""
-    for (const ev of parser.feed(textPart.text)) {
-      if (ev.type === "artifact:chunk") {
-        artifactContent += ev.delta
+    const childReasoningDeltas = props.deltaLog
+      .filter(entry => entry.sessionID !== props.sessionID && entry.field === "reasoning")
+      .slice(-30)
+    for (const entry of childReasoningDeltas) {
+      reasoningContent += entry.delta
+    }
+    
+    const childTextDeltas = props.deltaLog
+      .filter(entry => entry.sessionID !== props.sessionID && entry.field === "text")
+      .slice(-50)
+    for (const entry of childTextDeltas) {
+      if (entry.delta.includes("<artifact")) {
+        const childParser = createArtifactParser()
+        for (const ev of childParser.feed(entry.delta)) {
+          if (ev.type === "artifact:chunk") artifactContent += ev.delta
+        }
+        for (const ev of childParser.flush()) {
+          if (ev.type === "artifact:chunk") artifactContent += ev.delta
+        }
       }
     }
-    for (const ev of parser.flush()) {
-      if (ev.type === "artifact:chunk") {
-        artifactContent += ev.delta
+    
+    const runningSubtasks = props.subtasks.filter(t => t.status === "running" && t.subSessionID)
+    for (const subtask of runningSubtasks) {
+      const subMessages = props.msgStore?.[subtask.subSessionID] ?? []
+      for (const msg of subMessages) {
+        if (msg.role !== "assistant") continue
+        const subParts = props.partStore?.[msg.id] ?? []
+        for (const part of subParts) {
+          if (part.type === "reasoning" && (part as { text?: string }).text) {
+            reasoningContent += (part as { text: string }).text + "\n"
+          }
+        }
+        const subTextPart = [...subParts]
+          .reverse()
+          .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+        if (subTextPart?.text) {
+          const subParser = createArtifactParser()
+          for (const ev of subParser.feed(subTextPart.text)) {
+            if (ev.type === "artifact:chunk") artifactContent += ev.delta
+          }
+          for (const ev of subParser.flush()) {
+            if (ev.type === "artifact:chunk") artifactContent += ev.delta
+          }
+        }
       }
     }
-    return artifactContent
+    
+    return { reasoning: reasoningContent.trim(), artifact: artifactContent.trim() }
   })
 
   let contentRef: HTMLDivElement | undefined
 
   createEffect(() => {
-    if (accumulatedText() && contentRef) {
+    const text = accumulatedText()
+    if ((text.reasoning || text.artifact) && contentRef) {
       contentRef.scrollTop = contentRef.scrollHeight
     }
+  })
+
+  const displayText = createMemo(() => {
+    const { reasoning, artifact } = accumulatedText()
+    return reasoning || artifact
   })
 
   return (
@@ -287,7 +367,7 @@ function WaitingPill(props: {
           {statusLabel()}…
         </span>
       </div>
-      <Show when={accumulatedText().length > 0}>
+      <Show when={displayText().length > 0}>
         <div
           ref={(el) => { contentRef = el }}
           class="px-3 pb-2"
@@ -299,7 +379,7 @@ function WaitingPill(props: {
             color: "var(--octo-text-primary)",
           }}
         >
-          <pre class="whitespace-pre-wrap word-break-word" style={{ margin: "0" }}>{accumulatedText()}</pre>
+          <pre class="whitespace-pre-wrap word-break-word" style={{ margin: "0" }}>{displayText()}</pre>
         </div>
       </Show>
     </div>
@@ -424,6 +504,8 @@ export function InsightTurn(props: {
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
+  onFormSubmit?: (text: string) => void
+  hasQuestionRequest?: boolean
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -440,6 +522,11 @@ export function InsightTurn(props: {
     const sepIdx = raw.lastIndexOf("\n---\n")
     if (sepIdx !== -1) return raw.slice(sepIdx + 5).trim()
     return raw.trim()
+  })
+
+  const userAttachments = createMemo(() => {
+    const parts = partStore?.[props.messageID] ?? []
+    return parts.filter((p) => p.type === "file") as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
   })
 
   // Collect ALL assistant messages between this user message and the next user message.
@@ -541,13 +628,18 @@ export function InsightTurn(props: {
         const filePath = input
           ? ((input.path ?? input.filepath ?? input.filePath ?? "") as string)
           : ""
+        const stateStatus = state.status as string | undefined
+        const stateError = state.error as string | undefined
         const hasOutput = typeof state.output === "string" && (state.output as string).length > 0
         const metadata = state.metadata as Record<string, unknown> | undefined
-        const isError = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+        const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
+        const isErrorFromStatus = stateStatus === "error" && !isCancelled
+        const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
+        const isError = isErrorFromStatus || isErrorFromMetadata
+        const isCompleted = stateStatus === "completed"
         return {
-          // V1 ToolPart uses `tool` field, not `name`
           name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
-          status: !hasOutput ? ("running" as const) : isError ? ("error" as const) : ("done" as const),
+          status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
@@ -561,14 +653,6 @@ export function InsightTurn(props: {
   )
 
   // ── NEW: subtask sessions (from Task tool calls) ──
-  type SubtaskInfo = {
-    taskDescription: string
-    subSessionID: string
-    status: "running" | "done" | "error" | "cancelled"
-    textParts: string[]
-    artifactOutputs: Array<{ identifier: string; title: string; content: string }>
-    completedAt?: number
-  }
   const subtasks = createMemo((): SubtaskInfo[] => {
     const parts = assistantParts()
     const tasks: SubtaskInfo[] = []
@@ -591,7 +675,7 @@ const stateStatus = state.status as string | undefined
       const hasOutput = outputStr.length > 0
       const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
       const isErrorFromStatus = stateStatus === "error" && !isCancelled
-      const isErrorFromMetadata = metadata?.exitCode ? (metadata.exitCode as number) !== 0 : false
+      const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
       const isError = isErrorFromStatus || isErrorFromMetadata
 
       const textParts: string[] = []
@@ -706,6 +790,33 @@ const stateStatus = state.status as string | undefined
     // Intentionally skip flush() — partial <artifact prefixes held in the buffer
     // should NOT be emitted as visible text (prevents flicker/duplication).
     return prose.trim()
+  })
+
+  // ── NEW: prose segments (split on <question-form> blocks) ──
+  const proseSegments = createMemo(() => {
+    const text = proseText()
+    if (!text) return []
+    return splitOnQuestionForms(text)
+  })
+
+  // ── NEW: detect if form already submitted (scan subsequent user messages for submit marker) ──
+  const formSubmitted = createMemo(() => {
+    const messages = msgStore?.[props.sessionID] ?? []
+    const currentIndex = messages.findIndex((m) => m.id === props.messageID)
+    if (currentIndex === -1) return false
+
+    // Check subsequent messages (after current user message)
+    const subsequentMessages = messages.slice(currentIndex + 1)
+    for (const msg of subsequentMessages) {
+      if (msg.role !== "user") continue
+      const parts = partStore?.[msg.id] ?? []
+      const textPart = parts.find((p) => p.type === "text")
+      const text = textPart?.text ?? ""
+      if (text.includes("[快速简报]") || text.includes("[form answers —")) {
+        return true
+      }
+    }
+    return false
   })
 
   // Notify parent when subtasks with valid session IDs appear
@@ -1004,23 +1115,54 @@ const stateStatus = state.status as string | undefined
   return (
     <div class="flex flex-col" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
-      <div class="flex justify-end px-3 py-2.5">
-        <div
-          class="break-words"
-          style={{
-            background: "var(--octo-brand-a8)",
-            padding: "8px 12px",
-            "border-radius": "16px 16px 2px 16px",
-            color: "#191919",
-            "font-size": "14px",
-            "line-height": "22px",
-            "white-space": "pre-wrap",
-            display: "inline-block",
-            "max-width": "85%",
-          }}
-        >
-          {userText()}
-        </div>
+      <div class="flex flex-col items-end gap-2 px-3 py-2.5">
+        <Show when={userText() || userAttachments().length === 0}>
+          <div
+            class="break-words"
+            style={{
+              background: "var(--octo-brand-a8)",
+              padding: "8px 12px",
+              "border-radius": "16px 16px 2px 16px",
+              color: "#191919",
+              "font-size": "14px",
+              "line-height": "22px",
+              "white-space": "pre-wrap",
+              display: "inline-block",
+              "max-width": "85%",
+            }}
+          >
+            {userText()}
+          </div>
+        </Show>
+        <Show when={userAttachments().length > 0}>
+          <div class="flex flex-col gap-2">
+            <For each={userAttachments()}>
+              {(att) => (
+                <div
+                  class="break-words flex items-center gap-2"
+                  style={{
+                    background: "var(--octo-brand-a8)",
+                    padding: "8px 12px",
+                    "border-radius": "12px",
+                    color: "#191919",
+                    "font-size": "13px",
+                    display: "inline-flex",
+                    "max-width": "200px",
+                  }}
+                >
+                  <Show when={att.mime?.startsWith("image/")}>
+                    <img
+                      src={att.url}
+                      alt={att.filename || "attachment"}
+                      style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
+                    />
+                  </Show>
+                  <span class="truncate">{att.filename || "attachment"}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
 
       {/* 思考过程 */}
@@ -1058,13 +1200,30 @@ const stateStatus = state.status as string | undefined
         </Show>
       </Show>
 
-      {/* AI 文字回复（proseText 已剥离 artifact 内容，始终显示） */}
-      <Show when={proseText().length > 0}>
+      {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
+      <Show when={proseSegments().length > 0}>
         <div
           class="mb-2 px-3 py-2"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
-          <Markdown text={proseText()} />
+          <For each={proseSegments()}>
+            {(seg) => {
+              if (seg.kind === "text") {
+                if (seg.text.trim().length === 0) return null
+                return <Markdown text={seg.text} />
+              }
+              if (seg.kind === "form") {
+                return (
+                  <QuickBriefFormView
+                    form={seg.form}
+                    interactive={!props.active && props.status.type !== "busy"}
+                    submitted={formSubmitted()}
+                    onSubmit={props.onFormSubmit}
+                  />
+                )
+              }
+            }}
+          </For>
         </div>
       </Show>
 
@@ -1260,7 +1419,10 @@ const stateStatus = state.status as string | undefined
           parts={assistantParts()}
           partStore={partStore}
           messageID={latestAssistantMessageID()}
+          sessionID={props.sessionID}
           deltaLog={props.deltaLog ?? []}
+          msgStore={msgStore}
+          subtasks={subtasks()}
         />
       </Show>
 
@@ -1312,8 +1474,8 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 阻塞提示 — 渐进式显示 */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
+      {/* 阻塞提示 — 渐进式显示（question 状态时不显示） */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
         {(() => {
           const bt = props.blockTime!
           const isWarning = bt >= 80

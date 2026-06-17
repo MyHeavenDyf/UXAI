@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs"
 import solidPlugin from "vite-plugin-solid"
 import tailwindcss from "@tailwindcss/vite"
 import { fileURLToPath } from "url"
-import { viteMockPlugin } from "./mock/vite-mock-plugin.js"
 
 const theme = fileURLToPath(new URL("./public/oc-theme-preload.js", import.meta.url))
 
@@ -36,5 +35,4 @@ export default [
   },
   tailwindcss(),
   solidPlugin(),
-  viteMockPlugin(),
 ]

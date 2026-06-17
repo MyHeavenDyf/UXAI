@@ -3,6 +3,8 @@ node_modules
 .worktrees
 .sst
 .env
+.env.*
+!.env.example
 .idea
 .vscode
 .codex
@@ -33,5 +35,6 @@ CLAUDE.md
 tsconfig.tsbuildinfo
 
 bun.lock
+.bunfig.toml
 
 analysis/

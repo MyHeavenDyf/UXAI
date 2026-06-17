@@ -10,6 +10,7 @@ import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { stripCodeFence } from "../../utils/detect"
+import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
@@ -29,7 +30,7 @@ function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
     return "```" + props.lang + "\n" + body + "\n```"
   })
   return (
-    <div class="p-4 h-full overflow-auto">
+    <div class="octo-source-code-view p-4 h-full overflow-auto">
       <Markdown text={fenced()} />
     </div>
   )
@@ -159,7 +160,10 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
       }
     >
       <Match when={props.tab.type === "table"}>
-        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
+        {/* table 卡四视图(预览/代码/复制/下载)统一只呈现表格本体:
+            预览抽 table token、复制/下载走 extractTableMarkdown,代码视图同样抽表格源,
+            避免把上方对话正文带进来(全文仍在对话区 + 磁盘文件)。 */}
+        <Show when={!isSource()} fallback={<SourceCodeView content={extractTableMarkdown(content())} lang="markdown" />}>
           <TableRenderer content={content()} />
         </Show>
       </Match>
@@ -399,7 +403,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       class="relative flex flex-col items-center justify-center h-full overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "max-width": "calc(100% - 48px)" }}>
+      <div class="relative z-10 flex flex-col items-center" style={{ width: "560px", "min-width": "560px" }}>
         <img src={iconUrl()} width={72} height={72} alt="" aria-hidden="true" style={{ "margin-bottom": "20px" }} />
 
         <div style={{ "font-size": "20px", "font-weight": 700, color: "var(--octo-text-strong, #0a0a0a)", "line-height": 1.4, "text-align": "center", "word-break": "break-all", "margin-bottom": "8px", "max-width": "500px" }}>

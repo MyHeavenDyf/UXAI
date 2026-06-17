@@ -239,12 +239,14 @@ export const layer = Layer.effect(
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
-                edit: "deny",
+                write: "deny",
+                apply_patch: "deny",
                 todowrite: "deny",
                 websearch: "deny",
                 jimeng_image_generate: "deny",
                 internel_image_generate: "deny",
                 lsp: "deny",
+                plan_exit: "deny",
                 question: "allow",
               }),
               user,

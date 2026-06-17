@@ -8,6 +8,7 @@ import { createMemo, type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { useQueryClient } from "@tanstack/solid-query"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
@@ -32,10 +33,12 @@ export const SettingsProviders: Component = () => {
   const language = useLanguage()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const queryClient = useQueryClient()
   const providers = useProviders()
 
   const connected = createMemo(() => {
-    return providers.connected()
+    const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
+    return providers.connected().filter((p) => !disabled.has(p.id))
   })
 
   const popular = createMemo(() => {
@@ -110,6 +113,11 @@ export const SettingsProviders: Component = () => {
     return Boolean(globalSync.data.config.provider?.[providerID]?.options?.apiKey)
   }
 
+  const invalidateAllProviders = () => {
+    globalSync.invalidateProviders()
+    queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
+  }
+
   const disconnectOpencode = async (name: string) => {
     await globalSDK.client.auth.remove({ providerID: "opencode" }).catch(() => undefined)
     const provider = globalSync.data.config.provider ?? {}
@@ -121,14 +129,32 @@ export const SettingsProviders: Component = () => {
     await globalSync.updateConfig({ provider: next })
     await globalSDK.client.global.dispose()
     await disableProvider("opencode", name)
-    globalSync.invalidateProviders()
+    invalidateAllProviders()
   }
 
   const disconnect = async (providerID: string, name: string) => {
     await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
+
+    const provider = globalSync.data.config.provider ?? {}
+    const next = { ...provider }
+    if (next[providerID]?.options?.apiKey) {
+      const { apiKey: _, ...rest } = next[providerID].options
+      next[providerID] = { ...next[providerID], options: Object.keys(rest).length > 0 ? rest : undefined }
+    }
+
+    const before = globalSync.data.config.disabled_providers ?? []
+    const nextDisabled = before.includes(providerID) ? before : [...before, providerID]
+
+    await globalSDK.client.global.config.update({ config: { provider: next, disabled_providers: nextDisabled } })
     await globalSDK.client.global.dispose()
-    await disableProvider(providerID, name)
-    globalSync.invalidateProviders()
+    invalidateAllProviders()
+
+    showToast({
+      variant: "success",
+      icon: "circle-check",
+      title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
+      description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+    })
   }
 
   return (

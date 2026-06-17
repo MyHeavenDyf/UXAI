@@ -2,7 +2,7 @@ import { File } from "@/file"
 import { Ripgrep } from "@/file/ripgrep"
 import { LSP } from "@/lsp/lsp"
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
@@ -10,6 +10,11 @@ import { described } from "./metadata"
 
 export const FileQuery = Schema.Struct({
   path: Schema.String,
+})
+
+export const FileWritePayload = Schema.Struct({
+  path: Schema.String,
+  content: Schema.String,
 })
 
 export const FindTextQuery = Schema.Struct({
@@ -90,6 +95,17 @@ export const FileApi = HttpApi.make("file")
             identifier: "file.read",
             summary: "Read file",
             description: "Read the content of a specified file.",
+          }),
+        ),
+        HttpApiEndpoint.put("write", FilePaths.content, {
+          payload: FileWritePayload,
+          success: described(Schema.Struct({ ok: Schema.Boolean, error: Schema.optional(Schema.String) }), "Write result"),
+          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "file.write",
+            summary: "Write file",
+            description: "Write content to a specified file path.",
           }),
         ),
         HttpApiEndpoint.get("status", FilePaths.status, {

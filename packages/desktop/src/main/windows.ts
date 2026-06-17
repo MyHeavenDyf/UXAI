@@ -1,9 +1,10 @@
 import windowState from "electron-window-state"
-import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol } from "electron"
+import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
+import { insightDebugLog } from "./logging"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
@@ -113,6 +114,16 @@ export function createMainWindow() {
 
   allowClipboardWrite(win)
 
+  // 任何 target="_blank" / window.open 都强制走系统默认浏览器。
+  // 不拦截会创建一个新的 BrowserWindow，渲染进程协议不匹配外部 URL，
+  // 用户点击 /insight webfetch 这种外部链接时会让整个应用卡死/崩溃。
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url)
+    }
+    return { action: "deny" }
+  })
+
   win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
     const { requestHeaders } = details
     upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
@@ -142,6 +153,13 @@ export function createMainWindow() {
         win.webContents.openDevTools()
       }
     }
+  })
+
+  // SPEC-INS-011 阶段3:把 renderer console 全量转发到 electron-log 文件(userData/logs,5MB 滚动),
+  // 作"绝对不漏"兜底——偶现/崩溃前/结构化没捕获到的日志也落盘。level: 0=verbose 1=info 2=warning 3=error
+  win.webContents.on("console-message", (_event, level: number, message: string) => {
+    const fn = level >= 3 ? insightDebugLog.error : level === 2 ? insightDebugLog.warn : insightDebugLog.info
+    fn(`[renderer] ${message}`)
   })
 
   return win
@@ -174,6 +192,13 @@ export function createLoadingWindow() {
   })
 
   allowClipboardWrite(win)
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url)
+    }
+    return { action: "deny" }
+  })
 
   loadWindow(win, "loading.html")
 

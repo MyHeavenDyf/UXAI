@@ -64,6 +64,7 @@ export const Default = {
 export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly list: () => Effect.Effect<Info[]>
+  readonly refresh: () => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Command") {}
@@ -174,7 +175,13 @@ export const layer = Layer.effect(
       return Object.values(s.commands)
     })
 
-    return Service.of({ get, list })
+    // Command.state 把 skill.all() 的结果缓存为 slash command,
+    // skill 列表变化时必须同步刷新所有 directory,否则旧 skill 命令残留 / 新 skill 命令缺失。
+    const refresh = Effect.fn("Command.refresh")(function* () {
+      yield* InstanceState.invalidateAll(state)
+    })
+
+    return Service.of({ get, list, refresh })
   }),
 )
 

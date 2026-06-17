@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
-import { app, BrowserWindow, dialog } from "electron"
+import { app, BrowserWindow, dialog, session } from "electron"
 import pkg from "electron-updater"
 
 import contextMenu from "electron-context-menu"
@@ -65,7 +65,7 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployRipgrep } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -147,11 +147,15 @@ function setupApp() {
   }
 
   void app.whenReady().then(async () => {
+    await session.defaultSession.setProxy({
+      mode: "direct"
+    });
     if (!TEST_ONBOARDING) {
       migrateAppId()
       migrate()
       deploySkillsJson()
       deployBuiltinSkills()
+      deployRipgrep()
     }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()

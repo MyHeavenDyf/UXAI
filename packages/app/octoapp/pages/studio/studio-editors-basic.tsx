@@ -24,12 +24,16 @@ export function StudioHDEditor(props: {
   return (
     <div class="studio-hd">
       <div class="studio-hd-header">
-        <div class="min-w-0">
-          <div class="studio-hd-title">变清晰</div>
-        </div>
-        <button type="button" onClick={props.onClose} class="studio-hd-close" aria-label="关闭变清晰" title="关闭变清晰" />
+        <span class="studio-canvas-tab">
+          <span class="studio-canvas-label-text">变清晰</span>
+          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭变清晰" title="关闭变清晰" />
+        </span>
       </div>
       <div class="studio-hd-body">
+        <div class="studio-hd-hint">
+          <img src="/studio/studio_help_tips.png" alt="" class="studio-hd-hint-icon" />
+          <span>画质提升、基于原图快速超分放大</span>
+        </div>
         <div class="studio-hd-canvas-wrap">
           <img
             class="studio-hd-image"
@@ -96,12 +100,16 @@ export function StudioCutoutEditor(props: {
   return (
     <div class="studio-cutout">
       <div class="studio-cutout-header">
-        <div class="min-w-0">
-          <div class="studio-cutout-title">抠图</div>
-        </div>
-        <button type="button" onClick={props.onClose} class="studio-cutout-close" aria-label="关闭抠图" title="关闭抠图" />
+        <span class="studio-canvas-tab">
+          <span class="studio-canvas-label-text">抠图</span>
+          <span class="studio-canvas-tab-close" onClick={props.onClose} aria-label="关闭抠图" title="关闭抠图" />
+        </span>
       </div>
       <div class="studio-cutout-body">
+        <div class="studio-cutout-hint">
+          <img src="/studio/studio_help_tips.png" alt="" class="studio-cutout-hint-icon" />
+          <span>基于大模型背景去除</span>
+        </div>
         <div class="studio-cutout-canvas-wrap">
           <img
             class="studio-cutout-image"

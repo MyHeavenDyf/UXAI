@@ -83,6 +83,9 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
 
     const refreshSkill = Effect.fn("InstanceHttpApi.skillRefresh")(function* () {
       yield* skill.refresh()
+      // Command.state 派生自 skill.all()(每个 skill 也注册为 slash command),
+      // skill 变化后必须同步刷新,否则旧 skill 命令残留 / 新 skill 命令缺失。
+      yield* command.refresh()
       return { success: true }
     })
 
