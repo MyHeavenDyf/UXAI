@@ -94,4 +94,5 @@ export type ElectronAPI = {
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
+  tailwindToCss: (className: string) => Promise<Record<string, string>>
 }

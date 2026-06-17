@@ -20,6 +20,7 @@ import type {
 } from "../preload/types"
 import { getStore } from "./store"
 import { setTitlebar, updateTitlebar } from "./windows"
+import { convertTailwindToCSS } from "./tailwind-to-css"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -384,6 +385,10 @@ export function registerIpcHandlers(deps: Deps) {
       return image.toDataURL()
     },
   )
+
+  ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
+    return convertTailwindToCSS(className)
+  })
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

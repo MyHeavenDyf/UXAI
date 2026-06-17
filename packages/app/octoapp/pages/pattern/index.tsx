@@ -418,6 +418,9 @@ function PatternContent() {
     const submitSessionId = params.id
     const controller = new AbortController()
     const mk = activeModelKey()!
+    // const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
+    //  const css = await desktopApi?.tailwindToCss?.("flex items-center justify-between px-inset py-inline bg-surface-container-highest shadow-sm z-10")
+    //   console.log("[Pattern] tailwind css:", css)
     try {
       let sid = submitSessionId
       if (!sid) {
