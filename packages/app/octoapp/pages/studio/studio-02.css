@@ -65,7 +65,6 @@
 
 .studio-details-primary-action:hover:not(:disabled) {
   filter: brightness(1.04);
-  box-shadow: 0 8px 18px rgba(116, 87, 255, 0.16);
   transform: translateY(-1px);
 }
 
@@ -81,6 +80,7 @@
   justify-content: center;
   gap: 4px;
   background: #f3f4f6;
+  box-shadow: none;
   transition: transform 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
@@ -92,7 +92,6 @@
 
 .studio-details-secondary-action:hover:not(:disabled) {
   background: #e9ebef;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
   transform: translateY(-1px);
 }
 
@@ -157,6 +156,7 @@
   min-height: 236px;
   padding: 14px 16px;
   box-sizing: border-box;
+  gap:0;
 }
 
 .studio-material-title {
@@ -170,10 +170,9 @@
 .studio-material-categories {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 16px;
+  gap: 4px 16px;
   margin-bottom: 0;
-  padding-bottom: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
 
 .studio-material-cat-btn {
@@ -203,16 +202,16 @@
 .studio-material-section-label {
   font-size: 14px;
   line-height: 22px;
-  color: #777;
-  font-weight: 500;
-  margin-bottom: 4px;
+  color: #191919;
+  font-weight: 700;
+  margin-bottom: 16px;
 }
 
 .studio-material-subcategories {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-bottom: 8px;
+  gap: 4px 16px;
+  margin-bottom: 16px;
 }
 
 .studio-material-sub-btn {
@@ -323,9 +322,9 @@
   display: grid;
   gap: 0;
   overflow: hidden;
-  padding: 6px;
-  border-radius: 8px;
-  background: #f4f4f5;
+  padding: 4px;
+  border-radius: 12px;
+  background: #f4f4f4;
 }
 
 .studio-image-settings-ratios {
@@ -359,7 +358,8 @@
 }
 
 .studio-image-settings-ratio {
-  height: 56px;
+  height: 54px;
+  width: 66px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -368,8 +368,19 @@
 }
 
 .studio-image-settings-ratio-icon {
-  height: auto;
-  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.studio-image-settings-ratio-icon::before {
+  content: "";
+  display: block;
+  width: var(--icon-w, 12px);
+  height: var(--icon-h, 20px);
   border: 1.5px solid #111827;
   border-radius: 3px;
 }
