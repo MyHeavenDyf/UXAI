@@ -101,6 +101,11 @@ declare global {
     }
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
+      writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
+      readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+      getDesignList: () => Promise<Array<{ name: string; filename: string }>>
+      getDesignRead: (name: string) => Promise<string | null>
+      getDesignContent: (name: string) => Promise<string | null>
     }
   }
 }
