@@ -17,6 +17,7 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
+import { tracker } from "@/utils/tracker"
 import { formatServerError } from "@/utils/server-errors"
 
 type PendingPrompt = {
@@ -226,6 +227,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const abort = async () => {
     const sessionID = params.id
     if (!sessionID) return Promise.resolve()
+
+    tracker.interaction({ module: "chat", name: "abort-session" })
 
     globalSync.todo.set(sessionID, [])
     const [, setStore] = globalSync.child(sdk.directory)
@@ -440,6 +443,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     input.onSubmit?.()
+    tracker.interaction({ module: "chat", name: "send-message" })
 
     if (mode === "shell") {
       clearInput()
