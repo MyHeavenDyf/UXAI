@@ -8,6 +8,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { A, useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
+import { tracker } from "@/utils/tracker"
 import { useLanguage } from "@/context/language"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -104,6 +105,7 @@ const params = useParams()
     const idx = sessionList.findIndex((s) => s.id === session.id)
     if (idx >= 0) setSessionList(idx, "title", draft)
     setRenamingId(null)
+    tracker.interaction({ module: "chat", name: "rename-session" })
     try {
       const client = globalSDK.createClient({ directory: session.directory })
       await client.session.update({ sessionID: session.id, title: draft })
@@ -115,6 +117,7 @@ const params = useParams()
   }
 
   async function deleteSession(sessionID: string, directory: string) {
+    tracker.interaction({ module: "chat", name: "delete-session" })
     const idx = sessionList.findIndex((s) => s.id === sessionID)
     try {
       const client = globalSDK.createClient({ directory })
@@ -181,6 +184,7 @@ const params = useParams()
               onClick={() => {
                 const dir = props.currentDir()
                 if (!dir) return
+                tracker.interaction({ module: "chat", name: "new-session" })
                 navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}?hint=${Date.now()}`)
               }}
             >
@@ -261,7 +265,7 @@ const params = useParams()
                           }>
                             <button
                               type="button"
-                              onClick={() => navigate(`/${base64Encode(session.directory)}/chat/${session.id}`)}
+                              onClick={() => { tracker.interaction({ module: "chat", name: "select-session" }); navigate(`/${base64Encode(session.directory)}/chat/${session.id}`) }}
                               onContextMenu={(e) => {
                                 e.preventDefault()
                                 setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: hasMessages() })
