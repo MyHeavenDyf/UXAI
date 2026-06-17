@@ -66,8 +66,8 @@ const emitDeepLinks = (urls: string[]) => {
 }
 
 const listenForDeepLinks = () => {
-  void window.api.consumeInitialDeepLinks().then((urls) => emitDeepLinks(urls))
-  return window.api.onDeepLink((urls) => emitDeepLinks(urls))
+  void window.api?.consumeInitialDeepLinks().then((urls) => emitDeepLinks(urls))
+  return window.api?.onDeepLink((urls) => emitDeepLinks(urls))
 }
 
 const createPlatform = (): Platform => {
@@ -105,12 +105,12 @@ const createPlatform = (): Platform => {
 
     const createStorage = (name: string) => {
       const api: AsyncStorage = {
-        getItem: (key: string) => window.api.storeGet(name, key),
-        setItem: (key: string, value: string) => window.api.storeSet(name, key, value),
-        removeItem: (key: string) => window.api.storeDelete(name, key),
-        clear: () => window.api.storeClear(name),
-        key: async (index: number) => (await window.api.storeKeys(name))[index],
-        getLength: () => window.api.storeLength(name),
+        getItem: (key: string) => window.api?.storeGet(name, key),
+        setItem: (key: string, value: string) => window.api?.storeSet(name, key, value),
+        removeItem: (key: string) => window.api?.storeDelete(name, key),
+        clear: () => window.api?.storeClear(name),
+        key: async (index: number) => (await window.api?.storeKeys(name))[index],
+        getLength: () => window.api?.storeLength(name),
         get length() {
           return api.getLength()
         },
@@ -270,7 +270,7 @@ const createPlatform = (): Platform => {
 }
 
 let menuTrigger = null as null | ((id: string) => void)
-window.api.onMenuCommand((id) => {
+window.api?.onMenuCommand((id) => {
   menuTrigger?.(id)
 })
 listenForDeepLinks()

@@ -76,6 +76,7 @@ const api: ElectronAPI = {
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
+  readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
   // jk-j60099994-replace-with-index-1-start
