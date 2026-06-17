@@ -128,6 +128,13 @@ function videoQualityMode(input: StudioGenerationRequest) {
   return value === "pro" ? "pro" : "std"
 }
 
+function isEditorGenerationCapability(capability: StudioCapability) {
+  return capability === "image.upscale" ||
+    capability === "image.cutout" ||
+    capability === "image.inpaint" ||
+    capability === "image.outpaint"
+}
+
 function buildAssistantText(input: StudioGenerationRequest) {
   if (input.capability === "video.generate") {
     return [
@@ -138,6 +145,10 @@ function buildAssistantText(input: StudioGenerationRequest) {
       .filter((item): item is string => Boolean(item))
       .join("")
   }
+  if (input.capability === "image.upscale") return "好的，我将提升当前图片的清晰度和细节。"
+  if (input.capability === "image.cutout") return "好的，我将对当前图片进行抠图，移除背景并保留主体。"
+  if (input.capability === "image.inpaint") return `好的，我将根据涂抹区域${input.prompt}。`
+  if (input.capability === "image.outpaint") return `好的，我将${input.prompt}。`
   return [
     `我将为您创作${input.prompt}。`,
     input.styleModel ? `采用“${input.styleModel}”风格` : undefined,
@@ -273,9 +284,9 @@ function persistStudioSession(input: {
       input: {
         capability: input.request.capability,
         prompt: input.request.prompt,
-        styleModel: input.request.styleModel,
-        aspectRatio: input.request.aspectRatio,
-        count: input.request.count,
+        styleModel: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.styleModel,
+        aspectRatio: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.aspectRatio,
+        count: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.count,
         referenceImages: input.request.referenceImages,
         sourceImage: input.request.sourceImage,
         effectivePrompt: buildEffectivePrompt(input.request),
@@ -881,9 +892,9 @@ async function createProviderTask(input: StudioGenerationRequest, provider: Stud
   return createInternalGeneration({
     capability: input.capability,
     prompt: buildEffectivePrompt(input),
-    styleModel: input.styleModel,
-    aspectRatio: input.aspectRatio,
-    count: input.count,
+    styleModel: isEditorGenerationCapability(input.capability) ? undefined : input.styleModel,
+    aspectRatio: isEditorGenerationCapability(input.capability) ? undefined : input.aspectRatio,
+    count: isEditorGenerationCapability(input.capability) ? undefined : input.count,
     referenceImages: input.referenceImages,
     sourceImage: input.sourceImage,
     extra: input.extra,
