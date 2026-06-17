@@ -52,6 +52,20 @@ function getExt(filename: string): string {
   return filename.slice(dot + 1).toLowerCase()
 }
 
+// 文件名清洗：内网上传服务把**未编码的原始文件名**直接拼进返回 URL，URL 再交给 MCP 取文件。
+// 文件名里出现允许集之外的特殊字符（如 ()（）、&、%、+、@、！、，、各种全角标点，以及
+// 路径/通配相关的 \ : * ? < > |）会让 MCP 端解析/取文件失败。这里在上传前把这类字符整段去掉。
+//
+// 允许保留：字母 / 数字 / 各类文字（含中文等 Unicode 字母）+ 以下特殊字符与空格：
+//   # - . / [ ] ^ _ ` { } 和空格
+// 其余字符一律删除。删空后兜底为 "file"（极端情况下整名都是非法字符）。
+const FILENAME_DISALLOWED = /[^\p{L}\p{N} #./[\]^_`{}-]/gu
+
+export function sanitizeFileName(name: string): string {
+  const cleaned = name.replace(FILENAME_DISALLOWED, "")
+  return cleaned.trim() || "file"
+}
+
 export function validateFile(file: File): UploadError | null {
   if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")
   if (file.size > MAX_UPLOAD_SIZE) {

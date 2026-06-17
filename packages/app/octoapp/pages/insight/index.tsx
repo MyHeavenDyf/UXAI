@@ -40,7 +40,7 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, sanitizeFileName, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -984,7 +984,14 @@ function InsightContent() {
     }
     if (slots <= 0) return
     const toAdd = files.slice(0, slots)
-    for (const file of toAdd) {
+    for (const rawFile of toAdd) {
+      // 文件名清洗：去掉允许集之外的特殊字符，否则内网上传服务把原始名拼进 URL 后 MCP 取文件会失败。
+      // 名字有变化才重建 File（File.name 只读）；清洗后名贯穿校验 / chip 展示 / 上传，保持一致。
+      const cleanName = sanitizeFileName(rawFile.name)
+      const file =
+        cleanName === rawFile.name
+          ? rawFile
+          : new File([rawFile], cleanName, { type: rawFile.type, lastModified: rawFile.lastModified })
       const id = crypto.randomUUID()
       const mime = file.type || "application/octet-stream"
       const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : ""
