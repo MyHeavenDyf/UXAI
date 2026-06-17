@@ -13,12 +13,13 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
 
-type TabType = "chat" | "make" | "cowork" | "studio"
+type TabType = "chat" | "make" | "cowork" | "studio" | "pattern"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "chat", label: "Chat" },
   { key: "cowork", label: "Insight" },
   { key: "make", label: "Design" },
+  { key: "pattern", label: "Prototype" },
   { key: "studio", label: "Studio" },
 ]
 
@@ -78,6 +79,7 @@ export function TitlebarSimple() {
     const path = location.pathname
     if (path === "/" || path === "/cowork" || path.startsWith("/insight")) return "cowork"
     if (path === "/make" || path.startsWith("/make/")) return "make"
+    if (path === "/pattern" || path.startsWith("/pattern/")) return "pattern"
     if (path === "/skills") {
       const source = layout.sidebarSource.get()
       return source === "make" ? "make" : "cowork"
@@ -120,6 +122,16 @@ export function TitlebarSimple() {
         }
       } else {
         navigate("/make")
+      }
+      return
+    }
+
+    if (tab === "pattern") {
+      const pattern = layout.lastSessionPerTab.pattern()
+      if (pattern?.id) {
+        navigate(`/pattern/${pattern.id}`)
+      } else {
+        navigate("/pattern")
       }
       return
     }
