@@ -21,6 +21,7 @@ import type {
 import { getStore } from "./store"
 import { setTitlebar, updateTitlebar } from "./windows"
 import { convertTailwindToCSS } from "./tailwind-to-css"
+import { convertCssToTailwind } from "./tailwind-from-css"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -388,6 +389,10 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
     return convertTailwindToCSS(className)
+  })
+
+  ipcMain.handle("css-to-tailwind", (_event: IpcMainInvokeEvent, cssObject: Record<string, unknown>) => {
+    return convertCssToTailwind(cssObject)
   })
 }
 
