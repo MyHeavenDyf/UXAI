@@ -1,0 +1,203 @@
+.quick-brief-form {
+  max-width: 800px;
+  padding: 16px 20px;
+  margin: 0 auto;
+  border-radius: var(--octo-radius-lg, 12px);
+  background: var(--octo-surface-page, #ffffff);
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  box-shadow: var(--octo-shadow-xs, 0 1px 2px rgba(0,0,0,0.05));
+}
+
+.quick-brief-form-locked {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.quick-brief-form-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.quick-brief-form-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--octo-brand, #3b82f6);
+  color: #fff;
+  border-radius: var(--octo-radius-md, 8px);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.quick-brief-form-titles {
+  flex: 1;
+}
+
+.quick-brief-form-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--octo-text-strong, #111827);
+  margin-bottom: 4px;
+}
+
+.quick-brief-form-desc {
+  font-size: 13px;
+  color: var(--octo-text-secondary, #6b7280);
+  line-height: 1.5;
+}
+
+.quick-brief-form-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--octo-surface-muted, #f3f4f6);
+  color: var(--octo-text-secondary, #6b7280);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.quick-brief-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.qf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qf-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--octo-text-primary, #374151);
+}
+
+.qf-required {
+  color: var(--octo-danger, #ef4444);
+  font-size: 12px;
+}
+
+.qf-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qf-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--octo-surface-muted, #f3f4f6);
+  color: var(--octo-text-primary, #374151);
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.qf-chip:hover:not(:disabled) {
+  background: var(--octo-surface-hover, #e5e7eb);
+  border-color: var(--octo-border-strong, #d1d5db);
+}
+
+.qf-chip-on {
+  background: var(--octo-brand, #3b82f6);
+  color: #fff;
+  border-color: var(--octo-brand, #3b82f6);
+}
+
+.qf-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qf-input,
+.qf-textarea {
+  padding: 8px 12px;
+  background: var(--octo-surface-muted, #f3f4f6);
+  color: var(--octo-text-primary, #374151);
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border-radius: var(--octo-radius-md, 8px);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  transition: all 0.15s ease;
+}
+
+.qf-input:focus,
+.qf-textarea:focus {
+  outline: none;
+  background: #fff;
+  border-color: var(--octo-brand, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.qf-input::placeholder,
+.qf-textarea::placeholder {
+  color: var(--octo-text-placeholder, #9ca3af);
+}
+
+.qf-input:disabled,
+.qf-textarea:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.quick-brief-form-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--octo-border-default, #e5e7eb);
+}
+
+.qf-hint {
+  font-size: 12px;
+  color: var(--octo-text-secondary, #6b7280);
+}
+
+.qf-locked-note {
+  font-size: 12px;
+  color: var(--octo-text-muted, #9ca3af);
+}
+
+.qf-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--octo-brand, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: var(--octo-radius-md, 8px);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.qf-submit-btn:hover:not(:disabled) {
+  background: var(--octo-brand-hover, #2563eb);
+}
+
+.qf-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qf-submit-btn.primary {
+  background: var(--octo-brand, #3b82f6);
+  color: #fff;
+}

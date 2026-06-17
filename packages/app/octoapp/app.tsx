@@ -360,7 +360,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
   const isOctoPage = () => {
     const p = location.pathname
-    return p === "/cowork" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/skills"
+    return p === "/cowork" || p === "/insight" || p.startsWith("/insight/") || p === "/make" || p.startsWith("/make/") || p === "/dslToHex" || p.startsWith("/dslToHex/") || p === "/skills"
   }
   return (
     <Show

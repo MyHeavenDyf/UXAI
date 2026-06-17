@@ -56,6 +56,7 @@ type LastSessionPerTab = {
   make: Record<string, string>
   chat: Record<string, string>
   studio: Record<string, string>
+  dslToHex: Record<string, string>
 }
 
 type SidebarSource = "cowork" | "make"
@@ -277,6 +278,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       make: {},
       chat: {},
       studio: {},
+      dslToHex: {},
     })
 
     const [sidebarSource, setSidebarSource] = createStore<{ source: SidebarSource }>({
@@ -598,6 +600,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         studio: (dir: string) => lastSessionPerTab.studio[dir],
         setStudio(dir: string, id: string) {
           setLastSession("studio", dir, id)
+        },
+        dslToHex: (dir: string) => lastSessionPerTab.dslToHex[dir],
+        setDslToHex(dir: string, id: string) {
+          setLastSession("dslToHex", dir, id)
         },
       },
       sidebarSource: {

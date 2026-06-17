@@ -1,0 +1,299 @@
+import { createSignal, createEffect, Show, type JSX } from "solid-js"
+import type { InspectTarget } from "./html-renderer"
+
+export function InspectPanel(props: {
+  target: InspectTarget | null
+  onApplyStyle: (elementId: string, prop: string, value: string) => void
+  onResetElement: (elementId: string) => void
+  onSaveToContent: () => void
+  onClose: () => void
+  iframeRef: HTMLIFrameElement | undefined
+  floatingStyle?: { left: number; top: number }
+  onFloatingPositionChange?: (position: { left: number; top: number }) => void
+}): JSX.Element {
+  const [draft, setDraft] = createSignal<Record<string, string>>({})
+
+  createEffect(() => {
+    if (props.target) setDraft({})
+  })
+
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+
+  const startPanelDrag = (event: PointerEvent) => {
+    if (!props.onFloatingPositionChange) return
+    event.preventDefault()
+    event.stopPropagation()
+
+    const target = event.currentTarget as HTMLElement
+    const panel = target.closest('.inspect-panel') as HTMLElement | null
+    const parent = panel?.parentElement
+    if (!panel || !parent) return
+
+    target.setPointerCapture(event.pointerId)
+
+    const startX = event.clientX
+    const startY = event.clientY
+    const startLeft = panel.offsetLeft
+    const startTop = panel.offsetTop
+    const parentRect = parent.getBoundingClientRect()
+    const panelRect = panel.getBoundingClientRect()
+    const pad = 8
+
+    const maxLeft = Math.max(pad, parentRect.width - panelRect.width - pad)
+    const maxTop = Math.max(pad, parentRect.height - panelRect.height - pad)
+
+    const move = (moveEvent: PointerEvent) => {
+      props.onFloatingPositionChange!({
+        left: clamp(startLeft + moveEvent.clientX - startX, pad, maxLeft),
+        top: clamp(startTop + moveEvent.clientY - startY, pad, maxTop)
+      })
+    }
+
+    const up = () => {
+      try { target.releasePointerCapture(event.pointerId) } catch { /* noop */ }
+      target.removeEventListener('pointermove', move)
+      target.removeEventListener('pointerup', up)
+      target.removeEventListener('pointercancel', up)
+    }
+
+    target.addEventListener('pointermove', move)
+    target.addEventListener('pointerup', up)
+    target.addEventListener('pointercancel', up)
+  }
+
+  const value = (prop: string, fallback: string): string =>
+    draft()[prop] ?? fallback
+
+  function setVal(prop: string, raw: string) {
+    setDraft((d) => ({ ...d, [prop]: raw }))
+    if (props.target?.elementId) {
+      props.onApplyStyle(props.target.elementId, prop, raw)
+    }
+  }
+
+  function pxToNumber(s: string): number {
+    const n = parseFloat(s)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  function rgbToHex(rgb: string): string {
+    if (rgb === "transparent" || rgb === "rgba(0, 0, 0, 0)") {
+      return ""
+    }
+    const match = rgb.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)/i)
+    if (!match) return rgb.startsWith("#") ? rgb : "#000000"
+    
+    const alpha = match[4] ? parseFloat(match[4]) : 1
+    if (alpha === 0) return ""
+    
+    if (alpha < 1) {
+      return rgb
+    }
+    
+    const r = parseInt(match[1]).toString(16).padStart(2, "0")
+    const g = parseInt(match[2]).toString(16).padStart(2, "0")
+    const b = parseInt(match[3]).toString(16).padStart(2, "0")
+    return `#${r}${g}${b}`
+  }
+
+  const target = () => props.target
+  if (!target()) return null
+
+  const style = () => target()?.style ?? {}
+  const initialPadding = pxToNumber(style().paddingTop ?? "0")
+  const initialFontSize = pxToNumber(style().fontSize ?? "16")
+  const initialRadius = pxToNumber(style().borderRadius ?? "0")
+
+  const colorHex = () => value("color", rgbToHex(style().color ?? "#000000"))
+  const bgHex = () => value("backgroundColor", rgbToHex(style().backgroundColor ?? ""))
+  const padding = () => value("padding", String(initialPadding))
+  const fontSize = () => value("fontSize", String(initialFontSize))
+  const radius = () => value("borderRadius", String(initialRadius))
+  const textAlign = () => value("textAlign", style().textAlign ?? "left")
+  const fontWeight = () => value("fontWeight", style().fontWeight ?? "400")
+
+  const paddingNum = () => pxToNumber(padding())
+  const fontSizeNum = () => pxToNumber(fontSize())
+  const radiusNum = () => pxToNumber(radius())
+
+  return (
+    <aside 
+      class={`inspect-panel${props.floatingStyle ? ' inspect-panel-floating' : ''}`}
+      style={props.floatingStyle ? { 
+        left: `${props.floatingStyle.left}px`, 
+        top: `${props.floatingStyle.top}px`,
+        right: 'auto',
+        bottom: 'auto'
+      } : undefined}
+    >
+      <header class="inspect-panel-head">
+        <Show when={props.floatingStyle}>
+          <button
+            type="button"
+            class="inspect-panel-drag-handle"
+            aria-label="Move panel"
+            title="Move panel"
+            onPointerDown={startPanelDrag}
+          >
+            ⋮⋮
+          </button>
+        </Show>
+        <div class="inspect-panel-title">
+          <strong title={target()?.tag ?? ""}>
+            {target()?.tag ?? "Element"}
+          </strong>
+          <code title={target()?.selector ?? ""}>
+            {target()?.elementId ?? target()?.selector ?? ""}
+          </code>
+        </div>
+        <button
+          type="button"
+          class="ghost"
+          onClick={() => props.onClose()}
+          aria-label="Close inspect"
+        >
+          ×
+        </button>
+      </header>
+
+      <section class="inspect-section">
+        <div class="inspect-section-label">Colors</div>
+        <div class="inspect-row">
+          <label for="ip-color">Text</label>
+          <input
+            id="ip-color"
+            type="color"
+            value={colorHex()}
+            onChange={(e) => setVal("color", e.currentTarget.value)}
+          />
+          <input
+            type="text"
+            value={colorHex()}
+            onChange={(e) => setVal("color", e.currentTarget.value)}
+            spellcheck={false}
+          />
+        </div>
+        <div class="inspect-row">
+          <label for="ip-bg">Background</label>
+          <input
+            id="ip-bg"
+            type="color"
+            value={(() => {
+              const v = bgHex()
+              if (!v) return "#ffffff"
+              if (v.startsWith("rgba")) {
+                const m = v.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+                if (!m) return "#ffffff"
+                const r = parseInt(m[1]).toString(16).padStart(2, "0")
+                const g = parseInt(m[2]).toString(16).padStart(2, "0")
+                const b = parseInt(m[3]).toString(16).padStart(2, "0")
+                return `#${r}${g}${b}`
+              }
+              return v
+            })()}
+            onChange={(e) => setVal("backgroundColor", e.currentTarget.value)}
+          />
+          <input
+            type="text"
+            value={bgHex()}
+            onChange={(e) => setVal("backgroundColor", e.currentTarget.value)}
+            placeholder="(transparent)"
+            spellcheck={false}
+          />
+        </div>
+      </section>
+
+      <section class="inspect-section">
+        <div class="inspect-section-label">Typography</div>
+        <div class="inspect-row">
+          <label for="ip-fs">Size</label>
+          <input
+            id="ip-fs"
+            type="range"
+            min={8}
+            max={160}
+            step={1}
+            value={Math.max(8, Math.min(160, fontSizeNum()))}
+            onChange={(e) => setVal("fontSize", `${e.currentTarget.value}px`)}
+          />
+          <span class="inspect-row-value">{Math.round(fontSizeNum())}px</span>
+        </div>
+        <div class="inspect-row">
+          <label for="ip-fw">Weight</label>
+          <select
+            id="ip-fw"
+            value={fontWeight()}
+            onChange={(e) => setVal("fontWeight", e.currentTarget.value)}
+          >
+            {["100", "300", "400", "500", "600", "700", "800", "900"].map((w) => (
+              <option value={w}>{w}</option>
+            ))}
+          </select>
+        </div>
+        <div class="inspect-row">
+          <label for="ip-ta">Align</label>
+          <select
+            id="ip-ta"
+            value={textAlign()}
+            onChange={(e) => setVal("textAlign", e.currentTarget.value)}
+          >
+            {["left", "center", "right", "justify"].map((a) => (
+              <option value={a}>{a}</option>
+            ))}
+          </select>
+        </div>
+      </section>
+
+      <section class="inspect-section">
+        <div class="inspect-section-label">Spacing &amp; Shape</div>
+        <div class="inspect-row">
+          <label for="ip-pad">Padding</label>
+          <input
+            id="ip-pad"
+            type="range"
+            min={0}
+            max={120}
+            step={1}
+            value={Math.max(0, Math.min(120, paddingNum()))}
+            onChange={(e) => setVal("padding", `${e.currentTarget.value}px`)}
+          />
+          <span class="inspect-row-value">{Math.round(paddingNum())}px</span>
+        </div>
+        <div class="inspect-row">
+          <label for="ip-rad">Radius</label>
+          <input
+            id="ip-rad"
+            type="range"
+            min={0}
+            max={120}
+            step={1}
+            value={Math.max(0, Math.min(120, radiusNum()))}
+            onChange={(e) => setVal("borderRadius", `${e.currentTarget.value}px`)}
+          />
+          <span class="inspect-row-value">{Math.round(radiusNum())}px</span>
+        </div>
+      </section>
+
+      <div class="inspect-actions">
+        <button
+          type="button"
+          class="inspect-reset-btn"
+          onClick={() => {
+            if (props.target?.elementId) {
+              props.onResetElement(props.target.elementId)
+            }
+          }}
+        >
+          Reset
+        </button>
+        <button
+          type="button"
+          class="inspect-save-btn"
+          onClick={() => props.onSaveToContent()}
+        >
+          Save to HTML
+        </button>
+      </div>
+    </aside>
+  )
+}

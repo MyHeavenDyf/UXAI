@@ -79,6 +79,7 @@ export function TitlebarSimple() {
     const path = location.pathname
     if (path === "/" || path === "/cowork" || path.startsWith("/insight")) return "cowork"
     if (path === "/make" || path.startsWith("/make/")) return "make"
+    if (path === "/dslToHex" || path.startsWith("/dslToHex/")) return "dslToHex"
     if (path === "/skills") {
       const source = layout.sidebarSource.get()
       return source === "make" ? "make" : "cowork"
@@ -125,6 +126,21 @@ export function TitlebarSimple() {
       return
     }
 
+    if (tab === "dslToHex") {
+      const dir = projectDir()
+      if (dir) {
+        const sessionId = layout.lastSessionPerTab.dslToHex(dir)
+        if (sessionId) {
+          navigate(`/dslToHex/${sessionId}`)
+        } else {
+          navigate("/dslToHex")
+        }
+      } else {
+        navigate("/dslToHex")
+      }
+      return
+    }
+
     const dirSlug = getConfigDirSlug()
     if (!dirSlug) return
 
@@ -148,8 +164,6 @@ export function TitlebarSimple() {
       } else {
         navigate(`/${dirSlug}/studio`)
       }
-    } else if (tab === "dslToHex") {
-      navigate(`/${dirSlug}/dslToHex`)
     }
   }
 
