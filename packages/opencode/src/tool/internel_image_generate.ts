@@ -1119,7 +1119,7 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
   if (!frames.firstFrame) {
     return {
       user: { idx: context.userIdx },
-      task_type: "t2v_kl",
+      task_type: "t2v_seedance",
       args: {
         tag_name: "文生视频",
         ...baseArgs,
@@ -1128,7 +1128,7 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
   }
   return {
     user: { idx: context.userIdx },
-    task_type: "i2v_kl",
+    task_type: "i2v_seedance",
     args: {
       tag_name: "图生视频",
       ...baseArgs,
