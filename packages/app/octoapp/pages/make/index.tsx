@@ -47,8 +47,10 @@ import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
 import { MakeQuestionDock } from "./components/make-question-dock"
-import { sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
-import type { QuestionRequest } from "@opencode-ai/sdk/v2"
+import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
+import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
+import { usePermission } from "@/context/permission"
+import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -97,6 +99,7 @@ function MakeContent() {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
   const providers = useProviders()
+  const permission = usePermission()
 
   // Register Make slash commands
   useMakeCommands()
@@ -1093,7 +1096,30 @@ if (dsId) {
     return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
   })
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest()
+  const permissionRequest = createMemo<PermissionRequest | undefined>(() => {
+    return sessionPermissionRequest(sync.data.session, sync.data.permission, params.id, (item) => {
+      return !permission.autoResponds(item, sdk.directory)
+    })
+  })
+
+  const [permissionResponding, setPermissionResponding] = createSignal(false)
+
+  const decidePermission = (response: "once" | "always" | "reject") => {
+    const perm = permissionRequest()
+    if (!perm || permissionResponding()) return
+    setPermissionResponding(true)
+    sdk.client.permission
+      .respond({ sessionID: perm.sessionID, permissionID: perm.id, response })
+      .catch((err: unknown) => {
+        const description = err instanceof Error ? err.message : String(err)
+        console.error("[MakePage] permission respond failed:", description)
+      })
+      .finally(() => {
+        setPermissionResponding(false)
+      })
+  }
+
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
   const maxAttachments = () => attachments().length >= 5
 
   return (
@@ -1396,6 +1422,19 @@ if (dsId) {
                   attachments={attachments()}
                   onRemove={removeAttachment}
                 />
+
+                {/* Permission dock - 权限授权 UI */}
+                <Show when={permissionRequest()} keyed>
+                  {(request) => (
+                    <div class="w-full pb-3">
+                      <SessionPermissionDock
+                        request={request}
+                        responding={permissionResponding()}
+                        onDecide={decidePermission}
+                      />
+                    </div>
+                  )}
+                </Show>
 
                 {/* Question dock - 阻塞式提问 UI */}
                 <Show when={questionRequest()} keyed>

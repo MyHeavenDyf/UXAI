@@ -1,0 +1,220 @@
+# Design System 
+## 0. 设计原则
+页面采用1920*1080的宽度。
+
+## 1. Design Token 
+所有页面元素使用Tailwind，并且在前端Tailwind extend中实现了如下扩展，你可以使用下列属性：
+```json
+"extend": {{
+    "colors": {{
+      "primary": "#0067D1",
+      "on-primary": "#FFFFFF",
+      "primary-container": "#E6F2FD",
+      "on-primary-container": "#191919",
+      "primary-fixed": "#0067D1",
+      "primary-fixed-dim": "#004EA8",
+      "on-primary-fixed": "#FFFFFF",
+      "on-primary-fixed-variant": "#F3F3F3",
+      
+      "surface": "#F3F3F3",
+      "surface-dim": "#DFDFDF",
+      "surface-bright": "#FFFFFF",
+      "on-surface": "#191919",
+      "surface-variant": "#F3F3F3",
+      "on-surface-variant": "#777777",
+      "surface-container-lowest": "#F3F3F3",
+      "surface-container-low": "rgba(255,255,255,0.5)",
+      "surface-container": "rgba(255,255,255,0.65)",
+      "surface-container-high": "rgba(255,255,255,0.8)",
+      "surface-container-highest": "#FFFFFF",
+      "inverse-surface": "#191919",
+      "inverse-on-surface": "#FFFFFF",
+      "inverse-on-surface-variant": "#C9C9C9",
+      "inverse-primary": "#0067D1",
+
+      "error": "#E02128",
+      "on-error": "#FFFFFF",
+      "error-container": "#FEE7E8",
+      "on-error-container": "#191919",
+
+      "success": "#09AA71",
+      "on-success": "#FFFFFF",
+      "success-container": "#E7FBF2",
+      "on-success-container": "#191919",
+
+      "critical": "#F4840C", 
+      "on-critical": "#FFFFFF",
+      "critical-container": "#FEF5E8",
+      "on-critical-container": "#191919",
+
+      "warning": "#FCC800",
+      "on-warning": "#FFFFFF",
+      "warning-container": "#FEFCE0",
+      "on-warning-container": "#191919",
+
+      "info": "#0067D1",
+      "on-info": "#FFFFFF",
+      "info-container": "#E6F2FD",
+      "on-info-container": "#191919",
+      
+      "divider": "#F3F3F3"      
+    }},
+    "spacing": {{
+      'inline': '0.5rem',
+      'stack': '0.75rem',
+      'gutter': '1rem', 
+      'inset': '1.5rem',
+      'section': '1rem', 
+      'page': '2rem'      
+    }},
+    "boxShadow": {{
+      'sm': '1px 1px 6px 0 rgba(0, 0, 0, 0.08)',
+      'md': '0 4px 12px 0px rgba(0, 0, 0, 0.16)',
+      'lg': '0 8px 24px 0px rgba(0, 0, 0, 0.16)',
+      'xl': '0 16px 48px 0px rgba(0, 0, 0, 0.16)',
+      'card': '1px 1px 6px 0 rgba(0, 0, 0, 0.08)',     
+      'popover': '0 8px 24px 0px rgba(0, 0, 0, 0.16)', 
+      'modal': '0 16px 48px 0px rgba(0, 0, 0, 0.16)'  
+    }},
+    "borderColor": {{
+      'base': '#C9C9C9',    
+      'divider': '#F3F3F3',  
+      'selected': '#0067D1',  
+      'error': '#E02128',   
+    }},
+    "borderRadius": {{
+      'none': '0px',
+      'sm': '2px', 
+      'md': '4px',
+      'lg': '6px',
+      'xl': '8px',
+      'full': '9999px',
+      'badge': '4px',    
+      'action': '4px',  
+      'container': '8px',
+      'overlay': '8px'  
+    }},
+    "outlineColor": {{
+      'brand': '#0067D1',
+      'error': '#E02128'
+    }},
+    "outlineWidth": {{
+      'focus': '1px',
+    }},
+    "outlineOffset": {{
+      'gap': '2px',
+    }},
+    "fontSize": {{
+      "sm": ["12px", {{ "lineHeight": "1.6" }}],
+      "md": ["14px", {{ "lineHeight": "1.5" }}],
+      "lg": ["16px", {{ "lineHeight": "1.5" }}],
+      "xl": ["18px", {{ "lineHeight": "1.5" }}],
+      "2xl": ["20px", {{ "lineHeight": "1.4" }}],
+      "3xl": ["24px", {{ "lineHeight": "1.4" }}],
+      "4xl": ["28px", {{ "lineHeight": "1.4" }}],
+      "5xl": ["36px", {{ "lineHeight": "1.4" }}],
+      "6xl": ["48px", {{ "lineHeight": "1.3" }}],
+      "7xl": ["60px", {{ "lineHeight": "1.3" }}],
+      "8xl": ["72px", {{ "lineHeight": "1.2" }}],
+      "9xl": ["96px", {{ "lineHeight": "1.2" }}]
+    }}
+  }}
+```
+
+## 2. Elevation & Depth
+
+We achieve spatial hierarchy through a precise combination of **Tonal Layering** and **Ambient Shadows**, avoiding heavy traditional borders.
+
+### 2.1 The Layering Principle (Stacking Order)
+Depth is established by stacking architectural tiers from back to front:
+- **Level 0 (The Canvas):** Use `bg-surface-container-lowest` with no shadows. This is the absolute bottom layer (the page background).
+- **Level 1 (Active Containers):** Use `bg-surface-container-highest` paired with `shadow-sm` (or `shadow-card`). Reserved for primary content containers: Data Cards, Tables, Navigations, and Drawers to make them "pop" forward.
+- **Level 2 (Inner Sub-regions):** Use `bg-surface-variant`. Apply this *inside* Level 1 cards to visually separate internal functional blocks (e.g., inner lists, or nested form areas).
+
+### 2.2 Text & Contrast Pairings
+Always pair backgrounds with their strict `on-*` text tokens to maintain premium readability:
+- On `surface-container-*` backgrounds ➔ Use `text-on-surface`.
+- On `surface-variant` backgrounds ➔ Use `text-on-surface-variant`.
+
+### 2.3 Semantic States (Status Indicator Layering)
+To indicate semantic states (error, warning, success, info), apply the respective `bg-*-container` tokens as background tints. 
+**Crucially:** Always pair them with the corresponding `text-on-*-container` tokens (and use the base `*` token for icons if needed).
+
+### 2.4 Strict UI Constraints (CRITICAL)
+- **Mutual Exclusion:** NEVER combine a shadow with a structural border. If a container floats, it is borderless.
+- **No Accent Strips:** Strictly NO left-border colored accent strips on cards or alerts. Use like `bg-error-container` instead.
+
+## 3. Spacing & Gap
+- 模块和Card之间的间距使用`spacing -> section`
+- 页面最外层容器需要内边距时使用`spacing -> page`
+
+## 4. Components
+
+### KPI Cards & Data Blocks
+- **Style:** No borders. Use `surface-container-highest`. 
+- **Layout:** Use `rounded-xl` (8px) corners.
+- **Internal Separation:** To separate primary metrics from secondary data, use subtle divider lines (`border-divider`) OR wrap secondary metrics within a `surface-variant` background inset.
+
+### Buttons
+  - **状态色:** 通过color属性 `default | primary | danger` 给按钮设定状态色.
+  - **约束:** 
+    - 不要在classname中设定色值背景色和文字色.
+    - 在Table内时，当按钮包含文本内容时，必须使用`types=link`形态
+    - 按钮在容器内优先靠右摆放
+    - 按钮仅在Table内使用size: small，其他场景禁止使用small尺寸.
+    - **Structural Parity**: Side-by-side buttons must share identical structures (All-Text, All-Icon, or All-Icon+Text). Mixing structures within a single row is prohibited to maintain visual parity.
+
+### Tables
+  - Table必须在`surface-container-highest`内，不可以直接放在`surface-container-lowest`中。
+  - Table默认具有分页功能，在不显性控制分页器时，必须给Table组件添加下边距。
+  - Never put Badge in Table。
+  - **Column Width (CRITICAL):**
+    - 仅当列设置了 `fixed: "start"` 或 `fixed: "end"`（即冻结列）时才设置 `width`，其余列不设 width 让表格自适应分配宽度撑满容器。
+    - 仅长文本列（如描述、URL、名称）才设置 `minWidth`，短内容列（如状态、标签、操作、图标）不设 minWidth。
+    - 禁止给所有列都加 width。
+
+### Side Navigation
+  - **Surface:** Use `surface-container-highest` as the base background.
+  - **Size:** Use 15.5rem for the default width. use 3rem for the collapsed bar width.
+
+### Header Navigation
+  - **Surface:** Use `surface-container-highest` as the base background.
+  - **Size:** Use 3rem as height.
+
+### 边框和分割线
+  - border-base 的使用限制：border-base 仅可用于扁平、无海拔 (无 shadow) 的元素外壳。例如：默认表单输入框、卡片内部嵌套的次级扁平区块、空状态占位图。
+  - 内部线降噪：任何容器内部的分割线、列表项之间的界线，必须使用最低视觉噪音的 border-divider，严禁使用 border-base。
+
+## Charts
+  - 所有图表组件默认携带图例、单位、坐标轴功能，不要生成这些元素的UI，只要把数据传给图表组件.
+  - 图表的高度一定要能够占满对应的父容器，否则大量的留白非常丑陋.
+  - 为方便可读性，必须将图表数据Key名转换为中文.
+  - **Constraints:**
+    - 严禁使用`color`属性！
+
+## IMAGE
+  - 将图片资源路径用的渐变色gradient=hex_start,hex_end的两个颜色改成本设计规范中的相关颜色
+
+## Text
+  - *Color:*
+    - 除了上述  on-*-container 中设定的文字颜色外，我们鼓励根据语义场景使用状态色(primary | success | warning | critical | error | info | inverse)，让页面看起更有情感表达和重点
+  - *Size:*
+    - Card Title: Must use `text-lg`. 
+    - Table Content: Must use `text-md`.
+
+## Iconography
+  Encourage the proactive use of icons to establish visual anchors. Icon shape is strictly determined by its Tailwind size.
+  - **Size & Shape Sync:** 
+    - At or below w-6 Must use `outline|fill`. 
+    - Above w-6 Must use `circle|square`.
+  - **Shape (`<Icon shape />`):**
+    - `outline`: Standard UI, inline text, card titles, inputs, secondary navigation, tables, unselected states.
+    - `fill`: active states, feedback, destructive actions.
+    - `circle`: Primarily for global status (Success/Error), empty states.
+    - `square`: Primarily for data metrics, module entries, dashboard grid anchors, file types.
+  - **Color (`<Icon color />`):** 
+    - default | primary | success | warning | error | inverse (Assign via UI semantics).
+  - **Constraints:**
+    - **NO Background shape**: `<Icon/>` component automatically generates its own internal container block. **DO NOT** manually wrap the icon inside any background shape.
+    - **Size & Shape Sync:** At or below w-6 Must use `outline|fill`. Above w-6 Must use `circle|square`.
+    - inverse `color` Must used on dark background

@@ -185,7 +185,7 @@
 
 .studio-detail-cover {
   width: 100%;
-  height: 86px;
+  height: 73px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -198,9 +198,9 @@
 }
 
 .studio-detail-preview-button {
-  width: 64px;
-  min-width: 64px;
-  height: 86px;
+  width: 61px;
+  min-width: 61px;
+  height: 61px;
   overflow: hidden;
   padding: 0;
   border: 2px solid transparent;

@@ -1036,11 +1036,40 @@ export default function StudioPage() {
     return asset
   }
 
+  function autoSetAspectRatioFromDimensions(width: number, height: number) {
+    if (!width || !height) return
+    const imageRatio = width / height
+    const candidates: { key: StudioAspectRatio; value: number }[] = [
+      { key: "1:1", value: 1 },
+      { key: "2:3", value: 2 / 3 },
+      { key: "3:4", value: 3 / 4 },
+      { key: "9:16", value: 9 / 16 },
+      { key: "3:2", value: 3 / 2 },
+      { key: "4:3", value: 4 / 3 },
+      { key: "16:9", value: 16 / 9 },
+    ]
+    let best = candidates[0]
+    let bestDiff = Math.abs(imageRatio - best.value)
+    for (const item of candidates) {
+      const diff = Math.abs(imageRatio - item.value)
+      if (diff < bestDiff) {
+        bestDiff = diff
+        best = item
+      }
+    }
+    setAspectRatio(best.key)
+  }
+
   function addAssets(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
     readStudioAsset(file)
-      .then((asset) => setAssets([asset]))
+      .then((asset) => {
+        setAssets([asset])
+        const img = new Image()
+        img.onload = () => autoSetAspectRatioFromDimensions(img.naturalWidth, img.naturalHeight)
+        img.src = asset.dataUrl
+      })
       .catch((error) => {
         showToast({
           title: "上传失败",
