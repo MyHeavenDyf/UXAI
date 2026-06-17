@@ -7,6 +7,7 @@ import { IconActionCopy, IconActionDownload } from "../../icons"
 import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
 import { showToast } from "@opencode-ai/ui/toast"
+import { tracker } from "@/utils/tracker"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -37,7 +38,7 @@ async function tableToXlsx(md: string, filename: string) {
   await writeXlsxFile(data).toFile(filename)
 }
 
-type DownloadOption = { label: string; onClick: () => void }
+type DownloadOption = { label: string; format: string; onClick: () => void }
 
 function downloadOptions(tab: ResultTab): DownloadOption[] {
   const base = sanitizeFilename(tab.fileName?.replace(/\.[^.]+$/, "") || tab.title)
@@ -47,15 +48,18 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "Markdown (.md)",
+          format: "md",
           onClick: () => downloadBlob(extractTableMarkdown(content), `${base}.md`, "text/markdown;charset=utf-8"),
         },
         {
           label: "CSV (.csv)",
+          format: "csv",
           onClick: () =>
             downloadBlob("﻿" + tableToCSV(content), `${base}.csv`, "text/csv;charset=utf-8"),
         },
         {
           label: "Excel (.xlsx)",
+          format: "xlsx",
           onClick: () => {
             tableToXlsx(content, `${base}.xlsx`).catch((err) => {
               console.error("Excel 导出失败:", err)
@@ -67,6 +71,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "HTML (.html)",
+          format: "html",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.html`, "text/html;charset=utf-8"),
         },
@@ -75,6 +80,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "JSON (.json)",
+          format: "json",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
@@ -83,6 +89,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "JSON (.json)",
+          format: "json",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
@@ -91,6 +98,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "Markdown (.md)",
+          format: "md",
           onClick: () => downloadBlob(content, `${base}.md`, "text/markdown;charset=utf-8"),
         },
       ]
@@ -133,6 +141,11 @@ export function ActionBar(props: {
             disabled={!ready()}
             onClick={() => {
               if (!ready()) return
+              tracker.interaction({
+                module: "insight",
+                name: "result-copy-content",
+                extend: JSON.stringify({ tabType: props.tab.type, viewMode: props.viewMode }),
+              })
               const text = props.tab.type === "table"
                 ? extractTableMarkdown(props.tab.content!)
                 : props.tab.content!
@@ -213,6 +226,11 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
                 style={{ color: "var(--octo-text-primary)" }}
                 onClick={() => {
                   setOpen(false)
+                  tracker.interaction({
+                    module: "insight",
+                    name: "result-download",
+                    extend: JSON.stringify({ format: opt.format, tabType: props.tab.type }),
+                  })
                   opt.onClick()
                 }}
               >

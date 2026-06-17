@@ -14,6 +14,7 @@ import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { getDesktopApi } from "../../lib/electron-api"
+import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 
@@ -130,7 +131,10 @@ function UriTabBody(props: {
         <ResourceErrorFallback
           tab={props.tab}
           error={resource.error}
-          onRetry={() => refetch()}
+          onRetry={() => {
+            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+            void refetch()
+          }}
         />
       }
     >
@@ -276,6 +280,13 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
   }
 
+  // 文件类型维度:优先取文件名扩展名,兜底 mimeType,供打点区分用户在不同类型文件上的操作偏好
+  function trackFileType(): string {
+    const fn = props.tab.fileName ?? ""
+    const ext = fn.includes(".") ? fn.split(".").pop()!.toLowerCase() : ""
+    return ext || props.tab.mimeType || ""
+  }
+
   function defaultFilename(): string {
     if (props.tab.fileName) return sanitize(props.tab.fileName)
     if (props.tab.uri) {
@@ -290,6 +301,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
 
   async function handleOpenInApp() {
     if (!props.tab.uri || openBusy()) return
+    tracker.interaction({ module: "insight", name: "file-open-in-app", extend: JSON.stringify({ fileType: trackFileType() }) })
     const missing = missingDesktopApi(["downloadResourceToTemp", "openPath"])
     if (missing.length > 0) {
       notifyMissingApi(missing)
@@ -334,6 +346,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
 
   async function handleSaveAs() {
     if (!props.tab.uri || downloadBusy()) return
+    tracker.interaction({ module: "insight", name: "file-save-as", extend: JSON.stringify({ fileType: trackFileType() }) })
     const missing = missingDesktopApi(["saveFilePicker", "downloadResource"])
     if (missing.length > 0) {
       notifyMissingApi(missing)
@@ -370,6 +383,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   // 微信桌面端模式:让用户能找到打开过 / 改过的本地文件,自己 cp 到正式位置。
   async function handleRevealInFolder() {
     if (!props.tab.uri || revealBusy()) return
+    tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: trackFileType() }) })
     const missing = missingDesktopApi(["downloadResourceToTemp", "showItemInFolder"])
     if (missing.length > 0) {
       notifyMissingApi(missing)
