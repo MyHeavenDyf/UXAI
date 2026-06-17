@@ -970,22 +970,12 @@ function InsightContent() {
   // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
   function handleCompositionStart() {
     setComposing(true)
-    console.log("[octo:ime] compositionstart")
   }
   function handleCompositionEnd() {
     setComposing(false)
-    console.log("[octo:ime] compositionend")
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
-      console.log("[octo:ime] keydown Enter", {
-        isComposing: e.isComposing,
-        composing: composing(),
-        keyCode: e.keyCode,
-        shiftKey: e.shiftKey,
-      })
-    }
     // 输入法合成期间(如拼音 "nh" 待选)的回车用于确认候选词,不应触发发送。
     // 三重判定兼容各平台:isComposing(标准)/ composing()(macOS 确认回车的兜底)/ keyCode 229
     if (e.isComposing || composing() || e.keyCode === 229) return
