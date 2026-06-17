@@ -101,14 +101,14 @@ export default function StudioPage() {
   })
 
   const slug = createMemo(() => base64Encode(projectDir()))
+  const routeSlug = createMemo(() => params.dir && decode64(params.dir) ? params.dir : slug())
 
   createEffect(
     on(
       () => ({ dir: params.dir, id: params.id }),
       ({ dir, id }) => {
         if (dir && id) {
-          const decoded = decode64(dir)
-          if (decoded) layout.lastSessionPerTab.setStudio(decoded, id)
+          if (decode64(dir) && projectDir()) layout.lastSessionPerTab.setStudio(projectDir(), id)
         }
       },
     ),
@@ -122,12 +122,12 @@ export default function StudioPage() {
     if (!dir) return
     const lastId = layout.lastSessionPerTab.studio(dir)
     if (!lastId || !isValidStudioSession(lastId)) return
-    navigate(`/${slug()}/studio/${lastId}`, { replace: true })
+    navigate(`/${routeSlug()}/studio/${lastId}`, { replace: true })
   })
 
   const [prompt, setPrompt] = createSignal("")
   const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
-  const [styleModel, setStyleModel] = createSignal("qwen")
+  const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
@@ -858,11 +858,11 @@ export default function StudioPage() {
       }),
     )
     if (nextSession) {
-      navigate(`/${slug()}/studio/${nextSession.id}`)
+      navigate(`/${routeSlug()}/studio/${nextSession.id}`)
       return true
     }
     layout.lastSessionPerTab.setStudio(projectDir(), "")
-    navigate(`/${slug()}/studio`)
+    navigate(`/${routeSlug()}/studio`)
     return true
   }
 
@@ -1205,7 +1205,7 @@ export default function StudioPage() {
         if (!sessionID) throw new Error("Unable to create Studio session.")
         if (!existingSession) {
           pendingEditorSessionID = sessionID
-          navigate(`/${slug()}/studio/${sessionID}`)
+          navigate(`/${routeSlug()}/studio/${sessionID}`)
         }
         await createStudioEditorEntry({ sessionID, capability, entryID })
         void loadSessionMessages(sessionID)
@@ -1304,7 +1304,7 @@ export default function StudioPage() {
     setStatus("idle")
     setPendingResult(undefined)
     setSending(false)
-    navigate(`/${slug()}/studio?hint=${Date.now()}`)
+    navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
   }
 
   async function createStudioSession(title?: string) {
@@ -1321,6 +1321,11 @@ export default function StudioPage() {
   }
 
   function buildStudioThinkingText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
+    const isEditorCapability =
+      input.capability === "image.upscale" ||
+      input.capability === "image.cutout" ||
+      input.capability === "image.inpaint" ||
+      input.capability === "image.outpaint"
     const opening =
       input.capability === "image.upscale"
         ? "好的，我将提升当前图片的清晰度和细节。"
@@ -1333,9 +1338,9 @@ export default function StudioPage() {
           : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
     return [
       opening,
-      input.capability === "video.generate" ? undefined : `风格模型：${styleModelLabel(styleModel())}`,
-      `画幅比例：${aspectRatio()}`,
-      `生成数量：${count()}`,
+      input.capability === "video.generate" || isEditorCapability ? undefined : `风格模型：${styleModelLabel(styleModel())}`,
+      isEditorCapability ? undefined : `画幅比例：${aspectRatio()}`,
+      isEditorCapability ? undefined : `生成数量：${count()}`,
       input.sourceImage
         ? "将延续上一轮画面设定重新生成。"
         : undefined,
@@ -1375,9 +1380,9 @@ export default function StudioPage() {
         sessionID: input.sessionID,
         capability: input.capability,
         prompt: input.text,
-        styleModel: input.capability === "video.generate" ? undefined : styleModelLabel(styleModel()),
-        aspectRatio: aspectRatio(),
-        count: count(),
+        styleModel: input.capability === "image.generate" ? styleModelLabel(styleModel()) : undefined,
+        aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? aspectRatio() : undefined,
+        count: input.capability === "image.generate" || input.capability === "video.generate" ? count() : undefined,
         imageTool: "internel",
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
@@ -1539,7 +1544,7 @@ export default function StudioPage() {
       if (currentToken !== generationToken) return
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
-        navigate(`/${slug()}/studio/${sessionID}`)
+        navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
       const generation = await createStudioGeneration({
         sessionID,
@@ -1823,7 +1828,12 @@ export default function StudioPage() {
   return (
     <div class="studio-page" style={{ position: "relative" }}>
       <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={startNewStudioConversation} />
+        <StudioHistory
+          directory={projectDir()}
+          routeSlug={routeSlug()}
+          activeSessionID={params.id}
+          onNewConversation={startNewStudioConversation}
+        />
       </aside>
       <div
         style={{

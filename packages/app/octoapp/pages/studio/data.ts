@@ -11,6 +11,7 @@ export const STUDIO_CAPABILITIES: { id: StudioCapability; label: string; descrip
 ]
 
 export const STUDIO_STYLE_MODELS = [
+  { id: "seedream-5-lite", label: "Seedream 5.0 Lite", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
   { id: "qwen", label: "千问", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
   { id: "bd-icon", label: "BDIcon", color: "linear-gradient(135deg, #5eead4, #3b82f6)" },
   { id: "portrait", label: "质感人像", color: "linear-gradient(135deg, #f59e0b, #fde68a)" },
@@ -23,7 +24,7 @@ export const STUDIO_STYLE_MODELS = [
   { id: "hongmeng", label: "鸿蒙插画", color: "linear-gradient(135deg, #fed7aa, #fecaca)" },
   { id: "hdesign-illustration", label: "H Design插画", color: "linear-gradient(135deg, #93c5fd, #f5f3ff)" },
   { id: "3d-abstract", label: "3D抽象元素", color: "linear-gradient(135deg, #cffafe, #ddd6fe)" },
-]
+].map((item, index) => ({ ...item, iconIndex: item.id === "seedream-5-lite" ? 1 : index }))
 
 export const STUDIO_ASPECT_RATIOS: StudioAspectRatio[] = ["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"]
 

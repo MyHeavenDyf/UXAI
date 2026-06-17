@@ -739,6 +739,14 @@ const defaultInternalStyleConfig = {
 } satisfies InternalStyleConfig
 
 const internalStyleConfigs = [
+  {
+    aliases: ["Seedream 5.0 Lite", "seedream-5-lite"],
+    config: {
+      ...defaultInternalStyleConfig,
+      taskType: "txt2img_jimeng",
+      tagName: "Seedream 5.0 Lite",
+    },
+  },
   { aliases: ["千问", "qwen", "Qwen-Image"], config: defaultInternalStyleConfig },
   {
     aliases: ["BDIcon", "bd-icon", "DBID"],

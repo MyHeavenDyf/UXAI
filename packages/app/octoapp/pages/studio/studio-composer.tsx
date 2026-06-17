@@ -388,14 +388,14 @@ function StyleMenu(props: { value: string; onSelect: (value: string) => void }):
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3">
         <For each={STUDIO_STYLE_MODELS}>
-          {(item, index) => (
+          {(item) => (
             <button
               type="button"
               onClick={() => props.onSelect(item.id)}
               class="studio-style-option"
               classList={{ active: item.id === props.value }}
             >
-              <span class={`studio-style-icon studio-style-icon-${index() + 1}`} />
+              <span class={`studio-style-icon studio-style-icon-${item.iconIndex}`} />
               <span class="studio-style-label">{item.label}</span>
               <Show when={item.id === props.value}>
                 <span class="studio-style-check" />
