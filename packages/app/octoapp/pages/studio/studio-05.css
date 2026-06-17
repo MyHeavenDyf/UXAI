@@ -220,19 +220,24 @@
 }
 
 .studio-detail-section {
-  padding: 16px 0;
+  padding: 12px 0;
   border-top: 1px solid var(--studio-line);
 }
 
-.studio-detail-title,
+.studio-detail-title {
+  margin: 0 0 8px;
+  color: #101828;
+  font-size: 11px;
+  line-height: 17px;
+  font-weight: 600;
+}
 .studio-detail-section-title {
   margin: 0 0 8px;
   color: #101828;
   font-size: 14px;
   line-height: 32px;
-  font-weight: 850;
+  font-weight: 600;
 }
-
 .studio-detail-copy,
 .studio-detail-prompt {
   margin: 0;

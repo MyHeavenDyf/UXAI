@@ -381,7 +381,7 @@
   content: "";
   display: block;
   width: var(--icon-w, 12px);
-  aspect-ratio: var(--icon-ratio, 1 / 1);
+  height: var(--icon-h, 20px);
   border: 1.5px solid #111827;
   border-radius: 3px;
 }
