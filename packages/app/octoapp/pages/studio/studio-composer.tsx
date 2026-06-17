@@ -431,8 +431,8 @@ function ImageSettings(props: {
               <span
                 class="studio-image-settings-ratio-icon"
                 style={{
-                  "aspect-ratio": item.replace(":", " / "),
-                  width: item === "1:1" ? "22px" : item === "2:3" || item === "3:4" || item === "9:16" ? "14px" : "28px",
+                  "--icon-w": item === "1:1" ? "20px" : item === "2:3" ? "12px" : item === "3:4" ? "14px" : item === "9:16" ? "10px" : "20px",
+                  "--icon-h": item === "1:1" ? "20px" : item === "3:2" ? "12px" : item === "4:3" ? "14px" : item === "16:9" ? "10px" : "20px",
                 }}
               />
               <span class="studio-image-settings-ratio-text">{item}</span>
@@ -488,8 +488,8 @@ function VideoSettings(props: {
               <span
                 class="studio-image-settings-ratio-icon"
                 style={{
-                  "aspect-ratio": item.replace(":", " / "),
-                  width: item === "1:1" ? "22px" : item === "9:16" ? "14px" : "28px",
+                  "--icon-w": item === "1:1" ? "20px" : item === "9:16" ? "10px" : "20px",
+                  "--icon-h": item === "1:1" ? "20px" : item === "16:9" ? "10px" : "20px",
                 }}
               />
               <span class="studio-image-settings-ratio-text">{item}</span>

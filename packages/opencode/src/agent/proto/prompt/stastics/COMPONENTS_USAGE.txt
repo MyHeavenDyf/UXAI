@@ -1,0 +1,15 @@
+# Side Navigation
+  - 侧边栏的菜单必须使用`Menu`组件，不要使用`Tab`组件
+
+# Header Navigation
+  - 头部导航的菜单必须使用`Menu`组件，不要使用`Tab`组件
+
+# Card
+  - 卡片右上角的多选/切换功能，优先使用`Segmented`
+
+# TopN Chart Rules
+  - **Multi-Series Data (Highest Priority):** - Rule: MUST use `BarChart`.
+  - **Percentage / Ratio Values:** - Rule: Use `ProcessChart`.
+    - Data Format: `[{"name": "A", "value": 45}, {"name": "B", "value": 80}]`
+  - **Absolute Values:** - Rule: Use `HillChart`.
+   - Data Format: `[{"name": "A", "value": 1250}, {"name": "B", "value": 840}]`

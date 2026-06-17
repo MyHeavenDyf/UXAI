@@ -13,6 +13,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
+import { tracker } from "@/utils/tracker"
 
 /**
  * ConversationHeader —— Insight 对话面板顶部的会话标题栏
@@ -92,6 +93,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
     setPending(true)
     try {
       await sdk.client.session.update({ sessionID: id, title: next })
+      tracker.interaction({ module: "insight", name: "session-rename", extend: JSON.stringify({ entry: "header" }) })
       sync.set(
         produce((draft) => {
           const index = draft.session.findIndex((s) => s.id === id)
@@ -109,6 +111,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
   const deleteSession = async (id: string) => {
     try {
       await sdk.client.session.delete({ sessionID: id })
+      tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "header" }) })
       sync.set(
         produce((draft) => {
           draft.session = draft.session.filter((s) => s.id !== id)
