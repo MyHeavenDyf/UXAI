@@ -62,8 +62,13 @@ function getExt(filename: string): string {
 const FILENAME_DISALLOWED = /[^\p{L}\p{N} #./[\]^_`{}-]/gu
 
 export function sanitizeFileName(name: string): string {
-  const cleaned = name.replace(FILENAME_DISALLOWED, "")
-  return cleaned.trim() || "file"
+  const cleaned = name.replace(FILENAME_DISALLOWED, "").trim()
+  if (!cleaned) return "file"
+  // 主名为空（如 ".txt"，或清洗后只剩扩展名的 "***.txt"）：客户端 getExt 会认成合法扩展名放行，
+  // 但服务端按空主名判为非法类型(415「不支持的文件类型」)，白跑一趟。这里就地补 "file" 主名
+  // → ".txt" / "***.txt" 都成 "file.txt"，与上面的整串兜底同源。
+  if (cleaned.startsWith(".")) return "file" + cleaned
+  return cleaned
 }
 
 export function validateFile(file: File): UploadError | null {
