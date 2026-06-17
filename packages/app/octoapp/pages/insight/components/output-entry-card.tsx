@@ -56,6 +56,7 @@ function previewEntryLabel(card: OutputCard): string {
     case "table": return "分析表格"
     case "markdown": return "Markdown 文档"
     case "json": return "JSON 数据"
+    case "code": return card.fileName || "代码文件"
     case "file": return card.fileName || "文件"
   }
 }
