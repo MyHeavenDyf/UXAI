@@ -1,0 +1,95 @@
+{
+  "name": "CollapseItem",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    },
+		"SlotNode": {
+      "type": "object",
+      "required": ["componentId"],
+      "description": "Slot binding: Reference to a specific child node.",
+      "properties": {
+        "componentId": {
+          "type": "string",
+          "description": "Unique ID for cross-referencing."
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "CollapseItem"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "key": { 
+          "oneOf": [
+            { "type": "string" },
+						{ "$ref": "#/$defs/DataBinding" }
+					],
+          "description": "Required unique key for the CollapseItem." 
+        },
+        "label": { 
+          "oneOf": [
+            { "type": "string" },
+						{ "$ref": "#/$defs/DataBinding" }
+					],
+          "description": "Title of the panel."
+        },
+        "extra": { 
+          "oneOf": [{
+							"type": "string",
+							"description": "Raw text content to render directly (e.g., 'Submit', 'Hello World')."
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						},
+						{
+							"$ref": "#/$defs/SlotNode"
+						}
+					],
+          "description": "The extra element in the CollapseItem."
+        },
+        "content": { 
+          "oneOf": [{
+							"type": "string",
+							"description": "Raw text content to render directly (e.g., 'Submit', 'Hello World')."
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						},
+						{
+							"$ref": "#/$defs/SlotNode"
+						}
+					],
+          "description": "Component payload. Can be raw literal text OR a structural node reference."
+        }
+      },
+      "required": ["key"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}
