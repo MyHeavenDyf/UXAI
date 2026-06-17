@@ -13,7 +13,9 @@ import { stripCodeFence } from "../../utils/detect"
 import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
+import { langFromPath, canOpenLocally } from "../../utils/write-output"
 import { getDesktopApi } from "../../lib/electron-api"
+import { useSDK } from "@/context/sdk"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 
@@ -92,17 +94,61 @@ export function ResultViewer(props: {
   )
 }
 
-// ── Tab 内容容器:按 source 分流(inline 直渲染 / uri 走 fetch + Suspense) ──
+// ── Tab 内容容器:按 source 分流(inline 直渲染 / uri 走 fetch / path 走 SDK 读盘) ──
 function TabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   return (
+    <Switch fallback={<TabContent tab={props.tab} />}>
+      {/* path 模式(路径 C,write 文本产物):走 SDK file.read 读盘取最新内容,不复用快照。
+          见 output-renderers.md §2.6.3。file 类型(表格/office/二进制)不读盘,直接 fallback 到
+          TabContent → FileFallback(本地 openPath / showItemInFolder)。 */}
+      <Match when={props.tab.source === "path" && props.tab.type !== "file"}>
+        <PathTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      </Match>
+      {/* uri 模式未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
+      <Match when={props.tab.source === "uri" && !props.tab.content}>
+        <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      </Match>
+    </Switch>
+  )
+}
+
+// path 模式:write 工具写到本地的文件,用 opencode SDK `file.read` 读盘(零新增 IPC,
+// 与 review-tab.tsx 的 readFile 同源)。每次挂载都重读 → 文件被后续 write 覆盖也能反映最新。
+// 读到 text 后走与 uri/inline 完全相同的按 type 分发(TabContent)。见 output-renderers.md §2.6.3。
+function PathTabBody(props: {
+  tab: ResultTab
+  onCacheContent?: (id: string, content: string) => void
+}): JSX.Element {
+  const sdk = useSDK()
+  // source 必须返回稳定的 path 字符串(而非新对象):createResource 按值比较,
+  // 字符串不变就不会重 fetch。否则 onCacheContent 回写 content → props.tab 换新对象
+  // → source 重跑返回新对象 → 触发重 fetch → 又回写 → 死循环(path 分支常挂载断不了)。
+  const [resource, { refetch }] = createResource(
+    () => props.tab.filePath ?? null,
+    async (path) => {
+      console.log("[octo:path] read start", { path })
+      const res = await sdk.client.file.read({ path })
+      const data = res.data as unknown
+      // 兼容 SDK 返回 string(直接内容)或 FileContent({ content })两种形态
+      const text = typeof data === "string" ? data : ((data as { content?: string } | null)?.content ?? "")
+      console.log("[octo:path] read ok", { path, bytes: text.length })
+      // 回写 cache 供 ActionBar 复制/下载;显示仍由本组件渲染 resource() 保证已读最新
+      props.onCacheContent?.(props.tab.id, text)
+      return text
+    },
+  )
+
+  return (
     <Show
-      when={props.tab.source === "uri" && !props.tab.content}
-      fallback={<TabContent tab={props.tab} />}
+      when={!resource.error}
+      fallback={<PathErrorFallback tab={props.tab} error={resource.error} onRetry={() => refetch()} />}
     >
-      <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      <Show when={!resource.loading} fallback={<ResourceLoading />}>
+        <TabContent tab={{ ...props.tab, content: resource() ?? "" }} />
+      </Show>
     </Show>
   )
 }
@@ -191,6 +237,11 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
       <Match when={props.tab.type === "json"}>
         <SourceCodeView content={content()} lang="json" />
       </Match>
+      <Match when={props.tab.type === "code"}>
+        {/* 路径 C 通用代码/纯文本(.py/.ts/.csv/.txt/…):shiki 按扩展名高亮,单视图。
+            lang 从 filePath 推断(见 write-output.langFromPath)。 */}
+        <SourceCodeView content={content()} lang={langFromPath(props.tab.filePath ?? "")} />
+      </Match>
       <Match when={props.tab.type === "file"}>
         <FileFallback tab={props.tab} />
       </Match>
@@ -246,6 +297,32 @@ function ResourceErrorFallback(props: {
   )
 }
 
+// path 模式读盘失败(文件被删 / 路径不存在 / SDK 异常):显示路径 + 重试。
+function PathErrorFallback(props: {
+  tab: ResultTab
+  error: unknown
+  onRetry: () => void
+}): JSX.Element {
+  const message = () => (props.error instanceof Error ? props.error.message : String(props.error))
+  return (
+    <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
+      <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>读取本地文件失败</div>
+      <div class="text-xs break-all" style={{ color: "var(--octo-text-disabled)" }}>
+        {props.tab.filePath}
+      </div>
+      <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>{message()}</div>
+      <button
+        type="button"
+        onClick={() => props.onRetry()}
+        class="px-3 py-1 text-xs rounded mt-1"
+        style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
+      >
+        重试
+      </button>
+    </div>
+  )
+}
+
 // 二进制 / 未识别 mimeType:不在内嵌渲染,提供三按钮(用本地应用打开 / 在文件夹中打开 / 另存为)。
 // spec: docs/specs/ui/output-renderers.md §6.A,决策: ADR-009。
 //
@@ -288,8 +365,33 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     return sanitize(props.tab.title || "download")
   }
 
+  // path 源(write 产物):文件已在本地磁盘,直接 openPath(filePath),无需下载。
+  const isPath = () => props.tab.source === "path" && !!props.tab.filePath
+
   async function handleOpenInApp() {
-    if (!props.tab.uri || openBusy()) return
+    if (openBusy()) return
+    if (isPath()) {
+      const missing = missingDesktopApi(["openPath"])
+      if (missing.length > 0) { notifyMissingApi(missing); return }
+      const api = getDesktopApi()!
+      setOpenBusy(true)
+      const filePath = props.tab.filePath!
+      console.log("[octo:path] open-local", { filePath })
+      try {
+        const openResult = (await api.openPath!(filePath)) as unknown as string | undefined
+        if (typeof openResult === "string" && openResult.length > 0) {
+          console.error("[octo:path] open-failed", { filePath, reason: openResult })
+          showToast({ title: "唤起本地应用失败", description: "请安装对应应用或在系统设置中关联打开方式", variant: "error" })
+        }
+      } catch (err) {
+        console.error("[octo:path] open-failed", { filePath, err })
+        showToast({ title: "无法打开文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      } finally {
+        setOpenBusy(false)
+      }
+      return
+    }
+    if (!props.tab.uri) return
     const missing = missingDesktopApi(["downloadResourceToTemp", "openPath"])
     if (missing.length > 0) {
       notifyMissingApi(missing)
@@ -369,7 +471,22 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   // 在系统文件管理器中定位本地副本(如未下载先 download-to-temp,与"用本地应用打开"共用缓存)。
   // 微信桌面端模式:让用户能找到打开过 / 改过的本地文件,自己 cp 到正式位置。
   async function handleRevealInFolder() {
-    if (!props.tab.uri || revealBusy()) return
+    if (revealBusy()) return
+    if (isPath()) {
+      const missing = missingDesktopApi(["showItemInFolder"])
+      if (missing.length > 0) { notifyMissingApi(missing); return }
+      const api = getDesktopApi()!
+      const filePath = props.tab.filePath!
+      console.log("[octo:path] reveal-local", { filePath })
+      try {
+        api.showItemInFolder!(filePath)
+      } catch (err) {
+        console.error("[octo:path] reveal-failed", { filePath, err })
+        showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+      }
+      return
+    }
+    if (!props.tab.uri) return
     const missing = missingDesktopApi(["downloadResourceToTemp", "showItemInFolder"])
     if (missing.length > 0) {
       notifyMissingApi(missing)
@@ -416,23 +533,26 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
 
         <div style={{ width: "100%", "max-width": "400px", height: "1px", background: "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.07) 50%, transparent 100%)", "margin-bottom": "20px" }} />
 
-        <Show when={props.tab.uri} fallback={
-          <div style={{ "font-size": "13px", color: "var(--octo-text-disabled)" }}>无远程地址，无法打开 / 下载</div>
+        <Show when={props.tab.uri || isPath()} fallback={
+          <div style={{ "font-size": "13px", color: "var(--octo-text-disabled)" }}>无文件地址，无法打开 / 下载</div>
         }>
           <div style={{ display: "flex", gap: "12px", "flex-wrap": "wrap", "justify-content": "center" }}>
-            <button
-              type="button"
-              onClick={() => void handleOpenInApp()}
-              disabled={openBusy()}
-              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "none", background: "rgb(10,89,247)", color: "#fff", "font-size": "13px", "font-weight": 500, cursor: openBusy() ? "not-allowed" : "pointer", opacity: openBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
-                <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="#fff" stroke-width="1.4"/>
-                <path d="M5.5 14.5h5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
-                <path d="M8 12v2.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
-              </svg>
-              {openBusy() ? "打开中…" : "本地打开"}
-            </button>
+            {/* path 源的可执行/库类(canOpenLocally=false)隐藏"本地打开",只留"文件夹打开" */}
+            <Show when={!isPath() || canOpenLocally(props.tab.filePath ?? "")}>
+              <button
+                type="button"
+                onClick={() => void handleOpenInApp()}
+                disabled={openBusy()}
+                style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "none", background: "rgb(10,89,247)", color: "#fff", "font-size": "13px", "font-weight": 500, cursor: openBusy() ? "not-allowed" : "pointer", opacity: openBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+              >
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                  <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="#fff" stroke-width="1.4"/>
+                  <path d="M5.5 14.5h5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+                  <path d="M8 12v2.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+                </svg>
+                {openBusy() ? "打开中…" : "本地打开"}
+              </button>
+            </Show>
             <button
               type="button"
               onClick={() => void handleRevealInFolder()}
@@ -442,18 +562,21 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
               <img src={folderBlueUrl} width={14} height={12} alt="" aria-hidden="true" />
               {revealBusy() ? "定位中…" : "文件夹打开"}
             </button>
-            <button
-              type="button"
-              onClick={() => void handleSaveAs()}
-              disabled={downloadBusy()}
-              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
-            >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
-                <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              </svg>
-              {downloadBusy() ? "保存中…" : "下载"}
-            </button>
+            {/* 另存为仅 uri 源(远程产物 downloadResource);path 源文件已在本地,用"文件夹打开"代替,见 §2.6 差异表 */}
+            <Show when={!isPath()}>
+              <button
+                type="button"
+                onClick={() => void handleSaveAs()}
+                disabled={downloadBusy()}
+                style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+              >
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                  <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M2.5 11.5v1A1.5 1.5 0 004 14h8a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+                {downloadBusy() ? "保存中…" : "下载"}
+              </button>
+            </Show>
           </div>
         </Show>
       </div>
