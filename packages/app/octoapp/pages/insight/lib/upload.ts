@@ -48,7 +48,10 @@ export class UploadError extends Error {
 
 function getExt(filename: string): string {
   const dot = filename.lastIndexOf(".")
-  if (dot < 0 || dot === filename.length - 1) return ""
+  // 与 Node path.parse / Python os.path.splitext 一致：开头的点不算扩展名分隔符，
+  // 即 ".txt" / ".env" 视为「没有扩展名的隐藏文件」(dot===0)，而非 "txt" 扩展名。
+  // 这样真·dotfile 会落到 validateFile 的 EXT_NOT_ALLOWED，被客户端清晰拒掉。
+  if (dot <= 0 || dot === filename.length - 1) return ""
   return filename.slice(dot + 1).toLowerCase()
 }
 
@@ -59,16 +62,14 @@ function getExt(filename: string): string {
 // 允许保留：字母 / 数字 / 各类文字（含中文等 Unicode 字母）+ 以下特殊字符与空格：
 //   # - . / [ ] ^ _ ` { } 和空格
 // 其余字符一律删除。删空后兜底为 "file"（极端情况下整名都是非法字符）。
+//
+// 本函数只去非法字符、不造主名：形如 ".txt"、或清洗后塌成 ".txt" 的 "***.txt"，属
+// 「无扩展名的隐藏文件」(见 getExt：开头的点不算扩展名)，交由 validateFile 以
+// EXT_NOT_ALLOWED 清晰拒掉，而非偷偷改名成 file.txt 再上传。
 const FILENAME_DISALLOWED = /[^\p{L}\p{N} #./[\]^_`{}-]/gu
 
 export function sanitizeFileName(name: string): string {
-  const cleaned = name.replace(FILENAME_DISALLOWED, "").trim()
-  if (!cleaned) return "file"
-  // 主名为空（如 ".txt"，或清洗后只剩扩展名的 "***.txt"）：客户端 getExt 会认成合法扩展名放行，
-  // 但服务端按空主名判为非法类型(415「不支持的文件类型」)，白跑一趟。这里就地补 "file" 主名
-  // → ".txt" / "***.txt" 都成 "file.txt"，与上面的整串兜底同源。
-  if (cleaned.startsWith(".")) return "file" + cleaned
-  return cleaned
+  return name.replace(FILENAME_DISALLOWED, "").trim() || "file"
 }
 
 export function validateFile(file: File): UploadError | null {
