@@ -65,7 +65,6 @@
 
 .studio-details-primary-action:hover:not(:disabled) {
   filter: brightness(1.04);
-  box-shadow: 0 8px 18px rgba(116, 87, 255, 0.16);
   transform: translateY(-1px);
 }
 
@@ -81,6 +80,7 @@
   justify-content: center;
   gap: 4px;
   background: #f3f4f6;
+  box-shadow: none;
   transition: transform 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
@@ -92,7 +92,6 @@
 
 .studio-details-secondary-action:hover:not(:disabled) {
   background: #e9ebef;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
   transform: translateY(-1px);
 }
 
