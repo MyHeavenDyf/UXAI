@@ -156,7 +156,9 @@ function readPart(part: unknown, branchHits?: { A: number; B: number; C1: number
 export function mimeToOutputType(mimeType: string): OutputCardType {
   if (mimeType === "text/html") return "html"
   if (mimeType === "text/markdown") return "markdown"
-  if (mimeType === "application/json") return "json"
+  // application/json 统一走 mindmap 卡:是思维导图 shape→markmap,否则渲染时降级 json 源
+  // (与路径 C 的 .json 一套规则;business_type:"mindmap" 也汇到这里。见 output-renderers.md §2.5.2)
+  if (mimeType === "application/json") return "mindmap"
   if (mimeType === "text/csv") return "table"
   // pdf / office / image / 其他二进制走 file fallback(下载按钮 / openPath)
   return "file"
