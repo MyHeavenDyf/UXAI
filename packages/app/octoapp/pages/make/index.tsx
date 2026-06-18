@@ -47,7 +47,7 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
@@ -1051,14 +1051,16 @@ if (dsId) {
     const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
     
     if (latestSnapshot) {
-      // Use edited version from localStorage
+      const snapshotTab = latestSnapshot.tab
+      if (snapshotTab.type === "local-file") return
+      
       card = {
-        id: latestSnapshot.tab.id,
-        title: latestSnapshot.tab.title,
-        type: latestSnapshot.tab.type,
-        content: latestSnapshot.tab.content,
-        filePath: latestSnapshot.tab.filePath,
-        artifactIdentifier: latestSnapshot.tab.artifactIdentifier,
+        id: snapshotTab.id,
+        title: snapshotTab.title,
+        type: snapshotTab.type as OutputCardType,
+        content: snapshotTab.content,
+        filePath: snapshotTab.filePath,
+        artifactIdentifier: snapshotTab.artifactIdentifier,
         createdAt: new Date(latestSnapshot.timestamp),
       }
       console.log("[MakePage] Restored edited version from localStorage:", card.id)
@@ -1104,6 +1106,30 @@ if (dsId) {
         console.error("[MakePage] auto-save artifact failed:", err)
       })
     }
+  }
+
+  function handleOpenLocalFile(relativePath: string) {
+    const dir = projectDir()
+    if (!dir) return
+    
+    const normalizedDir = dir.replace(/\\/g, '/')
+    const normalizedRelative = relativePath.replace(/\\/g, '/')
+    
+    let absolutePath = normalizedDir
+    if (!absolutePath.endsWith('/') && !normalizedRelative.startsWith('/')) {
+      absolutePath += '/'
+    }
+    absolutePath += normalizedRelative
+    absolutePath = absolutePath.replace(/\/+/g, '/')
+    
+    const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
+    
+    tabStore.openLocalFileTab({
+      id: tabId,
+      title: relativePath.split(/[/\\]/).pop() ?? relativePath,
+      absoluteFilePath: absolutePath,
+      createdAt: new Date(),
+    })
   }
 
   /** 继续生成（追加被截断的内容作为 prompt） */
@@ -1430,6 +1456,8 @@ if (dsId) {
                         blockTime={blockTime()}
                         onAbort={halt}
                         onOpenResult={handleOpenResult}
+                        onOpenLocalFile={handleOpenLocalFile}
+                        projectDir={projectDir()}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
@@ -1670,8 +1698,16 @@ if (dsId) {
                 snapshots={snapshotList()}
                 onRestore={(id) => {
                   const tab = snapshotStore.restore(id)
-                  if (tab) {
-                    tabStore.openTab(tab)
+                  if (tab && tab.type !== "local-file") {
+                    tabStore.openTab({
+                      id: tab.id,
+                      title: tab.title,
+                      type: tab.type as OutputCardType,
+                      content: tab.content,
+                      filePath: tab.filePath,
+                      artifactIdentifier: tab.artifactIdentifier,
+                      createdAt: tab.createdAt,
+                    })
                   }
                 }}
                 onRemove={(id) => {

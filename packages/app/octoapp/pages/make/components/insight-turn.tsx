@@ -501,6 +501,8 @@ export function InsightTurn(props: {
   blockTime?: number
   onAbort?: () => void
   onOpenResult: (card: OutputCard) => void
+  onOpenLocalFile?: (filePath: string) => void
+  projectDir?: string
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
@@ -1210,7 +1212,13 @@ const stateStatus = state.status as string | undefined
             {(seg) => {
               if (seg.kind === "text") {
                 if (seg.text.trim().length === 0) return null
-                return <Markdown text={seg.text} />
+                return (
+                  <Markdown
+                    text={seg.text}
+                    onOpenLocalFile={props.onOpenLocalFile}
+                    projectDir={props.projectDir}
+                  />
+                )
               }
               if (seg.kind === "form") {
                 return (

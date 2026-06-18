@@ -313,8 +313,8 @@ export function ActionBar(props: {
     await downloadBlob(content, info.filename, info.mime)
   }
 
-  const canToggleMode = props.tab.type === "html" || props.tab.type === "svg"
-  const showViewport = props.tab.type === "html"
+  const canToggleMode = () => props.tab.type === "html" || props.tab.type === "svg"
+  const showViewport = () => props.tab.type === "html"
 
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
@@ -322,7 +322,7 @@ export function ActionBar(props: {
   return (
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
-        {showViewport && props.onRefresh && (
+        {showViewport() && props.onRefresh && (
           <button
             type="button"
             class="octo-action-btn"
@@ -332,14 +332,14 @@ export function ActionBar(props: {
             <IconRefresh size={13} />
           </button>
         )}
-        {canToggleMode && props.onModeChange && (
+        {canToggleMode() && props.onModeChange && (
           <Dropdown
             options={MODE_OPTIONS}
             value={currentMode()}
             onChange={() => props.onModeChange!()}
           />
         )}
-        {showViewport && props.onViewportChange && (
+        {showViewport() && props.onViewportChange && (
           <Dropdown
             options={VIEWPORT_OPTIONS}
             value={currentViewport()}
@@ -349,7 +349,7 @@ export function ActionBar(props: {
         <div class="octo-action-bar-divider" />
       </div>
       <div class="octo-action-bar-right">
-        {showViewport && props.onPaletteChange && (
+        {showViewport() && props.onPaletteChange && (
           <div class="flex items-center gap-[2px] mr-1 hidden">
             <button
               type="button"
@@ -379,7 +379,7 @@ export function ActionBar(props: {
             </For>
           </div>
         )}
-        {showViewport && props.onInspectToggle && (
+        {showViewport() && props.onInspectToggle && (
           <button
             type="button"
             class="octo-action-btn"
@@ -391,7 +391,7 @@ export function ActionBar(props: {
             <span>检查</span>
           </button>
         )}
-        {showViewport && props.onDrawToggle && (
+        {showViewport() && props.onDrawToggle && (
           <button
             type="button"
             class="octo-action-btn"
@@ -403,7 +403,7 @@ export function ActionBar(props: {
             <span>标注</span>
           </button>
         )}
-        {showViewport && props.onEditToggle && (
+        {showViewport() && props.onEditToggle && (
           <button
             type="button"
             class="octo-action-btn"
@@ -415,11 +415,13 @@ export function ActionBar(props: {
             <span>编辑</span>
           </button>
         )}
-        <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>
-          <IconActionCopy size={13} />
-          <span>复制</span>
-        </button>
-        <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
+        <Show when={props.tab.type !== "local-file"}>
+          <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>
+            <IconActionCopy size={13} />
+            <span>复制</span>
+          </button>
+          <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
+        </Show>
         <Show when={props.onFocusModeToggle}>
           <button
             type="button"
