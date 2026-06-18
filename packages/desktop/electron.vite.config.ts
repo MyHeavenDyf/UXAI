@@ -41,6 +41,9 @@ export default defineConfig(({ mode }) => {
     main: {
       define: {
         "import.meta.env.OCTO_CHANNEL": JSON.stringify(channel),
+        // 内网知识库 base:独立变量(不复用 VITE_OCTO_BASE_URL,避免与渠道默认值耦合)。
+        // 由 .env[.beta/.prod] 的 OCTO_KB_BASE_URL 提供,经 createSidecarEnv 注入 sidecar 供 knowledge_search 读。
+        "import.meta.env.OCTO_KB_BASE_URL": JSON.stringify(env.OCTO_KB_BASE_URL ?? ""),
       },
       build: {
         rollupOptions: {

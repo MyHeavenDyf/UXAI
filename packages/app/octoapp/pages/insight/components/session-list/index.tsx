@@ -11,6 +11,7 @@ import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { sessionTitle } from "@/utils/session-title"
+import { tracker } from "@/utils/tracker"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -121,6 +122,7 @@ export function InsightSessionList(): JSX.Element {
     if (!next) return
     try {
       await globalSDK.client.session.update({ sessionID: sessionId, title: next })
+      tracker.interaction({ module: "insight", name: "session-rename", extend: JSON.stringify({ entry: "menu" }) })
     } catch (err) {
       console.error("[insight:session-list] rename failed", err)
     }
@@ -129,6 +131,7 @@ export function InsightSessionList(): JSX.Element {
   async function handleDelete(sessionId: string) {
     try {
       await globalSDK.client.session.delete({ sessionID: sessionId })
+      tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
       if (activeSessionId() === sessionId) navigate("/insight")
     } catch (err) {
       console.error("[insight:session-list] delete failed", err)
@@ -198,6 +201,9 @@ export function InsightSessionList(): JSX.Element {
                       type="button"
                       onClick={() => {
                         notification.session.markViewed(session.id)
+                        if (!isActive()) {
+                          tracker.interaction({ module: "insight", name: "session-switch", extend: JSON.stringify({ targetSessionId: session.id }) })
+                        }
                         navigate(`/insight/${session.id}`)
                       }}
                       onContextMenu={(e) => {
@@ -302,6 +308,7 @@ export function InsightSessionList(): JSX.Element {
         <DropdownMenu.Portal>
           <DropdownMenu.Content
             style={{ "min-width": "104px" }}
+            collisionPadding={24}
             onCloseAutoFocus={(event) => {
               const id = pendingRenameId()
               if (id) {

@@ -1478,7 +1478,7 @@ const stateStatus = state.status as string | undefined
       <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
         {(() => {
           const bt = props.blockTime!
-          const isWarning = bt >= 80
+          const isWarning = bt >= 180
           return (
             <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",

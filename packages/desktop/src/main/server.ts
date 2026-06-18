@@ -238,6 +238,12 @@ function createSidecarEnv(): Record<string, string> {
   )
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
+  // 把内网知识库 base 注入 sidecar 供 knowledge_search 读(sidecar 进程读不到 .env / VITE_,
+  // 故从 main 的编译期常量 import.meta.env.OCTO_KB_BASE_URL 透传)。
+  // 已通过 shell/cross-env 显式设置 OCTO_KB_BASE_URL(如外网指 mock)时不覆盖。
+  if (!env.OCTO_KB_BASE_URL && import.meta.env.OCTO_KB_BASE_URL) {
+    env.OCTO_KB_BASE_URL = import.meta.env.OCTO_KB_BASE_URL
+  }
   return env
 }
 

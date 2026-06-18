@@ -63,7 +63,7 @@
   border: 0;
   background: transparent;
   color: #191919;
-  font-size: 15px;
+  font-size: 12px;
   line-height: 24px;
   white-space: nowrap;
   cursor: pointer;
@@ -82,7 +82,6 @@
   min-height: 180px;
   margin-top: 8px;
   overflow: hidden;
-  border-radius: 12px;
   background: #fff;
 }
 
@@ -423,7 +422,6 @@
   display: block;
   object-fit: contain;
   border-radius: 6px;
-  box-shadow: 0 12px 34px rgba(17, 24, 39, 0.14);
 }
 
 .studio-video-player-anchor {
@@ -827,4 +825,51 @@
   line-height: 100%;
   white-space: nowrap;
   transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.studio-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  animation: studioFadeIn 0.2s ease-out;
+}
+
+.studio-fullscreen-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 10;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.studio-fullscreen-close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.studio-fullscreen-image {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 4px;
+  cursor: default;
+}
+
+@keyframes studioFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

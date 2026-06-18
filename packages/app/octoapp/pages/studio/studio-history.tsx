@@ -1,5 +1,4 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { base64Encode } from "@opencode-ai/core/util/encode"
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
@@ -31,7 +30,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-export function StudioHistory(props: { directory: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
+export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
@@ -143,11 +142,11 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
   const navigateAfterSessionRemoval = (sessionID: string, nextSessionID?: string) => {
     if (props.activeSessionID !== sessionID) return
     if (nextSessionID) {
-      navigate(`/${base64Encode(props.directory)}/studio/${nextSessionID}`)
+      navigate(`/${props.routeSlug}/studio/${nextSessionID}`)
       return
     }
     layout.lastSessionPerTab.setStudio(props.directory, "")
-    navigate(`/${base64Encode(props.directory)}/studio`)
+    navigate(`/${props.routeSlug}/studio`)
   }
 
   const deleteSession = async (session: Session) => {
@@ -275,7 +274,7 @@ export function StudioHistory(props: { directory: string; activeSessionID?: stri
                             when={title.editingID === session.id}
                             fallback={
                               <a
-                                href={`/${base64Encode(props.directory)}/studio/${session.id}`}
+                                href={`/${props.routeSlug}/studio/${session.id}`}
                                 class="flex items-center w-full rounded-[8px] transition-colors"
                                 style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
                                 classList={{
