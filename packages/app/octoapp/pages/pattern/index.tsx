@@ -391,9 +391,7 @@ function PatternContent() {
         }
       }
     }
-    if (Object.keys(data.componentProps || {}).length > 0) {
-      previewApi.refresh()
-    }
+    previewApi.refresh()
 
   }
 

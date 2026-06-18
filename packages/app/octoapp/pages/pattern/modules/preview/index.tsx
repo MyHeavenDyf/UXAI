@@ -49,7 +49,7 @@ export function PreviewPage(props: {
 
   
   function triggerRefresh() {
-    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51856"
+    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51857"
   }
 
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
@@ -152,6 +152,11 @@ export function PreviewPage(props: {
     setPickerText('')
     setPickerVisible(true)
     hideCtxMenu()
+  }
+
+  function handleSelectParent() {
+    previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_SELECT_PARENT" }, "*")
+    closeCtxMenu()
   }
 
   function handleQuickModify() {
@@ -303,7 +308,7 @@ export function PreviewPage(props: {
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
-          src="http://127.0.0.1:51856"
+          src="http://127.0.0.1:51857"
           onLoad={() => {
             if (props.pendingData) sendToPreview(props.pendingData)
           }}
@@ -314,6 +319,7 @@ export function PreviewPage(props: {
       <Show when={ctxMenu.show}>
         <div class="dom-picker-ctx-menu" style={{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }}
              onClick={(e) => e.stopPropagation()}>
+          <div class="ctx-menu-item" onClick={handleSelectParent}>选择父容器</div>
           <div class="ctx-menu-item" onClick={handleCopyName}>复制名称</div>
           <div class="ctx-menu-item" onClick={handleSelectArea}>AI修改</div>
           <div class="ctx-menu-item" onClick={handleQuickModify}>快速修改</div>
