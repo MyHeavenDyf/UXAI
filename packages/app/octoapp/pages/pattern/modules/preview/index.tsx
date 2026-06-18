@@ -18,6 +18,7 @@ export function PreviewPage(props: {
   pendingData?: unknown
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onDownload?: () => void
+  onLivePreview?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -38,6 +39,11 @@ export function PreviewPage(props: {
 
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
     console.log(`切换类型: ${type}, 选中值: ${value}`)
+
+    if (type === "preview" && value === "live") {
+      props.onLivePreview?.()
+      return
+    }
 
     if (type === "zoom" && value === "auto") {
       canvasRef?.reset()

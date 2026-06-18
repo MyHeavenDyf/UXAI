@@ -646,6 +646,31 @@ function PatternContent() {
     URL.revokeObjectURL(url)
   }
 
+  async function handleLivePreview() {
+    const data = pendingPreviewData()
+    if (!data) {
+      showToast({ title: "暂无可预览的内容" })
+      return
+    }
+    const desktopApi = (window as unknown as {
+      api?: {
+        getPreviewDistDir?: () => Promise<string>
+        writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
+      }
+    }).api
+
+    const dir = await desktopApi?.getPreviewDistDir?.()
+    if (!dir || !desktopApi?.writeFileBuffer) {
+      showToast({ title: "当前环境不支持实时预览" })
+      return
+    }
+
+    const jsonStr = typeof data === "string" ? data : JSON.stringify(data)
+    const buffer = new TextEncoder().encode(jsonStr).buffer
+    await desktopApi.writeFileBuffer(`${dir}/live-data.json`, buffer)
+    window.open("http://127.0.0.1:51856?fetch=live-data.json")
+  }
+
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
 
   const chartInputProps = () => ({
@@ -718,6 +743,7 @@ function PatternContent() {
                 pendingData={pendingPreviewData()}
                 onPickerSubmit={handlePickerSubmit}
                 onDownload={handleDownload}
+                onLivePreview={handleLivePreview}
                 versions={versions()}
                 currentVersionId={currentVersionId()}
                 onSelectVersion={(vid) => { void handleSelectVersion(vid) }}

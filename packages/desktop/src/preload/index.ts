@@ -81,6 +81,7 @@ const api: ElectronAPI = {
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),
   cssToTailwind: (cssObject) => ipcRenderer.invoke("css-to-tailwind", cssObject),
+  getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
 }

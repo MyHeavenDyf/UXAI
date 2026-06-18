@@ -9,6 +9,10 @@ import { app } from "electron"
 const root = dirname(fileURLToPath(import.meta.url))
 const PREVIEW_PORT = 51856
 
+export function previewDistDir() {
+  return app.isPackaged ? join(process.resourcesPath, "previewdist") : join(root, "../../../previewdist")
+}
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
@@ -30,7 +34,7 @@ const MIME: Record<string, string> = {
 }
 
 export function startPreviewServer() {
-  const dir = app.isPackaged ? join(process.resourcesPath, "previewdist") : join(root, "../../../previewdist")
+  const dir = previewDistDir()
 
   const server = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*")
