@@ -20,6 +20,9 @@ import type {
 } from "../preload/types"
 import { getStore } from "./store"
 import { setTitlebar, updateTitlebar } from "./windows"
+import { convertTailwindToCSS } from "./tailwind-to-css"
+import { convertCssToTailwind } from "./tailwind-from-css"
+import { previewDistDir } from "./preview-server"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -384,6 +387,16 @@ export function registerIpcHandlers(deps: Deps) {
       return image.toDataURL()
     },
   )
+
+  ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
+    return convertTailwindToCSS(className)
+  })
+
+  ipcMain.handle("css-to-tailwind", (_event: IpcMainInvokeEvent, cssObject: Record<string, unknown>) => {
+    return convertCssToTailwind(cssObject)
+  })
+
+  ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {
