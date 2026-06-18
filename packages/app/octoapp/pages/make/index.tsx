@@ -88,6 +88,8 @@ export default function MakePage() {
   )
 }
 
+let lastMakeDir: string | undefined
+
 function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -105,6 +107,15 @@ function MakeContent() {
 
   // Register Make slash commands
   useMakeCommands()
+
+  // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
+  // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
+  const prevMakeDir = lastMakeDir
+  lastMakeDir = sdk.directory
+  onMount(() => {
+    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id) return
+    navigate("/make", { replace: true })
+  })
 
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
@@ -238,7 +249,7 @@ function MakeContent() {
     on(
       projectDir,
       (newDir, oldDir) => {
-        if (!newDir || !oldDir || newDir === oldDir) return
+        if (!newDir || newDir === oldDir) return
         
         const currentId = params.id
         if (!currentId) return
