@@ -48,13 +48,13 @@ const tailwindConfig: any = {
         "info-container": "#E6F2FD",
         "on-info-container": "#191919",
       },
-      spacing: {
-        inline: "0.5rem",
-        stack: "0.75rem",
-        gutter: "1rem",
-        inset: "1.5rem",
-        section: "3rem",
-        page: "4rem",
+      "spacing": {
+        'inline': '0.5rem',
+        'stack': '0.75rem',
+        'gutter': '1rem', 
+        'inset': '1.5rem',
+        'section': '1rem', 
+        'page': '2rem'    
       },
       boxShadow: {
         sm: "1px 1px 6px 0 rgba(0, 0, 0, 0.08)",
