@@ -11,18 +11,19 @@ export const STUDIO_CAPABILITIES: { id: StudioCapability; label: string; descrip
 ]
 
 export const STUDIO_STYLE_MODELS = [
-  { id: "qwen", label: "千问", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
-  { id: "bd-icon", label: "BDIcon", color: "linear-gradient(135deg, #5eead4, #3b82f6)" },
-  { id: "portrait", label: "质感人像", color: "linear-gradient(135deg, #f59e0b, #fde68a)" },
-  { id: "developer", label: "开发者人物形象", color: "linear-gradient(135deg, #e5e7eb, #ffffff)" },
-  { id: "xiaoyi", label: "小艺agent", color: "linear-gradient(135deg, #f9a8d4, #7dd3fc)" },
-  { id: "smart-3d", label: "智慧3D", color: "linear-gradient(135deg, #a7f3d0, #bfdbfe)" },
-  { id: "abstract", label: "抽象几何背景", color: "linear-gradient(135deg, #60a5fa, #dbeafe)" },
-  { id: "yunbao", label: "云宝", color: "linear-gradient(135deg, #fef3c7, #f0abfc)" },
-  { id: "hdesign", label: "H Design 3D", color: "linear-gradient(135deg, #bae6fd, #ffffff)" },
-  { id: "hongmeng", label: "鸿蒙插画", color: "linear-gradient(135deg, #fed7aa, #fecaca)" },
-  { id: "hdesign-illustration", label: "H Design插画", color: "linear-gradient(135deg, #93c5fd, #f5f3ff)" },
-  { id: "3d-abstract", label: "3D抽象元素", color: "linear-gradient(135deg, #cffafe, #ddd6fe)" },
+  { id: "seedream-5-lite", label: "Seedream 5.0 Lite", icon: "/studio/studio_seedream.webp", requiresSeedreamPermission: true, color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
+  { id: "qwen", label: "千问", icon: "/studio/studioModel1.png", color: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
+  { id: "bd-icon", label: "BDIcon", icon: "/studio/studioModel2.png", color: "linear-gradient(135deg, #5eead4, #3b82f6)" },
+  { id: "portrait", label: "质感人像", icon: "/studio/studioModel3.png", color: "linear-gradient(135deg, #f59e0b, #fde68a)" },
+  { id: "developer", label: "开发者人物形象", icon: "/studio/studioModel4.png", color: "linear-gradient(135deg, #e5e7eb, #ffffff)" },
+  { id: "xiaoyi", label: "小艺agent", icon: "/studio/studioModel5.png", color: "linear-gradient(135deg, #f9a8d4, #7dd3fc)" },
+  { id: "smart-3d", label: "智慧3D", icon: "/studio/studioModel6.png", color: "linear-gradient(135deg, #a7f3d0, #bfdbfe)" },
+  { id: "abstract", label: "抽象几何背景", icon: "/studio/studioModel7.png", color: "linear-gradient(135deg, #60a5fa, #dbeafe)" },
+  { id: "yunbao", label: "云宝", icon: "/studio/studioModel8.png", color: "linear-gradient(135deg, #fef3c7, #f0abfc)" },
+  { id: "hdesign", label: "H Design 3D", icon: "/studio/studioModel9.png", color: "linear-gradient(135deg, #bae6fd, #ffffff)" },
+  { id: "hongmeng", label: "鸿蒙插画", icon: "/studio/studioModel10.png", color: "linear-gradient(135deg, #fed7aa, #fecaca)" },
+  { id: "hdesign-illustration", label: "H Design插画", icon: "/studio/studioModel11.png", color: "linear-gradient(135deg, #93c5fd, #f5f3ff)" },
+  { id: "3d-abstract", label: "3D抽象元素", icon: "/studio/studioModel12.png", color: "linear-gradient(135deg, #cffafe, #ddd6fe)" },
 ]
 
 export const STUDIO_ASPECT_RATIOS: StudioAspectRatio[] = ["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"]
@@ -38,6 +39,10 @@ export function capabilityLabel(id: StudioCapability) {
 
 export function styleModelLabel(id: string) {
   return STUDIO_STYLE_MODELS.find((item) => item.id === id)?.label ?? "千问"
+}
+
+export function styleModelRequiresSeedreamPermission(id: string) {
+  return STUDIO_STYLE_MODELS.find((item) => item.id === id)?.requiresSeedreamPermission === true
 }
 
 export function imageToolLabel(id: StudioImageTool) {
