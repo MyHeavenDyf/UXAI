@@ -191,13 +191,9 @@ function studioContext(input: StudioGenerationRequest) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
 }
 
-function needsStudioContext(prompt: string) {
-  return /它|这个|这张|上一张|上一轮|原图|保持|继续|改成|换成|调整|优化|风格|构图/.test(prompt)
-}
-
 function buildEffectivePrompt(input: StudioGenerationRequest) {
   const context = studioContext(input)
-  if (!context || !needsStudioContext(input.prompt)) return input.prompt
+  if (!context) return input.prompt
   return `延续上一轮画面：${context}。${input.prompt}`
 }
 
