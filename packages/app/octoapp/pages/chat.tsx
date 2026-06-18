@@ -2,6 +2,7 @@ import "./make/octo-tokens.css"
 import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
+import { tracker } from "@/utils/tracker"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
@@ -37,6 +38,7 @@ export default function ChatPage() {
   const resolvedDirectory = createMemo(() => sdk.directory || null)
 
   onMount(() => {
+    tracker.page({ module: "chat", name: "chat-page" })
     local.agent.set("octo_ai")
   })
 

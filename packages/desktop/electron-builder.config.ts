@@ -20,12 +20,6 @@ async function signWindows(configuration: { path: string }) {
   )
 }
 
-const channel = (() => {
-  const raw = process.env.OCTO_CHANNEL
-  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
-  return "dev"
-})()
-
 const getBase = (): Configuration => ({
   // jk-j60099994-replace-with-electron-builder-config-2-start
   artifactName: "octo-desktop-${os}-${arch}.${ext}",
@@ -50,8 +44,21 @@ const getBase = (): Configuration => ({
       to: "skills",
     },
     {
+      from: "../opencode/dist/node/components",
+      to: "components",
+    },
+    {
+      from: "../opencode/dist/node/design",
+      to: "design",
+    },
+    {
       from: "resources/bin",
       to: "bin",
+      filter: ["**/*"],
+    },
+    {
+      from: "../previewdist",
+      to: "previewdist",
       filter: ["**/*"],
     },
   ],
@@ -87,7 +94,7 @@ const getBase = (): Configuration => ({
     installerHeaderIcon: `resources/icons/icon.ico`,
     shortcutName: "Octo Agent",
     uninstallDisplayName: "Octo Agent",
-    guid: "cf72eba9-3682-4bca-bf7b-6c8053afd856"
+    guid: "cf72eba9-3682-4bca-bf7b-6c8053afd856",
   },
   linux: {
     icon: `resources/icons`,
@@ -96,6 +103,12 @@ const getBase = (): Configuration => ({
   },
 })
 
+// jk-j60099994-replace-with-electron-builder-config-1-start
+const channel = (() => {
+  const raw = process.env.OCTO_CHANNEL
+  if (raw === "dev" || raw === "beta" || raw === "prod") return raw
+  return "dev"
+})()
 function getConfig() {
   const base = getBase()
 
@@ -114,9 +127,7 @@ function getConfig() {
         appId: "com.huawei.octoagent.beta",
         productName: "Octo Agent Beta",
         protocols: { name: "Octo Agent Beta", schemes: ["oc"] },
-        // jk-j60099994-replace-with-electron-builder-config-1-start
         publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
-        // jk-j60099994-replace-with-electron-builder-config-1-end
         rpm: { packageName: "octo-agent-beta" },
       }
     }
@@ -132,5 +143,6 @@ function getConfig() {
     }
   }
 }
+// jk-j60099994-replace-with-electron-builder-config-1-end
 
 export default getConfig()

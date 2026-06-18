@@ -8,6 +8,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { A, useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
+import { tracker } from "@/utils/tracker"
 import { useLanguage } from "@/context/language"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -51,7 +52,10 @@ const params = useParams()
       const d = source.dir
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
+      // scope=project 让后端跳过 directory 过滤，跨所有 directory 取当前 project 的 session
+      // category=dev 后端预过滤，减少非 dev session 的传输（octo_ai + build 都属于 dev）
+      // 前端再用 agent === "octo_ai" 严格过滤，排除 build agent 的 session
+      const result = await client.session.list({ scope: "project", category: "dev" })
       const data = (result.data ?? [] as Session[])
         .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       return data.filter(s => s.agent === "octo_ai")
@@ -81,6 +85,35 @@ const params = useParams()
     hasMessages: boolean
   }>({ show: false, x: 0, y: 0, session: null, hasMessages: false })
 
+  const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
+    left: "0px",
+    top: "0px",
+    visibility: "hidden",
+  })
+
+  let contextMenuRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (contextMenu.show && contextMenu.session) {
+      requestAnimationFrame(() => {
+        const menu = contextMenuRef
+        if (!menu) return
+        const menuHeight = menu.offsetHeight
+        const viewportHeight = window.innerHeight
+        const minBottomMargin = 24
+        let top = contextMenu.y
+        if (top + menuHeight > viewportHeight - minBottomMargin) {
+          top = Math.max(0, viewportHeight - menuHeight - minBottomMargin)
+        }
+        setMenuStyle({
+          left: `${contextMenu.x}px`,
+          top: `${top}px`,
+          visibility: "visible",
+        })
+      })
+    }
+  })
+
   function closeContextMenu() {
     setContextMenu("show", false)
   }
@@ -101,6 +134,7 @@ const params = useParams()
     const idx = sessionList.findIndex((s) => s.id === session.id)
     if (idx >= 0) setSessionList(idx, "title", draft)
     setRenamingId(null)
+    tracker.interaction({ module: "chat", name: "rename-session" })
     try {
       const client = globalSDK.createClient({ directory: session.directory })
       await client.session.update({ sessionID: session.id, title: draft })
@@ -112,6 +146,7 @@ const params = useParams()
   }
 
   async function deleteSession(sessionID: string, directory: string) {
+    tracker.interaction({ module: "chat", name: "delete-session" })
     const idx = sessionList.findIndex((s) => s.id === sessionID)
     try {
       const client = globalSDK.createClient({ directory })
@@ -178,6 +213,7 @@ const params = useParams()
               onClick={() => {
                 const dir = props.currentDir()
                 if (!dir) return
+                tracker.interaction({ module: "chat", name: "new-session" })
                 navigate(`/${base64Encode(dir)}/${props.newTarget ?? "chat"}?hint=${Date.now()}`)
               }}
             >
@@ -258,7 +294,7 @@ const params = useParams()
                           }>
                             <button
                               type="button"
-                              onClick={() => navigate(`/${base64Encode(session.directory)}/chat/${session.id}`)}
+                              onClick={() => { tracker.interaction({ module: "chat", name: "select-session" }); navigate(`/${base64Encode(session.directory)}/chat/${session.id}`) }}
                               onContextMenu={(e) => {
                                 e.preventDefault()
                                 setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: hasMessages() })
@@ -324,11 +360,13 @@ const params = useParams()
             ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
           >
             <div
+              ref={(el) => { contextMenuRef = el }}
               data-component="dropdown-menu-content"
               style={{
                 position: "absolute",
-                left: `${contextMenu.x}px`,
-                top: `${contextMenu.y}px`,
+                left: menuStyle().left,
+                top: menuStyle().top,
+                visibility: menuStyle().visibility,
                 transform: "translateX(12px)",
                 "min-width": "132px",
               }}

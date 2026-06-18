@@ -191,6 +191,20 @@ export const layer = Layer.effect(
       const subtasks = firstUser.parts.filter((p): p is MessageV2.SubtaskPart => p.type === "subtask")
       const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
 
+      // octo insight only: strip synthetic parts from the title context. Insight's first user
+      // message carries a synthetic [已上传文件] block (filenames + long S3 URLs + upload_xxxx
+      // handles); that ASCII-heavy noise drags weaker title models (e.g. intranet Qwen) off the
+      // "match the user's language" rule and yields English titles for Chinese input. Scoped to
+      // octo_insight so other agents (octo_ai / octo_make / …) keep their exact prior behavior.
+      // Synthetic parts are never user-visible, so this only affects insight's title generation.
+      const titleContext =
+        firstInfo.agent === "octo_insight"
+          ? context.map((m) => ({
+              ...m,
+              parts: m.parts.filter((p) => !("synthetic" in p && p.synthetic)),
+            }))
+          : context
+
       const ag = yield* agents.get("title")
       if (!ag) return
       const mdl = ag.model
@@ -199,7 +213,7 @@ export const layer = Layer.effect(
           (yield* provider.getModel(input.providerID, input.modelID)))
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
-        : yield* MessageV2.toModelMessagesEffect(context, mdl)
+        : yield* MessageV2.toModelMessagesEffect(titleContext, mdl)
       const text = yield* llm
         .stream({
           agent: ag,

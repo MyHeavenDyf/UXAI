@@ -20,6 +20,16 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
 
   const currentCategory = createMemo(() => currentWordBook()[categoryIndex()])
   const currentSubcategory = createMemo(() => currentCategory()?.groups?.[subcategoryIndex()])
+  const uniqueTags = createMemo(() => {
+    const tags = currentSubcategory()?.tags ?? []
+    const seen = new Set<string>()
+    return tags.filter((t) => {
+      const key = t.zh
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  })
 
   function selectCategory(index: number) {
     setCategoryIndex(index)
@@ -64,7 +74,7 @@ export function MaterialMenu(props: { wordBook: Resource<MaterialWordBook[]>; on
             </For>
           </div>
           <div class="studio-material-tags">
-            <For each={currentSubcategory()?.tags ?? []}>
+            <For each={uniqueTags()}>
               {(tag) => (
                 <button
                   type="button"

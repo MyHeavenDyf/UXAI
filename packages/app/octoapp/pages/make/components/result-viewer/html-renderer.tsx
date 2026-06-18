@@ -92,9 +92,10 @@ export function HtmlRenderer(props: {
   drawing?: boolean
   onDrawActiveChange?: (active: boolean) => void
   inspectPanel?: boolean
-  onContentChange?: (content: string) => void
   onInspectTarget?: (target: InspectTarget | null) => void
   onSaveOverrides?: (overrides: Array<{ elementId: string; prop: string; value: string }>) => void
+  onContentChange?: (content: string) => void
+  refreshKey?: number
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
@@ -373,6 +374,7 @@ createEffect(() => {
 
   const srcdoc = createMemo(() => {
     const html = extractHtmlContent(props.content)
+    const key = props.refreshKey ?? 0
     return buildSrcdoc(html, {
       focusGuard: true,
       palette: !!props.palette,
@@ -382,7 +384,7 @@ createEffect(() => {
       editBridge: true,
       snapshotBridge: true,
       annotateElements: true,
-    })
+    }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
 
   // Send palette change via postMessage (avoids full re-render)

@@ -14,6 +14,7 @@ export function StudioInpaintEditor(props: {
   onSubmit: (input: {
     prompt: string
     mode: StudioInpaintMode
+    brushSize: number
     sourceImage: string
     compositeImage: string
     hasDrawing: boolean
@@ -254,6 +255,7 @@ export function StudioInpaintEditor(props: {
       props.onSubmit({
         prompt: editorPrompt().trim(),
         mode: editMode(),
+        brushSize: brushSize(),
         sourceImage: props.image.remoteUrl ?? props.image.url,
         compositeImage: createCompositeImage(),
         hasDrawing: nextHasDrawing,
@@ -386,7 +388,12 @@ export function StudioInpaintEditor(props: {
                   min="10"
                   max="126"
                   value={brushSize()}
-                  onInput={(event) => setBrushSize(Number(event.currentTarget.value))}
+                  style={{ '--slider-progress': `${((brushSize() - 10) / 116) * 100}%` }}
+                  onInput={(event) => {
+                    const v = Number(event.currentTarget.value);
+                    setBrushSize(v);
+                    event.currentTarget.style.setProperty('--slider-progress', `${((v - 10) / 116) * 100}%`);
+                  }}
                 />
               </label>
             </div>
