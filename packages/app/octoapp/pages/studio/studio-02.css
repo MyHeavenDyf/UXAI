@@ -235,7 +235,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  max-height: 450px;
+  max-height: 210px;
   overflow-y: auto;
   margin-right: -13px;
   padding-right: 16px;
@@ -614,6 +614,10 @@
   font-weight: 400;
   line-height: 100%;
   white-space: nowrap;
+}
+
+.studio-result-progress-status.invisible {
+  visibility: hidden;
 }
 
 /* ── DropdownMenu（右键菜单，与 chat 页面一致） ────────── */
