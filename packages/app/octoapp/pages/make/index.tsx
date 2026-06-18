@@ -26,9 +26,11 @@ import {
   For,
   on,
   onCleanup,
+  onMount,
   Show,
   type JSX,
 } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -103,6 +105,8 @@ function MakeContent() {
 
   // Register Make slash commands
   useMakeCommands()
+
+  onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
   const projectDir = useProjectDir()
 
@@ -202,6 +206,7 @@ function MakeContent() {
     if (!draft) { setTitleState("editing", false); return }
     try {
       await sdk.client.session.update({ sessionID: id, title: draft })
+      tracker.interaction({ module: "design", name: "rename-session" })
       void refetchSession()
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
@@ -214,6 +219,7 @@ function MakeContent() {
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
+      tracker.interaction({ module: "design", name: "delete-session" })
       navigate("/make")
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
@@ -746,6 +752,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const session = result.data as Session | undefined
       console.log("[MakePage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
+        tracker.interaction({ module: "design", name: "new-session" })
         navigate(`/make/${session.id}`)
         return session.id
       }
@@ -828,6 +835,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const textPart: TextPartInput = { type: "text", text: promptText }
       const modelKey = activeModelKey()
       if (!modelKey) return
+      tracker.interaction({
+        module: "design",
+        name: "send-message",
+        extend: JSON.stringify({ hasAttachment: fileParts.length > 0, designSystem: dsId ?? null }),
+      })
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
@@ -878,6 +890,7 @@ if (dsId) {
   async function halt() {
     const sid = params.id
     if (!sid) return
+    tracker.interaction({ module: "design", name: "stop-generation" })
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
@@ -983,6 +996,9 @@ if (dsId) {
         ])
       }
       reader.readAsDataURL(file)
+    }
+    if (toAdd.length > 0) {
+      tracker.interaction({ module: "design", name: "add-attachment", extend: JSON.stringify({ count: toAdd.length }) })
     }
   }
 
@@ -1250,10 +1266,13 @@ if (dsId) {
                   <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
                   {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
-                  <StarterCards
-                    prompts={FEATURED_STARTERS}
-                    onClick={(starter) => setPrompt(starter.prompt)}
-                  />
+<StarterCards
+                     prompts={FEATURED_STARTERS}
+                     onClick={(starter) => {
+                       tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
+                       setPrompt(starter.prompt)
+                     }}
+                   />
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
@@ -1448,7 +1467,10 @@ if (dsId) {
                 {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
                 <StarterCards
                   prompts={FEATURED_STARTERS}
-                  onClick={(starter) => setPrompt(starter.prompt)}
+                  onClick={(starter) => {
+                    tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
+                    setPrompt(starter.prompt)
+                  }}
                 />
 
                 <div

@@ -40,7 +40,7 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, sanitizeFileName, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -429,6 +429,10 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
+  // 记录当前输入框文本「来自哪个预置胶囊」,用于把 preset 点击 → 实际发送的漏斗打通。
+  // 点胶囊时 set;输入框被清空(发送后 / 用户手动清空)时由下方 effect 解除关联,避免误把后续新文本算到该预置头上。
+  const [activePreset, setActivePreset] = createSignal<{ id: string; text: string } | null>(null)
+  createEffect(() => { if (prompt() === "") setActivePreset(null) })
   // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
   // 多容量:入队 push 追加(不再覆盖);abort 时清空当前 session 队列。
   // 存储提到模块级(utils/send-queue):按 sessionID 分桶,跨 session 且跨顶层 tab
@@ -532,8 +536,19 @@ function InsightContent() {
     if (panelCollapsed()) setPanelCollapsed(false)
   }
 
+  /** 切 tab:仅在切到不同 tab 时打点(避免重复点击当前 tab 也计数) */
+  function handleActivateTab(id: string) {
+    if (tabStore.activeId() !== id) {
+      const tab = tabStore.tabs().find((t) => t.id === id)
+      tracker.interaction({ module: "insight", name: "result-tab-switch", extend: JSON.stringify({ tabType: tab?.type }) })
+    }
+    tabStore.activate(id)
+  }
+
   /** 关 tab:若关掉的是最后一个,复位 collapsed 以便下次产物干净滑入 */
   function handleCloseTab(id: string) {
+    const tab = tabStore.tabs().find((t) => t.id === id)
+    tracker.interaction({ module: "insight", name: "result-tab-close", extend: JSON.stringify({ tabType: tab?.type }) })
     tabStore.closeTab(id)
     if (tabStore.tabs().length === 0) setPanelCollapsed(false)
   }
@@ -824,18 +839,41 @@ function InsightContent() {
     return doSendPrompt(sessionId, text, { consumeAttachments: false, source })
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(trigger: "button" | "enter" = "button") {
     const text = prompt().trim()
     if (!text || hasUploadingAttachments()) return
 
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
     if (!local.model.current()) {
+      tracker.interaction({
+        module: "insight",
+        name: "message-send-blocked",
+        extend: JSON.stringify({ reason: "no_model" }),
+      })
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
         description: language.t("prompt.toast.modelAgentRequired.description"),
       })
       return
     }
+
+    // welcome 入口(无会话或会话尚无用户消息)vs 对话内继续追问,用 source 区分
+    const source = params.id && userMessages().length > 0 ? "conversation" : "welcome"
+    // 若本条文本源自某预置胶囊,带上 presetId(打通「点胶囊→实际发送」漏斗);presetEdited 标记用户是否改过预置文案。
+    // 非预置来源时 presetId/presetEdited 为 undefined,JSON.stringify 自动剔除。
+    const ap = activePreset()
+    tracker.interaction({
+      module: "insight",
+      name: "message-send",
+      extend: JSON.stringify({
+        trigger,
+        source,
+        attachmentCount: attachments().length,
+        textLength: text.length,
+        presetId: ap?.id,
+        presetEdited: ap ? text !== ap.text.trim() : undefined,
+      }),
+    })
 
     setPrompt("")
 
@@ -894,6 +932,7 @@ function InsightContent() {
   async function handleAbort() {
     const sid = params.id
     if (!sid) return
+    tracker.interaction({ module: "insight", name: "message-abort" })
     // 先清空整个队列，避免 abort 完成后 idle 触发器自动 flush(abort = 全部停下，不回填)
     if (queue().length) clearQueue()
     try {
@@ -906,9 +945,16 @@ function InsightContent() {
   // 输入框空 + AI 忙(含 retry)→ 发送键变为停止键;retry 期间同样可点终止
   const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
-  function handlePresetClick(preset: PresetPrompt) {
+  function handlePresetClick(preset: PresetPrompt, from: "welcome" | "conversation") {
     setPrompt(preset.text)
+    setActivePreset({ id: preset.id, text: preset.text })
     console.log("[octo:preset] click", { id: preset.id, expectedTool: preset.expectedTool })
+    // 按 presetId 分开打点,支持后续对每个胶囊功能单独统计点击量;source 区分 welcome/conversation
+    tracker.interaction({
+      module: "insight",
+      name: "preset-click",
+      extend: JSON.stringify({ presetId: preset.id, source: from }),
+    })
     requestAnimationFrame(() => {
       textareaRef?.focus()
       // 光标移到文末,便于用户继续编辑
@@ -918,9 +964,12 @@ function InsightContent() {
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // 输入法合成期间(如拼音 "nh" 待选)的回车用于确认候选词,不应触发发送
+    // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
+    if (e.isComposing || e.keyCode === 229) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      void handleSubmit()
+      void handleSubmit("enter")
     }
   }
 
@@ -930,7 +979,7 @@ function InsightContent() {
   // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）
   const filesById = new Map<string, File>()
 
-  function addAttachments(files: File[]) {
+  function addAttachments(files: File[], method: "picker" | "drop") {
     const slots = MAX_ATTACHMENTS - attachments().length
     // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
     if (files.length > slots) {
@@ -938,9 +987,22 @@ function InsightContent() {
     }
     if (slots <= 0) return
     const toAdd = files.slice(0, slots)
-    for (const file of toAdd) {
+    for (const rawFile of toAdd) {
+      // 文件名清洗：去掉允许集之外的特殊字符，否则内网上传服务把原始名拼进 URL 后 MCP 取文件会失败。
+      // 名字有变化才重建 File（File.name 只读）；清洗后名贯穿校验 / chip 展示 / 上传，保持一致。
+      const cleanName = sanitizeFileName(rawFile.name)
+      const file =
+        cleanName === rawFile.name
+          ? rawFile
+          : new File([rawFile], cleanName, { type: rawFile.type, lastModified: rawFile.lastModified })
       const id = crypto.randomUUID()
       const mime = file.type || "application/octet-stream"
+      const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : ""
+      tracker.interaction({
+        module: "insight",
+        name: "attachment-add",
+        extend: JSON.stringify({ method, fileType: ext, fileSize: file.size }),
+      })
       const validationErr = validateFile(file)
       if (validationErr) {
         // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
@@ -965,6 +1027,11 @@ function InsightContent() {
   async function doUpload(id: string, file: File) {
     try {
       const result = await uploadFile(file)
+      tracker.interaction({
+        module: "insight",
+        name: "attachment-upload-result",
+        extend: JSON.stringify({ success: true }),
+      })
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
       )
@@ -974,6 +1041,11 @@ function InsightContent() {
         err instanceof Error ? err.message :
         "上传失败"
       console.error("[InsightPage] upload failed", { id, filename: file.name, err })
+      tracker.interaction({
+        module: "insight",
+        name: "attachment-upload-result",
+        extend: JSON.stringify({ success: false, errorCode: err instanceof UploadError ? err.code : "UNKNOWN" }),
+      })
       // 已发起过上传(File 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
@@ -982,6 +1054,12 @@ function InsightContent() {
   }
 
   function removeAttachment(id: string) {
+    const att = attachments().find((a) => a.id === id)
+    tracker.interaction({
+      module: "insight",
+      name: "attachment-remove",
+      extend: JSON.stringify({ stage: att?.status === "done" ? "uploaded" : "pending" }),
+    })
     filesById.delete(id)
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
@@ -995,6 +1073,7 @@ function InsightContent() {
       return
     }
     console.log("[octo:upload] retry", { id, filename: file.name })
+    tracker.interaction({ module: "insight", name: "attachment-retry" })
     setAttachments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
     )
@@ -1004,7 +1083,7 @@ function InsightContent() {
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
-      addAttachments(Array.from(input.files))
+      addAttachments(Array.from(input.files), "picker")
       input.value = ""
     }
   }
@@ -1037,10 +1116,15 @@ function InsightContent() {
     setIsDragOver(false)
     if (!isExternalFileDrag(e)) return
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length > 0) addAttachments(files)
+    if (files.length > 0) addAttachments(files, "drop")
   }
 
   function handleOpenResult(card: OutputCard) {
+    tracker.interaction({
+      module: "insight",
+      name: "result-card-open",
+      extend: JSON.stringify({ cardType: card.type }),
+    })
     tabStore.openTab(card)
     revealPanel()
   }
@@ -1059,6 +1143,7 @@ function InsightContent() {
       return
     }
     markRefreshed(taskId)
+    tracker.interaction({ module: "insight", name: "task-refresh", extend: JSON.stringify({ taskId }) })
     void sendInjectedPrompt(sid, `查询任务 ${taskId} 的进度`, "task-refresh")
   }
 
@@ -1069,6 +1154,7 @@ function InsightContent() {
       console.log("[octo:task] stop blocked: busy", { taskId })
       return
     }
+    tracker.interaction({ module: "insight", name: "task-stop", extend: JSON.stringify({ taskId }) })
     void sendInjectedPrompt(sid, `终止任务 ${taskId}`, "task-stop")
   }
 
@@ -1122,6 +1208,7 @@ function InsightContent() {
       count: ocs.length,
       tabs: ocs.map((oc) => ({ type: oc.type, source: oc.source, file: oc.fileName })),
     })
+    tracker.interaction({ module: "insight", name: "task-open-result", extend: JSON.stringify({ taskId }) })
     // 多文件:全部 openTab,激活第一张。
     // 注意:openTab 会按 (uri,type) 去重,ocs[0].id 不一定真进了 tabs(可能命中已有 tab),
     // 故用 openTab 返回的「实际生效 id」激活,避免 activate 指向不存在的 tab 导致右侧栏空白。
@@ -1282,7 +1369,7 @@ function InsightContent() {
                   <div style={{ "margin-top": "80px", width: "100%", "max-width": "800px" }}>
                     <PresetPrompts
                       prompts={PRESET_PROMPTS}
-                      onClick={handlePresetClick}
+                      onClick={(preset) => handlePresetClick(preset, "welcome")}
                     />
 
                     <div
@@ -1370,7 +1457,7 @@ function InsightContent() {
 
                         <button
                           type="button"
-                          onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
+                          onClick={() => stopping() ? void handleAbort() : void handleSubmit("button")}
                           disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
                           title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
@@ -1482,7 +1569,7 @@ function InsightContent() {
                     视觉层级:辅助操作浮在输入框上方,与卡片解耦 */}
                 <PresetPrompts
                   prompts={PRESET_PROMPTS}
-                  onClick={handlePresetClick}
+                  onClick={(preset) => handlePresetClick(preset, "conversation")}
                 />
 
                 <div
@@ -1625,7 +1712,7 @@ function InsightContent() {
           <ResultViewer
             tabs={tabStore.tabs()}
             activeId={tabStore.activeId()}
-            onActivate={tabStore.activate}
+            onActivate={handleActivateTab}
             onClose={handleCloseTab}
             onCacheContent={tabStore.cacheContent}
             onCollapse={() => setPanelCollapsed(true)}

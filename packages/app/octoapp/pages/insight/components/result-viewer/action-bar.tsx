@@ -3,10 +3,12 @@ import type { JSX } from "solid-js"
 import writeXlsxFile from "write-excel-file/browser"
 import type { ResultTab, TabViewMode } from "./tab-store"
 import { isToggleType } from "./tab-store"
-import { IconActionCopy, IconActionDownload } from "../../icons"
+import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder } from "../../icons"
 import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
+import { getDesktopApi } from "../../lib/electron-api"
 import { showToast } from "@opencode-ai/ui/toast"
+import { tracker } from "@/utils/tracker"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -30,6 +32,34 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
 }
 
+// path 源(write 文本产物)的本地打开 / 文件夹定位:文件已在磁盘,直接传 filePath。
+async function openLocal(filePath: string) {
+  const api = getDesktopApi()
+  if (typeof api?.openPath !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.openPath", variant: "error" })
+    return
+  }
+  console.log("[octo:path] open-local", { filePath })
+  try {
+    const r = (await api.openPath(filePath)) as unknown as string | undefined
+    if (typeof r === "string" && r.length > 0) {
+      showToast({ title: "唤起本地应用失败", description: "请安装对应应用或在系统设置中关联打开方式", variant: "error" })
+    }
+  } catch (err) {
+    showToast({ title: "无法打开文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+  }
+}
+
+function revealLocal(filePath: string) {
+  const api = getDesktopApi()
+  if (typeof api?.showItemInFolder !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
+    return
+  }
+  console.log("[octo:path] reveal-local", { filePath })
+  api.showItemInFolder(filePath)
+}
+
 async function tableToXlsx(md: string, filename: string) {
   const rows = parseMarkdownTable(md)
   if (rows.length === 0) return
@@ -37,7 +67,7 @@ async function tableToXlsx(md: string, filename: string) {
   await writeXlsxFile(data).toFile(filename)
 }
 
-type DownloadOption = { label: string; onClick: () => void }
+type DownloadOption = { label: string; format: string; onClick: () => void }
 
 function downloadOptions(tab: ResultTab): DownloadOption[] {
   const base = sanitizeFilename(tab.fileName?.replace(/\.[^.]+$/, "") || tab.title)
@@ -47,15 +77,18 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "Markdown (.md)",
+          format: "md",
           onClick: () => downloadBlob(extractTableMarkdown(content), `${base}.md`, "text/markdown;charset=utf-8"),
         },
         {
           label: "CSV (.csv)",
+          format: "csv",
           onClick: () =>
             downloadBlob("﻿" + tableToCSV(content), `${base}.csv`, "text/csv;charset=utf-8"),
         },
         {
           label: "Excel (.xlsx)",
+          format: "xlsx",
           onClick: () => {
             tableToXlsx(content, `${base}.xlsx`).catch((err) => {
               console.error("Excel 导出失败:", err)
@@ -67,6 +100,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "HTML (.html)",
+          format: "html",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.html`, "text/html;charset=utf-8"),
         },
@@ -75,6 +109,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "JSON (.json)",
+          format: "json",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
@@ -83,14 +118,27 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
       return [
         {
           label: "JSON (.json)",
+          format: "json",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
       ]
+    case "code": {
+      // 代码/纯文本(路径 C):保留原始文件名与扩展名下载
+      const name = sanitizeFilename(tab.fileName || `${base}.txt`)
+      return [
+        {
+          label: `下载 (${name})`,
+          format: name.split(".").pop() || "txt",
+          onClick: () => downloadBlob(content, name, "text/plain;charset=utf-8"),
+        },
+      ]
+    }
     default:
       return [
         {
           label: "Markdown (.md)",
+          format: "md",
           onClick: () => downloadBlob(content, `${base}.md`, "text/markdown;charset=utf-8"),
         },
       ]
@@ -127,12 +175,23 @@ export function ActionBar(props: {
       </Show>
       <Show when={showActions()}>
         <div class="flex items-center gap-0.5">
+          {/* path 源(write 文本产物):额外给"本地打开/文件夹打开"——文件在本地磁盘,
+              方便用 Typora / VSCode 等原生应用打开编辑。见 output-renderers.md §2.6.8。 */}
+          <Show when={props.tab.source === "path" && props.tab.filePath}>
+            <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openLocal(props.tab.filePath!)} />
+            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => revealLocal(props.tab.filePath!)} />
+          </Show>
           <ActionBtn
             icon={<IconActionCopy size={14} />}
             label="复制"
             disabled={!ready()}
             onClick={() => {
               if (!ready()) return
+              tracker.interaction({
+                module: "insight",
+                name: "result-copy-content",
+                extend: JSON.stringify({ tabType: props.tab.type, viewMode: props.viewMode }),
+              })
               const text = props.tab.type === "table"
                 ? extractTableMarkdown(props.tab.content!)
                 : props.tab.content!
@@ -213,6 +272,11 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
                 style={{ color: "var(--octo-text-primary)" }}
                 onClick={() => {
                   setOpen(false)
+                  tracker.interaction({
+                    module: "insight",
+                    name: "result-download",
+                    extend: JSON.stringify({ format: opt.format, tabType: props.tab.type }),
+                  })
                   opt.onClick()
                 }}
               >
