@@ -1,7 +1,8 @@
 import "./studio/studio.css"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
+import { tracker } from "@/utils/tracker"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -87,6 +88,8 @@ export default function StudioPage() {
   const server = useServer()
   const dialog = useDialog()
   let studioPermissionChecked = false
+
+  onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -840,6 +843,7 @@ export default function StudioPage() {
             if (index !== -1) draft.session[index].title = next
           }),
         )
+        tracker.interaction({ module: "studio", name: "rename-session" })
         setHeaderTitle({ editing: false, draft: "" })
       })
       .catch((err) => {
@@ -852,6 +856,7 @@ export default function StudioPage() {
   }
 
   const deleteHeaderSession = async (session: Session) => {
+    tracker.interaction({ module: "studio", name: "delete-session" })
     const sessions = syncStore.session
       .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
       .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
@@ -934,6 +939,11 @@ export default function StudioPage() {
   async function downloadCurrentImage() {
     const image = selectedImage()
     if (!image) return
+    tracker.interaction({
+      module: "studio",
+      name: "download",
+      extend: JSON.stringify({ name: currentImageLabel(), url: image.remoteUrl ?? image.url }),
+    })
     const source = image.remoteUrl ?? image.url
     try {
       const response = await fetch(source)
@@ -1082,6 +1092,7 @@ export default function StudioPage() {
   function addAssets(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: files.length }) })
     readStudioAsset(file)
       .then((asset) => {
         setAssets([asset])
@@ -1289,6 +1300,16 @@ export default function StudioPage() {
   function generateVideoFromSelectedImage() {
     const image = selectedImage()
     if (!image || isVideoMedia(image) || !canGenerateVideo()) return
+    tracker.interaction({
+      module: "studio",
+      name: "video-generate",
+      extend: JSON.stringify({
+        aspectRatio: aspectRatio(),
+        duration: videoDuration(),
+        quality: videoQualityMode(),
+        mode: videoFrames.first ? "first_last_frame" : "text",
+      }),
+    })
     void resolveImageDataUrl(image)
       .then((dataUrl) => {
         pendingVideoFirstFrame = {
@@ -1315,6 +1336,7 @@ export default function StudioPage() {
   }
 
   function startNewStudioConversation() {
+    tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
     generationToken++
     setVideoRiskDialogOpen(false)
@@ -1441,6 +1463,7 @@ export default function StudioPage() {
 
   async function cancelStudioGeneration(id: string) {
     if (cancellingGenerationIDs().has(id)) return
+    tracker.interaction({ module: "studio", name: "stop-generation" })
     const current = server.current
     if (!current) {
       console.error("[StudioPage] cancel generation failed", new Error("No active server."))
@@ -1523,6 +1546,17 @@ export default function StudioPage() {
         : nextCapability === "video.generate"
           ? videoReferenceImages
           : []
+    tracker.interaction({
+      module: "studio",
+      name: "send-message",
+      extend: JSON.stringify({
+        capability: nextCapability,
+        aspectRatio: aspectRatio(),
+        count: count(),
+        styleModel: styleModel(),
+        hasReferenceImage: referenceImages.length > 0,
+      }),
+    })
     const studioContext = params.id
       ? buildStudioConversationContext({
           messages: dataStore.message[params.id] ?? [],
@@ -1726,6 +1760,7 @@ export default function StudioPage() {
   function openOutpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage())) return
     batch(() => {
+      setCapability("image.outpaint")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("outpaint")
@@ -1735,6 +1770,7 @@ export default function StudioPage() {
   function openHD() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.upscale")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("hd")
@@ -1744,6 +1780,7 @@ export default function StudioPage() {
   function openCutout() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.cutout")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("cutout")
@@ -1753,6 +1790,7 @@ export default function StudioPage() {
   function openInpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.inpaint")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("inpaint")
@@ -1762,6 +1800,16 @@ export default function StudioPage() {
   function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
     const image = workspaceEditImage()
     if (!image) return
+    tracker.interaction({
+      module: "studio",
+      name: "outpaint",
+      extend: JSON.stringify({
+        aspectRatio: aspectRatio(),
+        hasCustomPrompt: !!input.prompt,
+        hasSourceImage: !!image,
+        isUploadedImage: !!workspaceImage(),
+      }),
+    })
     void runGeneration({
       capability: "image.outpaint",
       sourceImage: image.remoteUrl ?? image.url,
@@ -1773,11 +1821,23 @@ export default function StudioPage() {
   function submitInpaint(input: {
     prompt: string
     mode: StudioInpaintMode
+    brushSize: number
     sourceImage: string
     compositeImage: string
     hasDrawing: boolean
   }) {
     if (isBusy() || !input.hasDrawing) return
+    tracker.interaction({
+      module: "studio",
+      name: "inpaint",
+      extend: JSON.stringify({
+        mode: input.mode,
+        brushSize: input.brushSize,
+        hasCustomPrompt: !!input.prompt,
+        hasDrawing: input.hasDrawing,
+        isUploadedImage: !!workspaceImage(),
+      }),
+    })
     void runGeneration({
       capability: "image.inpaint",
       sourceImage: input.sourceImage,
@@ -1793,6 +1853,7 @@ export default function StudioPage() {
   function submitHD(input: { mode: StudioHDMode }) {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    tracker.interaction({ module: "studio", name: "upscale", extend: JSON.stringify({ mode: input.mode, hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.upscale",
       sourceImage: image.remoteUrl ?? image.url,
@@ -1806,6 +1867,7 @@ export default function StudioPage() {
   function submitCutout() {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    tracker.interaction({ module: "studio", name: "cutout", extend: JSON.stringify({ hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.cutout",
       sourceImage: image.remoteUrl ?? image.url,
@@ -1817,6 +1879,16 @@ export default function StudioPage() {
     const current = result()
     if (!current) return
     if (current.capability === "video.generate" && !canGenerateVideo()) return
+    tracker.interaction({
+      module: "studio",
+      name: "regenerate",
+      extend: JSON.stringify({
+        capability: current.capability,
+        aspectRatio: current.aspectRatio,
+        count: current.images.length,
+        hasReferenceImage: current.images.length > 0,
+      }),
+    })
     void runGeneration({
       capability: current.capability,
       prompt: current.prompt,
