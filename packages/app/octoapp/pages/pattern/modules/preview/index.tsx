@@ -28,6 +28,7 @@ export function PreviewPage(props: {
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
+  onLivePreview?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -46,12 +47,18 @@ export function PreviewPage(props: {
     if (!editing()) setPropertyEditor('show', false)
   })
 
+  
   function triggerRefresh() {
     if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51856"
   }
 
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
     console.log(`切换类型: ${type}, 选中值: ${value}`)
+
+    if (type === "preview" && value === "live") {
+      props.onLivePreview?.()
+      return
+    }
 
     if (type === "zoom" && value === "auto") {
       canvasRef?.reset()

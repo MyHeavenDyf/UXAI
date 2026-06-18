@@ -515,7 +515,15 @@ export function InsightTurn(props: {
       {/* AI 文字回复（剥离 artifact 标签） */}
       <Show when={proseText().length > 0}>
         <Show when={proseIsJson()} fallback={
-          <div class="mx-3 mb-2 px-3 py-2 text-sm leading-relaxed prose-text">
+          <div
+            ref={(el) => {
+              createEffect(() => {
+                proseText()
+                el.scrollTop = el.scrollHeight
+              })
+            }}
+            class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
+          >
             <Markdown text={proseText()} streaming={assistantGenerating()} />
           </div>
         }>
@@ -573,10 +581,8 @@ export function InsightTurn(props: {
                 <span class="flex-shrink-0 flex items-center">
                   <img src="/AI_doc_plaintext.svg" width={28} height={28} alt="" />
                 </span>
-                <div class="flex flex-col min-w-0 flex-1">
-                  <span class="truncate title">{capturedCard.title}</span>
-                  <span class="time">{formatTime(capturedCard.createdAt)}</span>
-                </div>
+                <span class="truncate title flex-1 min-w-0">{capturedCard.title}</span>
+                <span class="time flex-shrink-0 ml-auto">{formatTime(capturedCard.createdAt)}</span>
               </div>
             </div>
           )
