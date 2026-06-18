@@ -180,7 +180,7 @@ function taskMocks(): TaskCardEntry[] {
 
 function outputMocks(): OutputCard[] {
   const createdAt = new Date("2026-04-27T15:38:00")
-  const types: OutputCardType[] = ["table", "mindmap", "json", "file", "markdown", "html"]
+  const types: OutputCardType[] = ["table", "mindmap", "json", "file", "markdown", "html", "code"]
   const titles: Record<OutputCardType, string> = {
     table: "用户痛点频次分析表",
     mindmap: "访谈观点思维导图",
@@ -188,6 +188,7 @@ function outputMocks(): OutputCard[] {
     file: "算子开发工具 访谈观点聚类报告.docx",
     markdown: "可用性测试小结 Markdown",
     html: "可视化报告页面",
+    code: "数据处理脚本 analyze.py",
   }
   return types.map(
     (type) =>

@@ -124,7 +124,8 @@ export function StudioResultCanvas(props: {
             .replace(/\s+/g, "-")
             .replace(/^-+|-+$/g, "")
           const prefix = cleaned.length > 20 ? cleaned.slice(0, 20).replace(/-+$/, "") : (cleaned || "image")
-          return `${prefix}-${index + 1}.${ext}`
+          const total = props.result?.images.length ?? 1
+          return total > 1 ? `${prefix}-${index + 1}.${ext}` : `${prefix}.${ext}`
         }
         return (
         <>
@@ -295,14 +296,6 @@ export function StudioDetails(props: {
         <Show when={!isEditResult()}>
           <div class="studio-detail-section-title">提示词</div>
           <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
-          <button
-            type="button"
-            onClick={props.onRegenerate}
-            disabled={props.regenerateDisabled}
-            class="studio-details-primary-action disabled:opacity-45 disabled:cursor-not-allowed"
-          >
-            再次生成
-          </button>
           <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
             <button
               type="button"
@@ -314,6 +307,14 @@ export function StudioDetails(props: {
             </button>
           </Show>
         </Show>
+        <button
+          type="button"
+          onClick={props.onRegenerate}
+          disabled={props.regenerateDisabled}
+          class="studio-details-primary-action disabled:opacity-45 disabled:cursor-not-allowed"
+        >
+          再次生成
+        </button>
         <Show when={!isVideoResult()}>
           <div class="studio-detail-action-grid">
             <button

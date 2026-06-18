@@ -131,6 +131,10 @@ export default function StudioPage() {
   const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
+  const [imageSettingStore, setImageSettingStore] = persisted(
+    Persist.global("studio.image.settings"),
+    createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
+  )
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
@@ -546,7 +550,7 @@ export default function StudioPage() {
       if (canvasTabImages().length === 0) {
         // 无 tabs：创建第一个 tab
         setCanvasTabImages([r.images[0]])
-        setCanvasTabLabels({ [r.images[0].id]: extractKeywords(r.prompt) })
+        setCanvasTabLabels({ [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) })
       } else {
         // 已有 tabs：追加，与 selectStudioImage 逻辑一致
         setCanvasTabImages((prev) => {
@@ -555,7 +559,7 @@ export default function StudioPage() {
         })
         setCanvasTabLabels((prev) => {
           if (prev[r.images[0].id]) return prev
-          return { ...prev, [r.images[0].id]: extractKeywords(r.prompt) }
+          return { ...prev, [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) }
         })
       }
     }
@@ -587,7 +591,7 @@ export default function StudioPage() {
         if (tabImg && imageIndex !== -1) {
           setCanvasTabLabels((prev) => ({
             ...prev,
-            [tabImg.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}`,
+            [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt),
           }))
         }
         setDeletedImageIds(new Set<string>())
@@ -603,7 +607,7 @@ export default function StudioPage() {
         setSelectedImageId(input.imageID)
         setShowStudioCanvas(true)
         setCanvasTabImages((prev) => [...prev, first])
-        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}` }))
+        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt) }))
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
@@ -2169,7 +2173,7 @@ export default function StudioPage() {
                       if (tabImg && imageIndex !== -1) {
                         setCanvasTabLabels((prev) => ({
                           ...prev,
-                          [tabImg.id]: `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}`,
+                          [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
                         }))
                       }
                       setDeletedImageIds(new Set<string>())
@@ -2184,7 +2188,7 @@ export default function StudioPage() {
                       const imageIndex = r.images.findIndex((img) => img.id === id)
                       setSelectedImageId(id)
                       setCanvasTabImages((prev) => [...prev, first])
-                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` }))
+                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
                       setDeletedImageIds(new Set<string>())
                       setWorkspaceImage(undefined)
                       setWorkspaceUploadRequested(false)
