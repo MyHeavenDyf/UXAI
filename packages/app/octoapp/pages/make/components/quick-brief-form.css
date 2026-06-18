@@ -107,7 +107,7 @@
   transition: all 0.15s ease;
 }
 
-.qf-chip:hover:not(:disabled) {
+.qf-chip:hover:not(:disabled, .qf-chip-on) {
   background: var(--octo-surface-hover, #e5e7eb);
   border-color: var(--octo-border-strong, #d1d5db);
 }
