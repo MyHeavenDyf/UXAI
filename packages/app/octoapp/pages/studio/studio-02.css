@@ -468,20 +468,16 @@
   width: 42px;
   height: 42px;
   flex: 0 0 42px;
-  background: url("/studio/studioModel1.png") center / contain no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.studio-style-icon-2 { background-image: url("/studio/studioModel2.png"); }
-.studio-style-icon-3 { background-image: url("/studio/studioModel3.png"); }
-.studio-style-icon-4 { background-image: url("/studio/studioModel4.png"); }
-.studio-style-icon-5 { background-image: url("/studio/studioModel5.png"); }
-.studio-style-icon-6 { background-image: url("/studio/studioModel6.png"); }
-.studio-style-icon-7 { background-image: url("/studio/studioModel7.png"); }
-.studio-style-icon-8 { background-image: url("/studio/studioModel8.png"); }
-.studio-style-icon-9 { background-image: url("/studio/studioModel9.png"); }
-.studio-style-icon-10 { background-image: url("/studio/studioModel10.png"); }
-.studio-style-icon-11 { background-image: url("/studio/studioModel11.png"); }
-.studio-style-icon-12 { background-image: url("/studio/studioModel12.png"); }
+.studio-style-icon img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
 
 .studio-style-label {
   min-width: 0;
