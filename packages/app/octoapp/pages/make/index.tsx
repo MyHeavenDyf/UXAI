@@ -32,7 +32,7 @@ import {
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
 import { createStore, produce } from "solid-js/store"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -47,7 +47,7 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
@@ -72,6 +72,18 @@ import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
+  const params = useParams<{ id?: string }>()
+  const navigate = useNavigate()
+  
+  let lastProjectDir: string | undefined
+  
+  createEffect(() => {
+    const dir = projectDir()
+    if (lastProjectDir !== undefined && dir !== lastProjectDir && params.id) {
+      navigate("/make", { replace: true })
+    }
+    lastProjectDir = dir
+  })
 
   return (
     <Show when={projectDir()} keyed>
@@ -93,6 +105,7 @@ let lastMakeDir: string | undefined
 function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
@@ -108,6 +121,13 @@ function MakeContent() {
   // Register Make slash commands
   useMakeCommands()
 
+  // Exit focus mode when navigating away from /make
+  // Exit focus mode when navigating away from /make
+  createEffect(() => {
+    if (!location.pathname.startsWith("/make")) {
+      layout.focusMode.set(false)
+    }
+  })
   // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
   // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
   const prevMakeDir = lastMakeDir
@@ -121,7 +141,6 @@ function MakeContent() {
 
   const projectDir = useProjectDir()
 
-  // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
   const local = useLocal()
   const currentModel = () => local.model.current()
 
@@ -670,7 +689,7 @@ const sessionMessagesLoaded = createMemo(() => {
     return 460
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
-  const [focusMode, setFocusMode] = createSignal(false)
+  const focusMode = layout.focusMode.get
 
   const MIN_CHAT = 345
   const MAX_CHAT = 720
@@ -1054,14 +1073,16 @@ if (dsId) {
     const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
     
     if (latestSnapshot) {
-      // Use edited version from localStorage
+      const snapshotTab = latestSnapshot.tab
+      if (snapshotTab.type === "local-file") return
+      
       card = {
-        id: latestSnapshot.tab.id,
-        title: latestSnapshot.tab.title,
-        type: latestSnapshot.tab.type,
-        content: latestSnapshot.tab.content,
-        filePath: latestSnapshot.tab.filePath,
-        artifactIdentifier: latestSnapshot.tab.artifactIdentifier,
+        id: snapshotTab.id,
+        title: snapshotTab.title,
+        type: snapshotTab.type as OutputCardType,
+        content: snapshotTab.content,
+        filePath: snapshotTab.filePath,
+        artifactIdentifier: snapshotTab.artifactIdentifier,
         createdAt: new Date(latestSnapshot.timestamp),
       }
       console.log("[MakePage] Restored edited version from localStorage:", card.id)
@@ -1107,6 +1128,30 @@ if (dsId) {
         console.error("[MakePage] auto-save artifact failed:", err)
       })
     }
+  }
+
+  function handleOpenLocalFile(relativePath: string) {
+    const dir = projectDir()
+    if (!dir) return
+    
+    const normalizedDir = dir.replace(/\\/g, '/')
+    const normalizedRelative = relativePath.replace(/\\/g, '/')
+    
+    let absolutePath = normalizedDir
+    if (!absolutePath.endsWith('/') && !normalizedRelative.startsWith('/')) {
+      absolutePath += '/'
+    }
+    absolutePath += normalizedRelative
+    absolutePath = absolutePath.replace(/\/+/g, '/')
+    
+    const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
+    
+    tabStore.openLocalFileTab({
+      id: tabId,
+      title: relativePath.split(/[/\\]/).pop() ?? relativePath,
+      absoluteFilePath: absolutePath,
+      createdAt: new Date(),
+    })
   }
 
   /** 继续生成（追加被截断的内容作为 prompt） */
@@ -1433,6 +1478,8 @@ if (dsId) {
                         blockTime={blockTime()}
                         onAbort={halt}
                         onOpenResult={handleOpenResult}
+                        onOpenLocalFile={handleOpenLocalFile}
+                        projectDir={projectDir()}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
@@ -1641,7 +1688,7 @@ if (dsId) {
                   type="button"
                   class="octo-focus-btn"
                   data-active={focusMode() ? "true" : undefined}
-                  onClick={() => setFocusMode(!focusMode())}
+                  onClick={() => layout.focusMode.toggle()}
                   title={focusMode() ? "退出焦点模式" : "焦点模式"}
                 >
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1664,6 +1711,8 @@ if (dsId) {
                 onActivate={tabStore.activate}
                 onClose={tabStore.closeTab}
                 onContentChange={handleContentChange}
+                focusMode={focusMode()}
+                onFocusModeToggle={() => layout.focusMode.toggle()}
               />
             </div>
             <Show when={showVersionPanel()}>
@@ -1671,8 +1720,16 @@ if (dsId) {
                 snapshots={snapshotList()}
                 onRestore={(id) => {
                   const tab = snapshotStore.restore(id)
-                  if (tab) {
-                    tabStore.openTab(tab)
+                  if (tab && tab.type !== "local-file") {
+                    tabStore.openTab({
+                      id: tab.id,
+                      title: tab.title,
+                      type: tab.type as OutputCardType,
+                      content: tab.content,
+                      filePath: tab.filePath,
+                      artifactIdentifier: tab.artifactIdentifier,
+                      createdAt: tab.createdAt,
+                    })
                   }
                 }}
                 onRemove={(id) => {
