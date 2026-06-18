@@ -349,6 +349,23 @@ function PatternContent() {
     void handleSubmit()
   }
 
+  function handleModifyElement(data: { elementId: string; className: string; textContent: string; componentProps: Record<string, string>; tag?: string }) {
+    const current = pendingPreviewData()
+    if (!current || typeof current !== 'object') return
+    const doc = JSON.parse(JSON.stringify(current))
+    if (!doc?.elements || !Array.isArray(doc.elements)) return
+    for (const el of doc.elements) {
+      if (el.id === data.elementId) {
+        el.props = el.props || {}
+        el.props.className = data.className
+        if (data.textContent) el.props.value = data.textContent
+        if (data.componentProps) Object.assign(el.props, data.componentProps)
+        break
+      }
+    }
+    sendToPreview(doc)
+  }
+
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
     const stored = localStorage.getItem(CHAT_WIDTH_KEY)
@@ -741,6 +758,7 @@ function PatternContent() {
               <PreviewPage
                 api={previewApi}
                 pendingData={pendingPreviewData()}
+                onModifyElement={handleModifyElement}
                 onPickerSubmit={handlePickerSubmit}
                 onDownload={handleDownload}
                 onLivePreview={handleLivePreview}
