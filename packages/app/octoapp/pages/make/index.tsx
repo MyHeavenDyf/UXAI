@@ -72,6 +72,18 @@ import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
+  const params = useParams<{ id?: string }>()
+  const navigate = useNavigate()
+  
+  let lastProjectDir: string | undefined
+  
+  createEffect(() => {
+    const dir = projectDir()
+    if (lastProjectDir !== undefined && dir !== lastProjectDir && params.id) {
+      navigate("/make", { replace: true })
+    }
+    lastProjectDir = dir
+  })
 
   return (
     <Show when={projectDir()} keyed>
@@ -118,7 +130,6 @@ function MakeContent() {
 
   const projectDir = useProjectDir()
 
-  // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
   const local = useLocal()
   const currentModel = () => local.model.current()
 
