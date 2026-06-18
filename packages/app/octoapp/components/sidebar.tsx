@@ -85,6 +85,35 @@ const params = useParams()
     hasMessages: boolean
   }>({ show: false, x: 0, y: 0, session: null, hasMessages: false })
 
+  const [menuStyle, setMenuStyle] = createSignal<{ left: string; top: string; visibility: "visible" | "hidden" }>({
+    left: "0px",
+    top: "0px",
+    visibility: "hidden",
+  })
+
+  let contextMenuRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (contextMenu.show && contextMenu.session) {
+      requestAnimationFrame(() => {
+        const menu = contextMenuRef
+        if (!menu) return
+        const menuHeight = menu.offsetHeight
+        const viewportHeight = window.innerHeight
+        const minBottomMargin = 24
+        let top = contextMenu.y
+        if (top + menuHeight > viewportHeight - minBottomMargin) {
+          top = Math.max(0, viewportHeight - menuHeight - minBottomMargin)
+        }
+        setMenuStyle({
+          left: `${contextMenu.x}px`,
+          top: `${top}px`,
+          visibility: "visible",
+        })
+      })
+    }
+  })
+
   function closeContextMenu() {
     setContextMenu("show", false)
   }
@@ -331,11 +360,13 @@ const params = useParams()
             ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
           >
             <div
+              ref={(el) => { contextMenuRef = el }}
               data-component="dropdown-menu-content"
               style={{
                 position: "absolute",
-                left: `${contextMenu.x}px`,
-                top: `${contextMenu.y}px`,
+                left: menuStyle().left,
+                top: menuStyle().top,
+                visibility: menuStyle().visibility,
                 transform: "translateX(12px)",
                 "min-width": "132px",
               }}
