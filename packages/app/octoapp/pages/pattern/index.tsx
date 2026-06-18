@@ -326,6 +326,8 @@ function PatternContent() {
   const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
   const [isModifying, setIsModifying] = createSignal(false)
+  const lastVersionSave = new Map<string, number>()
+  const VERSION_THROTTLE_MS = 2000
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
@@ -349,13 +351,16 @@ function PatternContent() {
     void handleSubmit()
   }
 
-  function handleModifyElement(data: { elementId: string; className: string; textContent: string; componentProps: Record<string, string>; tag?: string }) {
+  async function handleModifyElement(data: { elementId: string; className: string; textContent: string; componentProps: Record<string, string>; tag?: string; saveToHistory?: boolean; keepOpen?: boolean }) {
+    console.log("[Pattern] modifyElement data:", data)
     const current = pendingPreviewData()
     if (!current || typeof current !== 'object') return
     const doc = JSON.parse(JSON.stringify(current))
     if (!doc?.elements || !Array.isArray(doc.elements)) return
+    let found = false
     for (const el of doc.elements) {
       if (el.id === data.elementId) {
+        found = true
         el.props = el.props || {}
         el.props.className = data.className
         if (data.textContent) el.props.value = data.textContent
@@ -363,8 +368,35 @@ function PatternContent() {
         break
       }
     }
+    console.log("[Pattern] element found:", found, "in", doc.elements.length, "elements")
     sendToPreview(doc)
+    if (data.saveToHistory) {
+      const key = data.elementId
+      const now = Date.now()
+      const last = lastVersionSave.get(key) ?? 0
+      if (now - last >= VERSION_THROTTLE_MS) {
+        lastVersionSave.set(key, now)
+        const dir = patternHistoryDir()
+        const sid = params.id
+        if (dir && sid) {
+          const summary = (data.tag || data.componentProps?.value || Object.keys(data.componentProps || {}).join(',') || '快速修改').slice(0, 80)
+          const vid = await appendPatternVersion(dir, sid, {
+            lastIntent: lastIntent(),
+            lastPlanner: lastPlanner(),
+            lastModules: lastModules(),
+            mergedA2UI: doc as unknown as Record<string, unknown>,
+          }, summary)
+          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary }])
+          setCurrentVersionId(vid)
+        }
+      }
+    }
+    if (Object.keys(data.componentProps || {}).length > 0) {
+      previewApi.refresh()
+    }
+
   }
+
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -420,6 +452,7 @@ function PatternContent() {
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
+    console.log("[Pattern] sendToPreview called")
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
     setHasPreviewContent(true)
@@ -643,6 +676,7 @@ function PatternContent() {
     if (state.lastIntent) setLastIntent(state.lastIntent)
     if (state.lastPlanner) setLastPlanner(state.lastPlanner)
     if (state.lastModules.length > 0) setLastModules(state.lastModules)
+    previewApi.refresh()
   }
 
   function handleDownload() {

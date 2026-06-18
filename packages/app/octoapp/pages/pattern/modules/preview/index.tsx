@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/persist"
@@ -42,8 +42,12 @@ export function PreviewPage(props: {
   const TARGET_WIDTH = 1920
   const TARGET_HEIGHT = 1080
 
+  createEffect(() => {
+    if (!editing()) setPropertyEditor('show', false)
+  })
+
   function triggerRefresh() {
-    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51857"
+    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51856"
   }
 
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
@@ -59,7 +63,11 @@ export function PreviewPage(props: {
   }
 
   function sendToPreview(data: unknown) {
-    if (!previewIframeRef?.contentWindow) return
+    if (!previewIframeRef?.contentWindow) {
+      console.log("[preview] sendToPreview skipped: no iframe")
+      return
+    }
+    console.log("[preview] sendToPreview posting A2UI_UPDATE")
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
   }
 
@@ -146,18 +154,20 @@ export function PreviewPage(props: {
     const scale = (wrapperRect?.width ?? TARGET_WIDTH) / TARGET_WIDTH
     const rawRect = ctxMenu.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
 
+    const cx = 20
+    const cy = 115
+
     setPropertyEditor('show', false)
     queueMicrotask(() => {
+      const compType = ctxMenu.domPickerComponent || ctxMenu.tagName
+      console.log("[preview] open property editor:", { elementId: ctxMenu.domPickerId, componentType: compType, class: ctxMenu.domPickerClass, props: ctxMenu.elementProps })
       setPropertyEditor({
         show: true,
         elementId: ctxMenu.domPickerId,
-        componentType: ctxMenu.tagName,
+        componentType: compType,
         currentClass: ctxMenu.domPickerClass ?? '',
         elementProps: ctxMenu.elementProps ?? '',
-        clickPoint: {
-          x: ctxMenu.rawClickX * scale + (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0),
-          y: ctxMenu.rawClickY * scale + (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0),
-        },
+        clickPoint: { x: cx, y: cy },
         elementRect: {
           top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + rawRect.top * scale,
           left: (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0) + rawRect.left * scale,
@@ -175,8 +185,10 @@ export function PreviewPage(props: {
   })
 
   function handlePropertyConfirm(data: ModifyElementData) {
-    if (!data.keepOpen) setPropertyEditor('show', false)
-    unfreezeDomPicker()
+    if (!data.keepOpen) {
+      setPropertyEditor('show', false)
+      unfreezeDomPicker()
+    }
     props.onModifyElement?.(data)
   }
 
@@ -202,6 +214,7 @@ export function PreviewPage(props: {
     if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
     if (ctxMenu.show) { closeCtxMenu(); return }
     const { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName, rect, clickX, clickY } = e.data
+    console.log("[preview] DOM_PICKER_CONTEXT_MENU:", { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName })
     const pos = iframeToPage(clickX, clickY)
     setCtxMenu({
       show: true,
@@ -216,6 +229,7 @@ export function PreviewPage(props: {
   const handleIframeMessage = (e: MessageEvent) => {
     handlePickerMessage(e)
     if (e.data?.type === "A2UI_READY" && props.pendingData) {
+      console.log("[preview] A2UI_READY, re-sending pendingData")
       sendToPreview(props.pendingData)
     }
   }
@@ -282,7 +296,7 @@ export function PreviewPage(props: {
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
-          src="http://127.0.0.1:51857"
+          src="http://127.0.0.1:51856"
           onLoad={() => {
             if (props.pendingData) sendToPreview(props.pendingData)
           }}
@@ -294,8 +308,7 @@ export function PreviewPage(props: {
         <div class="dom-picker-ctx-menu" style={{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }}
              onClick={(e) => e.stopPropagation()}>
           <div class="ctx-menu-item" onClick={handleCopyName}>复制名称</div>
-          <div class="ctx-menu-item" onClick={handleSelectArea}>修改区域</div>
-          <div class="ctx-separator" />
+          <div class="ctx-menu-item" onClick={handleSelectArea}>AI修改</div>
           <div class="ctx-menu-item" onClick={handleQuickModify}>快速修改</div>
         </div>
       </Show>

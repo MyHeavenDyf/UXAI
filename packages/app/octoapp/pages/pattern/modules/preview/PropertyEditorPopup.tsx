@@ -39,6 +39,10 @@ const COMPONENT_ENUMS: Record<string, string[]> = {
   'Icon.color': ['default', 'primary', 'success', 'warning', 'error', 'inverse'],
 }
 
+const ENUM_DEFAULTS: Record<string, string> = {
+  'Button.size': 'medium',
+}
+
 const COMPONENT_PROPS: Record<string, string[]> = {
   Button: ['value', 'color', 'types', 'size', 'icon', 'iconPlacement', 'shape', 'className'],
   Icon: ['name', 'shape', 'color', 'className'],
@@ -84,6 +88,7 @@ export interface ModifyElementData {
   componentProps: Record<string, string>
   tag?: string
   keepOpen?: boolean
+  saveToHistory?: boolean
 }
 
 export function PropertyEditorPopup(props: {
@@ -103,7 +108,7 @@ export function PropertyEditorPopup(props: {
   const [popupW, setPopupW] = createSignal(0)
   const [popupH, setPopupH] = createSignal(0)
   const [dragOffset, setDragOffset] = createStore({ x: 0, y: 0 })
-  const [initialPos, setInitialPos] = createStore({ left: 0, top: 0 })
+  const [initialPos, setInitialPos] = createStore({ right: 20, top: 115 })
 
   const isTextElement = createMemo(() => TEXT_ELEMENTS.includes(props.componentType))
 
@@ -168,6 +173,8 @@ export function PropertyEditorPopup(props: {
   const [editAlignItems, setEditAlignItems] = createSignal('')
   const [paddingMode, setPaddingMode] = createSignal<'all' | 'hv' | 'trbl'>('all')
   const [paddingOpen, setPaddingOpen] = createSignal(false)
+  const [marginMode, setMarginMode] = createSignal<'all' | 'hv' | 'trbl'>('all')
+  const [marginOpen, setMarginOpen] = createSignal(false)
   const [editBgImage, setEditBgImage] = createSignal<File | null>(null)
   const [editBgUrl, setEditBgUrl] = createSignal('')
 
@@ -486,13 +493,11 @@ export function PropertyEditorPopup(props: {
 
   function calcInitPos() {
     const cp = props.clickPoint
-    if (!cp) return { left: 0, top: 0 }
-    const pw = popupW() || 420
+    if (!cp) return { right: 20, top: 115 }
     const ph = popupH() || 400
-    let l = cp.x + 4, t = cp.y + 4
-    if (l + pw > props.containerSize.width - 5) l = Math.max(5, cp.x - pw - 4)
+    let r = cp.x, t = cp.y + 4
     if (t + ph > props.containerSize.height - 5) t = Math.max(5, cp.y - ph - 4)
-    return { left: Math.max(5, l), top: Math.max(5, t) }
+    return { right: Math.max(0, r), top: Math.max(5, t) }
   }
 
   function applyCssVariables(vars: Record<string, string>, rawCls: string, parsed: Record<string, unknown>) {
@@ -720,14 +725,17 @@ export function PropertyEditorPopup(props: {
       initialBgUrl = editBgUrl()
     }
 
-    const keys = Object.keys(editProps as Record<string, string>)
-    for (const k of keys) delete (editProps as Record<string, unknown>)[k]
     setRawProps(reconcile(parsed as Record<string, string>))
 
     const defKeys = COMPONENT_PROPS[props.componentType] || []
     const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_'))
     setPropKeys(allKeys)
-    for (const k of allKeys) setEditProps(k, (parsed[k] ?? '').toString())
+    for (const k of allKeys) {
+      const raw = (parsed[k] ?? '').toString()
+      const opts = getEnumOptions(k)
+      const def = ENUM_DEFAULTS[`${props.componentType}.${k}`] ?? (opts.includes('default') ? 'default' : '')
+      setEditProps(k, raw || def)
+    }
   }
 
   function applyParseClassFallback(rawCls: string, parsed: Record<string, unknown>) {
@@ -835,14 +843,17 @@ export function PropertyEditorPopup(props: {
       }])
     }
 
-    const keys = Object.keys(editProps as Record<string, string>)
-    for (const k of keys) delete (editProps as Record<string, unknown>)[k]
     setRawProps(reconcile(parsed as Record<string, string>))
 
     const defKeys = COMPONENT_PROPS[props.componentType] || []
     const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_'))
     setPropKeys(allKeys)
-    for (const k of allKeys) setEditProps(k, (parsed[k] ?? '').toString())
+    for (const k of allKeys) {
+      const raw = (parsed[k] ?? '').toString()
+      const opts = getEnumOptions(k)
+      const def = ENUM_DEFAULTS[`${props.componentType}.${k}`] ?? (opts.includes('default') ? 'default' : '')
+      setEditProps(k, raw || def)
+    }
   }
 
   let ready = false
@@ -859,6 +870,11 @@ export function PropertyEditorPopup(props: {
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
 
+    console.log("[PropertyEditor] open, original className:", rawCls)
+
+    setInitialPos('right', 20)
+    setInitialPos('top', 115)
+    setDragOffset({ x: 0, y: 0 })
     setEditBgImage(null)
     setEditTag('')
 
@@ -893,11 +909,13 @@ export function PropertyEditorPopup(props: {
 
   function onWindowClick(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('.padding-dropdown-area')) return
+    if ((e.target as HTMLElement).closest('.margin-dropdown-area')) return
     setPaddingOpen(false)
+    setMarginOpen(false)
   }
 
   createEffect(() => {
-    if (paddingOpen()) {
+    if (paddingOpen() || marginOpen()) {
       window.addEventListener('click', onWindowClick)
     } else {
       window.removeEventListener('click', onWindowClick)
@@ -905,6 +923,14 @@ export function PropertyEditorPopup(props: {
   })
   onCleanup(() => window.removeEventListener('click', onWindowClick))
   onCleanup(() => clearTimeout(autoUpdateTimer))
+
+  createEffect(() => {
+    const file = editBgImage()
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setEditBgUrl(reader.result as string)
+    reader.readAsDataURL(file)
+  })
 
   onCleanup(() => clearTimeout(autoUpdateTimer))
 
@@ -972,7 +998,8 @@ export function PropertyEditorPopup(props: {
   }
 
   const finalStyle = createMemo(() => ({
-    left: `${initialPos.left + dragOffset.x}px`,
+    position: 'absolute' as const,
+    right: `${initialPos.right + dragOffset.x}px`,
     top: `${initialPos.top + dragOffset.y}px`,
   }))
 
@@ -980,7 +1007,7 @@ export function PropertyEditorPopup(props: {
     e.preventDefault()
     const sx = e.clientX, sy = e.clientY
     const ox = dragOffset.x, oy = dragOffset.y
-    const onDrag = (me: MouseEvent) => { setDragOffset({ x: ox + me.clientX - sx, y: oy + me.clientY - sy }) }
+    const onDrag = (me: MouseEvent) => { setDragOffset({ x: ox - (me.clientX - sx), y: oy + me.clientY - sy }) }
     const onUp = () => { window.removeEventListener('mousemove', onDrag); window.removeEventListener('mouseup', onUp) }
     window.addEventListener('mousemove', onDrag)
     window.addEventListener('mouseup', onUp)
@@ -1116,6 +1143,8 @@ export function PropertyEditorPopup(props: {
       if (api) {
         const cssObj = buildCssObject()
         className = await api(cssObj)
+        const flexExtra = parsedClasses.filter(c => c.startsWith('flex-') && !['flex', 'flex-col', 'flex-row'].includes(c)).join(' ')
+        if (flexExtra) className = (className + ' ' + flexExtra).trim()
       } else {
         className = buildClassName()
         if (editTextColor()) {
@@ -1156,7 +1185,9 @@ export function PropertyEditorPopup(props: {
       componentProps,
       tag: editTag() || undefined,
       keepOpen: skipChangeCheck,
+      saveToHistory: true,
     }
+    console.log("[PropertyEditor] confirm, outgoing className:", className, "componentProps:", JSON.stringify(componentProps), "elementId:", props.elementId)
     props.onConfirm(confirmData)
   }
 
@@ -1276,8 +1307,8 @@ export function PropertyEditorPopup(props: {
                             </button>
                           )
                         }}
-                      </For>
-                    </div>
+              </For>
+            </div>
                   </div>
                   <div class="flex-1">
                     <div class="text-[10px] text-slate-400 mb-1">间距</div>
@@ -1386,12 +1417,74 @@ export function PropertyEditorPopup(props: {
               <Show when={paddingMode() === 'trbl'}>
                 <div class="flex flex-col gap-1.5 w-full min-w-0">
                   <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editPt} setValue={setEditPt} setFound={setFoundPt} found={foundPt} placeholder="上" />
-                    <DragInput value={editPr} setValue={setEditPr} setFound={setFoundPr} found={foundPr} placeholder="右" />
+                    <DragInput value={editPt} setValue={setEditPt} setFound={setFoundPt} found={foundPt} placeholder="上" icon="↑" />
+                    <DragInput value={editPr} setValue={setEditPr} setFound={setFoundPr} found={foundPr} placeholder="右" icon="→" />
                   </div>
                   <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editPb} setValue={setEditPb} setFound={setFoundPb} found={foundPb} placeholder="下" />
-                    <DragInput value={editPl} setValue={setEditPl} setFound={setFoundPl} found={foundPl} placeholder="左" />
+                    <DragInput value={editPb} setValue={setEditPb} setFound={setFoundPb} found={foundPb} placeholder="下" icon="↓" />
+                    <DragInput value={editPl} setValue={setEditPl} setFound={setFoundPl} found={foundPl} placeholder="左" icon="←" />
+                  </div>
+                </div>
+              </Show>
+            </div>
+
+            <div class="grid gap-1.5 py-0.5 border-slate-100 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-medium text-slate-500">Margin</span>
+                <div class="relative margin-dropdown-area">
+                  <button onClick={() => setMarginOpen(!marginOpen())}
+                    class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
+                    <span class="w-3 h-3"><SettingsIcon /></span>
+                  </button>
+                  <Show when={marginOpen()}>
+                    <div class="absolute right-0 top-full mt-1 z-[301] py-1 w-[180px]"
+                      style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "6px", "box-shadow": "0 4px 12px rgba(0,0,0,0.15)" }}
+                      onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => { setMarginMode('all'); setMarginOpen(false) }}
+                        class="w-full text-left px-3 py-2 text-[11px] text-slate-700 hover:bg-[#F4F4F5]">
+                        One value for all sides
+                      </button>
+                      <button onClick={() => { setMarginMode('hv'); setMarginOpen(false) }}
+                        class="w-full text-left px-3 py-2 text-[11px] text-slate-700 hover:bg-[#F4F4F5]">
+                        Horizontal/Vertical
+                      </button>
+                      <button onClick={() => { setMarginMode('trbl'); setMarginOpen(false) }}
+                        class="w-full text-left px-3 py-2 text-[11px] text-slate-700 hover:bg-[#F4F4F5]">
+                        Top/Right/Bottom/Left
+                      </button>
+                    </div>
+                  </Show>
+                </div>
+              </div>
+              <Show when={marginMode() === 'all'}>
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <DragInput
+                    value={editMt} setValue={(v) => { setEditMt(v); setEditMr(v); setEditMb(v); setEditMl(v) }}
+                    setFound={(v) => { setFoundMt(v); setFoundMr(v); setFoundMb(v); setFoundMl(v) }}
+                    found={foundMt} placeholder="-" />
+                </div>
+              </Show>
+              <Show when={marginMode() === 'hv'}>
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <DragInput
+                    value={editMr} setValue={(v) => { setEditMr(v); setEditMl(v) }}
+                    setFound={(v) => { setFoundMr(v); setFoundMl(v) }}
+                    found={foundMr} placeholder="H" />
+                  <DragInput
+                    value={editMt} setValue={(v) => { setEditMt(v); setEditMb(v) }}
+                    setFound={(v) => { setFoundMt(v); setFoundMb(v) }}
+                    found={foundMt} placeholder="V" />
+                </div>
+              </Show>
+              <Show when={marginMode() === 'trbl'}>
+                <div class="flex flex-col gap-1.5 w-full min-w-0">
+                  <div class="flex items-center gap-1.5 w-full min-w-0">
+                    <DragInput value={editMt} setValue={setEditMt} setFound={setFoundMt} found={foundMt} placeholder="上" icon="↑" />
+                    <DragInput value={editMr} setValue={setEditMr} setFound={setFoundMr} found={foundMr} placeholder="右" icon="→" />
+                  </div>
+                  <div class="flex items-center gap-1.5 w-full min-w-0">
+                    <DragInput value={editMb} setValue={setEditMb} setFound={setFoundMb} found={foundMb} placeholder="下" icon="↓" />
+                    <DragInput value={editMl} setValue={setEditMl} setFound={setFoundMl} found={foundMl} placeholder="左" icon="←" />
                   </div>
                 </div>
               </Show>
@@ -1453,7 +1546,8 @@ export function PropertyEditorPopup(props: {
               </Show>
             </div>
 
-            <div class="grid gap-1.5 py-0.5 border-slate-100 min-w-0">
+            {/* Fill section hidden */}
+            {/* <div class="grid gap-1.5 py-0.5 border-slate-100 min-w-0">
               <div class="flex items-center justify-between">
                 <span class="text-[10px] font-medium text-slate-500">Fill</span>
                 <button onClick={() => { setFills([...fills, { id: ++fillIdCounter, color: '#FFFFFF', opacity: 100, visible: true }]) }}
@@ -1492,28 +1586,18 @@ export function PropertyEditorPopup(props: {
                   )
                 }}
               </For>
-            </div>
+            </div> */}
 
             <div class="grid gap-1.5 py-0.5 border-slate-100 min-w-0">
               <span class="text-[10px] font-medium text-slate-500">Typography</span>
-              <div class="flex items-center gap-1.5 w-full min-w-0">
                 <select value={editFontFamily()}
                   onChange={(e) => setEditFontFamily(e.currentTarget.value)}
-                  class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] flex-1 min-w-0 text-[11px] px-1 outline-none appearance-none">
+                  class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] w-full text-[11px] px-1 outline-none appearance-none">
                   <option value="">Default</option>
                   <option value="sans">Sans</option>
                   <option value="serif">Serif</option>
                   <option value="mono">Mono</option>
                 </select>
-                <div class="flex items-center gap-1.5 bg-[#f5f7fa] rounded-sm px-1.5 h-6 flex-1 min-w-0">
-                  <div class="relative shrink-0 w-3.5 h-3.5 rounded-[1px] overflow-hidden" style={{ background: editTextColor() || '#333333' }}>
-                    <input type="color" value={editTextColor() || '#333333'}
-                      onInput={(e) => setEditTextColor(e.currentTarget.value)}
-                      class="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
-                  </div>
-                  <span class="text-[11px] text-slate-600 font-mono truncate">{editTextColor() || 'inherited'}</span>
-                </div>
-              </div>
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <select value={editFontWeight()}
                   onChange={(e) => setEditFontWeight(Number(e.currentTarget.value))}
@@ -1763,38 +1847,41 @@ export function PropertyEditorPopup(props: {
           </Show>
 
           <Show when={!isTextElement() && propKeys().length > 0}>
-            <For each={propKeys()}>
-              {(key) => (
-                <div class="flex flex-col gap-1">
-                  <label class="text-xs font-medium text-slate-500">
-                    {LABEL_MAP[key] || key}
-                    <Show when={isBinding(key)}>
-                      <span class="text-[10px] text-amber-500 font-normal ml-1">动态绑定</span>
+            <div class="grid gap-1.5 min-w-0">
+              <For each={propKeys()}>
+                {(key) => (
+                  <div class="flex items-center gap-2">
+                    <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
+                      {LABEL_MAP[key] || key}
+                      <Show when={isBinding(key)}>
+                        <span class="text-[10px] text-amber-500 font-normal">动态绑定</span>
+                      </Show>
+                    </label>
+                    <Show
+                      when={getEnumOptions(key).length > 0}
+                      fallback={
+                        <input value={(editProps as Record<string, string>)[key] ?? ''}
+                          onInput={(e) => setEditProps(key, e.currentTarget.value)}
+                          type="text" placeholder={key}
+                          class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-2 outline-none flex-1 min-w-0 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none" />
+                      }
+                    >
+                      <select value={(editProps as Record<string, string>)[key] ?? ''}
+                        onChange={(e) => setEditProps(key, e.currentTarget.value)}
+                        class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-1 outline-none flex-1 min-w-0 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none appearance-none">
+                        <For each={getEnumOptions(key)}>
+                          {(opt) => <option value={opt}>{opt}</option>}
+                        </For>
+                      </select>
                     </Show>
-                  </label>
-                  <Show
-                    when={getEnumOptions(key).length > 0}
-                    fallback={
-                      <input value={(editProps as Record<string, string>)[key] ?? ''}
-                        onInput={(e) => setEditProps(key, e.currentTarget.value)}
-                        type="text" placeholder={key} class="property-input w-full" />
-                    }
-                  >
-                    <select value={(editProps as Record<string, string>)[key] ?? ''}
-                      onChange={(e) => setEditProps(key, e.currentTarget.value)}
-                      class="property-select w-full">
-                      <For each={getEnumOptions(key)}>
-                        {(opt) => <option value={opt}>{opt}</option>}
-                      </For>
-                    </select>
-                  </Show>
-                </div>
-              )}
-            </For>
+                  </div>
+                )}
+              </For>
+            </div>
           </Show>
 
           <Show when={!isTextElement() && propKeys().length === 0}>
-            <div class="text-sm text-slate-400 py-2">该组件暂不支持快速修改</div>
+            <div class="text-[11px] text-slate-400 py-2">该组件暂不支持快速修改</div>
           </Show>
 
           {/* <div class="border-t border-slate-100 pt-3">
@@ -1871,9 +1958,11 @@ function DragInput(props: {
 
 function SettingsIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+      <rect x="3" y="1" width="10" height="3" rx=".5" />
+      <rect x="3" y="12" width="10" height="3" rx=".5" />
+      <rect x="1" y="3" width="3" height="10" rx=".5" />
+      <rect x="12" y="3" width="3" height="10" rx=".5" />
     </svg>
   )
 }
@@ -1929,7 +2018,7 @@ function FreeformIcon() {
 function RowIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M8 14V2M5 5l3-3 3 3M11 11l-3 3-3-3" />
+      <path d="M14 8H2M5 5l-3 3 3 3M11 11l3-3-3-3" />
     </svg>
   )
 }
@@ -1937,7 +2026,7 @@ function RowIcon() {
 function ColIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M14 8H2M5 5l-3 3 3 3M11 11l3-3-3-3" />
+      <path d="M8 14V2M5 5l3-3 3 3M11 11l-3 3-3-3" />
     </svg>
   )
 }
