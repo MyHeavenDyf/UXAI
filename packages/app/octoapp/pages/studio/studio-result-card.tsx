@@ -75,7 +75,9 @@ export function StudioResultCard(props: StudioResultCardProps) {
   const isMultiLandscape4 = () => isLandscape() && (props.turn.result?.images.length ?? 0) === 4
   const statusLabel = () => {
     if (status() === "queued") {
-      return props.turn.result?.order === undefined ? "排队中" : `排队中，前方 ${props.turn.result.order} 人`
+      if (props.turn.result?.order != null && props.turn.result.order > 0) return "排队中"
+      if (progress() > 0 || props.busy) return "生成中"
+      return ""
     }
     if (status() === "running") return "生成中"
     if (status() === "succeeded") return "生成完成"
@@ -96,7 +98,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
           <span class={`studio-result-progress-icon ${capabilityIconClass()}`} />
           <span>{mediaLabel()}</span>
         </div>
-        <span class="studio-result-progress-status">{statusLabel()}</span>
+        <span class="studio-result-progress-status" classList={{ invisible: !statusLabel() }}>{statusLabel()}</span>
         <Show when={generating()}>
           <>
             <div

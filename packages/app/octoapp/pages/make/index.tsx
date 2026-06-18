@@ -26,9 +26,11 @@ import {
   For,
   on,
   onCleanup,
+  onMount,
   Show,
   type JSX,
 } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -47,8 +49,10 @@ import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
 import { MakeQuestionDock } from "./components/make-question-dock"
-import { sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
-import type { QuestionRequest } from "@opencode-ai/sdk/v2"
+import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
+import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
+import { usePermission } from "@/context/permission"
+import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -84,6 +88,8 @@ export default function MakePage() {
   )
 }
 
+let lastMakeDir: string | undefined
+
 function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
@@ -97,9 +103,21 @@ function MakeContent() {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
   const providers = useProviders()
+  const permission = usePermission()
 
   // Register Make slash commands
   useMakeCommands()
+
+  // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
+  // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
+  const prevMakeDir = lastMakeDir
+  lastMakeDir = sdk.directory
+  onMount(() => {
+    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id) return
+    navigate("/make", { replace: true })
+  })
+
+  onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
   const projectDir = useProjectDir()
 
@@ -199,6 +217,7 @@ function MakeContent() {
     if (!draft) { setTitleState("editing", false); return }
     try {
       await sdk.client.session.update({ sessionID: id, title: draft })
+      tracker.interaction({ module: "design", name: "rename-session" })
       void refetchSession()
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
@@ -211,6 +230,7 @@ function MakeContent() {
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
+      tracker.interaction({ module: "design", name: "delete-session" })
       navigate("/make")
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
@@ -229,7 +249,7 @@ function MakeContent() {
     on(
       projectDir,
       (newDir, oldDir) => {
-        if (!newDir || !oldDir || newDir === oldDir) return
+        if (!newDir || newDir === oldDir) return
         
         const currentId = params.id
         if (!currentId) return
@@ -743,6 +763,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const session = result.data as Session | undefined
       console.log("[MakePage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
+        tracker.interaction({ module: "design", name: "new-session" })
         navigate(`/make/${session.id}`)
         return session.id
       }
@@ -825,6 +846,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const textPart: TextPartInput = { type: "text", text: promptText }
       const modelKey = activeModelKey()
       if (!modelKey) return
+      tracker.interaction({
+        module: "design",
+        name: "send-message",
+        extend: JSON.stringify({ hasAttachment: fileParts.length > 0, designSystem: dsId ?? null }),
+      })
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
@@ -875,6 +901,7 @@ if (dsId) {
   async function halt() {
     const sid = params.id
     if (!sid) return
+    tracker.interaction({ module: "design", name: "stop-generation" })
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
@@ -980,6 +1007,9 @@ if (dsId) {
         ])
       }
       reader.readAsDataURL(file)
+    }
+    if (toAdd.length > 0) {
+      tracker.interaction({ module: "design", name: "add-attachment", extend: JSON.stringify({ count: toAdd.length }) })
     }
   }
 
@@ -1093,7 +1123,30 @@ if (dsId) {
     return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
   })
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest()
+  const permissionRequest = createMemo<PermissionRequest | undefined>(() => {
+    return sessionPermissionRequest(sync.data.session, sync.data.permission, params.id, (item) => {
+      return !permission.autoResponds(item, sdk.directory)
+    })
+  })
+
+  const [permissionResponding, setPermissionResponding] = createSignal(false)
+
+  const decidePermission = (response: "once" | "always" | "reject") => {
+    const perm = permissionRequest()
+    if (!perm || permissionResponding()) return
+    setPermissionResponding(true)
+    sdk.client.permission
+      .respond({ sessionID: perm.sessionID, permissionID: perm.id, response })
+      .catch((err: unknown) => {
+        const description = err instanceof Error ? err.message : String(err)
+        console.error("[MakePage] permission respond failed:", description)
+      })
+      .finally(() => {
+        setPermissionResponding(false)
+      })
+  }
+
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
   const maxAttachments = () => attachments().length >= 5
 
   return (
@@ -1224,10 +1277,13 @@ if (dsId) {
                   <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
                   {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
-                  <StarterCards
-                    prompts={FEATURED_STARTERS}
-                    onClick={(starter) => setPrompt(starter.prompt)}
-                  />
+<StarterCards
+                     prompts={FEATURED_STARTERS}
+                     onClick={(starter) => {
+                       tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
+                       setPrompt(starter.prompt)
+                     }}
+                   />
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
@@ -1397,6 +1453,19 @@ if (dsId) {
                   onRemove={removeAttachment}
                 />
 
+                {/* Permission dock - 权限授权 UI */}
+                <Show when={permissionRequest()} keyed>
+                  {(request) => (
+                    <div class="w-full pb-3">
+                      <SessionPermissionDock
+                        request={request}
+                        responding={permissionResponding()}
+                        onDecide={decidePermission}
+                      />
+                    </div>
+                  )}
+                </Show>
+
                 {/* Question dock - 阻塞式提问 UI */}
                 <Show when={questionRequest()} keyed>
                   {(request) => (
@@ -1409,7 +1478,10 @@ if (dsId) {
                 {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
                 <StarterCards
                   prompts={FEATURED_STARTERS}
-                  onClick={(starter) => setPrompt(starter.prompt)}
+                  onClick={(starter) => {
+                    tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
+                    setPrompt(starter.prompt)
+                  }}
                 />
 
                 <div
