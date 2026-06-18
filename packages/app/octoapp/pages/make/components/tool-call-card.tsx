@@ -81,6 +81,7 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
         background: "var(--octo-surface-page)",
         border: "1px solid var(--octo-border-default)",
       }}
+      title={props.call.filePath || undefined}
     >
       <span style={{ color: "var(--octo-text-secondary)" }}>{label()}</span>
       <Show when={summary()}>

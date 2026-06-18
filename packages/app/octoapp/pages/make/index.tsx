@@ -32,7 +32,7 @@ import {
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
 import { createStore, produce } from "solid-js/store"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -91,6 +91,7 @@ export default function MakePage() {
 function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
@@ -105,6 +106,13 @@ function MakeContent() {
 
   // Register Make slash commands
   useMakeCommands()
+
+  // Exit focus mode when navigating away from /make
+  createEffect(() => {
+    if (!location.pathname.startsWith("/make")) {
+      layout.focusMode.set(false)
+    }
+  })
 
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
@@ -659,7 +667,7 @@ const sessionMessagesLoaded = createMemo(() => {
     return 460
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
-  const [focusMode, setFocusMode] = createSignal(false)
+  const focusMode = layout.focusMode.get
 
   const MIN_CHAT = 345
   const MAX_CHAT = 720
@@ -1630,7 +1638,7 @@ if (dsId) {
                   type="button"
                   class="octo-focus-btn"
                   data-active={focusMode() ? "true" : undefined}
-                  onClick={() => setFocusMode(!focusMode())}
+                  onClick={() => layout.focusMode.toggle()}
                   title={focusMode() ? "退出焦点模式" : "焦点模式"}
                 >
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1653,6 +1661,8 @@ if (dsId) {
                 onActivate={tabStore.activate}
                 onClose={tabStore.closeTab}
                 onContentChange={handleContentChange}
+                focusMode={focusMode()}
+                onFocusModeToggle={() => layout.focusMode.toggle()}
               />
             </div>
             <Show when={showVersionPanel()}>

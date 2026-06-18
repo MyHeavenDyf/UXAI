@@ -55,6 +55,8 @@ export function ResultViewer(props: {
   onActivate: (id: string) => void
   onClose: (id: string) => void
   onContentChange?: (id: string, content: string) => void
+  focusMode?: boolean
+  onFocusModeToggle?: () => void
 }): JSX.Element {
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
@@ -180,6 +182,8 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   }
                 }}
                 onRefresh={tab().type === "html" ? handleRefresh : undefined}
+                focusMode={props.focusMode}
+                onFocusModeToggle={props.onFocusModeToggle}
               />
               <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch

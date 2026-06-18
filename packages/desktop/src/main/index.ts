@@ -62,6 +62,7 @@ import {
 import {
   createLoadingWindow,
   createMainWindow,
+  registerLocalProtocol,
   registerRendererProtocol,
   setBackgroundColor,
   setDockIcon,
@@ -161,6 +162,7 @@ function setupApp() {
     }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()
+    registerLocalProtocol()
     setDockIcon()
     startPreviewServer()
     setupAutoUpdater()
