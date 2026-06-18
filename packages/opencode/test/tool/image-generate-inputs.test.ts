@@ -3,6 +3,7 @@ import { resolveReferenceImages as resolveJimengReferenceImages } from "@/tool/j
 import {
   extractInternalImages,
   getInternalStyleConfig,
+  getInternalTargetSize,
   getTargetSizeForAspectRatio,
   getTaskType,
   isCancelTaskSuccess,
@@ -116,6 +117,22 @@ describe("image generate input filtering", () => {
     expect(getTargetSizeForAspectRatio({ width: 1024, height: 1024 }, "3:4")).toEqual({ width: 768, height: 1024 })
     expect(getTargetSizeForAspectRatio({ width: 1024, height: 1024 }, "16:9")).toEqual({ width: 1024, height: 576 })
     expect(getTargetSizeForAspectRatio({ width: 1280, height: 1280 }, "3:4")).toEqual({ width: 960, height: 1280 })
+  })
+
+  test("maps Seedream aspect ratios to model-specific target sizes", () => {
+    expect(
+      (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"] as const)
+        .map((aspectRatio) => getInternalTargetSize("Seedream 5.0 Lite", aspectRatio)),
+    ).toEqual([
+      { width: 2048, height: 2048 },
+      { width: 1664, height: 2496 },
+      { width: 1728, height: 2304 },
+      { width: 1600, height: 2848 },
+      { width: 2496, height: 1664 },
+      { width: 2304, height: 1728 },
+      { width: 2848, height: 1600 },
+    ])
+    expect(getInternalTargetSize("千问", "1:1")).toEqual({ width: 1024, height: 1024 })
   })
 
   test("accepts cancellation only when the provider confirms success", () => {
