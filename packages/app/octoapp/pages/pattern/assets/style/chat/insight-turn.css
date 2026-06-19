@@ -36,7 +36,7 @@
 .reasoning-text {
   background: var(--octo-surface-page);
   color: var(--octo-text-secondary);
-  max-height: 300px;
+  max-height: 160px;
   border: 1px solid var(--octo-border-default);
   border-radius: var(--octo-radius-md);
   box-shadow: none;
@@ -54,7 +54,7 @@
   border: 1px solid var(--octo-border-default);
   border-radius: var(--octo-radius-md);
   box-shadow: none;
-  max-height: 300px;
+  max-height: 160px;
   overflow: auto;
   -webkit-user-select: text;
   user-select: text;

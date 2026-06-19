@@ -49,7 +49,7 @@ export function PreviewPage(props: {
 
   
   function triggerRefresh() {
-    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51857"
+    if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51856"
   }
 
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
@@ -308,7 +308,7 @@ export function PreviewPage(props: {
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
-          src="http://127.0.0.1:51857"
+          src="http://127.0.0.1:51856"
           onLoad={() => {
             if (props.pendingData) sendToPreview(props.pendingData)
           }}
