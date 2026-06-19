@@ -397,6 +397,29 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
+
+  ipcMain.handle("run-pixso-build", async (_event: IpcMainInvokeEvent, input: string) => {
+    const { pathToFileURL } = await import("node:url")
+    const { existsSync } = await import("node:fs")
+    const { join } = await import("node:path")
+
+    const buildJsPath = app.isPackaged
+      ? join(process.resourcesPath, "toPixso", "build.js")
+      : "D:/Code/toPixso/build.js"
+
+    if (!existsSync(buildJsPath)) {
+      throw new Error(`build.js not found at ${buildJsPath}`)
+    }
+
+    try {
+      const mod = await import(pathToFileURL(buildJsPath).href)
+      const result = await mod.default(input)
+      return result
+    } catch (err) {
+      console.error("[pixso] build failed:", err)
+      throw err
+    }
+  })
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

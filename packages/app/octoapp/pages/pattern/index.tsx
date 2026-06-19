@@ -2,7 +2,7 @@ import "./assets/style/pattern-tokens.css"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast, showPromiseToast, Toast } from "@opencode-ai/ui/toast"
 import {
   createEffect,
   createMemo,
@@ -720,6 +720,47 @@ function PatternContent() {
     window.open("http://127.0.0.1:51856?fetch=live-data.json")
   }
 
+  const [pixsoLoading, setPixsoLoading] = createSignal(false)
+
+  async function handlePixsoPreview() {
+    if (pixsoLoading()) return
+    setPixsoLoading(true)
+
+    const desktopApi = (window as unknown as {
+      api?: {
+        runPixsoBuild?: (input: string) => Promise<string>
+        writeClipboardText?: (text: string) => Promise<void>
+      }
+    }).api
+
+    if (!desktopApi?.runPixsoBuild) {
+      showToast({ title: "当前环境不支持 Pixso 转换" })
+      setPixsoLoading(false)
+      return
+    }
+
+    const data = pendingPreviewData()
+    const jsonStr = typeof data === "string" ? data : JSON.stringify(data ?? "")
+    const buildPromise = desktopApi.runPixsoBuild(jsonStr)
+
+    showPromiseToast(buildPromise, {
+      loading: "Pixso 转换中，请等待...",
+      success: (result: string) => {
+        void desktopApi.writeClipboardText?.(result)
+        return `转换完成，传送码已复制到剪贴板`
+      },
+      error: (err: unknown) => `转换失败: ${err instanceof Error ? err.message : String(err)}`,
+    })
+
+    try {
+      await buildPromise
+    } catch {
+      // showPromiseToast 已处理错误提示
+    } finally {
+      setPixsoLoading(false)
+    }
+  }
+
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
 
   const chartInputProps = () => ({
@@ -794,6 +835,7 @@ function PatternContent() {
                 onPickerSubmit={handlePickerSubmit}
                 onDownload={handleDownload}
                 onLivePreview={handleLivePreview}
+                onPixsoPreview={handlePixsoPreview}
                 versions={versions()}
                 currentVersionId={currentVersionId()}
                 onSelectVersion={(vid) => { void handleSelectVersion(vid) }}

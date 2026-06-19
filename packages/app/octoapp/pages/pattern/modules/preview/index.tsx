@@ -29,6 +29,7 @@ export function PreviewPage(props: {
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
   onLivePreview?: () => void
+  onPixsoPreview?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -57,6 +58,11 @@ export function PreviewPage(props: {
 
     if (type === "preview" && value === "live") {
       props.onLivePreview?.()
+      return
+    }
+
+    if (type === "preview" && value === "pixso") {
+      props.onPixsoPreview?.()
       return
     }
 
