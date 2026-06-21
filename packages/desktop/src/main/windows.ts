@@ -264,9 +264,11 @@ export function registerLocalProtocol() {
       return new Response("Invalid path", { status: 400 })
     }
 
-    let absolutePath = filePath.replace(/^[\/\\]+/, "")
+    let absolutePath: string
     if (process.platform === "win32") {
-      absolutePath = absolutePath.replace(/\//g, "\\")
+      absolutePath = filePath.replace(/^[\/\\]+/, "").replace(/\//g, "\\")
+    } else {
+      absolutePath = filePath
     }
 
     if (!existsSync(absolutePath)) {
