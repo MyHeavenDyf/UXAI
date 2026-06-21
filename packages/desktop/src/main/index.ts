@@ -9,13 +9,20 @@ import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog, session } from "electron"
 import pkg from "electron-updater"
+import { shellPath } from 'shell-path'
 
 import contextMenu from "electron-context-menu"
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false, showSelectAll: false })
 
 // on macOS apps run in `/` which can cause issues with ripgrep
 try {
-  process.chdir(homedir())
+  process.chdir(homedir());
+  (async () => {
+    const pathFromShell = await shellPath();
+    if (pathFromShell) {
+      process.env.PATH = pathFromShell;
+    }
+  })();
 } catch {}
 
 process.env.OCTO_DISABLE_EMBEDDED_WEB_UI = "true"

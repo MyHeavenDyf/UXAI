@@ -257,16 +257,23 @@ export function registerLocalProtocol() {
 
     let filePath = pathname
     if (host && /^[A-Za-z]$/.test(host)) {
+      // Windows: C:/Users/... → C:\Users\...
       filePath = `${host}:${pathname}`
+    } else if (host) {
+      // MacOS/Linux: local://Users/... → /Users/...
+      filePath = `/${host}${pathname}`
     }
 
     if (!filePath || filePath.includes("..")) {
       return new Response("Invalid path", { status: 400 })
     }
 
-    let absolutePath = filePath.replace(/^[\/\\]+/, "")
+    let absolutePath: string
     if (process.platform === "win32") {
-      absolutePath = absolutePath.replace(/\//g, "\\")
+      absolutePath = filePath.replace(/^[\/\\]+/, "").replace(/\//g, "\\")
+    } else {
+      // MacOS/Linux: normalize multiple leading slashes to single /
+      absolutePath = filePath.replace(/^\/+/, "/")
     }
 
     if (!existsSync(absolutePath)) {
