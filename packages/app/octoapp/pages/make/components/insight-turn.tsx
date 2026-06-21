@@ -37,6 +37,7 @@ export type OutputCard = {
   type: OutputCardType
   content: string
   filePath?: string
+  sessionId?: string
   artifactKind?: string
   artifactIdentifier?: string
   exports?: ArtifactExportKind[]

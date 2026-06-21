@@ -1,6 +1,7 @@
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 
 export type ArtifactFileKind =
+  | "folder"
   | "html"
   | "svg"
   | "image"
@@ -16,8 +17,10 @@ export type ArtifactFileKind =
 export interface ArtifactFile {
   name: string
   path: string
+  relativePath: string
   sessionId: string
   kind: ArtifactFileKind
+  isFolder: boolean
   size: number
   mtime: number
   mime: string
@@ -37,8 +40,12 @@ export async function fetchArtifactList(
   sdkUrl: string,
   sdkDirectory: string,
   sessionId: string,
+  subPath?: string,
 ): Promise<ArtifactListResponse> {
-  const response = await fetch(`${sdkUrl}/artifact/list?sessionId=${encodeURIComponent(sessionId)}`, {
+  const url = subPath
+    ? `${sdkUrl}/artifact/list?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(subPath)}`
+    : `${sdkUrl}/artifact/list?sessionId=${encodeURIComponent(sessionId)}`
+  const response = await fetch(url, {
     headers: { "x-opencode-directory": sdkDirectory },
   })
   if (!response.ok) {
@@ -143,8 +150,43 @@ export async function uploadArtifactFile(
   return response.json()
 }
 
+export interface FolderUploadFile {
+  relativePath: string
+  content: string
+}
+
+export interface FolderUploadResponse {
+  name: string
+  path: string
+  relativePath: string
+  sessionId: string
+  kind: string
+  isFolder: boolean
+  fileCount: number
+  mtime: number
+}
+
+export async function uploadArtifactFolder(
+  sdkUrl: string,
+  sdkDirectory: string,
+  sessionId: string,
+  folderName: string,
+  files: FolderUploadFile[],
+): Promise<FolderUploadResponse> {
+  const response = await fetch(`${sdkUrl}/artifact/upload-folder`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
+    body: JSON.stringify({ sessionId, folderName, files }),
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to upload folder: ${response.statusText}`)
+  }
+  return response.json()
+}
+
 export function kindLabel(kind: ArtifactFileKind): string {
   const labels: Record<ArtifactFileKind, string> = {
+    folder: "Folder",
     html: "HTML",
     svg: "SVG",
     image: "Image",
@@ -162,6 +204,7 @@ export function kindLabel(kind: ArtifactFileKind): string {
 
 export function kindSortPriority(kind: ArtifactFileKind): number {
   const priority: Record<ArtifactFileKind, number> = {
+    folder: -1,
     html: 0,
     svg: 1,
     markdown: 2,
@@ -213,6 +256,36 @@ export function artifactFileToOutputCard(file: ArtifactFile): OutputCard {
     type,
     content: "",
     filePath: file.path,
+    sessionId: file.sessionId,
     createdAt: new Date(file.mtime),
   }
+}
+
+export function getArtifactServeUrl(
+  sdkUrl: string,
+  directory: string,
+  sessionId: string,
+  relativePath: string,
+): string {
+  const params = new URLSearchParams({
+    directory,
+    sessionId,
+    path: relativePath,
+  })
+  return `${sdkUrl}/artifact/serve?${params.toString()}`
+}
+
+export function getArtifactRelativePath(filePath: string): { sessionId: string; relativePath: string } | null {
+  const artifactBase = ".octo/artifacts/make/"
+  const idx = filePath.indexOf(artifactBase)
+  if (idx === -1) return null
+  
+  const afterBase = filePath.slice(idx + artifactBase.length)
+  const slashIdx = afterBase.indexOf("/")
+  if (slashIdx === -1) return null
+  
+  const sessionId = afterBase.slice(0, slashIdx)
+  const relativePath = afterBase.slice(slashIdx + 1)
+  
+  return { sessionId, relativePath }
 }

@@ -63,3 +63,18 @@ export async function autoSaveArtifact(
   await api.writeFileBuffer(filePath, buffer)
   return filePath
 }
+
+export async function saveArtifactContent(
+  filePath: string,
+  content: string,
+): Promise<void> {
+  const api = getDesktopApi()
+  if (!api?.writeFileBuffer) {
+    throw new Error("Desktop API not available")
+  }
+
+  const encoder = new TextEncoder()
+  const buffer = encoder.encode(content).buffer as ArrayBuffer
+
+  await api.writeFileBuffer(filePath, buffer)
+}

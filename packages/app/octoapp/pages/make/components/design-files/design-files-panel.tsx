@@ -27,10 +27,12 @@ import {
   archiveArtifacts,
   renameArtifactFile,
   uploadArtifactFile,
+  uploadArtifactFolder,
   fetchArtifactContent,
   kindLabel,
   formatFileSize,
   formatTimestamp,
+  type FolderUploadFile,
 } from "../../utils/artifact-file-api"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -40,6 +42,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { PreviewPane } from "./preview-pane"
+import { Breadcrumb } from "./breadcrumb"
 
 const PAGE_SIZE_OPTIONS = [15, 30, 45, 60, "all"] as const
 
@@ -58,18 +61,21 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const [previewFile, setPreviewFile] = createSignal<ArtifactFile | null>(null)
   const [renamingPath, setRenamingPath] = createSignal<string | null>(null)
   const [renameDraft, setRenameDraft] = createSignal("")
+  const [showAddMenu, setShowAddMenu] = createSignal(false)
   let fileInputRef!: HTMLInputElement
+  let folderInputRef!: HTMLInputElement
 
   createEffect(on(() => props.sessionId, () => {
     setPreviewFile(null)
+    fileStore.setCurrentPath("")
   }))
 
   const [fetcher] = createResource(
-    () => ({ sessionId: props.sessionId, url: globalSDK.url, directory: sdk.directory }),
-    async ({ sessionId, url, directory }) => {
+    () => ({ sessionId: props.sessionId, url: globalSDK.url, directory: sdk.directory, currentPath: fileStore.store.currentPath }),
+    async ({ sessionId, url, directory, currentPath }) => {
       fileStore.setLoading(true)
       try {
-        const result = await fetchArtifactList(url, directory, sessionId)
+        const result = await fetchArtifactList(url, directory, sessionId, currentPath)
         fileStore.setFiles(result.files)
         fileStore.setError(null)
         return result
@@ -86,7 +92,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const refresh = async () => {
     fileStore.setLoading(true)
     try {
-      const result = await fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId)
+      const result = await fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, fileStore.store.currentPath)
       fileStore.setFiles(result.files)
       fileStore.setError(null)
     } catch (err) {
@@ -256,6 +262,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   const handlePreview = (file: ArtifactFile) => {
+    if (file.isFolder) return
     setPreviewFile(file)
   }
 
@@ -295,6 +302,46 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
   }
 
+  const handleFolderUpload = async (files: FileList) => {
+    if (!files || files.length === 0) return
+
+    const firstFile = files[0]
+    const folderName = firstFile.webkitRelativePath?.split("/")[0]
+    if (!folderName) {
+      showToast({ title: "Upload failed", description: "Could not determine folder name" })
+      return
+    }
+
+    const fileEntries: FolderUploadFile[] = []
+
+    for (const file of Array.from(files)) {
+      const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
+      const reader = new FileReader()
+      const base64 = await new Promise<string>((resolve) => {
+        reader.onload = (ev) => {
+          const result = ev.target?.result as string
+          resolve(result.split(",")[1] || result)
+        }
+        reader.readAsDataURL(file)
+      })
+      fileEntries.push({ relativePath, content: base64 })
+    }
+
+    try {
+      const result = await uploadArtifactFolder(
+        globalSDK.url,
+        sdk.directory || "",
+        props.sessionId,
+        folderName,
+        fileEntries,
+      )
+      showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
+      await refresh()
+    } catch (err) {
+      showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   const kindGroupEntries = createMemo(() =>
     Array.from(fileStore.kindGroups().entries())
       .sort(([a], [b]) => kindSortPriority(a) - kindSortPriority(b)),
@@ -315,6 +362,27 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           }}
           class="hidden"
         />
+        <input
+          type="file"
+          ref={folderInputRef}
+          // @ts-ignore - webkitdirectory is non-standard but widely supported
+          webkitdirectory=""
+          onChange={(e) => {
+            if (e.currentTarget.files) {
+              void handleFolderUpload(e.currentTarget.files)
+              e.currentTarget.value = ""
+            }
+          }}
+          class="hidden"
+        />
+
+        <Show when={fileStore.store.currentPath || fileStore.store.files.length > 0}>
+          <Breadcrumb
+            currentPath={fileStore.store.currentPath}
+            onNavigate={(path) => fileStore.setCurrentPath(path)}
+          />
+        </Show>
+
         <Show when={fileStore.store.files.length > 0}>
         <div
           class="flex items-center justify-between px-4 py-2 shrink-0"
@@ -379,15 +447,49 @@ export function DesignFilesPanel(props: Props): JSX.Element {
               </button>
             </Show>
 
-            <button
-              type="button"
-              onClick={() => fileInputRef?.click()}
-              class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
-              title="上传文件"
-            >
-              <Icon name="chevron-down" size="small" />
-              <span>添加</span>
-            </button>
+            <div class="relative">
+              <button
+                type="button"
+                onClick={() => setShowAddMenu(!showAddMenu())}
+                class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
+                title="添加"
+              >
+                <Icon name="plus" size="small" />
+                <span>添加</span>
+                <Icon name="chevron-down" size="small" />
+              </button>
+
+              <Show when={showAddMenu()}>
+                <div
+                  class="absolute right-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1"
+                  style={{ border: "1px solid var(--octo-border-divider)", width: "140px" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddMenu(false)
+                      fileInputRef?.click()
+                    }}
+                    class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors flex items-center gap-2"
+                  >
+                    <Icon name="file-tree" size="small" />
+                    <span>添加文件</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddMenu(false)
+                      folderInputRef?.click()
+                    }}
+                    class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors flex items-center gap-2"
+                  >
+                    <Icon name="folder" size="small" />
+                    <span>添加文件夹</span>
+                  </button>
+                </div>
+              </Show>
+            </div>
           </div>
         </div>
       </Show>
@@ -533,6 +635,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                               onRenameBlur={() => void saveRename(file)}
                               onAddToSession={() => props.onAddToSession?.(file)}
                               onDownload={() => handleDownload(file)}
+                              onNavigateFolder={() => fileStore.navigateToFolder(file)}
                             />
                           )}
                         </For>
@@ -585,6 +688,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                                 onRenameBlur={() => void saveRename(file)}
                                 onAddToSession={() => props.onAddToSession?.(file)}
                                 onDownload={() => handleDownload(file)}
+                                onNavigateFolder={() => fileStore.navigateToFolder(file)}
                               />
                             )}
                           </For>
@@ -684,6 +788,7 @@ function FileRow(props: {
   onRenameBlur?: () => void
   onAddToSession?: () => void
   onDownload?: () => void
+  onNavigateFolder?: () => void
 }): JSX.Element {
   const [showMenu, setShowMenu] = createSignal(false)
   let renameInputRef: HTMLInputElement | undefined
@@ -703,7 +808,11 @@ function FileRow(props: {
       onClick={(e) => {
         if (e.target instanceof HTMLInputElement) return
         if (e.target instanceof HTMLButtonElement) return
-        props.onPreview()
+        if (props.file.isFolder) {
+          props.onNavigateFolder?.()
+        } else {
+          props.onPreview()
+        }
       }}
     >
       <td class="w-[32px] px-2 py-1.5">
@@ -728,7 +837,12 @@ function FileRow(props: {
             style={{ border: "1px solid #0a59f7", outline: "none" }}
           />
         }>
-          {props.file.name}
+          <span class="flex items-center gap-1">
+            <Show when={props.file.isFolder}>
+              <Icon name="folder" size="small" style={{ color: "var(--octo-text-secondary)" }} />
+            </Show>
+            {props.file.name}
+          </span>
         </Show>
       </td>
       <td class="px-2 py-1.5 text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>
@@ -738,7 +852,7 @@ function FileRow(props: {
         {formatTimestamp(props.file.mtime)}
       </td>
       <td class="px-2 py-1.5 text-[12px] text-right" style={{ color: "var(--octo-text-secondary)" }}>
-        {formatFileSize(props.file.size)}
+        {props.file.isFolder ? "-" : formatFileSize(props.file.size)}
       </td>
       <td class="w-[60px] px-2 py-1.5">
         <div class="relative">

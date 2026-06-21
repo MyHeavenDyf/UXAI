@@ -1,6 +1,7 @@
 import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
+import { getArtifactServeUrl, getArtifactRelativePath } from "../../utils/artifact-file-api"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
@@ -96,6 +97,11 @@ export function HtmlRenderer(props: {
   onSaveOverrides?: (overrides: Array<{ elementId: string; prop: string; value: string }>) => void
   onContentChange?: (content: string) => void
   refreshKey?: number
+  filePath?: string
+  sessionId?: string
+  sdkUrl?: string
+  sdkDirectory?: string
+  onSaveFile?: (content: string) => Promise<void>
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
@@ -387,6 +393,35 @@ createEffect(() => {
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
 
+  const shouldUseServeUrl = createMemo(() => {
+    if (!props.filePath || !props.sessionId || !props.sdkUrl) return false
+    const artifactInfo = getArtifactRelativePath(props.filePath)
+    if (!artifactInfo) return false
+    return artifactInfo.sessionId === props.sessionId
+  })
+
+  const serveUrl = createMemo(() => {
+    if (!shouldUseServeUrl()) return undefined
+    if (!props.sdkDirectory) return undefined
+    const artifactInfo = getArtifactRelativePath(props.filePath!)
+    if (!artifactInfo) return undefined
+    return getArtifactServeUrl(props.sdkUrl!, props.sdkDirectory, props.sessionId!, artifactInfo.relativePath)
+  })
+
+  const [serveKey, setServeKey] = createSignal(0)
+
+  createEffect(on(() => props.mode, async (mode) => {
+    if (mode === "preview" && shouldUseServeUrl() && props.onSaveFile) {
+      try {
+        await props.onSaveFile(props.content)
+        setServeKey(k => k + 1)
+      } catch (err) {
+        console.error("[HtmlRenderer] Failed to save file before preview:", err)
+        showToast({ title: "保存失败", description: "无法保存文件到磁盘" })
+      }
+    }
+  }))
+
   // Send palette change via postMessage (avoids full re-render)
   const sendPalette = (id: PaletteId | null) => {
     iframeRef?.contentWindow?.postMessage({ type: "od:palette", palette: id }, "*")
@@ -670,7 +705,8 @@ return (
             >
               <iframe
                 ref={iframeRef}
-                srcdoc={srcdoc()}
+                src={shouldUseServeUrl() ? serveUrl() : undefined}
+                srcdoc={shouldUseServeUrl() ? undefined : srcdoc()}
                 sandbox="allow-scripts"
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
@@ -683,7 +719,8 @@ return (
             <div style={{ "min-width": "800px", height: "100%" }}>
               <iframe
                 ref={iframeRef}
-                srcdoc={srcdoc()}
+                src={shouldUseServeUrl() ? serveUrl() : undefined}
+                srcdoc={shouldUseServeUrl() ? undefined : srcdoc()}
                 sandbox="allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}

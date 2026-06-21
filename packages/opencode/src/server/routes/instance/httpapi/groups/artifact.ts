@@ -8,8 +8,10 @@ import { described } from "./metadata"
 const ArtifactFileSchema = Schema.Struct({
   name: Schema.String,
   path: Schema.String,
+  relativePath: Schema.String,
   sessionId: Schema.String,
   kind: Schema.String,
+  isFolder: Schema.Boolean,
   size: Schema.Number,
   mtime: Schema.Number,
   mime: Schema.String,
@@ -17,6 +19,7 @@ const ArtifactFileSchema = Schema.Struct({
 
 const ArtifactListQuery = Schema.Struct({
   sessionId: Schema.String,
+  path: Schema.optional(Schema.String),
 })
 
 const ArtifactContentQuery = Schema.Struct({
@@ -46,6 +49,33 @@ const ArtifactUploadPayload = Schema.Struct({
   content: Schema.String,
 })
 
+const FolderUploadFileSchema = Schema.Struct({
+  relativePath: Schema.String,
+  content: Schema.String,
+})
+
+const ArtifactUploadFolderPayload = Schema.Struct({
+  sessionId: Schema.String,
+  folderName: Schema.String,
+  files: Schema.Array(FolderUploadFileSchema),
+})
+
+const ArtifactUploadFolderResponseSchema = Schema.Struct({
+  name: Schema.String,
+  path: Schema.String,
+  relativePath: Schema.String,
+  sessionId: Schema.String,
+  kind: Schema.String,
+  isFolder: Schema.Boolean,
+  fileCount: Schema.Number,
+  mtime: Schema.Number,
+})
+
+const ArtifactServeQuery = Schema.Struct({
+  sessionId: Schema.String,
+  path: Schema.String,
+})
+
 const ArtifactPaths = {
   list: "/artifact/list",
   content: "/artifact/content",
@@ -54,6 +84,8 @@ const ArtifactPaths = {
   archive: "/artifact/archive",
   deleteBatch: "/artifact/delete-batch",
   upload: "/artifact/upload",
+  uploadFolder: "/artifact/upload-folder",
+  serve: "/artifact/serve",
 } as const
 
 export const ArtifactApi = HttpApi.make("artifact")
@@ -62,12 +94,12 @@ export const ArtifactApi = HttpApi.make("artifact")
       .add(
         HttpApiEndpoint.get("list", ArtifactPaths.list, {
           query: ArtifactListQuery,
-          success: described(Schema.Struct({ files: Schema.Array(ArtifactFileSchema) }), "Artifact files"),
+          success: described(Schema.Struct({ files: Schema.Array(ArtifactFileSchema) }), "Artifact files and folders"),
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "artifact.list",
             summary: "List artifacts",
-            description: "List all artifact files in .octo/artifacts/make/<sessionId> directory.",
+            description: "List artifact files and folders in .octo/artifacts/make/<sessionId> directory. Use 'path' parameter to navigate subfolders.",
           }),
         ),
         HttpApiEndpoint.get("content", ArtifactPaths.content, {
@@ -136,6 +168,27 @@ export const ArtifactApi = HttpApi.make("artifact")
             identifier: "artifact.upload",
             summary: "Upload artifact",
             description: "Upload a file to the artifact directory. Auto-renames if file exists.",
+          }),
+        ),
+        HttpApiEndpoint.post("uploadFolder", ArtifactPaths.uploadFolder, {
+          payload: ArtifactUploadFolderPayload,
+          success: described(ArtifactUploadFolderResponseSchema, "Uploaded folder info"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "artifact.uploadFolder",
+            summary: "Upload folder",
+            description: "Upload a folder with all its contents to the artifact directory. Preserves directory structure.",
+          }),
+        ),
+        HttpApiEndpoint.get("serve", ArtifactPaths.serve, {
+          query: ArtifactServeQuery,
+          success: described(Schema.String.pipe(HttpApiSchema.asText({ contentType: "*" })), "Artifact file content"),
+          error: [HttpApiError.NotFound],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "artifact.serve",
+            summary: "Serve artifact file",
+            description: "Serve artifact file with bridge scripts injected for HTML files. Used for iframe preview with relative path support.",
           }),
         ),
       )

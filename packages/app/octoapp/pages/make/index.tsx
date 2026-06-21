@@ -1112,6 +1112,7 @@ if (dsId) {
 
   function getMimeForKind(kind: ArtifactFileKind): string {
     const map: Record<ArtifactFileKind, string> = {
+      folder: "",
       image: "image/png",
       html: "text/html",
       svg: "image/svg+xml",
@@ -1845,6 +1846,7 @@ if (dsId) {
                 viewMode={resultViewMode()}
                 onViewModeChange={setResultViewMode}
                 onAddArtifactToSession={addArtifactToSession}
+                sdkDirectory={sdk.directory || ""}
               />
             </div>
             <Show when={showVersionPanel()}>

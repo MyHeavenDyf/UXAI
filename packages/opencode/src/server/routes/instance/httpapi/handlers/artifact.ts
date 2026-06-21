@@ -6,6 +6,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { File } from "@/file"
 import * as InstanceState from "@/effect/instance-state"
 import path from "path"
+import { injectArtifactBridges } from "./artifact-bridge"
 
 const ARTIFACTS_BASE_DIR = ".octo/artifacts/make"
 
@@ -162,22 +163,26 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
     const fs = yield* AppFileSystem.Service
     const fileSvc = yield* File.Service
 
-    const list = Effect.fn("ArtifactHttpApi.list")(function* (ctx: { query: { sessionId: string } }) {
+    const list = Effect.fn("ArtifactHttpApi.list")(function* (ctx: { query: { sessionId: string; path?: string } }) {
       const sessionId = ctx.query.sessionId
+      const subPath = ctx.query.path
       const instanceCtx = yield* InstanceState.context
       const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, sessionId)
+      const targetDir = subPath ? path.join(artifactDir, subPath) : artifactDir
 
-      const exists = yield* fs.exists(artifactDir).pipe(Effect.catch(() => Effect.succeed(false)))
+      const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
       if (!exists) {
         return { files: [] }
       }
 
-      const entries = yield* fs.readDirectory(artifactDir).pipe(Effect.catch(() => Effect.succeed([])))
+      const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
       const files: Array<{
         name: string
         path: string
+        relativePath: string
         sessionId: string
         kind: string
+        isFolder: boolean
         size: number
         mtime: number
         mime: string
@@ -186,22 +191,26 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       for (const name of entries) {
         if (name.startsWith(".")) continue
 
-        const fullPath = path.join(artifactDir, name)
+        const fullPath = path.join(targetDir, name)
+        const relativePath = subPath ? `${subPath}/${name}` : name
         const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
-        if (!stat || stat.type === "Directory") continue
+        if (!stat) continue
 
-        const sizeNum = typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0)
+        const isFolder = stat.type === "Directory"
+        const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
         const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
         files.push({
           name,
           path: fullPath,
+          relativePath,
           sessionId,
-          kind: getKind(name),
+          kind: isFolder ? "folder" : getKind(name),
+          isFolder,
           size: sizeNum,
           mtime: mtimeNum,
-          mime: getMime(name),
+          mime: isFolder ? "" : getMime(name),
         })
       }
 
@@ -304,12 +313,84 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       return {
         name: finalFilename,
         path: fullPath,
+        relativePath: finalFilename,
         sessionId: body.sessionId,
         kind: getKind(finalFilename),
+        isFolder: false,
         size: sizeNum,
         mtime: mtimeNum,
         mime: getMime(finalFilename),
       }
+    })
+
+    const uploadFolder = Effect.fn("ArtifactHttpApi.uploadFolder")(function* (ctx: { payload: { sessionId: string; folderName: string; files: readonly { relativePath: string; content: string }[] } }) {
+      const body = ctx.payload
+      const instanceCtx = yield* InstanceState.context
+      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
+      const folderDir = path.join(artifactDir, body.folderName)
+
+      yield* fs.ensureDir(folderDir).pipe(Effect.orDie)
+
+      for (const file of body.files) {
+        const filePath = path.join(folderDir, file.relativePath)
+        const parentDir = path.dirname(filePath)
+
+        yield* fs.ensureDir(parentDir).pipe(Effect.catch(() => Effect.void))
+        const contentBuffer = Buffer.from(file.content, "base64")
+        yield* fs.writeFile(filePath, contentBuffer).pipe(Effect.orDie)
+      }
+
+      const stat = yield* fs.stat(folderDir).pipe(Effect.catch(() => Effect.succeed(null)))
+      const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+
+      return {
+        name: body.folderName,
+        path: folderDir,
+        relativePath: body.folderName,
+        sessionId: body.sessionId,
+        kind: "folder",
+        isFolder: true,
+        fileCount: body.files.length,
+        mtime: mtimeNum,
+      }
+    })
+
+    const serve = Effect.fn("ArtifactHttpApi.serve")(function* (ctx: { query: { sessionId: string; path: string } }) {
+      const sessionId = ctx.query.sessionId
+      const relativePath = ctx.query.path
+      const instanceCtx = yield* InstanceState.context
+      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, sessionId)
+      const filePath = path.join(artifactDir, relativePath)
+
+      const resolvedPath = path.resolve(filePath)
+      const resolvedArtifactDir = path.resolve(artifactDir)
+      if (!resolvedPath.startsWith(resolvedArtifactDir)) {
+        yield* Effect.fail(new HttpApiError.NotFound({}))
+      }
+
+      const exists = yield* fs.exists(filePath).pipe(Effect.catch(() => Effect.succeed(false)))
+      if (!exists) {
+        yield* Effect.fail(new HttpApiError.NotFound({}))
+      }
+
+      const content = yield* fs.readFile(filePath).pipe(
+        Effect.mapError(() => new HttpApiError.NotFound({}))
+      )
+      const mimeType = getMime(relativePath)
+
+      if (mimeType === "text/html") {
+        const htmlStr = new TextDecoder().decode(content)
+        const htmlWithBridge = injectArtifactBridges(htmlStr)
+        return HttpServerResponse.raw(new TextEncoder().encode(htmlWithBridge), {
+          status: 200,
+          contentType: mimeType,
+        })
+      }
+
+      return HttpServerResponse.raw(content, {
+        status: 200,
+        contentType: mimeType,
+      })
     })
 
     return handlers
@@ -320,5 +401,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       .handle("archive", archive)
       .handle("deleteBatch", deleteBatch)
       .handle("upload", upload)
+      .handle("uploadFolder", uploadFolder)
+      .handle("serve", serve)
   }),
 )

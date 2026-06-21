@@ -7,6 +7,7 @@ export type ResultTab = {
   type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram"
   content: string
   filePath?: string
+  sessionId?: string
   exports?: ArtifactExportKind[]
   artifactIdentifier?: string
   createdAt: Date
@@ -28,6 +29,7 @@ export function createTabStore() {
       type: card.type,
       content: card.content,
       filePath: card.filePath,
+      sessionId: card.sessionId,
       exports: card.exports,
       artifactIdentifier: card.artifactIdentifier,
       createdAt: card.createdAt,

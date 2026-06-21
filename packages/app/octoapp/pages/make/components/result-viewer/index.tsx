@@ -15,7 +15,8 @@ import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { artifactFileToOutputCard, type ArtifactFile } from "../../utils/artifact-file-api"
+import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } from "../../utils/artifact-file-api"
+import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 
 function extractCodeBlock(text: string, lang: string): string {
@@ -64,6 +65,7 @@ export function ResultViewer(props: {
   viewMode: "tabs" | "files"
   onViewModeChange: (mode: "tabs" | "files") => void
   onAddArtifactToSession?: (file: ArtifactFile) => void
+  sdkDirectory?: string
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -244,6 +246,15 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                       onSaveOverrides={(overrides) => applyInspectOverrides(tab().id, overrides)}
                       onContentChange={(content) => props.onContentChange?.(tab().id, content)}
                       refreshKey={refreshKey()}
+                      filePath={tab().filePath}
+                      sessionId={tab().sessionId ?? props.sessionId}
+                      sdkUrl={globalSDK.url}
+                      sdkDirectory={props.sdkDirectory}
+                      onSaveFile={async (content) => {
+                        if (!tab().filePath) return
+                        const html = extractCodeBlock(content, "html")
+                        await saveArtifactContent(tab().filePath!, html)
+                      }}
                     />
                   </Match>
                   <Match when={tab().type === "deck"}>

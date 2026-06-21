@@ -1,7 +1,7 @@
 import { createResource, Show, Switch, Match, createEffect, onCleanup } from "solid-js"
 import type { JSX } from "solid-js"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
-import { fetchArtifactContent } from "../../utils/artifact-file-api"
+import { fetchArtifactContent, getArtifactServeUrl } from "../../utils/artifact-file-api"
 import { Icon } from "@opencode-ai/ui/icon"
 
 interface Props {
@@ -31,7 +31,13 @@ export function PreviewPane(props: Props): JSX.Element {
   const isMarkdown = () => props.file.mime === "text/markdown" || props.file.kind === "markdown"
   const isCode = () => props.file.kind === "code" || props.file.mime.startsWith("application/") || props.file.mime === "text/plain"
 
-  const base64Content = () => content()?.encoding === "base64" ? content()?.content ?? "" : btoa(content()?.content ?? "")
+  const base64Content = () => {
+    const c = content()
+    if (!c) return ""
+    if (c.encoding === "base64") return c.content
+    const bytes = new TextEncoder().encode(c.content)
+    return btoa(String.fromCharCode(...bytes))
+  }
 
   return (
     <div
@@ -106,7 +112,7 @@ export function PreviewPane(props: Props): JSX.Element {
 
             <Match when={isHtml()}>
               <iframe
-                srcdoc={content()?.content ?? ""}
+                src={getArtifactServeUrl(props.sdkUrl, props.sdkDirectory, props.file.sessionId, props.file.relativePath)}
                 sandbox="allow-scripts"
                 class="w-full h-full border-0"
               />

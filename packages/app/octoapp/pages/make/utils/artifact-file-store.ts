@@ -90,6 +90,7 @@ export type ArtifactFileStore = {
   collapsedSections: Set<string>
   previewFile: ArtifactFile | null
   viewMode: "tabs" | "files"
+  currentPath: string
 }
 
 export function createArtifactFileStore(sessionId: string) {
@@ -109,6 +110,7 @@ export function createArtifactFileStore(sessionId: string) {
     collapsedSections: new Set(),
     previewFile: null,
     viewMode: "tabs",
+    currentPath: "",
   })
 
   const [dayBoundary, setDayBoundary] = createSignal(Date.now())
@@ -339,6 +341,21 @@ export function createArtifactFileStore(sessionId: string) {
       if (store.previewFile?.path === path) {
         setStore("previewFile", null)
       }
+    },
+
+    setCurrentPath(path: string) {
+      setStore("currentPath", path)
+      setStore("page", 0)
+      const nextSelected = new Set(store.selected)
+      setStore("selected", nextSelected)
+    },
+
+    navigateToFolder(folder: ArtifactFile) {
+      if (!folder.isFolder) return
+      const newPath = folder.relativePath
+      setStore("currentPath", newPath)
+      setStore("page", 0)
+      setStore("selected", new Set())
     },
   }
 }

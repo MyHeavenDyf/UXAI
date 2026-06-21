@@ -71,11 +71,11 @@ export const ArtifactRoutes = lazy(() =>
       "/list",
       describeRoute({
         summary: "List artifacts",
-        description: "List all artifact files in .octo/artifacts/make/<sessionId> directory.",
+        description: "List artifact files and folders in .octo/artifacts/make/<sessionId> directory. Use 'path' parameter to navigate subfolders.",
         operationId: "artifact.list",
         responses: {
           200: {
-            description: "Artifact files",
+            description: "Artifact files and folders",
             content: {
               "application/json": {
                 schema: resolver(
@@ -84,8 +84,10 @@ export const ArtifactRoutes = lazy(() =>
                       z.object({
                         name: z.string(),
                         path: z.string(),
+                        relativePath: z.string(),
                         sessionId: z.string(),
                         kind: z.string(),
+                        isFolder: z.boolean(),
                         size: z.number(),
                         mtime: z.number(),
                         mime: z.string(),
@@ -102,25 +104,29 @@ export const ArtifactRoutes = lazy(() =>
         "query",
         z.object({
           sessionId: z.string(),
+          path: z.string().optional(),
         }),
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.list", c, function* () {
-          const sessionId = c.req.valid("query").sessionId
+          const { sessionId, path: subPath } = c.req.valid("query")
           const fs = yield* AppFileSystem.Service
           const artifactDir = path.join(Instance.directory, ARTIFACTS_BASE_DIR, sessionId)
+          const targetDir = subPath ? path.join(artifactDir, subPath) : artifactDir
 
-          const exists = yield* fs.exists(artifactDir).pipe(Effect.catch(() => Effect.succeed(false)))
+          const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
           if (!exists) {
             return { files: [] }
           }
 
-          const entries = yield* fs.readDirectory(artifactDir).pipe(Effect.catch(() => Effect.succeed([])))
+          const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
           const files: Array<{
             name: string
             path: string
+            relativePath: string
             sessionId: string
             kind: string
+            isFolder: boolean
             size: number
             mtime: number
             mime: string
@@ -129,22 +135,26 @@ export const ArtifactRoutes = lazy(() =>
           for (const name of entries) {
             if (name.startsWith(".")) continue
 
-            const fullPath = path.join(artifactDir, name)
+            const fullPath = path.join(targetDir, name)
+            const relativePath = subPath ? `${subPath}/${name}` : name
             const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
-            if (!stat || stat.type === "Directory") continue
+            if (!stat) continue
 
-            const sizeNum = typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0)
+            const isFolder = stat.type === "Directory"
+            const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
             const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
             files.push({
               name,
               path: fullPath,
+              relativePath,
               sessionId,
-              kind: getKind(name),
+              kind: isFolder ? "folder" : getKind(name),
+              isFolder,
               size: sizeNum,
               mtime: mtimeNum,
-              mime: getMime(name),
+              mime: isFolder ? "" : getMime(name),
             })
           }
 
@@ -363,8 +373,10 @@ export const ArtifactRoutes = lazy(() =>
                   z.object({
                     name: z.string(),
                     path: z.string(),
+                    relativePath: z.string(),
                     sessionId: z.string(),
                     kind: z.string(),
+                    isFolder: z.boolean(),
                     size: z.number(),
                     mtime: z.number(),
                     mime: z.string(),
@@ -415,11 +427,87 @@ export const ArtifactRoutes = lazy(() =>
           return {
             name: finalFilename,
             path: fullPath,
+            relativePath: finalFilename,
             sessionId: body.sessionId,
             kind: getKind(finalFilename),
+            isFolder: false,
             size: sizeNum,
             mtime: mtimeNum,
             mime: getMime(finalFilename),
+          }
+        }),
+    )
+    .post(
+      "/upload-folder",
+      describeRoute({
+        summary: "Upload folder",
+        description: "Upload a folder with all its contents to the artifact directory. Preserves directory structure.",
+        operationId: "artifact.uploadFolder",
+        responses: {
+          200: {
+            description: "Uploaded folder info",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    name: z.string(),
+                    path: z.string(),
+                    relativePath: z.string(),
+                    sessionId: z.string(),
+                    kind: z.string(),
+                    isFolder: z.boolean(),
+                    fileCount: z.number(),
+                    mtime: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          sessionId: z.string(),
+          folderName: z.string(),
+          files: z.array(
+            z.object({
+              relativePath: z.string(),
+              content: z.string(),
+            }),
+          ),
+        }),
+      ),
+      async (c) =>
+        jsonRequest("ArtifactRoutes.uploadFolder", c, function* () {
+          const body = c.req.valid("json")
+          const fs = yield* AppFileSystem.Service
+          const artifactDir = path.join(Instance.directory, ARTIFACTS_BASE_DIR, body.sessionId)
+          const folderDir = path.join(artifactDir, body.folderName)
+
+          yield* fs.ensureDir(folderDir).pipe(Effect.catch(() => Effect.void))
+
+          for (const file of body.files) {
+            const filePath = path.join(folderDir, file.relativePath)
+            const parentDir = path.dirname(filePath)
+
+            yield* fs.ensureDir(parentDir).pipe(Effect.catch(() => Effect.void))
+            const contentBuffer = Buffer.from(file.content, "base64")
+            yield* fs.writeFile(filePath, contentBuffer)
+          }
+
+          const stat = yield* fs.stat(folderDir).pipe(Effect.catch(() => Effect.succeed(null)))
+          const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+
+          return {
+            name: body.folderName,
+            path: folderDir,
+            relativePath: body.folderName,
+            sessionId: body.sessionId,
+            kind: "folder",
+            isFolder: true,
+            fileCount: body.files.length,
+            mtime: mtimeNum,
           }
         }),
     ),
