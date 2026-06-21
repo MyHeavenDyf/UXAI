@@ -35,6 +35,10 @@ type InternalStyleConfig = {
     width: number
     height: number
   }
+  targetSizes?: Partial<Record<StudioAspectRatio, {
+    width: number
+    height: number
+  }>>
   loras: Array<{
     name: string
     weight: number | string
@@ -227,7 +231,7 @@ export async function checkStudioPermission(userIdx?: string): Promise<unknown> 
     method: METHOD,
     headers: internalImageHeaders(),
     body: JSON.stringify({
-      checkPermList: ["view:keling_entry"],
+      checkPermList: ["view:keling_entry", "view:jimeng_entry"],
       uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
     }),
   }).catch((error) => {
@@ -739,6 +743,23 @@ const defaultInternalStyleConfig = {
 } satisfies InternalStyleConfig
 
 const internalStyleConfigs = [
+  {
+    aliases: ["Seedream 5.0 Lite", "seedream-5-lite"],
+    config: {
+      ...defaultInternalStyleConfig,
+      taskType: "txt2img_jimeng",
+      tagName: "Seedream 5.0 Lite",
+      targetSizes: {
+        "1:1": { width: 2048, height: 2048 },
+        "2:3": { width: 1664, height: 2496 },
+        "3:4": { width: 1728, height: 2304 },
+        "9:16": { width: 1600, height: 2848 },
+        "3:2": { width: 2496, height: 1664 },
+        "4:3": { width: 2304, height: 1728 },
+        "16:9": { width: 2848, height: 1600 },
+      },
+    },
+  },
   { aliases: ["千问", "qwen", "Qwen-Image"], config: defaultInternalStyleConfig },
   {
     aliases: ["BDIcon", "bd-icon", "DBID"],
@@ -863,7 +884,7 @@ const internalStyleConfigs = [
   },
 ] satisfies Array<{ aliases: string[]; config: InternalStyleConfig }>
 
-export function getInternalStyleConfig(styleModel?: string) {
+export function getInternalStyleConfig(styleModel?: string): InternalStyleConfig {
   return (
     internalStyleConfigs.find((item) => item.aliases.some((alias) => alias.toLowerCase() === styleModel?.trim().toLowerCase()))
       ?.config ?? defaultInternalStyleConfig
@@ -942,6 +963,12 @@ export function getTargetSizeForAspectRatio(base: { width: number; height: numbe
   if (aspectRatio === "4:3") return { width: longSide, height: roundToMultiple(longSide * 3 / 4, 64) }
   if (aspectRatio === "16:9") return { width: longSide, height: roundToMultiple(longSide * 9 / 16, 64) }
   return base
+}
+
+export function getInternalTargetSize(styleModel?: string, aspectRatio?: StudioAspectRatio) {
+  const config = getInternalStyleConfig(styleModel)
+  const targetSize = aspectRatio ? config.targetSizes?.[aspectRatio] : undefined
+  return targetSize ?? getTargetSizeForAspectRatio(config.targetSize, aspectRatio)
 }
 
 function buildPrompt(input: ImageGenerateInput) {
@@ -1193,8 +1220,9 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const ignoredReferenceImages = resolveReferenceImages(input)
   const generationMode: InternalTaskType = "txt2img"
-  const styleConfig = getInternalStyleConfig(getStudioStyleModel(input))
-  const configuredTargetSize = getTargetSizeForAspectRatio(styleConfig.targetSize, getStudioAspectRatio(input))
+  const styleModel = getStudioStyleModel(input)
+  const styleConfig = getInternalStyleConfig(styleModel)
+  const configuredTargetSize = getInternalTargetSize(styleModel, getStudioAspectRatio(input))
 
   const targetSize = {
     width: Number(input.extra && typeof input.extra.width === "number" ? input.extra.width : configuredTargetSize.width),

@@ -25,6 +25,7 @@ export function StudioComposer(props: {
   prompt: string
   capability: StudioCapability
   canGenerateVideo: boolean
+  canUseSeedream: boolean
   styleModel: string
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
@@ -194,7 +195,11 @@ export function StudioComposer(props: {
           <Show when={isImageGeneration()}>
             <div class="relative">
               <Show when={isImageGeneration() && props.openMenu === "style"}>
-                <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
+                <StyleMenu
+                  value={props.styleModel}
+                  canUseSeedream={props.canUseSeedream}
+                  onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                />
               </Show>
               <ToolButton
                 label={styleModelLabel(props.styleModel)}
@@ -382,26 +387,33 @@ function CapabilityMenu(props: {
   )
 }
 
-function StyleMenu(props: { value: string; onSelect: (value: string) => void }): JSX.Element {
+function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (value: string) => void }): JSX.Element {
   return (
     <div class="studio-menu w-[414px] p-4">
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3">
-        <For each={STUDIO_STYLE_MODELS}>
-          {(item, index) => (
-            <button
-              type="button"
-              onClick={() => props.onSelect(item.id)}
-              class="studio-style-option"
-              classList={{ active: item.id === props.value }}
-            >
-              <span class={`studio-style-icon studio-style-icon-${index() + 1}`} />
-              <span class="studio-style-label">{item.label}</span>
-              <Show when={item.id === props.value}>
-                <span class="studio-style-check" />
-              </Show>
-            </button>
-          )}
+        <For each={STUDIO_STYLE_MODELS.filter((item) => item.requiresSeedreamPermission !== true || props.canUseSeedream)}>
+          {(item) => {
+            return (
+              <button
+                type="button"
+                onClick={() => props.onSelect(item.id)}
+                title={item.label}
+                class="studio-style-option"
+                classList={{ active: item.id === props.value }}
+              >
+                <span class="studio-style-icon">
+                  <Show when={item.icon}>
+                    {(icon) => <img src={icon()} alt="" aria-hidden="true" />}
+                  </Show>
+                </span>
+                <span class="studio-style-label">{item.label}</span>
+                <Show when={item.id === props.value}>
+                  <span class="studio-style-check" />
+                </Show>
+              </button>
+            )
+          }}
         </For>
       </div>
     </div>

@@ -83,7 +83,7 @@ export default function ChatPage() {
       <Show when={resolvedDirectory()}>
         <div
           class="sidebar-wrap h-full shrink-0 border-r border-border-weak-base flex flex-col"
-          style={{ width: `${sidebarWidth()}px` }}
+          style={{ width: `${sidebarWidth()}px`, "z-index": 11 }}
         >
           <ErrorBoundary fallback={(err) => {
             console.error("Sidebar error:", err)
