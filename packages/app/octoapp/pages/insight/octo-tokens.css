@@ -612,6 +612,14 @@ button.delete-dialog-btn-primary {
 .octo-md-editor-host .vditor-toolbar .vditor-tooltipped::before {
   display: none !important;
 }
+/* tooltip 只在 hover 显示:Vditor 默认 :focus/:active 也显示,导致点「导出」展开面板后
+   tooltip 仍挂着、朝下正好压住下拉项(Markdown/HTML)。抑制 focus/active,只留 hover。 */
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:focus::after,
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:focus::before,
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::after,
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::before {
+  display: none !important;
+}
 
 /* Vditor 原生「导出」面板:隐藏 PDF 项(其走 window.print() 弹系统打印框,非静默存盘)。
    只留 Markdown / HTML。面板是 .vditor-hint,各项 <button data-type="markdown|pdf|html">。
