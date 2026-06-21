@@ -1,8 +1,12 @@
 import { execFile } from "node:child_process"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-1-start
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-1-end
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join, basename } from "node:path"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-2-start
 import { homedir } from "node:os"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-2-end
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -293,6 +297,9 @@ export function registerIpcHandlers(deps: Deps) {
   }
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-3-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-3-end
+
   ipcMain.handle("get-skills-config", () => {
     try {
       if (!existsSync(skillsConfigPath)) return {}
@@ -311,6 +318,9 @@ export function registerIpcHandlers(deps: Deps) {
       throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
+
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
 
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
@@ -337,6 +347,8 @@ export function registerIpcHandlers(deps: Deps) {
       const content = readFileSync(skillMdPath, "utf-8")
       const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
       config[skillName] = {
+        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
+        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
         description: descMatch ? descMatch[1] : "",
         import: true,
         type: "common",
