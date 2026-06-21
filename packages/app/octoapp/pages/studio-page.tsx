@@ -986,6 +986,9 @@ export default function StudioPage() {
           })
           return
         }
+        // 若已在编辑模式（由 openHD/openCutout/openInpaint/openOutpaint 触发），
+        // 不覆盖 workspaceUploadRequested，避免编辑区变成上传界面而非复用原图。
+        if (isEditingWorkspaceMode()) return
         batch(() => {
           setWorkspaceImage(undefined)
           setWorkspaceUploadRequested(true)
