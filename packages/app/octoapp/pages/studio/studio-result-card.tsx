@@ -1,8 +1,11 @@
 import { For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
 import { isVideoMedia } from "./studio-shared"
-import type { StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
+
+const PORTRAIT_RATIOS: StudioAspectRatio[] = ["2:3", "3:4", "9:16"]
+const LANDSCAPE_RATIOS: StudioAspectRatio[] = ["16:9", "3:2", "4:3"]
 
 type StudioResultCardProps = {
   turn: StudioTurnData
@@ -53,9 +56,28 @@ export function StudioResultCard(props: StudioResultCardProps) {
     if (!props.turn.createdAt) return ""
     return new Date(props.turn.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
   }
+  const isPortrait = () => {
+    const img = props.turn.result?.images?.[0]
+    if (!img) return false
+    if (img.width && img.height) return img.height > img.width
+    return PORTRAIT_RATIOS.includes(props.turn.result?.aspectRatio ?? "1:1")
+  }
+  const isLandscape = () => {
+    const img = props.turn.result?.images?.[0]
+    if (!img) return false
+    if (img.width && img.height) return img.width > img.height
+    return LANDSCAPE_RATIOS.includes(props.turn.result?.aspectRatio ?? "1:1")
+  }
+  const isSinglePortrait = () => isPortrait() && (props.turn.result?.images.length ?? 0) === 1
+  const isSingleLandscape = () => isLandscape() && (props.turn.result?.images.length ?? 0) === 1
+  const isMultiPortrait = () => isPortrait() && (props.turn.result?.images.length ?? 0) > 1
+  const isMultiLandscape = () => isLandscape() && (props.turn.result?.images.length ?? 0) > 1 && (props.turn.result?.images.length ?? 0) < 4
+  const isMultiLandscape4 = () => isLandscape() && (props.turn.result?.images.length ?? 0) === 4
   const statusLabel = () => {
     if (status() === "queued") {
-      return props.turn.result?.order === undefined ? "排队中" : `排队中，前方 ${props.turn.result.order} 人`
+      if (props.turn.result?.order != null && props.turn.result.order > 0) return "排队中"
+      if (progress() > 0 || props.busy) return "生成中"
+      return ""
     }
     if (status() === "running") return "生成中"
     if (status() === "succeeded") return "生成完成"
@@ -76,7 +98,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
           <span class={`studio-result-progress-icon ${capabilityIconClass()}`} />
           <span>{mediaLabel()}</span>
         </div>
-        <span class="studio-result-progress-status">{statusLabel()}</span>
+        <span class="studio-result-progress-status" classList={{ invisible: !statusLabel() }}>{statusLabel()}</span>
         <Show when={generating()}>
           <>
             <div
@@ -113,7 +135,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
           </div>
         </Show>
         <Show when={status() === "succeeded" && props.turn.result?.images.length}>
-          <div class="studio-result-grid">
+          <div class="studio-result-grid" classList={{ "single-portrait": isSinglePortrait(), "single-landscape": isSingleLandscape(), "multi-portrait": isMultiPortrait(), "multi-landscape": isMultiLandscape(), "multi-landscape-4": isMultiLandscape4() }}>
             <For each={props.turn.result?.images ?? []}>
               {(image) => (
                 <button

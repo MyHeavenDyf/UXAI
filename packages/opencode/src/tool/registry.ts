@@ -14,6 +14,8 @@ import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { JimengImageGenerateTool } from "./jimeng_image_generate"
 import { InternelImageGenerateTool } from "./internel_image_generate"
+import { KnowledgeSearchTool } from "./knowledge_search"
+import { LoadComponentsDocsTool } from "./proto_tool/load_components_docs"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -50,7 +52,7 @@ import { Skill } from "../skill"
 import { Permission } from "@/permission"
 
 const log = Log.create({ service: "tool.registry" })
-const builtinToolNamespaces = new Set(["jimeng_image_generate", "internel_image_generate"])
+const builtinToolNamespaces = new Set(["jimeng_image_generate", "internel_image_generate", "load_components_docs"])
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
@@ -118,6 +120,8 @@ export const layer: Layer.Layer<
     const skilltool = yield* SkillTool
     const jimengtool = yield* JimengImageGenerateTool
     const interneltool = yield* InternelImageGenerateTool
+    const knowledgesearch = yield* KnowledgeSearchTool
+    const loadComponentsDocs = yield* LoadComponentsDocsTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -216,6 +220,8 @@ export const layer: Layer.Layer<
           skill: Tool.init(skilltool),
           jimeng: Tool.init(jimengtool),
           internel: Tool.init(interneltool),
+          knowledge: Tool.init(knowledgesearch),
+          components_docs: Tool.init(loadComponentsDocs),
           patch: Tool.init(patchtool),
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
@@ -240,6 +246,8 @@ export const layer: Layer.Layer<
             tool.skill,
             tool.jimeng,
             tool.internel,
+            tool.knowledge,
+            tool.components_docs,
             tool.patch,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
@@ -297,6 +305,11 @@ export const layer: Layer.Layer<
       const filtered = (yield* all()).filter((tool) => {
         if (tool.id === WebSearchTool.id) {
           return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
+        }
+
+        // 内网知识库工具只给 chat 的 octo_ai,避免泄漏到其他 agent。
+        if (tool.id === KnowledgeSearchTool.id) {
+          return input.agent.name === "octo_ai"
         }
 
         const usePatch =

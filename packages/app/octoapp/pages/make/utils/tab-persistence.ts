@@ -1,5 +1,5 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
-import type { OutputCard } from "../components/insight-turn"
+import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { autoSaveArtifact } from "./artifact-auto-save"
 
 /**
@@ -47,11 +47,11 @@ export async function persistTabChanges(
   // 3. Auto-save to project directory (Electron environment only)
   // Skip if file is from Design Files panel (already exists on disk)
   const isFromDesignFiles = tab.filePath && tab.filePath.includes(".octo/artifacts/make")
-  if (options.projectDir && !isFromDesignFiles) {
+  if (options.projectDir && !isFromDesignFiles && tab.type !== "local-file") {
     const card: OutputCard = {
       id: tab.id,
       title: tab.title,
-      type: tab.type,
+      type: tab.type as OutputCardType,
       content: tab.content,
       filePath: tab.filePath,
       artifactIdentifier: tab.artifactIdentifier,
@@ -67,11 +67,12 @@ export async function persistTabChanges(
 /**
  * Convert ResultTab to OutputCard format
  */
-export function tabToOutputCard(tab: ResultTab): OutputCard {
+export function tabToOutputCard(tab: ResultTab): OutputCard | null {
+  if (tab.type === "local-file") return null
   return {
     id: tab.id,
     title: tab.title,
-    type: tab.type,
+    type: tab.type as OutputCardType,
     content: tab.content,
     filePath: tab.filePath,
     artifactIdentifier: tab.artifactIdentifier,

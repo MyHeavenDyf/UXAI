@@ -4,10 +4,11 @@ import type { OutputCard, ArtifactExportKind } from "../insight-turn"
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram"
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file"
   content: string
   filePath?: string
   sessionId?: string
+  absoluteFilePath?: string
   exports?: ArtifactExportKind[]
   artifactIdentifier?: string
   createdAt: Date
@@ -38,6 +39,29 @@ export function createTabStore() {
     setActiveId(card.id)
   }
 
+  function openLocalFileTab(params: {
+    id: string
+    title: string
+    absoluteFilePath: string
+    createdAt: Date
+  }) {
+    const existing = tabs().find((t) => t.id === params.id)
+    if (existing) {
+      setActiveId(params.id)
+      return
+    }
+    const tab: ResultTab = {
+      id: params.id,
+      title: params.title,
+      type: "local-file",
+      content: "",
+      absoluteFilePath: params.absoluteFilePath,
+      createdAt: params.createdAt,
+    }
+    setTabs((prev) => [...prev, tab])
+    setActiveId(params.id)
+  }
+
   function closeTab(id: string) {
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.id === id)
@@ -63,7 +87,7 @@ export function createTabStore() {
     setActiveId(null)
   }
 
-  return { tabs, activeId, activate, openTab, closeTab, updateTabContent, reset }
+  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, reset }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>

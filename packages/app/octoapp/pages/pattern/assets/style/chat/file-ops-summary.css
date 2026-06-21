@@ -1,0 +1,13 @@
+.file-summany-content {
+  border-radius: var(--octo-radius-md);
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+}
+
+.summany-color {
+  color: var(--octo-text-secondary);
+}
+
+.truncate-name {
+  color: var(--octo-text-primary);
+}

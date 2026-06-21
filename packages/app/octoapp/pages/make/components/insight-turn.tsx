@@ -502,6 +502,8 @@ export function InsightTurn(props: {
   blockTime?: number
   onAbort?: () => void
   onOpenResult: (card: OutputCard) => void
+  onOpenLocalFile?: (filePath: string) => void
+  projectDir?: string
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
@@ -1211,7 +1213,13 @@ const stateStatus = state.status as string | undefined
             {(seg) => {
               if (seg.kind === "text") {
                 if (seg.text.trim().length === 0) return null
-                return <Markdown text={seg.text} />
+                return (
+                  <Markdown
+                    text={seg.text}
+                    onOpenLocalFile={props.onOpenLocalFile}
+                    projectDir={props.projectDir}
+                  />
+                )
               }
               if (seg.kind === "form") {
                 return (
@@ -1479,7 +1487,7 @@ const stateStatus = state.status as string | undefined
       <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
         {(() => {
           const bt = props.blockTime!
-          const isWarning = bt >= 80
+          const isWarning = bt >= 180
           return (
             <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",

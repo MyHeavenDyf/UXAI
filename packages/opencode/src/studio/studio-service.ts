@@ -128,6 +128,13 @@ function videoQualityMode(input: StudioGenerationRequest) {
   return value === "pro" ? "pro" : "std"
 }
 
+function isEditorGenerationCapability(capability: StudioCapability) {
+  return capability === "image.upscale" ||
+    capability === "image.cutout" ||
+    capability === "image.inpaint" ||
+    capability === "image.outpaint"
+}
+
 function buildAssistantText(input: StudioGenerationRequest) {
   if (input.capability === "video.generate") {
     return [
@@ -138,6 +145,10 @@ function buildAssistantText(input: StudioGenerationRequest) {
       .filter((item): item is string => Boolean(item))
       .join("")
   }
+  if (input.capability === "image.upscale") return "好的，我将提升当前图片的清晰度和细节。"
+  if (input.capability === "image.cutout") return "好的，我将对当前图片进行抠图，移除背景并保留主体。"
+  if (input.capability === "image.inpaint") return `好的，我将根据涂抹区域${input.prompt}。`
+  if (input.capability === "image.outpaint") return `好的，我将${input.prompt}。`
   return [
     `我将为您创作${input.prompt}。`,
     input.styleModel ? `采用“${input.styleModel}”风格` : undefined,
@@ -173,6 +184,17 @@ function stripUndefined(value: unknown): unknown {
       .filter(([, item]) => item !== undefined)
       .map(([key, item]) => [key, stripUndefined(item)]),
   )
+}
+
+function studioContext(input: StudioGenerationRequest) {
+  const value = input.extra?.studioContext
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function buildEffectivePrompt(input: StudioGenerationRequest) {
+  const context = studioContext(input)
+  if (!context) return input.prompt
+  return `延续上一轮画面：${context}。${input.prompt}`
 }
 
 function persistStudioSession(input: {
@@ -258,11 +280,12 @@ function persistStudioSession(input: {
       input: {
         capability: input.request.capability,
         prompt: input.request.prompt,
-        styleModel: input.request.styleModel,
-        aspectRatio: input.request.aspectRatio,
-        count: input.request.count,
+        styleModel: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.styleModel,
+        aspectRatio: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.aspectRatio,
+        count: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.count,
         referenceImages: input.request.referenceImages,
         sourceImage: input.request.sourceImage,
+        effectivePrompt: buildEffectivePrompt(input.request),
         extra: input.request.extra,
       },
       title: "图片生成",
@@ -789,7 +812,7 @@ async function processGeneration(record: StudioGenerationRecord) {
         record,
         await executeJimengImageGenerate({
           capability: data.input.capability,
-          prompt: data.input.prompt,
+          prompt: buildEffectivePrompt(data.input),
           styleModel: data.input.styleModel,
           aspectRatio: data.input.aspectRatio,
           count: data.input.count,
@@ -864,10 +887,10 @@ async function createProviderTask(input: StudioGenerationRequest, provider: Stud
   if (provider !== "internel") return
   return createInternalGeneration({
     capability: input.capability,
-    prompt: input.prompt,
-    styleModel: input.styleModel,
-    aspectRatio: input.aspectRatio,
-    count: input.count,
+    prompt: buildEffectivePrompt(input),
+    styleModel: isEditorGenerationCapability(input.capability) ? undefined : input.styleModel,
+    aspectRatio: isEditorGenerationCapability(input.capability) ? undefined : input.aspectRatio,
+    count: isEditorGenerationCapability(input.capability) ? undefined : input.count,
     referenceImages: input.referenceImages,
     sourceImage: input.sourceImage,
     extra: input.extra,

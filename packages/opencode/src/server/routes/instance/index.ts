@@ -508,6 +508,10 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
         jsonRequest("InstanceRoutes.skill.refresh", c, function* () {
           const skill = yield* Skill.Service
           yield* skill.refresh()
+          // Command.state 派生自 skill.all()(每个 skill 也注册为 slash command),
+          // skill 变化后必须同步刷新,否则旧 skill 命令残留 / 新 skill 命令缺失。
+          const command = yield* Command.Service
+          yield* command.refresh()
           return { success: true }
         }),
     )

@@ -16,7 +16,7 @@ const METHOD = "POST"
 // const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
-const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancel_task"
+const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancle_task"
 const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
 const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
 const DEFAULT_USER_IDX = ""
@@ -35,6 +35,10 @@ type InternalStyleConfig = {
     width: number
     height: number
   }
+  targetSizes?: Partial<Record<StudioAspectRatio, {
+    width: number
+    height: number
+  }>>
   loras: Array<{
     name: string
     weight: number | string
@@ -227,7 +231,7 @@ export async function checkStudioPermission(userIdx?: string): Promise<unknown> 
     method: METHOD,
     headers: internalImageHeaders(),
     body: JSON.stringify({
-      checkPermList: ["view:keling_entry"],
+      checkPermList: ["view:keling_entry", "view:jimeng_entry"],
       uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
     }),
   }).catch((error) => {
@@ -739,6 +743,23 @@ const defaultInternalStyleConfig = {
 } satisfies InternalStyleConfig
 
 const internalStyleConfigs = [
+  {
+    aliases: ["Seedream 5.0 Lite", "seedream-5-lite"],
+    config: {
+      ...defaultInternalStyleConfig,
+      taskType: "txt2img_jimeng",
+      tagName: "Seedream 5.0 Lite",
+      targetSizes: {
+        "1:1": { width: 2048, height: 2048 },
+        "2:3": { width: 1664, height: 2496 },
+        "3:4": { width: 1728, height: 2304 },
+        "9:16": { width: 1600, height: 2848 },
+        "3:2": { width: 2496, height: 1664 },
+        "4:3": { width: 2304, height: 1728 },
+        "16:9": { width: 2848, height: 1600 },
+      },
+    },
+  },
   { aliases: ["千问", "qwen", "Qwen-Image"], config: defaultInternalStyleConfig },
   {
     aliases: ["BDIcon", "bd-icon", "DBID"],
@@ -863,7 +884,7 @@ const internalStyleConfigs = [
   },
 ] satisfies Array<{ aliases: string[]; config: InternalStyleConfig }>
 
-export function getInternalStyleConfig(styleModel?: string) {
+export function getInternalStyleConfig(styleModel?: string): InternalStyleConfig {
   return (
     internalStyleConfigs.find((item) => item.aliases.some((alias) => alias.toLowerCase() === styleModel?.trim().toLowerCase()))
       ?.config ?? defaultInternalStyleConfig
@@ -944,6 +965,12 @@ export function getTargetSizeForAspectRatio(base: { width: number; height: numbe
   return base
 }
 
+export function getInternalTargetSize(styleModel?: string, aspectRatio?: StudioAspectRatio) {
+  const config = getInternalStyleConfig(styleModel)
+  const targetSize = aspectRatio ? config.targetSizes?.[aspectRatio] : undefined
+  return targetSize ?? getTargetSizeForAspectRatio(config.targetSize, aspectRatio)
+}
+
 function buildPrompt(input: ImageGenerateInput) {
   const conversationContext =
     input.extra && typeof input.extra.conversationContext === "string" && input.extra.conversationContext.trim().length > 0
@@ -988,6 +1015,18 @@ async function getSourceImageDataUrl(input: ImageGenerateInput) {
   }
   const response = await fetch(sourceImage)
   if (!response.ok) throw new Error(`Failed to fetch Studio source image. status=${response.status}`)
+  const mime = response.headers.get("content-type") ?? "image/png"
+  if (!mime.startsWith("image/")) throw new Error(`Studio source URL is not an image. content-type=${mime}`)
+  return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
+}
+
+async function resolveImageInputDataUrl(value: string) {
+  if (value.startsWith("data:image/")) {
+    if (!dataUrlToBase64(value)) throw new Error("Studio image data URL is missing base64 content.")
+    return value
+  }
+  const response = await fetch(value)
+  if (!response.ok) throw new Error(`Failed to fetch Studio image. status=${response.status}`)
   const mime = response.headers.get("content-type") ?? "image/png"
   if (!mime.startsWith("image/")) throw new Error(`Studio source URL is not an image. content-type=${mime}`)
   return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
@@ -1078,18 +1117,22 @@ function getVideoAspectRatio(input: ImageGenerateInput) {
   return "16:9"
 }
 
-function getVideoFrames(input: ImageGenerateInput) {
-  const referenceImages = (input.referenceImages ?? []).filter((item) => item.startsWith("data:image/") && Boolean(dataUrlToBase64(item)))
+async function getVideoFrames(input: ImageGenerateInput) {
+  const referenceImages = (await Promise.all(
+    (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
+  )).filter((item): item is string => Boolean(item))
   const firstFrame = extraString(input, "firstFrame")
   const lastFrame = extraString(input, "lastFrame")
+  const resolvedFirstFrame = firstFrame ? await resolveImageInputDataUrl(firstFrame) : undefined
+  const resolvedLastFrame = lastFrame ? await resolveImageInputDataUrl(lastFrame) : undefined
   return {
-    firstFrame: firstFrame ?? referenceImages[0] ?? referenceImages[1],
-    lastFrame: lastFrame ?? (firstFrame ? referenceImages[1] : undefined),
+    firstFrame: resolvedFirstFrame ?? referenceImages[0] ?? referenceImages[1],
+    lastFrame: resolvedLastFrame ?? (resolvedFirstFrame ? referenceImages[1] : undefined),
   }
 }
 
-function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
-  const frames = getVideoFrames(input)
+async function buildVideoRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const frames = await getVideoFrames(input)
   const baseArgs = {
     prompt: input.prompt,
     aspect_ratio: getVideoAspectRatio(input),
@@ -1097,10 +1140,13 @@ function buildVideoRequestBody(input: ImageGenerateInput, context: InternalReque
     count: getStudioCount(input),
     mode: getVideoMode(input),
   }
+  if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
+    throw new Error("Image-to-video generation requires a first frame.")
+  }
   if (!frames.firstFrame) {
     return {
       user: { idx: context.userIdx },
-      task_type: "t2v_kl",
+      task_type: "t2v_seedance",
       args: {
         tag_name: "文生视频",
         ...baseArgs,
@@ -1109,7 +1155,7 @@ function buildVideoRequestBody(input: ImageGenerateInput, context: InternalReque
   }
   return {
     user: { idx: context.userIdx },
-    task_type: "i2v_kl",
+    task_type: "i2v_seedance",
     args: {
       tag_name: "图生视频",
       ...baseArgs,
@@ -1174,8 +1220,9 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const ignoredReferenceImages = resolveReferenceImages(input)
   const generationMode: InternalTaskType = "txt2img"
-  const styleConfig = getInternalStyleConfig(getStudioStyleModel(input))
-  const configuredTargetSize = getTargetSizeForAspectRatio(styleConfig.targetSize, getStudioAspectRatio(input))
+  const styleModel = getStudioStyleModel(input)
+  const styleConfig = getInternalStyleConfig(styleModel)
+  const configuredTargetSize = getInternalTargetSize(styleModel, getStudioAspectRatio(input))
 
   const targetSize = {
     width: Number(input.extra && typeof input.extra.width === "number" ? input.extra.width : configuredTargetSize.width),
