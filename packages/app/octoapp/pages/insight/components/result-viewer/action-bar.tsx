@@ -149,6 +149,8 @@ export function ActionBar(props: {
   tab: ResultTab
   viewMode: TabViewMode
   onSetViewMode: (mode: TabViewMode) => void
+  /** 进入全屏 markdown 编辑器(仅 markdown 卡且有本地文件时给出) */
+  onEdit?: () => void
 }): JSX.Element {
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
@@ -156,6 +158,10 @@ export function ActionBar(props: {
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
   const showToggle = () => isToggleType(props.tab.type)
+  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 .octo/downloads / path write 产物);
+  // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
+  const canEdit = () =>
+    !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
   return (
     <div
       class="flex items-center justify-between px-4 py-1.5 shrink-0 gap-2"
@@ -180,6 +186,16 @@ export function ActionBar(props: {
           <Show when={props.tab.source === "path" && props.tab.filePath}>
             <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openLocal(props.tab.filePath!)} />
             <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => revealLocal(props.tab.filePath!)} />
+          </Show>
+          <Show when={canEdit()}>
+            <ActionBtn
+              icon={<IconEditPencil size={14} />}
+              label="编辑"
+              onClick={() => {
+                tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
+                props.onEdit!()
+              }}
+            />
           </Show>
           <ActionBtn
             icon={<IconActionCopy size={14} />}
@@ -287,6 +303,15 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
         </div>
       </Show>
     </div>
+  )
+}
+
+function IconEditPencil(props: { size?: number }): JSX.Element {
+  const s = () => props.size ?? 14
+  return (
+    <svg viewBox="0 0 16 16" width={s()} height={s()} fill="none" aria-hidden="true">
+      <path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3L11 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+    </svg>
   )
 }
 

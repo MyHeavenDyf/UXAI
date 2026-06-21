@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, Show, Switch, Match } from "solid-js"
+import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -13,6 +14,9 @@ import { stripCodeFence } from "../../utils/detect"
 import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
+import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
+import { MarkdownEditor } from "../markdown-editor"
+import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
@@ -25,7 +29,11 @@ import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 // 自动获得 syntax highlight + 复制按钮(跟对话区的代码段视觉完全一致)。
 function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
   const fenced = createMemo(() => {
-    const raw = stripCodeFence(props.content)
+    // stripCodeFence 只对「内容本身可能被 ```lang 整段包裹」的来源(json/html,如 LLM 直出)有意义;
+    // 对 markdown / code 源**不能** strip —— md 源里合法存在代码围栏,strip 会把整篇抠成第一个围栏的内容
+    // (曾导致 md「代码」视图只剩一行,见 spec §8/output-renderers §1)。故仅 json/html 走 strip。
+    const stripable = props.lang === "json" || props.lang === "html"
+    const raw = stripable ? stripCodeFence(props.content) : props.content
     let body = raw
     if (props.lang === "json") {
       try { body = JSON.stringify(JSON.parse(raw), null, 2) } catch { /* 解析失败保持原样,shiki 容错 */ }
@@ -39,13 +47,12 @@ function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
   )
 }
 
-// ── Markdown 渲染器（复用上游 <Markdown> 组件） ────────────────
+// ── Markdown 渲染器 ──────────────────────────────────────────
+// 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
+// 效果一致(加粗/表格/代码块等);取代旧的上游 <Markdown>(渲染效果与编辑器有出入)。
+// 见 spec insight-markdown-editor.md §6.3。
 function MarkdownRenderer(props: { content: string }): JSX.Element {
-  return (
-    <div class="p-4 h-full overflow-auto prose prose-sm max-w-none">
-      <Markdown text={props.content} />
-    </div>
-  )
+  return <MarkdownPreview content={props.content} />
 }
 
 // ── 主容器 ────────────────────────────────────────────────────
@@ -62,6 +69,14 @@ export function ResultViewer(props: {
   onSetViewMode?: (id: string, mode: TabViewMode) => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
+  const projectDir = useProjectDir()
+  // 正在全屏编辑的 tab id(markdown 编辑器 overlay)。用 id 而非 tab 对象,
+  // 这样内容回写(cacheContent 换新对象)后仍指向同一 tab。
+  const [editingId, setEditingId] = createSignal<string | null>(null)
+  const editingTab = createMemo(() => {
+    const id = editingId()
+    return id ? props.tabs.find((t) => t.id === id) ?? null : null
+  })
 
   return (
     <div
@@ -83,6 +98,7 @@ export function ResultViewer(props: {
                 tab={tab()}
                 viewMode={tab().viewMode ?? "preview"}
                 onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
+                onEdit={() => setEditingId(tab().id)}
               />
               <div class="flex-1 overflow-hidden">
                 <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
@@ -90,6 +106,23 @@ export function ResultViewer(props: {
             </div>
           )}
         </Show>
+      </Show>
+
+      {/* 全屏 markdown 编辑器:Portal 到 body,盖住整个 insight 三栏布局。
+          关闭后把编辑内容回写 tab(cacheContent),使「预览/代码」显示编辑后内容。见 §2.2 / §2.3。 */}
+      <Show when={editingTab()}>
+        {(tab) => (
+          <Portal>
+            <MarkdownEditor
+              tab={tab()}
+              projectDir={projectDir() || ""}
+              onClose={(latest) => {
+                props.onCacheContent?.(tab().id, latest)
+                setEditingId(null)
+              }}
+            />
+          </Portal>
+        )}
       </Show>
     </div>
   )
@@ -353,10 +386,6 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   // 选了项目目录就把 MCP 文件落进 <projectDir>/.octo/downloads/ 持久保留;否则走 OS 临时目录。
   const projectDir = useProjectDir()
 
-  function sanitize(name: string): string {
-    return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
-  }
-
   // 文件类型维度:优先取文件名扩展名,兜底 mimeType,供打点区分用户在不同类型文件上的操作偏好
   function trackFileType(): string {
     const fn = props.tab.fileName ?? ""
@@ -364,17 +393,8 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     return ext || props.tab.mimeType || ""
   }
 
-  function defaultFilename(): string {
-    if (props.tab.fileName) return sanitize(props.tab.fileName)
-    if (props.tab.uri) {
-      try {
-        const u = new URL(props.tab.uri)
-        const last = u.pathname.split("/").filter(Boolean).pop()
-        if (last) return sanitize(decodeURIComponent(last))
-      } catch { /* noop */ }
-    }
-    return sanitize(props.tab.title || "download")
-  }
+  // 默认落地文件名:复用共享 util(与 markdown 编辑器同一套规则,见 utils/local-file.ts)
+  const defaultFilename = () => defaultLocalFilename(props.tab)
 
   // path 源(write 产物):文件已在本地磁盘,直接 openPath(filePath),无需下载。
   const isPath = () => props.tab.source === "path" && !!props.tab.filePath
