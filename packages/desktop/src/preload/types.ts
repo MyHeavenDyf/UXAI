@@ -19,8 +19,9 @@ export type TitlebarTheme = {
 export type WindowConfig = {
   updaterEnabled: boolean
 }
-
+// jk-j60099994-replace-with-60062650-preload-types-1-start
 export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+// jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
 export type ElectronAPI = {
@@ -89,6 +90,8 @@ export type ElectronAPI = {
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   openSkillFolder: () => Promise<void>
+  // jk-j60099994-replace-with-60062650-preload-types-2-start
+  // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>

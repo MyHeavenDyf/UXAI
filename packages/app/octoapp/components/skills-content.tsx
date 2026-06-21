@@ -2,8 +2,9 @@ import { createSignal, createMemo, For, onMount, onCleanup, Show } from "solid-j
 import type { JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { showToast } from "@opencode-ai/ui/toast"
-
+// jk-j60099994-replace-with-60062650-components-skills-content-1-start
 type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+// jk-j60099994-replace-with-60062650-components-skills-content-1-end
 type SkillsConfig = Record<string, SkillConfigEntry>
 
 const AGENT_INFO: Record<string, { label: string; subtitle: string }> = {
@@ -78,6 +79,8 @@ export function SkillsContent(): JSX.Element {
   const [config, setConfig] = createSignal<SkillsConfig>({})
   const [collapsed, setCollapsed] = createSignal<Record<string, boolean>>({})
   const [loaded, setLoaded] = createSignal(false)
+  // jk-j60099994-replace-with-60062650-components-skills-content-2-start
+  // jk-j60099994-replace-with-60062650-components-skills-content-2-end
 
   const groupedSkills = createMemo(() => {
     const cfg = config()
@@ -98,8 +101,13 @@ export function SkillsContent(): JSX.Element {
     return groups
   })
 
+  // jk-j60099994-replace-with-60062650-components-skills-content-3-start
+  // jk-j60099994-replace-with-60062650-components-skills-content-3-end
+
   async function loadConfig() {
+    // jk-j60099994-replace-with-60062650-components-skills-content-4-start
     const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
+    // jk-j60099994-replace-with-60062650-components-skills-content-4-end
     if (api?.getSkillsConfig) {
       try {
         const data = await api.getSkillsConfig()
@@ -111,12 +119,16 @@ export function SkillsContent(): JSX.Element {
     setLoaded(true)
   }
 
+  // jk-j60099994-replace-with-60062650-components-skills-content-5-start
+  // jk-j60099994-replace-with-60062650-components-skills-content-5-end
+
   function handleVisibilityChange() {
     if (document.visibilityState === "visible") {
       loadConfig()
     }
   }
 
+  // jk-j60099994-replace-with-60062650-components-skills-content-6-start
   onMount(() => {
     loadConfig()
     document.addEventListener("visibilitychange", handleVisibilityChange)
@@ -125,6 +137,7 @@ export function SkillsContent(): JSX.Element {
   onCleanup(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange)
   })
+  // jk-j60099994-replace-with-60062650-components-skills-content-6-end
 
   function toggleSkill(skillName: string, value: boolean) {
     const updated = { ...config(), [skillName]: { ...config()[skillName], import: value } }
@@ -148,6 +161,9 @@ export function SkillsContent(): JSX.Element {
     api?.openSkillFolder?.()
   }
 
+  // jk-j60099994-replace-with-60062650-components-skills-content-7-start
+  // jk-j60099994-replace-with-60062650-components-skills-content-7-end
+
   async function handleAddSkill() {
     const api = (window as unknown as {
       api?: {
@@ -160,16 +176,21 @@ export function SkillsContent(): JSX.Element {
     const result = await api?.addSkill?.(selected)
     if (result?.success) {
       showToast({ variant: "success", icon: "circle-check", title: "添加成功", description: `已添加技能：${result.skillName ?? ""}` })
+      // jk-j60099994-replace-with-60062650-components-skills-content-8-start
+      // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     } else if (result?.error) {
       showToast({ variant: "error", icon: "circle-x", title: "添加失败", description: result.error })
     }
+    // jk-j60099994-replace-with-60062650-components-skills-content-9-start
     await loadConfig()
     const url = globalSDK.url
     if (url) await fetch(`${url}/skill/refresh`, { method: "POST" }).catch(() => {})
+    // jk-j60099994-replace-with-60062650-components-skills-content-9-end
   }
 
   return (
     <div class="h-full overflow-y-auto" style={{ background: "var(--octo-shell-bg)" }}>
+      {/* jk-j60099994-replace-with-60062650-components-skills-content-10-start */}
       <div class="max-w-[640px] mx-auto px-6 py-6 flex flex-col gap-4">
         <div class="flex items-center justify-between">
           <div class="flex flex-col gap-1">
@@ -249,6 +270,7 @@ export function SkillsContent(): JSX.Element {
           </For>
         </Show>
       </div>
+      {/* jk-j60099994-replace-with-60062650-components-skills-content-10-end */}
     </div>
   )
 }

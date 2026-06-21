@@ -572,6 +572,7 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
@@ -620,6 +621,15 @@ const sessionMessagesLoaded = createMemo(() => {
         source: cmd.source as "command" | "mcp",
       })
     }
+
+    // Builtin: /preview command
+    list.push({
+      trigger: "preview",
+      title: "预览文件",
+      description: "预览本地 HTML 文件或 URL",
+      id: "builtin.preview",
+      source: "builtin",
+    })
 
     // Sort alphabetically
     list.sort((a, b) => a.trigger.localeCompare(b.trigger))
@@ -924,8 +934,19 @@ if (dsId) {
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
+  function handleCompositionStart() {
+    setComposing(true)
+  }
+  function handleCompositionEnd() {
+    setComposing(false)
+  }
+
   /** Handle keyboard events including slash command navigation */
   function handleKeyDown(e: KeyboardEvent) {
+    // 输入法合成期间(如拼音待选)的回车用于确认候选词,不应触发发送
+    // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
+    if (e.isComposing || e.keyCode === 229) return
+
     const slash = slashState()
 
     // Slash command navigation
@@ -961,7 +982,18 @@ if (dsId) {
 
     // Enter to send (only when slash popover is closed)
     if (e.key === "Enter" && !e.shiftKey && !slash) {
+      if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
+      
+      // Check for /preview command: /preview URL或路径
+      const previewMatch = prompt().match(/^\/preview\s+(.+)$/)
+      if (previewMatch) {
+        const target = previewMatch[1].trim()
+        handleOpenLocalFile(target)
+        setPrompt("")
+        return
+      }
+      
       void handleSubmit()
     }
   }
@@ -1130,25 +1162,35 @@ if (dsId) {
     }
   }
 
-  function handleOpenLocalFile(relativePath: string) {
+  function handleOpenLocalFile(filePath: string) {
     const dir = projectDir()
-    if (!dir) return
     
-    const normalizedDir = dir.replace(/\\/g, '/')
-    const normalizedRelative = relativePath.replace(/\\/g, '/')
+    const normalizedPath = filePath.replace(/\\/g, '/')
     
-    let absolutePath = normalizedDir
-    if (!absolutePath.endsWith('/') && !normalizedRelative.startsWith('/')) {
-      absolutePath += '/'
+    // 判断是否为绝对路径
+    // Windows: C:/... 或 C:\...
+    // MacOS/Linux: /...
+    const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
+    
+    let absolutePath: string
+    if (isAbsolute) {
+      absolutePath = normalizedPath
+    } else {
+      if (!dir) return
+      const normalizedDir = dir.replace(/\\/g, '/')
+      absolutePath = normalizedDir
+      if (!absolutePath.endsWith('/') && !normalizedPath.startsWith('/')) {
+        absolutePath += '/'
+      }
+      absolutePath += normalizedPath
     }
-    absolutePath += normalizedRelative
     absolutePath = absolutePath.replace(/\/+/g, '/')
     
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
     
     tabStore.openLocalFileTab({
       id: tabId,
-      title: relativePath.split(/[/\\]/).pop() ?? relativePath,
+      title: filePath.split(/[/\\]/).pop() ?? filePath,
       absoluteFilePath: absolutePath,
       createdAt: new Date(),
     })
@@ -1388,6 +1430,8 @@ if (dsId) {
                       ref={textareaRef}
                       value={prompt()}
                       onInput={handleInput}
+                      onCompositionStart={handleCompositionStart}
+                      onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}

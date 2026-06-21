@@ -222,13 +222,8 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
     setCreating(true)
     clearTimeout(createTimer)
     createTimer = setTimeout(() => setCreating(false), 500)
-    const dir = resolvedDir()
-    if (!dir) return
-    const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "octo_make" }).then((result) => {
-      const session = result.data as Session | undefined
-      if (session) navigate(`/make/${session.id}`)
-    })
+    // 和 insight 一样：新建按钮只导航到空态页，session 在发送消息时才懒创建
+    navigate("/make")
   }
 
   return (
@@ -239,6 +234,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
         "padding-top": "12px",
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
         "border-right": "1px solid var(--border-weak-base)",
+        "z-index": 11
       }}
     >
       <div class="shrink-0 flex flex-col px-[12px]">
