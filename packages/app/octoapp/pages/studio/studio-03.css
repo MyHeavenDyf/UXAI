@@ -266,6 +266,64 @@
   object-fit: contain;
 }
 
+/* ── 单张 1:1：居中显示 ── */
+
+.studio-result-grid.single-1x1 {
+  height: 180px;
+  align-items: center;
+  justify-content: center;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.single-1x1 .studio-result-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 180px;
+  min-width: 180px;
+  height: 180px;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.single-1x1 .studio-result-thumb img,
+.studio-result-grid.single-1x1 .studio-result-thumb video,
+.studio-result-grid.single-1x1 .studio-result-thumb-media {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* ── 多张 1:1：等分宽度、间距 4px ── */
+
+.studio-result-grid.multi-1x1 {
+  gap: 4px;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.multi-1x1 .studio-result-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  height: 180px;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.multi-1x1 .studio-result-thumb img,
+.studio-result-grid.multi-1x1 .studio-result-thumb video,
+.studio-result-grid.multi-1x1 .studio-result-thumb-media {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
+
 /* ── 多张竖构图：等分宽度、间距 4px ── */
 
 .studio-result-grid.multi-portrait {
