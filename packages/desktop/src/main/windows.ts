@@ -257,7 +257,11 @@ export function registerLocalProtocol() {
 
     let filePath = pathname
     if (host && /^[A-Za-z]$/.test(host)) {
+      // Windows: C:/Users/... → C:\Users\...
       filePath = `${host}:${pathname}`
+    } else if (host) {
+      // MacOS/Linux: local://Users/... → /Users/...
+      filePath = `/${host}${pathname}`
     }
 
     if (!filePath || filePath.includes("..")) {
