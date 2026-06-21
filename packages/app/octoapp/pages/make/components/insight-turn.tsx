@@ -1,7 +1,8 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
-import { useData } from "@opencode-ai/ui/context"
+import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -510,6 +511,7 @@ export function InsightTurn(props: {
   hasQuestionRequest?: boolean
 }): JSX.Element {
   const data = useData()
+  const i18n = useI18n()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
   const msgStore = data.store.message as Record<string, Message[]>
 
@@ -545,6 +547,14 @@ export function InsightTurn(props: {
       if (m.role === "user") break
     }
     return result
+  })
+
+  const isAborted = createMemo(() => {
+    for (const msg of assistantMsgs()) {
+      const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
+      if (err?.name === "MessageAbortedError") return true
+    }
+    return false
   })
 
   const assistantError = createMemo(() => {
@@ -1117,55 +1127,57 @@ const stateStatus = state.status as string | undefined
   return (
     <div class="flex flex-col" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
-      <div class="flex flex-col items-end gap-2 px-3 py-2.5">
-        <Show when={userText() || userAttachments().length === 0}>
-          <div
-            class="break-words"
-            style={{
-              background: "var(--octo-brand-a8)",
-              padding: "8px 12px",
-              "border-radius": "16px 16px 2px 16px",
-              color: "#191919",
-              "font-size": "14px",
-              "line-height": "22px",
-              "white-space": "pre-wrap",
-              display: "inline-block",
-              "max-width": "85%",
-            }}
-          >
-            {userText()}
-          </div>
-        </Show>
-        <Show when={userAttachments().length > 0}>
-          <div class="flex flex-col gap-2">
-            <For each={userAttachments()}>
-              {(att) => (
-                <div
-                  class="break-words flex items-center gap-2"
-                  style={{
-                    background: "var(--octo-brand-a8)",
-                    padding: "8px 12px",
-                    "border-radius": "12px",
-                    color: "#191919",
-                    "font-size": "13px",
-                    display: "inline-flex",
-                    "max-width": "200px",
-                  }}
-                >
-                  <Show when={att.mime?.startsWith("image/")}>
-                    <img
-                      src={att.url}
-                      alt={att.filename || "attachment"}
-                      style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
-                    />
-                  </Show>
-                  <span class="truncate">{att.filename || "attachment"}</span>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
+      <Show when={userText() || userAttachments().length > 0}>
+        <div class="flex flex-col items-end gap-2 px-3 py-2.5">
+          <Show when={userText()}>
+            <div
+              class="break-words"
+              style={{
+                background: "var(--octo-brand-a8)",
+                padding: "8px 12px",
+                "border-radius": "16px 16px 2px 16px",
+                color: "#191919",
+                "font-size": "14px",
+                "line-height": "22px",
+                "white-space": "pre-wrap",
+                display: "inline-block",
+                "max-width": "85%",
+              }}
+            >
+              {userText()}
+            </div>
+          </Show>
+          <Show when={userAttachments().length > 0}>
+            <div class="flex flex-col gap-2">
+              <For each={userAttachments()}>
+                {(att) => (
+                  <div
+                    class="break-words flex items-center gap-2"
+                    style={{
+                      background: "var(--octo-brand-a8)",
+                      padding: "8px 12px",
+                      "border-radius": "12px",
+                      color: "#191919",
+                      "font-size": "13px",
+                      display: "inline-flex",
+                      "max-width": "200px",
+                    }}
+                  >
+                    <Show when={att.mime?.startsWith("image/")}>
+                      <img
+                        src={att.url}
+                        alt={att.filename || "attachment"}
+                        style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
+                      />
+                    </Show>
+                    <span class="truncate">{att.filename || "attachment"}</span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+      </Show>
 
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
@@ -1379,6 +1391,13 @@ const stateStatus = state.status as string | undefined
           <Show when={assistantError()!.message}>
             <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
           </Show>
+        </div>
+      </Show>
+
+      {/* 中断提示：与 SessionTurn 的 session-turn-compaction 一致 */}
+      <Show when={isAborted()}>
+        <div data-slot="session-turn-compaction">
+          <MessageDivider label={i18n.t("ui.message.interrupted")} />
         </div>
       </Show>
 
