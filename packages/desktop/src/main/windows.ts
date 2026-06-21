@@ -268,7 +268,8 @@ export function registerLocalProtocol() {
     if (process.platform === "win32") {
       absolutePath = filePath.replace(/^[\/\\]+/, "").replace(/\//g, "\\")
     } else {
-      absolutePath = filePath
+      // MacOS/Linux: normalize multiple leading slashes to single /
+      absolutePath = filePath.replace(/^\/+/, "/")
     }
 
     if (!existsSync(absolutePath)) {
