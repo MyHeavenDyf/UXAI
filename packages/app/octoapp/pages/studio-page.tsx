@@ -112,7 +112,8 @@ export default function StudioPage() {
       () => ({ dir: params.dir, id: params.id }),
       ({ dir, id }) => {
         if (dir && id) {
-          if (decode64(dir) && projectDir()) layout.lastSessionPerTab.setStudio(projectDir(), id)
+          const decoded = decode64(dir)
+          if (decoded) layout.lastSessionPerTab.setStudio(decoded, id)
         }
       },
     ),
@@ -122,9 +123,9 @@ export default function StudioPage() {
   createEffect(() => {
     if (params.id) return
     if (new URLSearchParams(location.search).has("hint")) return
-    const dir = projectDir()
-    if (!dir) return
-    const lastId = layout.lastSessionPerTab.studio(dir)
+    const decoded = decode64(params.dir)
+    if (!decoded) return
+    const lastId = layout.lastSessionPerTab.studio(decoded)
     if (!lastId || !isValidStudioSession(lastId)) return
     navigate(`/${routeSlug()}/studio/${lastId}`, { replace: true })
   })
@@ -885,7 +886,8 @@ export default function StudioPage() {
       navigate(`/${routeSlug()}/studio/${nextSession.id}`)
       return true
     }
-    layout.lastSessionPerTab.setStudio(projectDir(), "")
+    const decoded = decode64(params.dir)
+    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
     navigate(`/${routeSlug()}/studio`)
     return true
   }
@@ -1931,7 +1933,7 @@ export default function StudioPage() {
           position: "absolute",
           top: "0",
           bottom: "0",
-          left: `${studioLeftWidth() - 4}px`,
+          left: `${studioLeftWidth()}px`,
           width: "8px",
           cursor: "col-resize",
           "z-index": "10",
@@ -2132,7 +2134,7 @@ export default function StudioPage() {
         </section>
         <div
           class="absolute top-0 bottom-0 cursor-col-resize z-10"
-          style={{ left: `${studioLeftWidth() + studioCenterWidth() - 4}px`, width: "8px" }}
+          style={{ left: `${studioLeftWidth() + studioCenterWidth()}px`, width: "8px" }}
           onMouseDown={handleStudioCenterResize}
         />
 
