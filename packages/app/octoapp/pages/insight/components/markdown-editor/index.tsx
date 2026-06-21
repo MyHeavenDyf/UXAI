@@ -8,26 +8,27 @@ import type { ResultTab } from "../result-viewer/tab-store"
 import { getDesktopApi } from "../../lib/electron-api"
 import { defaultFilename, ensureMarkdownExt } from "../../utils/local-file"
 import { interceptExternalLink } from "../../utils/external-link"
-import { tracker } from "@/utils/tracker"
 import { usePlatform } from "@/context/platform"
 
 // 无边框窗口(titleBarStyle:"hidden")macOS 在左上画红绿灯,留出避让宽度(与 _shell/topbar 一致)
 const TRAFFIC_LIGHT_INSET = 80
+// Windows titleBarOverlay 的窗口控件在右上角,顶栏右侧避让宽度(与 titlebar-simple 的 windowsControlsBaseWidth 一致)
+const WINDOWS_CONTROLS_INSET = 138
 
 // Vditor 资源本地化:运行时按 `cdn + "/dist/js/..."` 拉懒加载资源(katex/mermaid/echarts…),
 // 指向本地 publicDir(vite.js copyVditorAssets 拷到 /vendor/vditor/dist),零公网 CDN、断网可用。
 // 见 docs/specs/ui/insight-markdown-editor.md §6.2。
 const VDITOR_LOCAL_CDN = "/vendor/vditor"
 
-// 裁剪工具栏:保留较完整能力(标题/格式/列表/引用/表格/代码/撤销/大纲/预览)。
+// 裁剪工具栏:保留较完整能力(标题/格式/列表/引用/表格/代码/撤销/大纲/预览/导出)。
 // 去掉:
 //   - upload / record:与自有附件体系冲突;
 //   - fullscreen:已是全屏 overlay 且进全屏后无可见退出入口,冗余;
 //   - content-theme / code-theme:换肤项,与「跟随 app 明暗」冲突,徒增困惑;
-//   - export:Vditor 自带导出的 PDF 走 window.print() 会弹系统打印框(非静默存盘),
-//            改由顶栏自建「导出」只给 Markdown/HTML(见 ExportMenu);PDF 后续再做(spec §6.3)。
 //   - edit-mode(所见即所得/即时渲染/分屏):固定用分屏(sv),纯预览用工具栏最后的「预览」👁 切换即可,
 //            三选项里「所见即所得」「即时渲染」对本场景区分意义不大,去掉减少困惑(spec §6.3)。
+// 导出(export)用 Vditor 原生入口(在工具栏左侧,不与窗口控件位置冲突);其 PDF 项走 window.print()
+// 弹系统打印框,先用 CSS 隐藏(octo-tokens.css),只留 Markdown/HTML;PDF 后续再做(spec §6.3)。
 // 公式/流程图/图表/脑图是预览渲染特性(写 $$ / ```mermaid 即出图,资源走本地 cdn),无需工具栏按钮。见 §6.3。
 const TRIMMED_TOOLBAR = [
   "emoji", "headings", "bold", "italic", "strike", "link",
@@ -35,7 +36,7 @@ const TRIMMED_TOOLBAR = [
   "|", "quote", "line", "code", "inline-code", "insert-before", "insert-after",
   "|", "table",
   "|", "undo", "redo",
-  "|", "outline", "preview",
+  "|", "outline", "preview", "export",
 ]
 
 const SAVE_DEBOUNCE_MS = 1000
@@ -65,29 +66,6 @@ async function ensureLocalFile(
   throw new Error("该卡片无可编辑的本地文件(inline 内容)")
 }
 
-function downloadBlob(content: string, filename: string, mime: string) {
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-// 渲染后的 HTML 包成可独立打开的整页(vditor-reset 让样式接近预览)。
-function buildHtmlDoc(title: string, bodyHtml: string): string {
-  return `<!DOCTYPE html>
-<html lang="zh">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>
-<body class="vditor-reset">
-${bodyHtml}
-</body>
-</html>`
-}
-
 export function MarkdownEditor(props: {
   tab: ResultTab
   projectDir: string
@@ -98,6 +76,9 @@ export function MarkdownEditor(props: {
   const isDark = () => theme.mode() === "dark"
   const platform = usePlatform()
   const isMac = () => platform.platform === "desktop" && platform.os === "macos"
+  // Windows 无边框窗口的最小化/最大化/关闭(titleBarOverlay)在右上角,顶栏右侧留出避让,
+  // 否则关闭 ✕ 会和原生控件位置重合(与 _shell/titlebar 的 windowsControlsBaseWidth 一致)。
+  const isWindows = () => platform.platform === "desktop" && platform.os === "windows"
 
   let editorEl: HTMLDivElement | undefined
   let vditor: Vditor | undefined
@@ -161,31 +142,6 @@ export function MarkdownEditor(props: {
     const value = vditor?.getValue() ?? latestValue
     latestValue = value
     void doSave(value)
-  }
-
-  // 导出菜单(自建,取代 Vditor 自带 export):只给 Markdown / HTML。
-  // PDF 暂不做(Vditor 自带 PDF 走 window.print 弹打印框;后续若做走 html-to-pdf IPC 静默存盘,见 spec §6.3)。
-  const [exportOpen, setExportOpen] = createSignal(false)
-  let exportRef: HTMLDivElement | undefined
-  const onDocClickExport = (e: MouseEvent) => {
-    if (exportRef && !exportRef.contains(e.target as Node)) setExportOpen(false)
-  }
-  document.addEventListener("click", onDocClickExport)
-  onCleanup(() => document.removeEventListener("click", onDocClickExport))
-
-  function exportBase(): string {
-    return fileName().replace(/\.[^.]+$/, "") || "document"
-  }
-  function doExport(format: "md" | "html") {
-    setExportOpen(false)
-    tracker.interaction({ module: "insight", name: "md-edit-export", extend: JSON.stringify({ format }) })
-    if (format === "md") {
-      const md = vditor?.getValue() ?? latestValue
-      downloadBlob(md, `${exportBase()}.md`, "text/markdown;charset=utf-8")
-      return
-    }
-    const body = vditor?.getHTML() ?? ""
-    downloadBlob(buildHtmlDoc(exportBase(), body), `${exportBase()}.html`, "text/html;charset=utf-8")
   }
 
   function handleClose() {
@@ -282,7 +238,7 @@ export function MarkdownEditor(props: {
         style={{
           height: "44px",
           "padding-left": isMac() ? `${TRAFFIC_LIGHT_INSET}px` : "16px",
-          "padding-right": "12px",
+          "padding-right": isWindows() ? `${WINDOWS_CONTROLS_INSET}px` : "12px",
           "border-bottom": "1px solid var(--octo-border-divider)",
           background: "var(--octo-surface-page)",
           "-webkit-app-region": "drag",
@@ -306,43 +262,6 @@ export function MarkdownEditor(props: {
           </span>
         </Show>
         <div class="flex-1" />
-        <div class="relative" ref={(el) => (exportRef = el)} style={{ "-webkit-app-region": "no-drag" }}>
-          <button
-            type="button"
-            onClick={() => setExportOpen((v) => !v)}
-            class="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors hover:bg-[var(--octo-surface-hover,#f1f1f1)]"
-            style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-secondary)" }}
-            title="导出为文件"
-          >
-            导出
-            <svg viewBox="0 0 12 12" width="10" height="10" fill="none" aria-hidden="true">
-              <path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-          <Show when={exportOpen()}>
-            <div
-              class="absolute right-0 mt-1 py-1 min-w-[150px] z-10 rounded shadow-md"
-              style={{ background: "var(--octo-surface-page)", border: "1px solid var(--octo-border-default)", top: "100%" }}
-            >
-              <button
-                type="button"
-                class="block w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--octo-brand-a5,#f1f1f1)]"
-                style={{ color: "var(--octo-text-primary)" }}
-                onClick={() => doExport("md")}
-              >
-                Markdown (.md)
-              </button>
-              <button
-                type="button"
-                class="block w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--octo-brand-a5,#f1f1f1)]"
-                style={{ color: "var(--octo-text-primary)" }}
-                onClick={() => doExport("html")}
-              >
-                HTML (.html)
-              </button>
-            </div>
-          </Show>
-        </div>
         <button
           type="button"
           onClick={handleClose}

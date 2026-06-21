@@ -612,3 +612,10 @@ button.delete-dialog-btn-primary {
 .octo-md-editor-host .vditor-toolbar .vditor-tooltipped::before {
   display: none !important;
 }
+
+/* Vditor 原生「导出」面板:隐藏 PDF 项(其走 window.print() 弹系统打印框,非静默存盘)。
+   只留 Markdown / HTML。面板是 .vditor-hint,各项 <button data-type="markdown|pdf|html">。
+   见 docs/specs/ui/insight-markdown-editor.md §6.3。 */
+.octo-md-editor-host .vditor-hint button[data-type="pdf"] {
+  display: none !important;
+}
