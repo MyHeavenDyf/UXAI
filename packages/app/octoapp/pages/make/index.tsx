@@ -622,6 +622,15 @@ const sessionMessagesLoaded = createMemo(() => {
       })
     }
 
+    // Builtin: /preview command
+    list.push({
+      trigger: "preview",
+      title: "预览文件",
+      description: "预览本地 HTML 文件或 URL",
+      id: "builtin.preview",
+      source: "builtin",
+    })
+
     // Sort alphabetically
     list.sort((a, b) => a.trigger.localeCompare(b.trigger))
     return list
@@ -975,6 +984,16 @@ if (dsId) {
     if (e.key === "Enter" && !e.shiftKey && !slash) {
       if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
+      
+      // Check for /preview command: /preview URL或路径
+      const previewMatch = prompt().match(/^\/preview\s+(.+)$/)
+      if (previewMatch) {
+        const target = previewMatch[1].trim()
+        handleOpenLocalFile(target)
+        setPrompt("")
+        return
+      }
+      
       void handleSubmit()
     }
   }
@@ -1143,25 +1162,35 @@ if (dsId) {
     }
   }
 
-  function handleOpenLocalFile(relativePath: string) {
+  function handleOpenLocalFile(filePath: string) {
     const dir = projectDir()
-    if (!dir) return
     
-    const normalizedDir = dir.replace(/\\/g, '/')
-    const normalizedRelative = relativePath.replace(/\\/g, '/')
+    const normalizedPath = filePath.replace(/\\/g, '/')
     
-    let absolutePath = normalizedDir
-    if (!absolutePath.endsWith('/') && !normalizedRelative.startsWith('/')) {
-      absolutePath += '/'
+    // 判断是否为绝对路径
+    // Windows: C:/... 或 C:\...
+    // MacOS/Linux: /...
+    const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
+    
+    let absolutePath: string
+    if (isAbsolute) {
+      absolutePath = normalizedPath
+    } else {
+      if (!dir) return
+      const normalizedDir = dir.replace(/\\/g, '/')
+      absolutePath = normalizedDir
+      if (!absolutePath.endsWith('/') && !normalizedPath.startsWith('/')) {
+        absolutePath += '/'
+      }
+      absolutePath += normalizedPath
     }
-    absolutePath += normalizedRelative
     absolutePath = absolutePath.replace(/\/+/g, '/')
     
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
     
     tabStore.openLocalFileTab({
       id: tabId,
-      title: relativePath.split(/[/\\]/).pop() ?? relativePath,
+      title: filePath.split(/[/\\]/).pop() ?? filePath,
       absoluteFilePath: absolutePath,
       createdAt: new Date(),
     })
