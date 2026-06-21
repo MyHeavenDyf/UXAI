@@ -429,6 +429,9 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
+  // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
+  // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
+  const [composing, setComposing] = createSignal(false)
   // 记录当前输入框文本「来自哪个预置胶囊」,用于把 preset 点击 → 实际发送的漏斗打通。
   // 点胶囊时 set;输入框被清空(发送后 / 用户手动清空)时由下方 effect 解除关联,避免误把后续新文本算到该预置头上。
   const [activePreset, setActivePreset] = createSignal<{ id: string; text: string } | null>(null)
@@ -963,10 +966,19 @@ function InsightContent() {
     })
   }
 
+  // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
+  // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
+  function handleCompositionStart() {
+    setComposing(true)
+  }
+  function handleCompositionEnd() {
+    setComposing(false)
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
-    // 输入法合成期间(如拼音 "nh" 待选)的回车用于确认候选词,不应触发发送
-    // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
-    if (e.isComposing || e.keyCode === 229) return
+    // 输入法合成期间(如拼音 "nh" 待选)的回车用于确认候选词,不应触发发送。
+    // 三重判定兼容各平台:isComposing(标准)/ composing()(macOS 确认回车的兜底)/ keyCode 229
+    if (e.isComposing || composing() || e.keyCode === 229) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       void handleSubmit("enter")
@@ -1400,6 +1412,8 @@ function InsightContent() {
                         ref={textareaRef!}
                         value={prompt()}
                         onInput={(e) => setPrompt(e.currentTarget.value)}
+                        onCompositionStart={handleCompositionStart}
+                        onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
                         placeholder="请描述您的需求..."
                         class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
@@ -1601,6 +1615,8 @@ function InsightContent() {
                     ref={textareaRef!}
                     value={prompt()}
                     onInput={(e) => setPrompt(e.currentTarget.value)}
+                    onCompositionStart={() => setComposing(true)}
+                    onCompositionEnd={() => setComposing(false)}
                     onKeyDown={handleKeyDown}
                     placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
