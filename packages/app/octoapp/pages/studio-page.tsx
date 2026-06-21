@@ -777,11 +777,12 @@ export default function StudioPage() {
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isBusy() &&
+    !selectedCapabilityNeedsImage() &&
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
         ? prompt().trim().length > 0 || hasVideoFrames()
-        : prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(workspaceEditImage()))
+        : prompt().trim().length > 0
     ),
   )
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
