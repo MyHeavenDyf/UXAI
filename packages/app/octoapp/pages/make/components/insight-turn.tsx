@@ -1179,6 +1179,13 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
+      {/* 中断提示：与 SessionTurn 的 session-turn-compaction 一致 */}
+      <Show when={isAborted()}>
+        <div data-slot="session-turn-compaction">
+          <MessageDivider label={i18n.t("ui.message.interrupted")} />
+        </div>
+      </Show>
+
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
         <Show when={showGenerating()} fallback={
@@ -1391,13 +1398,6 @@ const stateStatus = state.status as string | undefined
           <Show when={assistantError()!.message}>
             <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
           </Show>
-        </div>
-      </Show>
-
-      {/* 中断提示：与 SessionTurn 的 session-turn-compaction 一致 */}
-      <Show when={isAborted()}>
-        <div data-slot="session-turn-compaction">
-          <MessageDivider label={i18n.t("ui.message.interrupted")} />
         </div>
       </Show>
 
