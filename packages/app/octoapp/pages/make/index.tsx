@@ -565,6 +565,7 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
@@ -926,6 +927,13 @@ if (dsId) {
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
+  function handleCompositionStart() {
+    setComposing(true)
+  }
+  function handleCompositionEnd() {
+    setComposing(false)
+  }
+
   /** Handle keyboard events including slash command navigation */
   function handleKeyDown(e: KeyboardEvent) {
     // 输入法合成期间(如拼音待选)的回车用于确认候选词,不应触发发送
@@ -967,6 +975,7 @@ if (dsId) {
 
     // Enter to send (only when slash popover is closed)
     if (e.key === "Enter" && !e.shiftKey && !slash) {
+      if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
       
       // Check for /preview command: /preview URL或路径
@@ -1414,6 +1423,8 @@ if (dsId) {
                       ref={textareaRef}
                       value={prompt()}
                       onInput={handleInput}
+                      onCompositionStart={handleCompositionStart}
+                      onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}

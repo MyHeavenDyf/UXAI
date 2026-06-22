@@ -50,6 +50,12 @@
 
 .prose-text {
   color: var(--octo-text-primary);
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: var(--octo-radius-md);
+  box-shadow: none;
+  max-height: 300px;
+  overflow: auto;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -64,7 +70,7 @@
   overflow-wrap: normal;
   background: var(--octo-brand-a3);
   border: 1px dashed var(--octo-brand-a25);
-  max-height: 300px;
+  max-height: 160px;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -104,8 +110,9 @@
 }
 
 .captured-card-btn {
-  border-radius: 12px;
-  padding: 16px 20px;
+  width: 50%;
+  border-radius: var(--octo-radius-md);
+  padding: 8px 20px;
   background: linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%);
   border: 1px solid rgba(0,0,0,0.1);
   width: calc(100% - 1.5rem);

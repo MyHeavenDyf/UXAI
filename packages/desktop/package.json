@@ -63,6 +63,9 @@
     "electron-vite": "^5",
     "solid-js": "catalog:",
     "sury": "11.0.0-alpha.4",
+    "tailwindcss": "^4.3.0",
+    "tw-to-css": "^0.0.12",
+    "twirlwind": "0.3.0",
     "typescript": "~5.6.2",
     "vite": "catalog:",
     "zod-openapi": "5.4.6"
