@@ -11,6 +11,10 @@ export type DesktopApi = {
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp?: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
+  /** 覆盖写本地文本文件(markdown 编辑器自动保存;主进程校验路径白名单) */
+  writeFile?: (path: string, content: string) => Promise<void>
+  /** 用系统默认浏览器打开外链(shell.openExternal);避免在 Electron webview 内导航后无法返回 */
+  openLink?: (url: string) => void
   writeClipboardText?: (text: string) => Promise<void>
 }
 
