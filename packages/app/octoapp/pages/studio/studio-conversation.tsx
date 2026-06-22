@@ -101,14 +101,24 @@ export function StudioResultCanvas(props: {
   createEffect(() => {
     const image = fullscreenImage()
     document.body.style.overflow = image ? "hidden" : ""
+    document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setFullscreenImage(null)
     }
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (fullscreenImage()) {
+        setFullscreenImage(null)
+        e.preventDefault()
+      }
+    }
     document.addEventListener("keydown", onKeyDown)
+    window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
       document.body.style.overflow = ""
+      document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("beforeunload", onBeforeUnload)
     })
   })
 
