@@ -103,6 +103,7 @@ export function StudioResultCanvas(props: {
     document.body.style.overflow = image ? "hidden" : ""
     document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
+    ;(window as any).api?.setWindowMaximized?.(true)
     ;(window as any).api?.setTitlebarOverlayHidden?.(true)
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
@@ -114,6 +115,7 @@ export function StudioResultCanvas(props: {
     window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
       ;(window as any).api?.setTitlebarOverlayHidden?.(false)
+      ;(window as any).api?.setWindowMaximized?.(false)
       document.body.style.overflow = ""
       document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)

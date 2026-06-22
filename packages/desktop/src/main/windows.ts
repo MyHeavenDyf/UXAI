@@ -89,6 +89,14 @@ export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
   updateTitlebar(win)
 }
 
+export function setWindowMaximized(win: BrowserWindow, maximized: boolean) {
+  if (maximized) {
+    win.maximize()
+  } else {
+    win.unmaximize()
+  }
+}
+
 export function setDockIcon() {
   if (process.platform !== "darwin") return
   const icon = nativeImage.createFromPath(join(iconsDir(), "dock.png"))

@@ -23,7 +23,7 @@ import type {
   WslConfig,
 } from "../preload/types"
 import { getStore } from "./store"
-import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
+import { setTitlebar, setTitlebarOverlayHidden, setWindowMaximized, updateTitlebar } from "./windows"
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir } from "./preview-server"
@@ -293,6 +293,11 @@ export function registerIpcHandlers(deps: Deps) {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     setTitlebarOverlayHidden(win, hidden)
+  })
+  ipcMain.handle("set-window-maximized", (event: IpcMainInvokeEvent, maximized: boolean) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    setWindowMaximized(win, maximized)
   })
 
   // Use ~/.config/octo/ (xdg-basedir convention) instead of Electron userData
