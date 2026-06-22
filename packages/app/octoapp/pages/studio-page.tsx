@@ -523,13 +523,15 @@ export default function StudioPage() {
   })
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     if (canvasResult()?.images.length) return "succeeded"
+    // isBusy 优先于 result status 检查，避免发送新生成时
+    // 因旧 turn 的 failed result 导致闪现"生成失败"
+    if (isBusy()) return "running"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
     if (studioTurn()?.toolError) return "failed"
     if (studioTurn()?.assistantText && params.id) return "failed"
     if (status() === "succeeded") return "succeeded"
-    if (isBusy()) return "running"
     return status()
   })
 
