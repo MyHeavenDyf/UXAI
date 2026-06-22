@@ -9,6 +9,7 @@ import { stripCodeFence } from "../../utils/detect"
 import { getDesktopApi } from "../../lib/electron-api"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
+import { useProjectDir } from "@/hooks/use-project-dir"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -58,6 +59,30 @@ function revealLocal(filePath: string) {
   }
   console.log("[octo:path] reveal-local", { filePath })
   api.showItemInFolder(filePath)
+}
+
+// uri 源「另存为」:始终从 url 重新拉 MCP 原始版本(不取本地工作副本/编辑后内容),
+// 让用户另存到任意目录 —— 对应「要原件就重新下载」的常规心智(与 file 类型「另存为」同义)。见 §3。
+async function downloadOriginal(tab: ResultTab, projectBase: string) {
+  if (!tab.uri) return
+  const api = getDesktopApi()
+  if (typeof api?.saveFilePicker !== "function" || typeof api?.downloadResource !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 saveFilePicker / downloadResource", variant: "error" })
+    return
+  }
+  const fname = sanitizeFilename(tab.fileName || tab.title || "download")
+  const defaultPath = projectBase ? `${projectBase}/${fname}` : fname
+  try {
+    const chosen = await api.saveFilePicker({ defaultPath })
+    if (!chosen) return
+    console.log("[octo:resource] download-original-start", { uri: tab.uri, destPath: chosen })
+    await api.downloadResource(tab.uri, chosen)
+    console.log("[octo:resource] download-original-ok", { destPath: chosen })
+    showToast({ description: "已另存", variant: "success", duration: 2000 })
+  } catch (err) {
+    console.error("[octo:resource] download-original-failed", { uri: tab.uri, err })
+    showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+  }
 }
 
 async function tableToXlsx(md: string, filename: string) {
@@ -254,6 +279,7 @@ function ViewModeToggle(props: { mode: TabViewMode; onSet: (mode: TabViewMode) =
 
 function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Element {
   const [open, setOpen] = createSignal(false)
+  const projectDir = useProjectDir()
   let containerRef: HTMLDivElement | undefined
 
   const onDocClick = (e: MouseEvent) => {
@@ -262,6 +288,13 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
   }
   document.addEventListener("click", onDocClick)
   onCleanup(() => document.removeEventListener("click", onDocClick))
+
+  // uri markdown 卡:预览/编辑用的是本地工作副本(可能已改),「另存为」给的是 MCP 原件(§3);
+  // 其余类型沿用按当前内容导出/转格式。
+  const options = (): DownloadOption[] =>
+    props.tab.source === "uri" && props.tab.type === "markdown"
+      ? [{ label: "另存为", format: "original", onClick: () => void downloadOriginal(props.tab, projectDir() || "") }]
+      : downloadOptions(props.tab)
 
   return (
     <div class="relative" ref={(el) => (containerRef = el)}>
@@ -280,7 +313,7 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
             top: "100%",
           }}
         >
-          <For each={downloadOptions(props.tab)}>
+          <For each={options()}>
             {(opt) => (
               <button
                 type="button"
