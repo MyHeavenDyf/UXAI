@@ -40,7 +40,7 @@
 | `attachment-upload-result` | 附件上传的成败结果（结果型，非直接点击） | 上传请求 promise 落定 → `doUpload` 的 then / catch | `{success, errorCode?}` | ✅ |
 | `task-refresh` | 用户点任务卡片「刷新」查询进度 | 任务卡片刷新按钮 → `handleTaskRefresh`（busy/cooldown 拦截后才打） | `{taskId}` | ✅ |
 | `task-stop` | 用户点任务卡片「终止」 | 任务卡片终止按钮 → `handleTaskStop`（busy 拦截后才打） | `{taskId}` | ✅ |
-| `task-open-result` | 用户点任务卡片「查看结果」打开右侧面板 | 任务卡片「查看结果」按钮 → `handleTaskOpenResult`（有产物时才打） | `{taskId}` | ✅ |
+| `task-open-result` | 用户点任务卡片「查看结果」打开右侧面板 | 任务卡片「查看结果」按钮 → `handleTaskOpenResult`：有产物直接打开打 `{taskId}`；completed 但无产物时触发 get_task_result 兜底查询，打 `{taskId, deferred:true}` | `{taskId, deferred?}` | ✅ |
 | `result-card-open` | 用户点对话里的输出卡片打开右侧结果 | 对话内输出卡片 `OutputEntryCard` → `handleOpenResult` | `{cardType}` | ✅ |
 | `result-download` | 用户从结果面板下载结果文件（选格式） | 结果面板 `ActionBar` 下载下拉项 → `DownloadMenu` 项 onClick | `{format, tabType}` | ✅ |
 | `result-copy-content` | 用户复制结果内容到剪贴板 | 结果面板 `ActionBar` 复制按钮 | `{tabType, viewMode}` | ✅ |

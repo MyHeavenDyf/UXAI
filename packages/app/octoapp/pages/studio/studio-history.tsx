@@ -15,6 +15,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import { decode64 } from "@/utils/base64"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -145,7 +146,8 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
       navigate(`/${props.routeSlug}/studio/${nextSessionID}`)
       return
     }
-    layout.lastSessionPerTab.setStudio(props.directory, "")
+    const decoded = decode64(props.routeSlug)
+    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
     navigate(`/${props.routeSlug}/studio`)
   }
 
@@ -349,7 +351,9 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   style={{
                                     position: "absolute",
                                     left: `${contextMenu.x}px`,
-                                    top: `${contextMenu.y}px`,
+                                    ...(contextMenu.y > window.innerHeight - 120
+                                      ? { bottom: `${window.innerHeight - contextMenu.y}px` }
+                                      : { top: `${contextMenu.y}px` }),
                                     transform: "translateX(12px)",
                                     "min-width": "132px",
                                   }}

@@ -4,6 +4,7 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
 import { isStudioEditResult, isVideoMedia } from "./studio-shared"
+import { STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
@@ -100,14 +101,24 @@ export function StudioResultCanvas(props: {
   createEffect(() => {
     const image = fullscreenImage()
     document.body.style.overflow = image ? "hidden" : ""
+    document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setFullscreenImage(null)
     }
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (fullscreenImage()) {
+        setFullscreenImage(null)
+        e.preventDefault()
+      }
+    }
     document.addEventListener("keydown", onKeyDown)
+    window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
       document.body.style.overflow = ""
+      document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("beforeunload", onBeforeUnload)
     })
   })
 
@@ -290,6 +301,11 @@ export function StudioDetails(props: {
 }): JSX.Element {
   const isEditResult = createMemo(() => isStudioEditResult(props.result))
   const isVideoResult = createMemo(() => props.result.capability === "video.generate" || isVideoMedia(props.image))
+  const modelLabel = createMemo(() => {
+    const m = props.result.styleModel || props.result.model
+    const found = STUDIO_STYLE_MODELS.find((item) => item.id === m || item.label === m)
+    return found?.label ?? (m || "千问")
+  })
   return (
     <ScrollView class="studio-detail-panel">
       <div class="studio-detail-cover">
@@ -314,7 +330,7 @@ export function StudioDetails(props: {
       </section>
       <section class="studio-detail-section">
         <div class="studio-detail-section-title">生成信息</div>
-        <InfoRow label="模型" value={props.result.model} />
+        <InfoRow label="模型" value={modelLabel()} />
         <Show when={!isEditResult()}>
           <InfoRow label="比例" value={props.result.aspectRatio} />
         </Show>

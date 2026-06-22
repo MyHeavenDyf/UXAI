@@ -48,6 +48,7 @@ export type StudioGenerationResult = {
   task_type?: string
   taskId?: string
   model: string
+  styleModel?: string
   aspectRatio: StudioAspectRatio
   videoMode?: "text" | "first_last_frame"
   duration?: "5" | "10"
