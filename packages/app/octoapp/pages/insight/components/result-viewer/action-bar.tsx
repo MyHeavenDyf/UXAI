@@ -9,6 +9,7 @@ import { stripCodeFence } from "../../utils/detect"
 import { getDesktopApi } from "../../lib/electron-api"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
+import { useProjectDir } from "@/hooks/use-project-dir"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -58,6 +59,30 @@ function revealLocal(filePath: string) {
   }
   console.log("[octo:path] reveal-local", { filePath })
   api.showItemInFolder(filePath)
+}
+
+// uri 源「另存为」:始终从 url 重新拉 MCP 原始版本(不取本地工作副本/编辑后内容),
+// 让用户另存到任意目录 —— 对应「要原件就重新下载」的常规心智(与 file 类型「另存为」同义)。见 §3。
+async function downloadOriginal(tab: ResultTab, projectBase: string) {
+  if (!tab.uri) return
+  const api = getDesktopApi()
+  if (typeof api?.saveFilePicker !== "function" || typeof api?.downloadResource !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 saveFilePicker / downloadResource", variant: "error" })
+    return
+  }
+  const fname = sanitizeFilename(tab.fileName || tab.title || "download")
+  const defaultPath = projectBase ? `${projectBase}/${fname}` : fname
+  try {
+    const chosen = await api.saveFilePicker({ defaultPath })
+    if (!chosen) return
+    console.log("[octo:resource] download-original-start", { uri: tab.uri, destPath: chosen })
+    await api.downloadResource(tab.uri, chosen)
+    console.log("[octo:resource] download-original-ok", { destPath: chosen })
+    showToast({ description: "已另存", variant: "success", duration: 2000 })
+  } catch (err) {
+    console.error("[octo:resource] download-original-failed", { uri: tab.uri, err })
+    showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+  }
 }
 
 async function tableToXlsx(md: string, filename: string) {
@@ -149,6 +174,8 @@ export function ActionBar(props: {
   tab: ResultTab
   viewMode: TabViewMode
   onSetViewMode: (mode: TabViewMode) => void
+  /** 进入全屏 markdown 编辑器(仅 markdown 卡且有本地文件时给出) */
+  onEdit?: () => void
 }): JSX.Element {
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
@@ -156,6 +183,10 @@ export function ActionBar(props: {
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
   const showToggle = () => isToggleType(props.tab.type)
+  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 .octo/downloads / path write 产物);
+  // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
+  const canEdit = () =>
+    !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
   return (
     <div
       class="flex items-center justify-between px-4 py-1.5 shrink-0 gap-2"
@@ -180,6 +211,16 @@ export function ActionBar(props: {
           <Show when={props.tab.source === "path" && props.tab.filePath}>
             <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openLocal(props.tab.filePath!)} />
             <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => revealLocal(props.tab.filePath!)} />
+          </Show>
+          <Show when={canEdit()}>
+            <ActionBtn
+              icon={<IconEditPencil size={14} />}
+              label="编辑"
+              onClick={() => {
+                tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
+                props.onEdit!()
+              }}
+            />
           </Show>
           <ActionBtn
             icon={<IconActionCopy size={14} />}
@@ -238,6 +279,7 @@ function ViewModeToggle(props: { mode: TabViewMode; onSet: (mode: TabViewMode) =
 
 function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Element {
   const [open, setOpen] = createSignal(false)
+  const projectDir = useProjectDir()
   let containerRef: HTMLDivElement | undefined
 
   const onDocClick = (e: MouseEvent) => {
@@ -246,6 +288,13 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
   }
   document.addEventListener("click", onDocClick)
   onCleanup(() => document.removeEventListener("click", onDocClick))
+
+  // uri markdown 卡:预览/编辑用的是本地工作副本(可能已改),「另存为」给的是 MCP 原件(§3);
+  // 其余类型沿用按当前内容导出/转格式。
+  const options = (): DownloadOption[] =>
+    props.tab.source === "uri" && props.tab.type === "markdown"
+      ? [{ label: "另存为", format: "original", onClick: () => void downloadOriginal(props.tab, projectDir() || "") }]
+      : downloadOptions(props.tab)
 
   return (
     <div class="relative" ref={(el) => (containerRef = el)}>
@@ -264,7 +313,7 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
             top: "100%",
           }}
         >
-          <For each={downloadOptions(props.tab)}>
+          <For each={options()}>
             {(opt) => (
               <button
                 type="button"
@@ -287,6 +336,15 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
         </div>
       </Show>
     </div>
+  )
+}
+
+function IconEditPencil(props: { size?: number }): JSX.Element {
+  const s = () => props.size ?? 14
+  return (
+    <svg viewBox="0 0 16 16" width={s()} height={s()} fill="none" aria-hidden="true">
+      <path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3L11 2.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+    </svg>
   )
 }
 

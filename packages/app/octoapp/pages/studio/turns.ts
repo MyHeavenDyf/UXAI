@@ -360,7 +360,7 @@ function buildResult(input: {
   const requestRecord = toolRequest(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
-  const model = stringField(output, "model") ?? activeTool?.tool ?? "image-generation-tool"
+  const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
   return {
@@ -390,6 +390,7 @@ function buildResult(input: {
           taskType: stringField(output, "taskType") ?? stringField(output, "task_type") ?? stringField(inputRecord, "task_type") ?? stringField(inputRecord, "taskType"),
           taskId: stringField(output, "taskId"),
           model,
+          styleModel: stringField(inputRecord, "styleModel"),
           aspectRatio,
           videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
           duration: stringField(output, "duration") as StudioGenerationResult["duration"],

@@ -14,6 +14,7 @@ export function StudioInpaintEditor(props: {
   onSubmit: (input: {
     prompt: string
     mode: StudioInpaintMode
+    brushSize: number
     sourceImage: string
     compositeImage: string
     hasDrawing: boolean
@@ -254,6 +255,7 @@ export function StudioInpaintEditor(props: {
       props.onSubmit({
         prompt: editorPrompt().trim(),
         mode: editMode(),
+        brushSize: brushSize(),
         sourceImage: props.image.remoteUrl ?? props.image.url,
         compositeImage: createCompositeImage(),
         hasDrawing: nextHasDrawing,

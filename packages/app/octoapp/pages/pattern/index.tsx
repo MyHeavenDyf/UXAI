@@ -326,6 +326,8 @@ function PatternContent() {
   const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
   const [isModifying, setIsModifying] = createSignal(false)
+  const lastVersionSave = new Map<string, number>()
+  const VERSION_THROTTLE_MS = 2000
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
@@ -348,6 +350,53 @@ function PatternContent() {
     setPrompt(`[选中元素: ${domPickerId}] ${text}`)
     void handleSubmit()
   }
+
+  async function handleModifyElement(data: { elementId: string; className: string; textContent: string; componentProps: Record<string, string>; tag?: string; saveToHistory?: boolean; keepOpen?: boolean }) {
+    console.log("[Pattern] modifyElement data:", data)
+    const current = pendingPreviewData()
+    if (!current || typeof current !== 'object') return
+    const doc = JSON.parse(JSON.stringify(current))
+    if (!doc?.elements || !Array.isArray(doc.elements)) return
+    let found = false
+    for (const el of doc.elements) {
+      if (el.id === data.elementId) {
+        found = true
+        el.props = el.props || {}
+        el.props.className = data.className
+        if (data.textContent) el.props.value = data.textContent
+        if (data.componentProps) Object.assign(el.props, data.componentProps)
+        break
+      }
+    }
+    console.log("[Pattern] element found:", found, "in", doc.elements.length, "elements")
+    sendToPreview(doc)
+    if (data.saveToHistory) {
+      const key = data.elementId
+      const now = Date.now()
+      const last = lastVersionSave.get(key) ?? 0
+      if (now - last >= VERSION_THROTTLE_MS) {
+        lastVersionSave.set(key, now)
+        const dir = patternHistoryDir()
+        const sid = params.id
+        if (dir && sid) {
+          const summary = (data.tag || data.componentProps?.value || Object.keys(data.componentProps || {}).join(',') || '快速修改').slice(0, 80)
+          const vid = await appendPatternVersion(dir, sid, {
+            lastIntent: lastIntent(),
+            lastPlanner: lastPlanner(),
+            lastModules: lastModules(),
+            mergedA2UI: doc as unknown as Record<string, unknown>,
+          }, summary)
+          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary }])
+          setCurrentVersionId(vid)
+        }
+      }
+    }
+    if (Object.keys(data.componentProps || {}).length > 0) {
+      previewApi.refresh()
+    }
+
+  }
+
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -403,6 +452,7 @@ function PatternContent() {
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
+    console.log("[Pattern] sendToPreview called")
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
     setHasPreviewContent(true)
@@ -418,6 +468,9 @@ function PatternContent() {
     const submitSessionId = params.id
     const controller = new AbortController()
     const mk = activeModelKey()!
+    // const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
+    //  const css = await desktopApi?.tailwindToCss?.("flex items-center justify-between px-inset py-inline bg-surface-container-highest shadow-sm z-10")
+    //   console.log("[Pattern] tailwind css:", css)
     try {
       let sid = submitSessionId
       if (!sid) {
@@ -623,6 +676,7 @@ function PatternContent() {
     if (state.lastIntent) setLastIntent(state.lastIntent)
     if (state.lastPlanner) setLastPlanner(state.lastPlanner)
     if (state.lastModules.length > 0) setLastModules(state.lastModules)
+    previewApi.refresh()
   }
 
   function handleDownload() {
@@ -641,6 +695,31 @@ function PatternContent() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+  }
+
+  async function handleLivePreview() {
+    const data = pendingPreviewData()
+    if (!data) {
+      showToast({ title: "暂无可预览的内容" })
+      return
+    }
+    const desktopApi = (window as unknown as {
+      api?: {
+        getPreviewDistDir?: () => Promise<string>
+        writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
+      }
+    }).api
+
+    const dir = await desktopApi?.getPreviewDistDir?.()
+    if (!dir || !desktopApi?.writeFileBuffer) {
+      showToast({ title: "当前环境不支持实时预览" })
+      return
+    }
+
+    const jsonStr = typeof data === "string" ? data : JSON.stringify(data)
+    const buffer = new TextEncoder().encode(jsonStr).buffer
+    await desktopApi.writeFileBuffer(`${dir}/live-data.json`, buffer)
+    window.open("http://127.0.0.1:51856?fetch=live-data.json")
   }
 
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
@@ -713,8 +792,10 @@ function PatternContent() {
               <PreviewPage
                 api={previewApi}
                 pendingData={pendingPreviewData()}
+                onModifyElement={handleModifyElement}
                 onPickerSubmit={handlePickerSubmit}
                 onDownload={handleDownload}
+                onLivePreview={handleLivePreview}
                 versions={versions()}
                 currentVersionId={currentVersionId()}
                 onSelectVersion={(vid) => { void handleSelectVersion(vid) }}

@@ -308,6 +308,7 @@ export function InsightSessionList(): JSX.Element {
         <DropdownMenu.Portal>
           <DropdownMenu.Content
             style={{ "min-width": "104px" }}
+            collisionPadding={24}
             onCloseAutoFocus={(event) => {
               const id = pendingRenameId()
               if (id) {

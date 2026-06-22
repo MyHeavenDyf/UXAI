@@ -1,13 +1,20 @@
 import { execFile } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-1-start
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, lstatSync } from "node:fs"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-1-end
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { dirname, join, basename } from "node:path"
+import { dirname, join, basename, resolve as resolvePath, sep } from "node:path"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-2-start
 import { homedir } from "node:os"
+// jk-j60099994-replace-with-60062650-main-skills-ipc-2-end
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
 // jk-j60099994-replace-with-ipc-1-start
 // jk-j60099994-replace-with-ipc-1-end
+
+app.commandLine.appendSwitch("ignore-certificate-errors")
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
 
 
 import type {
@@ -20,6 +27,9 @@ import type {
 } from "../preload/types"
 import { getStore } from "./store"
 import { setTitlebar, updateTitlebar } from "./windows"
+import { convertTailwindToCSS } from "./tailwind-to-css"
+import { convertCssToTailwind } from "./tailwind-from-css"
+import { previewDistDir } from "./preview-server"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -197,6 +207,14 @@ export function registerIpcHandlers(deps: Deps) {
           ? join(baseDir, ".octo", "downloads")
           : join(app.getPath("temp"), "octo")
       const destPath = join(root, safeNs, safeName)
+      // 幂等:已落地的本地副本即用户的「工作文件」——存在就直接复用,绝不 re-fetch / 覆盖。
+      // 否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的 MCP 原版盖掉用户改动
+      // (本函数最初只服务 Office 只读临时预览,加了 .octo/downloads 持久化 + markdown 二次编辑后,
+      //  覆盖语义就和编辑回写直接打架)。要拿原始版本走「另存为/下载原件」(download-resource 始终拉 url)。
+      if (existsSync(destPath)) {
+        console.log("[octo:office] reuse-existing", { destPath })
+        return destPath
+      }
       const res = await fetch(url)
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
@@ -220,6 +238,31 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("write-file-buffer", async (_event: IpcMainInvokeEvent, path: string, buffer: ArrayBuffer) => {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, Buffer.from(buffer))
+  })
+
+  // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
+  // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
+  // 两类合法目标:
+  //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/.octo/downloads/ 或 OS 临时目录(octo/);
+  //   ② write 工具产物(路径 C):Agent 写到任意位置的文件(如 ~/Downloads/...),不在白名单内。
+  // 因编辑器只会覆盖"它正在展示的、已落地的本地文件",白名单外只放行"已存在的普通文件"
+  // (拒绝凭空新建任意系统文件;拒绝经符号链接越权)。
+  ipcMain.handle("write-file", async (_event: IpcMainInvokeEvent, path: string, content: string) => {
+    const resolved = resolvePath(path)
+    const tempRoot = resolvePath(join(app.getPath("temp"), "octo"))
+    const inDownloads = resolved.includes(`${sep}.octo${sep}downloads${sep}`)
+    const inTemp = resolved === tempRoot || resolved.startsWith(tempRoot + sep)
+    if (!inDownloads && !inTemp) {
+      if (!existsSync(resolved)) {
+        throw new Error(`拒绝写入(白名单外且文件不存在): ${path}`)
+      }
+      const lst = lstatSync(resolved)
+      if (lst.isSymbolicLink() || !lst.isFile()) {
+        throw new Error(`拒绝写入(非普通文件或为符号链接): ${path}`)
+      }
+    }
+    await mkdir(dirname(resolved), { recursive: true })
+    await writeFile(resolved, content, "utf-8")
   })
 
   ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
@@ -290,6 +333,9 @@ export function registerIpcHandlers(deps: Deps) {
   }
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-3-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-3-end
+
   ipcMain.handle("get-skills-config", () => {
     try {
       if (!existsSync(skillsConfigPath)) return {}
@@ -308,6 +354,9 @@ export function registerIpcHandlers(deps: Deps) {
       throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
+
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
 
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
@@ -334,6 +383,8 @@ export function registerIpcHandlers(deps: Deps) {
       const content = readFileSync(skillMdPath, "utf-8")
       const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
       config[skillName] = {
+        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
+        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
         description: descMatch ? descMatch[1] : "",
         import: true,
         type: "common",
@@ -384,6 +435,16 @@ export function registerIpcHandlers(deps: Deps) {
       return image.toDataURL()
     },
   )
+
+  ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
+    return convertTailwindToCSS(className)
+  })
+
+  ipcMain.handle("css-to-tailwind", (_event: IpcMainInvokeEvent, cssObject: Record<string, unknown>) => {
+    return convertCssToTailwind(cssObject)
+  })
+
+  ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

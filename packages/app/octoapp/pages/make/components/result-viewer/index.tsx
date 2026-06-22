@@ -55,6 +55,8 @@ export function ResultViewer(props: {
   onActivate: (id: string) => void
   onClose: (id: string) => void
   onContentChange?: (id: string, content: string) => void
+  focusMode?: boolean
+  onFocusModeToggle?: () => void
 }): JSX.Element {
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
@@ -180,6 +182,8 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   }
                 }}
                 onRefresh={tab().type === "html" ? handleRefresh : undefined}
+                focusMode={props.focusMode}
+                onFocusModeToggle={tab().type === "local-file" || tab().type === "html" || tab().type === "svg" ? props.onFocusModeToggle : undefined}
               />
               <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch
@@ -230,6 +234,12 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   </Match>
                   <Match when={tab().type === "react-component"}>
                     <ReactComponentRenderer content={tab().content} title={tab().title} />
+                  </Match>
+                  <Match when={tab().type === "local-file"}>
+                    <iframe
+                      src={`local:///${tab().absoluteFilePath?.replace(/\\/g, '/')}`}
+                      style={{ width: "100%", height: "100%", border: "none" }}
+                    />
                   </Match>
                 </Switch>
               </div>

@@ -190,6 +190,7 @@ function OctoSidebarLayout(props: ParentProps) {
 }
 
 function MakeSidebarLayout(props: ParentProps) {
+  const layout = useLayout()
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
     Persist.global("make.sidebar.width"),
     createStore({ width: 296 }),
@@ -216,35 +217,37 @@ function MakeSidebarLayout(props: ParentProps) {
 
   return (
     <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <MakeSidebar width={sidebarWidth()} />
-      <div
-        class="absolute top-0 bottom-0 flex items-center justify-center group"
-        style={{
-          left: `${sidebarWidth() - 10}px`,
-          width: "20px",
-          cursor: "col-resize",
-          "z-index": "10",
-        }}
-        onMouseDown={handleSidebarResize}
-      >
+      <Show when={!layout.focusMode.get()}>
+        <MakeSidebar width={sidebarWidth()} />
         <div
-          class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+          class="absolute top-0 bottom-0 flex items-center justify-center group"
           style={{
-            width: "12px",
-            height: "36px",
-            "border-radius": "0 10px 10px 0",
-            "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
-            border: "1px solid var(--octo-border-divider)",
-            "border-left": "none",
-            display: "none"
+            left: `${sidebarWidth() - 10}px`,
+            width: "20px",
+            cursor: "col-resize",
+            "z-index": "10",
           }}
+          onMouseDown={handleSidebarResize}
         >
           <div
-            class="w-[2px] h-[14px] rounded-full ml-[2px]"
-            style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-          />
+            class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+            style={{
+              width: "12px",
+              height: "36px",
+              "border-radius": "0 10px 10px 0",
+              "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
+              border: "1px solid var(--octo-border-divider)",
+              "border-left": "none",
+              display: "none"
+            }}
+          >
+            <div
+              class="w-[2px] h-[14px] rounded-full ml-[2px]"
+              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+            />
+          </div>
         </div>
-      </div>
+      </Show>
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
         {props.children}
       </div>

@@ -584,3 +584,46 @@ button.delete-dialog-btn-primary {
   border-color: #0a59f7;
   color: #fff;
 }
+
+/* ── Markdown 全屏编辑器(Vditor)─────────────────────────────────
+   宿主容器撑满父级,让 Vditor 实例填满 overlay 主体(顶栏之外的区域)。
+   见 docs/specs/ui/insight-markdown-editor.md §2.2。 */
+.octo-md-editor-host {
+  height: 100%;
+  overflow: hidden;
+}
+.octo-md-editor-host .vditor {
+  height: 100% !important;
+  border: none;
+  border-radius: 0;
+}
+
+/* Vditor 工具栏 tooltip 修正:
+   Vditor 自带 tooltip 是 `.vditor-tooltipped::after { content: attr(aria-label) }`,
+   默认多朝上(__n/__ne/__nw:bottom:100%),而工具栏在编辑器顶部 → 气泡向上溢出被顶栏/
+   overflow 裁掉看不到。这里强制朝下显示(气泡本身已自带 z-index:1000000),并隐藏箭头
+   (朝下后原箭头方向会错)。见 docs/specs/ui/insight-markdown-editor.md §6.3。 */
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped::after {
+  top: 100% !important;
+  bottom: auto !important;
+  margin-top: 5px !important;
+  margin-bottom: 0 !important;
+}
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped::before {
+  display: none !important;
+}
+/* tooltip 只在 hover 显示:Vditor 默认 :focus/:active 也显示,导致点「导出」展开面板后
+   tooltip 仍挂着、朝下正好压住下拉项(Markdown/HTML)。抑制 focus/active,只留 hover。 */
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:focus::after,
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:focus::before,
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::after,
+.octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::before {
+  display: none !important;
+}
+
+/* Vditor 原生「导出」面板:隐藏 PDF 项(其走 window.print() 弹系统打印框,非静默存盘)。
+   只留 Markdown / HTML。面板是 .vditor-hint,各项 <button data-type="markdown|pdf|html">。
+   见 docs/specs/ui/insight-markdown-editor.md §6.3。 */
+.octo-md-editor-host .vditor-hint button[data-type="pdf"] {
+  display: none !important;
+}

@@ -469,7 +469,7 @@
   position: absolute;
   z-index: 1;
   border: 1px solid #0a59f7;
-  background: rgba(244, 239, 250, 0.76);
+  background: #e9efff;
   box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.06);
 }
 
