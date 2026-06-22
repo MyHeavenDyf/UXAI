@@ -82,6 +82,7 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
 }
 
 export function StudioResultCanvas(props: {
+  videoPlayerMount: () => HTMLElement
   status: StudioGenerationStatus
   image?: StudioImage
   result?: StudioGenerationResult
@@ -160,6 +161,7 @@ export function StudioResultCanvas(props: {
                 src={image().remoteUrl ?? image().url}
                 poster={image().thumbnailUrl}
                 class="studio-canvas-image"
+                mount={props.videoPlayerMount}
               />
             </Show>
           </div>
@@ -296,16 +298,6 @@ export function StudioDetails(props: {
         <Show when={!isEditResult()}>
           <div class="studio-detail-section-title">提示词</div>
           <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
-          <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
-            <button
-              type="button"
-              onClick={props.onGenerateVideo}
-              disabled={props.regenerateDisabled || !props.image}
-              class="studio-details-primary-action studio-details-secondary-action studio-details-video-action disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              视频生成
-            </button>
-          </Show>
         </Show>
         <button
           type="button"
@@ -315,6 +307,16 @@ export function StudioDetails(props: {
         >
           再次生成
         </button>
+        <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
+          <button
+            type="button"
+            onClick={props.onGenerateVideo}
+            disabled={props.regenerateDisabled || !props.image}
+            class="studio-details-primary-action studio-details-secondary-action studio-details-video-action disabled:opacity-45 disabled:cursor-not-allowed"
+          >
+            视频生成
+          </button>
+        </Show>
         <Show when={!isVideoResult()}>
           <div class="studio-detail-action-grid">
             <button
