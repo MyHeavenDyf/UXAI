@@ -886,6 +886,11 @@
   transition: background-color 140ms ease, transform 140ms ease;
 }
 
+/* 全屏遮罩层激活时，隐藏 Windows 窗口自带的关闭/最小化/最大化按钮 */
+body.studio-fullscreen-active [data-tauri-decorum-tb] {
+  display: none !important;
+}
+
 .studio-fullscreen-overlay {
   position: fixed;
   inset: 0;
