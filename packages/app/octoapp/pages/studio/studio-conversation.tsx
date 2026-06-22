@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
@@ -103,7 +104,6 @@ export function StudioResultCanvas(props: {
     document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
     ;(window as any).api?.setTitlebarOverlayHidden?.(true)
-    ;(window as any).api?.showFullscreenOverlay?.(image.url).then(() => setFullscreenImage(null))
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
     }
@@ -199,6 +199,18 @@ export function StudioResultCanvas(props: {
         }
         }
       </Show>
+      {fullscreenImage() && (
+        <Portal mount={document.body}>
+          <div class="studio-fullscreen-overlay" onClick={() => setFullscreenImage(null)}>
+            <button type="button" class="studio-fullscreen-close" onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); }} aria-label="关闭全屏">
+              <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+                <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+            <img src={fullscreenImage()!.url} class="studio-fullscreen-image" alt="" />
+          </div>
+        </Portal>
+      )}
     </>
   )
 }
