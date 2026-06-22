@@ -13,6 +13,9 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 // jk-j60099994-replace-with-ipc-1-start
 // jk-j60099994-replace-with-ipc-1-end
 
+app.commandLine.appendSwitch("ignore-certificate-errors")
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
 
 import type {
   InitStep,
