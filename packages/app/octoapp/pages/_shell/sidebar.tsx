@@ -150,13 +150,11 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     },
   )
 
-  // Reconciled store with key="id" so <For> items keep stable references
   const [sessionList, setSessionList] = createStore<Session[]>([])
   createEffect(on(sessions, (data) => {
     if (data) setSessionList(reconcile(data, { key: "id" }))
   }, { defer: true }))
 
-  // Insight data is "stable" when fetched dir matches current dir
   const insightStable = createMemo(() => insightFetchedDir() === resolvedDir())
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
@@ -197,6 +195,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         "padding-top": "12px",
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
         "border-right": "1px solid var(--border-weak-base)",
+        "z-index": 11,
       }}
     >
       <div class="shrink-0 flex flex-col px-[12px]">
@@ -240,6 +239,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         <div
           data-slot="list-scroll"
           class="flex-1 min-h-0 overflow-y-auto px-[12px]"
+          style={{ position: "relative", "z-index": 11 }}
         >
           <div class="flex flex-col mb-[2px]">
             <Show
@@ -355,6 +355,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 title={item.label}
                 classList={{
                   "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,
+                  hidden: item.key === "knowledge_base",
                 }}
                 style={{
                   height: "36px",

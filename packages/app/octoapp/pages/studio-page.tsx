@@ -1,7 +1,8 @@
 import "./studio/studio.css"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
+import { tracker } from "@/utils/tracker"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -88,6 +89,8 @@ export default function StudioPage() {
   const dialog = useDialog()
   let studioPermissionChecked = false
 
+  onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
+
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
 
@@ -109,7 +112,8 @@ export default function StudioPage() {
       () => ({ dir: params.dir, id: params.id }),
       ({ dir, id }) => {
         if (dir && id) {
-          if (decode64(dir) && projectDir()) layout.lastSessionPerTab.setStudio(projectDir(), id)
+          const decoded = decode64(dir)
+          if (decoded) layout.lastSessionPerTab.setStudio(decoded, id)
         }
       },
     ),
@@ -119,9 +123,9 @@ export default function StudioPage() {
   createEffect(() => {
     if (params.id) return
     if (new URLSearchParams(location.search).has("hint")) return
-    const dir = projectDir()
-    if (!dir) return
-    const lastId = layout.lastSessionPerTab.studio(dir)
+    const decoded = decode64(params.dir)
+    if (!decoded) return
+    const lastId = layout.lastSessionPerTab.studio(decoded)
     if (!lastId || !isValidStudioSession(lastId)) return
     navigate(`/${routeSlug()}/studio/${lastId}`, { replace: true })
   })
@@ -131,6 +135,10 @@ export default function StudioPage() {
   const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
+  const [imageSettingStore, setImageSettingStore] = persisted(
+    Persist.global("studio.image.settings"),
+    createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
+  )
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
@@ -515,13 +523,15 @@ export default function StudioPage() {
   })
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     if (canvasResult()?.images.length) return "succeeded"
+    // isBusy 优先于 result status 检查，避免发送新生成时
+    // 因旧 turn 的 failed result 导致闪现"生成失败"
+    if (isBusy()) return "running"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
     if (studioTurn()?.toolError) return "failed"
     if (studioTurn()?.assistantText && params.id) return "failed"
     if (status() === "succeeded") return "succeeded"
-    if (isBusy()) return "running"
     return status()
   })
 
@@ -546,7 +556,7 @@ export default function StudioPage() {
       if (canvasTabImages().length === 0) {
         // 无 tabs：创建第一个 tab
         setCanvasTabImages([r.images[0]])
-        setCanvasTabLabels({ [r.images[0].id]: extractKeywords(r.prompt) })
+        setCanvasTabLabels({ [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) })
       } else {
         // 已有 tabs：追加，与 selectStudioImage 逻辑一致
         setCanvasTabImages((prev) => {
@@ -555,7 +565,7 @@ export default function StudioPage() {
         })
         setCanvasTabLabels((prev) => {
           if (prev[r.images[0].id]) return prev
-          return { ...prev, [r.images[0].id]: extractKeywords(r.prompt) }
+          return { ...prev, [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) }
         })
       }
     }
@@ -587,7 +597,7 @@ export default function StudioPage() {
         if (tabImg && imageIndex !== -1) {
           setCanvasTabLabels((prev) => ({
             ...prev,
-            [tabImg.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}`,
+            [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt),
           }))
         }
         setDeletedImageIds(new Set<string>())
@@ -603,7 +613,7 @@ export default function StudioPage() {
         setSelectedImageId(input.imageID)
         setShowStudioCanvas(true)
         setCanvasTabImages((prev) => [...prev, first])
-        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}` }))
+        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt) }))
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
@@ -769,11 +779,12 @@ export default function StudioPage() {
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isBusy() &&
+    !selectedCapabilityNeedsImage() &&
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
         ? prompt().trim().length > 0 || hasVideoFrames()
-        : prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(workspaceEditImage()))
+        : prompt().trim().length > 0
     ),
   )
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
@@ -836,6 +847,7 @@ export default function StudioPage() {
             if (index !== -1) draft.session[index].title = next
           }),
         )
+        tracker.interaction({ module: "studio", name: "rename-session" })
         setHeaderTitle({ editing: false, draft: "" })
       })
       .catch((err) => {
@@ -848,6 +860,7 @@ export default function StudioPage() {
   }
 
   const deleteHeaderSession = async (session: Session) => {
+    tracker.interaction({ module: "studio", name: "delete-session" })
     const sessions = syncStore.session
       .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
       .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
@@ -876,7 +889,8 @@ export default function StudioPage() {
       navigate(`/${routeSlug()}/studio/${nextSession.id}`)
       return true
     }
-    layout.lastSessionPerTab.setStudio(projectDir(), "")
+    const decoded = decode64(params.dir)
+    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
     navigate(`/${routeSlug()}/studio`)
     return true
   }
@@ -930,6 +944,11 @@ export default function StudioPage() {
   async function downloadCurrentImage() {
     const image = selectedImage()
     if (!image) return
+    tracker.interaction({
+      module: "studio",
+      name: "download",
+      extend: JSON.stringify({ name: currentImageLabel(), url: image.remoteUrl ?? image.url }),
+    })
     const source = image.remoteUrl ?? image.url
     try {
       const response = await fetch(source)
@@ -970,6 +989,9 @@ export default function StudioPage() {
           })
           return
         }
+        // 若已在编辑模式（由 openHD/openCutout/openInpaint/openOutpaint 触发），
+        // 不覆盖 workspaceUploadRequested，避免编辑区变成上传界面而非复用原图。
+        if (isEditingWorkspaceMode()) return
         batch(() => {
           setWorkspaceImage(undefined)
           setWorkspaceUploadRequested(true)
@@ -1078,6 +1100,7 @@ export default function StudioPage() {
   function addAssets(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: files.length }) })
     readStudioAsset(file)
       .then((asset) => {
         setAssets([asset])
@@ -1285,6 +1308,16 @@ export default function StudioPage() {
   function generateVideoFromSelectedImage() {
     const image = selectedImage()
     if (!image || isVideoMedia(image) || !canGenerateVideo()) return
+    tracker.interaction({
+      module: "studio",
+      name: "video-generate",
+      extend: JSON.stringify({
+        aspectRatio: aspectRatio(),
+        duration: videoDuration(),
+        quality: videoQualityMode(),
+        mode: videoFrames.first ? "first_last_frame" : "text",
+      }),
+    })
     void resolveImageDataUrl(image)
       .then((dataUrl) => {
         pendingVideoFirstFrame = {
@@ -1311,6 +1344,7 @@ export default function StudioPage() {
   }
 
   function startNewStudioConversation() {
+    tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
     generationToken++
     setVideoRiskDialogOpen(false)
@@ -1437,6 +1471,7 @@ export default function StudioPage() {
 
   async function cancelStudioGeneration(id: string) {
     if (cancellingGenerationIDs().has(id)) return
+    tracker.interaction({ module: "studio", name: "stop-generation" })
     const current = server.current
     if (!current) {
       console.error("[StudioPage] cancel generation failed", new Error("No active server."))
@@ -1519,6 +1554,17 @@ export default function StudioPage() {
         : nextCapability === "video.generate"
           ? videoReferenceImages
           : []
+    tracker.interaction({
+      module: "studio",
+      name: "send-message",
+      extend: JSON.stringify({
+        capability: nextCapability,
+        aspectRatio: aspectRatio(),
+        count: count(),
+        styleModel: styleModel(),
+        hasReferenceImage: referenceImages.length > 0,
+      }),
+    })
     const studioContext = params.id
       ? buildStudioConversationContext({
           messages: dataStore.message[params.id] ?? [],
@@ -1722,6 +1768,7 @@ export default function StudioPage() {
   function openOutpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage())) return
     batch(() => {
+      setCapability("image.outpaint")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("outpaint")
@@ -1731,6 +1778,7 @@ export default function StudioPage() {
   function openHD() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.upscale")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("hd")
@@ -1740,6 +1788,7 @@ export default function StudioPage() {
   function openCutout() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.cutout")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("cutout")
@@ -1749,6 +1798,7 @@ export default function StudioPage() {
   function openInpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.inpaint")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("inpaint")
@@ -1758,6 +1808,16 @@ export default function StudioPage() {
   function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
     const image = workspaceEditImage()
     if (!image) return
+    tracker.interaction({
+      module: "studio",
+      name: "outpaint",
+      extend: JSON.stringify({
+        aspectRatio: aspectRatio(),
+        hasCustomPrompt: !!input.prompt,
+        hasSourceImage: !!image,
+        isUploadedImage: !!workspaceImage(),
+      }),
+    })
     void runGeneration({
       capability: "image.outpaint",
       sourceImage: image.remoteUrl ?? image.url,
@@ -1769,11 +1829,23 @@ export default function StudioPage() {
   function submitInpaint(input: {
     prompt: string
     mode: StudioInpaintMode
+    brushSize: number
     sourceImage: string
     compositeImage: string
     hasDrawing: boolean
   }) {
     if (isBusy() || !input.hasDrawing) return
+    tracker.interaction({
+      module: "studio",
+      name: "inpaint",
+      extend: JSON.stringify({
+        mode: input.mode,
+        brushSize: input.brushSize,
+        hasCustomPrompt: !!input.prompt,
+        hasDrawing: input.hasDrawing,
+        isUploadedImage: !!workspaceImage(),
+      }),
+    })
     void runGeneration({
       capability: "image.inpaint",
       sourceImage: input.sourceImage,
@@ -1789,6 +1861,7 @@ export default function StudioPage() {
   function submitHD(input: { mode: StudioHDMode }) {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    tracker.interaction({ module: "studio", name: "upscale", extend: JSON.stringify({ mode: input.mode, hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.upscale",
       sourceImage: image.remoteUrl ?? image.url,
@@ -1802,6 +1875,7 @@ export default function StudioPage() {
   function submitCutout() {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    tracker.interaction({ module: "studio", name: "cutout", extend: JSON.stringify({ hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.cutout",
       sourceImage: image.remoteUrl ?? image.url,
@@ -1813,6 +1887,16 @@ export default function StudioPage() {
     const current = result()
     if (!current) return
     if (current.capability === "video.generate" && !canGenerateVideo()) return
+    tracker.interaction({
+      module: "studio",
+      name: "regenerate",
+      extend: JSON.stringify({
+        capability: current.capability,
+        aspectRatio: current.aspectRatio,
+        count: current.images.length,
+        hasReferenceImage: current.images.length > 0,
+      }),
+    })
     void runGeneration({
       capability: current.capability,
       prompt: current.prompt,
@@ -1855,7 +1939,7 @@ export default function StudioPage() {
           position: "absolute",
           top: "0",
           bottom: "0",
-          left: `${studioLeftWidth() - 4}px`,
+          left: `${studioLeftWidth()}px`,
           width: "8px",
           cursor: "col-resize",
           "z-index": "10",
@@ -2056,7 +2140,7 @@ export default function StudioPage() {
         </section>
         <div
           class="absolute top-0 bottom-0 cursor-col-resize z-10"
-          style={{ left: `${studioLeftWidth() + studioCenterWidth() - 4}px`, width: "8px" }}
+          style={{ left: `${studioLeftWidth() + studioCenterWidth()}px`, width: "8px" }}
           onMouseDown={handleStudioCenterResize}
         />
 
@@ -2169,7 +2253,7 @@ export default function StudioPage() {
                       if (tabImg && imageIndex !== -1) {
                         setCanvasTabLabels((prev) => ({
                           ...prev,
-                          [tabImg.id]: `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}`,
+                          [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
                         }))
                       }
                       setDeletedImageIds(new Set<string>())
@@ -2184,7 +2268,7 @@ export default function StudioPage() {
                       const imageIndex = r.images.findIndex((img) => img.id === id)
                       setSelectedImageId(id)
                       setCanvasTabImages((prev) => [...prev, first])
-                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` }))
+                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
                       setDeletedImageIds(new Set<string>())
                       setWorkspaceImage(undefined)
                       setWorkspaceUploadRequested(false)

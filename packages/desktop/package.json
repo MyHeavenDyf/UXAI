@@ -31,14 +31,15 @@
   },
   "main": "./out/main/index.js",
   "dependencies": {
+    "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "electron-context-menu": "4.1.2",
     "electron-log": "^5",
     "electron-store": "^10",
     "electron-updater": "^6",
     "electron-window-state": "^5.0.3",
-    "drizzle-orm": "catalog:",
     "marked": "^15",
+    "shell-path": "3.1.0",
     "xdg-basedir": "5.1.0"
   },
   "devDependencies": {
@@ -62,6 +63,9 @@
     "electron-vite": "^5",
     "solid-js": "catalog:",
     "sury": "11.0.0-alpha.4",
+    "tailwindcss": "^4.3.0",
+    "tw-to-css": "^0.0.12",
+    "twirlwind": "0.3.0",
     "typescript": "~5.6.2",
     "vite": "catalog:",
     "zod-openapi": "5.4.6"

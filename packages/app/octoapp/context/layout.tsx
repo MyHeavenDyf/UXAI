@@ -56,6 +56,7 @@ type LastSessionPerTab = {
   make: Record<string, string>
   chat: Record<string, string>
   studio: Record<string, string>
+  pattern?: { id: string }
 }
 
 type SidebarSource = "cowork" | "make"
@@ -277,6 +278,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       make: {},
       chat: {},
       studio: {},
+      pattern: undefined,
     })
 
     const [sidebarSource, setSidebarSource] = createStore<{ source: SidebarSource }>({
@@ -284,6 +286,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     })
 
     const [showOnboarding, setShowOnboarding] = createSignal(true)
+    const [focusMode, setFocusMode] = createSignal(false)
 
     const MAX_SESSION_KEYS = 50
     const PENDING_MESSAGE_TTL_MS = 2 * 60 * 1000
@@ -591,6 +594,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         setMake(dir: string, id: string) {
           setLastSession("make", dir, id)
         },
+        pattern: createMemo(() => lastSessionPerTab.pattern),
+        setPattern(id: string) {
+          setLastSession("pattern", { id })
+        },
         chat: (dir: string) => lastSessionPerTab.chat[dir],
         setChat(dir: string, id: string) {
           setLastSession("chat", dir, id)
@@ -729,6 +736,13 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
         toggle() {
           setStore("mobileSidebar", "opened", (x) => !x)
+        },
+      },
+      focusMode: {
+        get: focusMode,
+        set: setFocusMode,
+        toggle() {
+          setFocusMode((x) => !x)
         },
       },
       pendingMessage: {

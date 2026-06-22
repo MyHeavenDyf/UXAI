@@ -124,6 +124,12 @@ async function sendInteraction(params: InteractionParams) {
 }
 
 export const tracker = {
-  page: (params: PageParams): void => { void sendPage(params) },
-  interaction: (params: InteractionParams): void => { void sendInteraction(params) },
+  page: (params: PageParams): void => {
+    console.log("[octo:track] page", params.module, params.name, params.extend ?? "")  // 调试日志:内网验证打点用,验证完成后删除
+    void sendPage(params)
+  },
+  interaction: (params: InteractionParams): void => {
+    console.log("[octo:track] interaction", params.module, params.name, params.extend ?? "")  // 调试日志:内网验证打点用,验证完成后删除
+    void sendInteraction(params)
+  },
 }

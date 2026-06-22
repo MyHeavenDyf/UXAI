@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js"
 import type { OutputCard } from "../insight-turn"
 
-export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
+export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
 
 /** 视图模式:preview=渲染态(markmap/表格/iframe/markdown),source=原始代码态。仅 toggle 类型有意义 */
 export type TabViewMode = "preview" | "source"
@@ -17,11 +17,12 @@ export type ResultTab = {
   id: string
   title: string
   type: ResultTabType
-  source: "inline" | "uri"
-  content?: string          // inline 必填;uri 模式下作为 fetch 后的 session 缓存(懒填充)
+  source: "inline" | "uri" | "path"
+  content?: string          // inline 必填;uri/path 模式下作为读取后的缓存(uri 懒填充;path 每次读盘)
   uri?: string              // uri 模式必填
   mimeType?: string         // uri 模式必填(影响渲染路由)
   fileName?: string         // uri 模式来自 resource_link.name,供下载默认文件名
+  filePath?: string         // path 模式必填(write 工具目标路径,见 output-renderers.md §2.6)
   description?: string      // uri 模式来自 resource_link.description,可在 ActionBar 副标题展示
   viewMode?: TabViewMode    // 预览/代码 切换态(缺省视作 "preview");仅 mindmap/html/table/markdown 用
   createdAt: Date
@@ -55,6 +56,20 @@ export function createTabStore() {
         return byUriAndType.id
       }
     }
+    // path 模式去重:(filePath, type) 复合命中 → 激活(同一本地文件 + 同一渲染视图)
+    if (card.filePath) {
+      const byPathAndType = current.find((t) => t.filePath === card.filePath && t.type === card.type)
+      if (byPathAndType) {
+        console.log("[octo:tab] dedupe-by-path-and-type", {
+          existingTabId: byPathAndType.id,
+          incomingCardId: card.id,
+          filePath: card.filePath,
+          type: card.type,
+        })
+        setActiveId(byPathAndType.id)
+        return byPathAndType.id
+      }
+    }
     const byId = current.find((t) => t.id === card.id)
     if (byId) {
       console.log("[octo:tab] dedupe-by-id", { tabId: card.id })
@@ -70,6 +85,7 @@ export function createTabStore() {
       uri: card.uri,
       mimeType: card.mimeType,
       fileName: card.fileName,
+      filePath: card.filePath,
       description: card.description,
       createdAt: card.createdAt,
     }
