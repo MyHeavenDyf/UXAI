@@ -77,7 +77,7 @@ export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = 
 export function updateTitlebar(win: BrowserWindow) {
   if (process.platform !== "win32") return
   const o = overlay(titlebarThemes.get(win), win.webContents.getZoomFactor())
-  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { ...o, height: 0 } : o)
+  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { color: "#000000", symbolColor: "#00000000", height: 0 } : o)
 }
 
 export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
@@ -95,6 +95,104 @@ export function setWindowMaximized(win: BrowserWindow, maximized: boolean) {
   } else {
     win.unmaximize()
   }
+}
+
+let fullscreenOverlay: BrowserWindow | null = null
+
+function overlayHTML(imageUrl: string) {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    width:100vw;height:100vh;
+    background:rgba(0,0,0,0.92);
+    display:flex;align-items:center;justify-content:center;
+    overflow:hidden;
+    user-select:none;-webkit-user-select:none;
+    cursor:pointer;
+  }
+  .close{
+    position:fixed;top:24px;right:24px;
+    width:40px;height:40px;border-radius:50%;
+    background:rgba(255,255,255,0.08);border:none;
+    cursor:pointer;z-index:10;
+    display:flex;align-items:center;justify-content:center;
+    color:rgba(255,255,255,0.8);
+    transition:background 140ms;
+  }
+  .close:hover{background:rgba(255,255,255,0.16)}
+  img{max-width:90vw;max-height:90vh;object-fit:contain;cursor:default}
+</style>
+</head>
+<body>
+  <button class="close" onclick="window.__closeOverlay?.()" aria-label="关闭全屏">
+    <svg viewBox="0 0 24 24" width="24" height="24">
+      <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+  <img src="${imageUrl.replace(/"/g, '&quot;')}" onclick="event.stopPropagation()">
+  <script>
+    window.__closeOverlay = () => window.api?.hideFullscreenOverlay?.()
+    document.body.addEventListener('click', () => window.__closeOverlay?.())
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); window.__closeOverlay?.() }
+    })
+  </script>
+</body>
+</html>`
+}
+
+export function showFullscreenOverlay(parent: BrowserWindow, imageUrl: string, onClose: () => void) {
+  hideFullscreenOverlay()
+  const bounds = parent.getBounds()
+  fullscreenOverlay = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    show: false,
+    parent,
+    webPreferences: {
+      preload: join(root, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  const html = overlayHTML(imageUrl)
+  void fullscreenOverlay.loadURL(`data:text/html;base64,${Buffer.from(html).toString("base64")}`)
+  fullscreenOverlay.once("ready-to-show", () => fullscreenOverlay?.show())
+  fullscreenOverlay.on("closed", () => {
+    fullscreenOverlay = null
+    onClose()
+  })
+  // 跟随父窗口移动/缩放
+  const syncBounds = () => {
+    if (fullscreenOverlay && !fullscreenOverlay.isDestroyed()) {
+      const b = parent.getBounds()
+      fullscreenOverlay.setBounds(b)
+    }
+  }
+  parent.on("move", syncBounds)
+  parent.on("resize", syncBounds)
+  fullscreenOverlay.once("closed", () => {
+    parent.off("move", syncBounds)
+    parent.off("resize", syncBounds)
+  })
+}
+
+export function hideFullscreenOverlay() {
+  if (fullscreenOverlay && !fullscreenOverlay.isDestroyed()) {
+    fullscreenOverlay.close()
+  }
+  fullscreenOverlay = null
 }
 
 export function setDockIcon() {
