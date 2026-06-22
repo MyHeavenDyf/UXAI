@@ -80,6 +80,7 @@ const api: ElectronAPI = {
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
+  writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
