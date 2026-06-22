@@ -268,6 +268,7 @@ function Dropdown(props: {
                       class="octo-dropdown-item"
                       classList={{ "octo-dropdown-item-active": opt.value === props.value }}
                       onClick={() => {
+                        if (opt.value === props.value) return
                         props.onChange(opt.value)
                         setOpen(false)
                       }}
