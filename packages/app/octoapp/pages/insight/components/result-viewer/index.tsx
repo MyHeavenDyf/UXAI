@@ -15,6 +15,7 @@ import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
+import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
@@ -141,7 +142,13 @@ function TabBody(props: {
       <Match when={props.tab.source === "path" && props.tab.type !== "file"}>
         <PathTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
-      {/* uri 模式未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
+      {/* uri markdown 卡:不直接 fetch(url),而是先把产物落成本地「工作副本」(download-resource-to-temp
+          已幂等:首次下原件、之后复用用户改过的那份),再读这份本地文件。于是卡片预览 / 编辑 / 重开卡
+          看到的都是同一份;要原件走「下载原件」(ActionBar)。见 spec insight-markdown-editor.md §3。 */}
+      <Match when={props.tab.source === "uri" && props.tab.type === "markdown" && !props.tab.content}>
+        <UriMarkdownTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      </Match>
+      {/* 其余 uri 模式(json/html/table/mindmap/file)未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
       <Match when={props.tab.source === "uri" && !props.tab.content}>
         <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
@@ -220,6 +227,58 @@ function UriTabBody(props: {
       <Show when={!resource.loading} fallback={<ResourceLoading />}>
         {/* fetch 成功后 onCacheContent 已把 tab.content 写回,父层 Show 会切到 inline 分支;
             此处兜底:若 onCacheContent 未传(测试场景),直接用 resource() 渲染 */}
+        <Show when={!props.onCacheContent}>
+          <TabContent tab={{ ...props.tab, content: resource() }} />
+        </Show>
+      </Show>
+    </Show>
+  )
+}
+
+// uri markdown 模式:先把产物落成本地工作副本(download-resource-to-temp 幂等),再读这份本地文件,
+// 使「卡片预览 / 编辑 / 本地打开 / 重开卡」回显的都是同一份(含用户改动)。要原件走「下载原件」。
+// 落点 <projectDir>/.octo/downloads/<namespace>/<file>;无项目目录时落 OS 临时目录(非持久,重启可能丢)。
+// 桌面端能力缺失(浏览器 __dev / 测试)时退回直接 fetch(url) 只读预览。见 insight-markdown-editor.md §3。
+function UriMarkdownTabBody(props: {
+  tab: ResultTab
+  onCacheContent?: (id: string, content: string) => void
+}): JSX.Element {
+  const projectDir = useProjectDir()
+  const [resource, { refetch }] = createResource(
+    () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri, dir: projectDir() || "" } : null),
+    async (src) => {
+      const api = getDesktopApi()
+      if (typeof api?.downloadResourceToTemp !== "function" || typeof api?.readFileBuffer !== "function") {
+        // 非桌面端:无本地落地能力,退回直接 fetch url(只读,不持久)
+        const text = await fetchResourceText(src.uri)
+        props.onCacheContent?.(src.id, text)
+        return text
+      }
+      // 与编辑器共用 ensureLocalMarkdownFile → 命中同一份本地工作副本(幂等:已落地复用,不重复下载)
+      const { path: localPath } = await ensureLocalMarkdownFile(props.tab, src.dir)
+      const buf = await api.readFileBuffer!(localPath)
+      const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
+      console.log("[octo:resource] md-local", { localPath, bytes: text.length })
+      props.onCacheContent?.(src.id, text)
+      return text
+    },
+  )
+
+  return (
+    <Show
+      when={!resource.error}
+      fallback={
+        <ResourceErrorFallback
+          tab={props.tab}
+          error={resource.error}
+          onRetry={() => {
+            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+            void refetch()
+          }}
+        />
+      }
+    >
+      <Show when={!resource.loading} fallback={<ResourceLoading />}>
         <Show when={!props.onCacheContent}>
           <TabContent tab={{ ...props.tab, content: resource() }} />
         </Show>

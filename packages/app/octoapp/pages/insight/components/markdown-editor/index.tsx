@@ -7,6 +7,7 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import type { ResultTab } from "../result-viewer/tab-store"
 import { getDesktopApi } from "../../lib/electron-api"
 import { defaultFilename, ensureMarkdownExt } from "../../utils/local-file"
+import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { interceptExternalLink } from "../../utils/external-link"
 import { usePlatform } from "@/context/platform"
 
@@ -42,29 +43,6 @@ const TRIMMED_TOOLBAR = [
 const SAVE_DEBOUNCE_MS = 1000
 
 type SaveState = "idle" | "saving" | "saved" | "error"
-
-// 进编辑器先把 uri 产物落到本地(复用 downloadResourceToTemp,幂等:已落地直接复用),
-// 拿到可写本地路径。path 源(write 产物)文件已在磁盘,直接用 filePath。
-// 见 §3.1 / §3.2。返回 { path, persistent }:persistent=false 表示落在 OS 临时目录(可能丢失)。
-async function ensureLocalFile(
-  tab: ResultTab,
-  projectDir: string,
-): Promise<{ path: string; persistent: boolean }> {
-  if (tab.source === "path" && tab.filePath) {
-    return { path: tab.filePath, persistent: true }
-  }
-  if (tab.source === "uri" && tab.uri) {
-    const api = getDesktopApi()
-    if (typeof api?.downloadResourceToTemp !== "function") {
-      throw new Error("缺少 window.api.downloadResourceToTemp,无法定位本地文件")
-    }
-    const filename = ensureMarkdownExt(defaultFilename(tab))
-    const baseDir = projectDir || undefined
-    const localPath = await api.downloadResourceToTemp!(tab.uri, tab.id, filename, baseDir)
-    return { path: localPath, persistent: !!baseDir }
-  }
-  throw new Error("该卡片无可编辑的本地文件(inline 内容)")
-}
 
 export function MarkdownEditor(props: {
   tab: ResultTab
@@ -173,7 +151,7 @@ export function MarkdownEditor(props: {
     editorEl?.addEventListener("click", interceptExternalLink, true)
     void (async () => {
       try {
-        const { path, persistent: isPersistent } = await ensureLocalFile(props.tab, props.projectDir)
+        const { path, persistent: isPersistent } = await ensureLocalMarkdownFile(props.tab, props.projectDir)
         targetPath = path
         setPersistent(isPersistent)
         console.log("[octo:mdedit] open", { tabId: props.tab.id, source: props.tab.source, path, persistent: isPersistent })

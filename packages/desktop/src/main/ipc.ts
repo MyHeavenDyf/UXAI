@@ -207,6 +207,14 @@ export function registerIpcHandlers(deps: Deps) {
           ? join(baseDir, ".octo", "downloads")
           : join(app.getPath("temp"), "octo")
       const destPath = join(root, safeNs, safeName)
+      // 幂等:已落地的本地副本即用户的「工作文件」——存在就直接复用,绝不 re-fetch / 覆盖。
+      // 否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的 MCP 原版盖掉用户改动
+      // (本函数最初只服务 Office 只读临时预览,加了 .octo/downloads 持久化 + markdown 二次编辑后,
+      //  覆盖语义就和编辑回写直接打架)。要拿原始版本走「另存为/下载原件」(download-resource 始终拉 url)。
+      if (existsSync(destPath)) {
+        console.log("[octo:office] reuse-existing", { destPath })
+        return destPath
+      }
       const res = await fetch(url)
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
