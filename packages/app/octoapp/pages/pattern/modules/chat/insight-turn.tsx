@@ -2,7 +2,7 @@ import type { AssistantMessage, Message, Part } from "@opencode-ai/sdk/v2/client
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { createEffect, createMemo, createSignal, onCleanup, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../../utils/artifact-parser"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
@@ -169,6 +169,7 @@ export function InsightTurn(props: {
   sessionID: string
   messageID: string
   status: SessionStatus
+  pipelineBusy: boolean
   onOpenResult: (card: OutputCard) => void
 }): JSX.Element {
   const data = useData()
@@ -371,6 +372,8 @@ export function InsightTurn(props: {
     const parts = assistantParts()
     if (parts.length === 0 && !assistantGenerating()) return null
     if (assistantGenerating()) return null
+    // pipeline 仍在运行时不展示已完成卡片
+    if (props.pipelineBusy) return null
 
     // ── 优先级 1：带文件路径的 write tool（HTML 文件写入） ──
     for (const p of [...parts].reverse()) {

@@ -55,6 +55,8 @@ function RoundCard(props: {
 export function ChatPanel(props: {
   /** 是否有对话内容（控制空态/对话态切换） */
   hasContent: boolean
+  /** 当前 session 消息是否已加载完成 */
+  sessionMessagesLoaded: boolean
   /** 是否正在生成中 */
   isBusy: boolean
   /** 当前会话信息 */
@@ -218,16 +220,19 @@ export function ChatPanel(props: {
       </Show>
 
       <Show when={props.hasContent} fallback={
-        <div class="flex-1 flex flex-col items-center justify-center min-h-0">
-          <ProtoIntroduction />
-          <div class="w-full max-w-[800px] px-8">
-            <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
-            {/* <div class="proto-tab-btns">
-              <ProtoTabSwitcher activeTab={state.activeTab} onChange={(tab) => setState("activeTab", tab)} />
-            </div> */}
-            <ChartInput {...props.inputProps} rows={undefined} />
+        <Show when={props.sessionMessagesLoaded} fallback={
+          <div class="flex-1 flex items-center justify-center min-h-0">
+            <div class="octo-spinner" />
           </div>
-        </div>
+        }>
+          <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+            <ProtoIntroduction />
+            <div class="w-full max-w-[800px] px-8">
+              <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
+              <ChartInput {...props.inputProps} rows={undefined} />
+            </div>
+          </div>
+        </Show>
       }>
         <ScrollView
           class="flex-1 min-h-0"
@@ -248,6 +253,7 @@ export function ChatPanel(props: {
                           sessionID={(msg as any)._sessionID ?? sid}
                           messageID={msg.id}
                           status={props.sessionStatus}
+                          pipelineBusy={props.pipelineBusy}
                           onOpenResult={props.onOpenResult}
                         />
                       )}
@@ -263,6 +269,7 @@ export function ChatPanel(props: {
                               sessionID={item.sessionID}
                               messageID={item.messageID}
                               status={props.sessionStatus}
+                              pipelineBusy={props.pipelineBusy}
                               onOpenResult={props.onOpenResult}
                             />
                           )}

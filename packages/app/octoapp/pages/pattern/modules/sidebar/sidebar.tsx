@@ -108,9 +108,6 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
 
   const [patternCollapsed, setPatternCollapsed] = createSignal(false)
   const [creating, setCreating] = createSignal(false)
-  let createTimer: ReturnType<typeof setTimeout> | undefined
-
-  onCleanup(() => clearTimeout(createTimer))
 
   const [contextMenu, setContextMenu] = createStore<{
     show: boolean
@@ -201,12 +198,11 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
   function newSession() {
     if (creating()) return
     setCreating(true)
-    clearTimeout(createTimer)
-    createTimer = setTimeout(() => setCreating(false), 500)
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
     void client.session.create({ directory: dir, agent: "proto_triage" }).then((result) => {
+      setCreating(false)
       const session = result.data as Session | undefined
       if (session) navigate(`/pattern/${session.id}`)
     })
