@@ -10,7 +10,14 @@ export type StudioCapability =
 export type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
 export type StudioImageTool = "jimeng" | "internel"
 
-export type StudioGenerationStatus = "idle" | "submitting" | "queued" | "running" | "succeeded" | "failed"
+export type StudioGenerationStatus =
+  | "idle"
+  | "submitting"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "create_failed"
+  | "failed"
 
 export type StudioImage = {
   id: string

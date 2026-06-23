@@ -533,6 +533,7 @@ function failStudioSession(input: {
   turn: StudioPersistedTurn
   error: unknown
   rawStatus?: number | string
+  studioStatus?: Extract<StudioGenerationStatus, "create_failed" | "failed">
 }) {
   const completedAt = Date.now()
   const message = input.error instanceof Error ? input.error.message : String(input.error)
@@ -555,7 +556,7 @@ function failStudioSession(input: {
         statusCode: 500,
         studio: {
           ...((input.turn.toolPart.state.metadata?.studio as Record<string, unknown> | undefined) ?? {}),
-          status: "failed",
+          status: input.studioStatus ?? "failed",
           ...(input.rawStatus === undefined ? {} : { rawStatus: input.rawStatus }),
         },
       },
@@ -570,6 +571,35 @@ function failStudioSession(input: {
   Database.use((db) =>
     db.update(SessionTable).set({ time_updated: completedAt }).where(eq(SessionTable.id, input.sessionID)).run(),
   )
+}
+
+function failGenerationCreation(input: {
+  id: string
+  sessionID: SessionID
+  turn: StudioPersistedTurn
+  error: unknown
+}) {
+  const completedAt = Date.now()
+  const message = input.error instanceof Error ? input.error.message : String(input.error)
+  Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        status: "create_failed",
+        error: message,
+        completed_at: completedAt,
+        next_poll_at: Number.MAX_SAFE_INTEGER,
+        time_updated: completedAt,
+      })
+      .where(eq(StudioGenerationTable.id, input.id))
+      .run(),
+  )
+  failStudioSession({
+    sessionID: input.sessionID,
+    turn: input.turn,
+    error: message,
+    studioStatus: "create_failed",
+  })
 }
 
 function generationRequest(record: StudioGenerationRecord) {
@@ -977,12 +1007,10 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
   const provider = resolveProvider(input)
-  const task = await createProviderTask(input, provider)
-  const persistedInput = task?.input ?? input
   const turn = persistStudioSession({
     generationID: id,
     sessionID,
-    request: persistedInput,
+    request: input,
     provider,
     createdAt,
   })
@@ -995,15 +1023,36 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       assistant_message_id: turn.assistantInfo.id,
       tool_part_id: turn.toolPart.id,
       provider,
-      provider_task_id: task?.taskId,
       capability: input.capability,
-      status: task ? "running" : "queued",
+      status: "queued",
       progress: 0,
-      request: stripUndefined({ input: persistedInput, task }) as Record<string, unknown>,
-      next_poll_at: createdAt,
+      request: stripUndefined({ input }) as Record<string, unknown>,
+      next_poll_at: Number.MAX_SAFE_INTEGER,
       time_created: createdAt,
       time_updated: createdAt,
     }).run(),
+  )
+  const created = await createProviderTask(input, provider).then(
+    (task) => ({ task } as const),
+    (error) => ({ error } as const),
+  )
+  if ("error" in created) {
+    failGenerationCreation({ id, sessionID, turn, error: created.error })
+    return getGeneration(id)
+  }
+  const task = created.task
+  Database.use((db) =>
+    db
+      .update(StudioGenerationTable)
+      .set({
+        provider_task_id: task?.taskId,
+        status: task ? "running" : "queued",
+        request: stripUndefined({ input: task?.input ?? input, task }) as Record<string, unknown>,
+        next_poll_at: Date.now(),
+        time_updated: Date.now(),
+      })
+      .where(eq(StudioGenerationTable.id, id))
+      .run(),
   )
   startStudioGenerationWorker()
   const record = Database.use((db) =>

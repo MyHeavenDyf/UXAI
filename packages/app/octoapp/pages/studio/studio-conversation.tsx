@@ -127,9 +127,11 @@ export function StudioResultCanvas(props: {
       <Show when={props.image} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
           <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
-            <Show when={props.status === "failed" && props.result?.error} fallback={<StudioEmptyState />}>
+            <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
               <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
-                <div class="text-[16px] font-semibold text-[#b42318]">生成失败</div>
+                <div class="text-[16px] font-semibold text-[#b42318]">
+                  {props.status === "create_failed" ? "创建失败" : "生成失败"}
+                </div>
                 <div class="mt-2 text-[12px] leading-[18px] whitespace-pre-wrap break-all text-[#7a271a]">
                   {props.result?.error}
                 </div>

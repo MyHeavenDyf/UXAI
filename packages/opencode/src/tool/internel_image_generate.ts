@@ -69,6 +69,21 @@ type CreateTaskResponse = {
   [key: string]: unknown
 }
 
+export function createTaskFailureMessage(response?: CreateTaskResponse) {
+  if (response?.resp_code === 5004) return "最多支持同时进行3个生成任务"
+  if (response?.resp_code === 5009 && response.resp_msg?.trim()) return response.resp_msg.trim()
+  return "任务创建失败，请检查网络或稍后再试"
+}
+
+function parseCreateTaskResponse(text: string) {
+  try {
+    return JSON.parse(text) as CreateTaskResponse
+  } catch {
+    console.error("[studio.internel] create_task returned non-JSON response", text)
+    throw new Error(createTaskFailureMessage())
+  }
+}
+
 type HistoryTaskResponse = {
   resp_code?: number
   resp_msg?: string
@@ -536,9 +551,8 @@ function getTaskId(response: CreateTaskResponse): string {
     response.result?.id
 
   if (taskId === undefined || taskId === null || taskId === "") {
-    throw new Error(
-      `create_task succeeded but no task_id was found in response:\n${JSON.stringify(response, null, 2)}`,
-    )
+    console.error("[studio.internel] create_task succeeded without task_id", response)
+    throw new Error(createTaskFailureMessage())
   }
 
   return String(taskId)
@@ -601,37 +615,30 @@ async function createTask(
     body: JSON.stringify(createPayload),
     signal: controller.signal,
   }).catch((error) => {
-    throw new Error(
-      [
-        "create_task network failed.",
-        `url=${createTaskUrl}`,
-        `error=${describeError(error)}`,
-      ].join("\n"),
-    )
+    console.error("[studio.internel] create_task network failed", {
+      url: createTaskUrl,
+      error: describeError(error),
+    })
+    throw new Error(createTaskFailureMessage())
   }).finally(() => {
     clearTimeout(timeout)
   })
   const text = await response.text()
   if (!response.ok) {
-    throw new Error(
-      [
-        "create_task failed.",
-        `status=${response.status}`,
-        `statusText=${response.statusText}`,
-        `body=${text}`,
-      ].join("\n"),
-    )
+    console.error("[studio.internel] create_task failed", {
+      status: response.status,
+      statusText: response.statusText,
+      body: text,
+    })
+    throw new Error(createTaskFailureMessage())
   }
-  const json = parseJson(text) as CreateTaskResponse
+  const json = parseCreateTaskResponse(text)
   if (json.resp_code !== undefined && json.resp_code !== 200) {
-    throw new Error(
-      [
-        "create_task returned business failure.",
-        `resp_code=${json.resp_code}`,
-        `resp_msg=${json.resp_msg ?? ""}`,
-        `body=${JSON.stringify(json, null, 2)}`,
-      ].join("\n"),
-    )
+    console.error("[studio.internel] create_task returned business failure", {
+      resp_code: json.resp_code,
+      resp_msg: json.resp_msg,
+    })
+    throw new Error(createTaskFailureMessage(json))
   }
   return json
 }

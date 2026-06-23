@@ -57,6 +57,7 @@ import {
   formatStudioGenerationError,
   hasVideoFrameAssets,
   isVideoMedia,
+  isStudioGenerationFailure,
   isStudioGenerationStatusRegression,
   recordValue,
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
@@ -447,8 +448,8 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: studioGenerationTitle(pending.capability, pending.status === "failed" ? "failed" : pending.status === "succeeded" ? "succeeded" : "running"),
-          toolName: `内部 · ${pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
+          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
+          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "running",
           result: normalizeResultValue(pending),
         }
@@ -465,13 +466,13 @@ export default function StudioPage() {
       if (!pending) return mergeEditorEntries(next)
       const latest = next.at(-1)
       if (latest?.userText === pending.prompt && !latest.result?.images.length && latest.toolRunning) {
-        if (pending.status === "failed") {
+        if (isStudioGenerationFailure(pending.status)) {
           return mergeEditorEntries([
             ...next.slice(0, -1),
             {
               ...latest,
-              toolTitle: studioGenerationTitle(pending.capability, "failed"),
-              toolName: "内部 · 失败",
+              toolTitle: studioGenerationTitle(pending.capability, pending.status),
+              toolName: pending.status === "create_failed" ? "内部 · 创建失败" : "内部 · 失败",
               toolRunning: false,
               result: normalizeResultValue(pending),
             },
@@ -494,7 +495,7 @@ export default function StudioPage() {
           },
         ])
       }
-      if (!sending() && pending.status !== "failed" && next.length > 0) return mergeEditorEntries(next)
+      if (!sending() && !isStudioGenerationFailure(pending.status) && next.length > 0) return mergeEditorEntries(next)
       if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return mergeEditorEntries(next)
       return mergeEditorEntries([
         ...next,
@@ -506,8 +507,8 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: studioGenerationTitle(pending.capability, pending.status === "failed" ? "failed" : "running"),
-          toolName: `内部 · ${pending.status === "failed" ? "失败" : "生成中"}`,
+          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : "running"),
+          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -544,6 +545,7 @@ export default function StudioPage() {
     // isBusy 优先于 result status 检查，避免发送新生成时
     // 因旧 turn 的 failed result 导致闪现"生成失败"
     if (isBusy()) return "running"
+    if (status() === "create_failed" || result()?.status === "create_failed") return "create_failed"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
@@ -688,7 +690,7 @@ export default function StudioPage() {
     if (!pending) return
     if (studioTurn()?.id === pending.id) return
     if (studioTurn()?.userText !== pending.prompt) return
-    if (pending.status === "failed" && studioTurn()?.toolRunning) return
+    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) return
     if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
     if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
       const next = studioTurn()!.result!
@@ -702,7 +704,7 @@ export default function StudioPage() {
     }
     if (!studioTurn()?.result && !studioTurn()?.toolError) return
     setPendingResult(undefined)
-    setStatus(studioTurn()?.toolError ? "failed" : "succeeded")
+    setStatus(studioTurn()?.result?.status ?? (studioTurn()?.toolError ? "failed" : "succeeded"))
   })
 
   createEffect(() => {
@@ -730,13 +732,13 @@ export default function StudioPage() {
       setStatus("succeeded")
       return
     }
-    if (pending.status === "failed" && studioTurn()?.toolRunning) {
-      setStatus("failed")
+    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) {
+      setStatus(pending.status)
       return
     }
     if (!studioTurn()?.toolError && !studioTurn()?.assistantText) return
     setPendingResult(undefined)
-    setStatus("failed")
+    setStatus(studioTurn()?.result?.status ?? "failed")
   })
 
   createEffect(
@@ -760,7 +762,7 @@ export default function StudioPage() {
           setStatus("idle")
           setPendingResult(undefined)
         }
-        if (id && !sending()) {
+        if (id && !sending() && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
           setStatus("idle")
           setPendingResult(undefined)
         }
@@ -1749,6 +1751,7 @@ export default function StudioPage() {
       if (currentToken !== generationToken) return
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
+        setPendingResult((item) => item ? { ...item, sessionID } : item)
         navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
       const generation = await createStudioGeneration({
@@ -1789,8 +1792,12 @@ export default function StudioPage() {
         setAssets(previousAssets)
       }
       if (!overrides?.useRestoredInputs && nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
-      setStatus("failed")
-      setPendingResult((item) => item ? { ...item, status: "failed", error: error instanceof Error ? error.message : String(error) } : item)
+      setStatus("create_failed")
+      setPendingResult((item) => item ? {
+        ...item,
+        status: "create_failed",
+        error: error instanceof Error ? error.message : String(error),
+      } : item)
     } finally {
       if (currentToken === generationToken) setSending(false)
     }
@@ -1842,7 +1849,11 @@ export default function StudioPage() {
             })
             setStatus(generation.status)
 
-            if (generation.status === "succeeded" || generation.status === "failed") {
+            if (
+              generation.status === "succeeded" ||
+              generation.status === "create_failed" ||
+              generation.status === "failed"
+            ) {
               const sessionID = generation.sessionID ?? params.id
               if (generation.status === "succeeded" && sessionID) {
                 void loadSessionMessages(sessionID).catch((error) => {

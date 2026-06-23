@@ -6985,7 +6985,7 @@ export type StudioGenerationsCreateResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "failed"
+    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
     capability:
       | "image.generate"
       | "video.generate"
@@ -7095,7 +7095,7 @@ export type StudioGenerationsCancelResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "failed"
+    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
     capability:
       | "image.generate"
       | "video.generate"
@@ -7168,7 +7168,7 @@ export type StudioGenerationsGetResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "failed"
+    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
     capability:
       | "image.generate"
       | "video.generate"
