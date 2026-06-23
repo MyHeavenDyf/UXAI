@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile, rm } from "node:fs/promises"
 import { dirname, join, basename } from "node:path"
-import { homedir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -420,6 +420,57 @@ export function registerIpcHandlers(deps: Deps) {
       throw err
     }
   })
+
+  ipcMain.handle(
+    "export-zip",
+    async (
+      event: IpcMainInvokeEvent,
+      opts: { defaultName: string; files: { name: string; content: string }[] },
+    ) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
+        title: "导出压缩包",
+        defaultPath: opts.defaultName,
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+      }
+      const result = win
+        ? await dialog.showSaveDialog(win, dialogOpts)
+        : await dialog.showSaveDialog(dialogOpts)
+      if (result.canceled || !result.filePath) return null
+
+      const destZip = result.filePath
+      const tmpDir = join(tmpdir(), `octo-export-${Date.now()}`)
+      await mkdir(tmpDir, { recursive: true })
+
+      try {
+        for (const file of opts.files) {
+          await writeFile(join(tmpDir, file.name), file.content, "utf-8")
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          if (process.platform === "win32") {
+            execFile(
+              "powershell",
+              [
+                "-NoProfile",
+                "-Command",
+                `Compress-Archive -Path '${join(tmpDir, "*")}' -DestinationPath '${destZip}' -Force`,
+              ],
+              (err) => (err ? reject(err) : resolve()),
+            )
+          } else {
+            execFile("zip", ["-j", destZip].concat(opts.files.map((f) => join(tmpDir, f.name))), (err) =>
+              err ? reject(err) : resolve(),
+            )
+          }
+        })
+
+        return destZip
+      } finally {
+        await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      }
+    },
+  )
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

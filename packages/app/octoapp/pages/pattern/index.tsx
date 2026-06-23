@@ -116,6 +116,7 @@ function PatternContent() {
   }
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
+  const [sessionSynced, setSessionSynced] = createSignal(false)
   let discoverVersion = 0
 
   // session 切换：按顺序执行清理 → 重置 → 异步加载 → 滚动
@@ -132,6 +133,7 @@ function PatternContent() {
 
         // ── 2. 无条件同步重置 ──
         setChildSessionIDs([])
+        setSessionSynced(false)
         discoverVersion++
         setPendingPreviewData(null)
         previewApi.sendToPreview(null)
@@ -147,9 +149,12 @@ function PatternContent() {
           setHasPreviewContent(false)
           setIsModifying(false)
 
-          // 同步子 session 消息
-          void sync.session.sync(id).then(() => {
-            if (params.id === id) discoverChildSessions(id)
+          // 同步子 session 消息，全部加载完成后才标记 synced
+          void sync.session.sync(id).then(async () => {
+            if (params.id !== id) return
+            await discoverChildSessions(id)
+            if (params.id !== id) return
+            setSessionSynced(true)
           })
 
           // 恢复历史版本状态并推送到预览
@@ -337,15 +342,8 @@ function PatternContent() {
     return `${home}/.octo/design/history`;
   })
 
-  const hasContent = () => {
-    const id = params.id
-    if (!id) return false
-    if (userMessages().length > 0) return true
-    if (sending()) return true
-    const rootMsgs = sync.data.message[id]
-    if (rootMsgs && rootMsgs.length > 0) return true
-    return false
-  }
+  const hasContent = () => !!(params.id && userMessages().length > 0)
+  const sessionMessagesLoaded = () => !params.id || sessionSynced()
 
   // 从预览页选中元素后触发的修改回调
   function handlePickerSubmit(text: string, domPickerId: string) {
@@ -498,6 +496,7 @@ function PatternContent() {
         rootSession: sid,
         userInput: text,
         onSessionCreated: (childID: string) => {
+          if (params.id !== sid) return
           setChildSessionIDs((prev) => [...prev, childID])
         },
       }
@@ -506,27 +505,31 @@ function PatternContent() {
       logStartSession(sid, text)
       // 流程执行完毕后的回调
       let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
+          // 历史保存始终执行（与当前查看的 session 无关）
+          const dir = patternHistoryDir()
+          if (dir) {
+            const debug = getDebugSnapshot()
+            const vid = await appendPatternVersion(dir, sid, {
+                lastIntent: pageIntent,
+                lastPlanner: layoutPlanner,
+                lastModules: modulesJson,
+                mergedA2UI: pageJson as unknown as Record<string, unknown>,
+                debug,
+            }, text.slice(0, 80))
+            if (params.id === sid) {
+              setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+              setCurrentVersionId(vid)
+              clearDebugLog()
+          }
+          }
+          // 视图状态仅在仍在该 session 时更新
+          if (params.id !== sid) return
           // 触发页面渲染
           if (pageJson) sendToPreview(pageJson)
           // 内存数据更新
           setLastIntent(pageIntent)
           setLastPlanner(layoutPlanner)
           setLastModules(modulesJson)
-          // 历史文件
-          const dir = patternHistoryDir()
-          if (dir) {
-            const debug = getDebugSnapshot()
-            const vid = await appendPatternVersion(dir, sid, {
-                lastIntent: lastIntent(),
-                lastPlanner: lastPlanner(),
-                lastModules: lastModules(),
-                mergedA2UI: pageJson as unknown as Record<string, unknown>,
-                debug,
-            }, text.slice(0, 80))
-            setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
-            setCurrentVersionId(vid)
-            clearDebugLog()
-          }
       }
 
       if(lastIntent()){
@@ -708,9 +711,41 @@ function PatternContent() {
     URL.revokeObjectURL(url)
   }
 
-  // 分享
+  // 分享 — 打包 JSON  为 ZIP
   async function handleShare() {
-   showToast({ title: "分享链接" })
+    const data = pendingPreviewData()
+    if (!data) {
+      showToast({ title: "暂无可分享的内容" })
+      return
+    }
+
+    const desktopApi = (window as unknown as {
+      api?: {
+        exportZip?: (opts: {
+          defaultName: string
+          files: { name: string; content: string }[]
+        }) => Promise<string | null>
+      }
+    }).api
+
+    if (!desktopApi?.exportZip) {
+      showToast({ title: "当前环境不支持导出压缩包" })
+      return
+    }
+
+    const jsonStr = typeof data === "string" ? data : JSON.stringify(data, null, 2)
+    const patternId = params.id ?? "export"
+
+    const result = await desktopApi.exportZip({
+      defaultName: `pattern-${patternId}`,
+      files: [
+        { name: `pattern-${patternId}.json`, content: jsonStr },
+      ],
+    })
+
+    if (result) {
+      showToast({ title: "已导出压缩包" })
+    }
   }
 
   async function handleLivePreview() {
@@ -816,6 +851,7 @@ function PatternContent() {
         <Show when={!focusMode()}>
           <ChatPanel
             hasContent={hasContent()}
+            sessionMessagesLoaded={sessionMessagesLoaded()}
             isBusy={isBusy()}
             sessionInfo={sessionInfo() ?? null}
             userMessages={userMessages()}
