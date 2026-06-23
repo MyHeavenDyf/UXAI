@@ -121,13 +121,6 @@ function MakeContent() {
   // Register Make slash commands
   useMakeCommands()
 
-  // Exit focus mode when navigating away from /make
-  // Exit focus mode when navigating away from /make
-  createEffect(() => {
-    if (!location.pathname.startsWith("/make")) {
-      layout.focusMode.set(false)
-    }
-  })
   // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
   // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
   const prevMakeDir = lastMakeDir
