@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, JSX } from "solid-js"
+import "../../assets/style/preview/canvasView.css"
 
 interface CanvasViewProps {
   canvasMode: boolean
@@ -132,15 +133,8 @@ export function CanvasView(props: CanvasViewProps) {
           lastMousePos = { x: e.clientX, y: e.clientY }
         }
       }}
+      class="preview-iframe-canvas"
       style={{
-        flex: "1",
-        "min-height": "0",
-        overflow: "hidden",
-        display: "flex",
-        "justify-content": "center",
-        "align-items": "center",
-        padding: "20px",
-        position: "relative",
         cursor: isDragging() ? "grabbing" : "default"
       }}
     >
