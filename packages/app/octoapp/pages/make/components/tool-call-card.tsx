@@ -73,6 +73,12 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
     if (typeof input.query === "string") return input.query
     return ""
   })
+  const tooltipText = createMemo(() => {
+    const input = props.call.input
+    if (props.call.filePath) return props.call.filePath
+    if (typeof input?.command === "string") return input.command
+    return undefined
+  })
   return (
     <div
       class="mx-3 mb-1 px-2.5 py-1.5 flex items-center gap-2 text-xs"
@@ -81,6 +87,7 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
         background: "var(--octo-surface-page)",
         border: "1px solid var(--octo-border-default)",
       }}
+      title={tooltipText()}
     >
       <span style={{ color: "var(--octo-text-secondary)" }}>{label()}</span>
       <Show when={summary()}>

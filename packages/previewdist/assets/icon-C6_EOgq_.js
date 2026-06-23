@@ -1,0 +1,1 @@
+var e={state:{},rootId:``,elements:[]};export{e as default};

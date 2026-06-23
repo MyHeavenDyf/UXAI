@@ -10,7 +10,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 
 const SESSIONS_DIR_NAME = "sessions"
 
-function DirectoryDataProvider(props: ParentProps<{ directory: string; chatMode?: boolean }>) {
+function DirectoryDataProvider(props: ParentProps<{ directory: string; preserveProjectDir?: boolean }>) {
   const navigate = useNavigate()
   const params = useParams()
   const sync = useSync()
@@ -18,7 +18,7 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string; chatMode?
   const slug = createMemo(() => base64Encode(props.directory))
 
   createEffect(() => {
-    if (!props.chatMode && props.directory && !props.directory.endsWith(SESSIONS_DIR_NAME)) {
+    if (!props.preserveProjectDir && props.directory && !props.directory.endsWith(SESSIONS_DIR_NAME)) {
       server.projects.touch(props.directory)
     }
   })
@@ -47,7 +47,10 @@ export default function Layout(props: ParentProps) {
     return parts.length < 2 || parts[1] === "chat" ? ("chat" as const) : ("project" as const)
   }
   const projectDir = useProjectDir({ mode })
-  const isChatRoute = createMemo(() => mode() === "chat")
+  const preserveProjectDir = createMemo(() => {
+    const page = location.pathname.split("/").filter(Boolean)[1]
+    return page === undefined || page === "chat" || page === "studio"
+  })
 
   const resolved = createMemo(() => projectDir())
 
@@ -56,7 +59,7 @@ export default function Layout(props: ParentProps) {
       {(resolved) => (
         <SDKProvider directory={() => resolved}>
           <SyncProvider>
-            <DirectoryDataProvider directory={resolved} chatMode={isChatRoute()}>
+            <DirectoryDataProvider directory={resolved} preserveProjectDir={preserveProjectDir()}>
               {props.children}
             </DirectoryDataProvider>
           </SyncProvider>

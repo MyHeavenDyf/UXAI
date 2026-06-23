@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Effect } from "effect"
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -52,6 +53,7 @@ import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { DslToHexSidebar } from "@/pages/dslToHex/sidebar"
+import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
@@ -61,6 +63,7 @@ import { persisted, Persist } from "@/utils/persist"
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
+const PatternPage = lazy(() => import("@/pages/pattern"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
 const DslToHex = lazy(() => import("@/pages/dslToHex"))
@@ -190,6 +193,7 @@ function OctoSidebarLayout(props: ParentProps) {
 }
 
 function MakeSidebarLayout(props: ParentProps) {
+  const layout = useLayout()
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
     Persist.global("make.sidebar.width"),
     createStore({ width: 296 }),
@@ -216,7 +220,72 @@ function MakeSidebarLayout(props: ParentProps) {
 
   return (
     <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <MakeSidebar width={sidebarWidth()} />
+      <Show when={!layout.focusMode.get()}>
+        <MakeSidebar width={sidebarWidth()} />
+        <div
+          class="absolute top-0 bottom-0 flex items-center justify-center group"
+          style={{
+            left: `${sidebarWidth() - 10}px`,
+            width: "20px",
+            cursor: "col-resize",
+            "z-index": "10",
+          }}
+          onMouseDown={handleSidebarResize}
+        >
+          <div
+            class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
+            style={{
+              width: "12px",
+              height: "36px",
+              "border-radius": "0 10px 10px 0",
+              "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
+              border: "1px solid var(--octo-border-divider)",
+              "border-left": "none",
+              display: "none"
+            }}
+          >
+            <div
+              class="w-[2px] h-[14px] rounded-full ml-[2px]"
+              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+            />
+          </div>
+        </div>
+      </Show>
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {props.children}
+      </div>
+    </div>
+  )
+}
+
+function PatternSidebarLayout(props: ParentProps) {
+  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
+    Persist.global("pattern.sidebar.width"),
+    createStore({ width: 296 }),
+  )
+  const sidebarWidth = () => sidebarWidthStore.width
+  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
+
+  function handleSidebarResize(e: MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth()
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onUp = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  return (
+    <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <PatternSidebar width={sidebarWidth()} />
       <div
         class="absolute top-0 bottom-0 flex items-center justify-center group"
         style={{
@@ -376,6 +445,19 @@ function OnboardingLayer() {
   )
 }
 
+function FocusModeResetHandler() {
+  const location = useLocation()
+  const layout = useLayout()
+
+  createEffect(() => {
+    if (!location.pathname.startsWith("/make")) {
+      layout.focusMode.set(false)
+    }
+  })
+
+  return null
+}
+
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
 
@@ -394,6 +476,11 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return p.endsWith("/dslToHex") || p.includes("/dslToHex/")
   }
 
+  const isPatternPage = () => {
+    const p = location.pathname
+    return p === "/pattern" || p.startsWith("/pattern/")
+  }
+
   const isSkillsPage = () => {
     return location.pathname === "/skills"
   }
@@ -402,6 +489,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     <SettingsProvider>
       <PermissionProvider>
         <LayoutProvider>
+          <FocusModeResetHandler />
           <NotificationProvider>
             <ModelsProvider>
               <CommandProvider>
@@ -418,10 +506,13 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <Show when={isDslToHexPage()}>
                       <DslToHexSidebarLayout>{props.children}</DslToHexSidebarLayout>
                     </Show>
+                    <Show when={isPatternPage()}>
+                      <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
+                    </Show>
                     <Show when={isSkillsPage()}>
                       <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
                     </Show>
-                    <Show when={!isInsightPage() && !isMakePage() && !isDslToHexPage() && !isSkillsPage()}>
+                    <Show when={!isInsightPage() && !isMakePage() && !isDslToHexPage() && !isPatternPage() && !isSkillsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>
@@ -627,6 +718,7 @@ export function AppInterface(props: {
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/dslToHex/:id?" component={DslToHex} />
+                  <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/skills" component={SkillsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={ChatIndexRoute} />

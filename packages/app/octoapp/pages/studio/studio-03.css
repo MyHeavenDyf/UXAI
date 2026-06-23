@@ -63,7 +63,7 @@
   border: 0;
   background: transparent;
   color: #191919;
-  font-size: 15px;
+  font-size: 12px;
   line-height: 24px;
   white-space: nowrap;
   cursor: pointer;
@@ -79,10 +79,9 @@
 }
 
 .studio-result-progress-preview {
-  min-height: 210px;
-  margin-top: 18px;
+  min-height: 180px;
+  margin-top: 8px;
   overflow: hidden;
-  border-radius: 12px;
   background: #fff;
 }
 
@@ -109,10 +108,10 @@
 }
 
 .studio-result-meta {
-  margin-top: 4px;
+  margin-top: 8px;
   color: rgba(25, 25, 25, 0.52);
   font-size: 12px;
-  line-height: 100%;
+  line-height: 16px;
 }
 
 .studio-result-error {
@@ -130,10 +129,13 @@
 .studio-result-grid {
   display: flex;
   align-items: stretch;
-  gap: 10px;
   margin: 0;
   overflow-x: auto;
-  padding: 16px;
+  scrollbar-width: none;
+}
+
+.studio-result-grid::-webkit-scrollbar {
+  display: none;
 }
 
 .studio-result-thumb {
@@ -143,7 +145,7 @@
   overflow: hidden;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 3px;
   background: #fff;
   box-shadow: 0 8px 18px rgba(17, 24, 39, 0.08);
 }
@@ -155,6 +157,185 @@
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+/* ── 单张竖构图：背景 #f7f7f7、高度 210px、图片高度撑满宽度自适应 ── */
+
+.studio-result-grid.single-portrait {
+  height: 210px;
+  align-items: center;
+  justify-content: center;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.single-portrait .studio-result-thumb {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  height: 210px;
+  min-width: unset;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.single-portrait .studio-result-thumb img,
+.studio-result-grid.single-portrait .studio-result-thumb video,
+.studio-result-grid.single-portrait .studio-result-thumb-media {
+  width: auto;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ── 单张横构图：高度 180px、图片宽度撑满高度自适应、垂直居中 ── */
+
+.studio-result-grid.single-landscape {
+  height: 180px;
+  align-items: center;
+  justify-content: center;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.single-landscape .studio-result-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 180px;
+  min-width: unset;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.single-landscape .studio-result-thumb img,
+.studio-result-grid.single-landscape .studio-result-thumb video,
+.studio-result-grid.single-landscape .studio-result-thumb-media {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* ── 多张横构图：等分宽度、高度 180px、间距 4px ── */
+
+.studio-result-grid.multi-landscape {
+  height: 180px;
+  gap: 4px;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.multi-landscape .studio-result-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  height: 180px;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.multi-landscape .studio-result-thumb img,
+.studio-result-grid.multi-landscape .studio-result-thumb video,
+.studio-result-grid.multi-landscape .studio-result-thumb-media {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* ── 横构图 4 张：两排、宽度均分 ── */
+
+.studio-result-grid.multi-landscape-4 {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.studio-result-grid.multi-landscape-4 .studio-result-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 calc(50% - 2px);
+  height: 180px;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.multi-landscape-4 .studio-result-thumb img,
+.studio-result-grid.multi-landscape-4 .studio-result-thumb video,
+.studio-result-grid.multi-landscape-4 .studio-result-thumb-media {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* ── 单张 1:1：居中显示 ── */
+
+.studio-result-grid.single-1x1 {
+  height: 180px;
+  align-items: center;
+  justify-content: center;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.single-1x1 .studio-result-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 180px;
+  min-width: 180px;
+  height: 180px;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.single-1x1 .studio-result-thumb img,
+.studio-result-grid.single-1x1 .studio-result-thumb video,
+.studio-result-grid.single-1x1 .studio-result-thumb-media {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* ── 多张 1:1：等分宽度、间距 4px ── */
+
+.studio-result-grid.multi-1x1 {
+  gap: 4px;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.multi-1x1 .studio-result-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  height: 180px;
+  background: #f7f7f7;
+  box-shadow: none;
+}
+
+.studio-result-grid.multi-1x1 .studio-result-thumb img,
+.studio-result-grid.multi-1x1 .studio-result-thumb video,
+.studio-result-grid.multi-1x1 .studio-result-thumb-media {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+}
+
+/* ── 多张竖构图：等分宽度、间距 4px ── */
+
+.studio-result-grid.multi-portrait {
+  height: 210px;
+  gap: 4px;
+  overflow-x: hidden;
+}
+
+.studio-result-grid.multi-portrait .studio-result-thumb {
+  flex: 1;
+  min-width: 0;
+  height: 210px;
 }
 
 .studio-result-thumb video,
@@ -258,8 +439,8 @@
   overflow: hidden;
   padding: 0 12px;
   border-radius: 999px;
-  background: #eaf2ff;
-  color: #0a59f7;
+  background: #f2f2f2;
+  color: #191919;
   font-size: 14px;
   font-weight: 400;
   line-height: 32px;
@@ -268,14 +449,14 @@
 }
 
 .studio-canvas-tab.active {
-  background: #1264ff;
-  color: #fff;
+  background: rgba(10, 89, 247, 0.08);
+  color: #0a59f7;
 }
 
 .studio-canvas-tab-close {
-  width: 14px;
-  height: 14px;
-  margin-left: 2px;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
   flex: 0 0 14px;
   cursor: pointer;
   background: currentColor;
@@ -301,7 +482,6 @@
   display: block;
   object-fit: contain;
   border-radius: 6px;
-  box-shadow: 0 12px 34px rgba(17, 24, 39, 0.14);
 }
 
 .studio-video-player-anchor {
@@ -658,7 +838,6 @@
   display: block;
   object-fit: contain;
   border-radius: 6px;
-  box-shadow: 0 12px 34px rgba(17, 24, 39, 0.14);
 }
 
 .studio-hd-loading {
@@ -705,4 +884,56 @@
   line-height: 100%;
   white-space: nowrap;
   transition: background-color 140ms ease, transform 140ms ease;
+}
+
+/* 全屏遮罩层激活时，隐藏 Windows 窗口自带的关闭/最小化/最大化按钮 */
+body.studio-fullscreen-active [data-tauri-decorum-tb] {
+  display: none !important;
+}
+
+.studio-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  animation: studioFadeIn 0.2s ease-out;
+}
+
+.studio-fullscreen-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 10;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.studio-fullscreen-close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.studio-fullscreen-image {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 4px;
+  cursor: default;
+}
+
+@keyframes studioFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

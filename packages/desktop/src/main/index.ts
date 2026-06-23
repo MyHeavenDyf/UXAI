@@ -9,13 +9,20 @@ import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog, session } from "electron"
 import pkg from "electron-updater"
+import {shellPath} from "shell-path"
 
 import contextMenu from "electron-context-menu"
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false, showSelectAll: false })
 
 // on macOS apps run in `/` which can cause issues with ripgrep
 try {
-  process.chdir(homedir())
+  process.chdir(homedir());
+  (async ()=>{
+    const pathFromShell = await shellPath();
+    if (pathFromShell) {
+      process.env.PATH = pathFromShell;
+    }
+  })()
 } catch {}
 
 process.env.OCTO_DISABLE_EMBEDDED_WEB_UI = "true"
@@ -49,6 +56,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
+import { startPreviewServer } from "./preview-server"
 import {
   getDefaultServerUrl,
   getWslConfig,
@@ -61,11 +69,12 @@ import {
 import {
   createLoadingWindow,
   createMainWindow,
+  registerLocalProtocol,
   registerRendererProtocol,
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployRipgrep } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoTools, deployRipgrep } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -155,11 +164,14 @@ function setupApp() {
       migrate()
       deploySkillsJson()
       deployBuiltinSkills()
+      deployProtoTools()
       deployRipgrep()
     }
     app.setAsDefaultProtocolClient("opencode")
     registerRendererProtocol()
+    registerLocalProtocol()
     setDockIcon()
+    startPreviewServer()
     setupAutoUpdater()
     await initialize()
   })
