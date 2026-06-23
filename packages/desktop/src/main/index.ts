@@ -86,6 +86,8 @@ const loadingComplete = defer<void>()
 const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
+// jk-j60099994-replace-with-index-3-start
+// jk-j60099994-replace-with-index-3-end
 
 useSystemCertificates()
 
@@ -220,7 +222,8 @@ async function initialize() {
   const hostname = "127.0.0.1"
   const url = `http://${hostname}:${port}`
   const password = randomUUID()
-
+// jk-j60099994-replace-with-index-4-start
+// jk-j60099994-replace-with-index-4-end
   const loadingTask = (async () => {
     logger.log("sidecar connection started", { url })
 

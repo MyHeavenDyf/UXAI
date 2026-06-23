@@ -22,6 +22,8 @@ export type SidecarListener = { stop: () => Promise<void> }
 const SIDECAR_SERVICE_NAME = "opencode server"
 const SIDECAR_START_STALL_TIMEOUT = 60_000
 const SIDECAR_STOP_TIMEOUT = 6_000
+// jk-j60099994-replace-with-server-1-start
+// jk-j60099994-replace-with-server-1-end
 
 type SpawnLocalServerOptions = {
   needsMigration: boolean
