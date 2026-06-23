@@ -695,6 +695,11 @@ function PatternContent() {
     URL.revokeObjectURL(url)
   }
 
+  // 分享
+  async function handleShare() {
+   showToast({ title: "分享链接" })
+  }
+
   async function handleLivePreview() {
     const data = pendingPreviewData()
     if (!data) {
@@ -834,6 +839,7 @@ function PatternContent() {
                 onModifyElement={handleModifyElement}
                 onPickerSubmit={handlePickerSubmit}
                 onDownload={handleDownload}
+                onShare={handleShare}
                 onLivePreview={handleLivePreview}
                 onPixsoPreview={handlePixsoPreview}
                 versions={versions()}

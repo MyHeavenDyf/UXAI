@@ -28,6 +28,7 @@ export function PreviewPage(props: {
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
+  onShare?: () => void
   onLivePreview?: () => void
   onPixsoPreview?: () => void
   versions?: VersionEntry[]
@@ -293,6 +294,7 @@ export function PreviewPage(props: {
           if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
         }}
         onDownload={props.onDownload}
+        onShare={props.onShare}
         versions={props.versions}
         currentVersionId={props.currentVersionId}
         onSelectVersion={props.onSelectVersion}

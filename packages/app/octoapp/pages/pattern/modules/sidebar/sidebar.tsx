@@ -212,6 +212,16 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     })
   }
 
+  let fileInputRef: HTMLInputElement | undefined
+
+  function triggerImport() {
+    fileInputRef?.click()
+  }
+
+  async function handleFileImport(e: Event) {
+   // 导入文件
+  }
+
   return (
     <div
       class="shrink-0 flex flex-col h-full overflow-hidden"
@@ -225,15 +235,33 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
       <div class="shrink-0 flex flex-col px-[12px]">
         <ProjectInfo />
         <div class="relative">
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-            onClick={newSession}
-          >
-            <Icon name="plus" size="normal" class="shrink-0" />
-            <span>新建</span>
-          </button>
+          <div class="flex items-center justify-between gap-2 mb-[8px]">
+            <button
+              type="button"
+              class="flex items-center gap-2  rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+              onClick={newSession}
+            >
+              <Icon name="plus" size="normal" class="shrink-0" />
+              <span>新建</span>
+            </button>
+            <button
+              type="button"
+              class="flex items-center gap-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+              onClick={triggerImport}
+            >
+              <Icon name="download" size="normal" class="shrink-0" />
+              <span>导入</span>
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: "none" }}
+            // onChange={handleFileImport}
+          />
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>
