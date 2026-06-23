@@ -285,7 +285,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setSending(false)
         setDeltaLog([])
-        setStepPhase("a-generating")
+    // 切换 session 时重置 phase（stepBInitiated 由恢复 effect 从数据推断）
+    setStepPhase("a-generating")
         setStepAMessageId(null)
 
         if (sendingNavigation) {
@@ -430,6 +431,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // ── 步骤阶段状态 ────────────────────────────────────────
   const [stepPhase, setStepPhase] = createSignal<StepPhase>("a-generating")
+  const [stepBInitiated, setStepBInitiated] = createSignal(false)
 
   // ── 切换 session 或 sync 数据到达时恢复 stepPhase ──────────
   // 处理 idle 和 busy 两种状态，确保切回正在生成的 session 时恢复正确 phase
@@ -443,37 +445,53 @@ const sessionMessagesLoaded = createMemo(() => {
     const allMsgs = (sync.data.message[id] ?? []) as Message[]
     const assistantMsgs = allMsgs.filter((m) => m.role === "assistant")
     if (assistantMsgs.length === 0) return
-    const firstAssistant = assistantMsgs[0]
-    const firstParts = partStore?.[firstAssistant.id] ?? []
-    const firstText = [...firstParts].find((p) => p.type === "text")?.text?.trim() ?? ""
-    if (firstText.includes("<artifact")) return
-    setStepAMessageId(firstAssistant.id)
 
-    if (assistantMsgs.length >= 2) {
-      if (status.type !== "idle") {
-        // Busy + 2 msgs: step B 正在生成
-        setStepPhase("b-generating")
-        return
-      }
-      // Idle + 2 msgs: 检查 step B 是否完成
-      const secondAssistant = assistantMsgs[1]
-      const secondParts = partStore?.[secondAssistant.id] ?? []
-      const secondText = [...secondParts].find((p) => p.type === "text")?.text?.trim() ?? ""
-      if (secondText.includes("<artifact")) {
-        setStepPhase("a-done")
-        return
-      }
-      let jsonCandidate = secondText
-      const mdMatch = jsonCandidate.match(/```(?:json)?\s*([\s\S]*?)```/)
-      if (mdMatch) jsonCandidate = mdMatch[1].trim()
-      try { JSON.parse(jsonCandidate) } catch { setStepPhase("a-done"); return }
-      setStepPhase("b-done")
-    } else {
+    function extractText(msgId: string): string {
+      const parts = partStore?.[msgId] ?? []
+      return [...parts].find((p) => p.type === "text")?.text?.trim() ?? ""
+    }
+
+    let stepAMsg: Message | undefined
+    for (const msg of [...assistantMsgs].reverse()) {
+      const text = extractText(msg.id)
+      if (!text) continue
+      if (looksLikeJson(text)) continue
+      const parts = partStore?.[msg.id] ?? []
+      if (parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")) continue
+      stepAMsg = msg
+      break
+    }
+
+    if (!stepAMsg) {
+      setStepAMessageId(assistantMsgs[assistantMsgs.length - 1].id)
+      return
+    }
+    setStepAMessageId(stepAMsg.id)
+
+    // 找到 step B：step A 之后是否有 JSON/artifact 消息
+    const stepAIdx = assistantMsgs.findIndex((m) => m.id === stepAMsg!.id)
+    const msgsAfterA = assistantMsgs.slice(stepAIdx + 1)
+    let hasStepB = false
+    for (const msg of msgsAfterA) {
+      const text = extractText(msg.id)
+      if (!text) continue
+      if (looksLikeJson(text)) { hasStepB = true; break }
+    }
+
+    if (hasStepB) {
       if (status.type === "idle") {
-        // Idle + 1 msg: step A 完成，等待用户触发 step B
-        setStepPhase("a-done")
+        setStepBInitiated(true)
+        setStepPhase("b-done")
+      } else {
+        setStepBInitiated(true)
+        setStepPhase("b-generating")
       }
-      // Busy + 1 msg: step A 正在生成，保持 "a-generating"
+    } else if (msgsAfterA.length > 0 && status.type !== "idle") {
+      // step A 之后有消息但 JSON 尚未可解析 + session busy → step B 正在生成
+      setStepBInitiated(true)
+      setStepPhase("b-generating")
+    } else if (status.type === "idle") {
+      setStepPhase("a-done")
     }
   })
 
@@ -497,31 +515,56 @@ const sessionMessagesLoaded = createMemo(() => {
     internel_image_generate: false,
   }
 
+  function looksLikeJson(text: string): boolean {
+    if (text.includes("<artifact")) return true
+    let candidate = text.trim()
+    const mdMatch = candidate.match(/```(?:json)?\s*([\s\S]*?)```/)
+    if (mdMatch) candidate = mdMatch[1].trim()
+    try { JSON.parse(candidate); return true } catch { return false }
+  }
+
   const stepADescription = createMemo(() => {
     const id = params.id
     if (!id) return ""
     const phase = stepPhase()
-    if (phase === "b-generating" || phase === "b-done") return ""
-    const aId = stepAMessageId()
-    if (!aId) return ""
+    if (phase !== "a-generating" && phase !== "a-done") return ""
     const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
-    const parts = partStore?.[aId] ?? []
-    const textPart = [...parts].find((p) => p.type === "text")
-    if (!textPart?.text) return ""
-    const text = textPart.text.trim()
-    if (text.includes("<artifact")) return ""
-    return text
+    const allMsgs = (sync.data.message[id] ?? []) as Message[]
+    for (const msg of [...allMsgs].reverse()) {
+      if (msg.role !== "assistant") continue
+      const parts = partStore?.[msg.id] ?? []
+      const hasToolCall = parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
+      if (hasToolCall) continue
+      const textPart = [...parts].find((p) => p.type === "text")
+      if (!textPart?.text) continue
+      const text = textPart.text.trim()
+      if (text.includes("<artifact")) continue
+      if (looksLikeJson(text)) continue
+      return text
+    }
+    return ""
   })
 
   createEffect(() => {
     const id = params.id
     if (!id) return
     const phase = stepPhase()
-    if (phase !== "a-generating") return
+    if (phase !== "a-generating" && phase !== "a-done") return
     const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
     const allMsgs = (sync.data.message[id] ?? []) as Message[]
-    const firstAssistant = allMsgs.find((m) => m.role === "assistant")
-    if (firstAssistant) setStepAMessageId(firstAssistant.id)
+    for (const msg of [...allMsgs].reverse()) {
+      if (msg.role !== "assistant") continue
+      const parts = partStore?.[msg.id] ?? []
+      const hasToolCall = parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
+      if (hasToolCall) continue
+      const textPart = [...parts].find((p) => p.type === "text")
+      if (!textPart?.text) continue
+      const text = textPart.text.trim()
+      if (text.includes("<artifact")) continue
+      if (looksLikeJson(text)) continue
+      setStepAMessageId(msg.id)
+      return
+    }
   })
 
    const stepBRawStreamingText = createMemo(() => {
@@ -529,10 +572,9 @@ const sessionMessagesLoaded = createMemo(() => {
      if (!id) return ""
      const phase = stepPhase()
      if (phase !== "b-generating") return ""
-     const aId = stepAMessageId()
      const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
      const allMsgs = (sync.data.message[id] ?? []) as Message[]
-     const stepBMsg = [...allMsgs].reverse().find((m) => m.role === "assistant" && m.id !== aId)
+     const stepBMsg = [...allMsgs].reverse().find((m) => m.role === "assistant")
      if (!stepBMsg) return ""
      const parts = partStore?.[stepBMsg.id] ?? []
      const textPart = [...parts].reverse().find((p) => p.type === "text")
@@ -567,14 +609,13 @@ const sessionMessagesLoaded = createMemo(() => {
    })
 
    const stepBDslJson = createMemo(() => {
-     const id = params.id
-     if (!id) return ""
-     const phase = stepPhase()
-      if (phase !== "b-generating" && phase !== "b-done" && phase !== "c-generating" && phase !== "c-done") return ""
-     const aId = stepAMessageId()
-     const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
-     const allMsgs = (sync.data.message[id] ?? []) as Message[]
-     const stepBMsg = [...allMsgs].reverse().find((m) => m.role === "assistant" && m.id !== aId)
+      const id = params.id
+      if (!id) return ""
+      const phase = stepPhase()
+       if (phase !== "b-generating" && phase !== "b-done" && phase !== "c-generating" && phase !== "c-done") return ""
+      const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+      const allMsgs = (sync.data.message[id] ?? []) as Message[]
+      const stepBMsg = [...allMsgs].reverse().find((m) => m.role === "assistant")
      if (!stepBMsg) return ""
      const parts = partStore?.[stepBMsg.id] ?? []
      const textPart = [...parts].reverse().find((p) => p.type === "text")
@@ -668,18 +709,48 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
-  createEffect(() => {
-    const busy = isBusy()
-    const phase = stepPhase()
-    if (!busy) {
-      if (phase === "a-generating" && stepADescription()) setStepPhase("a-done")
-      else if (phase === "b-generating" && stepBDslJson()) setStepPhase("b-done")
+  const hasStepBData = createMemo(() => {
+    const id = params.id
+    if (!id) return false
+    const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+    const allMsgs = (sync.data.message[id] ?? []) as Message[]
+    for (const msg of [...allMsgs].reverse()) {
+      if (msg.role !== "assistant") continue
+      const parts = partStore?.[msg.id] ?? []
+      const textPart = [...parts].find((p) => p.type === "text")
+      if (!textPart?.text) continue
+      return looksLikeJson(textPart.text.trim())
     }
+    return false
+  })
+
+  createEffect(() => {
+    const id = params.id
+    if (!id) return
+    const busy = isBusy()
+    if (busy) return
+    const phase = stepPhase()
+    const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+    const allMsgs = (sync.data.message[id] ?? []) as Message[]
+    const lastAssistant = [...allMsgs].reverse().find((m) => m.role === "assistant")
+    if (!lastAssistant) return
+    const lastParts = partStore?.[lastAssistant.id] ?? []
+    const hasToolCall = lastParts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
+    if (hasToolCall) return
+    if (phase === "a-generating" && stepADescription()) {
+      if (hasStepBData()) {
+        setStepBInitiated(true)
+        setStepPhase("b-done")
+      } else {
+        setStepPhase("a-done")
+      }
+    } else if (phase === "b-generating" && stepBDslJson()) setStepPhase("b-done")
   })
 
   async function sendStepB(text: string) {
     const sessionId = params.id
     if (!sessionId) return
+    setStepBInitiated(true)
     setStepPhase("b-generating")
     try {
       const textPart: TextPartInput = { type: "text", text }

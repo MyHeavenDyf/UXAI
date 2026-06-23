@@ -78,7 +78,7 @@ export function StepAOutput(props: {
               </button>
               <button
                 type="button"
-                onClick={() => { setDirty(false); props.onConfirm(editText()) }}
+                onClick={() => { const t = editText(); setDirty(false); props.onConfirm(t) }}
                 style={{
                   padding: "4px 12px",
                   "border-radius": "4px",

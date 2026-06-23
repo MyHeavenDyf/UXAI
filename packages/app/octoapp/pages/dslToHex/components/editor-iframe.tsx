@@ -51,18 +51,34 @@ export function EditorIframe(props: {
     iframeRef.contentWindow.postMessage({ type, payload }, "*")
   }
 
+  const DEFAULT_RECT = { x: 0, y: 0, w: 0, h: 0 }
+
+  function patchNodes(node: Record<string, unknown>) {
+    if (!node.rect || typeof node.rect !== "object") node.rect = { ...DEFAULT_RECT }
+    const children = node.children as Record<string, unknown>[] | undefined
+    if (children) for (const c of children) patchNodes(c)
+  }
+
+  function parseAndPatch(json: string): unknown | null {
+    try {
+      const root = JSON.parse(json)
+      if (Array.isArray(root)) for (const n of root) patchNodes(n)
+      else patchNodes(root)
+      return root
+    } catch (e) {
+      console.warn("[dslToHex] editor-iframe: parse failed:", e)
+      return null
+    }
+  }
+
   function postDslJson(json: string) {
     if (!iframeRef?.contentWindow) {
       setPendingJson(json)
       return
     }
-    try {
-      const payload = JSON.parse(json)
-      postMessage("NODE_DSL_JSON", payload)
-      setPendingJson(null)
-    } catch (e) {
-      console.warn("[dslToHex] editor-iframe: postMessage parse failed:", e)
-    }
+    const payload = parseAndPatch(json)
+    if (payload) postMessage("NODE_DSL_JSON", payload)
+    setPendingJson(null)
   }
 
   function postDslClear() {
@@ -72,12 +88,8 @@ export function EditorIframe(props: {
 
   function postDslPipeline(json: string) {
     if (!iframeRef?.contentWindow) return
-    try {
-      const payload = JSON.parse(json)
-      postMessage("NODE_DSL_PIPELINE", payload)
-    } catch (e) {
-      console.warn("[dslToHex] editor-iframe: pipeline postMessage parse failed:", e)
-    }
+    const payload = parseAndPatch(json)
+    if (payload) postMessage("NODE_DSL_PIPELINE", payload)
   }
 
   // b-generating → clear iframe canvas + reset loaded state
