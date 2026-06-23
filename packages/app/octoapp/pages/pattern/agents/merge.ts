@@ -17,7 +17,12 @@ function copyChildren(children: unknown): unknown {
   return children
 }
 
-export function mergeModules(shell: A2UIModule, modules: A2UIModule[]): A2UIModule {
+interface SlotEntry {
+  section_id: string
+  element_id: string
+}
+
+export function mergeModules(shell: A2UIModule, modules: A2UIModule[], slots?: SlotEntry[]): A2UIModule {
   const elements = shell.elements.map((e) => ({
     ...e,
     props: e.props ? { ...e.props } : {},
@@ -25,18 +30,40 @@ export function mergeModules(shell: A2UIModule, modules: A2UIModule[]): A2UIModu
   }))
   const state = { ...(shell.state ?? {}) }
 
+  // 构建 module rootId → shell element_id 的映射
+  const rootIdRemap = new Map<string, string>()
+  if (slots && modules.length === slots.length) {
+    for (let i = 0; i < modules.length; i++) {
+      if (modules[i].rootId !== slots[i].element_id) {
+        rootIdRemap.set(modules[i].rootId, slots[i].element_id)
+      }
+    }
+  }
+
   for (const mod of modules) {
-    const slotIndex = elements.findIndex((e) => e.id === mod.rootId)
+    const originalRootId = mod.rootId
+    const remappedId = rootIdRemap.get(originalRootId) ?? originalRootId
+    let slotIndex = elements.findIndex((e) => e.id === originalRootId)
+    if (slotIndex === -1) {
+      slotIndex = elements.findIndex((e) => e.id === remappedId)
+    }
     if (slotIndex === -1) continue
 
-    const modRoot = mod.elements.find((e) => e.id === mod.rootId)
+    const modRoot = mod.elements.find((e) => e.id === originalRootId)
     if (modRoot?.children) {
       elements[slotIndex].children = copyChildren(modRoot.children) as string[]
     }
 
     for (const el of mod.elements) {
-      if (el.id === mod.rootId) continue
-      if (!elements.some((e) => e.id === el.id)) {
+      if (el.id === originalRootId) continue
+      const existing = elements.findIndex((e) => e.id === el.id)
+      if (existing !== -1) {
+        elements[existing] = {
+          ...el,
+          props: el.props ? { ...el.props } : {},
+          children: copyChildren(el.children) as string[] | undefined,
+        }
+      } else {
         elements.push({
           ...el,
           props: el.props ? { ...el.props } : {},

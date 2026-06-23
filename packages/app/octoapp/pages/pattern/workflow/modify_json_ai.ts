@@ -63,12 +63,39 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
 
         const updatedIntent = { ...triage.updated_intent }
         const prevModules = lastModules;
+        const oldSlots = ((lastPlanner.slots ?? lastPlanner.layout_planner?.slots) as Array<{ section_id: string; element_id: string }>) ?? []
+        const oldElementBySection = new Map(oldSlots.map((s) => [s.section_id, s.element_id]))
 
         const modulePromises = modifyResult.output.slots.map((slot) => {
+            const findPrevModule = () => {
+                const byNewId = prevModules.find((m: any) => m.rootId === slot.element_id)
+                if (byNewId) return byNewId
+                const oldId = oldElementBySection.get(slot.section_id)
+                if (oldId && oldId !== slot.element_id) {
+                    return prevModules.find((m: any) => m.rootId === oldId) ?? null
+                }
+                // 沿旧 planner 元素树向上查找父元素匹配
+                const oldElements = (lastPlanner.elements ?? []) as Array<{ id: string; children?: string[] }>
+                const childParentMap = new Map<string, string>()
+                for (const el of oldElements) {
+                    for (const childId of el.children ?? []) {
+                        childParentMap.set(childId, el.id)
+                    }
+                }
+                const visited = new Set<string>()
+                let cursor: string | undefined = slot.element_id
+                while (cursor) {
+                    if (visited.has(cursor)) break
+                    visited.add(cursor)
+                    const match = prevModules.find((m: any) => m.rootId === cursor)
+                    if (match) return match
+                    cursor = childParentMap.get(cursor)
+                }
+                return null
+            }
             // 保留未改动部分
             if (slot.operation === "none") {
-                const existing = prevModules.find((m:any) => m.rootId === slot.element_id)
-                return existing ?? null
+                return findPrevModule() ?? null
             }
             // 新增模块
             if (slot.operation === "create") {
@@ -83,7 +110,7 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
             }
             // 修改模块
             if (slot.operation === "modify") {
-                const originModule = prevModules.find((m: any) => m.rootId === slot.element_id)
+                const originModule = findPrevModule()
                 const modAction = triage.modify.find((m) => m.section_id === slot.section_id)
                 if (!originModule || !modAction) return null
                 return proto_module_modify({
@@ -94,6 +121,7 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
                         sectionId: slot.section_id,
                         originModules: originModule,
                         modifications: modAction as unknown as Record<string, unknown>,
+                        intentDescription: updatedIntent as any,
                     },
                 }).then((r) => r.ui_json)
             }
@@ -108,6 +136,7 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
                 elements: modifyResult.output.elements as any 
             },
             allModules as any,
+            modifyResult.output.slots,
         )
 
         // 执行完成的回调

@@ -1,5 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { getResultFromMessages } from '../utils/json_parser'
+import { getResultFromMessages, extractJson } from '../utils/json_parser'
+import { logAgentCall } from "../utils/persist"
 
 export type RunChildSessionInput = {
   sync?: any
@@ -14,7 +15,7 @@ export type RunChildSessionInput = {
   onSessionCreated?: (childSessionID: string) => void
 }
 
-export async function runChildSession(input: RunChildSessionInput): Promise<string> {
+export async function runChildSession(input: RunChildSessionInput): Promise<{ text: string; childSessionId: string }> {
   const { 
     sync, // 前后端同步功能
     agent, // 当前正在执行的Agent名称
@@ -56,5 +57,9 @@ export async function runChildSession(input: RunChildSessionInput): Promise<stri
     parts: [{ type: "text", text: promptText }],
   })
   // 轮询等待本 session 执行完毕，取出最终结果
-  return getResultFromMessages({ client }, childSession.id, !!aborted)
+  const result = await getResultFromMessages({ client }, childSession.id, !!aborted)
+  const sessionId = isRoot ? parentSessionID : childSession.id
+  const cleaned = extractJson(result)
+  logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
+  return { text: result, childSessionId: sessionId }
 }

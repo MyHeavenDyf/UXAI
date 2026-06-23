@@ -1,5 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from '../run_child_session';
+import { logAgentParsed } from "../../utils/persist"
 
 const AGENT_NAME = "proto_module_create";
 
@@ -59,14 +60,16 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
   })
   console.log("----- 模块渲染Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 a2ui json
-  const moduleJson = extractJson(moduleResult)
+  const moduleJson = extractJson(moduleResult.text)
   if (!moduleJson) throw new Error("----- Module JSON did not return valid JSON -----")
-  return {
+  const returnValue = {
     "ui_json": moduleJson,
     "section_id": sectionId,
     "element_id": elementId,
     "id_prefix": idPrefix
   }
+  logAgentParsed(moduleResult.childSessionId, returnValue)
+  return returnValue
 }
 
 // 组装模块生成的输入文本

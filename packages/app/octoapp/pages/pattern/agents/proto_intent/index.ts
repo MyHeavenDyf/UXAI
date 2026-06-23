@@ -1,5 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from '../run_child_session';
+import { logAgentParsed } from "../../utils/persist"
 
 const AGENT_NAME = "proto_intent"
 
@@ -43,13 +44,15 @@ export default async function proto_intent(input: ProtoIntentInput) {
   })
   console.log("----- 意图扩展Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 json 数据
-  const intentJson = extractJson(intentResult)
+  const intentJson = extractJson(intentResult.text)
   if (!intentJson) throw new Error("----- Intent Audit did not return valid JSON -----")
-  return {
+  const returnValue = {
     "intent_description": intentJson,
     "intent_page": simplifyData(intentJson),
     "current_step": "intent_expansion"
   }
+  logAgentParsed(intentResult.childSessionId, returnValue)
+  return returnValue
 }
 
 // 组装意图扩展的输入文本

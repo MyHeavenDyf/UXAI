@@ -41,6 +41,7 @@ import { mergeModules } from "./agents/merge"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
 import { rollbackToVersion } from "./utils/history"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/persist"
 import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { ChatPanel } from "./modules/chat/index"
@@ -169,6 +170,7 @@ function PatternContent() {
                       { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
                       // @ts-expect-error pre-existing type mismatch in mergeModules
                       state.lastModules,
+                      (shell?.slots as any[]) ?? undefined,
                     )
                   })()
                 const mergedJson = detectA2UIJson(JSON.stringify(a2ui))
@@ -499,6 +501,9 @@ function PatternContent() {
           setChildSessionIDs((prev) => [...prev, childID])
         },
       }
+
+      // 开启本次调试日志
+      logStartSession(sid, text)
       // 流程执行完毕后的回调
       let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
           // 触发页面渲染
@@ -510,14 +515,17 @@ function PatternContent() {
           // 历史文件
           const dir = patternHistoryDir()
           if (dir) {
+            const debug = getDebugSnapshot()
             const vid = await appendPatternVersion(dir, sid, {
                 lastIntent: lastIntent(),
                 lastPlanner: lastPlanner(),
                 lastModules: lastModules(),
                 mergedA2UI: pageJson as unknown as Record<string, unknown>,
+                debug,
             }, text.slice(0, 80))
             setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
             setCurrentVersionId(vid)
+            clearDebugLog()
           }
       }
 
@@ -529,8 +537,11 @@ function PatternContent() {
         }
         // AI 修改页面 — 先切到加载态
         setIsModifying(true)
-        await modify_json_ai(intentCtx, lastData, onFinshed);
+        const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
         setIsModifying(false)
+        if ((modifyResult as any)?.reply) {
+          showToast({ title: (modifyResult as any).reply })
+        }
       }else{
         // 首次创建页面
         await create_json(intentCtx, onFinshed);
@@ -633,6 +644,7 @@ function PatternContent() {
         { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
         // @ts-expect-error pre-existing type mismatch in mergeModules
         lastModules(),
+        (shellLayout?.slots as any[]) ?? undefined,
       )
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)
@@ -647,6 +659,7 @@ function PatternContent() {
         { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
         // @ts-expect-error pre-existing type mismatch in mergeModules
         lastModules(),
+        (shellLayout?.slots as any[]) ?? undefined,
       )
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)

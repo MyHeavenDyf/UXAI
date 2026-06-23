@@ -59,6 +59,7 @@ export default async function create_json(inputCtx: ProtoCreateJsonInput, onFins
             elements: planner.layout_planner.elements as any 
         },
         modules as any,
+        planner.layout_planner.slots as any,
     )
 
     // 执行完成的回调
