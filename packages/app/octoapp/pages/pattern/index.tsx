@@ -34,6 +34,7 @@ import proto_module_create from "./agents/proto_module_create"
 
 import create_json from './workflow/create_json'
 import modify_json_ai from './workflow/modify_json_ai'
+import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify_json_quick'
 
 // import { runProtoPlannerModify } from "./agents/proto_planner_modify"
 // import { runModuleModify } from "./agents/proto_module_modify"
@@ -333,8 +334,6 @@ function PatternContent() {
   const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
   const [isModifying, setIsModifying] = createSignal(false)
-  const lastVersionSave = new Map<string, number>()
-  const VERSION_THROTTLE_MS = 2000
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
@@ -351,48 +350,21 @@ function PatternContent() {
     void handleSubmit()
   }
 
-  async function handleModifyElement(data: { elementId: string; className: string; textContent: string; componentProps: Record<string, string>; tag?: string; saveToHistory?: boolean; keepOpen?: boolean }) {
-    console.log("[Pattern] modifyElement data:", data)
-    const current = pendingPreviewData()
-    if (!current || typeof current !== 'object') return
-    const doc = JSON.parse(JSON.stringify(current))
-    if (!doc?.elements || !Array.isArray(doc.elements)) return
-    let found = false
-    for (const el of doc.elements) {
-      if (el.id === data.elementId) {
-        found = true
-        el.props = el.props || {}
-        el.props.className = data.className
-        if (data.textContent) el.props.value = data.textContent
-        if (data.componentProps) Object.assign(el.props, data.componentProps)
-        break
-      }
-    }
-    console.log("[Pattern] element found:", found, "in", doc.elements.length, "elements")
-    sendToPreview(doc)
-    if (data.saveToHistory) {
-      const key = data.elementId
-      const now = Date.now()
-      const last = lastVersionSave.get(key) ?? 0
-      if (now - last >= VERSION_THROTTLE_MS) {
-        lastVersionSave.set(key, now)
-        const dir = patternHistoryDir()
-        const sid = params.id
-        if (dir && sid) {
-          const summary = (data.tag || data.componentProps?.value || Object.keys(data.componentProps || {}).join(',') || '快速修改').slice(0, 80)
-          const vid = await appendPatternVersion(dir, sid, {
-            lastIntent: lastIntent(),
-            lastPlanner: lastPlanner(),
-            lastModules: lastModules(),
-            mergedA2UI: doc as unknown as Record<string, unknown>,
-          }, summary)
-          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary }])
-          setCurrentVersionId(vid)
-        }
-      }
-    }
-    previewApi.refresh()
+  const quickModifyCtx: QuickModifyContext = {
+    getPendingData: pendingPreviewData,
+    sendToPreview,
+    refreshPreview: () => previewApi.refresh(),
+    getHistoryDir: () => patternHistoryDir(),
+    getSessionId: () => params.id,
+    getLastIntent: lastIntent,
+    getLastPlanner: lastPlanner,
+    getLastModules: lastModules,
+    setVersions,
+    setCurrentVersionId,
+  }
 
+  async function handleModifyElement(data: ModifyElementData) {
+    await runQuickModify(quickModifyCtx, data)
   }
 
 
