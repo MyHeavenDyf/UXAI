@@ -84,6 +84,7 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
 }
 
 export function StudioResultCanvas(props: {
+  videoPlayerMount: () => HTMLElement
   status: StudioGenerationStatus
   image?: StudioImage
   result?: StudioGenerationResult
@@ -103,18 +104,17 @@ export function StudioResultCanvas(props: {
     document.body.style.overflow = image ? "hidden" : ""
     document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
+    ;(window as any).api?.setTitlebarOverlayHidden?.(true)
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFullscreenImage(null)
+      if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
     }
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (fullscreenImage()) {
-        setFullscreenImage(null)
-        e.preventDefault()
-      }
+      if (fullscreenImage()) { setFullscreenImage(null); e.preventDefault() }
     }
     document.addEventListener("keydown", onKeyDown)
     window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
+      ;(window as any).api?.setTitlebarOverlayHidden?.(false)
       document.body.style.overflow = ""
       document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)
@@ -189,6 +189,7 @@ export function StudioResultCanvas(props: {
                   src={image().remoteUrl ?? image().url}
                   poster={image().thumbnailUrl}
                   class="studio-canvas-image"
+                  mount={props.videoPlayerMount}
                 />
               </Show>
             </div>
@@ -202,18 +203,13 @@ export function StudioResultCanvas(props: {
       </Show>
       {fullscreenImage() && (
         <Portal mount={document.body}>
-          <div class="studio-fullscreen-overlay">
-            <button type="button" class="studio-fullscreen-close" onClick={() => setFullscreenImage(null)} aria-label="关闭全屏">
+          <div class="studio-fullscreen-overlay" onClick={() => setFullscreenImage(null)}>
+            <button type="button" class="studio-fullscreen-close" onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); }} aria-label="关闭全屏">
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
                 <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
             </button>
-            <img
-              src={fullscreenImage()!.url}
-              class="studio-fullscreen-image"
-              alt=""
-              onClick={(e) => e.stopPropagation()}
-            />
+            <img src={fullscreenImage()!.url} class="studio-fullscreen-image" alt="" />
           </div>
         </Portal>
       )}
@@ -348,16 +344,6 @@ export function StudioDetails(props: {
         <Show when={!isEditResult()}>
           <div class="studio-detail-section-title">提示词</div>
           <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
-          <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
-            <button
-              type="button"
-              onClick={props.onGenerateVideo}
-              disabled={props.regenerateDisabled || !props.image}
-              class="studio-details-primary-action studio-details-secondary-action studio-details-video-action disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              视频生成
-            </button>
-          </Show>
         </Show>
         <button
           type="button"
@@ -367,6 +353,16 @@ export function StudioDetails(props: {
         >
           再次生成
         </button>
+        <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
+          <button
+            type="button"
+            onClick={props.onGenerateVideo}
+            disabled={props.regenerateDisabled || !props.image}
+            class="studio-details-primary-action studio-details-secondary-action studio-details-video-action disabled:opacity-45 disabled:cursor-not-allowed"
+          >
+            视频生成
+          </button>
+        </Show>
         <Show when={!isVideoResult()}>
           <div class="studio-detail-action-grid">
             <button

@@ -24,6 +24,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
 import { useServer } from "@/context/server"
 import {
+  STUDIO_ASPECT_RATIOS,
   capabilityLabel,
   styleModelLabel,
   styleModelRequiresSeedreamPermission,
@@ -57,10 +58,12 @@ import {
   hasVideoFrameAssets,
   isVideoMedia,
   isStudioGenerationStatusRegression,
+  recordValue,
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
   STUDIO_VIDEO_ASPECT_RATIOS,
+  stringValue,
   studioGenerationTitle,
   SUPPORTED_STUDIO_CAPABILITIES,
   triggerBrowserDownload,
@@ -76,6 +79,20 @@ import {
 import { createStudioSessionData } from "./studio/studio-session-data"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+type StudioGenerationOverrides = {
+  capability?: StudioCapability
+  prompt?: string
+  sourceImage?: string
+  referenceImages?: string[]
+  extra?: Record<string, unknown>
+  videoFrames?: { first?: string; last?: string }
+  styleModel?: string
+  aspectRatio?: StudioAspectRatio
+  count?: 1 | 2 | 3 | 4
+  videoDuration?: StudioVideoDuration
+  videoQualityMode?: StudioVideoQualityMode
+  useRestoredInputs?: boolean
+}
 
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
@@ -88,6 +105,7 @@ export default function StudioPage() {
   const server = useServer()
   const dialog = useDialog()
   let studioPermissionChecked = false
+  let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
 
@@ -1399,10 +1417,118 @@ export default function StudioPage() {
       .join("\n")
   }
 
+  function stringArrayValue(value: unknown) {
+    if (!Array.isArray(value)) return []
+    return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+  }
+
+  function countValue(value: unknown) {
+    return value === 1 || value === 2 || value === 3 || value === 4 ? value : undefined
+  }
+
+  function aspectRatioValue(value: unknown) {
+    return STUDIO_ASPECT_RATIOS.includes(value as StudioAspectRatio) ? value as StudioAspectRatio : undefined
+  }
+
+  function videoDurationValue(value: unknown) {
+    return value === "10" ? "10" : value === "5" ? "5" : undefined
+  }
+
+  function videoQualityModeValue(value: unknown) {
+    return value === "pro" ? "pro" : value === "std" ? "std" : undefined
+  }
+
+  function dataUrlFromBase64(value?: string) {
+    if (!value) return
+    return value.startsWith("data:image/") ? value : `data:image/png;base64,${value}`
+  }
+
+  function inputRecord(result: StudioGenerationResult) {
+    const value = recordValue(result.request, "input")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function inputExtraRecord(result: StudioGenerationResult) {
+    const value = recordValue(inputRecord(result), "extra")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function taskRequestRecord(result: StudioGenerationResult) {
+    const value = recordValue(recordValue(result.request, "task"), "request")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function restoredVideoFrames(result: StudioGenerationResult) {
+    const input = inputRecord(result)
+    const extra = inputExtraRecord(result)
+    const referenceImages = stringArrayValue(recordValue(input, "referenceImages"))
+    const args = recordValue(taskRequestRecord(result), "args")
+    const restoredFirstFrame =
+      stringValue(extra, "firstFrame") ??
+      referenceImages[0] ??
+      referenceImages[1] ??
+      dataUrlFromBase64(stringValue(args, "image"))
+    return {
+      first: restoredFirstFrame,
+      last:
+        stringValue(extra, "lastFrame") ??
+        (restoredFirstFrame ? referenceImages[1] : undefined) ??
+        dataUrlFromBase64(stringValue(args, "image_tail")),
+    }
+  }
+
+  function restoreGenerationInput(result: StudioGenerationResult): StudioGenerationOverrides {
+    const input = inputRecord(result)
+    const extra = inputExtraRecord(result)
+    const nextAspectRatio = aspectRatioValue(recordValue(input, "aspectRatio")) ?? result.aspectRatio
+    const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
+    if (result.capability === "video.generate") {
+      return {
+        capability: result.capability,
+        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+        extra: extra ? { ...extra } : undefined,
+        videoFrames: restoredVideoFrames(result),
+        aspectRatio: nextAspectRatio,
+        count: nextCount,
+        videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
+        videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
+        useRestoredInputs: true,
+      }
+    }
+    if (result.capability === "image.generate") {
+      return {
+        capability: result.capability,
+        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+        extra: extra ? { ...extra } : undefined,
+        styleModel: stringValue(input, "styleModel"),
+        aspectRatio: nextAspectRatio,
+        count: nextCount,
+        useRestoredInputs: true,
+      }
+    }
+    return {
+      capability: result.capability,
+      prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+      sourceImage: stringValue(input, "sourceImage"),
+      extra: extra ? { ...extra } : undefined,
+      aspectRatio: nextAspectRatio,
+      count: nextCount,
+      useRestoredInputs: true,
+    }
+  }
+
   async function createStudioGeneration(input: {
     sessionID: string
     text: string
     capability: StudioCapability
+    styleModel?: string
+    aspectRatio?: StudioAspectRatio
+    count?: 1 | 2 | 3 | 4
     referenceImages?: string[]
     sourceImage?: string
     extra?: Record<string, unknown>
@@ -1429,9 +1555,9 @@ export default function StudioPage() {
         sessionID: input.sessionID,
         capability: input.capability,
         prompt: input.text,
-        styleModel: input.capability === "image.generate" ? styleModelLabel(styleModel()) : undefined,
-        aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? aspectRatio() : undefined,
-        count: input.capability === "image.generate" || input.capability === "video.generate" ? count() : undefined,
+        styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
+        aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? input.aspectRatio ?? aspectRatio() : undefined,
+        count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
         imageTool: "internel",
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
@@ -1520,13 +1646,23 @@ export default function StudioPage() {
     return id.startsWith("studio_gen")
   }
 
-  async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string; extra?: Record<string, unknown> }) {
+  async function runGeneration(overrides?: StudioGenerationOverrides) {
     const nextCapability = overrides?.capability ?? capability()
-    const nextVideoFrames = {
-      first: videoFrames.first,
-      last: videoFrames.last,
-    }
-    const nextHasVideoFrames = nextCapability === "video.generate" && hasVideoFrameAssets(nextVideoFrames)
+    const nextStyleModel = overrides?.styleModel ?? styleModelLabel(styleModel())
+    const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
+    const nextCount = overrides?.count ?? count()
+    const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
+    const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const restoredVideoFrames = overrides?.videoFrames
+    const nextVideoFrames = restoredVideoFrames
+      ? restoredVideoFrames
+      : overrides?.useRestoredInputs
+        ? {}
+        : {
+            first: videoFrames.first?.dataUrl,
+            last: videoFrames.last?.dataUrl,
+          }
+    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first || nextVideoFrames.last)
     const text = (overrides?.prompt ?? prompt()).trim() || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
@@ -1543,17 +1679,21 @@ export default function StudioPage() {
     if (!text || isBusy()) return
     const currentToken = ++generationToken
     const previousPrompt = prompt()
+    const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
     const videoReferenceImages = [
-      nextVideoFrames.first?.dataUrl ?? nextVideoFrames.last?.dataUrl,
-      nextVideoFrames.first ? nextVideoFrames.last?.dataUrl : undefined,
+      nextVideoFrames.first ?? nextVideoFrames.last,
+      nextVideoFrames.first ? nextVideoFrames.last : undefined,
     ].filter((item): item is string => Boolean(item))
-    const referenceImages =
+    const referenceImages = overrides?.referenceImages ?? (
       nextCapability === "image.generate"
-        ? assets().map((item) => item.dataUrl)
+        ? overrides?.useRestoredInputs
+          ? []
+          : assets().map((item) => item.dataUrl)
         : nextCapability === "video.generate"
           ? videoReferenceImages
           : []
+    )
     tracker.interaction({
       module: "studio",
       name: "send-message",
@@ -1565,12 +1705,14 @@ export default function StudioPage() {
         hasReferenceImage: referenceImages.length > 0,
       }),
     })
-    const studioContext = params.id
-      ? buildStudioConversationContext({
-          messages: dataStore.message[params.id] ?? [],
-          parts: dataStore.part,
-        })
-      : ""
+    const studioContext = overrides?.useRestoredInputs
+      ? ""
+      : params.id
+        ? buildStudioConversationContext({
+            messages: dataStore.message[params.id] ?? [],
+            parts: dataStore.part,
+          })
+        : ""
     setOpenMenu(null)
     setMode("preview")
     setSending(true)
@@ -1582,8 +1724,8 @@ export default function StudioPage() {
       capability: nextCapability,
       prompt: text,
       provider: "internel",
-      model: styleModelLabel(styleModel()),
-      aspectRatio: aspectRatio(),
+      model: nextStyleModel,
+      aspectRatio: nextAspectRatio,
       images: [],
       progress: 0,
       createdAt: Date.now(),
@@ -1591,13 +1733,15 @@ export default function StudioPage() {
       ...(nextCapability === "video.generate"
         ? {
             videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-            duration: videoDuration(),
-            videoQualityMode: videoQualityMode(),
+            duration: nextVideoDuration,
+            videoQualityMode: nextVideoQualityMode,
           }
         : {}),
     })
-    setPrompt("")
-    setAssets([])
+    if (!overrides?.useRestoredInputs) {
+      setPrompt("")
+      setAssets([])
+    }
     try {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
@@ -1611,6 +1755,9 @@ export default function StudioPage() {
         sessionID,
         text,
         capability: nextCapability,
+        styleModel: nextStyleModel,
+        aspectRatio: nextAspectRatio,
+        count: nextCount,
         referenceImages,
         sourceImage: overrides?.sourceImage,
         extra: {
@@ -1618,16 +1765,16 @@ export default function StudioPage() {
           ...(studioContext ? { studioContext } : {}),
           ...(nextCapability === "video.generate"
             ? {
-                videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-                duration: videoDuration(),
-                mode: videoQualityMode(),
-                firstFrame: nextVideoFrames.first?.dataUrl ?? nextVideoFrames.last?.dataUrl,
-                lastFrame: nextVideoFrames.first ? nextVideoFrames.last?.dataUrl : undefined,
-              }
+              videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+              duration: nextVideoDuration,
+              mode: nextVideoQualityMode,
+              firstFrame: nextVideoFrames.first ?? nextVideoFrames.last,
+              lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
+            }
             : {}),
         },
       })
-      if (nextCapability === "video.generate") clearVideoFrames()
+      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
       setPendingResult({
         ...generation,
@@ -1637,8 +1784,11 @@ export default function StudioPage() {
     } catch (error) {
       if (currentToken !== generationToken) return
       console.error("[StudioPage] studio prompt failed", error)
-      setPrompt(previousPrompt)
-      if (nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
+      if (!overrides?.useRestoredInputs) {
+        setPrompt(previousPrompt)
+        setAssets(previousAssets)
+      }
+      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
       setStatus("failed")
       setPendingResult((item) => item ? { ...item, status: "failed", error: error instanceof Error ? error.message : String(error) } : item)
     } finally {
@@ -1897,10 +2047,7 @@ export default function StudioPage() {
         hasReferenceImage: current.images.length > 0,
       }),
     })
-    void runGeneration({
-      capability: current.capability,
-      prompt: current.prompt,
-    })
+    void runGeneration(restoreGenerationInput(current))
   }
 
   const hasStudioConversation = createMemo(() =>
@@ -1925,7 +2072,7 @@ export default function StudioPage() {
   })
 
   return (
-    <div class="studio-page" style={{ position: "relative" }}>
+    <div ref={studioPageRef!} class="studio-page" style={{ position: "relative" }}>
       <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
         <StudioHistory
           directory={projectDir()}
@@ -2154,6 +2301,7 @@ export default function StudioPage() {
           <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
+              videoPlayerMount={() => studioPageRef}
               status={effectiveStatus()}
               image={selectedImage()}
               result={canvasResult()}

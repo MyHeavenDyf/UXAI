@@ -978,10 +978,11 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   const id = Identifier.create("studio_gen", "ascending")
   const provider = resolveProvider(input)
   const task = await createProviderTask(input, provider)
+  const persistedInput = task?.input ?? input
   const turn = persistStudioSession({
     generationID: id,
     sessionID,
-    request: input,
+    request: persistedInput,
     provider,
     createdAt,
   })
@@ -998,7 +999,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       capability: input.capability,
       status: task ? "running" : "queued",
       progress: 0,
-      request: stripUndefined({ input, task }) as Record<string, unknown>,
+      request: stripUndefined({ input: persistedInput, task }) as Record<string, unknown>,
       next_poll_at: createdAt,
       time_created: createdAt,
       time_updated: createdAt,
