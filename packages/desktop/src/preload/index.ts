@@ -65,6 +65,7 @@ const api: ElectronAPI = {
   getZoomFactor: () => ipcRenderer.invoke("get-zoom-factor"),
   setZoomFactor: (factor) => ipcRenderer.invoke("set-zoom-factor", factor),
   setTitlebar: (theme) => ipcRenderer.invoke("set-titlebar", theme),
+  setTitlebarOverlayHidden: (hidden) => ipcRenderer.invoke("set-titlebar-overlay-hidden", hidden),
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),

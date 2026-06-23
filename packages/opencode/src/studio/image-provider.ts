@@ -39,6 +39,7 @@ export type ImageGenerationTask = {
   capability: StudioCapability
   toolAction: NonNullable<ImageGenerateOutput["toolAction"]>
   taskId: string
+  input?: ImageGenerateInput
   request: unknown
 }
 

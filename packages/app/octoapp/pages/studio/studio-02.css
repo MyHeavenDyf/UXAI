@@ -225,6 +225,7 @@
 
 .studio-material-sub-btn.active {
   color: #191919;
+  font-weight: 650;
 }
 
 .studio-material-sub-btn:hover:not(.active) {
