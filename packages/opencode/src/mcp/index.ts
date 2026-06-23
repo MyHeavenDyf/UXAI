@@ -366,6 +366,26 @@ export const layer = Layer.effect(
           status: { status: "failed" as const, error: `Invalid MCP URL for "${key}"` },
         }
       }
+      // [octo:mcp] 连接前记录解析后的全部入参，便于内网 debug。proxyMode 是 mcpFetch 的代理决策镜像
+      // （仅为日志推导，与 mcpFetch 同口径，不改变实际行为）：proxy 显式 true/false 直接生效，
+      // 未设时按 isPrivateUrl 判定——7.x 内网 IP 不被识别为私有，故会落到 system(public) → 易触发代理 504。
+      const proxyMode =
+        mcp.proxy === true
+          ? "system(forced)"
+          : mcp.proxy === false
+            ? "bypass(forced)"
+            : isPrivateUrl(url)
+              ? "bypass(private)"
+              : "system(public)"
+      log.info("[octo:mcp] connect-remote", {
+        key,
+        url: url.href,
+        proxy: mcp.proxy,
+        proxyMode,
+        timeout: mcp.timeout ?? DEFAULT_TIMEOUT,
+        oauth: !oauthDisabled,
+        headerKeys: mcp.headers ? Object.keys(mcp.headers) : [],
+      })
       let authProvider: McpOAuthProvider | undefined
 
       if (!oauthDisabled) {
@@ -412,6 +432,7 @@ export const layer = Layer.effect(
       let lastStatus: Status | undefined
 
       for (const { name, transport } of transports) {
+        log.info("[octo:mcp] transport-try", { key, transport: name, url: url.href, timeout: connectTimeout })
         const result = yield* connectTransport(transport, connectTimeout).pipe(
           Effect.map((client) => ({ client, transportName: name })),
           Effect.catch((error) => {
@@ -455,12 +476,20 @@ export const layer = Layer.effect(
               url: mcp.url,
               error: lastError.message,
             })
+            // [octo:mcp] 失败也在 info/warn 级镜像一条（debug 级生产可能被过滤），带 proxyMode 便于判代理问题。
+            log.warn("[octo:mcp] transport-failed", {
+              key,
+              transport: name,
+              url: url.href,
+              proxyMode,
+              error: lastError.message,
+            })
             lastStatus = { status: "failed" as const, error: lastError.message }
             return Effect.succeed(undefined)
           }),
         )
         if (result) {
-          log.info("connected", { key, transport: result.transportName })
+          log.info("[octo:mcp] connected", { key, transport: result.transportName, url: url.href })
           return { client: result.client as MCPClient | undefined, status: { status: "connected" } as Status }
         }
         // If this was an auth error, stop trying other transports

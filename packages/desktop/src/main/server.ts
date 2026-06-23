@@ -248,6 +248,11 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_KB_BASE_URL && import.meta.env.OCTO_KB_BASE_URL) {
     env.OCTO_KB_BASE_URL = import.meta.env.OCTO_KB_BASE_URL
   }
+  // 把 Insight uxr-tool MCP 地址注入 sidecar 供 builtin-mcp 读(同 OCTO_KB_BASE_URL,sidecar 读不到 .env)。
+  // 已通过 shell/cross-env 显式设置时不覆盖;留空则 builtin-mcp 回落代码内默认 beta IP。
+  if (!env.OCTO_UXR_MCP_URL && import.meta.env.OCTO_UXR_MCP_URL) {
+    env.OCTO_UXR_MCP_URL = import.meta.env.OCTO_UXR_MCP_URL
+  }
   return env
 }
 

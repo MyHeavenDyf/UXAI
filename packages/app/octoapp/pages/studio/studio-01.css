@@ -146,9 +146,9 @@
   border: 1.5px solid transparent;
   border-radius: 24px;
   background:
-    linear-gradient(#fff, #fff) padding-box,
-    linear-gradient(135deg, rgb(246, 97, 23) 1%, rgb(95, 45, 255) 8%, rgb(61, 93, 255) 22%, rgb(104, 138, 255) 43%, rgb(28, 171, 111) 54%, rgb(61, 93, 255) 87%, rgb(206, 7, 232) 92%) border-box;
-  box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
+    linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+    linear-gradient(135deg, rgba(246, 97, 23, 1) 1%, rgba(95, 45, 255, 1) 8%, rgba(61, 93, 255, 1) 22%, rgba(104, 138, 255, 1) 43%, rgba(28, 171, 111, 1) 54%, rgba(61, 93, 255, 1) 87%, rgba(206, 7, 232, 1) 92%) border-box;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12);
 }
 
 .studio-composer-compliance {
@@ -404,7 +404,7 @@
   height: 64px;
   overflow: hidden;
   border-radius: 4px;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+  border: 1px solid #f2f2f2;
 }
 
 .studio-composer-ref-image {
@@ -507,7 +507,6 @@
 }
 
 .studio-composer-tool-btn {
-  max-width: 98px;
   min-width: 70px;
   padding: 4px 10px 4px 12px;
   gap: 2px;

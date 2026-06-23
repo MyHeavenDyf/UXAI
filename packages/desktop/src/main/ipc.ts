@@ -26,7 +26,7 @@ import type {
   WslConfig,
 } from "../preload/types"
 import { getStore } from "./store"
-import { setTitlebar, updateTitlebar } from "./windows"
+import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir } from "./preview-server"
@@ -324,6 +324,11 @@ export function registerIpcHandlers(deps: Deps) {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     setTitlebar(win, theme)
+  })
+  ipcMain.handle("set-titlebar-overlay-hidden", (event: IpcMainInvokeEvent, hidden: boolean) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    setTitlebarOverlayHidden(win, hidden)
   })
 
   // Use ~/.config/octo/ (xdg-basedir convention) instead of Electron userData
