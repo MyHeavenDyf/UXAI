@@ -245,7 +245,7 @@ export function StudioWorkspaceUpload(props: { onUpload: (files: File[]) => void
       <input
         ref={inputRef!}
         type="file"
-        accept="image/*"
+        accept=".png,.jpg,.jpeg,.webp"
         class="hidden"
         onChange={(event) => {
           if (event.currentTarget.files?.length) props.onUpload(Array.from(event.currentTarget.files))
