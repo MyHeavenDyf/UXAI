@@ -36,6 +36,7 @@ import type {
   StudioGenerationResult,
   StudioGenerationStatus,
   StudioImage,
+  StudioImageTool,
   StudioMode,
 } from "./studio/types"
 import {
@@ -153,6 +154,7 @@ export default function StudioPage() {
   const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
+  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [imageSettingStore, setImageSettingStore] = persisted(
     Persist.global("studio.image.settings"),
     createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
@@ -1115,15 +1117,51 @@ export default function StudioPage() {
     setAspectRatio(best.key)
   }
 
+  const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const
+
   function addAssets(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
+    const isJimeng = imageTool() === "jimeng"
+    const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
+    const ext = file.name.split(".").pop()?.toLowerCase()
+    if (!ext || !allowedExts.includes(ext)) {
+      showToast({
+        title: "上传失败",
+        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
+      })
+      return
+    }
+    const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+    const maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    if (file.size > maxSize) {
+      showToast({
+        title: "上传失败",
+        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
+      })
+      return
+    }
     tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: files.length }) })
     readStudioAsset(file)
       .then((asset) => {
-        setAssets([asset])
         const img = new Image()
-        img.onload = () => autoSetAspectRatioFromDimensions(img.naturalWidth, img.naturalHeight)
+        img.onload = () => {
+          if (img.naturalWidth > 7500 || img.naturalHeight > 7500) {
+            showToast({
+              title: "上传失败",
+              description: "图片最大尺寸不能超过 7500px。",
+            })
+            return
+          }
+          setAssets([asset])
+          autoSetAspectRatioFromDimensions(img.naturalWidth, img.naturalHeight)
+        }
+        img.onerror = () => {
+          showToast({
+            title: "上传失败",
+            description: "无法读取图片尺寸。",
+          })
+        }
         img.src = asset.dataUrl
       })
       .catch((error) => {
@@ -1170,8 +1208,56 @@ export default function StudioPage() {
   function uploadWorkspaceImage(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
+    const isJimeng = imageTool() === "jimeng"
+    const isGenerate = capability() === "image.generate"
+    const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
+    const ext = file.name.split(".").pop()?.toLowerCase()
+    if (!ext || !allowedExts.includes(ext)) {
+      showToast({
+        title: "上传失败",
+        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
+      })
+      return
+    }
+    const isStrictEdit = capability() === "image.outpaint" || capability() === "image.inpaint" || capability() === "image.cutout"
+    let maxSize: number
+    let maxSizeLabel: string
+    if (isStrictEdit) {
+      maxSize = 8 * 1024 * 1024
+      maxSizeLabel = "8MB"
+    } else if (isGenerate) {
+      maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+      maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    } else {
+      maxSize = 20 * 1024 * 1024
+      maxSizeLabel = "20MB"
+    }
+    if (file.size > maxSize) {
+      showToast({
+        title: "上传失败",
+        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
+      })
+      return
+    }
     readWorkspaceImage(file)
       .then((image) => {
+        if (image.width != null && image.height != null) {
+          if (image.width > 7500 || image.height > 7500) {
+            showToast({
+              title: "上传失败",
+              description: "图片最大尺寸不能超过 7500px。",
+            })
+            return
+          }
+          const minSide = capability() === "image.cutout" ? 50 : isStrictEdit ? 300 : 0
+          if (minSide > 0 && Math.min(image.width, image.height) < minSide) {
+            showToast({
+              title: "上传失败",
+              description: `图片最小边不能小于 ${minSide}px。`,
+            })
+            return
+          }
+        }
         batch(() => {
           setWorkspaceImage(image)
           setWorkspaceUploadRequested(false)
@@ -1179,7 +1265,12 @@ export default function StudioPage() {
           setSelectedImageId(undefined)
         })
       })
-      .catch((error) => console.error("[StudioPage] workspace image upload failed", error))
+      .catch((error) => {
+        showToast({
+          title: "上传失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   function deleteWorkspaceImage() {
@@ -1558,7 +1649,7 @@ export default function StudioPage() {
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
         aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? input.aspectRatio ?? aspectRatio() : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
-        imageTool: "internel",
+        imageTool: imageTool(),
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
         extra: {
@@ -1955,9 +2046,16 @@ export default function StudioPage() {
     })
   }
 
-  function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
+  async function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
     const image = workspaceEditImage()
     if (!image) return
+    let sourceUrl = image.remoteUrl ?? image.url
+
+    // Auto-adjust original image (not local upload) if exceeds limits
+    if (!workspaceImage()) {
+      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 300 })
+    }
+
     tracker.interaction({
       module: "studio",
       name: "outpaint",
@@ -1970,7 +2068,7 @@ export default function StudioPage() {
     })
     void runGeneration({
       capability: "image.outpaint",
-      sourceImage: image.remoteUrl ?? image.url,
+      sourceImage: sourceUrl,
       prompt: input.prompt || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
       extra: input.extra,
     })
@@ -1985,36 +2083,135 @@ export default function StudioPage() {
     hasDrawing: boolean
   }) {
     if (isBusy() || !input.hasDrawing) return
-    tracker.interaction({
-      module: "studio",
-      name: "inpaint",
-      extend: JSON.stringify({
-        mode: input.mode,
-        brushSize: input.brushSize,
-        hasCustomPrompt: !!input.prompt,
-        hasDrawing: input.hasDrawing,
-        isUploadedImage: !!workspaceImage(),
+
+    async function doSubmit() {
+      let sourceUrl = input.sourceImage
+      let compositeData = input.compositeImage
+
+      // Auto-adjust original image (not local upload) if exceeds limits
+      if (!workspaceImage()) {
+        sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 300 })
+
+        // Resize composite image to match if source was adjusted
+        if (sourceUrl !== input.sourceImage) {
+          compositeData = await resizeCompositeImage(input.compositeImage, sourceUrl)
+        }
+      }
+
+      tracker.interaction({
+        module: "studio",
+        name: "inpaint",
+        extend: JSON.stringify({
+          mode: input.mode,
+          brushSize: input.brushSize,
+          hasCustomPrompt: !!input.prompt,
+          hasDrawing: input.hasDrawing,
+          isUploadedImage: !!workspaceImage(),
+        }),
+      })
+      void runGeneration({
+        capability: "image.inpaint",
+        sourceImage: sourceUrl,
+        prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+        extra: {
+          generateMode: input.mode,
+          compositeImage: compositeData,
+          hasDrawing: input.hasDrawing,
+        },
+      })
+    }
+
+    void doSubmit()
+  }
+
+  async function resizeCompositeImage(rawBase64: string, targetDataUrl: string): Promise<string> {
+    const [compositeImg, targetImg] = await Promise.all([
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error("Failed to load composite image"))
+        img.src = `data:image/png;base64,${rawBase64}`
       }),
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error("Failed to load target image"))
+        img.src = targetDataUrl
+      }),
+    ])
+
+    const canvas = document.createElement("canvas")
+    canvas.width = targetImg.naturalWidth
+    canvas.height = targetImg.naturalHeight
+    const ctx = canvas.getContext("2d")!
+    ctx.drawImage(compositeImg, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL("image/png").split(",")[1] ?? rawBase64
+  }
+
+  async function adjustImageForEdit(
+    sourceUrl: string,
+    opts: { maxSize: number; maxDimension: number; minSide: number },
+  ): Promise<string> {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error("Failed to load image for adjustment"))
+      image.src = sourceUrl
     })
-    void runGeneration({
-      capability: "image.inpaint",
-      sourceImage: input.sourceImage,
-      prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
-      extra: {
-        generateMode: input.mode,
-        compositeImage: input.compositeImage,
-        hasDrawing: input.hasDrawing,
-      },
+    let w = img.naturalWidth
+    let h = img.naturalHeight
+
+    // Scale down if either dimension exceeds maxDimension
+    if (w > opts.maxDimension || h > opts.maxDimension) {
+      const scale = opts.maxDimension / Math.max(w, h)
+      w = Math.round(w * scale)
+      h = Math.round(h * scale)
+    }
+
+    // Scale up if min side is below minimum
+    if (opts.minSide > 0 && Math.min(w, h) < opts.minSide) {
+      const scale = opts.minSide / Math.min(w, h)
+      w = Math.round(w * scale)
+      h = Math.round(h * scale)
+    }
+
+    const canvas = document.createElement("canvas")
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext("2d")!
+    ctx.drawImage(img, 0, 0, w, h)
+
+    // Compress if file size exceeds maxSize
+    let quality = 0.92
+    let blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality))
+    while (blob && blob.size > opts.maxSize && quality > 0.1) {
+      quality -= 0.1
+      blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality))
+    }
+
+    if (!blob) return sourceUrl
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error("Failed to read adjusted image"))
+      reader.readAsDataURL(blob)
     })
   }
 
-  function submitHD(input: { mode: StudioHDMode }) {
+  async function submitHD(input: { mode: StudioHDMode }) {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    let sourceUrl = image.remoteUrl ?? image.url
+
+    // Auto-adjust original image (not local upload) if exceeds limits
+    if (!workspaceImage()) {
+      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 20 * 1024 * 1024, maxDimension: 7500, minSide: 0 })
+    }
+
     tracker.interaction({ module: "studio", name: "upscale", extend: JSON.stringify({ mode: input.mode, hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.upscale",
-      sourceImage: image.remoteUrl ?? image.url,
+      sourceImage: sourceUrl,
       prompt: "将当前图片变清晰，提升分辨率和细节",
       extra: {
         mode: input.mode,
@@ -2022,13 +2219,20 @@ export default function StudioPage() {
     })
   }
 
-  function submitCutout() {
+  async function submitCutout() {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    let sourceUrl = image.remoteUrl ?? image.url
+
+    // Auto-adjust original image (not local upload) if exceeds limits
+    if (!workspaceImage()) {
+      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 50 })
+    }
+
     tracker.interaction({ module: "studio", name: "cutout", extend: JSON.stringify({ hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.cutout",
-      sourceImage: image.remoteUrl ?? image.url,
+      sourceImage: sourceUrl,
       prompt: "对当前图片进行抠图，移除背景并保留主体",
     })
   }
@@ -2435,7 +2639,7 @@ export default function StudioPage() {
           </Show>
         </main>
       </Show>
-      <input ref={fileInputRef!} type="file" accept="image/*" class="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden" onChange={handleFileChange} />
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />
