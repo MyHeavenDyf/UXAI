@@ -13,6 +13,7 @@ export function StudioVideoPlayer(props: {
   src: string
   poster?: string
   class?: string
+  mount: () => HTMLElement
 }): JSX.Element {
   const [playing, setPlaying] = createSignal(false)
   const [currentTime, setCurrentTime] = createSignal(0)
@@ -46,9 +47,10 @@ export function StudioVideoPlayer(props: {
       anchorRef.style.width = `${width}px`
       anchorRef.style.height = `${height}px`
       const rect = anchorRef.getBoundingClientRect()
+      const mountRect = props.mount().getBoundingClientRect()
       setPosition({
-        top: rect.top,
-        left: rect.left,
+        top: rect.top - mountRect.top,
+        left: rect.left - mountRect.left,
         width: rect.width,
         height: rect.height,
         visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth,
@@ -87,8 +89,17 @@ export function StudioVideoPlayer(props: {
     videoRef.muted = true
   }
 
+  function exitFullscreen() {
+    setFullscreen(false)
+    setControlsVisible(true)
+  }
+
   function toggleFullscreen() {
-    setFullscreen((value) => !value)
+    if (fullscreen()) {
+      exitFullscreen()
+      return
+    }
+    setFullscreen(true)
     setControlsVisible(true)
   }
 
@@ -96,6 +107,7 @@ export function StudioVideoPlayer(props: {
     const observer = new ResizeObserver(updatePosition)
     observer.observe(anchorRef)
     if (anchorRef.parentElement) observer.observe(anchorRef.parentElement)
+    observer.observe(props.mount())
     window.addEventListener("resize", updatePosition)
     document.addEventListener("scroll", updatePosition, true)
     updatePosition()
@@ -114,7 +126,7 @@ export function StudioVideoPlayer(props: {
     on(
       () => props.src,
       () => {
-        setFullscreen(false)
+        exitFullscreen()
         setPlaying(false)
         setCurrentTime(0)
         setDuration(0)
@@ -132,17 +144,14 @@ export function StudioVideoPlayer(props: {
       queueMicrotask(updatePosition)
       return
     }
-    const overflow = document.body.style.overflow
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.preventDefault()
-      setFullscreen(false)
+      exitFullscreen()
     }
-    document.body.style.overflow = "hidden"
     document.addEventListener("keydown", onKeyDown)
     scheduleControlsHide()
     onCleanup(() => {
-      document.body.style.overflow = overflow
       document.removeEventListener("keydown", onKeyDown)
     })
   })
@@ -150,7 +159,7 @@ export function StudioVideoPlayer(props: {
   return (
     <>
       <div ref={anchorRef!} class="studio-video-player-anchor" />
-      <Portal mount={document.body}>
+      <Portal mount={props.mount()}>
         <div
           class="studio-video-player"
           classList={{
@@ -220,6 +229,18 @@ export function StudioVideoPlayer(props: {
 
           <Show when={error()}>
             <div class="studio-video-player-error" role="alert">{error()}</div>
+          </Show>
+
+          <Show when={fullscreen()}>
+            <button
+              type="button"
+              class="studio-video-player-close"
+              aria-label="退出全屏"
+              title="退出全屏"
+              onClick={exitFullscreen}
+            >
+              <CloseIcon />
+            </button>
           </Show>
 
           <div class="studio-video-player-controls">
@@ -331,6 +352,14 @@ function FullscreenIcon(props: { active: boolean }) {
       >
         <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
       </Show>
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
     </svg>
   )
 }

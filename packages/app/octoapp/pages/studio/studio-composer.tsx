@@ -1,4 +1,4 @@
-import { createMemo, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
@@ -58,10 +58,12 @@ export function StudioComposer(props: {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
+  const [composing, setComposing] = createSignal(false)
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
+  const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
 
   function handlePaste(event: ClipboardEvent) {
@@ -146,7 +148,13 @@ export function StudioComposer(props: {
               ref={inputRef}
               value={props.prompt}
               onInput={(event) => props.onPrompt(event.currentTarget.value)}
-              onKeyDown={props.onKeyDown}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && isImeComposing(event)) return
+                props.onKeyDown(event)
+              }}
+              onCompositionStart={() => setComposing(true)}
+              onCompositionEnd={() => setComposing(false)}
+              onBlur={() => setComposing(false)}
               onPaste={handlePaste}
               placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
               class="studio-composer-input"
