@@ -695,9 +695,41 @@ function PatternContent() {
     URL.revokeObjectURL(url)
   }
 
-  // 分享
+  // 分享 — 打包 JSON  为 ZIP
   async function handleShare() {
-   showToast({ title: "分享链接" })
+    const data = pendingPreviewData()
+    if (!data) {
+      showToast({ title: "暂无可分享的内容" })
+      return
+    }
+
+    const desktopApi = (window as unknown as {
+      api?: {
+        exportZip?: (opts: {
+          defaultName: string
+          files: { name: string; content: string }[]
+        }) => Promise<string | null>
+      }
+    }).api
+
+    if (!desktopApi?.exportZip) {
+      showToast({ title: "当前环境不支持导出压缩包" })
+      return
+    }
+
+    const jsonStr = typeof data === "string" ? data : JSON.stringify(data, null, 2)
+    const patternId = params.id ?? "export"
+
+    const result = await desktopApi.exportZip({
+      defaultName: `pattern-${patternId}`,
+      files: [
+        { name: `pattern-${patternId}.json`, content: jsonStr },
+      ],
+    })
+
+    if (result) {
+      showToast({ title: "已导出压缩包" })
+    }
   }
 
   async function handleLivePreview() {
