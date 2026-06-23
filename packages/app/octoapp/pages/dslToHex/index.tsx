@@ -1,15 +1,11 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
+import { STEP_A_PROMPT } from "./prompts/step-a"
+import { STEP_B_PROMPT } from "./prompts/step-b"
+import { StepAOutput, type StepPhase } from "./components/step-a-output"
+import { EditorIframe, type DslNodeChange } from "./components/editor-iframe"
 
-const LOG_FILE = "dslToHex-debug.log"
 function debugLog(...args: unknown[]) {
-  const ts = new Date().toISOString()
-  const line = args.map(a => typeof a === "object" ? JSON.stringify(a, null, 0) : String(a)).join(" ")
-  const entry = `[${ts}] ${line}\n`
-  try {
-    const existing = localStorage.getItem(LOG_FILE) ?? ""
-    localStorage.setItem(LOG_FILE, existing + entry)
-  } catch {}
   console.log("[dslToHex]", ...args)
 }
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
@@ -54,25 +50,22 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type DeltaLogEntry } from "./components/insight-turn"
+import { createArtifactParser } from "./utils/artifact-parser"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
 import type { QuestionRequest } from "@opencode-ai/sdk/v2"
-import { ResultViewer } from "./components/result-viewer/index"
-import { createTabStore } from "./components/result-viewer/tab-store"
+
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
-import { loadDesignSystem } from "./utils/design-system-loader"
-import { loadCrafts } from "./utils/craft-loader"
-import { createSnapshotStore } from "./utils/snapshot-store"
-import { VersionPanel } from "./components/result-viewer/version-panel"
+
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
-import { autoSaveArtifact } from "./utils/artifact-auto-save"
-import { persistTabChanges } from "./utils/tab-persistence"
+
+
+
 import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
@@ -292,6 +285,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
         setSending(false)
         setDeltaLog([])
+        setStepPhase("a-generating")
+        setStepAMessageId(null)
 
         if (sendingNavigation) {
           sendingNavigation = false
@@ -304,53 +299,7 @@ const sessionMessagesLoaded = createMemo(() => {
     ),
   )
 
-  // ── Annotation event listener (from DrawOverlay) ────────────────────────────────
-  createEffect(() => {
-    const handleAnnotation = async (e: Event) => {
-      const detail = (e as CustomEvent<AnnotationEventDetail>).detail
-      
-      // Convert File to Attachment (synchronously)
-      if (detail.file) {
-        const file = detail.file
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.readAsDataURL(file)
-        })
-        
-        const att: Attachment = {
-          id: crypto.randomUUID(),
-          filename: file.name,
-          mime: 'image/png',
-          dataUrl
-        }
-        setAttachments(prev => [...prev, att])
-      }
-      
-      // Build message text (note only)
-      const messageText = detail.note || ""
-      
-      // Send immediately if requested and not busy
-      if (detail.action === 'send' && !sending()) {
-        const sessionId = params.id
-        if (sessionId) {
-          await sendMessage(sessionId, messageText)
-          
-          // Clear attachments after send
-          setAttachments([])
-          setPrompt("")
-        }
-      }
-      
-      // Acknowledge success
-      if (detail.ack) {
-        detail.ack({ ok: true })
-      }
-    }
-    
-    window.addEventListener(ANNOTATION_EVENT, handleAnnotation)
-    onCleanup(() => window.removeEventListener(ANNOTATION_EVENT, handleAnnotation))
-  })
+
 
   // 调试日志：打印当前 session 相关的 SSE 事件
   createEffect(() => {
@@ -477,6 +426,236 @@ const sessionMessagesLoaded = createMemo(() => {
     return allMsgs.filter((m) => m.role === "user")
   })
 
+  const [stepAMessageId, setStepAMessageId] = createSignal<string | null>(null)
+
+  // ── 步骤阶段状态 ────────────────────────────────────────
+  const [stepPhase, setStepPhase] = createSignal<StepPhase>("a-generating")
+
+  // ── 切换 session 或 sync 数据到达时恢复 stepPhase ──────────
+  // 处理 idle 和 busy 两种状态，确保切回正在生成的 session 时恢复正确 phase
+  createEffect(() => {
+    const id = params.id
+    if (!id) return
+    const currentPhase = stepPhase()
+    if (currentPhase !== "a-generating") return
+    const status = sync.data.session_status[id] ?? { type: "idle" }
+    const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+    const allMsgs = (sync.data.message[id] ?? []) as Message[]
+    const assistantMsgs = allMsgs.filter((m) => m.role === "assistant")
+    if (assistantMsgs.length === 0) return
+    const firstAssistant = assistantMsgs[0]
+    const firstParts = partStore?.[firstAssistant.id] ?? []
+    const firstText = [...firstParts].find((p) => p.type === "text")?.text?.trim() ?? ""
+    if (firstText.includes("<artifact")) return
+    setStepAMessageId(firstAssistant.id)
+
+    if (assistantMsgs.length >= 2) {
+      if (status.type !== "idle") {
+        // Busy + 2 msgs: step B 正在生成
+        setStepPhase("b-generating")
+        return
+      }
+      // Idle + 2 msgs: 检查 step B 是否完成
+      const secondAssistant = assistantMsgs[1]
+      const secondParts = partStore?.[secondAssistant.id] ?? []
+      const secondText = [...secondParts].find((p) => p.type === "text")?.text?.trim() ?? ""
+      if (secondText.includes("<artifact")) {
+        setStepPhase("a-done")
+        return
+      }
+      let jsonCandidate = secondText
+      const mdMatch = jsonCandidate.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (mdMatch) jsonCandidate = mdMatch[1].trim()
+      try { JSON.parse(jsonCandidate) } catch { setStepPhase("a-done"); return }
+      setStepPhase("b-done")
+    } else {
+      if (status.type === "idle") {
+        // Idle + 1 msg: step A 完成，等待用户触发 step B
+        setStepPhase("a-done")
+      }
+      // Busy + 1 msg: step A 正在生成，保持 "a-generating"
+    }
+  })
+
+  const DISABLED_TOOLS = {
+    write: false,
+    edit: false,
+    apply_patch: false,
+    bash: false,
+    read: false,
+    glob: false,
+    grep: false,
+    todowrite: false,
+    websearch: false,
+    webfetch: false,
+    shell: false,
+    skill: false,
+    task: false,
+    plan_exit: false,
+    hover: false,
+    jimeng_image_generate: false,
+    internel_image_generate: false,
+  }
+
+  const stepADescription = createMemo(() => {
+    const id = params.id
+    if (!id) return ""
+    const phase = stepPhase()
+    if (phase === "b-generating" || phase === "b-done") return ""
+    const aId = stepAMessageId()
+    if (!aId) return ""
+    const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+    const parts = partStore?.[aId] ?? []
+    const textPart = [...parts].find((p) => p.type === "text")
+    if (!textPart?.text) return ""
+    const text = textPart.text.trim()
+    if (text.includes("<artifact")) return ""
+    return text
+  })
+
+  createEffect(() => {
+    const id = params.id
+    if (!id) return
+    const phase = stepPhase()
+    if (phase !== "a-generating") return
+    const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+    const allMsgs = (sync.data.message[id] ?? []) as Message[]
+    const firstAssistant = allMsgs.find((m) => m.role === "assistant")
+    if (firstAssistant) setStepAMessageId(firstAssistant.id)
+  })
+
+   const stepBRawStreamingText = createMemo(() => {
+     const id = params.id
+     if (!id) return ""
+     const phase = stepPhase()
+     if (phase !== "b-generating") return ""
+     const aId = stepAMessageId()
+     const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+     const allMsgs = (sync.data.message[id] ?? []) as Message[]
+     const stepBMsg = [...allMsgs].reverse().find((m) => m.role === "assistant" && m.id !== aId)
+     if (!stepBMsg) return ""
+     const parts = partStore?.[stepBMsg.id] ?? []
+     const textPart = [...parts].reverse().find((p) => p.type === "text")
+     if (!textPart?.text) return ""
+     let text = textPart.text.trim()
+     if (text.includes("<artifact")) {
+       const parser = createArtifactParser()
+       let artifactContent = ""
+       for (const ev of parser.feed(text)) {
+         if (ev.type === "artifact:end") artifactContent = ev.fullContent
+       }
+       for (const ev of parser.flush()) {
+         if (ev.type === "artifact:chunk") artifactContent += ev.delta
+         if (ev.type === "artifact:end") artifactContent = ev.fullContent
+       }
+       if (!artifactContent) return ""
+       text = artifactContent.trim()
+     }
+
+     const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+     if (mdMatch) text = mdMatch[1].trim()
+
+     if (!text.startsWith("{") && !text.startsWith("[")) {
+       const startBrace = text.indexOf("{")
+       const startBracket = text.indexOf("[")
+       const start = startBrace === -1 ? startBracket : startBracket === -1 ? startBrace : Math.min(startBrace, startBracket)
+       if (start === -1) return ""
+       text = text.slice(start)
+     }
+
+     return text
+   })
+
+   const stepBDslJson = createMemo(() => {
+     const id = params.id
+     if (!id) return ""
+     const phase = stepPhase()
+      if (phase !== "b-generating" && phase !== "b-done" && phase !== "c-generating" && phase !== "c-done") return ""
+     const aId = stepAMessageId()
+     const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
+     const allMsgs = (sync.data.message[id] ?? []) as Message[]
+     const stepBMsg = [...allMsgs].reverse().find((m) => m.role === "assistant" && m.id !== aId)
+     if (!stepBMsg) return ""
+     const parts = partStore?.[stepBMsg.id] ?? []
+     const textPart = [...parts].reverse().find((p) => p.type === "text")
+     if (!textPart?.text) return ""
+     let text = textPart.text.trim()
+     if (text.includes("<artifact")) {
+       const parser = createArtifactParser()
+       let artifactContent = ""
+       for (const ev of parser.feed(text)) {
+         if (ev.type === "artifact:end") artifactContent = ev.fullContent
+       }
+       for (const ev of parser.flush()) {
+         if (ev.type === "artifact:end") artifactContent = ev.fullContent
+       }
+       if (!artifactContent) return ""
+       text = artifactContent.trim()
+     }
+
+     // Strip markdown code blocks (greedy to handle nested)
+     const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+     if (mdMatch) text = mdMatch[1].trim()
+
+     // Extract JSON object/array from text
+     if (!text.startsWith("{") && !text.startsWith("[")) {
+       const startBrace = text.indexOf("{")
+       const startBracket = text.indexOf("[")
+       const start = startBrace === -1 ? startBracket : startBracket === -1 ? startBrace : Math.min(startBrace, startBracket)
+       if (start === -1) return ""
+       const openChar = text[start]
+       const closeChar = openChar === "{" ? "}" : "]"
+       let depth = 0
+       let end = -1
+       for (let i = start; i < text.length; i++) {
+         if (text[i] === openChar) depth++
+         if (text[i] === closeChar) depth--
+         if (depth === 0) { end = i + 1; break }
+       }
+       if (end === -1) return ""
+       text = text.slice(start, end)
+     }
+
+     // Verify it's valid JSON
+     try { JSON.parse(text) } catch { return "" }
+     return text
+   })
+
+  // ── iframe 节点编辑（用户在编辑器中修改的属性） ──────────────
+  const [dslNodeEdits, setDslNodeEdits] = createStore<Record<number, Record<string, string>>>({})
+
+  function handleDslNodeChange(change: DslNodeChange) {
+    setDslNodeEdits(change.nid, (prev) => ({ ...prev, ...change.changes }))
+  }
+
+  // 清空编辑：session 切换或 step B 重新生成时
+  createEffect(on(() => params.id, () => setDslNodeEdits({})))
+  createEffect(on(() => stepPhase() === "b-generating", (isGenerating) => {
+    if (isGenerating) setDslNodeEdits({})
+  }))
+
+  function applyNodeEdits(jsonStr: string): string {
+    const edits = dslNodeEdits
+    if (!jsonStr || Object.keys(edits).length === 0) return jsonStr
+    try {
+      const root = JSON.parse(jsonStr)
+      function patchNode(node: Record<string, unknown>) {
+        const nid = node.nid as number
+        const edit = edits[nid]
+        if (edit) Object.assign(node, edit)
+        const children = node.children as Record<string, unknown>[] | undefined
+        if (children) for (const c of children) patchNode(c)
+      }
+      if (Array.isArray(root)) for (const n of root) patchNode(n)
+      else patchNode(root)
+      return JSON.stringify(root)
+    } catch {
+      return jsonStr
+    }
+  }
+
+  const stepBDslJsonPatched = createMemo(() => applyNodeEdits(stepBDslJson()))
+
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -488,6 +667,37 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
+
+  createEffect(() => {
+    const busy = isBusy()
+    const phase = stepPhase()
+    if (!busy) {
+      if (phase === "a-generating" && stepADescription()) setStepPhase("a-done")
+      else if (phase === "b-generating" && stepBDslJson()) setStepPhase("b-done")
+    }
+  })
+
+  async function sendStepB(text: string) {
+    const sessionId = params.id
+    if (!sessionId) return
+    setStepPhase("b-generating")
+    try {
+      const textPart: TextPartInput = { type: "text", text }
+      const modelKey = activeModelKey()
+      if (!modelKey) return
+      await sdk.client.session.prompt({
+        sessionID: sessionId,
+        agent: "octo_make",
+        system: STEP_B_PROMPT,
+        tools: DISABLED_TOOLS,
+        ...(modelKey ? { model: modelKey } : {}),
+        parts: [textPart],
+      })
+    } catch (err) {
+      console.error("[MakePage] stepB prompt failed", err)
+      setStepPhase("a-done")
+    }
+  }
 
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
@@ -717,40 +927,14 @@ const sessionMessagesLoaded = createMemo(() => {
 
   onCleanup(() => { dragCleanup?.() })
 
-  const tabStore = createTabStore()
-  const snapshotStore = createSnapshotStore(() => params.id)
-  const [showVersionPanel, setShowVersionPanel] = createSignal(false)
-  const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
-  const [snapshotVersion, setSnapshotVersion] = createSignal(0)
 
-  /** 刷新版本快照列表 */
-  function refreshSnapshots() {
-    setSnapshotList(snapshotStore.snapshots())
-    setSnapshotVersion((v) => v + 1)
-  }
 
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
-  createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
 
-  /** 处理 ResultViewer 内容编辑保存 */
-  async function handleContentChange(tabId: string, content: string) {
-    tabStore.updateTabContent(tabId, content)
-    const tab = tabStore.tabs().find((t) => t.id === tabId)
-    
-    if (tab) {
-      await persistTabChanges(tab, {
-        sessionId: params.id!,
-        projectDir: projectDir(),
-        sdkUrl: sdk.url,
-        sdkDirectory: sdk.directory || "",
-        snapshotStore: snapshotStore,
-        refreshSnapshots: refreshSnapshots,
-      })
-    }
-  }
+
+
 
   // ── session 操作 ──────────────────────────────────────────
 
@@ -776,8 +960,9 @@ const sessionMessagesLoaded = createMemo(() => {
     return undefined
   }
 
-  /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
+  /** 发送消息：组装 Step A 提示词，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string) {
+    setStepPhase("a-generating")
     try {
       const fileParts: FilePartInput[] = attachments().map((a) => ({
         type: "file",
@@ -785,71 +970,15 @@ const sessionMessagesLoaded = createMemo(() => {
         filename: a.filename,
         url: a.dataUrl,
       }))
-      let promptText = text
-
-      // Design system prompt injection (prepended as hidden context, user text preserved)
-      const dsId = selectedDesignSystem()
-      if (dsId) {
-        let dsPrefix = ""
-        try {
-          const ds = await loadDesignSystem(dsId)
-          if (!ds.design && !ds.tokens) {
-            console.warn("[MakePage] design system loaded but empty:", dsId)
-          }
-          dsPrefix = [
-            `[Design System: ${dsId}]`,
-            `The active design system is "${dsId}". Its full specification follows below.`,
-            `You MUST apply this design system to every artifact you create in this session:`,
-            `1. Paste the :root CSS custom properties block below VERBATIM as the FIRST thing inside your <style> tag`,
-            `2. Use var(--fg), var(--bg), var(--accent), var(--surface), var(--border), var(--font-display), var(--font-body), var(--radius-*), var(--elev-*) etc. throughout your CSS instead of hard-coded colors/values`,
-            `3. Follow the DESIGN.md rules for component styling, typography hierarchy, spacing, shadows, and radius`,
-            `4. Do NOT invent CSS variables that don't exist in the :root block below`,
-            `5. The design system content below is authoritative — it is not empty, use ALL of it`,
-            ``,
-            `## DESIGN.md (authoritative visual rules for ${dsId})`,
-            ``,
-            ds.design,
-            ``,
-            `## :root tokens (paste verbatim into <style>)`,
-            ``,
-            "```css",
-            ds.tokens,
-            "```",
-            "",
-            "---",
-          ].join("\n")
-        } catch (err) {
-          console.error("[MakePage] design system load failed", err)
-        }
-
-        // Craft document injection (design quality guides)
-        try {
-          const crafts = await loadCrafts(["anti-ai-slop", "typography", "color"])
-          if (crafts) {
-            dsPrefix += [
-              "",
-              "## Design Quality Guides (mandatory)",
-              "",
-              crafts,
-              "",
-              "---",
-            ].join("\n")
-          }
-        } catch (err) {
-          console.error("[MakePage] craft load failed", err)
-        }
-
-        if (dsPrefix) {
-          promptText = dsPrefix + "\n" + text
-        }
-      }
-
-      const textPart: TextPartInput = { type: "text", text: promptText }
+      const textPart: TextPartInput = { type: "text", text }
       const modelKey = activeModelKey()
       if (!modelKey) return
+      debugLog("sendMessage DISABLED_TOOLS:", DISABLED_TOOLS)
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
+        system: STEP_A_PROMPT,
+        tools: DISABLED_TOOLS,
         ...(modelKey ? { model: modelKey } : {}),
         parts: [textPart, ...fileParts],
       })
@@ -1039,76 +1168,7 @@ if (dsId) {
     if (files.length > 0) addAttachments(files)
   }
 
-  /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
-  async function handleOpenResult(card: OutputCard) {
-    // ★ Step 1: Check localStorage snapshot (edited version - highest priority)
-    const snapshots = snapshotStore.snapshots()
-    const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
-    
-    if (latestSnapshot) {
-      // Use edited version from localStorage
-      card = {
-        id: latestSnapshot.tab.id,
-        title: latestSnapshot.tab.title,
-        type: latestSnapshot.tab.type,
-        content: latestSnapshot.tab.content,
-        filePath: latestSnapshot.tab.filePath,
-        artifactIdentifier: latestSnapshot.tab.artifactIdentifier,
-        createdAt: new Date(latestSnapshot.timestamp),
-      }
-      console.log("[MakePage] Restored edited version from localStorage:", card.id)
-    } else if (card.filePath) {
-      // ★ Step 2: Load from file (original version - fallback)
-      try {
-        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
-          headers: {
-            "x-opencode-directory": sdk.directory || "",
-          },
-        })
-        if (response.ok) {
-          const data = await response.json()
-          if (data.content && typeof data.content === "string") {
-            card = { ...card, content: data.content }
-            console.log("[MakePage] Loaded from file:", card.filePath)
-          }
-        }
-      } catch (err) {
-        console.error("[MakePage] Failed to load file content:", err)
-      }
-    }
-    
-    tabStore.openTab(card)
-    if (card.artifactIdentifier?.endsWith("-composed")) {
-      tabStore.activate(card.id)
-    }
-    const tab = tabStore.tabs().find((t) => t.id === card.id)
-    
-    if (tab) {
-      await persistTabChanges(tab, {
-        sessionId: params.id!,
-        projectDir: projectDir(),
-        sdkUrl: sdk.url,
-        sdkDirectory: sdk.directory || "",
-        snapshotStore: snapshotStore,
-        refreshSnapshots: refreshSnapshots,
-      })
-    }
 
-    if (projectDir()) {
-      autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
-        console.error("[MakePage] auto-save artifact failed:", err)
-      })
-    }
-  }
-
-  /** 继续生成（追加被截断的内容作为 prompt） */
-  function handleContinue(card: OutputCard) {
-    const sid = params.id
-    if (!sid) return
-    const lastChars = card.content.slice(-300)
-    setPrompt(`请继续完成上一个设计。上次的输出在以下位置被截断：\n\`\`\`\n${lastChars}\n\`\`\`\n\n请从截断点继续，输出完整 HTML。`)
-    void handleSubmit()
-  }
 
   const questionRequest = createMemo<QuestionRequest | undefined>(() => {
     if (!params.id) return
@@ -1393,13 +1453,17 @@ if (dsId) {
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
-                        onOpenResult={handleOpenResult}
-                        onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
                         onFormSubmit={(text) => {
                           setPrompt(text)
                         }}
+                          dslJsonOverride={
+                            stepPhase() === "b-generating" ? (stepBDslJson() || stepBRawStreamingText())
+                            : stepPhase() === "b-done" || stepPhase() === "c-generating" || stepPhase() === "c-done" ? stepBDslJsonPatched()
+                            : undefined
+                          }
+                         dslJsonIsStreaming={stepPhase() === "b-generating"}
                       />
                     )}
                   </For>
@@ -1557,71 +1621,26 @@ if (dsId) {
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
-        {/* ── 右栏：ResultViewer + Version Panel ──── */}
+        {/* ── 右栏 ──── */}
         <Show when={hasContent()}>
         <div class="flex flex-col overflow-hidden" >
-          <div class="flex flex-1 min-h-0 overflow-auto">
-            <div class="flex flex-col flex-1" style="min-width:800px">
-              {/* 焦点模式 + 版本历史 切换按钮 */}
-              <div class="flex hidden items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
-                <button
-                  type="button"
-                  class="octo-focus-btn"
-                  data-active={showVersionPanel() ? "true" : undefined}
-                  onClick={() => { refreshSnapshots(); setShowVersionPanel(!showVersionPanel()) }}
-                  title="版本历史"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <circle cx="8" cy="8" r="6" />
-                    <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="octo-focus-btn"
-                  data-active={focusMode() ? "true" : undefined}
-                  onClick={() => setFocusMode(!focusMode())}
-                  title={focusMode() ? "退出焦点模式" : "焦点模式"}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <Show when={focusMode()} fallback={
-                      <>
-                        <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                        <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                        <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                        <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                      </>
-                    }>
-                      <path d="M5 5h6M5 5v6M5 5L11 11" stroke-linecap="round" stroke-linejoin="round" />
-                    </Show>
-                  </svg>
-                </button>
-              </div>
-              <ResultViewer
-                tabs={tabStore.tabs()}
-                activeId={tabStore.activeId()}
-                onActivate={tabStore.activate}
-                onClose={tabStore.closeTab}
-                onContentChange={handleContentChange}
-              />
-            </div>
-            <Show when={showVersionPanel()}>
-              <VersionPanel
-                snapshots={snapshotList()}
-                onRestore={(id) => {
-                  const tab = snapshotStore.restore(id)
-                  if (tab) {
-                    tabStore.openTab(tab)
-                  }
-                }}
-                onRemove={(id) => {
-                  snapshotStore.remove(id)
-                  refreshSnapshots()
-                }}
-                onClose={() => setShowVersionPanel(false)}
-              />
-            </Show>
-          </div>
+          <Show when={stepPhase() === "a-generating" || stepPhase() === "a-done"}>
+            <StepAOutput
+              description={stepADescription()}
+              isGenerating={isBusy() && !stepADescription()}
+              phase={stepPhase()}
+              onConfirm={sendStepB}
+            />
+          </Show>
+          <Show when={stepPhase() === "b-generating" || stepPhase() === "b-done" || stepPhase() === "c-generating" || stepPhase() === "c-done"}>
+            <EditorIframe
+              phase={stepPhase()}
+              dslJson={stepBDslJsonPatched()}
+              onDslNodeChange={handleDslNodeChange}
+              onConfirmRender={() => setStepPhase("c-generating")}
+              onRenderDone={() => setStepPhase("c-done")}
+            />
+          </Show>
         </div>
         </Show>
       </div>

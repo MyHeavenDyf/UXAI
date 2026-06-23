@@ -4,17 +4,11 @@ import { useData } from "@opencode-ai/ui/context"
 import { useSync } from "@/context/sync"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { Button } from "@opencode-ai/ui/button"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 
 function _debugLog(...args: unknown[]) {
-  const ts = new Date().toISOString()
-  const line = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ")
-  const entry = `[${ts}] [InsightTurn] ${line}\n`
-  try {
-    const existing = localStorage.getItem("dslToHex-debug.log") ?? ""
-    localStorage.setItem("dslToHex-debug.log", existing + entry)
-  } catch {}
   console.log("[InsightTurn]", ...args)
 }
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
@@ -240,7 +234,90 @@ function formatBlockTime(secs: number): string {
   return `${m}分${s}秒`
 }
 
-// ── Internal: WaitingPill ──────────────────────────────────
+function DslJsonCard(props: { rawText: string; expanded: boolean; onToggle: () => void; isStreaming?: boolean }): JSX.Element {
+  const nodeCount = createMemo(() => {
+    try {
+      const obj = JSON.parse(props.rawText)
+      if (Array.isArray(obj)) return obj.length
+      if (obj.children) {
+        let count = 1
+        function walk(nodes: unknown[]) { for (const n of nodes) { count++; if ((n as Record<string, unknown>).children) walk((n as Record<string, unknown>).children as unknown[]) } }
+        walk(obj.children as unknown[])
+        return count
+      }
+      return 1
+    } catch {
+      return null
+    }
+  })
+  const summary = createMemo(() => {
+    const n = nodeCount()
+    if (props.isStreaming) return n !== null ? `DSL JSON · ${n} 个节点 · 生成中…` : "DSL JSON · 生成中…"
+    if (n !== null) return `DSL JSON · ${n} 个节点`
+    return "DSL JSON"
+  })
+  return (
+    <div
+      class="mx-3 mb-2"
+      style={{
+        "border-radius": "8px",
+        border: "1px solid rgba(0,0,0,0.1)",
+        background: "#f7f8fa",
+      }}
+    >
+      <button
+        type="button"
+        class="w-full flex items-center gap-2 px-3 py-2 text-left"
+        style={{ background: "transparent" }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); props.onToggle() }}
+      >
+        <Show when={props.isStreaming}>
+          <div class="shrink-0 flex items-center gap-1.5">
+            <Spinner class="size-3.5" />
+          </div>
+        </Show>
+        <Show when={!props.isStreaming}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+            style={{ transform: props.expanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", color: "#777" }}>
+            <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" />
+          </svg>
+        </Show>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ color: "#3478F6" }}>
+          <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1" />
+          <rect x="8" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1" />
+          <rect x="1" y="8" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1" />
+          <rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1" />
+        </svg>
+        <span style={{ "font-size": "12px", "font-weight": 500, color: "#191919" }}>{summary()}</span>
+      </button>
+      <Show when={props.expanded}>
+        <div
+          style={{
+            "max-height": "240px",
+            overflow: "auto",
+            "font-size": "11px",
+            "font-family": "'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace",
+            color: "#555",
+            padding: "0 12px 8px",
+            "border-top": "1px solid rgba(0,0,0,0.06)",
+            "margin-top": "0",
+            "line-height": "16px",
+          }}
+        >
+          <pre class="whitespace-pre-wrap word-break-word" style={{ margin: "0" }}>{props.rawText}</pre>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+function looksLikeJson(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return true
+  const mdMatch = trimmed.match(/```(?:json)?\s*[\s\S]*?```/)
+  if (mdMatch) return true
+  try { JSON.parse(trimmed); return true } catch { return false }
+}
 
 type SubtaskInfo = {
   taskDescription: string
@@ -517,6 +594,8 @@ export function InsightTurn(props: {
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
+  dslJsonOverride?: string
+  dslJsonIsStreaming?: boolean
 }): JSX.Element {
   const data = useData()
   const sync = useSync()
@@ -525,6 +604,7 @@ export function InsightTurn(props: {
 
   // Lifted expand state for subtasks (persists across re-renders)
   const [subtaskExpandState, setSubtaskExpandState] = createStore<Record<string, boolean>>({})
+  const [dslJsonExpanded, setDslJsonExpanded] = createSignal(false)
 
   const userText = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
@@ -1214,31 +1294,41 @@ const stateStatus = state.status as string | undefined
         </Show>
       </Show>
 
+      {/* DSL JSON 独立渲染（来自 stepBDslJsonPatched，不依赖 proseText） */}
+      <Show when={props.dslJsonOverride}>
+        <DslJsonCard rawText={props.dslJsonOverride!} expanded={dslJsonExpanded()} onToggle={() => setDslJsonExpanded(!dslJsonExpanded())} isStreaming={props.dslJsonIsStreaming} />
+      </Show>
+
       {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
       <Show when={proseSegments().length > 0}>
-        <div
-          class="mb-2 px-3 py-2"
-          style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
-        >
-          <For each={proseSegments()}>
-            {(seg) => {
-              if (seg.kind === "text") {
-                if (seg.text.trim().length === 0) return null
-                return <Markdown text={seg.text} />
-              }
-              if (seg.kind === "form") {
-                return (
+        <For each={proseSegments()}>
+          {(seg) => {
+            if (seg.kind === "text") {
+              if (seg.text.trim().length === 0) return null
+              if (looksLikeJson(seg.text)) return null
+              return (
+                <div
+                  class="mb-2 px-3 py-2"
+                  style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
+                >
+                  <Markdown text={seg.text} />
+                </div>
+              )
+            }
+            if (seg.kind === "form") {
+              return (
+                <div class="mb-2 px-3 py-2" style={{ color: "#191919", "font-size": "14px", "line-height": "22px" }}>
                   <QuickBriefFormView
                     form={seg.form}
                     interactive={!props.active && props.status.type !== "busy"}
                     submitted={formSubmitted()}
                     onSubmit={props.onFormSubmit}
                   />
-                )
-              }
-            }}
-          </For>
-        </div>
+                </div>
+              )
+            }
+          }}
+        </For>
       </Show>
 
       {/* 工具调用进度（排除 Task 工具，由子任务卡片单独展示） */}
@@ -1388,39 +1478,7 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 输出卡片（生成完成后，支持多个） */}
-      <For each={outputCards()}>
-        {(capturedCard) => (
-          <div
-            class="mb-3"
-            style={{
-              "border-radius": "12px",
-              padding: "16px 20px",
-              "margin-left": "12px",
-              "margin-right": "12px",
-              background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%)",
-              border: capturedCard.truncated ? "1px solid rgba(234,179,8,0.3)" : "1px solid rgba(0,0,0,0.1)",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => props.onOpenResult(capturedCard)}
-              class="w-full text-left transition-all"
-              style={{ background: "transparent" }}
-            >
-              <div class="flex items-center" style={{ gap: "12px" }}>
-                <span class="flex-shrink-0 flex items-center">
-                  <img src={cardTypeIconSrc(capturedCard.type)} width={28} height={28} alt="" />
-                </span>
-                <div class="flex flex-col min-w-0 flex-1" style={{ gap: "0" }}>
-                  <span class="truncate" style={{ color: "rgb(25,25,25)", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{capturedCard.title}</span>
-                  <span style={{ color: "#777", "font-size": "12px", "line-height": "22px" }}>{formatTime(capturedCard.createdAt)}</span>
-                </div>
-              </div>
-            </button>
-          </div>
-        )}
-      </For>
+
 
       {/* 产出文件列表 */}
       <Show when={!showGenerating() && producedFiles().length > 0}>
@@ -1440,53 +1498,7 @@ const stateStatus = state.status as string | undefined
         />
       </Show>
 
-      {/* 生成中的 artifact 卡片（带进度指示，支持多个）— 始终在底部 */}
-      <For each={stableStreamingCards()}>
-        {(genCard) => {
-          const isPartial = genCard.content.length === 0
-          return (
-            <div
-              class="mb-3"
-              style={{
-                "border-radius": "12px",
-                padding: "16px 20px",
-                "margin-left": "12px",
-                "margin-right": "12px",
-                background: "linear-gradient(90deg, rgba(245,248,255,1) 0%, rgba(255,255,255,1) 50%)",
-                border: "1px dashed var(--octo-brand-a25)",
-              }}
-            >
-              <div class="flex items-center" style={{ gap: "12px" }}>
-                <span class="flex-shrink-0 flex items-center">
-                  <img src={cardTypeIconSrc(genCard.type)} width={28} height={28} alt="" />
-                </span>
-                <div class="flex flex-col min-w-0 flex-1" style={{ gap: "0" }}>
-                  <span class="truncate" style={{ color: "rgb(25,25,25)", "font-size": "14px", "line-height": "22px", "font-weight": 500 }}>{genCard.title}</span>
-                  <span style={{ color: "#777", "font-size": "12px", "line-height": "22px" }}>
-                    {isPartial ? "等待内容…" : "生成中…"}
-                  </span>
-                </div>
-                <span
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium"
-                  style={{ background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}
-                >
-                  <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
-                  {isPartial ? "排队中" : "生成中"}
-                </span>
-              </div>
-            </div>
-          )
-        }}
-      </For>
 
-      {/* 已执行时间 — 仅在最新 turn 有生成中卡片时显示 */}
-      <Show when={showGenerating() && stableStreamingCards().length > 0 && props.elapsedText}>
-        <div class="mx-3 mb-3">
-          <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>
-            已执行 {props.elapsedText}
-          </span>
-        </div>
-      </Show>
 
       {/* 阻塞提示 — 渐进式显示 */}
       <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
