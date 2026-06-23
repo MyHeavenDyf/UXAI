@@ -1,9 +1,12 @@
 import { ConfigMCP } from "./mcp"
 
+// uxr-tool MCP 地址。生产环境通过 OCTO_UXR_MCP_URL 注入；未设置时回退到 beta 内网 IP。
+const UXR_MCP_URL = process.env.OCTO_UXR_MCP_URL || "http://7.192.161.60:8005/mcp"
+
 export const BUILTIN_MCP_SERVERS: Record<string, ConfigMCP.Info> = {
   "uxr-tool": {
     type: "remote",
-    url: "http://7.192.161.60:8005/mcp",
+    url: UXR_MCP_URL,
     enabled: true,
     timeout: 30000,
     // 7.x 是公司内网非标准私有 IP，isPrivateUrl 不识别 → 默认会走系统代理触发 504。
