@@ -684,10 +684,14 @@ function PatternContent() {
     URL.revokeObjectURL(url)
   }
 
-  // 分享 — 打包 JSON  为 ZIP
+  // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
-    const data = pendingPreviewData()
-    if (!data) {
+    const intent = lastIntent()
+    const planner = lastPlanner()
+    const modules = lastModules()
+    const previewData = pendingPreviewData()
+
+    if (!intent && !planner && modules.length === 0 && !previewData) {
       showToast({ title: "暂无可分享的内容" })
       return
     }
@@ -706,14 +710,20 @@ function PatternContent() {
       return
     }
 
-    const jsonStr = typeof data === "string" ? data : JSON.stringify(data, null, 2)
     const patternId = params.id ?? "export"
+    const files: { name: string; content: string }[] = []
+
+    if (intent) files.push({ name: "lastIntent.json", content: JSON.stringify(intent, null, 2) })
+    if (planner) files.push({ name: "lastPlanner.json", content: JSON.stringify(planner, null, 2) })
+    if (modules.length > 0) files.push({ name: "lastModules.json", content: JSON.stringify(modules, null, 2) })
+    if (previewData) {
+      const jsonStr = typeof previewData === "string" ? previewData : JSON.stringify(previewData, null, 2)
+      files.push({ name: `pageJson.json`, content: jsonStr })
+    }
 
     const result = await desktopApi.exportZip({
       defaultName: `pattern-${patternId}`,
-      files: [
-        { name: `pattern-${patternId}.json`, content: jsonStr },
-      ],
+      files,
     })
 
     if (result) {

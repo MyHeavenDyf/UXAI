@@ -6,7 +6,7 @@ interface CanvasViewProps {
   targetWidth: number
   targetHeight: number
   children: JSX.Element
-  ref?: (api: { reset: () => void }) => void
+  ref?: (api: { reset: () => void; setScale: (scale: number) => void }) => void
 }
 
 export function CanvasView(props: CanvasViewProps) {
@@ -14,6 +14,7 @@ export function CanvasView(props: CanvasViewProps) {
   let wrapperRef: HTMLDivElement | undefined
 
   let currentScale = 1
+  let baseScale = 1
   let posX = 0
   let posY = 0
   let rafId: number | null = null
@@ -43,14 +44,21 @@ export function CanvasView(props: CanvasViewProps) {
     const scaleY = containerHeight / props.targetHeight
     
     currentScale = Math.min(scaleX, scaleY, 1)
+    baseScale = currentScale
     posX = 0
     posY = 0
     applyTransform()
   }
 
-  // 暴露复位方法给外部
+  function setScale(scalePercent: number) {
+    currentScale = Math.min(Math.max(baseScale * scalePercent, 0.1), 5)
+    posX = 0
+    posY = 0
+    applyTransform()
+  }
+
   if (props.ref) {
-    props.ref({ reset: resetPosition })
+    props.ref({ reset: resetPosition, setScale })
   }
 
   let resizeObserver: ResizeObserver | undefined
