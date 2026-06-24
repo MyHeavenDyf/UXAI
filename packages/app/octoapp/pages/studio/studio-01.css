@@ -507,6 +507,7 @@
 }
 
 .studio-composer-tool-btn {
+  max-width: 98px;
   min-width: 70px;
   padding: 4px 10px 4px 12px;
   gap: 2px;

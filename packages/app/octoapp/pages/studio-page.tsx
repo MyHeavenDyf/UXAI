@@ -2506,6 +2506,7 @@ export default function StudioPage() {
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               videoPlayerMount={() => studioPageRef}
+              fullscreenMount={() => studioPageRef}
               status={effectiveStatus()}
               image={selectedImage()}
               result={canvasResult()}
@@ -2534,7 +2535,7 @@ export default function StudioPage() {
               {(image) => (
                 <StudioHDEditor
                   image={image()}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitHD}
                 />
@@ -2545,7 +2546,7 @@ export default function StudioPage() {
                 <StudioCutoutEditor
                   image={image()}
                   busy={isBusy()}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitCutout}
                 />
@@ -2557,7 +2558,7 @@ export default function StudioPage() {
                   image={image()}
                   aspectRatio={aspectRatio()}
                   onAspectRatio={setAspectRatio}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitOutpaint}
                 />
@@ -2568,7 +2569,7 @@ export default function StudioPage() {
                 <StudioInpaintEditor
                   image={image()}
                   busy={isBusy()}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitInpaint}
                 />
