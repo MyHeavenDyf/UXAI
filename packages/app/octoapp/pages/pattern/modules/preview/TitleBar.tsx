@@ -298,7 +298,7 @@ export function TitleBar(props: TitleBarProps) {
                         <span class="history-time">
                           {new Date(v.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
                         </span>
-                        <span class="history-summary">{v.summary}</span>
+                        <span class="history-summary" title={v.summary}>{v.summary}</span>
                       </button>
                     )}
                   </For>

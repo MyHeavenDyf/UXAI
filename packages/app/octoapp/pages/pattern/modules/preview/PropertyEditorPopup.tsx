@@ -2260,14 +2260,14 @@ function CustomSelect(props: {
       </button>
       <Show when={open()}>
         <Portal mount={document.body}>
-          <div ref={listRef} class="fixed z-[2147483646] py-1 rounded-md shadow-[0_4px_16px_rgba(0,0,0,0.12)]"
-            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px', background: '#fff' }}
+          <div ref={listRef} class="fixed z-[2147483646] py-1 rounded-lg border border-[#e5e7eb]"
+            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px', background: '#fff', 'box-shadow': '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)' }}
             onClick={() => setOpen(false)}>
             <For each={props.options}>
               {(opt) => (
                 <div
                   onClick={() => props.onChange(opt.value)}
-                  class="px-3 py-1.5 text-[12px] text-slate-700 bg-white hover:bg-[#F4F4F5] cursor-pointer whitespace-nowrap"
+                  class="px-[10px] py-[6px] text-[12px] text-slate-700 bg-white hover:bg-[#f3f4f6] cursor-pointer whitespace-nowrap"
                   classList={{ 'bg-[#E6F2FD] text-primary font-medium': opt.value === props.value }}
                 >
                   {opt.label}

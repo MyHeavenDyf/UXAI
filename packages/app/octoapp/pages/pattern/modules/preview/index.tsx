@@ -195,8 +195,8 @@ export function PreviewPage(props: {
     const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
     const rawRect = ctxMenu.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
 
-    const cx = 20
-    const cy = 115
+    const cx = 46
+    const cy = 57
 
     setPropertyEditor('show', false)
     queueMicrotask(() => {
@@ -272,6 +272,9 @@ export function PreviewPage(props: {
     if (e.data?.type === "A2UI_READY" && props.pendingData) {
       console.log("[preview] A2UI_READY, re-sending pendingData")
       sendToPreview(props.pendingData)
+      if (editing()) {
+        previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+      }
     }
   }
 
