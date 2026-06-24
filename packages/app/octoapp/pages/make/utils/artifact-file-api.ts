@@ -138,11 +138,12 @@ export async function uploadArtifactFile(
   sessionId: string,
   filename: string,
   content: string,
+  targetPath?: string,
 ): Promise<ArtifactFile> {
   const response = await fetch(`${sdkUrl}/artifact/upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
-    body: JSON.stringify({ sessionId, filename, content }),
+    body: JSON.stringify({ sessionId, filename, content, path: targetPath }),
   })
   if (!response.ok) {
     throw new Error(`Failed to upload artifact: ${response.statusText}`)
@@ -227,19 +228,34 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
-export function formatTimestamp(ms: number): string {
+export function formatTimestamp(ms: number, t: (key: string) => string): string {
   const date = new Date(ms)
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
 
   if (date >= today) {
-    return `Today ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+    return `${t("designFiles.timeToday")} ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
   }
   if (date >= yesterday) {
-    return `Yesterday ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+    return `${t("designFiles.timeYesterday")} ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
   }
   return date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" })
+}
+
+export function formatTimeAgo(ms: number): string {
+  const now = Date.now()
+  const diff = now - ms
+  
+  const seconds = Math.floor(diff / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+  
+  if (days > 0) return `修改于 ${days} 天之前`
+  if (hours > 0) return `修改于 ${hours} 小时之前`
+  if (minutes > 0) return `修改于 ${minutes} 分钟之前`
+  return `修改于 ${seconds} 秒之前`
 }
 
 export function artifactFileToOutputCard(file: ArtifactFile): OutputCard {
@@ -249,6 +265,11 @@ export function artifactFileToOutputCard(file: ArtifactFile): OutputCard {
   if (ext === "svg") type = "svg"
   else if (ext === "md" || ext === "markdown") type = "markdown-document"
   else if (ext === "json") type = "json"
+  else if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) type = "image"
+  else if (["mp4", "webm", "mov", "avi"].includes(ext)) type = "video"
+  else if (["mp3", "wav", "ogg", "m4a", "flac"].includes(ext)) type = "audio"
+  else if (ext === "pdf") type = "pdf"
+  else if (["txt", "js", "ts", "css", "jsx", "tsx"].includes(ext)) type = "text"
 
   return {
     id: file.path,
@@ -276,11 +297,12 @@ export function getArtifactServeUrl(
 }
 
 export function getArtifactRelativePath(filePath: string): { sessionId: string; relativePath: string } | null {
+  const normalized = filePath.replace(/\\/g, "/")
   const artifactBase = ".octo/artifacts/make/"
-  const idx = filePath.indexOf(artifactBase)
+  const idx = normalized.indexOf(artifactBase)
   if (idx === -1) return null
   
-  const afterBase = filePath.slice(idx + artifactBase.length)
+  const afterBase = normalized.slice(idx + artifactBase.length)
   const slashIdx = afterBase.indexOf("/")
   if (slashIdx === -1) return null
   
@@ -288,4 +310,13 @@ export function getArtifactRelativePath(filePath: string): { sessionId: string; 
   const relativePath = afterBase.slice(slashIdx + 1)
   
   return { sessionId, relativePath }
+}
+
+export function pathToLocalUrl(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/")
+  return `local:///${normalized}`
+}
+
+export function isElectronDesktop(): boolean {
+  return typeof window !== "undefined" && typeof (window as any).api !== "undefined"
 }

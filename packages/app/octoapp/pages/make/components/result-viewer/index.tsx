@@ -11,6 +11,11 @@ import { DeckRenderer } from "./deck-renderer"
 import { SvgRenderer } from "./svg-renderer"
 import { ReactComponentRenderer } from "./react-component-renderer"
 import { DiagramRenderer } from "./diagram-renderer"
+import { ImageRenderer } from "./image-renderer"
+import { VideoRenderer } from "./video-renderer"
+import { AudioRenderer } from "./audio-renderer"
+import { PdfRenderer } from "./pdf-renderer"
+import { TextRenderer } from "./text-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
@@ -65,6 +70,9 @@ export function ResultViewer(props: {
   viewMode: "tabs" | "files"
   onViewModeChange: (mode: "tabs" | "files") => void
   onAddArtifactToSession?: (file: ArtifactFile) => void
+  onRemoveAttachmentsByPath?: (paths: string[]) => void
+  onRenameTabByPath?: (oldPath: string, newPath: string, newTitle: string) => void
+  onRenameAttachmentPath?: (oldPath: string, newPath: string, newFilename: string) => void
   sdkDirectory?: string
   focusMode?: boolean
   onFocusModeToggle?: () => void
@@ -142,6 +150,24 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
     props.onViewModeChange("tabs")
   }
 
+  const handleCloseTabsByPath = (paths: string[]) => {
+    const normalizedPaths = paths.map(p => p.replace(/\\/g, "/"))
+    const pathSet = new Set(normalizedPaths)
+    
+    for (const tab of props.tabs) {
+      const normalizedAbsolute = tab.absoluteFilePath?.replace(/\\/g, "/")
+      if (normalizedAbsolute && pathSet.has(normalizedAbsolute)) {
+        props.onClose(tab.id)
+        continue
+      }
+      
+      const normalizedFile = tab.filePath?.replace(/\\/g, "/")
+      if (normalizedFile && pathSet.has(normalizedFile)) {
+        props.onClose(tab.id)
+      }
+    }
+  }
+
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
@@ -163,6 +189,10 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
               sessionId={sid()}
               onOpenFile={handleOpenArtifactFile}
               onAddToSession={props.onAddArtifactToSession}
+              onCloseTabsByPath={handleCloseTabsByPath}
+              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+              onRenameTabByPath={props.onRenameTabByPath}
+              onRenameAttachmentPath={props.onRenameAttachmentPath}
             />
           )}
         </Show>
@@ -211,7 +241,17 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                     setEditing(false)
                   }
                 }}
-                onRefresh={tab().type === "html" ? handleRefresh : undefined}
+                onRefresh={
+                  tab().type === "html" ||
+                  tab().type === "image" ||
+                  tab().type === "video" ||
+                  tab().type === "audio" ||
+                  tab().type === "pdf" ||
+                  tab().type === "svg" ||
+                  tab().type === "text"
+                    ? handleRefresh
+                    : undefined
+                }
                 focusMode={props.focusMode}
                 onFocusModeToggle={tab().type === "local-file" || tab().type === "html" || tab().type === "svg" ? props.onFocusModeToggle : undefined}
               />
@@ -265,10 +305,9 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                     <DeckRenderer content={tab().content} />
                   </Match>
                   <Match when={tab().type === "svg"}>
-                    <SvgRenderer
-                      content={tab().content}
-                      mode={getHtmlMode(tab().id)}
-                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                    <iframe
+                      src={`local:///${tab().filePath?.replace(/\\/g, '/')}?v=${refreshKey()}`}
+                      style={{ width: "100%", height: "100%", border: "none" }}
                     />
                   </Match>
                   <Match when={tab().type === "react-component"}>
@@ -279,6 +318,21 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                       src={`local:///${tab().absoluteFilePath?.replace(/\\/g, '/')}`}
                       style={{ width: "100%", height: "100%", border: "none" }}
                     />
+                  </Match>
+                  <Match when={tab().type === "image"}>
+                    <ImageRenderer filePath={tab().filePath!} refreshKey={refreshKey()} />
+                  </Match>
+                  <Match when={tab().type === "video"}>
+                    <VideoRenderer filePath={tab().filePath!} refreshKey={refreshKey()} />
+                  </Match>
+                  <Match when={tab().type === "audio"}>
+                    <AudioRenderer filePath={tab().filePath!} refreshKey={refreshKey()} />
+                  </Match>
+                  <Match when={tab().type === "pdf"}>
+                    <PdfRenderer filePath={tab().filePath!} refreshKey={refreshKey()} />
+                  </Match>
+                  <Match when={tab().type === "text"}>
+                    <TextRenderer filePath={tab().filePath!} refreshKey={refreshKey()} />
                   </Match>
                 </Switch>
               </div>

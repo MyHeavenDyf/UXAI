@@ -24,6 +24,9 @@ export async function persistTabChanges(
   tab: ResultTab,
   options: PersistenceOptions
 ): Promise<void> {
+  const skipPersist = ["image", "video", "audio", "pdf", "svg", "text"].includes(tab.type)
+  if (skipPersist) return
+
   // 1. Save localStorage snapshot (always)
   options.snapshotStore.save(tab)
   options.refreshSnapshots()

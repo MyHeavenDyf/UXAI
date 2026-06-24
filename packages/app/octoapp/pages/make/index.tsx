@@ -74,7 +74,7 @@ import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
-import { autoSaveArtifact } from "./utils/artifact-auto-save"
+import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { persistTabChanges } from "./utils/tab-persistence"
 import { useMakeCommands } from "./use-make-commands"
 
@@ -1237,6 +1237,24 @@ if (dsId) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  /** 根据文件路径移除附件（用于删除文件时清理） */
+  function removeAttachmentsByPath(paths: string[]) {
+    const normalizedPaths = new Set(paths.map(p => p.replace(/\\/g, "/")))
+    setAttachments((prev) => prev.filter((a) => {
+      if (!a.path) return true
+      return !normalizedPaths.has(a.path.replace(/\\/g, "/"))
+    }))
+  }
+
+  /** 根据文件路径重命名附件（用于重命名文件时更新） */
+  function renameAttachmentPath(oldPath: string, newPath: string, newFilename: string) {
+    const normalizedOld = oldPath.replace(/\\/g, "/")
+    setAttachments((prev) => prev.map((a) => {
+      if (!a.path || a.path.replace(/\\/g, "/") !== normalizedOld) return a
+      return { ...a, path: newPath, filename: newFilename }
+    }))
+  }
+
   /** 文件选择回调 */
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
@@ -1270,22 +1288,50 @@ if (dsId) {
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
     
-    // Check if card is from Design Files (filePath exists and in artifacts directory)
-    const isFromDesignFiles = card.filePath && card.filePath.includes(".octo/artifacts/make")
+    // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
+    if (!card.filePath && projectDir() && params.id) {
+      const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
+      if (saveable.includes(card.type)) {
+        const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!)
+        if (inferred.filePath) {
+          card.filePath = inferred.filePath
+          console.log("[MakePage] Inferred filePath for artifact:", inferred.filePath, "exists:", inferred.exists)
+          
+          // 如果文件不存在，先 autoSave 创建文件
+          if (!inferred.exists) {
+            await autoSaveArtifact(params.id!, card, projectDir()!)
+            console.log("[MakePage] Created new file for artifact:", inferred.filePath)
+          }
+        }
+      }
+    }
     
-    // For Design Files: try to match existing tab by title (without extension)
-    if (isFromDesignFiles) {
-      const fileTitleWithoutExt = card.title.replace(/\.[^.]+$/, '')
-      const existingTab = tabStore.tabs().find(t => t.title === fileTitleWithoutExt)
+    // ★ Step 0: 如果已有匹配的 tab（local-file 或 html），直接激活
+    if (card.filePath) {
+      const existingTab = tabStore.tabs().find(t => {
+        if (t.type === "local-file") return t.absoluteFilePath === card.filePath
+        if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
+        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
+        return false
+      })
       if (existingTab) {
         tabStore.activate(existingTab.id)
         return
       }
     }
     
+    // Check if card is from Design Files (filePath exists and in artifacts directory)
+    const isFromDesignFiles = card.filePath && card.filePath.includes(".octo/artifacts/make")
+    
     // ★ Step 1: Check localStorage snapshot (edited version - highest priority)
+    // Skip snapshot lookup for image/video/audio/pdf types (they don't have editable content)
+    const shouldLookupSnapshot = !["image", "video", "audio", "pdf", "svg"].includes(card.type)
     const snapshots = snapshotStore.snapshots()
-    const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
+    const latestSnapshot = shouldLookupSnapshot
+      ? (card.filePath
+          ? snapshots.find((s) => s.tab.filePath === card.filePath)
+          : snapshots.find((s) => s.tab.id === card.id))
+      : null
     
     if (latestSnapshot) {
       const snapshotTab = latestSnapshot.tab
@@ -1302,22 +1348,24 @@ if (dsId) {
       }
       console.log("[MakePage] Restored edited version from localStorage:", card.id)
     } else if (card.filePath) {
-      // ★ Step 2: Load from file (original version - fallback)
-      try {
-        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
-          headers: {
-            "x-opencode-directory": sdk.directory || "",
-          },
-        })
-        if (response.ok) {
-          const data = await response.json()
-          if (data.content && typeof data.content === "string") {
-            card = { ...card, content: data.content }
-            console.log("[MakePage] Loaded from file:", card.filePath)
+      const skipContentLoad = ["image", "video", "audio", "pdf", "svg"].includes(card.type)
+      if (!skipContentLoad) {
+        try {
+          const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
+            headers: {
+              "x-opencode-directory": sdk.directory || "",
+            },
+          })
+          if (response.ok) {
+            const data = await response.json()
+            if (data.content && typeof data.content === "string") {
+              card = { ...card, content: data.content }
+              console.log("[MakePage] Loaded from file:", card.filePath)
+            }
           }
+        } catch (err) {
+          console.error("[MakePage] Failed to load file content:", err)
         }
-      } catch (err) {
-        console.error("[MakePage] Failed to load file content:", err)
       }
     }
     
@@ -1328,21 +1376,17 @@ if (dsId) {
     const tab = tabStore.tabs().find((t) => t.id === card.id)
     
     if (tab) {
-      await persistTabChanges(tab, {
-        sessionId: params.id!,
-        projectDir: projectDir(),
-        sdkUrl: sdk.url,
-        sdkDirectory: sdk.directory || "",
-        snapshotStore: snapshotStore,
-        refreshSnapshots: refreshSnapshots,
-      })
-    }
-
-    // Skip autoSave if file is from Design Files panel (already exists on disk)
-    if (projectDir() && !isFromDesignFiles) {
-      autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
-        console.error("[MakePage] auto-save artifact failed:", err)
-      })
+      const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
+      if (shouldPersist) {
+        await persistTabChanges(tab, {
+          sessionId: params.id!,
+          projectDir: projectDir(),
+          sdkUrl: sdk.url,
+          sdkDirectory: sdk.directory || "",
+          snapshotStore: snapshotStore,
+          refreshSnapshots: refreshSnapshots,
+        })
+      }
     }
   }
 
@@ -1998,6 +2042,9 @@ if (dsId) {
                 viewMode={resultViewMode()}
                 onViewModeChange={setResultViewMode}
                 onAddArtifactToSession={addArtifactToSession}
+                onRemoveAttachmentsByPath={removeAttachmentsByPath}
+                onRenameTabByPath={tabStore.renameTabByPath}
+                onRenameAttachmentPath={renameAttachmentPath}
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}

@@ -49,7 +49,7 @@ export default defineConfig(({ mode }) => {
         rollupOptions: {
           input: { index: "src/main/index.ts", sidecar: "src/main/sidecar.ts" },
         },
-        externalizeDeps: { include: [nodePtyPkg] },
+        externalizeDeps: { include: [nodePtyPkg], exclude: ["@opencode-ai/core"] },
       },
       plugins: [
         {

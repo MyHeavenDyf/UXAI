@@ -12,13 +12,10 @@ export { type ArtifactFile, type ArtifactFileKind, kindSortPriority }
 const VIEW_STATE_KEY_PREFIX = "octo:make:design-files:view-state:v1:"
 const DEFAULT_SORT_KEY: SortKey = "mtime"
 const DEFAULT_SORT_DIR: SortDir = "desc"
-const DEFAULT_PAGE_SIZE: number | "all" = 30
-const PAGE_SIZE_OPTIONS = [15, 30, 45, 60, "all"] as const
 
 interface PersistedViewState {
   sortKey?: SortKey
   sortDir?: SortDir
-  pageSize?: number | "all"
   kindFilter?: ArtifactFileKind[]
   groupMode?: GroupMode
 }
@@ -83,18 +80,17 @@ export type ArtifactFileStore = {
   selected: Set<string>
   sortKey: SortKey
   sortDir: SortDir
-  pageSize: number | "all"
-  page: number
   groupMode: GroupMode
   kindFilter: Set<ArtifactFileKind>
   collapsedSections: Set<string>
-  previewFile: ArtifactFile | null
   viewMode: "tabs" | "files"
   currentPath: string
 }
 
 export function createArtifactFileStore(sessionId: string) {
   const savedViewState = readViewState(sessionId)
+
+  const [previewFile, setPreviewFile] = createSignal<ArtifactFile | null>(null)
 
   const [store, setStore] = createStore<ArtifactFileStore>({
     files: [],
@@ -103,12 +99,9 @@ export function createArtifactFileStore(sessionId: string) {
     selected: new Set(),
     sortKey: savedViewState.sortKey ?? DEFAULT_SORT_KEY,
     sortDir: savedViewState.sortDir ?? DEFAULT_SORT_DIR,
-    pageSize: savedViewState.pageSize ?? DEFAULT_PAGE_SIZE,
-    page: 0,
     groupMode: savedViewState.groupMode ?? "kind",
     kindFilter: new Set(savedViewState.kindFilter ?? []),
     collapsedSections: new Set(),
-    previewFile: null,
     viewMode: "tabs",
     currentPath: "",
   })
@@ -150,26 +143,11 @@ export function createArtifactFileStore(sessionId: string) {
     })
   })
 
-  const effectivePageSize = createMemo(() =>
-    store.pageSize === "all" ? Math.max(1, sortedFiles().length) : store.pageSize,
-  )
-
-  const totalPages = createMemo(() =>
-    Math.max(1, Math.ceil(sortedFiles().length / effectivePageSize())),
-  )
-
-  const safePage = createMemo(() => Math.min(store.page, totalPages() - 1))
-
-  const pageFiles = createMemo(() =>
-    sortedFiles().slice(safePage() * effectivePageSize(), (safePage() + 1) * effectivePageSize()),
-  )
-
   const kindGroups = createMemo(() => {
     const groups = new Map<ArtifactFileKind, ArtifactFile[]>()
-    for (const file of pageFiles()) {
-      const next = groups.get(file.kind) ?? []
-      next.push(file)
-      groups.set(file.kind, next)
+    for (const file of sortedFiles()) {
+      const existing = groups.get(file.kind) ?? []
+      groups.set(file.kind, [...existing, file])
     }
     return groups
   })
@@ -183,44 +161,37 @@ export function createArtifactFileStore(sessionId: string) {
       older: [],
     }
     const thresholds = modifiedSectionThresholds(dayBoundary())
-    for (const file of pageFiles()) {
-      groups[modifiedSectionFor(file.mtime, thresholds)].push(file)
+    for (const file of sortedFiles()) {
+      const section = modifiedSectionFor(file.mtime, thresholds)
+      groups[section] = [...groups[section], file]
     }
     return groups
   })
 
-  const visibleModifiedSections = createMemo(() =>
-    MODIFIED_SECTION_ORDER.filter((section) => modifiedGroups()[section].length > 0),
-  )
-
-  const rangeStart = createMemo(() => safePage() * effectivePageSize() + 1)
-  const rangeEnd = createMemo(() => Math.min((safePage() + 1) * effectivePageSize(), sortedFiles().length))
+  const visibleModifiedSections = createMemo(() => {
+    const sections = MODIFIED_SECTION_ORDER.filter((section) => modifiedGroups()[section].length > 0)
+    return store.sortDir === "asc" ? [...sections].reverse() : sections
+  })
 
   const allPageSelected = createMemo(() =>
-    pageFiles().length > 0 && pageFiles().every((f) => store.selected.has(f.path)),
+    sortedFiles().length > 0 && sortedFiles().every((f) => store.selected.has(f.path)),
   )
 
   const somePageSelected = createMemo(() =>
-    !allPageSelected() && pageFiles().some((f) => store.selected.has(f.path)),
+    !allPageSelected() && sortedFiles().some((f) => store.selected.has(f.path)),
   )
 
   createEffect(on(
-    () => store.pageSize,
-    () => setStore("page", 0),
-  ))
-
-  createEffect(on(
     () => store.kindFilter,
-    () => setStore("page", 0),
+    () => setStore("selected", new Set()),
   ))
 
   createEffect(on(
-    [() => store.sortKey, () => store.sortDir, () => store.pageSize, () => store.kindFilter, () => store.groupMode],
+    [() => store.sortKey, () => store.sortDir, () => store.kindFilter, () => store.groupMode],
     () => {
       writeViewState(sessionId, {
         sortKey: store.sortKey,
         sortDir: store.sortDir,
-        pageSize: store.pageSize,
         kindFilter: Array.from(store.kindFilter),
         groupMode: store.groupMode,
       })
@@ -230,18 +201,14 @@ export function createArtifactFileStore(sessionId: string) {
   return {
     store,
     setStore,
+    previewFile,
     kindCounts,
     availableKinds,
     filteredFiles,
     sortedFiles,
-    pageFiles,
     kindGroups,
     modifiedGroups,
     visibleModifiedSections,
-    totalPages,
-    safePage,
-    rangeStart,
-    rangeEnd,
     allPageSelected,
     somePageSelected,
     dayBoundary,
@@ -264,14 +231,6 @@ export function createArtifactFileStore(sessionId: string) {
 
     setSortDir(dir: SortDir) {
       setStore("sortDir", dir)
-    },
-
-    setPageSize(size: number | "all") {
-      setStore("pageSize", size)
-    },
-
-    setPage(page: number) {
-      setStore("page", Math.max(0, Math.min(page, totalPages() - 1)))
     },
 
     setGroupMode(mode: GroupMode) {
@@ -317,7 +276,7 @@ export function createArtifactFileStore(sessionId: string) {
 
     selectAllPage() {
       const next = new Set(store.selected)
-      for (const file of pageFiles()) next.add(file.path)
+      for (const file of sortedFiles()) next.add(file.path)
       setStore("selected", next)
     },
 
@@ -325,9 +284,7 @@ export function createArtifactFileStore(sessionId: string) {
       setStore("selected", new Set())
     },
 
-    setPreviewFile(file: ArtifactFile | null) {
-      setStore("previewFile", file)
-    },
+    setPreviewFile,
 
     setViewMode(mode: "tabs" | "files") {
       setStore("viewMode", mode)
@@ -338,24 +295,23 @@ export function createArtifactFileStore(sessionId: string) {
       const nextSelected = new Set(store.selected)
       nextSelected.delete(path)
       setStore("selected", nextSelected)
-      if (store.previewFile?.path === path) {
-        setStore("previewFile", null)
+      if (previewFile()?.path === path) {
+        setPreviewFile(null)
       }
     },
 
     setCurrentPath(path: string) {
       setStore("currentPath", path)
-      setStore("page", 0)
-      const nextSelected = new Set(store.selected)
-      setStore("selected", nextSelected)
+      setStore("selected", new Set())
+      setPreviewFile(null)
     },
 
     navigateToFolder(folder: ArtifactFile) {
       if (!folder.isFolder) return
       const newPath = folder.relativePath
       setStore("currentPath", newPath)
-      setStore("page", 0)
       setStore("selected", new Set())
+      setPreviewFile(null)
     },
   }
 }

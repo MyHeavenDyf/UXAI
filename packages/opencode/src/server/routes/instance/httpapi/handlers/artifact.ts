@@ -232,7 +232,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
 
     const delete_ = Effect.fn("ArtifactHttpApi.delete")(function* (ctx: { query: { path: string } }) {
       const filePath = ctx.query.path
-      yield* fs.remove(filePath).pipe(Effect.catch(() => Effect.void))
+      yield* fs.remove(filePath, { recursive: true }).pipe(Effect.catch(() => Effect.void))
       return { ok: true }
     })
 
@@ -275,19 +275,30 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       for (const filePath of files) {
         const existed = yield* fs.exists(filePath).pipe(Effect.catch(() => Effect.succeed(false)))
         if (existed) {
-          yield* fs.remove(filePath).pipe(Effect.catch(() => Effect.void))
+          yield* fs.remove(filePath, { recursive: true }).pipe(Effect.catch(() => Effect.void))
           deleted++
         }
       }
       return { ok: true, deleted }
     })
 
-    const upload = Effect.fn("ArtifactHttpApi.upload")(function* (ctx: { payload: { sessionId: string; filename: string; content: string } }) {
+    const upload = Effect.fn("ArtifactHttpApi.upload")(function* (ctx: { payload: { sessionId: string; filename: string; content: string; path?: string } }) {
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
       const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
 
-      yield* fs.ensureDir(artifactDir).pipe(Effect.orDie)
+      // Resolve target directory (root or subfolder)
+      let targetDir = artifactDir
+      if (body.path && body.path.trim() !== "") {
+        // Sanitize path: reject path traversal
+        const normalizedPath = body.path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+        if (normalizedPath.includes("..") || normalizedPath.includes("~")) {
+          yield* Effect.fail(new HttpApiError.BadRequest({}))
+        }
+        targetDir = path.join(artifactDir, normalizedPath)
+      }
+
+      yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
 
       let finalFilename = body.filename
       let counter = 1
@@ -295,14 +306,14 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const baseName = path.basename(body.filename, ext)
 
       while (true) {
-        const fullPath = path.join(artifactDir, finalFilename)
+        const fullPath = path.join(targetDir, finalFilename)
         const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!fileExists) break
         finalFilename = `${baseName}-${counter}${ext}`
         counter++
       }
 
-      const fullPath = path.join(artifactDir, finalFilename)
+      const fullPath = path.join(targetDir, finalFilename)
       const contentBuffer = Buffer.from(body.content, "base64")
       yield* fs.writeFile(fullPath, contentBuffer).pipe(Effect.orDie)
 
@@ -310,10 +321,15 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const sizeNum = stat ? (typeof stat.size === "bigint" ? Number(stat.size) : stat.size) : contentBuffer.length
       const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
+      // Build relativePath: if uploaded to subfolder, include it
+      const relativePath = body.path && body.path.trim() !== ""
+        ? `${body.path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")}/${finalFilename}`
+        : finalFilename
+
       return {
         name: finalFilename,
         path: fullPath,
-        relativePath: finalFilename,
+        relativePath,
         sessionId: body.sessionId,
         kind: getKind(finalFilename),
         isFolder: false,

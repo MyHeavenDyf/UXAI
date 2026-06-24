@@ -15,7 +15,7 @@ export function Breadcrumb(props: BreadcrumbProps): JSX.Element {
       class="flex items-center gap-1 px-4 py-2 text-[12px] shrink-0"
       style={{
         background: "var(--octo-surface-page)",
-        "border-bottom": "1px solid var(--octo-border-divider)",
+        "border-top": "1px solid var(--octo-border-divider)",
       }}
     >
       <button

@@ -10,9 +10,13 @@ import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../u
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
+import { autoSaveArtifact } from "../utils/artifact-auto-save"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
+
+// 跟踪已 autoSave 的 artifact（避免重复调用）
+const autoSavedArtifacts = new Set<string>()
 
 export type DeltaLogEntry = {
   timestamp: number
@@ -28,6 +32,7 @@ export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
   | "react-component" | "diagram"
+  | "image" | "video" | "audio" | "pdf" | "text"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -1113,6 +1118,27 @@ const stateStatus = state.status as string | undefined
     }
 
     return []
+  })
+
+  // 自动保存 artifact 到磁盘（生成时立即触发，不等待用户点击）
+  createEffect(() => {
+    const cards = outputCards()
+    if (!props.projectDir) return
+    
+    for (const card of cards) {
+      if (card.filePath) continue
+      const key = card.id
+      if (autoSavedArtifacts.has(key)) continue
+      
+      const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
+      if (!saveable.includes(card.type)) continue
+      
+      autoSavedArtifacts.add(key)
+      
+      autoSaveArtifact(props.sessionID, card, props.projectDir!).catch(err => {
+        console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
+      })
+    }
   })
 
   return (

@@ -1,7 +1,7 @@
 import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
-import { getArtifactServeUrl, getArtifactRelativePath } from "../../utils/artifact-file-api"
+import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop } from "../../utils/artifact-file-api"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
@@ -204,19 +204,19 @@ createEffect(() => {
   }
 })
   
-  // Flush pending styles to HTML (Save button)
-  function flushManualEditStyleSave(): boolean {
+  // Flush pending styles to HTML (Save button) - uses iframe snapshot for ID match
+  async function flushManualEditStyleSave(): Promise<boolean> {
     const pending = manualEditPendingStyle
     const target = editTarget()
     const draft = editDraft()
     
     if (!target) return true
     
-    // ★ Use cached annotated HTML (element IDs match iframe)
-    const annotatedHtml = annotatedHtmlCache()
+    // ★ Get HTML snapshot from iframe (guaranteed ID match)
+    const html = await getIframeSnapshot()
     
     // Apply all patches (styles + text/href if changed)
-    let result: { ok: boolean; source: string; error?: string } = { ok: true, source: annotatedHtml }
+    let result: { ok: boolean; source: string; error?: string } = { ok: true, source: html }
     let hasChanges = false
     let description = "Edit styles"
     
@@ -270,6 +270,35 @@ createEffect(() => {
     
     console.error('[Edit] Flush failed:', result.error)
     return false
+  }
+  
+  // Get HTML snapshot from iframe (Promise wrapper for async usage)
+  function getIframeSnapshot(): Promise<string> {
+    return new Promise((resolve) => {
+      const iframe = iframeRef
+      if (!iframe?.contentWindow) {
+        resolve("")
+        return
+      }
+      
+      const handleSnapshot = (e: MessageEvent) => {
+        if (e.source !== iframe.contentWindow) return
+        const d = e.data
+        if (d && d.type === "od:html-snapshot") {
+          window.removeEventListener("message", handleSnapshot)
+          resolve(d.html)
+        }
+      }
+      
+      window.addEventListener("message", handleSnapshot)
+      iframe.contentWindow.postMessage({ type: "od:get-html-snapshot" }, "*")
+      
+      // Timeout fallback
+      setTimeout(() => {
+        window.removeEventListener("message", handleSnapshot)
+        resolve("")
+      }, 500)
+    })
   }
   
   // Cancel pending changes (reset iframe to original)
@@ -361,11 +390,13 @@ createEffect(() => {
       // Escape: Exit edit mode (only when editing AND editTarget is set)
       if (props.editing && editTarget() && e.key === 'Escape') {
         e.preventDefault()
-        const ok = flushManualEditStyleSave()
-        if (ok) {
-          setEditTarget(null)
-          manualEditPendingStyle = null
-        }
+        void (async () => {
+          const ok = await flushManualEditStyleSave()
+          if (ok) {
+            setEditTarget(null)
+            manualEditPendingStyle = null
+          }
+        })()
       }
     }
     
@@ -393,7 +424,17 @@ createEffect(() => {
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
 
+  const shouldUseLocalUrl = createMemo(() => {
+    return isElectronDesktop() && props.filePath
+  })
+
+  const localUrl = createMemo(() => {
+    if (!shouldUseLocalUrl()) return undefined
+    return pathToLocalUrl(props.filePath!)
+  })
+
   const shouldUseServeUrl = createMemo(() => {
+    if (isElectronDesktop()) return false  // Electron 环境优先使用 local://
     if (!props.filePath || !props.sessionId || !props.sdkUrl) return false
     const artifactInfo = getArtifactRelativePath(props.filePath)
     if (!artifactInfo) return false
@@ -411,6 +452,8 @@ createEffect(() => {
   const [serveKey, setServeKey] = createSignal(0)
 
   createEffect(on(() => props.mode, async (mode) => {
+    // Electron 环境不需要自动保存（local:// 直接读取文件）
+    if (isElectronDesktop()) return
     if (mode === "preview" && shouldUseServeUrl() && props.onSaveFile) {
       try {
         await props.onSaveFile(props.content)
@@ -484,25 +527,27 @@ createEffect(() => {
         const id = String(d.id)
         const value = String(d.value)
         
-        // ★ Use cached annotated HTML (match iframe element IDs)
-        const annotatedHtml = annotatedHtmlCache()
-        
-        // Apply text patch
-        const result = applyManualEditPatch(annotatedHtml, {
-          id: id,
-          kind: 'set-text',
-          value: value
-        })
-        
-        if (result.ok) {
-          // Remove data-od-id and save
-          const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
-          props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
-          pushHistory(cleanSource, `Edit text in-place`)
-          console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
-        } else {
-          console.error("[Edit] In-place text edit failed:", result.error)
-        }
+        // ★ Use iframe snapshot for ID match
+        void (async () => {
+          const html = await getIframeSnapshot()
+          
+          // Apply text patch
+          const result = applyManualEditPatch(html, {
+            id: id,
+            kind: 'set-text',
+            value: value
+          })
+          
+          if (result.ok) {
+            // Remove data-od-id and save
+            const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
+            props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+            pushHistory(cleanSource, `Edit text in-place`)
+            console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
+          } else {
+            console.error("[Edit] In-place text edit failed:", result.error)
+          }
+        })()
         return
       }
 
@@ -705,8 +750,8 @@ return (
             >
               <iframe
                 ref={iframeRef}
-                src={shouldUseServeUrl() ? serveUrl() : undefined}
-                srcdoc={shouldUseServeUrl() ? undefined : srcdoc()}
+                src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
+                srcdoc={shouldUseLocalUrl() || shouldUseServeUrl() ? undefined : srcdoc()}
                 sandbox="allow-scripts"
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
@@ -719,8 +764,8 @@ return (
             <div style={{ "min-width": "800px", height: "100%" }}>
               <iframe
                 ref={iframeRef}
-                src={shouldUseServeUrl() ? serveUrl() : undefined}
-                srcdoc={shouldUseServeUrl() ? undefined : srcdoc()}
+                src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
+                srcdoc={shouldUseLocalUrl() || shouldUseServeUrl() ? undefined : srcdoc()}
                 sandbox="allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
@@ -747,26 +792,49 @@ return (
                 )
               }}
               onSaveToContent={() => {
-                // Extract overrides from iframe
+                // Step 1: Get HTML snapshot from iframe (guaranteed ID match)
                 iframeRef?.contentWindow?.postMessage(
-                  { type: "od:inspect-extract" },
+                  { type: "od:get-html-snapshot" },
                   "*"
                 )
-                // Listen for response (simplified - in production would use proper async handling)
-                const handleOverrides = (e: MessageEvent) => {
+                const handleSnapshot = (e: MessageEvent) => {
                   if (e.source !== iframeRef?.contentWindow) return
                   const d = e.data
-                  if (d && d.type === "od:inspect-overrides") {
-                    console.log("[Inspect] Extracted overrides:", d.overrides)
-                    // Save overrides for reapplication after iframe reload
-                    props.onSaveOverrides?.(d.overrides)
-                    // Close inspect panel and clear state
-                    setInspectTarget(null)
-                    setSavedOverrides([])
-                    window.removeEventListener("message", handleOverrides)
+                  if (d && d.type === "od:html-snapshot") {
+                    const html = d.html
+                    // Step 2: Extract overrides from iframe
+                    iframeRef?.contentWindow?.postMessage(
+                      { type: "od:inspect-extract" },
+                      "*"
+                    )
+                    const handleOverrides = (e2: MessageEvent) => {
+                      if (e2.source !== iframeRef?.contentWindow) return
+                      const d2 = e2.data
+                      if (d2 && d2.type === "od:inspect-overrides") {
+                        const overrides = d2.overrides
+                        // Step 3: Apply overrides to snapshot (IDs match iframe)
+                        const parser = new DOMParser()
+                        const doc = parser.parseFromString(html, "text/html")
+                        for (const { elementId, prop, value } of overrides) {
+                          const el = doc.querySelector(`[data-od-id="${elementId}"]`)
+                          if (el && el instanceof HTMLElement) {
+                            el.style.setProperty(prop, value, "important")
+                          }
+                        }
+                        // Step 4: Clean IDs and save
+                        const cleanHtml = doc.documentElement.outerHTML.replace(/ data-od-id="[^"]*"/g, '')
+                        props.onContentChange?.(wrapHtmlContent(cleanHtml, props.content))
+                        // Close inspect panel
+                        setInspectTarget(null)
+                        setSavedOverrides([])
+                        window.removeEventListener("message", handleOverrides)
+                      }
+                    }
+                    window.addEventListener("message", handleOverrides)
+                    window.removeEventListener("message", handleSnapshot)
                   }
                 }
-                window.addEventListener("message", handleOverrides)
+                window.addEventListener("message", handleSnapshot)
               }}
               onClose={() => setInspectTarget(null)}
               floatingStyle={inspectPanelPosition() ?? undefined}
@@ -806,9 +874,9 @@ return (
                     "*"
                   )
                 }}
-onApplyPatch={(patch: ManualEditPatch, label: string) => {
-              const annotatedHtml = annotatedHtmlCache()
-              const result = applyManualEditPatch(annotatedHtml, patch)
+onApplyPatch={async (patch: ManualEditPatch, label: string) => {
+              const html = await getIframeSnapshot()
+              const result = applyManualEditPatch(html, patch)
               if (result.ok) {
                 const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
                 const updatedContent = wrapHtmlContent(cleanSource, props.content)
@@ -837,14 +905,14 @@ onApplyPatch={(patch: ManualEditPatch, label: string) => {
                   })
                 }}
                 onError={(message) => console.error("[Edit] Error:", message)}
-                onSaveDraft={() => {
-                  const ok = flushManualEditStyleSave()
-                  if (ok) {
-                    setEditTarget(null)
-                    manualEditPendingStyle = null
-                    manualEditPendingText = null
-                  }
-                }}
+onSaveDraft={async () => {
+                   const ok = await flushManualEditStyleSave()
+                   if (ok) {
+                     setEditTarget(null)
+                     manualEditPendingStyle = null
+                     manualEditPendingText = null
+                   }
+                 }}
                 onCancelDraft={() => {
                   cancelManualEditStyleDraft()
                   setEditTarget(null)
@@ -852,8 +920,8 @@ onApplyPatch={(patch: ManualEditPatch, label: string) => {
                   manualEditPendingText = null
                   setEditDraft(emptyManualEditDraft(props.content))
                 }}
-onExit={() => {
-  const ok = flushManualEditStyleSave()
+onExit={async () => {
+  const ok = await flushManualEditStyleSave()
   if (!ok) {
     showToast({ 
       title: "样式未保存", 
