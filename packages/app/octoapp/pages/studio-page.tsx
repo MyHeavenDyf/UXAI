@@ -171,6 +171,7 @@ export default function StudioPage() {
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
   const processedAutoAddResults = new Set<string>()
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(false)
+  const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
@@ -2124,16 +2125,17 @@ export default function StudioPage() {
     void doSubmit()
   }
 
-  async function resizeCompositeImage(rawBase64: string, targetDataUrl: string): Promise<string> {
+  async function resizeCompositeImage(sourceDataUrl: string, targetDataUrl: string): Promise<string> {
     const [compositeImg, targetImg] = await Promise.all([
       new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new Image()
         img.onload = () => resolve(img)
         img.onerror = () => reject(new Error("Failed to load composite image"))
-        img.src = `data:image/png;base64,${rawBase64}`
+        img.src = sourceDataUrl
       }),
       new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new Image()
+        img.crossOrigin = "anonymous"
         img.onload = () => resolve(img)
         img.onerror = () => reject(new Error("Failed to load target image"))
         img.src = targetDataUrl
@@ -2145,7 +2147,7 @@ export default function StudioPage() {
     canvas.height = targetImg.naturalHeight
     const ctx = canvas.getContext("2d")!
     ctx.drawImage(compositeImg, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL("image/png").split(",")[1] ?? rawBase64
+    return canvas.toDataURL("image/png")
   }
 
   async function adjustImageForEdit(
@@ -2154,6 +2156,7 @@ export default function StudioPage() {
   ): Promise<string> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image()
+      image.crossOrigin = "anonymous"
       image.onload = () => resolve(image)
       image.onerror = () => reject(new Error("Failed to load image for adjustment"))
       image.src = sourceUrl
@@ -2526,7 +2529,78 @@ export default function StudioPage() {
                 })
               }}
               onCloseTab={closeCanvasTab}
-            />
+              onUpscale={openHD}
+              onCutout={openCutout}
+              onInpaint={openInpaint}
+              onOutpaint={openOutpaint}
+              onRegenerate={regenerateCurrentResult}
+              onGenerateVideo={generateVideoFromSelectedImage}
+              showVideoGeneration={canGenerateVideo()}
+              regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+            >
+              <Show when={showStudioCanvas() && canvasResult()?.images.length}>
+                <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
+                  <button
+                    class="studio-details-toggle"
+                    onClick={() => setShowStudioDetails((v) => !v)}
+                    aria-label={showStudioDetails() ? "收起详情" : "展开详情"}
+                  />
+                  <Show when={showStudioDetails()}>
+                    <aside class="studio-details">
+                      <StudioDetails
+                        result={result()!}
+                        image={selectedImage()}
+                        selectedImageId={selectedImageId()}
+                        imageLabel={currentImageLabel()}
+                        regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                        showVideoGeneration={canGenerateVideo()}
+                        onSelectImage={(id) => {
+                          const r = result()
+                          batch(() => {
+                            setShowStudioCanvas(true)
+                            if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
+                              // 已有 tab → 只切选中
+                              setSelectedImageId(id)
+                              const imageIndex = r.images.findIndex((img) => img.id === id)
+                              const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
+                              if (tabImg && imageIndex !== -1) {
+                                setCanvasTabLabels((prev) => ({
+                                  ...prev,
+                                  [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
+                                }))
+                              }
+                              setDeletedImageIds(new Set<string>())
+                              setWorkspaceImage(undefined)
+                              setWorkspaceUploadRequested(false)
+                              setMode("preview")
+                              return
+                            }
+                            // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
+                            const first = r?.images[0]
+                            if (first) {
+                              const imageIndex = r.images.findIndex((img) => img.id === id)
+                              setSelectedImageId(id)
+                              setCanvasTabImages((prev) => [...prev, first])
+                              setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
+                              setDeletedImageIds(new Set<string>())
+                              setWorkspaceImage(undefined)
+                              setWorkspaceUploadRequested(false)
+                              setMode("preview")
+                            }
+                          })
+                        }}
+                        onRegenerate={regenerateCurrentResult}
+                        onGenerateVideo={generateVideoFromSelectedImage}
+                        onUpscale={openHD}
+                        onCutout={openCutout}
+                        onInpaint={openInpaint}
+                        onOutpaint={openOutpaint}
+                      />
+                    </aside>
+                  </Show>
+                </div>
+              </Show>
+            </StudioResultCanvas>
           }>
             <Show when={!workspaceEditImage()}>
               <StudioWorkspaceUpload onUpload={uploadWorkspaceImage} />
@@ -2584,60 +2658,6 @@ export default function StudioPage() {
           </Show>
         </section>
         </Show>
-
-          <Show when={!isEditingWorkspaceMode() && showStudioCanvas() && canvasResult()?.images.length}>
-            <aside class="studio-details">
-              <StudioDetails
-                result={result()!}
-                image={selectedImage()}
-                selectedImageId={selectedImageId()}
-                imageLabel={currentImageLabel()}
-                regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
-                showVideoGeneration={canGenerateVideo()}
-                onSelectImage={(id) => {
-                  const r = result()
-                  batch(() => {
-                    setShowStudioCanvas(true)
-                    if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
-                      // 已有 tab → 只切选中
-                      setSelectedImageId(id)
-                      const imageIndex = r.images.findIndex((img) => img.id === id)
-                      const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
-                      if (tabImg && imageIndex !== -1) {
-                        setCanvasTabLabels((prev) => ({
-                          ...prev,
-                          [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
-                        }))
-                      }
-                      setDeletedImageIds(new Set<string>())
-                      setWorkspaceImage(undefined)
-                      setWorkspaceUploadRequested(false)
-                      setMode("preview")
-                      return
-                    }
-                    // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
-                    const first = r?.images[0]
-                    if (first) {
-                      const imageIndex = r.images.findIndex((img) => img.id === id)
-                      setSelectedImageId(id)
-                      setCanvasTabImages((prev) => [...prev, first])
-                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
-                      setDeletedImageIds(new Set<string>())
-                      setWorkspaceImage(undefined)
-                      setWorkspaceUploadRequested(false)
-                      setMode("preview")
-                    }
-                  })
-                }}
-                onRegenerate={regenerateCurrentResult}
-                onGenerateVideo={generateVideoFromSelectedImage}
-                onUpscale={openHD}
-                onCutout={openCutout}
-                onInpaint={openInpaint}
-                onOutpaint={openOutpaint}
-              />
-            </aside>
-          </Show>
         </main>
       </Show>
       <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden" onChange={handleFileChange} />

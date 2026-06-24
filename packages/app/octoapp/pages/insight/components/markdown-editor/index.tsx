@@ -42,6 +42,95 @@ const TRIMMED_TOOLBAR = [
 
 const SAVE_DEBOUNCE_MS = 1000
 
+// Vditor sv 模式只内置「左源 → 右预览」单向同步滚动(见 spec §6.6),补「右预览 → 左源」做双向。
+//
+// 核心难点:Vditor 正向监听(左滚→写右)**无条件、无节流**。拖右栏时,我反向写左 → 触发它 →
+// 它又按(有异步滞后的)左栏值回写右栏,和你正在拖的右栏打架 → 闪烁。
+//
+// 解法:拖右栏期间**拦掉 Vditor 对右栏 scrollTop 的回写**。原理 —— 用户拖拽/滚轮是引擎层改
+// scrollTop,**不走 JS setter**;只有 Vditor 的 `pv.scrollTop=` 走 setter。给右栏元素的 scrollTop
+// setter 做实例级覆盖,在「用户正驱动右栏」的时间窗内丢弃写入 → 右栏由用户独占、不被拽,不闪。
+//
+// 「用户正驱动右栏」的判定:
+//   - 拖拽:右栏上 pointerdown 起、到 pointerup 止(整段按住都算,即便滑到顶/底不再产生 scroll 事件)
+//   - 滚轮/触摸惯性:右栏 wheel 起、到最后一次滚动后 200ms
+// 左栏发生手势则释放动量锁(让 Vditor 正向同步接管;拖拽以 pointerup 收尾)。反向用 Vditor 公式的逆。
+//
+// 早期 bug:只靠 scroll 事件续锁 → 拖到顶/底滚动事件停发、锁过期,再拖回来左栏就不同步了。
+// 故拖拽必须靠 pointerdown/up 维持锁,不依赖 scroll 事件。
+function setupScrollSync(sv: HTMLElement, pv: HTMLElement): () => void {
+  const GRACE_MS = 200
+  let pvDragging = false
+  let pvMomentumUntil = 0
+  let activeUp: (() => void) | undefined
+  const pvLocked = () => pvDragging || performance.now() < pvMomentumUntil
+
+  const endDrag = () => {
+    pvDragging = false
+    if (activeUp) {
+      window.removeEventListener("pointerup", activeUp)
+      window.removeEventListener("pointercancel", activeUp)
+      window.removeEventListener("blur", activeUp)
+      activeUp = undefined
+    }
+  }
+  const onPvPointerDown = () => {
+    pvDragging = true
+    activeUp = endDrag
+    // pointerup/cancel + 窗口失焦兜底:任一收尾,避免拖拽在窗口外松开/被取消导致锁卡死
+    window.addEventListener("pointerup", activeUp)
+    window.addEventListener("pointercancel", activeUp)
+    window.addEventListener("blur", activeUp)
+  }
+  const onPvWheel = () => (pvMomentumUntil = performance.now() + GRACE_MS)
+  const onSvGesture = () => (pvMomentumUntil = 0) // 左栏手势释放动量锁(拖拽由 pointerup 收尾)
+
+  pv.addEventListener("pointerdown", onPvPointerDown)
+  pv.addEventListener("wheel", onPvWheel, { passive: true })
+  sv.addEventListener("wheel", onSvGesture, { passive: true })
+  sv.addEventListener("pointerdown", onSvGesture)
+
+  // 拦掉 Vditor 对右栏的回写(仅用户正驱动右栏时)。用户原生拖拽/滚轮不走此 setter,不受影响。
+  const desc = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!
+  Object.defineProperty(pv, "scrollTop", {
+    configurable: true,
+    get() {
+      return (desc.get as () => number).call(this)
+    },
+    set(v: number) {
+      if (pvLocked()) return // 用户正驱动右栏,丢弃 Vditor 回写,防闪
+      ;(desc.set as (n: number) => void).call(this, v)
+    },
+  })
+
+  // 反向:右栏滚动(仅用户驱动时)→ 左栏。用 Vditor 正向公式的逆,保持两向对齐一致。
+  const onPvScroll = () => {
+    if (!pvLocked()) return // 非用户驱动(Vditor 回写已被拦,这里多为残留),不反向同步
+    if (!pvDragging) pvMomentumUntil = performance.now() + GRACE_MS // 滚轮/惯性续锁(拖拽不需要)
+    const r = sv.clientHeight
+    const pvSH = pv.scrollHeight
+    const i = sv.scrollHeight - (parseFloat(sv.style.paddingBottom || "0") || 0)
+    if (i <= 0 || pvSH <= pv.clientHeight || sv.scrollHeight <= r) return
+    const P = (desc.get as () => number).call(pv)
+    let target = (P * i) / pvSH
+    if (target > r / 2) target = ((P + r) * i) / pvSH - r // 拐点支
+    target = Math.max(0, Math.min(target, sv.scrollHeight - r))
+    if (Math.abs(sv.scrollTop - target) < 2) return // 幂等,吸收取整残差
+    sv.scrollTop = target
+  }
+  pv.addEventListener("scroll", onPvScroll, { passive: true })
+
+  return () => {
+    pv.removeEventListener("pointerdown", onPvPointerDown)
+    pv.removeEventListener("wheel", onPvWheel)
+    sv.removeEventListener("wheel", onSvGesture)
+    sv.removeEventListener("pointerdown", onSvGesture)
+    pv.removeEventListener("scroll", onPvScroll)
+    endDrag() // 解绑可能仍挂着的 pointerup/cancel/blur
+    delete (pv as unknown as { scrollTop?: number }).scrollTop // 还原原型访问器
+  }
+}
+
 type SaveState = "idle" | "saving" | "saved" | "error"
 
 export function MarkdownEditor(props: {
@@ -62,6 +151,7 @@ export function MarkdownEditor(props: {
   let vditor: Vditor | undefined
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let targetPath: string | null = null
+  let scrollSyncCleanup: (() => void) | undefined
   // 编辑器初值:用 tab 已 fetch 的内容(与本地文件一致,省一次读盘)。§3.2。
   // 不再做「还原初始内容」(要回到原始版本重新从 MCP 下载即可),故无需单独快照。
   const initialContent = props.tab.content ?? ""
@@ -178,7 +268,13 @@ export function MarkdownEditor(props: {
           hljs: { style: isDark() ? "native" : "github" },
         },
         input: (val) => scheduleSave(val),
-        after: () => setReady(true),
+        after: () => {
+          setReady(true)
+          // 补「右预览 → 左源」反向同步,形成双向(Vditor 只内置左→右),见 setupScrollSync。
+          const sv = editorEl?.querySelector<HTMLElement>(".vditor-sv")
+          const pv = editorEl?.querySelector<HTMLElement>(".vditor-preview")
+          if (sv && pv) scrollSyncCleanup = setupScrollSync(sv, pv)
+        },
       })
     })()
   })
@@ -193,6 +289,7 @@ export function MarkdownEditor(props: {
   onCleanup(() => {
     document.removeEventListener("keydown", onKeyDown)
     editorEl?.removeEventListener("click", interceptExternalLink, true)
+    scrollSyncCleanup?.()
     // 销毁前 flush 一次:防抖未触发就关闭也不丢最后编辑
     if (saveTimer) {
       clearTimeout(saveTimer)
