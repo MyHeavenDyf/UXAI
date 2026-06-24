@@ -429,6 +429,9 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
+  // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
+  // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
+  const [composing, setComposing] = createSignal(false)
   // 记录当前输入框文本「来自哪个预置胶囊」,用于把 preset 点击 → 实际发送的漏斗打通。
   // 点胶囊时 set;输入框被清空(发送后 / 用户手动清空)时由下方 effect 解除关联,避免误把后续新文本算到该预置头上。
   const [activePreset, setActivePreset] = createSignal<{ id: string; text: string } | null>(null)
@@ -963,10 +966,19 @@ function InsightContent() {
     })
   }
 
+  // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
+  // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
+  function handleCompositionStart() {
+    setComposing(true)
+  }
+  function handleCompositionEnd() {
+    setComposing(false)
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
-    // 输入法合成期间(如拼音 "nh" 待选)的回车用于确认候选词,不应触发发送
-    // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
-    if (e.isComposing || e.keyCode === 229) return
+    // 输入法合成期间(如拼音 "nh" 待选)的回车用于确认候选词,不应触发发送。
+    // 三重判定兼容各平台:isComposing(标准)/ composing()(macOS 确认回车的兜底)/ keyCode 229
+    if (e.isComposing || composing() || e.keyCode === 229) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       void handleSubmit("enter")
@@ -1192,6 +1204,9 @@ function InsightContent() {
     return []
   }
 
+  // 「查看结果」点击时本地还没有产物 → 记下待兑现的 taskId,异步查询拿回文件后由下方 effect 打开
+  const [pendingOpenTaskId, setPendingOpenTaskId] = createSignal<string | null>(null)
+
   function handleTaskOpenResult(taskId: string) {
     const card = taskCards().get(taskId)
     if (!card) {
@@ -1200,7 +1215,16 @@ function InsightContent() {
     }
     const ocs = buildOutputCardsFromTask(card)
     if (ocs.length === 0) {
-      console.warn("[octo:task] openResult: no result yet", { taskId, status: card.status })
+      // completed 但本地无交付物:典型场景是「对已完成任务点过终止」,拿回的是 stop_task 控制响应而非文件,
+      // 用户也从未调过 get_task_result。此时主动发起一次查询,产物到达后由 pendingOpen effect 兑现打开,
+      // 而不是让右侧栏空白或显示控制文案。(需求 #72)
+      console.warn("[octo:task] openResult: no deliverable yet, querying", { taskId, status: card.status })
+      const sid = params.id
+      if (sid && card.status === "completed" && !isBusy()) {
+        setPendingOpenTaskId(taskId)
+        tracker.interaction({ module: "insight", name: "task-open-result", extend: JSON.stringify({ taskId, deferred: true }) })
+        void sendInjectedPrompt(sid, `查询任务 ${taskId} 的进度`, "task-open-result")
+      }
       return
     }
     console.log("[octo:task] openResult", {
@@ -1216,6 +1240,21 @@ function InsightContent() {
     tabStore.activate(openedIds[0])
     revealPanel()
   }
+
+  // ── 兑现「查看结果」:上面的查询返回真实产物后,把 pendingOpen 的那张任务结果打开并激活 ──
+  createEffect(() => {
+    const tid = pendingOpenTaskId()
+    if (!tid) return
+    const card = taskCards().get(tid)
+    if (!card) return
+    const ocs = buildOutputCardsFromTask(card)
+    if (ocs.length === 0) return // 仍未拿到产物,等下一次 taskCards 更新
+    setPendingOpenTaskId(null)
+    console.log("[octo:task] openResult fulfilled after query", { taskId: tid, count: ocs.length })
+    const openedIds = ocs.map((oc) => tabStore.openTab(oc))
+    tabStore.activate(openedIds[0])
+    revealPanel()
+  })
 
   // ── 自动 openTab(ResultViewer 当前为空时,把会话内所有 completed 任务的产物一次性全开;spec §8.3)──
   // 一进对话右侧栏就铺满本会话生成的全部文件(x,y,m,n…),而不是只开第一个任务、要求用户逐个叉掉
@@ -1400,6 +1439,8 @@ function InsightContent() {
                         ref={textareaRef!}
                         value={prompt()}
                         onInput={(e) => setPrompt(e.currentTarget.value)}
+                        onCompositionStart={handleCompositionStart}
+                        onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
                         placeholder="请描述您的需求..."
                         class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
@@ -1601,6 +1642,8 @@ function InsightContent() {
                     ref={textareaRef!}
                     value={prompt()}
                     onInput={(e) => setPrompt(e.currentTarget.value)}
+                    onCompositionStart={() => setComposing(true)}
+                    onCompositionEnd={() => setComposing(false)}
                     onKeyDown={handleKeyDown}
                     placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"

@@ -1,4 +1,4 @@
-import { createMemo, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
@@ -25,6 +25,7 @@ export function StudioComposer(props: {
   prompt: string
   capability: StudioCapability
   canGenerateVideo: boolean
+  canUseSeedream: boolean
   styleModel: string
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
@@ -57,10 +58,12 @@ export function StudioComposer(props: {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
+  const [composing, setComposing] = createSignal(false)
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
+  const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
 
   function handlePaste(event: ClipboardEvent) {
@@ -145,9 +148,15 @@ export function StudioComposer(props: {
               ref={inputRef}
               value={props.prompt}
               onInput={(event) => props.onPrompt(event.currentTarget.value)}
-              onKeyDown={props.onKeyDown}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && isImeComposing(event)) return
+                props.onKeyDown(event)
+              }}
+              onCompositionStart={() => setComposing(true)}
+              onCompositionEnd={() => setComposing(false)}
+              onBlur={() => setComposing(false)}
               onPaste={handlePaste}
-              placeholder={isVideoGeneration() ? undefined : props.capability === "image.upscale" ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
+              placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
               class="studio-composer-input"
               disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
             />
@@ -194,7 +203,11 @@ export function StudioComposer(props: {
           <Show when={isImageGeneration()}>
             <div class="relative">
               <Show when={isImageGeneration() && props.openMenu === "style"}>
-                <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
+                <StyleMenu
+                  value={props.styleModel}
+                  canUseSeedream={props.canUseSeedream}
+                  onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                />
               </Show>
               <ToolButton
                 label={styleModelLabel(props.styleModel)}
@@ -382,26 +395,33 @@ function CapabilityMenu(props: {
   )
 }
 
-function StyleMenu(props: { value: string; onSelect: (value: string) => void }): JSX.Element {
+function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (value: string) => void }): JSX.Element {
   return (
     <div class="studio-menu w-[414px] p-4">
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3">
-        <For each={STUDIO_STYLE_MODELS}>
-          {(item, index) => (
-            <button
-              type="button"
-              onClick={() => props.onSelect(item.id)}
-              class="studio-style-option"
-              classList={{ active: item.id === props.value }}
-            >
-              <span class={`studio-style-icon studio-style-icon-${index() + 1}`} />
-              <span class="studio-style-label">{item.label}</span>
-              <Show when={item.id === props.value}>
-                <span class="studio-style-check" />
-              </Show>
-            </button>
-          )}
+        <For each={STUDIO_STYLE_MODELS.filter((item) => item.requiresSeedreamPermission !== true || props.canUseSeedream)}>
+          {(item) => {
+            return (
+              <button
+                type="button"
+                onClick={() => props.onSelect(item.id)}
+                title={item.label}
+                class="studio-style-option"
+                classList={{ active: item.id === props.value }}
+              >
+                <span class="studio-style-icon">
+                  <Show when={item.icon}>
+                    {(icon) => <img src={icon()} alt="" aria-hidden="true" />}
+                  </Show>
+                </span>
+                <span class="studio-style-label">{item.label}</span>
+                <Show when={item.id === props.value}>
+                  <span class="studio-style-check" />
+                </Show>
+              </button>
+            )
+          }}
         </For>
       </div>
     </div>

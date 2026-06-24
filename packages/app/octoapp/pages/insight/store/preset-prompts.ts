@@ -17,31 +17,31 @@ export type PresetPrompt = {
 export const PRESET_PROMPTS: PresetPrompt[] = [
   {
     id: "key_findings",
-    label: "观点解析报告",
+    label: "观点解析",
     expectedTool: "key_findings",
     categories: ["interview"],
-    // 文案不再明示工具名,改设计师友好中文;工具映射由 agent 提示词「工具选择指南」负责(SPEC-INS-007 §3.1.2 2026-06-15 修订)
-    text: "基于上传的访谈逐字稿,解析用户观点并生成报告。",
+    // 文案在中文标签后括注英文工具名,便于用户/agent 对齐工具映射(任务 73)
+    text: "观点解析(key findings)：基于上传的逐字稿，解析用户观点。",
   },
   {
     id: "run_guide_analysis",
     label: "按提纲聚类",
     expectedTool: "run_guide_analysis",
     categories: ["interview"],
-    text: "基于上传的访谈大纲和逐字稿,聚类用户观点并生成报告。",
+    text: "按提纲聚类(run guide analysis)：基于上传的访谈大纲和逐字稿，聚类用户观点。",
   },
   {
     id: "mindmap",
     label: "思维导图",
     expectedTool: "mindmap",
     categories: ["interview"],
-    text: "基于上传的逐字稿,生成思维导图。",
+    text: "思维导图(mindmap)：基于上传的逐字稿，生成思维导图。",
   },
   {
     id: "run_usability_analysis",
-    label: "评估问题分析",
+    label: "可用性问题分析",
     expectedTool: "run_usability_analysis",
     categories: ["usability"],
-    text: "基于上传的任务书和逐字稿,做可用性测试分析并生成报告。",
+    text: "可用性问题分析(run usability analysis)：基于上传的任务书和逐字稿，分析整理可用性问题。",
   },
 ]

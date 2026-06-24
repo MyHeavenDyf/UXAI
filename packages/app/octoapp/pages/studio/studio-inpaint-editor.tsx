@@ -14,6 +14,7 @@ export function StudioInpaintEditor(props: {
   onSubmit: (input: {
     prompt: string
     mode: StudioInpaintMode
+    brushSize: number
     sourceImage: string
     compositeImage: string
     hasDrawing: boolean
@@ -244,7 +245,7 @@ export function StudioInpaintEditor(props: {
     if (!context) throw new Error("无法创建智能重绘画布")
     context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
     context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL("image/png").split(",")[1] ?? ""
+    return canvas.toDataURL("image/png")
   }
 
   function submit() {
@@ -254,6 +255,7 @@ export function StudioInpaintEditor(props: {
       props.onSubmit({
         prompt: editorPrompt().trim(),
         mode: editMode(),
+        brushSize: brushSize(),
         sourceImage: props.image.remoteUrl ?? props.image.url,
         compositeImage: createCompositeImage(),
         hasDrawing: nextHasDrawing,

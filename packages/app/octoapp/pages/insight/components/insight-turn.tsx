@@ -8,22 +8,24 @@ import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
+import { findWriteCards, basename } from "../utils/write-output"
 import { readTaskInfo, type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 
-export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html"
+export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
 
 export type OutputCard = {
   id: string
   title: string
   type: OutputCardType
-  source: "inline" | "uri"
-  content?: string          // inline 必填;uri 模式下可空(fetch 后填到 tab cache)
+  source: "inline" | "uri" | "path"
+  content?: string          // inline 必填;uri/path 模式下可空(fetch/读盘后填到 tab cache)
   uri?: string              // uri 模式必填(MCP resource_link.uri)
   mimeType?: string         // uri 模式必填(影响渲染路由)
   fileName?: string         // uri 模式来自 resource_link.name
+  filePath?: string         // path 模式必填(write 工具目标路径,见 output-renderers.md §2.6)
   description?: string      // uri 模式来自 resource_link.description,卡片副标题
   createdAt: Date
 }
@@ -68,10 +70,21 @@ export function InsightTurn(props: {
     return undefined
   })
 
-  const assistantParts = createMemo(() => {
-    const msg = assistantMsg()
-    if (!msg) return []
-    return (data.store.part as Record<string, { type: string; text?: string }[]>)?.[msg.id] ?? []
+  // 出卡扫描必须聚合本 turn 内**所有** assistant 消息的 parts,而非仅第一条:
+  // 多步 Agent(如先 read 探索→再 write)会产生多条 assistant 消息,
+  // write/resource_link 可能落在靠后的消息里;只读第一条会漏掉(见 output-renderers.md §2.6 多步 turn)。
+  const turnAssistantParts = createMemo(() => {
+    const messages = (data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? []
+    const idx = messages.findIndex((m) => m.id === props.messageID)
+    if (idx === -1) return []
+    const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
+    const out: { type: string; text?: string }[] = []
+    for (let i = idx + 1; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.role === "user") break
+      if (m.role === "assistant") out.push(...(partStore?.[m.id] ?? []))
+    }
+    return out
   })
 
   // 用户上传的文件:从本 turn user 消息的 synthetic 上传块解析。
@@ -98,14 +111,15 @@ export function InsightTurn(props: {
 
   // 同 turn 的 OutputCard 列表(支持 0~N 张,对应 MCP completed 返回的 1~N 个 resource_link)
   // 注意:parts 必须在 showGenerating 判断之前读,确保 SolidJS 始终追踪该依赖;
-  // 若先 return [] 则 assistantParts() 从未被追踪,session idle 后 memo 不会因 parts 变化重新触发。
+  // 若先 return [] 则 turnAssistantParts() 从未被追踪,session idle 后 memo 不会因 parts 变化重新触发。
   //
   // 两类路径(spec: output-renderers.md §0):
   //   A. MCP 强契约 — resource_link part → 必出卡 / 多卡(spec: §2.5)
   //   B. 自由文本嗅探 — text part → fence/shape 兜底(spec: §2)
   // 同 turn A 命中则 B 不执行(避免重复)。
   const outputCards = createMemo((): OutputCard[] => {
-    const parts = assistantParts() as Array<{ type: string; text?: string }>
+    // 聚合本 turn 所有 assistant 消息的 parts(多步 Agent:read→write 跨消息,见 turnAssistantParts)
+    const parts = turnAssistantParts() as Array<{ type: string; text?: string }>
     const msgDate = new Date(assistantMsg()?.time?.created ?? Date.now())
     if (showGenerating()) return []
 
@@ -126,13 +140,19 @@ export function InsightTurn(props: {
     const taskId = parts.reduce<string | undefined>((acc, part) => acc ?? readTaskInfo(part)?.taskId, undefined)
     const canonical = taskId ? props.resolveTaskLinks?.(taskId) : undefined
     const links = canonical && canonical.length > 0 ? canonical : findResourceLinks(parts)
-    if (links.length > 0) {
-      console.log("[octo:card] resource_links (no task)", {
-        count: links.length,
+    // ── 路径 C:write 工具产物(强契约,零嗅探,见 output-renderers.md §2.6)──
+    // 与路径 A 并列追加(来源不重叠:A 来自 MCP resource_link,C 来自本地 write tool part)。
+    // 内容在本地磁盘,出卡阶段只带 filePath,点开时由 PathTabBody 走 SDK file.read 读盘。
+    const writes = findWriteCards(parts)
+    if (links.length > 0 || writes.length > 0) {
+      console.log("[octo:card] resource_links + writes (no task)", {
+        linkCount: links.length,
+        writeCount: writes.length,
         links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri, business_type: l.business_type })),
+        writes: writes.map((w) => ({ filePath: w.filePath, type: w.type })),
         msgID: props.messageID,
       })
-      return links.map((link, idx) => ({
+      const linkCards: OutputCard[] = links.map((link, idx) => ({
         id: `card-${props.messageID}-${idx}`,
         title: link.name || `分析结果 ${idx + 1}`,
         type: linkToOutputType(link),
@@ -143,6 +163,19 @@ export function InsightTurn(props: {
         description: link.description,
         createdAt: msgDate,
       }))
+      const writeCards: OutputCard[] = writes.map((w, idx) => {
+        const name = basename(w.filePath)
+        return {
+          id: `card-${props.messageID}-write-${idx}`,
+          title: name,
+          type: w.type,
+          source: "path" as const,
+          filePath: w.filePath,
+          fileName: name,   // 供入口卡图标按扩展名命中 + 下载默认文件名
+          createdAt: msgDate,
+        }
+      })
+      return [...linkCards, ...writeCards]
     }
 
     // ── 路径 B:自由文本嗅探(规则收紧版,spec §2.1)──

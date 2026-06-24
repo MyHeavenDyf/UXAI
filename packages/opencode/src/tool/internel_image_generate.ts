@@ -14,11 +14,13 @@ const METHOD = "POST"
 // const DEFAULT_CANCEL_TASK_URL = "http://localhost:3000/cancel_task"
 // const DEFAULT_GET_PROMPT_TAG_URL = "http://localhost:3000/get_prompt_tags"
 // const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
+// const DEFAULT_GET_HISTORY = "http://localhost:3000/get_history"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
 const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancle_task"
 const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
 const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
+const DEFAULT_GET_HISTORY = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_history"
 const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_CANCEL_TIMEOUT_MS = 15_000
@@ -35,6 +37,10 @@ type InternalStyleConfig = {
     width: number
     height: number
   }
+  targetSizes?: Partial<Record<StudioAspectRatio, {
+    width: number
+    height: number
+  }>>
   loras: Array<{
     name: string
     weight: number | string
@@ -60,6 +66,18 @@ type CreateTaskResponse = {
     id?: string | number
     [key: string]: unknown
   }
+  [key: string]: unknown
+}
+
+type HistoryTaskResponse = {
+  resp_code?: number
+  resp_msg?: string
+  result?: Array<{
+    task_id?: string | number
+    task_type?: string
+    args?: JsonRecord
+    [key: string]: unknown
+  }>
   [key: string]: unknown
 }
 
@@ -227,7 +245,7 @@ export async function checkStudioPermission(userIdx?: string): Promise<unknown> 
     method: METHOD,
     headers: internalImageHeaders(),
     body: JSON.stringify({
-      checkPermList: ["view:keling_entry"],
+      checkPermList: ["view:keling_entry", "view:jimeng_entry"],
       uid: userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
     }),
   }).catch((error) => {
@@ -371,6 +389,19 @@ function base64ToDataUrl(value: string) {
 
 function dataUrlToBase64(value: string) {
   return value.split(",")[1] ?? value
+}
+
+function isRemoteImageUrl(value: unknown): value is string {
+  return typeof value === "string" && /^https?:\/\/\S+$/i.test(value)
+}
+
+function remoteImageUrl(value: unknown) {
+  return isRemoteImageUrl(value) ? value : undefined
+}
+
+function imageUrlFromRefImage(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  return remoteImageUrl((value as JsonRecord).image_base64)
 }
 
 function isRenderableImageUrl(url: string) {
@@ -641,6 +672,57 @@ async function queryTask(
   return parseJson(text) as QueryTaskResponse
 }
 
+async function getHistoryTasks(
+  historyUrl: string,
+  userIdx: string,
+  timeoutMs: number,
+) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const response = await fetch(historyUrl, {
+    method: METHOD,
+    headers: internalImageHeaders(),
+    body: JSON.stringify({
+      user: { idx: userIdx },
+      page_idx: 1,
+      page_size: 10,
+      task_media_type: "all",
+    }),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "get_history network failed.",
+        `url=${historyUrl}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => clearTimeout(timeout))
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "get_history failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  const json = parseJson(text) as HistoryTaskResponse
+  if (json.resp_code !== 200) {
+    throw new Error(
+      [
+        "get_history returned business failure.",
+        `resp_code=${json.resp_code ?? ""}`,
+        `resp_msg=${json.resp_msg ?? ""}`,
+        `body=${JSON.stringify(json, null, 2)}`,
+      ].join("\n"),
+    )
+  }
+  return Array.isArray(json.result) ? json.result : []
+}
+
 export async function cancelInternalGeneration(taskId: string): Promise<CancelTaskResponse> {
   const cancelUrl = new URL(env("IMAGE_CANCEL_TASK_URL") ?? DEFAULT_CANCEL_TASK_URL)
   cancelUrl.searchParams.set("task_id", taskId)
@@ -739,6 +821,23 @@ const defaultInternalStyleConfig = {
 } satisfies InternalStyleConfig
 
 const internalStyleConfigs = [
+  {
+    aliases: ["Seedream 5.0 Lite", "seedream-5-lite"],
+    config: {
+      ...defaultInternalStyleConfig,
+      taskType: "txt2img_jimeng",
+      tagName: "Seedream 5.0 Lite",
+      targetSizes: {
+        "1:1": { width: 2048, height: 2048 },
+        "2:3": { width: 1664, height: 2496 },
+        "3:4": { width: 1728, height: 2304 },
+        "9:16": { width: 1600, height: 2848 },
+        "3:2": { width: 2496, height: 1664 },
+        "4:3": { width: 2304, height: 1728 },
+        "16:9": { width: 2848, height: 1600 },
+      },
+    },
+  },
   { aliases: ["千问", "qwen", "Qwen-Image"], config: defaultInternalStyleConfig },
   {
     aliases: ["BDIcon", "bd-icon", "DBID"],
@@ -863,7 +962,7 @@ const internalStyleConfigs = [
   },
 ] satisfies Array<{ aliases: string[]; config: InternalStyleConfig }>
 
-export function getInternalStyleConfig(styleModel?: string) {
+export function getInternalStyleConfig(styleModel?: string): InternalStyleConfig {
   return (
     internalStyleConfigs.find((item) => item.aliases.some((alias) => alias.toLowerCase() === styleModel?.trim().toLowerCase()))
       ?.config ?? defaultInternalStyleConfig
@@ -944,6 +1043,12 @@ export function getTargetSizeForAspectRatio(base: { width: number; height: numbe
   return base
 }
 
+export function getInternalTargetSize(styleModel?: string, aspectRatio?: StudioAspectRatio) {
+  const config = getInternalStyleConfig(styleModel)
+  const targetSize = aspectRatio ? config.targetSizes?.[aspectRatio] : undefined
+  return targetSize ?? getTargetSizeForAspectRatio(config.targetSize, aspectRatio)
+}
+
 function buildPrompt(input: ImageGenerateInput) {
   const conversationContext =
     input.extra && typeof input.extra.conversationContext === "string" && input.extra.conversationContext.trim().length > 0
@@ -1005,9 +1110,11 @@ async function resolveImageInputDataUrl(value: string) {
   return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
 }
 
-function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
-  const refImgList = (input.referenceImages ?? [])
-    .filter((item) => item.startsWith("data:image/") && Boolean(dataUrlToBase64(item)))
+async function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const refImgList = (await Promise.all(
+    (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
+  ))
+    .filter((item): item is string => Boolean(item))
     .map((item) => ({
       ref_type: "kontext",
       image_base64: item,
@@ -1142,17 +1249,17 @@ function buildInpaintRequestBody(input: ImageGenerateInput, context: InternalReq
   const compositeImage = extraString(input, "compositeImage")
   if (!compositeImage) throw new Error("Inpaint requires a composite image base64.")
   const generateMode = extraString(input, "generateMode")
-  return {
+  return resolveImageInputDataUrl(compositeImage).then((resolvedCompositeImage) => ({
     user: { idx: context.userIdx },
     task_type: "inpainting",
     args: {
       prompt: input.prompt,
       has_drawing: input.extra?.hasDrawing === true,
-      image_base64: compositeImage.startsWith("data:image/") ? dataUrlToBase64(compositeImage) : compositeImage,
+      image_base64: dataUrlToBase64(resolvedCompositeImage),
       generate_mode: generateMode === "erase" ? "erase" : "qwen_image_edit",
       num_image: 1,
     },
-  }
+  }))
 }
 
 async function buildOutpaintRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
@@ -1186,15 +1293,124 @@ async function buildInternalRequestBody(input: ImageGenerateInput, context: Inte
   return buildTextToImageRequestBody(input, context)
 }
 
+function normalizePersistedInput(input: ImageGenerateInput) {
+  if (input.capability === "image.inpaint") {
+    return {
+      ...input,
+      sourceImage: undefined,
+    }
+  }
+  return input
+}
+
+function compactInputWithHistory(input: ImageGenerateInput, historyArgs?: JsonRecord) {
+  if (!historyArgs) return input
+  if (input.capability === "image.generate") {
+    const refImgList = Array.isArray(historyArgs.ref_img_list) ? historyArgs.ref_img_list : []
+    const referenceImages = refImgList.map(imageUrlFromRefImage).filter((item): item is string => Boolean(item))
+    return {
+      ...input,
+      referenceImages: referenceImages.length > 0 ? referenceImages : input.referenceImages,
+    }
+  }
+  if (input.capability === "video.generate") {
+    const firstFrame = remoteImageUrl(historyArgs.image)
+    const lastFrame = remoteImageUrl(historyArgs.image_tail)
+    return {
+      ...input,
+      referenceImages: [firstFrame, lastFrame].filter((item): item is string => Boolean(item)).length > 0
+        ? [firstFrame, lastFrame].filter((item): item is string => Boolean(item))
+        : input.referenceImages,
+      extra: {
+        ...(input.extra ?? {}),
+        ...(firstFrame ? { firstFrame } : {}),
+        ...(lastFrame ? { lastFrame } : {}),
+      },
+    }
+  }
+  if (input.capability === "image.upscale") {
+    return {
+      ...input,
+      sourceImage: remoteImageUrl(historyArgs.image_base64) ?? input.sourceImage,
+    }
+  }
+  if (input.capability === "image.cutout") {
+    const imageList = Array.isArray(historyArgs.image_list) ? historyArgs.image_list : []
+    return {
+      ...input,
+      sourceImage: imageList.map(imageUrlFromRefImage).find((item): item is string => Boolean(item)) ?? input.sourceImage,
+    }
+  }
+  if (input.capability === "image.inpaint") {
+    const compositeImage = remoteImageUrl(historyArgs.image_base64)
+    return {
+      ...input,
+      extra: {
+        ...(input.extra ?? {}),
+        ...(compositeImage ? { compositeImage } : {}),
+      },
+    }
+  }
+  if (input.capability === "image.outpaint") {
+    return {
+      ...input,
+      sourceImage: remoteImageUrl(historyArgs.image_base64) ?? input.sourceImage,
+    }
+  }
+  return input
+}
+
+function compactRequestWithHistory(requestBody: JsonRecord, capability: StudioCapability, historyArgs?: JsonRecord) {
+  if (!historyArgs) return requestBody
+  const next = structuredClone(requestBody) as JsonRecord
+  const args = next.args
+  if (!args || typeof args !== "object" || Array.isArray(args)) return next
+  if (capability === "image.generate") {
+    const refImgList = Array.isArray(historyArgs.ref_img_list) ? historyArgs.ref_img_list : []
+    const current = Array.isArray((args as JsonRecord).ref_img_list) ? (args as JsonRecord).ref_img_list as unknown[] : []
+    ;(args as JsonRecord).ref_img_list = current.map((item: unknown, index: number) => {
+      const url = imageUrlFromRefImage(refImgList[index])
+      if (!url || !item || typeof item !== "object" || Array.isArray(item)) return item
+      return { ...(item as JsonRecord), image_base64: url }
+    })
+    return next
+  }
+  if (capability === "video.generate") {
+    const firstFrame = remoteImageUrl(historyArgs.image)
+    const lastFrame = remoteImageUrl(historyArgs.image_tail)
+    if (firstFrame) (args as JsonRecord).image = firstFrame
+    if (lastFrame) (args as JsonRecord).image_tail = lastFrame
+    return next
+  }
+  if (capability === "image.upscale" || capability === "image.inpaint" || capability === "image.outpaint") {
+    const image = remoteImageUrl(historyArgs.image_base64)
+    if (image) (args as JsonRecord).image_base64 = image
+    return next
+  }
+  if (capability === "image.cutout") {
+    const historyImageList = Array.isArray(historyArgs.image_list) ? historyArgs.image_list : []
+    const current = Array.isArray((args as JsonRecord).image_list) ? (args as JsonRecord).image_list as unknown[] : []
+    ;(args as JsonRecord).image_list = current.map((item: unknown, index: number) => {
+      const url = imageUrlFromRefImage(historyImageList[index])
+      if (!url || !item || typeof item !== "object" || Array.isArray(item)) return item
+      return { ...(item as JsonRecord), image_base64: url }
+    })
+    return next
+  }
+  return next
+}
+
 export async function createInternalGeneration(input: ImageGenerateInput): Promise<ImageGenerationTask> {
   const capability = getStudioCapability(input)
   const toolAction = toolActionForCapability(capability)
   const createTaskUrl = env("IMAGE_CREATE_TASK_URL") ?? DEFAULT_CREATE_TASK_URL
+  const historyUrl = env("IMAGE_GET_HISTORY_URL") ?? DEFAULT_GET_HISTORY
   const userIdx = input.extra && typeof input.extra.userIdx === "string" ? input.extra.userIdx : env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX
   const ignoredReferenceImages = resolveReferenceImages(input)
   const generationMode: InternalTaskType = "txt2img"
-  const styleConfig = getInternalStyleConfig(getStudioStyleModel(input))
-  const configuredTargetSize = getTargetSizeForAspectRatio(styleConfig.targetSize, getStudioAspectRatio(input))
+  const styleModel = getStudioStyleModel(input)
+  const styleConfig = getInternalStyleConfig(styleModel)
+  const configuredTargetSize = getInternalTargetSize(styleModel, getStudioAspectRatio(input))
 
   const targetSize = {
     width: Number(input.extra && typeof input.extra.width === "number" ? input.extra.width : configuredTargetSize.width),
@@ -1226,13 +1442,24 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
 
   console.log("[studio.internel] request", JSON.stringify(redactImagePayload(debugRequest), null, 2))
   const createJson = await createTask(createTaskUrl, requestBody, createTimeoutMs)
+  const taskId = getTaskId(createJson)
+  const persistedInput = normalizePersistedInput(input)
+  const historyArgs = await getHistoryTasks(historyUrl, userIdx, createTimeoutMs)
+    .then((history) => history.find((item) => String(item.task_id ?? "") === String(taskId))?.args)
+    .catch((error) => {
+      console.warn("[studio.internel] get_history failed", error)
+      return undefined
+    })
+  const compactedInput = compactInputWithHistory(persistedInput, historyArgs)
+  const compactedRequest = compactRequestWithHistory(requestBody, capability, historyArgs)
   return {
     provider: "internel",
     model: requestTaskType,
     capability,
     toolAction,
-    taskId: getTaskId(createJson),
-    request: requestBody,
+    taskId,
+    input: compactedInput,
+    request: compactedRequest,
   }
 }
 
