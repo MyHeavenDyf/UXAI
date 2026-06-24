@@ -749,17 +749,24 @@
 .studio-canvas-floating-actions {
   position: absolute;
   left: 50%;
-  bottom: 48px;
-  height: 48px;
+  bottom: 64px;
+  height: 52px;
   display: flex;
   align-items: center;
   transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
-  border-radius: 999px;
+  border-radius: 12px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   padding: 0 6px;
   gap: 6px;
+}
+
+.studio-canvas-action-divider {
+  width: 1px;
+  height: 14px;
+  flex-shrink: 0;
+  background: #dfdfdf;
 }
 
 .studio-workspace-upload {

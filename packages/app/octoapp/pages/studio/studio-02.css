@@ -190,13 +190,13 @@
   padding: 0 18px;
   border: none;
   border-radius: 999px;
-  background: rgba(25, 25, 25, 0.05);
-  color: #191919;
+  background: transparent;
+  color: #666;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .studio-canvas-video-action::before {
@@ -204,13 +204,14 @@
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
-  background: currentColor;
+  background-color: currentColor;
   mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
   -webkit-mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
 }
 
 .studio-canvas-video-action:hover {
-  background: rgba(25, 25, 25, 0.08);
+  background: rgba(25, 25, 25, 0.06);
+  color: #191919;
 }
 
 .studio-canvas-action-group {
