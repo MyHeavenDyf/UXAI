@@ -772,6 +772,13 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
+  function handleCloseTab(id: string) {
+    tabStore.closeTab(id)
+    if (tabStore.tabs().length === 0) {
+      layout.focusMode.set(false)
+    }
+  }
+
   // ── session 操作 ──────────────────────────────────────────
 
   /** 创建新 session 并导航 */
@@ -1156,6 +1163,28 @@ if (dsId) {
   }
 
   function handleOpenLocalFile(filePath: string) {
+    // 检测 http/https URL
+    if (/^https?:\/\//i.test(filePath)) {
+      let title: string
+      try {
+        const url = new URL(filePath)
+        const pathSegments = url.pathname.split('/').filter(Boolean)
+        const lastSegment = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : ''
+        title = lastSegment ? `${url.host}/${lastSegment}` : url.host
+      } catch {
+        title = filePath
+      }
+      
+      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
+      tabStore.openLocalFileTab({
+        id: tabId,
+        title,
+        absoluteFilePath: filePath,
+        createdAt: new Date(),
+      })
+      return
+    }
+    
     const dir = projectDir()
     
     const normalizedPath = filePath.replace(/\\/g, '/')
@@ -1746,7 +1775,7 @@ if (dsId) {
                 tabs={tabStore.tabs()}
                 activeId={tabStore.activeId()}
                 onActivate={tabStore.activate}
-                onClose={tabStore.closeTab}
+                onClose={handleCloseTab}
                 onContentChange={handleContentChange}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
