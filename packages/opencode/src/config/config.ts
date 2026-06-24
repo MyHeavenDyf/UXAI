@@ -832,6 +832,20 @@ export const layer = Layer.effect(
       const before = (yield* readConfigFile(file)) ?? "{}"
       const patch = writableGlobal(config)
 
+      // 诊断日志: 写入目标文件路径 + patch 内容, 用于判断写入路径与 Provider.list 读取路径是否一致
+      console.log("[config.updateGlobal]", {
+        file,
+        patch_provider_keys: Object.keys(patch.provider ?? {}),
+        patch_opencode_options: (patch.provider as Record<string, unknown>)?.opencode
+          ? Object.keys(((patch.provider as Record<string, { options?: Record<string, unknown> }>).opencode).options ?? {})
+          : undefined,
+        patch_bpit_options: (patch.provider as Record<string, unknown>)?.bpit
+          ? Object.keys(((patch.provider as Record<string, { options?: Record<string, unknown> }>).bpit).options ?? {})
+          : undefined,
+        patch_disabled_providers: patch.disabled_providers,
+        t: Date.now(),
+      })
+
       let next: Info
       let changed: boolean
       if (!file.endsWith(".jsonc")) {
