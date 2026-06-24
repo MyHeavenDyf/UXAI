@@ -95,10 +95,9 @@ export function TitleBar(props: TitleBarProps) {
   return (
     <div class="titlebar-wrapper">
       {/* ================= 第一排：56px 业务导航 ================= */}
-      <div class="titlebar-row-first">
+      {/* <div class="titlebar-row-first">
         <div class="business-btn-group">
           
-          {/* 按钮 1：文件图标 + 右侧竖线 */}
           <div class="btn-with-divider">
             <button class="business-nav-btn btn-default">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -111,8 +110,7 @@ export function TitleBar(props: TitleBarProps) {
             </button>
             <div class="btn-vertical-divider" />
           </div>
-
-          {/* 按钮 2：浅蓝背景 + 蓝色编辑和差图标 */}
+          
           <button class="business-nav-btn btn-light-blue">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -125,7 +123,7 @@ export function TitleBar(props: TitleBarProps) {
             </svg>
           </button>
         </div>
-      </div>
+      </div> */}
 
       {/* ================= 第二排：画布工具栏 ================= */}
       <div class="titlebar-row-second">
