@@ -459,6 +459,19 @@ export const layer = Layer.effect(
       const builtinMcp = BuiltinMCP.BUILTIN_MCP_SERVERS as unknown as Record<string, ConfigMCP.Info>
       const userMcp = result.mcp ?? {}
       result.mcp = { ...builtinMcp, ...userMcp } as any
+      // [octo:mcp] 启动时记录内建 MCP 生效配置，便于内网用构建产物确认连的是 beta 还是 prod。
+      // uxr-tool 地址由环境变量 OCTO_UXR_MCP_URL 控制（见 builtin-mcp.ts），source 标明取的是 env 还是默认 beta。
+      const uxr = builtinMcp["uxr-tool"] as (ConfigMCP.Info & { type: "remote" }) | undefined
+      const userOverridesUxr = "uxr-tool" in userMcp
+      log.info("[octo:mcp] builtin-config", {
+        server: "uxr-tool",
+        url: uxr?.url,
+        source: BuiltinMCP.UXR_MCP_URL_SOURCE,
+        proxy: uxr?.proxy,
+        timeout: uxr?.timeout,
+        enabled: uxr?.enabled,
+        userOverridesUxr, // 用户 opencode.json 若也配了 uxr-tool 会覆盖内建（此时实际生效以用户配置为准）
+      })
 
       return result
     })
@@ -818,6 +831,20 @@ export const layer = Layer.effect(
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
       const patch = writableGlobal(config)
+
+      // 诊断日志: 写入目标文件路径 + patch 内容, 用于判断写入路径与 Provider.list 读取路径是否一致
+      console.log("[config.updateGlobal]", {
+        file,
+        patch_provider_keys: Object.keys(patch.provider ?? {}),
+        patch_opencode_options: (patch.provider as Record<string, unknown>)?.opencode
+          ? Object.keys(((patch.provider as Record<string, { options?: Record<string, unknown> }>).opencode).options ?? {})
+          : undefined,
+        patch_bpit_options: (patch.provider as Record<string, unknown>)?.bpit
+          ? Object.keys(((patch.provider as Record<string, { options?: Record<string, unknown> }>).bpit).options ?? {})
+          : undefined,
+        patch_disabled_providers: patch.disabled_providers,
+        t: Date.now(),
+      })
 
       let next: Info
       let changed: boolean

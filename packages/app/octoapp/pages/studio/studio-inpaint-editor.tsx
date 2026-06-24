@@ -245,7 +245,7 @@ export function StudioInpaintEditor(props: {
     if (!context) throw new Error("无法创建智能重绘画布")
     context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
     context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL("image/png").split(",")[1] ?? ""
+    return canvas.toDataURL("image/png")
   }
 
   function submit() {

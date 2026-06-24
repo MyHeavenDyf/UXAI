@@ -181,7 +181,19 @@ function warmSessions(input: {
 export const loadProvidersQuery = (directory: string | null, sdk: OpencodeClient) =>
   queryOptions({
     queryKey: [directory, "providers"],
-    queryFn: () => retry(() => sdk.provider.list().then((x) => normalizeProviderList(x.data!))),
+    queryFn: async () => {
+      console.log("[octo:query] provider.list start", { directory, t: Date.now() })
+      const x = await retry(() => sdk.provider.list())
+      console.log("[octo:query] provider.list result", {
+        directory,
+        connected: x.data?.connected,
+        all_ids: x.data?.all.map((p) => p.id),
+        opencode: x.data?.all.find((p) => p.id === "opencode"),
+        bpit: x.data?.all.find((p) => p.id === "bpit"),
+        t: Date.now(),
+      })
+      return normalizeProviderList(x.data!)
+    },
   })
 
 export const loadAgentsQuery = (directory: string | null, sdk: OpencodeClient) =>

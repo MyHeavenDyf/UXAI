@@ -108,30 +108,163 @@
 }
 
 .studio-canvas-download-action {
+  width: 36px;
   height: 36px;
-  min-width: 112px;
   display: grid;
   place-items: center;
-  padding: 0 30px;
+  padding: 0;
+  border: none;
   border-radius: 999px;
-  background: var(--studio-blue);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 26px;
-  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  transition: transform 140ms ease, background-color 140ms ease, color 140ms ease;
 }
 
 .studio-canvas-download-action:hover {
-  filter: brightness(1.04);
-  box-shadow: 0 8px 18px rgba(116, 87, 255, 0.16);
-  transform: translateY(-1px);
+  background: rgba(25, 25, 25, 0.06);
+  color: #191919;
+  transform: translateY(0);
+  box-shadow: none;
+  filter: none;
 }
 
 .studio-canvas-download-action:active {
-  filter: brightness(0.98);
-  box-shadow: 0 4px 12px rgba(116, 87, 255, 0.12);
+  background: rgba(25, 25, 25, 0.06);
+  color: #191919;
   transform: translateY(0);
+  box-shadow: none;
+  filter: none;
+}
+
+.studio-canvas-regenerate-action {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #666;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.studio-canvas-regenerate-action::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  background-color: currentColor;
+  mask: url("/studio/wand_and_stars.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/wand_and_stars.svg") center / contain no-repeat;
+}
+
+.studio-canvas-regenerate-action:hover {
+  background: rgba(25, 25, 25, 0.06);
+  color: #191919;
+  transform: translateY(0);
+  box-shadow: none;
+  filter: none;
+}
+
+.studio-canvas-regenerate-action:active {
+  background: rgba(25, 25, 25, 0.06);
+  color: #191919;
+  transform: translateY(0);
+  box-shadow: none;
+  filter: none;
+}
+
+.studio-canvas-video-action {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(25, 25, 25, 0.05);
+  color: #191919;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.studio-canvas-video-action::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  background: currentColor;
+  mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
+}
+
+.studio-canvas-video-action:hover {
+  background: rgba(25, 25, 25, 0.08);
+}
+
+.studio-canvas-action-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.studio-canvas-icon-action {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #666;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.studio-canvas-icon-action:hover {
+  background: rgba(25, 25, 25, 0.06);
+  color: #191919;
+}
+
+.studio-canvas-icon-action-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  background: currentColor;
+}
+
+.studio-canvas-icon-upscale {
+  mask: url("/studio/imgCreate3.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/imgCreate3.svg") center / contain no-repeat;
+}
+
+.studio-canvas-icon-cutout {
+  mask: url("/studio/imgCreate4.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/imgCreate4.svg") center / contain no-repeat;
+}
+
+.studio-canvas-icon-inpaint {
+  mask: url("/studio/imgCreate5.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/imgCreate5.svg") center / contain no-repeat;
+}
+
+.studio-canvas-icon-outpaint {
+  mask: url("/studio/imgCreate6.svg") center / contain no-repeat;
+  -webkit-mask: url("/studio/imgCreate6.svg") center / contain no-repeat;
 }
 
 .studio-menu {
@@ -225,6 +358,7 @@
 
 .studio-material-sub-btn.active {
   color: #191919;
+  font-weight: 650;
 }
 
 .studio-material-sub-btn:hover:not(.active) {
