@@ -67,6 +67,15 @@ export function preferAppEnv(userDataPath: string) {
       XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
     }),
   )
+  // 诊断日志: 合并后最终生效的 XDG_*, 用于判断 sidecar 与主进程读写路径是否一致
+  console.log("[server:preferAppEnv] final env", {
+    platform: process.platform,
+    shell: shell ?? "<skipped on win32>",
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+    XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+    userDataPath,
+  })
 }
 
 export async function spawnLocalServer(
