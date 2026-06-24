@@ -114,24 +114,15 @@ export function StudioResultCanvas(props: {
     const image = fullscreenImage()
     const mountEl = props.fullscreenMount?.() || document.body
     mountEl.style.overflow = image ? "hidden" : ""
-    document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
-    ;(window as any).api?.setTitlebarOverlayHidden?.(true)
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
     }
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (fullscreenImage()) { setFullscreenImage(null); e.preventDefault() }
-    }
     document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
-      ;(window as any).api?.setTitlebarOverlayHidden?.(false)
       const mountEl = props.fullscreenMount?.() || document.body
       mountEl.style.overflow = ""
-      document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("beforeunload", onBeforeUnload)
     })
   })
 
@@ -216,6 +207,7 @@ export function StudioResultCanvas(props: {
                     再次生成
                   </button>
                   <Show when={props.result?.capability === "image.generate" && props.showVideoGeneration}>
+                    <span class="studio-canvas-action-divider" />
                     <button
                       type="button"
                       onClick={props.onGenerateVideo}
@@ -226,6 +218,7 @@ export function StudioResultCanvas(props: {
                     </button>
                   </Show>
                   <Show when={!isVideoResult()}>
+                    <span class="studio-canvas-action-divider" />
                     <div class="studio-canvas-action-group">
                       <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
                         class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
@@ -248,6 +241,7 @@ export function StudioResultCanvas(props: {
                         <span>扩图</span>
                       </button>
                     </div>
+                    <span class="studio-canvas-action-divider" />
                   </Show>
                   <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
