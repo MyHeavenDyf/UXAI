@@ -114,24 +114,15 @@ export function StudioResultCanvas(props: {
     const image = fullscreenImage()
     const mountEl = props.fullscreenMount?.() || document.body
     mountEl.style.overflow = image ? "hidden" : ""
-    document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
-    ;(window as any).api?.setTitlebarOverlayHidden?.(true)
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
     }
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (fullscreenImage()) { setFullscreenImage(null); e.preventDefault() }
-    }
     document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
-      ;(window as any).api?.setTitlebarOverlayHidden?.(false)
       const mountEl = props.fullscreenMount?.() || document.body
       mountEl.style.overflow = ""
-      document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("beforeunload", onBeforeUnload)
     })
   })
 
