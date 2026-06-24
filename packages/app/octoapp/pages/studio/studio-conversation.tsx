@@ -85,6 +85,7 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
 
 export function StudioResultCanvas(props: {
   videoPlayerMount: () => HTMLElement
+  fullscreenMount?: () => HTMLElement
   status: StudioGenerationStatus
   image?: StudioImage
   result?: StudioGenerationResult
@@ -101,7 +102,8 @@ export function StudioResultCanvas(props: {
 
   createEffect(() => {
     const image = fullscreenImage()
-    document.body.style.overflow = image ? "hidden" : ""
+    const mountEl = props.fullscreenMount?.() || document.body
+    mountEl.style.overflow = image ? "hidden" : ""
     document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
     ;(window as any).api?.setTitlebarOverlayHidden?.(true)
@@ -115,7 +117,8 @@ export function StudioResultCanvas(props: {
     window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
       ;(window as any).api?.setTitlebarOverlayHidden?.(false)
-      document.body.style.overflow = ""
+      const mountEl = props.fullscreenMount?.() || document.body
+      mountEl.style.overflow = ""
       document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)
       window.removeEventListener("beforeunload", onBeforeUnload)
@@ -202,7 +205,7 @@ export function StudioResultCanvas(props: {
         }
       </Show>
       {fullscreenImage() && (
-        <Portal mount={document.body}>
+        <Portal mount={props.fullscreenMount?.() || document.body}>
           <div class="studio-fullscreen-overlay" onClick={() => setFullscreenImage(null)}>
             <button type="button" class="studio-fullscreen-close" onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); }} aria-label="关闭全屏">
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
