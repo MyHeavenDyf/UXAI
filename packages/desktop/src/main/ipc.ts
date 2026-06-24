@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process"
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-start
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, lstatSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-end
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+// lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
+// 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
+import { mkdir, readFile, writeFile, lstat } from "node:fs/promises"
 import { dirname, join, basename, resolve as resolvePath, sep } from "node:path"
 // jk-j60099994-replace-with-60062650-main-skills-ipc-2-start
 import { homedir } from "node:os"
@@ -256,7 +258,7 @@ export function registerIpcHandlers(deps: Deps) {
       if (!existsSync(resolved)) {
         throw new Error(`拒绝写入(白名单外且文件不存在): ${path}`)
       }
-      const lst = lstatSync(resolved)
+      const lst = await lstat(resolved)
       if (lst.isSymbolicLink() || !lst.isFile()) {
         throw new Error(`拒绝写入(非普通文件或为符号链接): ${path}`)
       }
