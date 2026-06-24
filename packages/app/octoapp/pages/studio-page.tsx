@@ -2529,7 +2529,78 @@ export default function StudioPage() {
                 })
               }}
               onCloseTab={closeCanvasTab}
-            />
+              onUpscale={openHD}
+              onCutout={openCutout}
+              onInpaint={openInpaint}
+              onOutpaint={openOutpaint}
+              onRegenerate={regenerateCurrentResult}
+              onGenerateVideo={generateVideoFromSelectedImage}
+              showVideoGeneration={canGenerateVideo()}
+              regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+            >
+              <Show when={showStudioCanvas() && canvasResult()?.images.length}>
+                <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
+                  <button
+                    class="studio-details-toggle"
+                    onClick={() => setShowStudioDetails((v) => !v)}
+                    aria-label={showStudioDetails() ? "收起详情" : "展开详情"}
+                  />
+                  <Show when={showStudioDetails()}>
+                    <aside class="studio-details">
+                      <StudioDetails
+                        result={result()!}
+                        image={selectedImage()}
+                        selectedImageId={selectedImageId()}
+                        imageLabel={currentImageLabel()}
+                        regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                        showVideoGeneration={canGenerateVideo()}
+                        onSelectImage={(id) => {
+                          const r = result()
+                          batch(() => {
+                            setShowStudioCanvas(true)
+                            if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
+                              // 已有 tab → 只切选中
+                              setSelectedImageId(id)
+                              const imageIndex = r.images.findIndex((img) => img.id === id)
+                              const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
+                              if (tabImg && imageIndex !== -1) {
+                                setCanvasTabLabels((prev) => ({
+                                  ...prev,
+                                  [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
+                                }))
+                              }
+                              setDeletedImageIds(new Set<string>())
+                              setWorkspaceImage(undefined)
+                              setWorkspaceUploadRequested(false)
+                              setMode("preview")
+                              return
+                            }
+                            // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
+                            const first = r?.images[0]
+                            if (first) {
+                              const imageIndex = r.images.findIndex((img) => img.id === id)
+                              setSelectedImageId(id)
+                              setCanvasTabImages((prev) => [...prev, first])
+                              setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
+                              setDeletedImageIds(new Set<string>())
+                              setWorkspaceImage(undefined)
+                              setWorkspaceUploadRequested(false)
+                              setMode("preview")
+                            }
+                          })
+                        }}
+                        onRegenerate={regenerateCurrentResult}
+                        onGenerateVideo={generateVideoFromSelectedImage}
+                        onUpscale={openHD}
+                        onCutout={openCutout}
+                        onInpaint={openInpaint}
+                        onOutpaint={openOutpaint}
+                      />
+                    </aside>
+                  </Show>
+                </div>
+              </Show>
+            </StudioResultCanvas>
           }>
             <Show when={!workspaceEditImage()}>
               <StudioWorkspaceUpload onUpload={uploadWorkspaceImage} />
@@ -2583,68 +2654,6 @@ export default function StudioPage() {
           <Show when={isBusy() && !showStudioCanvas() && canvasTabImages().length === 0}>
             <div class="flex-1 flex flex-col items-center justify-center text-center">
               <StudioEmptyState />
-            </div>
-          </Show>
-          <Show when={!isEditingWorkspaceMode() && showStudioCanvas() && canvasResult()?.images.length}>
-            <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
-              <button
-                class="studio-details-toggle"
-                onClick={() => setShowStudioDetails((v) => !v)}
-                aria-label={showStudioDetails() ? "收起详情" : "展开详情"}
-              />
-              <Show when={showStudioDetails()}>
-                <aside class="studio-details">
-                  <StudioDetails
-                    result={result()!}
-                    image={selectedImage()}
-                    selectedImageId={selectedImageId()}
-                    imageLabel={currentImageLabel()}
-                    regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
-                    showVideoGeneration={canGenerateVideo()}
-                    onSelectImage={(id) => {
-                      const r = result()
-                      batch(() => {
-                        setShowStudioCanvas(true)
-                        if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
-                          // 已有 tab → 只切选中
-                          setSelectedImageId(id)
-                          const imageIndex = r.images.findIndex((img) => img.id === id)
-                          const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
-                          if (tabImg && imageIndex !== -1) {
-                            setCanvasTabLabels((prev) => ({
-                              ...prev,
-                              [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
-                            }))
-                          }
-                          setDeletedImageIds(new Set<string>())
-                          setWorkspaceImage(undefined)
-                          setWorkspaceUploadRequested(false)
-                          setMode("preview")
-                          return
-                        }
-                        // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
-                        const first = r?.images[0]
-                        if (first) {
-                          const imageIndex = r.images.findIndex((img) => img.id === id)
-                          setSelectedImageId(id)
-                          setCanvasTabImages((prev) => [...prev, first])
-                          setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
-                          setDeletedImageIds(new Set<string>())
-                          setWorkspaceImage(undefined)
-                          setWorkspaceUploadRequested(false)
-                          setMode("preview")
-                        }
-                      })
-                    }}
-                    onRegenerate={regenerateCurrentResult}
-                    onGenerateVideo={generateVideoFromSelectedImage}
-                    onUpscale={openHD}
-                    onCutout={openCutout}
-                    onInpaint={openInpaint}
-                    onOutpaint={openOutpaint}
-                  />
-                </aside>
-              </Show>
             </div>
           </Show>
         </section>
