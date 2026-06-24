@@ -33,10 +33,13 @@ export function TitleBar(props: TitleBarProps) {
   ]
 
   const deviceOptions: DropdownItem[] = [
-    { label: "桌面端 (1920x1080)", value: "desktop" },
-    { label: "平板端 (768x1024)", value: "tablet" },
-    { label: "手机端 (375x667)", value: "mobile" }
+    { label: "桌面端 (1920×1080)", value: "desktop" },
+    { label: "平板端 (768×1024)", value: "tablet" },
+    { label: "手机端 (375×667)", value: "mobile" }
   ]
+
+  const deviceLabelMap: Record<string, string> = { desktop: "桌面", tablet: "平板", mobile: "手机" }
+  const [deviceLabel, setDeviceLabel] = createSignal("桌面")
 
   const zoomOptions: DropdownItem[] = [
     { label: "50%", value: "50" },
@@ -45,7 +48,7 @@ export function TitleBar(props: TitleBarProps) {
     { label: "200%", value: "200" }
   ]
 
-  // === 独立控制三个下拉菜单的显示/隐藏状态 ===
+  const [zoomLabel, setZoomLabel] = createSignal("100%")
   const [openPreview, setOpenPreview] = createSignal(false)
   const [openDesktop, setOpenDesktop] = createSignal(false)
   const [openZoom, setOpenZoom] = createSignal(false)
@@ -74,6 +77,11 @@ export function TitleBar(props: TitleBarProps) {
     setOpenDesktop(false)
     setOpenZoom(false)
     setShowHistory(false)
+    if (type === "device") setDeviceLabel(deviceLabelMap[value] ?? "桌面")
+    if (type === "zoom") {
+      const item = zoomOptions.find((o) => o.value === value)
+      if (item) setZoomLabel(item.label)
+    }
     props.onOptionChange(type, value)
   }
 
@@ -160,7 +168,7 @@ export function TitleBar(props: TitleBarProps) {
           {/* 下拉 2：桌面 */}
           <div class={`dropdown-trigger-container ${openDesktop() ? 'active-open' : ''}`}>
             <button class="dropdown-borderless-btn" onClick={() => { setOpenDesktop(!openDesktop()); setOpenPreview(false); setOpenZoom(false); setShowHistory(false) }}>
-              <span>桌面</span>
+              <span>{deviceLabel()}</span>
               <svg class="arrow-polyline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" width="12" height="12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
@@ -184,7 +192,7 @@ export function TitleBar(props: TitleBarProps) {
           {/* 下拉 3：100% 缩放 */}
           <div class={`dropdown-trigger-container ${openZoom() ? 'active-open' : ''}`}>
             <button class="dropdown-borderless-btn" onClick={() => { setOpenZoom(!openZoom()); setOpenPreview(false); setOpenDesktop(false); setShowHistory(false) }}>
-              <span>100%</span>
+              <span>{zoomLabel()}</span>
               <svg class="arrow-polyline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" width="12" height="12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
