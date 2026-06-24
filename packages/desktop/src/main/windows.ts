@@ -45,6 +45,7 @@ protocol.registerSchemesAsPrivileged([
 let backgroundColor: string | undefined
 const titlebarThemes = new WeakMap<BrowserWindow, Partial<TitlebarTheme>>()
 const titlebarHeight = 40
+const titlebarOverlayHidden = new WeakSet<BrowserWindow>()
 
 export function setBackgroundColor(color: string) {
   backgroundColor = color
@@ -83,7 +84,17 @@ export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = 
 
 export function updateTitlebar(win: BrowserWindow) {
   if (process.platform !== "win32") return
-  win.setTitleBarOverlay(overlay(titlebarThemes.get(win), win.webContents.getZoomFactor()))
+  const o = overlay(titlebarThemes.get(win), win.webContents.getZoomFactor())
+  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { ...o, height: 0 } : o)
+}
+
+export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
+  if (hidden) {
+    titlebarOverlayHidden.add(win)
+  } else {
+    titlebarOverlayHidden.delete(win)
+  }
+  updateTitlebar(win)
 }
 
 export function setDockIcon() {

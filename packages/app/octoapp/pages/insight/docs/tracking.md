@@ -20,7 +20,7 @@
 | 8 | interaction | insight | attachment-upload-result | 附件上传 promise 落定（成功 / 失败） | `success`(bool)、`errorCode`(失败时) | `index.tsx` `doUpload` |
 | 9 | interaction | insight | task-refresh | 任务卡片手动刷新（通过 busy/cooldown 校验后） | `taskId` | `index.tsx` `handleTaskRefresh` |
 | 10 | interaction | insight | task-stop | 任务停止（通过 busy 校验后） | `taskId` | `index.tsx` `handleTaskStop` |
-| 11 | interaction | insight | task-open-result | 任务卡片点「查看结果」（有产物时） | `taskId` | `index.tsx` `handleTaskOpenResult` |
+| 11 | interaction | insight | task-open-result | 任务卡片点「查看结果」。两种分支：本地已有产物→直接打开；completed 但本地无产物（典型：对已完成任务点过终止，拿回的是 stop_task 控制响应而非文件）→触发一次 get_task_result 兜底查询，产物到达后再打开 | `taskId`、`deferred`(true=走了兜底查询分支；缺省/false=直接打开) | `index.tsx` `handleTaskOpenResult` |
 | 12 | interaction | insight | result-card-open | 点击输出卡片打开结果 | `cardType`(table/mindmap/markdown/json/file/html) | `index.tsx` `handleOpenResult` |
 | 13 | interaction | insight | result-download | 下载结果（下拉选格式后） | `format`(md/csv/xlsx/html/json)、`tabType` | `result-viewer/action-bar.tsx` `DownloadMenu` |
 | 14 | interaction | insight | result-copy-content | 复制结果内容 | `tabType`、`viewMode` | `result-viewer/action-bar.tsx` 复制按钮 |

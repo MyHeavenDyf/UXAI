@@ -315,7 +315,9 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   </Match>
                   <Match when={tab().type === "local-file"}>
                     <iframe
-                      src={`local:///${tab().absoluteFilePath?.replace(/\\/g, '/')}`}
+                      src={tab().absoluteFilePath?.match(/^https?:\/\//i)
+                        ? tab().absoluteFilePath
+                        : `local:///${tab().absoluteFilePath?.replace(/\\/g, '/')}`}
                       style={{ width: "100%", height: "100%", border: "none" }}
                     />
                   </Match>

@@ -249,6 +249,13 @@ function toolInput(part?: Extract<Part, { type: "tool" }>) {
   return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined
 }
 
+function toolRequest(part?: Extract<Part, { type: "tool" }>) {
+  const state = part?.state as Record<string, unknown> | undefined
+  const metadata = recordField(state, "metadata")
+  const request = recordField(metadata, "request")
+  return request
+}
+
 function isStudioEditorCapability(value: unknown): value is StudioCapability {
   return (
     value === "image.upscale" ||
@@ -350,10 +357,12 @@ function buildResult(input: {
   const output = parseToolOutput(completed?.state.output)
   const activeTool = completed ?? running ?? errored
   const inputRecord = toolInput(activeTool)
+  const requestRecord = toolRequest(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
-  const model = stringField(output, "model") ?? completed?.tool ?? "image-generation-tool"
+  const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const progress = studioProgress(running)
+  const failure = studioProgress(errored)
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
@@ -364,9 +373,11 @@ function buildResult(input: {
         ? capability === "video.generate" ? "视频生成中" : "图片生成中"
         : completed
           ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
-          : undefined,
+          : errored
+            ? capability === "video.generate" ? "视频生成失败" : "图片生成失败"
+            : undefined,
     toolError: errored?.state.error,
-    toolName: completed?.tool ?? input.tools[0]?.tool,
+    toolName: activeTool?.tool ?? input.tools[0]?.tool,
     toolRunning: Boolean(running),
     result: media.length
       ? {
@@ -379,6 +390,7 @@ function buildResult(input: {
           taskType: stringField(output, "taskType") ?? stringField(output, "task_type") ?? stringField(inputRecord, "task_type") ?? stringField(inputRecord, "taskType"),
           taskId: stringField(output, "taskId"),
           model,
+          styleModel: stringField(inputRecord, "styleModel"),
           aspectRatio,
           videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
           duration: stringField(output, "duration") as StudioGenerationResult["duration"],
@@ -395,6 +407,13 @@ function buildResult(input: {
           progress: numberField(output, "progress") ?? 100,
           order: numberField(output, "order"),
           rawStatus: output.rawStatus as number | string | undefined,
+          request: inputRecord || requestRecord
+            ? {
+                ...(inputRecord ? { input: inputRecord } : {}),
+                ...(requestRecord ? { task: { request: requestRecord } } : {}),
+              }
+            : undefined,
+          response: recordField(output, "response"),
           createdAt: input.createdAt,
           updatedAt: completed?.state.time.end,
           completedAt: completed?.state.time.end,
@@ -412,8 +431,28 @@ function buildResult(input: {
             progress: progress.progress,
             order: progress.order,
             rawStatus: progress.rawStatus,
+            request: inputRecord ? { input: inputRecord } : undefined,
             createdAt: input.createdAt,
           }
+        : errored
+          ? {
+              id: failure.generationID ?? `studio_${errored.id}`,
+              status: "failed",
+              capability,
+              prompt: extractUserDemand(input.userText),
+              provider: resolveProvider(errored.tool),
+              model,
+              aspectRatio,
+              images: [],
+              progress: failure.progress,
+              order: failure.order,
+              rawStatus: failure.rawStatus,
+              error: errored.state.error,
+              request: inputRecord ? { input: inputRecord } : undefined,
+              createdAt: input.createdAt,
+              updatedAt: errored.state.time.end,
+              completedAt: errored.state.time.end,
+            }
         : undefined,
     createdAt: input.createdAt,
     isLatest: false,
@@ -469,14 +508,17 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
 
   if (!input.fallback) return []
 
+  const fallbackGenerating = input.fallback.status === "queued" || input.fallback.status === "running"
   return [
     {
       id: `studio_${input.fallback.id}`,
       userText: extractUserDemand(input.fallback.prompt),
       assistantText: "",
-      toolTitle: input.fallback.status === "running" ? "图片生成中" : input.fallback.status === "failed" ? "图片生成失败" : "图片生成完成",
+      toolTitle: `${input.fallback.capability === "video.generate" ? "视频生成" : "图片生成"}${
+        fallbackGenerating ? "中" : input.fallback.status === "failed" ? "失败" : "完成"
+      }`,
       toolName: input.fallback.provider,
-      toolRunning: input.fallback.status === "running",
+      toolRunning: fallbackGenerating,
       result: input.fallback,
       createdAt: input.fallback.createdAt,
       isLatest: true,

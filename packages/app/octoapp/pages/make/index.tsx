@@ -129,13 +129,6 @@ function MakeContent() {
   // Register Make slash commands
   useMakeCommands()
 
-  // Exit focus mode when navigating away from /make
-  // Exit focus mode when navigating away from /make
-  createEffect(() => {
-    if (!location.pathname.startsWith("/make")) {
-      layout.focusMode.set(false)
-    }
-  })
   // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
   // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
   const prevMakeDir = lastMakeDir
@@ -580,6 +573,7 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
@@ -822,6 +816,7 @@ const sessionMessagesLoaded = createMemo(() => {
   function handleCloseTab(id: string) {
     tabStore.closeTab(id)
     if (tabStore.tabs().length === 0) {
+      layout.focusMode.set(false)
       setResultViewMode("files")
     }
   }
@@ -981,7 +976,14 @@ if (dsId) {
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
   }
 
-  /** Handle keyboard events including slash command/mention navigation */
+  function handleCompositionStart() {
+    setComposing(true)
+  }
+  function handleCompositionEnd() {
+    setComposing(false)
+  }
+
+  /** Handle keyboard events including slash command navigation */
   function handleKeyDown(e: KeyboardEvent) {
     // 输入法合成期间(如拼音待选)的回车用于确认候选词,不应触发发送
     // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
@@ -1054,6 +1056,7 @@ if (dsId) {
 
     // Enter to send (only when both popovers are closed)
     if (e.key === "Enter" && !e.shiftKey && !slash && !mention) {
+      if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
       
       // Check for /preview command: /preview URL或路径
@@ -1391,6 +1394,28 @@ if (dsId) {
   }
 
   function handleOpenLocalFile(filePath: string) {
+    // 检测 http/https URL
+    if (/^https?:\/\//i.test(filePath)) {
+      let title: string
+      try {
+        const url = new URL(filePath)
+        const pathSegments = url.pathname.split('/').filter(Boolean)
+        const lastSegment = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : ''
+        title = lastSegment ? `${url.host}/${lastSegment}` : url.host
+      } catch {
+        title = filePath
+      }
+      
+      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
+      tabStore.openLocalFileTab({
+        id: tabId,
+        title,
+        absoluteFilePath: filePath,
+        createdAt: new Date(),
+      })
+      return
+    }
+    
     const dir = projectDir()
     
     const normalizedPath = filePath.replace(/\\/g, '/')
@@ -1686,6 +1711,8 @@ if (dsId) {
                       ref={textareaRef}
                       value={prompt()}
                       onInput={handleInput}
+                      onCompositionStart={handleCompositionStart}
+                      onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}
