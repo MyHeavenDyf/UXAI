@@ -2154,6 +2154,7 @@ export default function StudioPage() {
   ): Promise<string> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image()
+      image.crossOrigin = "anonymous"
       image.onload = () => resolve(image)
       image.onerror = () => reject(new Error("Failed to load image for adjustment"))
       image.src = sourceUrl
