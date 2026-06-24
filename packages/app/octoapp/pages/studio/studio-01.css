@@ -119,6 +119,7 @@
   min-width: 0;
   min-height: 0;
   display: flex;
+  position: relative;
   background: #fff;
 }
 

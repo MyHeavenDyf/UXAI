@@ -51,6 +51,7 @@ export function applyGlobalEvent(input: {
   refresh: () => void
 }) {
   if (input.event.type === "global.disposed" || input.event.type === "server.connected") {
+    console.log("[octo:evt] global event → refresh", { type: input.event.type, t: Date.now() })
     input.refresh()
     return
   }
