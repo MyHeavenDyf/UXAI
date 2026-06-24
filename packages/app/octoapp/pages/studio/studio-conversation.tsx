@@ -216,6 +216,7 @@ export function StudioResultCanvas(props: {
                     再次生成
                   </button>
                   <Show when={props.result?.capability === "image.generate" && props.showVideoGeneration}>
+                    <span class="studio-canvas-action-divider" />
                     <button
                       type="button"
                       onClick={props.onGenerateVideo}
@@ -226,6 +227,7 @@ export function StudioResultCanvas(props: {
                     </button>
                   </Show>
                   <Show when={!isVideoResult()}>
+                    <span class="studio-canvas-action-divider" />
                     <div class="studio-canvas-action-group">
                       <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
                         class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
@@ -248,6 +250,7 @@ export function StudioResultCanvas(props: {
                         <span>扩图</span>
                       </button>
                     </div>
+                    <span class="studio-canvas-action-divider" />
                   </Show>
                   <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
