@@ -77,7 +77,7 @@ export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = 
 export function updateTitlebar(win: BrowserWindow) {
   if (process.platform !== "win32") return
   const o = overlay(titlebarThemes.get(win), win.webContents.getZoomFactor())
-  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { color: "#000000", symbolColor: "#00000000", height: 0 } : o)
+  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { ...o, height: 0 } : o)
 }
 
 export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {

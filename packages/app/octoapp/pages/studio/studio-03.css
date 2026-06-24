@@ -70,7 +70,7 @@
 }
 
 .studio-result-cancel:hover:not(:disabled) {
-  color: #615bff;
+  color: #0a59f7;
 }
 
 .studio-result-cancel:disabled {
@@ -923,7 +923,7 @@ body.studio-fullscreen-active [data-tauri-decorum-tb] {
 }
 
 .studio-fullscreen-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 9999;
   display: flex;
