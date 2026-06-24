@@ -1,23 +1,49 @@
 
-export type FileInfo = {
+export interface UploadInitItem {
   index: number
-  name: string
-  type: string
-  size: number
-  lastModified: number 
-}
-
-export interface FileStatus extends FileInfo {
   cacheSign: string
   progress: number
-  status: {
+  name: string
+  size: number
+  lstatus: {
     statusCode: number
     message: string
+  } 
+}
+
+export interface UploadProgressItem {
+  cacheSign: string
+  progress: number
+  name: string
+  size: number
+  file: {
+    index: number
+    cacheSign: string
+    progress: number
+    status: {
+        statusCode: number
+        message: string
+    }
   }
 }
-export interface UploadedFile extends FileStatus {
+export interface UploadFinishItem {
+    cacheSign: string
+    progress: number
+    name: string
+    size: number
     docId: string
-    docVersion: string
+    version: string
+    file: {
+        index: number
+        cacheSign: string
+        progress: number
+        docId: string
+        version: string
+        status: {
+            statusCode: number
+            message: string
+        }
+    }
 }
 
 export interface ServiceError {
@@ -26,9 +52,9 @@ export interface ServiceError {
 }
 
 export type UploadCallbacks = {
-  onInit?: (taskId: string, files: FileStatus) => void
-  onProgress?: (taskId: string, files: { cacheSign: string; progress: number; file: FileStatus}[]) => void
-  onFinish?: (taskId: string, files: UploadedFile[]) => void
+  onInit?: (taskId: string, files: UploadInitItem[]) => void
+  onProgress?: (taskId: string, files: UploadProgressItem[]) => void
+  onFinish?: (taskId: string, files: UploadFinishItem[]) => void
   onError?: (taskId: string, errors: ServiceError) => void
 }
 
