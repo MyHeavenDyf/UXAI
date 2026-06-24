@@ -13,6 +13,7 @@ export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
   postMessage: (data: unknown) => void
   refresh: () => void
+  setEditingOff: () => void
 }
 
 interface RawRect {
@@ -92,6 +93,12 @@ export function PreviewPage(props: {
       previewIframeRef.contentWindow.postMessage(data, "*")
     }
     props.api.refresh = triggerRefresh
+    props.api.setEditingOff = () => {
+      setEditing(false)
+      previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+      setPropertyEditor('show', false)
+      unfreezeDomPicker()
+    }
   }
 
   // ==========================================================================

@@ -1,5 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, For } from "solid-js"
+import { Portal } from "solid-js/web"
 import { createStore, reconcile } from "solid-js/store"
+import { logStartSession, logAgentCall } from "../../utils/persist"
 
 interface ElementRect {
   top: number
@@ -41,6 +43,7 @@ const COMPONENT_ENUMS: Record<string, string[]> = {
 
 const ENUM_DEFAULTS: Record<string, string> = {
   'Button.size': 'medium',
+  'Button.iconPlacement': 'start',
 }
 
 const COMPONENT_PROPS: Record<string, string[]> = {
@@ -59,6 +62,26 @@ const TW_FONT_WEIGHTS: Record<string, number> = {
 }
 
 const FW_TO_TW = Object.fromEntries(Object.entries(TW_FONT_WEIGHTS).map(([k, v]) => [v, k]))
+
+const TW_PREFIXES = [
+  'p-', 'pt-', 'pr-', 'pb-', 'pl-', 'px-', 'py-',
+  'm-', 'mt-', 'mr-', 'mb-', 'ml-', 'mx-', 'my-',
+  'w-', 'h-', 'min-w-', 'min-h-', 'max-w-', 'max-h-',
+  'text-', 'font-', 'leading-', 'tracking-',
+  'rounded-', 'rounded-tl-', 'rounded-tr-', 'rounded-br-', 'rounded-bl-',
+  'bg-', 'border-', 'border-t-', 'border-r-', 'border-b-', 'border-l-',
+  'shadow-', 'blur-', 'backdrop-blur-',
+  'flex', 'flex-col', 'flex-row', 'flex-wrap', 'flex-nowrap',
+  'gap-', 'justify-', 'items-', 'opacity-', 'overflow-',
+]
+
+function isTailwindToken(cls: string): boolean {
+  for (const p of TW_PREFIXES) {
+    if (cls === p) return true
+    if (cls.startsWith(p + '-') || cls.startsWith(p + '[')) return true
+  }
+  return false
+}
 
 function _px(cls: string, prefix: string): number | null {
   const m = cls.match(new RegExp(`${prefix}-\\[(\\d+)px\\]`))
@@ -111,6 +134,10 @@ export function PropertyEditorPopup(props: {
   const [initialPos, setInitialPos] = createStore({ right: 20, top: 115 })
 
   const isTextElement = createMemo(() => TEXT_ELEMENTS.includes(props.componentType))
+  const hasClassEditor = createMemo(() =>
+    isTextElement() ||
+    (COMPONENT_PROPS[props.componentType]?.includes('className') ?? false)
+  )
 
   const [editText, setEditText] = createSignal('')
   const [editFontSize, setEditFontSize] = createSignal(14)
@@ -526,19 +553,25 @@ export function PropertyEditorPopup(props: {
         const val = px(parts[0])
         setEditPt(val); setEditPr(val); setEditPb(val); setEditPl(val)
         setFoundPt(true); setFoundPr(true); setFoundPb(true); setFoundPl(true)
+        setPaddingMode('all')
       } else if (parts.length === 2) {
         setEditPt(px(parts[0])); setEditPb(px(parts[0]))
         setEditPr(px(parts[1])); setEditPl(px(parts[1]))
         setFoundPt(true); setFoundPb(true); setFoundPr(true); setFoundPl(true)
+        setPaddingMode('hv')
       } else if (parts.length === 4) {
         setEditPt(px(parts[0])); setEditPr(px(parts[1])); setEditPb(px(parts[2])); setEditPl(px(parts[3]))
         setFoundPt(true); setFoundPr(true); setFoundPb(true); setFoundPl(true)
+        setPaddingMode('trbl')
       }
     } else {
       if (v.paddingTop) { setEditPt(px(v.paddingTop)); setFoundPt(true) }
       if (v.paddingRight) { setEditPr(px(v.paddingRight)); setFoundPr(true) }
       if (v.paddingBottom) { setEditPb(px(v.paddingBottom)); setFoundPb(true) }
       if (v.paddingLeft) { setEditPl(px(v.paddingLeft)); setFoundPl(true) }
+      if (v.paddingTop || v.paddingRight || v.paddingBottom || v.paddingLeft) {
+        setPaddingMode('trbl')
+      }
     }
 
     if (v.margin) {
@@ -547,15 +580,20 @@ export function PropertyEditorPopup(props: {
         const val = px(parts[0])
         setEditMt(val); setEditMr(val); setEditMb(val); setEditMl(val)
         setFoundMt(true); setFoundMr(true); setFoundMb(true); setFoundMl(true)
+        setMarginMode('all')
       } else if (parts.length === 4) {
         setEditMt(px(parts[0])); setEditMr(px(parts[1])); setEditMb(px(parts[2])); setEditMl(px(parts[3]))
         setFoundMt(true); setFoundMr(true); setFoundMb(true); setFoundMl(true)
+        setMarginMode('trbl')
       }
     } else {
       if (v.marginTop) { setEditMt(px(v.marginTop)); setFoundMt(true) }
       if (v.marginRight) { setEditMr(px(v.marginRight)); setFoundMr(true) }
       if (v.marginBottom) { setEditMb(px(v.marginBottom)); setFoundMb(true) }
       if (v.marginLeft) { setEditMl(px(v.marginLeft)); setFoundMl(true) }
+      if (v.marginTop || v.marginRight || v.marginBottom || v.marginLeft) {
+        setMarginMode('trbl')
+      }
     }
 
     if (v.borderRadius) { setEditRadius(px(v.borderRadius)); setFoundRadius(true) }
@@ -585,8 +623,22 @@ export function PropertyEditorPopup(props: {
       else setEditFlexDir('row')
     }
     if (v.gap) { setEditFlexGap(px(v.gap)); setFoundFlexGap(true) }
-    if (v.justifyContent) setEditJustify(v.justifyContent)
-    if (v.alignItems) { setEditAlignItems(v.alignItems); setEditVAlign(v.alignItems) }
+    if (v.justifyContent) {
+      const j = v.justifyContent as string
+      const m: Record<string, string> = { 'flex-start': 'start', 'flex-end': 'end', 'space-between': 'between', 'space-around': 'around' }
+      setEditJustify(m[j] ?? j)
+    } else if (v.display === 'flex') {
+      setEditJustify('start')
+    }
+    if (v.alignItems) {
+      const a = v.alignItems as string
+      const m: Record<string, string> = { 'flex-start': 'start', 'flex-end': 'end' }
+      setEditAlignItems(m[a] ?? a)
+      setEditVAlign(m[a] ?? a)
+    } else if (v.display === 'flex') {
+      setEditAlignItems('start')
+      setEditVAlign('start')
+    }
 
     if (v.color) {
       const c = String(v.color)
@@ -859,6 +911,30 @@ export function PropertyEditorPopup(props: {
   let ready = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
 
+  function resetEditorSignals() {
+    setEditFontSize(14); setFoundFontSize(false)
+    setEditFontWeight(400); setFoundFontWeight(false)
+    setEditAlign(''); setEditFontFamily(''); setEditLineHeight(''); setEditLetterSpacing(0)
+    setEditVAlign(''); setEditTextColor(''); setEditBgColor('')
+    setEditPt(0); setFoundPt(false); setEditPr(0); setFoundPr(false)
+    setEditPb(0); setFoundPb(false); setEditPl(0); setFoundPl(false)
+    setEditMt(0); setFoundMt(false); setEditMr(0); setFoundMr(false)
+    setEditMb(0); setFoundMb(false); setEditMl(0); setFoundMl(false)
+    setEditRadius(0); setFoundRadius(false)
+    setEditRadiusTl(0); setFoundRadiusTl(false); setEditRadiusTr(0); setFoundRadiusTr(false)
+    setEditRadiusBr(0); setFoundRadiusBr(false); setEditRadiusBl(0); setFoundRadiusBl(false)
+    setEditWidth(''); setEditWidthPx(0); setFoundWidthPx(false)
+    setEditHeightPx(0); setFoundHeightPx(false)
+    setFillWidth(false); setFillHeight(false); setHugWidth(false); setHugHeight(false)
+    setClipContent(false)
+    setEditOpacity(100); setFoundOpacity(false)
+    setEditFlexDir(''); setEditFlexGap(0); setFoundFlexGap(false)
+    setEditJustify(''); setEditAlignItems('')
+    setFills([])
+    setStrokes([])
+    setEffects([])
+  }
+
   createEffect(() => {
     if (!props.show) {
       ready = false
@@ -871,7 +947,9 @@ export function PropertyEditorPopup(props: {
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
 
     console.log("[PropertyEditor] open, original className:", rawCls)
+    logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]\n原始 className: ${rawCls}\n原始 props: ${props.elementProps || '{}'}`)
 
+    resetEditorSignals()
     setInitialPos('right', 20)
     setInitialPos('top', 115)
     setDragOffset({ x: 0, y: 0 })
@@ -883,15 +961,18 @@ export function PropertyEditorPopup(props: {
     if (api) {
       api(rawCls).then(cssVars => {
         console.log("[PropertyEditor] tailwind css vars:", cssVars)
+        logAgentCall('tailwindToCss', props.elementId, rawCls, cssVars)
         if (cssVars && Object.keys(cssVars).length > 0) {
           applyCssVariables(cssVars, rawCls, parsed)
         } else {
+          console.log("[PropertyEditor] fallback: api returned empty, using parseClass")
           applyParseClassFallback(rawCls, parsed)
         }
         setDragOffset({ x: 0, y: 0 })
         ready = true
       })
     } else {
+      console.log("[PropertyEditor] fallback: no tailwindToCss api, using parseClass")
       applyParseClassFallback(rawCls, parsed)
       setDragOffset({ x: 0, y: 0 })
       ready = true
@@ -987,7 +1068,7 @@ export function PropertyEditorPopup(props: {
     autoSnapshot()
     if (!ready) return
     clearTimeout(autoUpdateTimer)
-    autoUpdateTimer = setTimeout(() => handleConfirm(true), 200)
+    autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
   })
 
   function updateDims() {
@@ -1086,8 +1167,14 @@ export function PropertyEditorPopup(props: {
       if (editFlexGap() && foundFlexGap() && editJustify() !== 'between' && editJustify() !== 'around') {
         css['gap'] = editFlexGap() + 'px'
       }
-      if (editJustify()) css['justify-content'] = editJustify()
-      if (editAlignItems()) css['align-items'] = editAlignItems()
+      if (editJustify()) {
+        const j: Record<string, string> = { start: 'flex-start', end: 'flex-end', between: 'space-between', around: 'space-around' }
+        css['justify-content'] = j[editJustify()] ?? editJustify()
+      }
+      if (editAlignItems()) {
+        const a: Record<string, string> = { start: 'flex-start', end: 'flex-end' }
+        css['align-items'] = a[editAlignItems()] ?? editAlignItems()
+      }
     }
 
     for (const f of fills) {
@@ -1132,7 +1219,8 @@ export function PropertyEditorPopup(props: {
 
   async function handleConfirm(skipChangeCheck?: boolean) {
     let className = ''
-    if (isTextElement()) {
+    const hasAnyTailwind = parsedClasses.some(c => isTailwindToken(c))
+    if (hasClassEditor() && hasAnyTailwind) {
       const desktopApi = (window as unknown as {
         api?: {
           tailwindToCss?: (className: string) => Promise<Record<string, string>>
@@ -1142,11 +1230,22 @@ export function PropertyEditorPopup(props: {
       const api = desktopApi?.cssToTailwind
       if (api) {
         const cssObj = buildCssObject()
+        console.log("[PropertyEditor] cssToTailwind input (cssObj):", cssObj)
         className = await api(cssObj)
+        console.log("[PropertyEditor] cssToTailwind output (className):", className)
+        logAgentCall('cssToTailwind', props.elementId, JSON.stringify(cssObj), className)
         const flexExtra = parsedClasses.filter(c => c.startsWith('flex-') && !['flex', 'flex-col', 'flex-row'].includes(c)).join(' ')
         if (flexExtra) className = (className + ' ' + flexExtra).trim()
+        const keepParts = parsedClasses.filter(c => {
+          if (c === '' || c === 'flex' || c === 'flex-col' || c === 'flex-row') return false
+          if (c.startsWith('flex-')) return false
+          return !isTailwindToken(c)
+        })
+        if (keepParts.length > 0) className = (keepParts.join(' ') + ' ' + className).trim()
       } else {
         className = buildClassName()
+        console.log("[PropertyEditor] buildClassName output (no api):", className)
+        logAgentCall('buildClassName', props.elementId, props.currentClass || '', className)
         if (editTextColor()) {
           className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
           className += ` text-[${editTextColor()}]`
@@ -1164,6 +1263,7 @@ export function PropertyEditorPopup(props: {
     const componentProps: Record<string, string> = {}
     if (!isTextElement()) {
       for (const key of propKeys()) {
+        if (key === 'className') continue
         const val = (editProps as Record<string, string>)[key]
         const isEnum = getEnumOptions(key).length > 0
         if (isEnum || val) componentProps[key] = val
@@ -1187,12 +1287,27 @@ export function PropertyEditorPopup(props: {
       keepOpen: skipChangeCheck,
       saveToHistory: true,
     }
+    console.log("[PropertyEditor] confirmData:", {
+      elementId: confirmData.elementId,
+      classNameBefore: props.currentClass,
+      classNameAfter: className,
+      componentPropsBefore: (() => { try { return JSON.parse(props.elementProps || '{}') } catch { return {} } })(),
+      componentPropsAfter: componentProps,
+      textContentBefore: (() => { try { return JSON.parse(props.elementProps || '{}').value || '' } catch { return '' } })(),
+      textContentAfter: editText(),
+      skipChangeCheck,
+    })
     console.log("[PropertyEditor] confirm, outgoing className:", className, "componentProps:", JSON.stringify(componentProps), "elementId:", props.elementId)
     props.onConfirm(confirmData)
   }
 
   return (
     <Show when={props.show}>
+      <div
+        class="property-editor-overlay"
+        onClick={() => props.onCancel()}
+        onContextMenu={(e) => e.preventDefault()}
+      />
       <div
         ref={(el) => { popupRef = el; if (el) updateDims() }}
         style={finalStyle()}
@@ -1201,11 +1316,60 @@ export function PropertyEditorPopup(props: {
         <div class="popup-header" onMouseDown={startDrag}>
           <span class="text-sm font-semibold text-slate-700">{props.componentType}</span>
           <span class="text-xs text-slate-400 ml-2 truncate">{props.elementId}</span>
+          <button
+            type="button"
+            onClick={() => props.onCancel()}
+            class="ml-auto flex items-center justify-center w-5 h-5 rounded-sm text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0"
+            id="popup-header-close-btn"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <line x1="2" y1="2" x2="10" y2="10" />
+              <line x1="10" y1="2" x2="2" y2="10" />
+            </svg>
+          </button>
         </div>
 
-        <div class="px-4 pb-4 flex flex-col gap-2">
+        <div class="popup-body px-4 pb-4 flex flex-col gap-2">
 
-          <Show when={isTextElement()}>
+          <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
+            <div class="grid gap-1.5 min-w-0">
+              <span class="text-[10px] font-medium text-slate-500">组件属性</span>
+              <For each={propKeys().filter(k => k !== 'className' || !hasClassEditor())}>
+                {(key) => (
+                  <div class="flex items-center gap-2">
+                    <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
+                      {LABEL_MAP[key] || key}
+                      <Show when={isBinding(key)}>
+                        <span class="text-[10px] text-amber-500 font-normal">动态绑定</span>
+                      </Show>
+                    </label>
+                    <Show
+                      when={getEnumOptions(key).length > 0}
+                      fallback={
+                        <input value={(editProps as Record<string, string>)[key] ?? ''}
+                          onInput={(e) => setEditProps(key, e.currentTarget.value)}
+                          type="text" placeholder={key}
+                          class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-2 outline-none flex-1 min-w-0 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none" />
+                      }
+                    >
+                      <CustomSelect
+                        value={(editProps as Record<string, string>)[key] ?? ''}
+                        options={getEnumOptions(key).map(o => ({ label: o, value: o }))}
+                        onChange={(v) => setEditProps(key, v)}
+                        class="flex-1 min-w-0"
+                      />
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+
+          <Show when={!isTextElement() && !hasClassEditor() && propKeys().filter(k => k !== 'className').length === 0}>
+            <div class="text-[11px] text-slate-400 py-2">该组件暂不支持快速修改</div>
+          </Show>
+
+          <Show when={hasClassEditor()}>
             {/* <div>
               <label class="mb-1 block text-xs font-medium text-slate-500">文本内容</label>
               <textarea value={editText()} onInput={(e) => setEditText(e.currentTarget.value)}
@@ -1590,28 +1754,27 @@ export function PropertyEditorPopup(props: {
 
             <div class="grid gap-1.5 py-0.5 border-slate-100 min-w-0">
               <span class="text-[10px] font-medium text-slate-500">Typography</span>
-                <select value={editFontFamily()}
-                  onChange={(e) => setEditFontFamily(e.currentTarget.value)}
-                  class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] w-full text-[11px] px-1 outline-none appearance-none">
-                  <option value="">Default</option>
-                  <option value="sans">Sans</option>
-                  <option value="serif">Serif</option>
-                  <option value="mono">Mono</option>
-                </select>
+                <CustomSelect
+                  value={editFontFamily()}
+                  options={[{ label: 'Default', value: '' }, { label: 'Sans', value: 'sans' }, { label: 'Serif', value: 'serif' }, { label: 'Mono', value: 'mono' }]}
+                  onChange={(v) => setEditFontFamily(v)}
+                />
               <div class="flex items-center gap-1.5 w-full min-w-0">
-                <select value={editFontWeight()}
-                  onChange={(e) => setEditFontWeight(Number(e.currentTarget.value))}
-                  class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] flex-1 min-w-0 text-[11px] px-1 outline-none appearance-none">
-                  <option value={100}>Thin</option>
-                  <option value={200}>Extra Light</option>
-                  <option value={300}>Light</option>
-                  <option value={400}>Regular</option>
-                  <option value={500}>Medium</option>
-                  <option value={600}>Semi Bold</option>
-                  <option value={700}>Bold</option>
-                  <option value={800}>Extra Bold</option>
-                  <option value={900}>Black</option>
-                </select>
+                <CustomSelect
+                  value={String(editFontWeight())}
+                  options={[
+                    { label: 'Thin', value: '100' },
+                    { label: 'Extra Light', value: '200' },
+                    { label: 'Light', value: '300' },
+                    { label: 'Regular', value: '400' },
+                    { label: 'Medium', value: '500' },
+                    { label: 'Semi Bold', value: '600' },
+                    { label: 'Bold', value: '700' },
+                    { label: 'Extra Bold', value: '800' },
+                    { label: 'Black', value: '900' },
+                  ]}
+                  onChange={(v) => setEditFontWeight(Number(v))}
+                />
                 <DragInput value={editFontSize} setValue={setEditFontSize} setFound={() => {}} found={() => true} placeholder="字号" />
               </div>
               <div class="flex items-center gap-1.5 w-full min-w-0">
@@ -1686,13 +1849,11 @@ export function PropertyEditorPopup(props: {
                         </button>
                       </div>
                       <div class="flex items-center gap-1.5 w-full min-w-0">
-                        <select value={s.position}
-                          onChange={(e) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) setStrokes(i, 'position', e.currentTarget.value as 'center' | 'inside' | 'outside') }}
-                          class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] flex-1 min-w-0 text-[11px] px-1 outline-none appearance-none">
-                          <option value="center">center</option>
-                          <option value="inside">inside</option>
-                          <option value="outside">outside</option>
-                        </select>
+                        <CustomSelect
+                          value={s.position}
+                          options={[{ label: 'center', value: 'center' }, { label: 'inside', value: 'inside' }, { label: 'outside', value: 'outside' }]}
+                          onChange={(v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) setStrokes(i, 'position', v as 'center' | 'inside' | 'outside') }}
+                        />
                         <DragInput value={() => s.width} setValue={(v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'width', v); setStrokes(i, 'foundWidth', true) } }} setFound={() => { }} found={() => s.foundWidth} placeholder="宽度" display={s.individualOpen && (s.foundWidthTop || s.foundWidthRight || s.foundWidthBottom || s.foundWidthLeft) ? 'mixed' : undefined} />
                         <button onClick={() => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) setStrokes(i, 'individualOpen', !strokes[i].individualOpen) }}
                           class={s.individualOpen ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}>
@@ -1727,9 +1888,11 @@ export function PropertyEditorPopup(props: {
                   <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
                 </button>
               </div>
-              <For each={effects}>
+               <For each={effects}>
                 {(e) => {
+                  let triggerRef!: HTMLButtonElement
                   let popupRef!: HTMLDivElement
+                  const [panelPos, setPanelPos] = createSignal({ x: 0, y: 0 })
                   createEffect(() => {
                     if (!e.expanded) return
                     const handler = (ev: MouseEvent) => {
@@ -1738,23 +1901,25 @@ export function PropertyEditorPopup(props: {
                         if (i >= 0) setEffects(i, 'expanded', false)
                       }
                     }
+                    if (triggerRef) {
+                      const rect = triggerRef.getBoundingClientRect()
+                      setPanelPos({ x: rect.left - 208, y: rect.top - 4 })
+                    }
                     document.addEventListener('mousedown', handler)
                     onCleanup(() => document.removeEventListener('mousedown', handler))
                   })
                   return (
                     <div class="relative">
                       <div class="flex items-center gap-1.5 w-full min-w-0">
-                        <button onClick={(ev) => { ev.stopPropagation(); const i = effects.findIndex(x => x.id === e.id); if (i >= 0) setEffects(i, 'expanded', !e.expanded) }}
+                        <button ref={triggerRef} onClick={(ev) => { ev.stopPropagation(); const i = effects.findIndex(x => x.id === e.id); if (i >= 0) setEffects(i, 'expanded', !e.expanded) }}
                           class={e.expanded ? 'prop-chip-active h-5 w-5 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-5 w-5 p-0 flex items-center justify-center shrink-0'}>
                           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2 2-8 8H4v-2l8-8z" /></svg>
                         </button>
-                        <select value={e.type}
-                          onChange={(ev) => { const i = effects.findIndex(x => x.id === e.id); if (i >= 0) setEffects(i, 'type', ev.currentTarget.value as 'drop-shadow' | 'layer-blur' | 'background-blur') }}
-                          class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] flex-1 min-w-0 text-[11px] px-1 outline-none appearance-none">
-                          <option value="drop-shadow">Drop shadow</option>
-                          <option value="layer-blur">Layer blur</option>
-                          <option value="background-blur">Background blur</option>
-                        </select>
+                        <CustomSelect
+                          value={e.type}
+                          options={[{ label: 'Drop shadow', value: 'drop-shadow' }, { label: 'Layer blur', value: 'layer-blur' }, { label: 'Background blur', value: 'background-blur' }]}
+                          onChange={(v) => { const i = effects.findIndex(x => x.id === e.id); if (i >= 0) setEffects(i, 'type', v as 'drop-shadow' | 'layer-blur' | 'background-blur') }}
+                        />
                         <button onClick={() => { const i = effects.findIndex(x => x.id === e.id); if (i >= 0) setEffects(i, 'visible', !effects[i].visible) }}
                           class="prop-chip h-5 w-5 p-0 flex items-center justify-center shrink-0">
                           <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1770,10 +1935,11 @@ export function PropertyEditorPopup(props: {
                         </button>
                       </div>
                       <Show when={e.expanded}>
-                        <div ref={popupRef} class="absolute right-full mr-2 top-0 z-[302] py-2 px-3 w-[200px]"
-                          style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "6px", "box-shadow": "0 4px 12px rgba(0,0,0,0.15)" }}
-                          onMouseDown={(ev) => ev.stopPropagation()}>
-                          <Show when={e.type === 'drop-shadow'} fallback={
+                        <Portal>
+                          <div ref={popupRef} class="fixed z-[302] py-2 px-3 w-[200px]"
+                            style={{ left: panelPos().x + 'px', top: panelPos().y + 'px', background: "#fff", border: "1px solid #e2e8f0", "border-radius": "6px", "box-shadow": "0 4px 12px rgba(0,0,0,0.15)" }}
+                            onMouseDown={(ev) => ev.stopPropagation()}>
+                            <Show when={e.type === 'drop-shadow'} fallback={
                             <Show when={e.type === 'layer-blur'} fallback={
                               <div class="flex flex-col gap-1.5">
                                 <span class="text-[10px] font-medium text-slate-500">Background blur</span>
@@ -1807,6 +1973,7 @@ export function PropertyEditorPopup(props: {
                             </div>
                           </Show>
                         </div>
+                        </Portal>
                       </Show>
                     </div>
                   )
@@ -1846,54 +2013,12 @@ export function PropertyEditorPopup(props: {
             </div> */}
           </Show>
 
-          <Show when={!isTextElement() && propKeys().length > 0}>
-            <div class="grid gap-1.5 min-w-0">
-              <For each={propKeys()}>
-                {(key) => (
-                  <div class="flex items-center gap-2">
-                    <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">
-                      {LABEL_MAP[key] || key}
-                      <Show when={isBinding(key)}>
-                        <span class="text-[10px] text-amber-500 font-normal">动态绑定</span>
-                      </Show>
-                    </label>
-                    <Show
-                      when={getEnumOptions(key).length > 0}
-                      fallback={
-                        <input value={(editProps as Record<string, string>)[key] ?? ''}
-                          onInput={(e) => setEditProps(key, e.currentTarget.value)}
-                          type="text" placeholder={key}
-                          class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-2 outline-none flex-1 min-w-0 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none" />
-                      }
-                    >
-                      <select value={(editProps as Record<string, string>)[key] ?? ''}
-                        onChange={(e) => setEditProps(key, e.currentTarget.value)}
-                        class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-1 outline-none flex-1 min-w-0 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none appearance-none">
-                        <For each={getEnumOptions(key)}>
-                          {(opt) => <option value={opt}>{opt}</option>}
-                        </For>
-                      </select>
-                    </Show>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          <Show when={!isTextElement() && propKeys().length === 0}>
-            <div class="text-[11px] text-slate-400 py-2">该组件暂不支持快速修改</div>
-          </Show>
-
           {/* <div class="border-t border-slate-100 pt-3">
             <label class="mb-1 block text-xs font-medium text-slate-500">历史标签</label>
             <input value={editTag()} onInput={(e) => setEditTag(e.currentTarget.value)}
               placeholder="输入标签以便回溯" class="property-input w-full" />
           </div> */}
 
-          <div class="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={() => props.onCancel()} class="prop-btn-cancel">取消</button>
-            <button type="button" onClick={() => handleConfirm()} class="prop-btn-confirm">确定</button>
-          </div>
         </div>
       </div>
     </Show>
@@ -2091,5 +2216,67 @@ function VAlignIcon(props: { value: string }) {
         </>
       )}
     </svg>
+  )
+}
+
+function CustomSelect(props: {
+  value: string
+  options: { label: string; value: string }[]
+  onChange: (value: string) => void
+  class?: string
+}) {
+  const [open, setOpen] = createSignal(false)
+  const [pos, setPos] = createSignal({ x: 0, y: 0, w: 0 })
+  let btnRef!: HTMLButtonElement
+  let listRef!: HTMLDivElement
+  createEffect(() => {
+    if (!open()) return
+    const handler = (e: MouseEvent) => {
+      if (listRef && !listRef.contains(e.target as Node) && !btnRef.contains(e.target as Node)) setOpen(false)
+    }
+    const onScroll = () => setOpen(false)
+    if (btnRef) {
+      const r = btnRef.getBoundingClientRect()
+      setPos({ x: r.left, y: r.bottom + 4, w: r.width })
+    }
+    document.addEventListener('mousedown', handler)
+    window.addEventListener('scroll', onScroll, true)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', handler)
+      window.removeEventListener('scroll', onScroll, true)
+    })
+  })
+  const cls = () => props.class || ''
+  return (
+    <div class={`relative ${cls()}`}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen(!open())}
+        class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[11px] px-2 outline-none w-full border border-transparent hover:border-[#c9c9c9] focus:border-[#0067d1] focus:shadow-[0_0_0_1px_#8abef3] text-left"
+      >
+        <span class="flex-1 truncate">{props.options.find(o => o.value === props.value)?.label || props.value}</span>
+        <svg class="w-3 h-3 ml-1 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <Show when={open()}>
+        <Portal mount={document.body}>
+          <div ref={listRef} class="fixed z-[2147483646] py-1 rounded-md shadow-[0_4px_16px_rgba(0,0,0,0.12)]"
+            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px', background: '#fff' }}
+            onClick={() => setOpen(false)}>
+            <For each={props.options}>
+              {(opt) => (
+                <div
+                  onClick={() => props.onChange(opt.value)}
+                  class="px-3 py-1.5 text-[12px] text-slate-700 bg-white hover:bg-[#F4F4F5] cursor-pointer whitespace-nowrap"
+                  classList={{ 'bg-[#E6F2FD] text-primary font-medium': opt.value === props.value }}
+                >
+                  {opt.label}
+                </div>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
+    </div>
   )
 }

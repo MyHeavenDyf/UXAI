@@ -419,7 +419,7 @@ function PatternContent() {
 
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
+  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { }, setEditingOff: () => { } }
 
   function sendToPreview(data: unknown) {
     console.log("[Pattern] sendToPreview called")
@@ -656,6 +656,7 @@ function PatternContent() {
     const id = params.id
     const dir = patternHistoryDir()
     if (!id || !dir) return
+    previewApi.setEditingOff()
     const state = await rollbackToVersion(dir, id, versionId, sendToPreview)
     if (!state) return
     setCurrentVersionId(versionId)

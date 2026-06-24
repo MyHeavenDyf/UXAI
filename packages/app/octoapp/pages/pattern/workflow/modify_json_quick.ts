@@ -5,7 +5,7 @@
  * 而是直接操作 A2UI JSON 树中指定元素的 props，适用于用户在预览区手动调整样式/属性的场景。
  */
 import type { VersionEntry } from "../utils/persist"
-import { appendPatternVersion } from "../utils/persist"
+import { appendPatternVersion, getDebugSnapshot, clearDebugLog } from "../utils/persist"
 
 /** 一次快速修改操作的数据，由 PropertyEditorPopup 提交 */
 export type ModifyElementData = {
@@ -93,17 +93,25 @@ export async function handleModifyElement(
 
   // 在元素列表中查找目标元素并更新 props
   let found = false
+  let beforeProps: unknown = null
   for (const el of (doc as any).elements) {
     if (el.id === data.elementId) {
       found = true
+      beforeProps = JSON.parse(JSON.stringify(el.props ?? {}))
       el.props = el.props || {}
-      el.props.className = data.className
+      if (data.className) el.props.className = data.className
       if (data.textContent) el.props.value = data.textContent
       if (data.componentProps) Object.assign(el.props, data.componentProps)
       break
     }
   }
-  console.log("[Pattern] element found:", found, "in", (doc as any).elements.length, "elements")
+  console.log("[Pattern] element modify diff:", {
+    elementId: data.elementId,
+    found,
+    totalElements: (doc as any).elements.length,
+    before: beforeProps,
+    after: found ? (doc as any).elements.find((el: any) => el.id === data.elementId)?.props : null,
+  })
 
   // 推送到预览区
   ctx.sendToPreview(doc)
@@ -129,6 +137,9 @@ export async function handleModifyElement(
           "快速修改"
         ).slice(0, 80)
 
+        // 收集调试日志
+        const debug = getDebugSnapshot()
+
         // 写入本地历史文件
         const vid = await appendPatternVersion(
           dir,
@@ -138,9 +149,12 @@ export async function handleModifyElement(
             lastPlanner: ctx.getLastPlanner(),
             lastModules: ctx.getLastModules(),
             mergedA2UI: doc as unknown as Record<string, unknown>,
+            debug,
           },
           summary,
         )
+
+        clearDebugLog()
 
         // 更新 UI 版本列表与当前选中
         ctx.setVersions((prev) => [
