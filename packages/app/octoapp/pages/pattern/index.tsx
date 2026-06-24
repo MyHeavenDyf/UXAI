@@ -1,5 +1,5 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, showPromiseToast, Toast } from "@opencode-ai/ui/toast"
@@ -14,22 +14,14 @@ import {
   type JSX,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useProjectDir } from "@/hooks/use-project-dir"
-import { Dialog } from "@opencode-ai/ui/dialog"
-import { Button } from "@opencode-ai/ui/button"
 import { type Attachment } from "./modules/chat/attachment_bar"
 import { type OutputCard } from "./modules/chat/insight-turn"
 
-import proto_intent from "./agents/proto_intent"
-import proto_intent_audit from "./agents/proto_intent_audit"
-import proto_planner_create from "./agents/proto_planner_create"
-import proto_module_create from "./agents/proto_module_create"
 // import { getDesignMap, readDesignFile } from "./design/load_design"
 
 import create_json from './workflow/create_json'
@@ -40,10 +32,10 @@ import { handleModifyElement as runQuickModify, type QuickModifyContext, type Mo
 // import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
+import { autoRenameSession } from "./utils/rename-session"
 import { rollbackToVersion } from "./utils/history"
-import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/persist"
-import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
@@ -79,7 +71,6 @@ function PatternPreviewEmpty(): JSX.Element {
 }
 
 function PatternContent() {
-  const globalSync = useGlobalSync()
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
@@ -93,7 +84,7 @@ function PatternContent() {
     return { providerID: m.provider.id, modelID: m.id }
   })
 
-  const [sessionInfo, { refetch: refetchSession }] = createResource(
+  const [sessionInfo, { refetch: refetchSession, mutate: mutateSession }] = createResource(
     () => params.id ?? "",
     async (id) => {
       if (!id) return null as Session | null
@@ -127,8 +118,6 @@ function PatternContent() {
       (id, prevId) => {
         // ── 1. 切换 session 时同步清理 ──
         if (prevId !== undefined) {
-          setSending(false)
-          setPhase("idle")
           setSelectedDesignSystem("ICT-3.1")
         }
 
@@ -156,6 +145,8 @@ function PatternContent() {
             await discoverChildSessions(id)
             if (params.id !== id) return
             setSessionSynced(true)
+            // 滚动到底部
+            requestAnimationFrame(() => autoScroll.forceScrollToBottom())
           })
 
           // 恢复历史版本状态并推送到预览
@@ -190,9 +181,6 @@ function PatternContent() {
             })
           }
         }
-
-        // ── 4. 滚动到底部 ──
-        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -237,7 +225,7 @@ function PatternContent() {
     if (childIDs.length === 0 && rootUserMsgs.length === 0) return []
 
     type Item = { sessionID: string; messageID: string; time: number }
-    type Round = { startTime: number; endTime?: number; items: Item[] }
+    type Round = { startTime: number; endTime?: number; items: Item[]; cancelled: boolean }
 
     // Collect all round boundary timestamps.
     // Create mode (round 1): no root user messages, child sessions exist → boundary at 0.
@@ -257,6 +245,26 @@ function PatternContent() {
       const items: Item[] = []
       let startTime = roundStart === 0 ? Infinity : roundStart
       let endTime: number | undefined
+      let cancelled = false
+
+      const checkCancelled = (m: Message) => {
+        if (cancelled || m.role !== "assistant") return
+        const msgError = (m as Record<string, unknown>).error as Record<string, unknown> | undefined
+        if (msgError?.name === "MessageAbortedError") {
+          cancelled = true
+          return
+        }
+        const parts = sync.data.part[m.id] as Array<Record<string, unknown>> | undefined
+        if (!parts) return
+        for (const p of parts) {
+          if (p.type !== "tool") continue
+          const st = p.state as Record<string, unknown> | undefined
+          if (st?.status === "error" && (st.error === "Cancelled" || st.error === "Tool execution aborted")) {
+            cancelled = true
+            return
+          }
+        }
+      }
 
       // Track earliest created & latest completed across all messages in this round
       const trackTime = (m: Message) => {
@@ -273,7 +281,7 @@ function PatternContent() {
         trackTime(m)
         const idx = allRootMsgs.findIndex((mm) => mm.id === m.id)
         const assistant = allRootMsgs.slice(idx + 1).find((mm) => mm.role === "assistant")
-        if (assistant) trackTime(assistant)
+        if (assistant) { trackTime(assistant); checkCancelled(assistant) }
       }
 
       // Child sessions in this round's time window: user messages → items, all messages → timing
@@ -284,12 +292,13 @@ function PatternContent() {
         for (const m of childMsgs) {
           if (m.role === "user") items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
           trackTime(m)
+          checkCancelled(m)
         }
       }
 
       items.sort((a, b) => a.time - b.time)
       if (startTime === Infinity) startTime = items.length > 0 ? items[0].time : Date.now()
-      return { startTime, endTime, items }
+      return { startTime, endTime, items, cancelled }
     })
   })
 
@@ -320,9 +329,8 @@ function PatternContent() {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const [sending, setSending] = createSignal(false)
-  const [phase, setPhase] = createSignal<"idle" | "intent" | "audit" | "planner" | "module">("idle")
-  const [detectedCatalog, setDetectedCatalog] = createSignal<ComponentCatalog>("desktop")
+  const [sendingSid, setSendingSid] = createSignal<string | null>(null)
+  const sending = () => sendingSid() != null && sendingSid() === params.id
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
@@ -433,32 +441,25 @@ function PatternContent() {
     if (!text || sending() || !activeModelKey()) return
     const genStartTime = performance.now()
     console.log("[Pattern] 开始生成页面:", text)
-    setSending(true)
-    setPrompt("")
     const submitSessionId = params.id
-    const controller = new AbortController()
+    setPrompt("")
     const mk = activeModelKey()!
     // const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
     //  const css = await desktopApi?.tailwindToCss?.("flex items-center justify-between px-inset py-inline bg-surface-container-highest shadow-sm z-10")
     //   console.log("[Pattern] tailwind css:", css)
+    let sid = submitSessionId
     try {
-      let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
         const result = await sdk.client.session.create({ directory: dir, agent: AGENT_NAME })
         const session = result.data as Session | undefined
         if (!session) return
-        setPhase("intent")
         setSelectedDesignSystem("ICT-3.1")
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
-
-      const existing = sessionInfo()?.title
-      if (!existing || existing.startsWith("New session")) {
-        await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => { })
-      }
+      setSendingSid(sid)
 
       // 执行流程的基础上下文
       let intentCtx = {
@@ -481,7 +482,7 @@ function PatternContent() {
           const dir = patternHistoryDir()
           if (dir) {
             const debug = getDebugSnapshot()
-            const vid = await appendPatternVersion(dir, sid, {
+            const vid = await appendPatternVersion(dir, sid!, {
                 lastIntent: pageIntent,
                 lastPlanner: layoutPlanner,
                 lastModules: modulesJson,
@@ -518,7 +519,17 @@ function PatternContent() {
           showToast({ title: (modifyResult as any).reply })
         }
       }else{
-        // 首次创建页面
+        // 首次创建页面：异步获取标题（不阻塞 pipeline）
+        void autoRenameSession({
+          client: sdk.client,
+          directory: sdk.directory,
+          targetSessionID: sid!,
+          userText: text,
+          modelKey: mk,
+        }).then((title) => {
+          if (title && params.id === sid) mutateSession(prev => prev ? { ...prev, title } : prev)
+        }).catch(() => {})
+
         await create_json(intentCtx, onFinshed);
       }
 
@@ -528,9 +539,7 @@ function PatternContent() {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
     } finally {
-      if (!submitSessionId || params.id === submitSessionId) {
-        setSending(false)
-      }
+      setSendingSid((prev) => (prev === sid ? null : prev))
     }
   }
 
@@ -547,7 +556,7 @@ function PatternContent() {
         await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
       }
     }
-    setSending(false)
+    setSendingSid((prev) => (prev === sid ? null : prev))
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -853,7 +862,7 @@ function PatternContent() {
             hasPreview={lastModules().length > 0 && !isBusy()}
             onOpenPreview={handleOpenPreview}
             onDeleteSession={deleteSession}
-            onTitleChanged={() => void refetchSession()}
+            onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
           />
         </Show>
 

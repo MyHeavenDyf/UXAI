@@ -31,6 +31,7 @@ function RoundCard(props: {
   totalRounds: number
   pipelineBusy: boolean
   hasPreview: boolean
+  cancelled: boolean
   startTime: number
   endTime?: number
   onOpenPreview: () => void
@@ -43,6 +44,7 @@ function RoundCard(props: {
       <GenerationCard
         generating={generating()}
         canPreview={done()}
+        cancelled={done() && props.cancelled}
         onOpenPreview={props.onOpenPreview}
       />
       <Show when={done() || generating()}>
@@ -86,15 +88,15 @@ export function ChatPanel(props: {
   /** 主流程是否正在生成 */
   pipelineBusy: boolean
   /** 按轮分组的消息 */
-  roundMessages: { startTime: number; endTime?: number; items: { sessionID: string; messageID: string }[] }[]
+  roundMessages: { startTime: number; endTime?: number; items: { sessionID: string; messageID: string }[]; cancelled: boolean }[]
   /** 是否有可预览内容 */
   hasPreview: boolean
   /** 点击预览回调 */
   onOpenPreview: () => void
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
-  /** 标题修改后通知父组件刷新 */
-  onTitleChanged: () => void
+  /** 标题修改后通知父组件更新 */
+  onTitleChanged: (title: string) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -123,7 +125,7 @@ export function ChatPanel(props: {
     if (!draft) { setTitleState("editing", false); return }
     try {
       await sdk.client.session.update({ sessionID: id, title: draft })
-      props.onTitleChanged()
+      props.onTitleChanged(draft)
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
     }
@@ -205,8 +207,17 @@ export function ChatPanel(props: {
               aria-label={language.t("common.moreOptions")}
             />
             <DropdownMenu.Portal>
-              <DropdownMenu.Content style={{ "min-width": "104px" }}>
-                <DropdownMenu.Item onSelect={() => { setTitleState("menuOpen", false); openTitleEditor() }}>
+              <DropdownMenu.Content
+                style={{ "min-width": "104px" }}
+                onCloseAutoFocus={(event) => {
+                  if (titleState.pendingRename) {
+                    event.preventDefault()
+                    setTitleState("pendingRename", false)
+                    openTitleEditor()
+                  }
+                }}
+              >
+                <DropdownMenu.Item onSelect={() => setTitleState({ pendingRename: true, menuOpen: false })}>
                   <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator />
@@ -279,6 +290,7 @@ export function ChatPanel(props: {
                           totalRounds={props.roundMessages.length}
                           pipelineBusy={props.pipelineBusy}
                           hasPreview={props.hasPreview}
+                          cancelled={round().cancelled}
                           startTime={round().startTime}
                           endTime={round().endTime}
                           onOpenPreview={props.onOpenPreview}

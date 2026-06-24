@@ -22,7 +22,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
       style={{
-        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+        transform: props.collapsed ? "rotate(0deg)" : "rotate(-90deg)",
         transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
         "flex-shrink": "0",
       }}
