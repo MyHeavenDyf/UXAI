@@ -1502,7 +1502,7 @@ export default function StudioPage() {
       isEditorCapability ? undefined : `画幅比例：${aspectRatio()}`,
       isEditorCapability ? undefined : `生成数量：${count()}`,
       input.sourceImage
-        ? "将延续上一轮画面设定重新生成。"
+        ? "将基于当前画面设定重新生成。"
         : undefined,
       `用户需求：${input.text}`,
     ]

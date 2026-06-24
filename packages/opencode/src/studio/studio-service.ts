@@ -5,16 +5,21 @@ import {
   queryInternalGeneration,
   summarizeInternalOutput,
 } from "@/tool/internel_image_generate"
+import { generateObject } from "ai"
+import z from "zod"
 import * as Database from "@/storage/db"
 import { and, eq, inArray, lte } from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { MessageTable, PartTable, SessionTable } from "@/session/session.sql"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { Provider } from "@/provider/provider"
 import { SyncEvent } from "@/sync"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
 import { registerDisposer } from "@/effect/instance-registry"
+import { makeRuntime } from "@/effect/run-service"
+import { Effect } from "effect"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 
@@ -25,6 +30,19 @@ type StudioPersistedTurn = {
 }
 
 type StudioGenerationRecord = typeof StudioGenerationTable.$inferSelect
+type StudioPromptRefineResult = {
+  assistantText: string
+  refinedPrompt: string
+  effectivePrompt: string
+  fallback?: boolean
+  raw?: unknown
+}
+
+type StudioGenerationPromptInput = StudioGenerationRequest & {
+  refinedPrompt?: string
+  effectivePrompt?: string
+  promptRefineFallback?: boolean
+}
 
 export type StudioGenerationRequest = {
   sessionID?: string
@@ -197,11 +215,156 @@ function buildEffectivePrompt(input: StudioGenerationRequest) {
   return `延续上一轮画面：${context}。${input.prompt}`
 }
 
+function generationPrompt(input: StudioGenerationRequest) {
+  const effectivePrompt = (input as StudioGenerationPromptInput).effectivePrompt
+  return typeof effectivePrompt === "string" && effectivePrompt.trim().length > 0
+    ? effectivePrompt.trim()
+    : buildEffectivePrompt(input)
+}
+
+function displayInput(input: StudioGenerationRequest, task?: ImageGenerationTask) {
+  if (!task?.input) return input
+  return {
+    ...input,
+    ...task.input,
+    prompt: input.prompt,
+  }
+}
+
+function shouldRefineWithLLM(input: StudioGenerationRequest) {
+  if (input.capability !== "image.generate") return false
+  return input.extra?.skipPromptRefine !== true
+}
+
+function promptRefineFallback(input: StudioGenerationRequest): StudioPromptRefineResult {
+  const effectivePrompt = buildEffectivePrompt(input)
+  return {
+    assistantText: shouldRefineWithLLM(input)
+      ? input.sourceImage
+        ? "好的，我会基于当前画面继续创作。"
+        : "好的，我会根据你的描述创作画面。"
+      : buildAssistantText(input),
+    refinedPrompt: effectivePrompt,
+    effectivePrompt,
+    fallback: true,
+  }
+}
+
+function imageUrls(result: unknown) {
+  if (!result || typeof result !== "object") return []
+  const images = (result as { images?: unknown }).images
+  if (!Array.isArray(images)) return []
+  return images
+    .map((image) => {
+      if (!image || typeof image !== "object") return
+      const record = image as { remoteUrl?: unknown; url?: unknown }
+      return typeof record.remoteUrl === "string"
+        ? record.remoteUrl
+        : typeof record.url === "string"
+          ? record.url
+          : undefined
+    })
+    .filter((item): item is string => Boolean(item))
+}
+
+function lastSuccessfulGeneration(sessionID: SessionID) {
+  return Database.use((db) =>
+    db
+      .select()
+      .from(StudioGenerationTable)
+      .where(and(
+        eq(StudioGenerationTable.session_id, sessionID),
+        eq(StudioGenerationTable.status, "succeeded"),
+      ))
+      .all(),
+  )
+    .sort((left, right) => (right.completed_at ?? right.time_updated) - (left.completed_at ?? left.time_updated))[0]
+}
+
+function promptRefineInput(input: StudioGenerationRequest, previous?: StudioGenerationRecord) {
+  const previousRequest = previous ? generationRequest(previous).input as StudioGenerationPromptInput : undefined
+  return {
+    userPrompt: input.prompt,
+    hasReferenceImages: (input.referenceImages?.length ?? 0) > 0,
+    previousTurn: previous && previousRequest
+      ? {
+          userText: previousRequest.prompt,
+          refinedPrompt: previousRequest.refinedPrompt ?? previousRequest.effectivePrompt,
+          imageUrls: imageUrls(previous.result),
+        }
+      : undefined,
+  }
+}
+
+const promptRefineSchema = z.object({
+  assistantText: z.string().min(1),
+  refinedPrompt: z.string().min(1),
+})
+
+const studioPromptProviderRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
+
+const PROMPT_REFINE_SYSTEM = [
+  "你是 Octo Studio 的创意提示词润色助手。",
+  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
+  "严格规则：",
+  "- 只负责画面内容描述，不决定能力、模型、风格配置、工具、比例、数量。",
+  "- 不要在 refinedPrompt 中写模型名称、画幅比例、生成数量、工具名称。",
+  "- 用户气泡会显示用户原文，因此不要把用户输入改写成对话消息。",
+  "- 如果用户当前输入是延续上一轮，请保留上一轮主体、构图、氛围、风格中仍相关的部分。",
+  "- 如果用户当前输入明确是全新主题，请以当前输入为主。",
+  "- assistantText 使用中文，简短、自然、友好，不要暴露内部参数。",
+  "- refinedPrompt 只描述要生成的画面内容。",
+  "- 只输出 JSON。",
+].join("\n")
+
+async function refineStudioPrompt(input: StudioGenerationRequest, session: typeof SessionTable.$inferSelect): Promise<StudioPromptRefineResult> {
+  if (!shouldRefineWithLLM(input)) return promptRefineFallback(input)
+  try {
+    const model = session.model
+      ? { providerID: ProviderID.make(session.model.providerID), modelID: ModelID.make(session.model.id) }
+      : undefined
+    const result = await Promise.race([
+      studioPromptProviderRuntime.runPromise((provider) =>
+        Effect.gen(function* () {
+          const selected = model ?? (yield* provider.defaultModel())
+          const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
+          const language = yield* provider.getLanguage(resolved)
+          return yield* Effect.promise(() =>
+            generateObject({
+              model: language,
+              temperature: 0.4,
+              schema: promptRefineSchema,
+              messages: [
+                { role: "system", content: PROMPT_REFINE_SYSTEM },
+                {
+                  role: "user",
+                  content: JSON.stringify(promptRefineInput(input, lastSuccessfulGeneration(SessionID.zod.parse(session.id))), null, 2),
+                },
+              ],
+            }),
+          )
+        }),
+      ).then((item) => item.object),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Studio prompt refine timed out.")), 12_000)),
+    ])
+    return {
+      assistantText: result.assistantText.trim(),
+      refinedPrompt: result.refinedPrompt.trim(),
+      effectivePrompt: result.refinedPrompt.trim(),
+      raw: result,
+    }
+  } catch (error) {
+    console.warn("[studio.service] prompt refine failed", error)
+    return promptRefineFallback(input)
+  }
+}
+
 function persistStudioSession(input: {
   generationID: string
   sessionID: SessionID
-  request: StudioGenerationRequest
+  request: StudioGenerationPromptInput
   provider: StudioProvider
+  promptRefine: StudioPromptRefineResult
   createdAt: number
 }): StudioPersistedTurn | undefined {
   const session = Database.use((db) =>
@@ -214,7 +377,7 @@ function persistStudioSession(input: {
   const userTextPartID = PartID.ascending()
   const assistantTextPartID = PartID.ascending()
   const toolPartID = PartID.ascending()
-  const assistantText = buildAssistantText(input.request)
+  const assistantText = input.promptRefine.assistantText
   const providerID = session.model ? ProviderID.make(session.model.providerID) : ProviderID.make("octo_studio")
   const modelID = session.model ? ModelID.make(session.model.id) : ModelID.make("octo_studio")
   const modelVariant = session.model?.variant
@@ -285,7 +448,9 @@ function persistStudioSession(input: {
         count: isEditorGenerationCapability(input.request.capability) ? undefined : input.request.count,
         referenceImages: input.request.referenceImages,
         sourceImage: input.request.sourceImage,
-        effectivePrompt: buildEffectivePrompt(input.request),
+        refinedPrompt: input.promptRefine.refinedPrompt,
+        effectivePrompt: input.promptRefine.effectivePrompt,
+        promptRefineFallback: input.promptRefine.fallback,
         extra: input.request.extra,
       },
       title: "图片生成",
@@ -842,7 +1007,7 @@ async function processGeneration(record: StudioGenerationRecord) {
         record,
         await executeJimengImageGenerate({
           capability: data.input.capability,
-          prompt: buildEffectivePrompt(data.input),
+          prompt: generationPrompt(data.input),
           styleModel: data.input.styleModel,
           aspectRatio: data.input.aspectRatio,
           count: data.input.count,
@@ -913,11 +1078,11 @@ async function processGeneration(record: StudioGenerationRecord) {
   }
 }
 
-async function createProviderTask(input: StudioGenerationRequest, provider: StudioProvider) {
+async function createProviderTask(input: StudioGenerationPromptInput, provider: StudioProvider) {
   if (provider !== "internel") return
   return createInternalGeneration({
     capability: input.capability,
-    prompt: buildEffectivePrompt(input),
+    prompt: generationPrompt(input),
     styleModel: isEditorGenerationCapability(input.capability) ? undefined : input.styleModel,
     aspectRatio: isEditorGenerationCapability(input.capability) ? undefined : input.aspectRatio,
     count: isEditorGenerationCapability(input.capability) ? undefined : input.count,
@@ -1007,11 +1172,19 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
   const createdAt = Date.now()
   const id = Identifier.create("studio_gen", "ascending")
   const provider = resolveProvider(input)
+  const promptRefine = await refineStudioPrompt(input, session)
+  const generationInput: StudioGenerationPromptInput = {
+    ...input,
+    refinedPrompt: promptRefine.refinedPrompt,
+    effectivePrompt: promptRefine.effectivePrompt,
+    promptRefineFallback: promptRefine.fallback,
+  }
   const turn = persistStudioSession({
     generationID: id,
     sessionID,
-    request: input,
+    request: generationInput,
     provider,
+    promptRefine,
     createdAt,
   })
   if (!turn) throw new Error(`Unable to create Studio session turn: ${sessionID}`)
@@ -1026,13 +1199,13 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       capability: input.capability,
       status: "queued",
       progress: 0,
-      request: stripUndefined({ input }) as Record<string, unknown>,
+      request: stripUndefined({ input: generationInput }) as Record<string, unknown>,
       next_poll_at: Number.MAX_SAFE_INTEGER,
       time_created: createdAt,
       time_updated: createdAt,
     }).run(),
   )
-  const created = await createProviderTask(input, provider).then(
+  const created = await createProviderTask(generationInput, provider).then(
     (task) => ({ task } as const),
     (error) => ({ error } as const),
   )
@@ -1047,7 +1220,7 @@ export async function createGeneration(input: StudioGenerationRequest): Promise<
       .set({
         provider_task_id: task?.taskId,
         status: task ? "running" : "queued",
-        request: stripUndefined({ input: task?.input ?? input, task }) as Record<string, unknown>,
+        request: stripUndefined({ input: displayInput(generationInput, task), task }) as Record<string, unknown>,
         next_poll_at: Date.now(),
         time_updated: Date.now(),
       })
