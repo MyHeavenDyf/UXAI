@@ -210,7 +210,14 @@ function studioProgress(part?: Extract<Part, { type: "tool" }>) {
   const status = stringField(studio, "status")
   return {
     generationID: stringField(studio, "generationID"),
-    status: status === "queued" || status === "running" || status === "succeeded" || status === "failed" ? status : "running",
+    status:
+      status === "queued" ||
+      status === "running" ||
+      status === "succeeded" ||
+      status === "create_failed" ||
+      status === "failed"
+        ? status
+        : "running",
     rawStatus: studio?.rawStatus as number | string | undefined,
     progress: numberField(studio, "progress") ?? 0,
     order: numberField(studio, "order"),
@@ -363,6 +370,7 @@ function buildResult(input: {
   const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
+  const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: extractUserDemand(input.userText),
@@ -374,7 +382,9 @@ function buildResult(input: {
         : completed
           ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
           : errored
-            ? capability === "video.generate" ? "视频生成失败" : "图片生成失败"
+            ? failureStatus === "create_failed"
+              ? capability === "video.generate" ? "视频创建失败" : "图片创建失败"
+              : capability === "video.generate" ? "视频生成失败" : "图片生成失败"
             : undefined,
     toolError: errored?.state.error,
     toolName: activeTool?.tool ?? input.tools[0]?.tool,
@@ -437,7 +447,7 @@ function buildResult(input: {
         : errored
           ? {
               id: failure.generationID ?? `studio_${errored.id}`,
-              status: "failed",
+              status: failureStatus,
               capability,
               prompt: extractUserDemand(input.userText),
               provider: resolveProvider(errored.tool),
@@ -515,7 +525,13 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       userText: extractUserDemand(input.fallback.prompt),
       assistantText: "",
       toolTitle: `${input.fallback.capability === "video.generate" ? "视频生成" : "图片生成"}${
-        fallbackGenerating ? "中" : input.fallback.status === "failed" ? "失败" : "完成"
+        fallbackGenerating
+          ? "中"
+          : input.fallback.status === "create_failed"
+            ? "创建失败"
+            : input.fallback.status === "failed"
+              ? "失败"
+              : "完成"
       }`,
       toolName: input.fallback.provider,
       toolRunning: fallbackGenerating,

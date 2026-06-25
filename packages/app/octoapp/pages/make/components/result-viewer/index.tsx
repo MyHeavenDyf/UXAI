@@ -16,6 +16,7 @@ import { VideoRenderer } from "./video-renderer"
 import { AudioRenderer } from "./audio-renderer"
 import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
+import { DesignPlanRenderer } from "./design-plan-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
@@ -76,6 +77,9 @@ export function ResultViewer(props: {
   sdkDirectory?: string
   focusMode?: boolean
   onFocusModeToggle?: () => void
+  onConfirmPlan?: (identifier?: string) => void
+  onAdjustPlan?: () => void
+  isPlanConfirmed?: () => boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -200,6 +204,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
         <Show when={props.viewMode === "tabs" && activeTab()}>
           {(tab) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <Show when={tab().type !== "design-plan"}>
               <ActionBar
                 tab={tab()}
                 mode={canToggleMode(tab()) ? getHtmlMode(tab().id) : undefined}
@@ -255,6 +260,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 focusMode={props.focusMode}
                 onFocusModeToggle={tab().type === "local-file" || tab().type === "html" || tab().type === "svg" ? props.onFocusModeToggle : undefined}
               />
+              </Show>
               <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch
                   fallback={
@@ -312,6 +318,17 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   </Match>
                   <Match when={tab().type === "react-component"}>
                     <ReactComponentRenderer content={tab().content} title={tab().title} />
+                  </Match>
+                  <Match when={tab().type === "design-plan"}>
+                    <DesignPlanRenderer
+                      content={tab().content}
+                      title={tab().title}
+                      artifactIdentifier={tab().artifactIdentifier}
+                      confirmed={props.isPlanConfirmed?.() ?? false}
+                      onConfirm={() => props.onConfirmPlan?.(tab().artifactIdentifier)}
+                      onAdjust={() => props.onAdjustPlan?.()}
+                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                    />
                   </Match>
                   <Match when={tab().type === "local-file"}>
                     <iframe

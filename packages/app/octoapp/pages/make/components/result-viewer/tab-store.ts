@@ -4,13 +4,14 @@ import type { OutputCard, ArtifactExportKind } from "../insight-turn"
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text"
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" 
   content: string
   filePath?: string
   sessionId?: string
   absoluteFilePath?: string
   exports?: ArtifactExportKind[]
   artifactIdentifier?: string
+  pinned?: boolean
   createdAt: Date
 }
 
@@ -21,6 +22,14 @@ export function createTabStore() {
   function openTab(card: OutputCard) {
     const existing = tabs().find((t) => t.id === card.id)
     if (existing) {
+      // 已存在:更新内容(支持方案迭代 — agent 用相同 identifier 多次输出方案时,内容会刷新)
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === card.id
+            ? { ...t, content: card.content, title: card.title, artifactIdentifier: card.artifactIdentifier ?? t.artifactIdentifier }
+            : t,
+        ),
+      )
       setActiveId(card.id)
       return
     }
@@ -64,6 +73,10 @@ export function createTabStore() {
 
   function closeTab(id: string) {
     setTabs((prev) => {
+      const target = prev.find((t) => t.id === id)
+      // pinned tab 拒绝关闭(防御性,UI 已经不渲染关闭按钮)
+      if (target?.pinned) return prev
+
       const idx = prev.findIndex((t) => t.id === id)
       if (idx === -1) return prev
       const next = prev.filter((t) => t.id !== id)

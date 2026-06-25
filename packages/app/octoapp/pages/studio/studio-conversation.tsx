@@ -114,24 +114,15 @@ export function StudioResultCanvas(props: {
     const image = fullscreenImage()
     const mountEl = props.fullscreenMount?.() || document.body
     mountEl.style.overflow = image ? "hidden" : ""
-    document.body.classList.toggle("studio-fullscreen-active", !!image)
     if (!image) return
-    ;(window as any).api?.setTitlebarOverlayHidden?.(true)
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
     }
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (fullscreenImage()) { setFullscreenImage(null); e.preventDefault() }
-    }
     document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
-      ;(window as any).api?.setTitlebarOverlayHidden?.(false)
       const mountEl = props.fullscreenMount?.() || document.body
       mountEl.style.overflow = ""
-      document.body.classList.remove("studio-fullscreen-active")
       document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("beforeunload", onBeforeUnload)
     })
   })
 
@@ -140,9 +131,11 @@ export function StudioResultCanvas(props: {
       <Show when={props.image} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
           <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
-            <Show when={props.status === "failed" && props.result?.error} fallback={<StudioEmptyState />}>
+            <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
               <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
-                <div class="text-[16px] font-semibold text-[#b42318]">生成失败</div>
+                <div class="text-[16px] font-semibold text-[#b42318]">
+                  {props.status === "create_failed" ? "创建失败" : "生成失败"}
+                </div>
                 <div class="mt-2 text-[12px] leading-[18px] whitespace-pre-wrap break-all text-[#7a271a]">
                   {props.result?.error}
                 </div>
@@ -216,6 +209,7 @@ export function StudioResultCanvas(props: {
                     再次生成
                   </button>
                   <Show when={props.result?.capability === "image.generate" && props.showVideoGeneration}>
+                    <span class="studio-canvas-action-divider" />
                     <button
                       type="button"
                       onClick={props.onGenerateVideo}
@@ -226,6 +220,7 @@ export function StudioResultCanvas(props: {
                     </button>
                   </Show>
                   <Show when={!isVideoResult()}>
+                    <span class="studio-canvas-action-divider" />
                     <div class="studio-canvas-action-group">
                       <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
                         class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
@@ -248,6 +243,7 @@ export function StudioResultCanvas(props: {
                         <span>扩图</span>
                       </button>
                     </div>
+                    <span class="studio-canvas-action-divider" />
                   </Show>
                   <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
