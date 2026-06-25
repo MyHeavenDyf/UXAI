@@ -173,11 +173,12 @@ export async function uploadArtifactFolder(
   sessionId: string,
   folderName: string,
   files: FolderUploadFile[],
+  currentPath?: string,
 ): Promise<FolderUploadResponse> {
   const response = await fetch(`${sdkUrl}/artifact/upload-folder`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
-    body: JSON.stringify({ sessionId, folderName, files }),
+    body: JSON.stringify({ sessionId, folderName, files, path: currentPath }),
   })
   if (!response.ok) {
     throw new Error(`Failed to upload folder: ${response.statusText}`)

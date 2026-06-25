@@ -339,11 +339,21 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       }
     })
 
-    const uploadFolder = Effect.fn("ArtifactHttpApi.uploadFolder")(function* (ctx: { payload: { sessionId: string; folderName: string; files: readonly { relativePath: string; content: string }[] } }) {
+    const uploadFolder = Effect.fn("ArtifactHttpApi.uploadFolder")(function* (ctx: { payload: { sessionId: string; folderName: string; files: readonly { relativePath: string; content: string }[]; path?: string } }) {
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
       const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
-      const folderDir = path.join(artifactDir, body.folderName)
+      
+      let targetDir = artifactDir
+      if (body.path && body.path.trim() !== "") {
+        const normalizedPath = body.path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+        if (normalizedPath.includes("..") || normalizedPath.includes("~")) {
+          yield* Effect.fail(new HttpApiError.BadRequest({}))
+        }
+        targetDir = path.join(artifactDir, normalizedPath)
+      }
+      
+      const folderDir = path.join(targetDir, body.folderName)
 
       yield* fs.ensureDir(folderDir).pipe(Effect.orDie)
 

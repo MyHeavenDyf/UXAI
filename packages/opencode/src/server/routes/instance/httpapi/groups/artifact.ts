@@ -59,6 +59,7 @@ const ArtifactUploadFolderPayload = Schema.Struct({
   sessionId: Schema.String,
   folderName: Schema.String,
   files: Schema.Array(FolderUploadFileSchema),
+  path: Schema.optional(Schema.String),
 })
 
 const ArtifactUploadFolderResponseSchema = Schema.Struct({
@@ -175,6 +176,7 @@ export const ArtifactApi = HttpApi.make("artifact")
         HttpApiEndpoint.post("uploadFolder", ArtifactPaths.uploadFolder, {
           payload: ArtifactUploadFolderPayload,
           success: described(ArtifactUploadFolderResponseSchema, "Uploaded folder info"),
+          error: [HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "artifact.uploadFolder",

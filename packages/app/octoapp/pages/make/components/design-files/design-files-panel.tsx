@@ -30,14 +30,9 @@ import {
   uploadArtifactFolder,
   getArtifactRelativePath,
   fetchArtifactContent,
-  formatFileSize,
   formatTimestamp,
-  type ArtifactFile as ArtifactFileType,
-  type ArtifactListResponse,
-  type ArtifactContentResponse,
   type FolderUploadFile,
 } from "../../utils/artifact-file-api"
-import { IconRefresh } from "../../icons"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -47,6 +42,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { PreviewPane } from "./preview-pane"
 import { Breadcrumb } from "./breadcrumb"
+import { DesignFilesToolbar } from "./design-files-toolbar"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
   const capitalized = kind.charAt(0).toUpperCase() + kind.slice(1)
@@ -406,19 +402,28 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   async function processDirectoryEntry(dirEntry: FileSystemDirectoryEntry) {
-    const reader = dirEntry.createReader()
-    const entries = await readAllDirectoryEntries(reader)
-    
     const folderName = dirEntry.name
     const fileEntries: FolderUploadFile[] = []
     
-    for (const entry of entries) {
+    async function collectFiles(entry: FileSystemEntry) {
       if (entry.isFile) {
         const file = await getFileFromEntry(entry as FileSystemFileEntry)
         const relativePath = entry.fullPath.slice(1 + folderName.length)
         const base64 = await readFileAsBase64(file)
         fileEntries.push({ relativePath, content: base64 })
+      } else if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader()
+        const childEntries = await readAllDirectoryEntries(reader)
+        for (const child of childEntries) {
+          await collectFiles(child)
+        }
       }
+    }
+    
+    const reader = dirEntry.createReader()
+    const entries = await readAllDirectoryEntries(reader)
+    for (const entry of entries) {
+      await collectFiles(entry)
     }
     
     if (fileEntries.length === 0) return
@@ -430,6 +435,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         props.sessionId,
         folderName,
         fileEntries,
+        fileStore.store.currentPath,
       )
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       await refresh()
@@ -522,22 +528,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         props.sessionId,
         folderName,
         fileEntries,
+        fileStore.store.currentPath,
       )
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       await refresh()
     } catch (err) {
       showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
-  }
-
-  const filterButtonText = () => {
-    const filterSize = fileStore.store.kindFilter.size
-    if (filterSize === 0) return language.t("designFiles.filter")
-    if (filterSize === 1) {
-      const kind = Array.from(fileStore.store.kindFilter)[0]
-      return language.t(kindToI18nKey(kind))
-    }
-    return language.t("designFiles.filterCount", { n: filterSize })
   }
 
   const kindGroupEntries = createMemo(() =>
@@ -592,183 +589,35 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           class="hidden"
         />
 
-        <Show when={fileStore.store.files.length > 0}>
-        <div
-          class="flex items-center justify-between px-4 py-2 shrink-0"
-          style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
-        >
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={fileStore.store.loading}
-              class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
-              title="Refresh"
-            >
-              <Show when={fileStore.store.loading} fallback={<IconRefresh size={14} />}>
-                <Spinner class="size-[14px]" />
-              </Show>
-            </button>
-
-            <div class="flex items-center gap-1 text-[12px]" role="group">
-              <span style={{ color: "var(--octo-text-secondary)" }}>{language.t("designFiles.group")}</span>
-              <button
-                type="button"
-                onClick={() => fileStore.setGroupMode("kind")}
-                classList={{
-                  "px-2 py-1 rounded transition-colors text-[12px]": true,
-                  "bg-surface-base-interactive-active text-text-interactive-base": fileStore.store.groupMode === "kind",
-                  "hover:bg-surface-base-hover": fileStore.store.groupMode !== "kind",
-                }}
-              >
-                {language.t("designFiles.groupKind")}
-              </button>
-              <button
-                type="button"
-                onClick={() => fileStore.setGroupMode("modified")}
-                classList={{
-                  "px-2 py-1 rounded transition-colors text-[12px]": true,
-                  "bg-surface-base-interactive-active text-text-interactive-base": fileStore.store.groupMode === "modified",
-                  "hover:bg-surface-base-hover": fileStore.store.groupMode !== "modified",
-                }}
-              >
-                {language.t("designFiles.groupModified")}
-              </button>
-            </div>
-
-            <Show when={fileStore.store.files.length > 0 && fileStore.availableKinds().length > 1}>
-              <div class="relative" ref={filterMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilterMenuOpen(!filterMenuOpen())
-                    setShowAddMenu(false)
-                  }}
-                  classList={{
-                    "flex items-center gap-1 px-2 py-1 rounded transition-colors text-[12px]": true,
-                    "bg-surface-base-interactive-active text-text-interactive-base": fileStore.store.kindFilter.size > 0,
-                    "hover:bg-surface-base-hover": fileStore.store.kindFilter.size === 0,
-                  }}
-                >
-                  <span>{filterButtonText()}</span>
-                </button>
-
-                <Show when={filterMenuOpen()}>
-                  <div
-                    class="absolute left-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1 min-w-[180px]"
-                    style={{ border: "1px solid var(--octo-border-divider)" }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div class="flex items-center justify-between px-3 py-1.5 shrink-0" style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}>
-                      <span class="text-[12px] font-medium">{language.t("designFiles.filter")}</span>
-                      <Show when={fileStore.store.kindFilter.size > 0}>
-                        <button
-                          type="button"
-                          onClick={() => fileStore.clearKindFilter()}
-                          class="text-[12px] text-text-interactive-base hover:underline"
-                        >
-                          {language.t("designFiles.filterClear")}
-                        </button>
-                      </Show>
-                    </div>
-                    <ul class="py-1">
-                      <For each={fileStore.availableKinds()}>
-                        {(kind) => (
-                          <li>
-                            <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-surface-base-hover transition-colors">
-                              <input
-                                type="checkbox"
-                                checked={fileStore.store.kindFilter.has(kind)}
-                                onChange={() => fileStore.toggleKindFilter(kind)}
-                                class="cursor-pointer"
-                              />
-                              <span class="text-[12px]">{language.t(kindToI18nKey(kind))}</span>
-                              <span class="text-[12px] ml-auto" style={{ color: "var(--octo-text-secondary)" }}>
-                                {fileStore.kindCounts().get(kind) ?? 0}
-                              </span>
-                            </label>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                  </div>
-                </Show>
-              </div>
-            </Show>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <Show when={fileStore.store.selected.size > 0}>
-              <button
-                type="button"
-                onClick={handleBatchDownload}
-                class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
-              >
-                <Icon name="chevron-down" size="small" />
-                <span>{language.t("designFiles.download")} ({fileStore.store.selected.size})</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleBatchDelete}
-                class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px] text-text-diff-delete-base"
-              >
-                <span>{language.t("designFiles.batchDelete")} ({fileStore.store.selected.size})</span>
-              </button>
-            </Show>
-
-            <div class="relative">
-              <button
-                type="button"
-                onClick={() => setShowAddMenu(!showAddMenu())}
-                class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
-                title={language.t("designFiles.upload")}
-              >
-                <Icon name="upload" size="small" />
-                <span>{language.t("designFiles.upload")}</span>
-                <Icon name="chevron-down" size="small" />
-              </button>
-
-              <Show when={showAddMenu()}>
-                <div
-                  class="absolute right-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1"
-                  style={{ border: "1px solid var(--octo-border-divider)", width: "140px" }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddMenu(false)
-                      fileInputRef?.click()
-                    }}
-                    class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors flex items-center gap-2"
-                  >
-                    <Icon name="file-tree" size="small" />
-                    <span>{language.t("designFiles.uploadFile")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddMenu(false)
-                      folderInputRef?.click()
-                    }}
-                    class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors flex items-center gap-2"
-                  >
-                    <Icon name="folder" size="small" />
-                    <span>{language.t("designFiles.uploadFolder")}</span>
-                  </button>
-                </div>
-              </Show>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={fileStore.store.currentPath}>
-        <Breadcrumb
-          currentPath={fileStore.store.currentPath}
-          onNavigate={(path) => fileStore.setCurrentPath(path)}
+        <DesignFilesToolbar
+          fileStore={fileStore}
+          filterMenuRef={filterMenuRef}
+          filterMenuOpen={filterMenuOpen()}
+          showAddMenu={showAddMenu()}
+          onRefresh={refresh}
+          onToggleFilterMenu={() => {
+            setFilterMenuOpen(!filterMenuOpen())
+            setShowAddMenu(false)
+          }}
+          onToggleAddMenu={() => setShowAddMenu(!showAddMenu())}
+          onUploadFile={() => {
+            setShowAddMenu(false)
+            fileInputRef?.click()
+          }}
+          onUploadFolder={() => {
+            setShowAddMenu(false)
+            folderInputRef?.click()
+          }}
+          onBatchDownload={handleBatchDownload}
+          onBatchDelete={handleBatchDelete}
+          fileInputRef={fileInputRef}
+          folderInputRef={folderInputRef}
         />
-      </Show>
+
+      <Breadcrumb
+        currentPath={fileStore.store.currentPath}
+        onNavigate={(path) => fileStore.setCurrentPath(path)}
+      />
 
       <div class="flex-1 min-h-0 overflow-auto">
         <Show when={fileStore.store.loading && fileStore.store.files.length === 0}>
@@ -867,39 +716,50 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       <>
                         <tr class="df-section-row" style={{ background: "var(--octo-surface-page)" }}>
                           <td colSpan={5} class="px-2 py-1">
-                            <div class="flex items-center gap-2 text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>
+                            <button
+                              type="button"
+                              onClick={() => fileStore.toggleSection(kind)}
+                              class="flex items-center gap-2 text-[12px] w-full"
+                              style={{ color: "var(--octo-text-secondary)" }}
+                            >
+                              <Icon
+                                name={fileStore.store.collapsedSections.has(kind) ? "chevron-right" : "chevron-down"}
+                                size="small"
+                              />
                               <span class="font-medium">{language.t(kindToI18nKey(kind))}</span>
                               <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised-base">
                                 {files.length}
                               </span>
-                            </div>
+                            </button>
                           </td>
                         </tr>
-                        <For each={files}>
-                          {(file) => (
-                            <FileRow
-                              file={file}
-                              selected={fileStore.store.selected.has(file.path)}
-                              renaming={renamingPath() === file.path}
-                              renameDraft={renameDraft()}
-                              onToggleSelection={() => handleToggleSelection(file)}
-                              onPreview={() => handlePreview(file)}
-                              onOpen={() => handleOpenFile(file)}
-                              onDelete={() => handleDelete(file)}
-                              onRename={() => startRename(file)}
-                              onRenameInput={(v) => setRenameDraft(v)}
-                              onRenameKeyDown={(e) => {
-                                e.stopPropagation()
-                                if (e.key === "Enter") { e.preventDefault(); void saveRename(file) }
-                                if (e.key === "Escape") { e.preventDefault(); setRenamingPath(null) }
-                              }}
-                              onRenameBlur={() => void saveRename(file)}
-                              onAddToSession={() => props.onAddToSession?.(file)}
-                              onDownload={file.isFolder ? undefined : () => handleDownload(file)}
-                              onNavigateFolder={() => fileStore.navigateToFolder(file)}
-                            />
-                          )}
-                        </For>
+                        <Show when={!fileStore.store.collapsedSections.has(kind)}>
+                          <For each={files}>
+                            {(file) => (
+                              <FileRow
+                                file={file}
+                                selected={fileStore.store.selected.has(file.path)}
+                                renaming={renamingPath() === file.path}
+                                renameDraft={renameDraft()}
+                                onToggleSelection={() => handleToggleSelection(file)}
+                                onPreview={() => handlePreview(file)}
+                                onOpen={() => handleOpenFile(file)}
+                                onDelete={() => handleDelete(file)}
+                                onRename={() => startRename(file)}
+                                onRenameInput={(v) => setRenameDraft(v)}
+                                onRenameKeyDown={(e) => {
+                                  e.stopPropagation()
+                                  if (e.key === "Enter") { e.preventDefault(); void saveRename(file) }
+                                  if (e.key === "Escape") { e.preventDefault(); setRenamingPath(null) }
+                                }}
+                                onRenameBlur={() => void saveRename(file)}
+                                onAddToSession={() => props.onAddToSession?.(file)}
+                                onDownload={file.isFolder ? undefined : () => handleDownload(file)}
+                                onNavigateFolder={() => fileStore.navigateToFolder(file)}
+                              />
+                            )}
+                          </For>
+                        </Show>
                       </>
                     )}
                   </For>
