@@ -29,6 +29,7 @@ export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
   | "react-component" | "diagram"
+  | "design-plan"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -57,6 +58,7 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "code-snippet": "code-snippet",
   "react-component": "react-component",
   diagram: "diagram",
+  "text/design-plan": "design-plan",
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -160,6 +162,17 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         fullContent = ev.fullContent
         if (!startEvent) return
         const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
+        // design-plan 或 identifier 以 "plan-" 开头的 artifact 不在消息流中显示卡片。
+        // 它们是方案阶段产物,只通过输入框上方的 plan banner 入口进入 ResultViewer。
+        // 双重兜底:type 正确时 mappedType === "design-plan";agent 把 type 写错时
+        // (例如写成 markdown-document) identifier 前缀仍然能识别出来。
+        const isPlanArtifact =
+          mappedType === "design-plan" ||
+          (startEvent.identifier || "").startsWith("plan-")
+        if (isPlanArtifact) {
+          startEvent = null
+          return
+        }
         if (!mappedType) return
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
@@ -196,7 +209,10 @@ function scanArtifactHeaders(text: string): Array<{ identifier: string; title: s
     const artifactType = attrs.match(/type="([^"]*)"/)?.[1] ?? "text/html"
     const title = attrs.match(/title="([^"]*)"/)?.[1] ?? ""
     const mappedType = ARTIFACT_TYPE_MAP[artifactType]
-    if (mappedType) {
+    // design-plan 或 identifier 以 "plan-" 开头的 artifact 跳过,不显示消息流卡片
+    const isPlanArtifact =
+      mappedType === "design-plan" || identifier.startsWith("plan-")
+    if (mappedType && !isPlanArtifact) {
       results.push({ identifier, title: title || mappedType, type: mappedType })
     }
   }

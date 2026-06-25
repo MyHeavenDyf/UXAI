@@ -84,6 +84,8 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
 }
 
 export function StudioResultCanvas(props: {
+  videoPlayerMount: () => HTMLElement
+  fullscreenMount?: () => HTMLElement
   status: StudioGenerationStatus
   image?: StudioImage
   result?: StudioGenerationResult
@@ -95,30 +97,32 @@ export function StudioResultCanvas(props: {
   onSelectImage?: (id: string) => void
   onDeleteImage?: (id: string) => void
   onCloseTab?: (id: string) => void
+  onUpscale: () => void
+  onCutout: () => void
+  onInpaint: () => void
+  onOutpaint: () => void
+  onRegenerate: () => void
+  onGenerateVideo: () => void
+  showVideoGeneration: boolean
+  regenerateDisabled: boolean
+  children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
+  const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
 
   createEffect(() => {
     const image = fullscreenImage()
-    document.body.style.overflow = image ? "hidden" : ""
-    document.body.classList.toggle("studio-fullscreen-active", !!image)
+    const mountEl = props.fullscreenMount?.() || document.body
+    mountEl.style.overflow = image ? "hidden" : ""
     if (!image) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFullscreenImage(null)
-    }
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (fullscreenImage()) {
-        setFullscreenImage(null)
-        e.preventDefault()
-      }
+      if (e.key === "Escape") { e.preventDefault(); setFullscreenImage(null) }
     }
     document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("beforeunload", onBeforeUnload)
     onCleanup(() => {
-      document.body.style.overflow = ""
-      document.body.classList.remove("studio-fullscreen-active")
+      const mountEl = props.fullscreenMount?.() || document.body
+      mountEl.style.overflow = ""
       document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("beforeunload", onBeforeUnload)
     })
   })
 
@@ -127,9 +131,11 @@ export function StudioResultCanvas(props: {
       <Show when={props.image} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
           <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
-            <Show when={props.status === "failed" && props.result?.error} fallback={<StudioEmptyState />}>
+            <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
               <div class="max-w-[520px] rounded-[16px] border border-[rgba(180,35,24,0.16)] bg-[rgba(255,244,242,0.92)] px-5 py-4 text-left shadow-sm">
-                <div class="text-[16px] font-semibold text-[#b42318]">生成失败</div>
+                <div class="text-[16px] font-semibold text-[#b42318]">
+                  {props.status === "create_failed" ? "创建失败" : "生成失败"}
+                </div>
                 <div class="mt-2 text-[12px] leading-[18px] whitespace-pre-wrap break-all text-[#7a271a]">
                   {props.result?.error}
                 </div>
@@ -180,20 +186,75 @@ export function StudioResultCanvas(props: {
                 }}
               </For>
             </div>
-            <div class="studio-canvas-stage">
-              <Show
-                when={isVideoMedia(image())}
-                fallback={<StudioMediaPreview image={image()} class="studio-canvas-image" onClick={() => setFullscreenImage(image())} />}
-              >
-                <StudioVideoPlayer
-                  src={image().remoteUrl ?? image().url}
-                  poster={image().thumbnailUrl}
-                  class="studio-canvas-image"
-                />
-              </Show>
-            </div>
-            <div class="studio-canvas-floating-actions">
-              <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">下载</button>
+            <div class="studio-canvas-body">
+              <div class="studio-canvas-stage">
+                <Show
+                  when={isVideoMedia(image())}
+                  fallback={<StudioMediaPreview image={image()} class="studio-canvas-image" onClick={() => setFullscreenImage(image())} />}
+                >
+                  <StudioVideoPlayer
+                    src={image().remoteUrl ?? image().url}
+                    poster={image().thumbnailUrl}
+                    class="studio-canvas-image"
+                    mount={props.videoPlayerMount}
+                  />
+                </Show>
+                <div class="studio-canvas-floating-actions">
+                  <button
+                    type="button"
+                    onClick={props.onRegenerate}
+                    disabled={props.regenerateDisabled}
+                    class="studio-canvas-regenerate-action disabled:opacity-45 disabled:cursor-not-allowed"
+                  >
+                    再次生成
+                  </button>
+                  <Show when={props.result?.capability === "image.generate" && props.showVideoGeneration}>
+                    <span class="studio-canvas-action-divider" />
+                    <button
+                      type="button"
+                      onClick={props.onGenerateVideo}
+                      disabled={props.regenerateDisabled || !props.image}
+                      class="studio-canvas-video-action disabled:opacity-45 disabled:cursor-not-allowed"
+                    >
+                      视频生成
+                    </button>
+                  </Show>
+                  <Show when={!isVideoResult()}>
+                    <span class="studio-canvas-action-divider" />
+                    <div class="studio-canvas-action-group">
+                      <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
+                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
+                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
+                        <span>变清晰</span>
+                      </button>
+                      <button type="button" onClick={props.onCutout} disabled={props.regenerateDisabled}
+                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
+                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
+                        <span>抠图</span>
+                      </button>
+                      <button type="button" onClick={props.onInpaint} disabled={props.regenerateDisabled}
+                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
+                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
+                        <span>智能重绘</span>
+                      </button>
+                      <button type="button" onClick={props.onOutpaint} disabled={props.regenerateDisabled}
+                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
+                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
+                        <span>扩图</span>
+                      </button>
+                    </div>
+                    <span class="studio-canvas-action-divider" />
+                  </Show>
+                  <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                </button>
+                </div>
+              </div>
+              {props.children}
             </div>
           </>
           )
@@ -201,19 +262,14 @@ export function StudioResultCanvas(props: {
         }
       </Show>
       {fullscreenImage() && (
-        <Portal mount={document.body}>
-          <div class="studio-fullscreen-overlay">
-            <button type="button" class="studio-fullscreen-close" onClick={() => setFullscreenImage(null)} aria-label="关闭全屏">
+        <Portal mount={props.fullscreenMount?.() || document.body}>
+          <div class="studio-fullscreen-overlay" onClick={() => setFullscreenImage(null)}>
+            <button type="button" class="studio-fullscreen-close" onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); }} aria-label="关闭全屏">
               <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
                 <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
             </button>
-            <img
-              src={fullscreenImage()!.url}
-              class="studio-fullscreen-image"
-              alt=""
-              onClick={(e) => e.stopPropagation()}
-            />
+            <img src={fullscreenImage()!.url} class="studio-fullscreen-image" alt="" />
           </div>
         </Portal>
       )}
@@ -249,7 +305,7 @@ export function StudioWorkspaceUpload(props: { onUpload: (files: File[]) => void
       <input
         ref={inputRef!}
         type="file"
-        accept="image/*"
+        accept=".png,.jpg,.jpeg,.webp"
         class="hidden"
         onChange={(event) => {
           if (event.currentTarget.files?.length) props.onUpload(Array.from(event.currentTarget.files))
@@ -348,60 +404,6 @@ export function StudioDetails(props: {
         <Show when={!isEditResult()}>
           <div class="studio-detail-section-title">提示词</div>
           <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
-          <Show when={props.result.capability === "image.generate" && props.showVideoGeneration}>
-            <button
-              type="button"
-              onClick={props.onGenerateVideo}
-              disabled={props.regenerateDisabled || !props.image}
-              class="studio-details-primary-action studio-details-secondary-action studio-details-video-action disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              视频生成
-            </button>
-          </Show>
-        </Show>
-        <button
-          type="button"
-          onClick={props.onRegenerate}
-          disabled={props.regenerateDisabled}
-          class="studio-details-primary-action disabled:opacity-45 disabled:cursor-not-allowed"
-        >
-          再次生成
-        </button>
-        <Show when={!isVideoResult()}>
-          <div class="studio-detail-action-grid">
-            <button
-              type="button"
-              onClick={props.onUpscale}
-              disabled={props.regenerateDisabled}
-              class="studio-details-secondary-action studio-detail-action-upscale disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              <span>变清晰</span>
-            </button>
-            <button
-              type="button"
-              onClick={props.onCutout}
-              disabled={props.regenerateDisabled}
-              class="studio-details-secondary-action studio-detail-action-cutout disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              <span>抠图</span>
-            </button>
-            <button
-              type="button"
-              onClick={props.onInpaint}
-              disabled={props.regenerateDisabled}
-              class="studio-details-secondary-action studio-detail-action-inpaint disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              <span>智能重绘</span>
-            </button>
-            <button
-              type="button"
-              onClick={props.onOutpaint}
-              disabled={props.regenerateDisabled}
-              class="studio-details-secondary-action studio-detail-action-outpaint disabled:opacity-45 disabled:cursor-not-allowed"
-            >
-              <span>扩图</span>
-            </button>
-          </div>
         </Show>
       </section>
     </ScrollView>
