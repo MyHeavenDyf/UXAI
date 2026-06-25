@@ -17,7 +17,15 @@ export function isStudioGenerationStatusRegression(
   current: StudioGenerationResult["status"],
   next: StudioGenerationResult["status"],
 ) {
-  return (current === "failed" || current === "succeeded") && (next === "queued" || next === "running")
+  return (
+    current === "create_failed" ||
+    current === "failed" ||
+    current === "succeeded"
+  ) && (next === "queued" || next === "running")
+}
+
+export function isStudioGenerationFailure(status: StudioGenerationResult["status"]) {
+  return status === "create_failed" || status === "failed"
 }
 
 export type StudioPendingResult = StudioGenerationResult & {
@@ -81,8 +89,12 @@ export function isStudioEditResult(result: StudioGenerationResult) {
   return result.toolAction === "super_resolution" || result.toolAction === "cutout" || result.toolAction === "inpainting" || result.toolAction === "outpainting"
 }
 
-export function studioGenerationTitle(capability: StudioCapability | undefined, status: "running" | "succeeded" | "failed") {
+export function studioGenerationTitle(
+  capability: StudioCapability | undefined,
+  status: "running" | "succeeded" | "create_failed" | "failed",
+) {
   const label = capability === "video.generate" ? "视频生成" : "图片生成"
+  if (status === "create_failed") return capability === "video.generate" ? "视频创建失败" : "图片创建失败"
   if (status === "failed") return `${label}失败`
   if (status === "succeeded") return `${label}完成`
   return `${label}中`
