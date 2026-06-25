@@ -36,9 +36,12 @@ import { autoRenameSession } from "./utils/rename-session"
 import { rollbackToVersion } from "./utils/history"
 import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/persist"
+import { exportZip } from "./utils/previewHandler/zip"
+import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download } from "./utils/previewHandler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
+import { PatternPreviewEmpty } from "./modules/preview/PatternPreviewEmpty"
 
 const AGENT_NAME = "proto_triage"
 
@@ -57,16 +60,6 @@ export default function PatternPage() {
         </SDKProvider>
       )}
     </Show>
-  )
-}
-
-function PatternPreviewEmpty(): JSX.Element {
-  return (
-    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#f9fafb" }}>
-      <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-      <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>对话产出将在这里展示</div>
-      <div class="text-[12px]" style={{ color: "var(--octo-text-disabled, #BFBFBF)" }}>点击左侧输出卡片即可打开</div>
-    </div>
   )
 }
 
@@ -676,134 +669,26 @@ function PatternContent() {
   }
 
   function handleDownload() {
-    const data = pendingPreviewData()
-    if (!data) {
-      showToast({ title: "暂无可下载的内容" })
-      return
-    }
-    const jsonStr = typeof data === "string" ? data : JSON.stringify(data, null, 2)
-    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `pattern-${params.id ?? "export"}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    download(pendingPreviewData(), params.id ?? "export")
   }
 
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
-    const intent = lastIntent()
-    const planner = lastPlanner()
-    const modules = lastModules()
-    const previewData = pendingPreviewData()
-
-    if (!intent && !planner && modules.length === 0 && !previewData) {
-      showToast({ title: "暂无可分享的内容" })
-      return
-    }
-
-    const desktopApi = (window as unknown as {
-      api?: {
-        exportZip?: (opts: {
-          defaultName: string
-          files: { name: string; content: string }[]
-        }) => Promise<string | null>
-      }
-    }).api
-
-    if (!desktopApi?.exportZip) {
-      showToast({ title: "当前环境不支持导出压缩包" })
-      return
-    }
-
-    const patternId = params.id ?? "export"
-    const files: { name: string; content: string }[] = []
-
-    if (intent) files.push({ name: "lastIntent.json", content: JSON.stringify(intent, null, 2) })
-    if (planner) files.push({ name: "lastPlanner.json", content: JSON.stringify(planner, null, 2) })
-    if (modules.length > 0) files.push({ name: "lastModules.json", content: JSON.stringify(modules, null, 2) })
-    if (previewData) {
-      const jsonStr = typeof previewData === "string" ? previewData : JSON.stringify(previewData, null, 2)
-      files.push({ name: `pageJson.json`, content: jsonStr })
-    }
-
-    const result = await desktopApi.exportZip({
-      defaultName: `pattern-${patternId}`,
-      files,
+    await exportZip({
+      patternId: params.id ?? "export",
+      intent: lastIntent(),
+      planner: lastPlanner(),
+      modules: lastModules(),
+      previewData: pendingPreviewData(),
     })
-
-    if (result) {
-      showToast({ title: "已导出压缩包" })
-    }
   }
 
   async function handleLivePreview() {
-    const data = pendingPreviewData()
-    if (!data) {
-      showToast({ title: "暂无可预览的内容" })
-      return
-    }
-    const desktopApi = (window as unknown as {
-      api?: {
-        getPreviewDistDir?: () => Promise<string>
-        writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
-      }
-    }).api
-
-    const dir = await desktopApi?.getPreviewDistDir?.()
-    if (!dir || !desktopApi?.writeFileBuffer) {
-      showToast({ title: "当前环境不支持实时预览" })
-      return
-    }
-
-    const jsonStr = typeof data === "string" ? data : JSON.stringify(data)
-    const buffer = new TextEncoder().encode(jsonStr).buffer
-    await desktopApi.writeFileBuffer(`${dir}/live-data.json`, buffer)
-    window.open("http://127.0.0.1:51856?fetch=live-data.json")
+    await livePreview(pendingPreviewData())
   }
 
-  const [pixsoLoading, setPixsoLoading] = createSignal(false)
-
   async function handlePixsoPreview() {
-    if (pixsoLoading()) return
-    setPixsoLoading(true)
-
-    const desktopApi = (window as unknown as {
-      api?: {
-        runPixsoBuild?: (input: string) => Promise<string>
-        writeClipboardText?: (text: string) => Promise<void>
-      }
-    }).api
-
-    if (!desktopApi?.runPixsoBuild) {
-      showToast({ title: "当前环境不支持 Pixso 转换" })
-      setPixsoLoading(false)
-      return
-    }
-
-    const data = pendingPreviewData()
-    const jsonStr = typeof data === "string" ? data : JSON.stringify(data ?? "")
-    const buildPromise = desktopApi.runPixsoBuild(jsonStr)
-
-    showPromiseToast(buildPromise, {
-      loading: "Pixso 转换中，请等待...",
-      success: (result: string) => {
-        void desktopApi.writeClipboardText?.(result)
-        return `转换完成，传送码已复制到剪贴板`
-      },
-      error: (err: unknown) => `转换失败: ${err instanceof Error ? err.message : String(err)}`,
-    })
-
-    try {
-      await buildPromise
-    } catch {
-      // showPromiseToast 已处理错误提示
-    } finally {
-      setPixsoLoading(false)
-    }
+    await pixsoPreview(pendingPreviewData())
   }
 
   const inputDisabled = () => sending() || isBusy() || !activeModelKey()
