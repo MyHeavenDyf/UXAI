@@ -43,15 +43,19 @@ monkey-patch 模块，覆盖 `AbortController.prototype.abort`：
   - `OPENCODE_ABORT_DEBUG=0` 临时禁用
 - 启动时打标记日志，确认 patch 已生效
 
-### 修改：`packages/opencode/src/index.ts`
+### 修改：入口文件顶部加 import
 
-在文件**第一行**（所有 import 之前）新增：
+opencode 有多个运行入口，全部覆盖才能保证 monkey-patch 在任意启动方式下生效：
 
-```ts
-import "@/util/debug-abort"
-```
+| 入口文件 | 触发场景 | 修改 |
+|---|---|---|
+| `packages/opencode/src/index.ts` | CLI 命令行模式（`opencode` 命令）| 顶部加 `import "@/util/debug-abort"` |
+| `packages/opencode/src/node.ts` | **Desktop sidecar**（`virtual:opencode-server` 解析入口）| 顶部加 `import "@/util/debug-abort"` |
+| `packages/opencode/src/cli/cmd/tui/worker.ts` | TUI worker 进程 | 顶部加 `import "@/util/debug-abort"` |
 
-利用 ES module 副作用执行特性，保证 monkey-patch 在任何业务代码运行之前生效（即所有 fetch / abortSignal 链路启动前）。
+利用 ES module 副作用执行特性，保证 monkey-patch 在任何 fetch / abortSignal 链路启动前生效。
+
+**关键**：desktop sidecar 的入口是 `src/node.ts`（由 `script/build-node.ts` 构建到 `dist/node/node.js`），不是 `src/index.ts`。如果只在 `src/index.ts` 加 import，desktop 场景下 monkey-patch **不会**被加载。
 
 ## 涉及文件
 
