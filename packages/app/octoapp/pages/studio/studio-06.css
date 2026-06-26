@@ -129,9 +129,7 @@
 }
 
 @media (min-width: 1228px) and (max-width: 1919px) {
-  .studio-canvas {
-    min-width: 800px;
-  }
+  /* studio-canvas min-width removed — resize handles govern the layout */
 }
 
 @media (min-width: 1456px) and (max-width: 1919px) {

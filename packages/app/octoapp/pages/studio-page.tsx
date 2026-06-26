@@ -401,7 +401,12 @@ export default function StudioPage() {
     }
     if (resizingCenter()) {
       const delta = e.clientX - resizeState.startX
-      setStudioCenterWidth(Math.min(700, Math.max(360, resizeState.startWidth + delta)))
+      const pageWidth = studioPageRef?.clientWidth ?? window.innerWidth
+      const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
+      const minCanvas = 360
+      // 左增右剪，左减右增：center 最大 = min(700, 页面宽度 - 左侧面板 - canvas 最小宽度)
+      const maxCenter = Math.min(700, pageWidth - leftW - minCanvas)
+      setStudioCenterWidth(Math.min(maxCenter, Math.max(360, resizeState.startWidth + delta)))
     }
   }
 
@@ -428,6 +433,9 @@ export default function StudioPage() {
     setResizingLeft(true)
   }
 
+  // 窗口宽度（响应式追踪）
+  const [windowWidth, setWindowWidth] = createSignal(window.innerWidth)
+
   // 折叠图标：窗口 ≥1456px 且 <1920px 时显示
   const [showToggleDrawer, setShowToggleDrawer] = createSignal(false)
 
@@ -439,6 +447,13 @@ export default function StudioPage() {
     update()
     mql.addEventListener("change", update)
     onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // studio-canvas 实际宽度（依赖 showStudioCenter，需放在其声明之后）
+  const canvasWidth = createMemo(() => {
+    const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
+    const centerW = showStudioCenter() ? studioCenterWidth() : 0
+    return windowWidth() - leftW - centerW
   })
 
   // 窗口 <1456px 时左侧栏以遮罩层形式展示
@@ -477,6 +492,7 @@ export default function StudioPage() {
     const mqlCenter31 = window.matchMedia("(min-width: 1228px) and (max-width: 1919px)")
 
     const calcCenterWidth = () => {
+      setWindowWidth(window.innerWidth)
       if (mqlWide.matches) {
         const target = Math.round((window.innerWidth - 296) * 0.29)
         setStudioCenterWidth(Math.min(700, Math.max(360, target)))
@@ -491,6 +507,7 @@ export default function StudioPage() {
       if (mqlWide.matches || mqlMedium.matches) {
         if (!studioLeftCollapsed()) setStudioLeftWidth(296)
       }
+      setWindowWidth(window.innerWidth)
       calcCenterWidth()
     }
 
@@ -2705,7 +2722,7 @@ export default function StudioPage() {
               showVideoGeneration={canGenerateVideo()}
               regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
             >
-              <Show when={showStudioCanvas() && canvasResult()?.images.length}>
+              <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
                   <button
                     class="studio-details-toggle"
