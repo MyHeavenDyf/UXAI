@@ -2,7 +2,7 @@ import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import type { ResultTab } from "./tab-store"
 import { IconTabClose } from "../../icons"
-import { Icon } from "@opencode-ai/ui/icon"
+import { IconFolder } from "../../icons/design-files-icons"
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -26,17 +26,25 @@ export function TabBar(props: {
         <button
           type="button"
           onClick={() => props.onViewModeChange?.("files")}
-          classList={{
-            "flex items-center gap-1 px-2 py-1 rounded transition-colors text-[12px]": true,
-            "bg-surface-base-interactive-active text-text-interactive-base": props.viewMode === "files",
-            "hover:bg-surface-base-hover": props.viewMode !== "files",
+          class="flex items-center transition-colors font-medium"
+          style={{
+            padding: "0px 16px",
+            "border-radius": "999px",
+            "font-size": "14px",
+            "line-height": "22px",
+            gap: "4px",
+            height: "32px",
+            color: props.viewMode === "files" ? "#0a59f7" : "#666",
+            background: props.viewMode === "files" ? "rgba(10, 89, 247, 0.08)" : "rgba(0, 0, 0, 0.05)",
           }}
-          style={{ color: props.viewMode === "files" ? undefined : "var(--octo-text-secondary)" }}
         >
-          <Icon name="folder" size="small" />
-          <span class="font-medium">文件</span>
+          <IconFolder
+            size={16}
+            style={{ color: props.viewMode === "files" ? "#0a59f7" : "#666" }}
+          />
+          <span>文件管理</span>
         </button>
-        
+
         <Show when={props.tabs.length > 0}>
           <div class="w-px h-4 shrink-0" style={{ background: "var(--octo-border-divider)" }} />
         </Show>

@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useLanguage } from "@/context/language"
 
 interface BreadcrumbProps {
   currentPath: string
@@ -8,26 +9,20 @@ interface BreadcrumbProps {
 }
 
 export function Breadcrumb(props: BreadcrumbProps): JSX.Element {
+  const language = useLanguage()
   const segments = () => props.currentPath.split("/").filter(Boolean)
 
   return (
     <div
-      class="flex items-center gap-1 px-4 py-2 text-[12px] shrink-0"
-      style={{
-        background: "var(--octo-surface-page)",
-        "border-top": "1px solid var(--octo-border-divider)",
-      }}
+      class="flex items-center gap-1 pr-6 shrink-0" style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "margin-bottom": "16px", background: "var(--octo-surface-page)" }}
     >
       <button
         type="button"
         onClick={() => props.onNavigate("")}
-        classList={{
-          "hover:text-text-interactive-base transition-colors cursor-pointer": true,
-          "text-text-secondary": props.currentPath !== "",
-          "text-text-base font-medium": props.currentPath === "",
-        }}
+        class="hover:text-text-interactive-base transition-colors cursor-pointer font-medium"
+        style={{ color: "rgba(0, 0, 0, 0.9)" }}
       >
-        项目文件
+        {language.t("designFiles.title")}
       </button>
 
       <For each={segments()}>
@@ -37,7 +32,7 @@ export function Breadcrumb(props: BreadcrumbProps): JSX.Element {
 
           return (
             <>
-              <Icon name="chevron-right" size="small" style={{ color: "var(--octo-text-secondary)" }} />
+              <Icon name="chevron-right" style={{ width: "16px", height: "16px", color: "var(--octo-text-secondary)" }} />
               <Show when={!isLast()} fallback={<span class="font-medium">{segment}</span>}>
                 <button
                   type="button"

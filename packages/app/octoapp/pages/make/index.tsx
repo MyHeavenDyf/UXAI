@@ -1562,7 +1562,7 @@ if (dsId) {
         style={{
           "grid-template-columns": !focusMode()
             ? hasContent()
-              ? `${chatWidth()}px 8px minmax(0, 1fr)`
+              ? `${chatWidth()}px 0px minmax(0, 1fr)`
               : "1fr"
             : undefined,
         }}

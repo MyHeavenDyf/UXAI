@@ -995,6 +995,7 @@ export const dict = {
 
   "studio.title": "Studio",
 
+  "designFiles.title": "Project Files",
   "designFiles.filter": "Filter",
   "designFiles.filterClear": "Clear",
   "designFiles.filterCount": "Filter {{n}}",
@@ -1013,15 +1014,16 @@ export const dict = {
   
   "designFiles.group": "Group:",
   "designFiles.groupKind": "Kind",
-  "designFiles.groupModified": "Modified",
+  "designFiles.groupModified": "Modified Time",
   "designFiles.columnName": "Name",
   "designFiles.columnKind": "Kind",
   "designFiles.columnModified": "Modified",
   "designFiles.columnSize": "Size",
   "designFiles.upload": "Upload",
-  "designFiles.uploadFile": "File",
-  "designFiles.uploadFolder": "Folder",
+  "designFiles.uploadFile": "Upload File",
+  "designFiles.uploadFolder": "Upload Folder",
   "designFiles.uploadFileAction": "Upload File",
+  "designFiles.emptyHint": "No content, click to upload and add files",
   
   "designFiles.download": "Download",
   "designFiles.batchDelete": "Delete",

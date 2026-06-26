@@ -950,6 +950,7 @@ export const dict = {
 
   "studio.title": "Studio",
 
+  "designFiles.title": "项目文件",
   "designFiles.filter": "按类型筛选",
   "designFiles.filterClear": "清除",
   "designFiles.filterCount": "筛选 {{n}}",
@@ -968,16 +969,17 @@ export const dict = {
   
   "designFiles.group": "分组：",
   "designFiles.groupKind": "类型",
-  "designFiles.groupModified": "时间",
+  "designFiles.groupModified": "修改时间",
   "designFiles.columnName": "名称",
   "designFiles.columnKind": "类型",
   "designFiles.columnModified": "修改时间",
   "designFiles.columnSize": "大小",
   "designFiles.upload": "上传",
-  "designFiles.uploadFile": "文件",
-  "designFiles.uploadFolder": "文件夹",
+  "designFiles.uploadFile": "上传文件",
+  "designFiles.uploadFolder": "上传文件夹",
   "designFiles.uploadFileAction": "上传文件",
-  
+  "designFiles.emptyHint": "暂无内容，点击上传新增文件吧",
+
   "designFiles.download": "下载",
   "designFiles.batchDelete": "删除",
   

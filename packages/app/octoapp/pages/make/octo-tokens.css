@@ -125,14 +125,22 @@
 
 /* Resize handle between chat and result */
 .octo-split-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: col-resize;
   position: relative;
+  z-index: 10;
+  cursor: col-resize;
   user-select: none;
-  background-color: #fff;
-  border-left: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 0 -4px;
+}
+
+.octo-split-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.1);
+  transform: translateX(-50%);
 }
 
 

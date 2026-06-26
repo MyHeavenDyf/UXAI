@@ -355,7 +355,9 @@ export function ActionBar(props: {
             onChange={(v) => props.onViewportChange!(v as ViewportPreset)}
           />
         )}
-        <div class="octo-action-bar-divider" />
+        <Show when={(showRefreshButton() && props.onRefresh || canToggleMode() && props.onModeChange || showViewport() && props.onViewportChange) && showViewport() && (props.onPaletteChange || props.onInspectToggle || props.onDrawToggle || props.onEditToggle || props.onFocusModeToggle)}>
+          <div class="octo-action-bar-divider" />
+        </Show>
       </div>
       <div class="octo-action-bar-right">
         {showViewport() && props.onPaletteChange && (

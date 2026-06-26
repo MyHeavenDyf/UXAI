@@ -1,10 +1,10 @@
-import { createMemo, For, Show } from "solid-js"
+import { createMemo, createSignal, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { Icon } from "@opencode-ai/ui/icon"
+import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { IconRefresh } from "../../icons"
 import type { ArtifactFileKind } from "../../utils/artifact-file-api"
 import { useLanguage } from "@/context/language"
+import { IconUpload, IconRefresh, IconFilter, IconDownload, IconFolder, IconFile } from "../../icons/design-files-icons"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
   const capitalized = kind.charAt(0).toUpperCase() + kind.slice(1)
@@ -13,25 +13,19 @@ const kindToI18nKey = (kind: ArtifactFileKind): string => {
 
 interface ToolbarProps {
   fileStore: ReturnType<typeof import("../../utils/artifact-file-store").createArtifactFileStore>
-  filterMenuRef: HTMLDivElement | undefined
-  filterMenuOpen: boolean
-  showAddMenu: boolean
   onRefresh: () => void
-  onToggleFilterMenu: () => void
-  onToggleAddMenu: () => void
   onUploadFile: () => void
   onUploadFolder: () => void
   onBatchDownload: () => void
   onBatchDelete: () => void
-  fileInputRef: HTMLInputElement
-  folderInputRef: HTMLInputElement
 }
 
 export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
   const language = useLanguage()
+  const [uploadOpen, setUploadOpen] = createSignal(false)
+  const [filterOpen, setFilterOpen] = createSignal(false)
 
   const hasSelection = createMemo(() => props.fileStore.store.selected.size > 0)
-  const selectedUploadCount = createMemo(() => props.fileStore.selectedUploadedFiles().length)
 
   const filterButtonText = createMemo(() => {
     const filterSize = props.fileStore.store.kindFilter.size
@@ -73,7 +67,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
   return (
     <div
       class="flex items-center justify-between px-4 py-2 shrink-0"
-      style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
+      style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}
     >
       <div class="flex items-center gap-2">
         <button
@@ -83,20 +77,42 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
           title="Refresh"
         >
-          <Show when={props.fileStore.store.loading} fallback={<IconRefresh size={14} />}>
-            <Spinner class="size-[14px]" />
+          <Show when={props.fileStore.store.loading} fallback={<IconRefresh size={16} />}>
+            <Spinner class="size-[16px]" />
           </Show>
         </button>
 
-        <div class="flex items-center gap-1 text-[12px]" role="group">
-          <span style={{ color: "var(--octo-text-secondary)" }}>{language.t("designFiles.group")}</span>
+        <div class="shrink-0" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
+
+        <div
+          class="flex items-center"
+          role="group"
+          style={{
+            height: "32px",
+            padding: "2px",
+            "border-radius": "999px",
+            background: "rgba(0, 0, 0, 0.05)",
+            "font-size": "14px",
+            "line-height": "22px",
+            color: "rgba(0, 0, 0, 0.6)",
+            gap: "4px",
+          }}
+        >
           <button
             type="button"
             onClick={() => props.fileStore.setGroupMode("kind")}
-            classList={{
-              "px-2 py-1 rounded transition-colors text-[12px]": true,
-              "bg-surface-base-interactive-active text-text-interactive-base": props.fileStore.store.groupMode === "kind",
-              "hover:bg-surface-base-hover": props.fileStore.store.groupMode !== "kind",
+            class="transition-colors"
+            style={{
+              "min-width": "88px",
+              height: "28px",
+              padding: "0 16px",
+              "border-radius": "999px",
+              "font-size": "14px",
+              "line-height": "22px",
+              cursor: "pointer",
+              color: props.fileStore.store.groupMode === "kind" ? "#0a59f7" : "rgba(0, 0, 0, 0.6)",
+              background: props.fileStore.store.groupMode === "kind" ? "#fff" : "transparent",
+              "box-shadow": props.fileStore.store.groupMode === "kind" ? "0 1px 6px 0 rgba(0, 0, 0, 0.08)" : "none",
             }}
           >
             {language.t("designFiles.groupKind")}
@@ -104,60 +120,81 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           <button
             type="button"
             onClick={() => props.fileStore.setGroupMode("modified")}
-            classList={{
-              "px-2 py-1 rounded transition-colors text-[12px]": true,
-              "bg-surface-base-interactive-active text-text-interactive-base": props.fileStore.store.groupMode === "modified",
-              "hover:bg-surface-base-hover": props.fileStore.store.groupMode !== "modified",
+            class="transition-colors"
+            style={{
+              "min-width": "88px",
+              height: "28px",
+              padding: "0 16px",
+              "border-radius": "999px",
+              "font-size": "14px",
+              "line-height": "22px",
+              cursor: "pointer",
+              color: props.fileStore.store.groupMode === "modified" ? "#0a59f7" : "rgba(0, 0, 0, 0.6)",
+              background: props.fileStore.store.groupMode === "modified" ? "#fff" : "transparent",
+              "box-shadow": props.fileStore.store.groupMode === "modified" ? "0 1px 6px 0 rgba(0, 0, 0, 0.08)" : "none",
             }}
           >
             {language.t("designFiles.groupModified")}
           </button>
         </div>
 
-        <div class="relative" ref={props.filterMenuRef}>
-          <button
-            type="button"
-            onClick={props.onToggleFilterMenu}
-            classList={{
-              "flex items-center gap-1 px-2 py-1 rounded transition-colors text-[12px]": true,
-              "bg-surface-base-interactive-active text-text-interactive-base": props.fileStore.store.kindFilter.size > 0,
-              "hover:bg-surface-base-hover": props.fileStore.store.kindFilter.size === 0,
-            }}
-          >
-            <span>{filterButtonText()}</span>
-          </button>
+        <div class="shrink-0" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
 
-          <Show when={props.filterMenuOpen}>
-            <div
-              class="absolute left-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1 min-w-[180px]"
-              style={{ border: "1px solid var(--octo-border-divider)" }}
-              onClick={(e) => e.stopPropagation()}
+        <Kobalte open={filterOpen()} onOpenChange={setFilterOpen} modal={false} placement="bottom-start" gutter={4}>
+          <Kobalte.Trigger
+            as="button"
+            type="button"
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+            style={{ "font-size": "14px", "line-height": "22px", cursor: "pointer" }}
+          >
+            <IconFilter size={16} />
+            <span>{filterButtonText()}</span>
+          </Kobalte.Trigger>
+          <Kobalte.Portal>
+            <Kobalte.Content
+              class="z-50 bg-surface-raised-stronger-non-alpha rounded-md p-2 min-w-[180px]"
+              style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)" }}
             >
-              <div class="flex items-center justify-between px-3 py-1.5 shrink-0" style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}>
-                <span class="text-[12px] font-medium">{language.t("designFiles.filter")}</span>
+              <div class="flex items-center justify-between px-3 shrink-0" style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.08)", height: "28px" }}>
+                <span style={{ "font-size": "12px", "line-height": "20px", color: "#808080" }}>{language.t("designFiles.filter")}</span>
                 <Show when={props.fileStore.store.kindFilter.size > 0}>
                   <button
                     type="button"
                     onClick={() => props.fileStore.clearKindFilter()}
-                    class="text-[12px] text-text-interactive-base hover:underline"
+                    class="text-text-interactive-base hover:underline"
+                    style={{ "font-size": "12px", "line-height": "20px", cursor: "pointer" }}
                   >
                     {language.t("designFiles.filterClear")}
                   </button>
                 </Show>
               </div>
-              <ul class="py-1">
+              <ul class="flex flex-col gap-1 pt-1">
                 <For each={availableKinds()}>
                   {(kind) => (
                     <li>
-                      <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-surface-base-hover transition-colors">
+                      <label class="flex items-center gap-2 px-3 cursor-pointer hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] transition-colors"
+                        style={{
+                          height: "36px",
+                          "border-radius": "6px",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          color: "#191919",
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={props.fileStore.store.kindFilter.has(kind)}
                           onChange={() => props.fileStore.toggleKindFilter(kind)}
-                          class="cursor-pointer"
+                          style={{
+                            width: "16px",
+                            height: "16px",
+                            "border-radius": "2px",
+                            border: "1px solid rgba(147, 147, 147, 1)",
+                            cursor: "pointer",
+                          }}
                         />
-                        <span class="text-[12px]">{language.t(kindToI18nKey(kind))}</span>
-                        <span class="text-[12px] ml-auto" style={{ color: "var(--octo-text-secondary)" }}>
+                        <span>{language.t(kindToI18nKey(kind))}</span>
+                        <span class="ml-auto" style={{ color: "var(--octo-text-secondary)" }}>
                           {kindCounts().get(kind) ?? 0}
                         </span>
                       </label>
@@ -165,9 +202,9 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
                   )}
                 </For>
               </ul>
-            </div>
-          </Show>
-        </div>
+            </Kobalte.Content>
+          </Kobalte.Portal>
+        </Kobalte>
       </div>
 
       <div class="flex items-center gap-2">
@@ -175,59 +212,77 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           <button
             type="button"
             onClick={props.onBatchDownload}
-            class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors cursor-pointer"
+            style={{ "font-size": "14px", "line-height": "22px" }}
           >
-            <Icon name="chevron-down" size="small" />
+            <IconDownload size={16} />
             <span>{language.t("designFiles.download")} ({props.fileStore.store.selected.size})</span>
           </button>
-          <Show when={selectedUploadCount() > 0}>
-            <button
-              type="button"
-              onClick={props.onBatchDelete}
-              class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px] text-text-diff-delete-base"
-            >
-              <span>{language.t("designFiles.batchDelete")} ({selectedUploadCount()})</span>
-            </button>
-          </Show>
-        </Show>
-
-        <div class="relative">
           <button
             type="button"
-            onClick={props.onToggleAddMenu}
-            class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px]"
+            onClick={props.onBatchDelete}
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors text-text-diff-delete-base cursor-pointer"
+            style={{ "font-size": "14px", "line-height": "22px" }}
+          >
+            <span>{language.t("designFiles.batchDelete")} ({props.fileStore.store.selected.size})</span>
+          </button>
+        </Show>
+
+        <Kobalte open={uploadOpen()} onOpenChange={setUploadOpen} modal={false} placement="bottom-end" gutter={4}>
+          <Kobalte.Trigger
+            as="button"
+            type="button"
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+            style={{
+              height: "32px",
+              "font-size": "14px",
+              "line-height": "22px",
+              cursor: "pointer",
+              color: uploadOpen() ? "#0a59f7" : "rgba(0, 0, 0, 0.9)",
+            }}
             title={language.t("designFiles.upload")}
           >
-            <Icon name="upload" size="small" />
+            <IconUpload size={16} />
             <span>{language.t("designFiles.upload")}</span>
-            <Icon name="chevron-down" size="small" />
-          </button>
-
-          <Show when={props.showAddMenu}>
-            <div
-              class="absolute right-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1"
-              style={{ border: "1px solid var(--octo-border-divider)", width: "140px" }}
-              onClick={(e) => e.stopPropagation()}
+          </Kobalte.Trigger>
+          <Kobalte.Portal>
+            <Kobalte.Content
+              class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
+              style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
             >
               <button
                 type="button"
-                onClick={props.onUploadFile}
-                class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors flex items-center gap-2"
+                onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                style={{
+                  height: "36px",
+                  "border-radius": "6px",
+                  "font-size": "14px",
+                  "line-height": "22px",
+                  color: "#191919",
+                }}
               >
-                <Icon name="file-tree" size="small" />
-                <span>{language.t("designFiles.uploadFile")}</span>
+                <IconFolder size={16} />
+                <span>{language.t("designFiles.uploadFolder")}</span>
               </button>
               <button
                 type="button"
-                onClick={props.onUploadFolder}
-                class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors flex items-center gap-2"
+                onClick={() => { props.onUploadFile(); setUploadOpen(false) }}
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                style={{
+                  height: "36px",
+                  "border-radius": "6px",
+                  "font-size": "14px",
+                  "line-height": "22px",
+                  color: "#191919",
+                }}
               >
-                <Icon name="folder" size="small" />
-                <span>{language.t("designFiles.uploadFolder")}</span>
+                <IconFile size={16} />
+                <span>{language.t("designFiles.uploadFile")}</span>
               </button>
-            </div>
-          </Show>
-        </div>
+            </Kobalte.Content>
+          </Kobalte.Portal>
+        </Kobalte>
       </div>
     </div>
   )

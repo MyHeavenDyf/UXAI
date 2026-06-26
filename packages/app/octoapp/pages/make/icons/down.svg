@@ -1,0 +1,49 @@
+<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="16.000000" height="16.000000" fill="none">
+	<mask id="mask_6" width="16.000000" height="16.000000" x="0.000000" y="0.000000" maskUnits="userSpaceOnUse">
+		<g filter="url(#pixso_custom_mask_type_outline)">
+			<g id="clipPath_2">
+				<rect id="矩形 544193" width="16.000000" height="16.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" />
+			</g>
+		</g>
+	</mask>
+	<mask id="mask_5" width="16.000000" height="16.000000" x="0.000000" y="0.000000" maskUnits="userSpaceOnUse">
+		<g filter="url(#pixso_custom_mask_type_outline)">
+			<g id="clipPath_1">
+				<rect id="矩形 544192" width="16.000000" height="16.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" />
+			</g>
+		</g>
+	</mask>
+	<defs>
+		<filter id="pixso_custom_mask_type_outline">
+			<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0 " />
+		</filter>
+	</defs>
+	<mask id="mask_4" width="16.000000" height="16.000000" x="0.000000" y="0.000000" maskUnits="userSpaceOnUse">
+		<g filter="url(#pixso_custom_mask_type_outline)">
+			<g id="clipPath_0">
+				<rect id="矩形 544191" width="16.000000" height="16.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" />
+			</g>
+		</g>
+	</mask>
+	<rect id="ic_public_chevron_down" width="16.000000" height="16.000000" x="0.000000" y="0.000000" />
+	<rect id="ic_public_chevron_down-下拉/base/ic_public_chevron_down" width="16.000000" height="16.000000" x="0.000000" y="0.000000" fill="rgb(255,255,255)" fill-opacity="0" />
+	<g id="clip path group" mask="url(#mask_4)">
+		<g id="support">
+			<rect id="support" width="16.000000" height="16.000000" x="0.000000" y="0.000000" />
+			<path id="path1" d="M1.66384e-05 7.9929C1.66384e-05 6.7429 -0.0033167 5.4929 1.66384e-05 4.2429C-0.0033167 3.63624 0.07335 3.03289 0.220017 2.44956C0.550017 1.20956 1.35668 0.472894 2.59668 0.186226C3.21668 0.0528922 3.85337 -0.010441 4.48667 -0.000441054C6.88333 -0.000441054 9.28 -0.000441054 11.68 -0.000441054C12.2833 -0.00377438 12.8867 0.0628922 13.4767 0.206226C14.7533 0.516227 15.52 1.32623 15.81 2.59956C15.9434 3.19956 16.0033 3.8129 15.9967 4.42957C15.9967 6.8529 15.9967 9.27624 15.9967 11.6962C16 12.2962 15.9333 12.8962 15.7934 13.4796C15.48 14.7562 14.6667 15.5162 13.3967 15.8096C12.7733 15.9429 12.14 16.0062 11.5033 15.9962C9.11667 15.9962 6.73003 15.9962 4.34333 15.9962C3.73333 16.0029 3.12668 15.9329 2.53335 15.7929C1.25002 15.4829 0.480017 14.6696 0.190017 13.3896C0.0400167 12.7396 1.66384e-05 12.0896 1.66384e-05 11.4329C1.66384e-05 10.2862 1.66384e-05 9.13957 1.66384e-05 7.9929Z" fill="rgb(255,255,255)" fill-opacity="0" fill-rule="evenodd" />
+			<circle id="path2" cx="8" cy="8" r="8" fill="rgb(255,255,255)" fill-opacity="0" />
+		</g>
+	</g>
+	<g id="clip path group" mask="url(#mask_5)">
+		<g id="border">
+			<rect id="border" width="16.000000" height="16.000000" x="0.000000" y="0.000000" />
+			<path id="矢量 2814" d="M14.5 4.6665L8 11.3332L1.5 4.6665" fill-rule="evenodd" stroke="rgb(25,25,25)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.000000" />
+		</g>
+	</g>
+	<g id="clip path group" mask="url(#mask_6)">
+		<g id="filled">
+			<rect id="filled" width="16.000000" height="16.000000" x="0.000000" y="0.000000" />
+			<path id="矢量 2815" d="M8.23867 11.5663L14.7387 4.89988C14.8671 4.76709 14.8643 4.55615 14.7325 4.42855C14.6008 4.29965 14.3897 4.30228 14.2613 4.43378L8.00023 10.8554L1.73849 4.43378C1.61007 4.30228 1.39897 4.29965 1.26714 4.42855C1.1353 4.55615 1.1327 4.76709 1.26111 4.89988L7.76113 11.5663C7.89197 11.7004 8.1078 11.7004 8.23867 11.5663Z" fill-rule="evenodd" stroke="rgb(255,255,255)" stroke-opacity="0" stroke-width="1.000000" />
+		</g>
+	</g>
+</svg>
