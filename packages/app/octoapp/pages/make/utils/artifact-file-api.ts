@@ -40,11 +40,17 @@ export async function fetchArtifactList(
   sdkUrl: string,
   sdkDirectory: string,
   sessionId: string,
+  category: "generated" | "uploaded",
   subPath?: string,
 ): Promise<ArtifactListResponse> {
-  const url = subPath
-    ? `${sdkUrl}/artifact/list?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(subPath)}`
-    : `${sdkUrl}/artifact/list?sessionId=${encodeURIComponent(sessionId)}`
+  const params = new URLSearchParams({
+    sessionId,
+    category,
+  })
+  if (subPath && subPath.trim() !== "") {
+    params.set("path", subPath)
+  }
+  const url = `${sdkUrl}/artifact/list?${params.toString()}`
   const response = await fetch(url, {
     headers: { "x-opencode-directory": sdkDirectory },
   })

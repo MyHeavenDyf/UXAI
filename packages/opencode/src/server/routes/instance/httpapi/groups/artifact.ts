@@ -19,6 +19,7 @@ const ArtifactFileSchema = Schema.Struct({
 
 const ArtifactListQuery = Schema.Struct({
   sessionId: Schema.String,
+  category: Schema.optional(Schema.Union([Schema.Literal("generated"), Schema.Literal("uploaded")])),
   path: Schema.optional(Schema.String),
 })
 
@@ -101,7 +102,7 @@ export const ArtifactApi = HttpApi.make("artifact")
           OpenApi.annotations({
             identifier: "artifact.list",
             summary: "List artifacts",
-            description: "List artifact files and folders in .octo/artifacts/make/<sessionId> directory. Use 'path' parameter to navigate subfolders.",
+            description: "List artifact files and folders. 'category=generated' returns root files (excluding upload-files); 'category=uploaded' returns files in upload-files directory. Use 'path' to navigate subfolders within the category root.",
           }),
         ),
         HttpApiEndpoint.get("content", ArtifactPaths.content, {

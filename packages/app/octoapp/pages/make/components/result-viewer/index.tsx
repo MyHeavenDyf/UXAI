@@ -195,8 +195,6 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
               onAddToSession={props.onAddArtifactToSession}
               onCloseTabsByPath={handleCloseTabsByPath}
               onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
-              onRenameTabByPath={props.onRenameTabByPath}
-              onRenameAttachmentPath={props.onRenameAttachmentPath}
             />
           )}
         </Show>

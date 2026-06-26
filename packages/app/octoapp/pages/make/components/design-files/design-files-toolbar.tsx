@@ -3,7 +3,6 @@ import type { JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { IconRefresh } from "../../icons"
-import type { ArtifactFileStore } from "../../utils/artifact-file-store"
 import type { ArtifactFileKind } from "../../utils/artifact-file-api"
 import { useLanguage } from "@/context/language"
 
@@ -32,6 +31,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
   const language = useLanguage()
 
   const hasSelection = createMemo(() => props.fileStore.store.selected.size > 0)
+  const selectedUploadCount = createMemo(() => props.fileStore.selectedUploadedFiles().length)
 
   const filterButtonText = createMemo(() => {
     const filterSize = props.fileStore.store.kindFilter.size
@@ -41,6 +41,33 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
       return language.t(kindToI18nKey(kind))
     }
     return language.t("designFiles.filterCount", { n: filterSize })
+  })
+
+  const availableKinds = createMemo(() => {
+    const counts = new Map<ArtifactFileKind, number>()
+    for (const file of props.fileStore.store.generatedFiles) {
+      counts.set(file.kind, (counts.get(file.kind) ?? 0) + 1)
+    }
+    for (const file of props.fileStore.store.uploadedFiles) {
+      counts.set(file.kind, (counts.get(file.kind) ?? 0) + 1)
+    }
+    return Array.from(counts.keys()).sort((a, b) => {
+      const priority: Record<string, number> = {
+        folder: -1, html: 0, svg: 1, markdown: 2, image: 3, code: 4, text: 5, pdf: 6, video: 7, audio: 8, document: 9, binary: 10,
+      }
+      return (priority[a] ?? 10) - (priority[b] ?? 10)
+    })
+  })
+
+  const kindCounts = createMemo(() => {
+    const counts = new Map<ArtifactFileKind, number>()
+    for (const file of props.fileStore.store.generatedFiles) {
+      counts.set(file.kind, (counts.get(file.kind) ?? 0) + 1)
+    }
+    for (const file of props.fileStore.store.uploadedFiles) {
+      counts.set(file.kind, (counts.get(file.kind) ?? 0) + 1)
+    }
+    return counts
   })
 
   return (
@@ -101,47 +128,47 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           </button>
 
           <Show when={props.filterMenuOpen}>
-              <div
-                class="absolute left-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1 min-w-[180px]"
-                style={{ border: "1px solid var(--octo-border-divider)" }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div class="flex items-center justify-between px-3 py-1.5 shrink-0" style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}>
-                  <span class="text-[12px] font-medium">{language.t("designFiles.filter")}</span>
-                  <Show when={props.fileStore.store.kindFilter.size > 0}>
-                    <button
-                      type="button"
-                      onClick={() => props.fileStore.clearKindFilter()}
-                      class="text-[12px] text-text-interactive-base hover:underline"
-                    >
-                      {language.t("designFiles.filterClear")}
-                    </button>
-                  </Show>
-                </div>
-                <ul class="py-1">
-                  <For each={props.fileStore.availableKinds()}>
-                    {(kind) => (
-                      <li>
-                        <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-surface-base-hover transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={props.fileStore.store.kindFilter.has(kind)}
-                            onChange={() => props.fileStore.toggleKindFilter(kind)}
-                            class="cursor-pointer"
-                          />
-                          <span class="text-[12px]">{language.t(kindToI18nKey(kind))}</span>
-                          <span class="text-[12px] ml-auto" style={{ color: "var(--octo-text-secondary)" }}>
-                            {props.fileStore.kindCounts().get(kind) ?? 0}
-                          </span>
-                        </label>
-                      </li>
-                    )}
-                  </For>
-                </ul>
+            <div
+              class="absolute left-0 top-full z-50 bg-surface-raised-base rounded-md shadow-lg py-1 min-w-[180px]"
+              style={{ border: "1px solid var(--octo-border-divider)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div class="flex items-center justify-between px-3 py-1.5 shrink-0" style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}>
+                <span class="text-[12px] font-medium">{language.t("designFiles.filter")}</span>
+                <Show when={props.fileStore.store.kindFilter.size > 0}>
+                  <button
+                    type="button"
+                    onClick={() => props.fileStore.clearKindFilter()}
+                    class="text-[12px] text-text-interactive-base hover:underline"
+                  >
+                    {language.t("designFiles.filterClear")}
+                  </button>
+                </Show>
               </div>
-            </Show>
-          </div>
+              <ul class="py-1">
+                <For each={availableKinds()}>
+                  {(kind) => (
+                    <li>
+                      <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-surface-base-hover transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={props.fileStore.store.kindFilter.has(kind)}
+                          onChange={() => props.fileStore.toggleKindFilter(kind)}
+                          class="cursor-pointer"
+                        />
+                        <span class="text-[12px]">{language.t(kindToI18nKey(kind))}</span>
+                        <span class="text-[12px] ml-auto" style={{ color: "var(--octo-text-secondary)" }}>
+                          {kindCounts().get(kind) ?? 0}
+                        </span>
+                      </label>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </div>
+          </Show>
         </div>
+      </div>
 
       <div class="flex items-center gap-2">
         <Show when={hasSelection()}>
@@ -153,13 +180,15 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             <Icon name="chevron-down" size="small" />
             <span>{language.t("designFiles.download")} ({props.fileStore.store.selected.size})</span>
           </button>
-          <button
-            type="button"
-            onClick={props.onBatchDelete}
-            class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px] text-text-diff-delete-base"
-          >
-            <span>{language.t("designFiles.batchDelete")} ({props.fileStore.store.selected.size})</span>
-          </button>
+          <Show when={selectedUploadCount() > 0}>
+            <button
+              type="button"
+              onClick={props.onBatchDelete}
+              class="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-base-hover transition-colors text-[12px] text-text-diff-delete-base"
+            >
+              <span>{language.t("designFiles.batchDelete")} ({selectedUploadCount()})</span>
+            </button>
+          </Show>
         </Show>
 
         <div class="relative">

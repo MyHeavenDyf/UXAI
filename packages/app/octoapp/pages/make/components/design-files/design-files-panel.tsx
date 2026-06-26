@@ -1,7 +1,6 @@
 import {
   createEffect,
   createMemo,
-  createResource,
   For,
   Show,
   Switch,
@@ -19,16 +18,15 @@ import {
   type ArtifactFile,
   type ArtifactFileKind,
   type ModifiedSection,
+  type GroupMode,
 } from "../../utils/artifact-file-store"
 import {
   fetchArtifactList,
   deleteArtifactFile,
   deleteArtifactBatch,
   archiveArtifacts,
-  renameArtifactFile,
   uploadArtifactFile,
   uploadArtifactFolder,
-  getArtifactRelativePath,
   fetchArtifactContent,
   formatTimestamp,
   type FolderUploadFile,
@@ -60,14 +58,19 @@ const modifiedSectionToI18nKey = (section: ModifiedSection): string => {
   return `designFiles.${map[section]}`
 }
 
+function formatFileSize(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
 interface Props {
   sessionId: string
   onOpenFile: (file: ArtifactFile) => void
   onAddToSession?: (file: ArtifactFile) => void
   onCloseTabsByPath?: (paths: string[]) => void
   onRemoveAttachmentsByPath?: (paths: string[]) => void
-  onRenameTabByPath?: (oldPath: string, newPath: string, newTitle: string) => void
-  onRenameAttachmentPath?: (oldPath: string, newPath: string, newFilename: string) => void
 }
 
 export function DesignFilesPanel(props: Props): JSX.Element {
@@ -76,8 +79,6 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const dialog = useDialog()
   const language = useLanguage()
   const fileStore = createArtifactFileStore(props.sessionId)
-  const [renamingPath, setRenamingPath] = createSignal<string | null>(null)
-  const [renameDraft, setRenameDraft] = createSignal("")
   const [showAddMenu, setShowAddMenu] = createSignal(false)
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [filterMenuOpen, setFilterMenuOpen] = createSignal(false)
@@ -89,30 +90,27 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     fileStore.setCurrentPath("")
   }))
 
-  const [fetcher] = createResource(
-    () => ({ sessionId: props.sessionId, url: globalSDK.url, directory: sdk.directory, currentPath: fileStore.store.currentPath }),
-    async ({ sessionId, url, directory, currentPath }) => {
-      fileStore.setLoading(true)
-      try {
-        const result = await fetchArtifactList(url, directory, sessionId, currentPath)
-        fileStore.setFiles(result.files)
-        fileStore.setError(null)
-        return result
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        fileStore.setError(message)
-        return { files: [] }
-      } finally {
-        fileStore.setLoading(false)
-      }
-    },
-  )
-
   const refresh = async () => {
     fileStore.setLoading(true)
     try {
-      const result = await fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, fileStore.store.currentPath)
-      fileStore.setFiles(result.files)
+      if (fileStore.isTopLevel()) {
+        const [genResult, uplResult] = await Promise.all([
+          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated"),
+          fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "uploaded"),
+        ])
+        fileStore.setGeneratedFiles(genResult.files)
+        fileStore.setUploadedFiles(uplResult.files)
+      } else {
+        const result = await fetchArtifactList(
+          globalSDK.url,
+          sdk.directory,
+          props.sessionId,
+          "uploaded",
+          fileStore.store.currentPath,
+        )
+        fileStore.setUploadedFiles(result.files)
+        fileStore.setGeneratedFiles([])
+      }
       fileStore.setError(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -121,6 +119,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       fileStore.setLoading(false)
     }
   }
+
+  createEffect(on(() => fileStore.store.currentPath, () => {
+    void refresh()
+  }))
 
   createEffect(() => {
     if (!filterMenuOpen()) return
@@ -179,7 +181,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   const handleBatchDelete = async () => {
-    const files = Array.from(fileStore.store.selected)
+    const files = fileStore.selectedUploadedFiles()
     if (files.length === 0) return
 
     dialog.show(() => (
@@ -253,7 +255,6 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         ? await fetch(`data:${content.mimeType};base64,${content.content}`).then(r => r.blob())
         : new Blob([content.content], { type: content.mimeType })
 
-      // Electron 环境：使用原生 API（阻塞等待用户选择）
       if ((window as any).api?.saveFilePicker) {
         const filePath = await (window as any).api.saveFilePicker({
           defaultPath: file.name,
@@ -264,7 +265,6 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         return
       }
 
-      // 浏览器环境：fallback 到传统下载
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
@@ -277,36 +277,6 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
   }
 
-  function startRename(file: ArtifactFile) {
-    setRenamingPath(file.path)
-    setRenameDraft(file.name)
-  }
-
-  async function saveRename(file: ArtifactFile) {
-    const draft = renameDraft().trim()
-    const oldName = file.name
-    const oldPath = file.path
-    if (!draft || draft === oldName) {
-      setRenamingPath(null)
-      return
-    }
-
-    const dir = file.path.slice(0, file.path.lastIndexOf(oldName))
-    const newPath = dir + draft
-
-    try {
-      await renameArtifactFile(globalSDK.url, sdk.directory, oldPath, newPath)
-      await refresh()
-      props.onRenameTabByPath?.(oldPath, newPath, draft)
-      props.onRenameAttachmentPath?.(oldPath, newPath, draft)
-      showToast({ title: "Renamed", description: oldName + " → " + draft })
-    } catch (err) {
-      showToast({ title: "Rename failed", description: err instanceof Error ? err.message : String(err) })
-    } finally {
-      setRenamingPath(null)
-    }
-  }
-
   const handleOpenFile = (file: ArtifactFile) => {
     props.onOpenFile(file)
   }
@@ -316,20 +286,17 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     fileStore.setPreviewFile(file)
   }
 
-  const handleToggleSelection = (file: ArtifactFile) => {
-    fileStore.toggleFileSelection(file.path)
-  }
-
-  const handleSelectAllPage = () => {
-    if (fileStore.allPageSelected()) {
-      fileStore.clearSelection()
-    } else {
-      fileStore.selectAllPage()
+  const handleOpenInExplorer = (file: ArtifactFile) => {
+    const api = (window as any).api
+    if (typeof api?.showItemInFolder !== "function") {
+      showToast({ title: "打开失败", description: "当前环境不支持此操作", variant: "error" })
+      return
     }
+    api.showItemInFolder(file.path)
   }
 
   const handleUpload = async (files: FileList) => {
-    const currentPath = fileStore.store.currentPath
+    const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     for (const file of Array.from(files)) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
@@ -404,6 +371,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   async function processDirectoryEntry(dirEntry: FileSystemDirectoryEntry) {
     const folderName = dirEntry.name
     const fileEntries: FolderUploadFile[] = []
+    const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     
     async function collectFiles(entry: FileSystemEntry) {
       if (entry.isFile) {
@@ -435,7 +403,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         props.sessionId,
         folderName,
         fileEntries,
-        fileStore.store.currentPath,
+        currentPath,
       )
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       await refresh()
@@ -450,7 +418,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   }
 
   async function uploadSingleFile(file: File) {
-    const currentPath = fileStore.store.currentPath
+    const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     const base64 = await readFileAsBase64(file)
     try {
       const result = await uploadArtifactFile(
@@ -507,6 +475,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
 
     const fileEntries: FolderUploadFile[] = []
+    const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
 
     for (const file of Array.from(files)) {
       const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
@@ -528,7 +497,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         props.sessionId,
         folderName,
         fileEntries,
-        fileStore.store.currentPath,
+        currentPath,
       )
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       await refresh()
@@ -537,10 +506,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
   }
 
-  const kindGroupEntries = createMemo(() =>
-    Array.from(fileStore.kindGroups().entries())
-      .sort(([a], [b]) => kindSortPriority(a) - kindSortPriority(b)),
-  )
+  const handleSelectAllPage = () => {
+    if (fileStore.allPageSelected()) {
+      fileStore.clearSelection()
+    } else {
+      fileStore.selectAllPage()
+    }
+  }
 
   return (
     <div class="flex h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
@@ -614,218 +586,202 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           folderInputRef={folderInputRef}
         />
 
-      <Breadcrumb
-        currentPath={fileStore.store.currentPath}
-        onNavigate={(path) => fileStore.setCurrentPath(path)}
-      />
+        <Breadcrumb
+          currentPath={fileStore.store.currentPath}
+          onNavigate={(path) => fileStore.setCurrentPath(path)}
+        />
 
-      <div class="flex-1 min-h-0 overflow-auto">
-        <Show when={fileStore.store.loading && fileStore.store.files.length === 0}>
-          <div class="flex items-center justify-center h-full">
-            <Spinner class="size-[20px]" />
-          </div>
-        </Show>
+        <div class="flex-1 min-h-0 overflow-auto">
+          <Show when={fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0}>
+            <div class="flex items-center justify-center h-full">
+              <Spinner class="size-[20px]" />
+            </div>
+          </Show>
 
-        <Show when={fileStore.store.error}>
-          <div class="p-4 text-text-diff-delete-base text-[14px]">
-            Error: {fileStore.store.error}
-          </div>
-        </Show>
+          <Show when={fileStore.store.error}>
+            <div class="p-4 text-text-diff-delete-base text-[14px]">
+              Error: {fileStore.store.error}
+            </div>
+          </Show>
 
-        <Show when={!fileStore.store.loading && fileStore.store.files.length === 0}>
-          <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
-            <button
-              type="button"
-              onClick={() => fileInputRef?.click()}
-              class="flex items-center gap-2 px-4 py-2 rounded-lg text-[14px] font-medium transition-colors"
-              style={{
-                background: "var(--octo-brand)",
-                color: "white",
-              }}
-            >
-              <Icon name="upload" size="small" />
-              <span>{language.t("designFiles.uploadFileAction")}</span>
-            </button>
-          </div>
-        </Show>
+          <Show when={!fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0 && fileStore.isTopLevel()}>
+            <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+              <span class="text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>暂无文件</span>
+              <button
+                type="button"
+                onClick={() => fileInputRef?.click()}
+                class="flex items-center gap-2 px-4 py-2 rounded-lg text-[14px] font-medium transition-colors"
+                style={{
+                  background: "var(--octo-brand)",
+                  color: "white",
+                }}
+              >
+                <Icon name="upload" size="small" />
+                <span>{language.t("designFiles.uploadFileAction")}</span>
+              </button>
+            </div>
+          </Show>
 
-        <Show when={fileStore.store.files.length > 0}>
-          <table class="w-full text-[13px]">
-            <thead>
-              <tr style={{ background: "var(--octo-surface-page)" }}>
-                <th class="w-[32px] px-2 py-2">
-                  <input
-                    type="checkbox"
-                    checked={fileStore.allPageSelected()}
-                    ref={(el) => { el.indeterminate = fileStore.somePageSelected() }}
-                    onChange={handleSelectAllPage}
-                    class="cursor-pointer"
+          <Show when={!fileStore.isTopLevel() && !fileStore.store.loading && fileStore.store.uploadedFiles.length === 0}>
+            <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+              <span class="text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>暂无文件</span>
+              <button
+                type="button"
+                onClick={() => fileInputRef?.click()}
+                class="flex items-center gap-2 px-4 py-2 rounded-lg text-[14px] font-medium transition-colors"
+                style={{
+                  background: "var(--octo-brand)",
+                  color: "white",
+                }}
+              >
+                <Icon name="upload" size="small" />
+                <span>{language.t("designFiles.uploadFileAction")}</span>
+              </button>
+            </div>
+          </Show>
+
+          <Show when={fileStore.store.generatedFiles.length > 0 || fileStore.store.uploadedFiles.length > 0}>
+            <table class="w-full text-[13px]">
+              <thead class="sticky top-0 z-10" style={{ background: "var(--octo-surface-page)" }}>
+                <tr>
+                  <th class="w-[32px] px-2 py-2">
+                    <input
+                      type="checkbox"
+                      checked={fileStore.allPageSelected()}
+                      ref={(el) => { el.indeterminate = fileStore.somePageSelected() }}
+                      onChange={handleSelectAllPage}
+                      class="cursor-pointer"
+                    />
+                  </th>
+                  <th class="px-2 py-2 text-left">
+                    <span>{language.t("designFiles.columnName")}</span>
+                  </th>
+                  <th class="px-2 py-2 text-left">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (fileStore.store.sortKey === "kind") {
+                          fileStore.setSortDir(fileStore.store.sortDir === "asc" ? "desc" : "asc")
+                        } else {
+                          fileStore.setSortKey("kind")
+                          fileStore.setSortDir("asc")
+                        }
+                      }}
+                      class="flex items-center gap-1 hover:text-text-interactive-base transition-colors"
+                    >
+                      {language.t("designFiles.columnKind")}
+                      <Show when={fileStore.store.sortKey === "kind"}>
+                        <Icon name={fileStore.store.sortDir === "asc" ? "arrow-up" : "arrow-down"} size="small" />
+                      </Show>
+                    </button>
+                  </th>
+                  <th class="px-2 py-2 text-left">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (fileStore.store.sortKey === "mtime") {
+                          fileStore.setSortDir(fileStore.store.sortDir === "asc" ? "desc" : "asc")
+                        } else {
+                          fileStore.setSortKey("mtime")
+                          fileStore.setSortDir("desc")
+                        }
+                      }}
+                      class="flex items-center gap-1 hover:text-text-interactive-base transition-colors"
+                    >
+                      {language.t("designFiles.columnModified")}
+                      <Show when={fileStore.store.sortKey === "mtime"}>
+                        <Icon name={fileStore.store.sortDir === "asc" ? "arrow-up" : "arrow-down"} size="small" />
+                      </Show>
+                    </button>
+                  </th>
+                  <th class="w-[60px] px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <Show when={fileStore.isTopLevel()}>
+                  <SectionRow
+                    title="生成文件"
+                    count={fileStore.store.generatedFiles.length}
+                    collapsed={fileStore.store.collapsedGenerated}
+                    onToggle={() => fileStore.toggleGeneratedSection()}
                   />
-                </th>
-                <th class="px-2 py-2 text-left">
-                  <span class="flex items-center gap-1">
-                    {language.t("designFiles.columnName")}
-                  </span>
-                </th>
-                <th class="px-2 py-2 text-left">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (fileStore.store.sortKey === "kind") {
-                        fileStore.setSortDir(fileStore.store.sortDir === "asc" ? "desc" : "asc")
-                      } else {
-                        fileStore.setSortKey("kind")
-                        fileStore.setSortDir("asc")
-                      }
-                    }}
-                    class="flex items-center gap-1 hover:text-text-interactive-base transition-colors"
-                  >
-                    {language.t("designFiles.columnKind")}
-                    <Show when={fileStore.store.sortKey === "kind"}>
-                      <Icon name={fileStore.store.sortDir === "asc" ? "arrow-up" : "arrow-down"} size="small" />
-                    </Show>
-                  </button>
-                </th>
-                <th class="px-2 py-2 text-left">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (fileStore.store.sortKey === "mtime") {
-                        fileStore.setSortDir(fileStore.store.sortDir === "asc" ? "desc" : "asc")
-                      } else {
-                        fileStore.setSortKey("mtime")
-                        fileStore.setSortDir("desc")
-                      }
-                    }}
-                    class="flex items-center gap-1 hover:text-text-interactive-base transition-colors"
-                  >
-                    {language.t("designFiles.columnModified")}
-                    <Show when={fileStore.store.sortKey === "mtime"}>
-                      <Icon name={fileStore.store.sortDir === "asc" ? "arrow-up" : "arrow-down"} size="small" />
-                    </Show>
-                  </button>
-                </th>
-                <th class="w-[60px] px-2 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <Switch>
-                <Match when={fileStore.store.groupMode === "kind"}>
-                  <For each={kindGroupEntries()}>
-                    {([kind, files]) => (
-                      <>
-                        <tr class="df-section-row" style={{ background: "var(--octo-surface-page)" }}>
-                          <td colSpan={5} class="px-2 py-1">
-                            <button
-                              type="button"
-                              onClick={() => fileStore.toggleSection(kind)}
-                              class="flex items-center gap-2 text-[12px] w-full"
-                              style={{ color: "var(--octo-text-secondary)" }}
-                            >
-                              <Icon
-                                name={fileStore.store.collapsedSections.has(kind) ? "chevron-right" : "chevron-down"}
-                                size="small"
-                              />
-                              <span class="font-medium">{language.t(kindToI18nKey(kind))}</span>
-                              <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised-base">
-                                {files.length}
-                              </span>
-                            </button>
-                          </td>
-                        </tr>
-                        <Show when={!fileStore.store.collapsedSections.has(kind)}>
-                          <For each={files}>
-                            {(file) => (
-                              <FileRow
-                                file={file}
-                                selected={fileStore.store.selected.has(file.path)}
-                                renaming={renamingPath() === file.path}
-                                renameDraft={renameDraft()}
-                                onToggleSelection={() => handleToggleSelection(file)}
-                                onPreview={() => handlePreview(file)}
-                                onOpen={() => handleOpenFile(file)}
-                                onDelete={() => handleDelete(file)}
-                                onRename={() => startRename(file)}
-                                onRenameInput={(v) => setRenameDraft(v)}
-                                onRenameKeyDown={(e) => {
-                                  e.stopPropagation()
-                                  if (e.key === "Enter") { e.preventDefault(); void saveRename(file) }
-                                  if (e.key === "Escape") { e.preventDefault(); setRenamingPath(null) }
-                                }}
-                                onRenameBlur={() => void saveRename(file)}
-                                onAddToSession={() => props.onAddToSession?.(file)}
-                                onDownload={file.isFolder ? undefined : () => handleDownload(file)}
-                                onNavigateFolder={() => fileStore.navigateToFolder(file)}
-                              />
-                            )}
-                          </For>
-                        </Show>
-                      </>
-                    )}
-                  </For>
-                </Match>
-                <Match when={fileStore.store.groupMode === "modified"}>
-                  <For each={fileStore.visibleModifiedSections()}>
-                    {(section) => (
-                      <>
-                        <tr class="df-section-row" style={{ background: "var(--octo-surface-page)" }}>
-                          <td colSpan={5} class="px-2 py-1">
-                            <button
-                              type="button"
-                              onClick={() => fileStore.toggleSection(section)}
-                              class="flex items-center gap-2 text-[12px] w-full"
-                              style={{ color: "var(--octo-text-secondary)" }}
-                            >
-                              <Icon
-                                name={fileStore.store.collapsedSections.has(section) ? "chevron-right" : "chevron-down"}
-                                size="small"
-                              />
-                              <span class="font-medium">{language.t(modifiedSectionToI18nKey(section))}</span>
-                              <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised-base">
-                                {fileStore.modifiedGroups()[section].length}
-                              </span>
-                            </button>
-                          </td>
-                        </tr>
-                        <Show when={!fileStore.store.collapsedSections.has(section)}>
-                          <For each={fileStore.modifiedGroups()[section]}>
-                            {(file) => (
-                              <FileRow
-                                file={file}
-                                selected={fileStore.store.selected.has(file.path)}
-                                renaming={renamingPath() === file.path}
-                                renameDraft={renameDraft()}
-                                onToggleSelection={() => handleToggleSelection(file)}
-                                onPreview={() => handlePreview(file)}
-                                onOpen={() => handleOpenFile(file)}
-                                onDelete={() => handleDelete(file)}
-                                onRename={() => startRename(file)}
-                                onRenameInput={(v) => setRenameDraft(v)}
-                                onRenameKeyDown={(e) => {
-                                  e.stopPropagation()
-                                  if (e.key === "Enter") { e.preventDefault(); void saveRename(file) }
-                                  if (e.key === "Escape") { e.preventDefault(); setRenamingPath(null) }
-                                }}
-                                onRenameBlur={() => void saveRename(file)}
-                                onAddToSession={() => props.onAddToSession?.(file)}
-onDownload={file.isFolder ? undefined : () => handleDownload(file)}
-                                onNavigateFolder={() => fileStore.navigateToFolder(file)}
-                              />
-                            )}
-                          </For>
-                        </Show>
-                      </>
-                    )}
-                  </For>
-                </Match>
-              </Switch>
-            </tbody>
-          </table>
-        </Show>
-      </div>
-    </div>
+                  <Show when={!fileStore.store.collapsedGenerated}>
+                    <KindGroupRows
+                      kindGroupEntries={fileStore.generated.kindGroupEntries()}
+                      modifiedGroups={fileStore.generated.modifiedGroups()}
+                      visibleModifiedSections={fileStore.generated.visibleModifiedSections()}
+                      collapsedSections={fileStore.store.collapsedSections}
+                      groupMode={fileStore.store.groupMode}
+                      sectionKey="generated"
+                      selected={fileStore.store.selected}
+                      onToggleSection={(key) => fileStore.toggleSection(key)}
+                      onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
+                      onPreview={handlePreview}
+                      onOpen={handleOpenFile}
+                      onDownload={handleDownload}
+                      onOpenInExplorer={handleOpenInExplorer}
+                      onAddToSession={props.onAddToSession}
+                      language={language}
+                    />
+                  </Show>
 
-    <Show when={fileStore.previewFile()}>
+                  <SectionRow
+                    title="上传文件"
+                    count={fileStore.store.uploadedFiles.length}
+                    collapsed={fileStore.store.collapsedUploaded}
+                    onToggle={() => fileStore.toggleUploadedSection()}
+                  />
+                  <Show when={!fileStore.store.collapsedUploaded}>
+                    <KindGroupRows
+                      kindGroupEntries={fileStore.uploaded.kindGroupEntries()}
+                      modifiedGroups={fileStore.uploaded.modifiedGroups()}
+                      visibleModifiedSections={fileStore.uploaded.visibleModifiedSections()}
+                      collapsedSections={fileStore.store.collapsedSections}
+                      groupMode={fileStore.store.groupMode}
+                      sectionKey="uploaded"
+                      selected={fileStore.store.selected}
+                      onToggleSection={(key) => fileStore.toggleSection(key)}
+                      onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
+                      onPreview={handlePreview}
+                      onOpen={handleOpenFile}
+                      onDelete={handleDelete}
+                      onDownload={handleDownload}
+                      onOpenInExplorer={handleOpenInExplorer}
+                      onNavigateFolder={(folder) => fileStore.navigateToFolder(folder)}
+                      onAddToSession={props.onAddToSession}
+                      language={language}
+                    />
+                  </Show>
+                </Show>
+
+                <Show when={!fileStore.isTopLevel()}>
+                  <KindGroupRows
+                    kindGroupEntries={fileStore.uploaded.kindGroupEntries()}
+                    modifiedGroups={fileStore.uploaded.modifiedGroups()}
+                    visibleModifiedSections={fileStore.uploaded.visibleModifiedSections()}
+                    collapsedSections={fileStore.store.collapsedSections}
+                    groupMode={fileStore.store.groupMode}
+                    sectionKey=""
+                    selected={fileStore.store.selected}
+                    onToggleSection={(key) => fileStore.toggleSection(key)}
+                    onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
+                    onPreview={handlePreview}
+                    onOpen={handleOpenFile}
+                    onDelete={handleDelete}
+                    onDownload={handleDownload}
+                    onOpenInExplorer={handleOpenInExplorer}
+                    onNavigateFolder={(folder) => fileStore.navigateToFolder(folder)}
+                    onAddToSession={props.onAddToSession}
+                    language={language}
+                  />
+                </Show>
+              </tbody>
+            </table>
+          </Show>
+        </div>
+      </div>
+
+      <Show when={fileStore.previewFile()}>
         {(file) => (
           <PreviewPane
             file={file()}
@@ -841,32 +797,164 @@ onDownload={file.isFolder ? undefined : () => handleDownload(file)}
   )
 }
 
+function SectionRow(props: {
+  title: string
+  count: number
+  collapsed: boolean
+  onToggle: () => void
+}): JSX.Element {
+  return (
+    <tr style={{ background: "var(--octo-surface-page)" }}>
+      <td colSpan={5} class="px-2 py-1">
+        <button
+          type="button"
+          onClick={props.onToggle}
+          class="flex items-center gap-2 text-[12px] w-full"
+          style={{ color: "var(--octo-text-secondary)" }}
+        >
+          <Icon name={props.collapsed ? "chevron-right" : "chevron-down"} size="small" />
+          <span class="font-medium">{props.title}</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised-base">
+            {props.count}
+          </span>
+        </button>
+      </td>
+    </tr>
+  )
+}
+
+function KindGroupRows(props: {
+  kindGroupEntries: Array<[ArtifactFileKind, ArtifactFile[]]>
+  modifiedGroups: Record<ModifiedSection, ArtifactFile[]>
+  visibleModifiedSections: ModifiedSection[]
+  collapsedSections: Set<string>
+  groupMode: GroupMode
+  sectionKey: string
+  selected: Set<string>
+  onToggleSection: (key: string) => void
+  onToggleSelection: (file: ArtifactFile) => void
+  onPreview: (file: ArtifactFile) => void
+  onOpen: (file: ArtifactFile) => void
+  onDelete?: (file: ArtifactFile) => void
+  onDownload?: (file: ArtifactFile) => void
+  onOpenInExplorer: (file: ArtifactFile) => void
+  onNavigateFolder?: (folder: ArtifactFile) => void
+  onAddToSession?: (file: ArtifactFile) => void
+  language: ReturnType<typeof useLanguage>
+}): JSX.Element {
+  return (
+    <Switch>
+      <Match when={props.groupMode === "kind"}>
+        <For each={props.kindGroupEntries}>
+          {([kind, files]) => {
+            const sectionKey = props.sectionKey ? `${props.sectionKey}-${kind}` : kind
+            return (
+              <>
+                <tr style={{ background: "var(--octo-surface-page)" }}>
+                  <td colSpan={5} class="px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => props.onToggleSection(sectionKey)}
+                      class="flex items-center gap-2 text-[12px] w-full"
+                      style={{ color: "var(--octo-text-secondary)" }}
+                    >
+                      <Icon name={props.collapsedSections.has(sectionKey) ? "chevron-right" : "chevron-down"} size="small" />
+                      <span class="font-medium">{props.language.t(kindToI18nKey(kind))}</span>
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised-base">
+                        {files.length}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+                <Show when={!props.collapsedSections.has(sectionKey)}>
+                  <For each={files}>
+                    {(file) => (
+                      <FileRow
+                        file={file}
+                        selected={props.selected.has(file.path)}
+                        onToggleSelection={() => props.onToggleSelection(file)}
+                        onPreview={() => props.onPreview(file)}
+                        onOpen={() => props.onOpen(file)}
+                        onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
+                        onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                        onOpenInExplorer={() => props.onOpenInExplorer(file)}
+                        onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
+                        onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                        language={props.language}
+                      />
+                    )}
+                  </For>
+                </Show>
+              </>
+            )
+          }}
+        </For>
+      </Match>
+      <Match when={props.groupMode === "modified"}>
+        <For each={props.visibleModifiedSections}>
+          {(section) => {
+            const sectionKey = props.sectionKey ? `${props.sectionKey}-${section}` : section
+            const files = props.modifiedGroups[section]
+            return (
+              <>
+                <tr style={{ background: "var(--octo-surface-page)" }}>
+                  <td colSpan={5} class="px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => props.onToggleSection(sectionKey)}
+                      class="flex items-center gap-2 text-[12px] w-full"
+                      style={{ color: "var(--octo-text-secondary)" }}
+                    >
+                      <Icon name={props.collapsedSections.has(sectionKey) ? "chevron-right" : "chevron-down"} size="small" />
+                      <span class="font-medium">{props.language.t(modifiedSectionToI18nKey(section))}</span>
+                      <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised-base">
+                        {files.length}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+                <Show when={!props.collapsedSections.has(sectionKey)}>
+                  <For each={files}>
+                    {(file) => (
+                      <FileRow
+                        file={file}
+                        selected={props.selected.has(file.path)}
+                        onToggleSelection={() => props.onToggleSelection(file)}
+                        onPreview={() => props.onPreview(file)}
+                        onOpen={() => props.onOpen(file)}
+                        onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
+                        onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                        onOpenInExplorer={() => props.onOpenInExplorer(file)}
+                        onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
+                        onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                        language={props.language}
+                      />
+                    )}
+                  </For>
+                </Show>
+              </>
+            )
+          }}
+        </For>
+      </Match>
+    </Switch>
+  )
+}
+
 function FileRow(props: {
   file: ArtifactFile
   selected: boolean
-  renaming?: boolean
-  renameDraft?: string
   onToggleSelection: () => void
   onPreview: () => void
   onOpen: () => void
-  onDelete: () => void
-  onRename: () => void
-  onRenameInput?: (value: string) => void
-  onRenameKeyDown?: (e: KeyboardEvent) => void
-  onRenameBlur?: () => void
-  onAddToSession?: () => void
+  onDelete?: () => void
   onDownload?: () => void
+  onOpenInExplorer: () => void
   onNavigateFolder?: () => void
+  onAddToSession?: () => void
+  language: ReturnType<typeof useLanguage>
 }): JSX.Element {
-  const language = useLanguage()
   const [showMenu, setShowMenu] = createSignal(false)
-  let renameInputRef: HTMLInputElement | undefined
-
-  createEffect(() => {
-    if (props.renaming && renameInputRef) {
-      renameInputRef.focus()
-    }
-  })
 
   return (
     <tr
@@ -893,32 +981,26 @@ function FileRow(props: {
           class="cursor-pointer"
         />
       </td>
-      <td class="px-2 py-1.5 truncate max-w-[200px]" title={props.file.name}>
-        <Show when={!props.renaming} fallback={
-          <input
-            ref={renameInputRef}
-            value={props.renameDraft}
-            onInput={(e) => props.onRenameInput?.(e.currentTarget.value)}
-            onKeyDown={(e) => props.onRenameKeyDown?.(e)}
-            onBlur={() => props.onRenameBlur?.()}
-            onClick={(e) => e.stopPropagation()}
-            class="w-full text-[12px] px-1 py-0.5 rounded"
-            style={{ border: "1px solid #0a59f7", outline: "none" }}
-          />
-        }>
-          <span class="flex items-center gap-1">
+      <td class="px-2 py-1.5 max-w-[200px]" title={props.file.name}>
+        <div class="flex flex-col gap-0.5">
+          <span class="flex items-center gap-1 truncate">
             <Show when={props.file.isFolder}>
               <Icon name="folder" size="small" style={{ color: "var(--octo-text-secondary)" }} />
             </Show>
-            {props.file.name}
+            <span class="truncate">{props.file.name}</span>
           </span>
-        </Show>
+          <Show when={!props.file.isFolder}>
+            <span class="text-[11px]" style={{ color: "var(--octo-text-secondary)" }}>
+              {formatFileSize(props.file.size)}
+            </span>
+          </Show>
+        </div>
       </td>
       <td class="px-2 py-1.5 text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>
-        {language.t(kindToI18nKey(props.file.kind))}
+        {props.language.t(kindToI18nKey(props.file.kind))}
       </td>
       <td class="px-2 py-1.5 text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>
-        {formatTimestamp(props.file.mtime, language.t)}
+        {formatTimestamp(props.file.mtime, props.language.t)}
       </td>
       <td class="w-[60px] px-2 py-1.5">
         <div class="relative">
@@ -939,7 +1021,7 @@ function FileRow(props: {
               style={{ border: "1px solid var(--octo-border-divider)", width: "183px" }}
               onClick={(e) => e.stopPropagation()}
             >
-              <Show when={props.onAddToSession && !props.file.isFolder}>
+              <Show when={props.onAddToSession}>
                 <button
                   type="button"
                   onClick={() => {
@@ -963,16 +1045,18 @@ function FileRow(props: {
                   在标签页中打开
                 </button>
               </Show>
-              <button
-                type="button"
-                onClick={() => {
-                  props.onRename()
-                  setShowMenu(false)
-                }}
-                class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors"
-              >
-                重命名
-              </button>
+              <Show when={typeof (window as any).api?.showItemInFolder === "function"}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onOpenInExplorer()
+                    setShowMenu(false)
+                  }}
+                  class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors"
+                >
+                  在文件资源管理器中打开
+                </button>
+              </Show>
               <Show when={props.onDownload}>
                 <button
                   type="button"
@@ -985,16 +1069,18 @@ function FileRow(props: {
                   下载
                 </button>
               </Show>
-              <button
-                type="button"
-                onClick={() => {
-                  props.onDelete()
-                  setShowMenu(false)
-                }}
-                class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors text-text-diff-delete-base"
-              >
-                删除
-              </button>
+              <Show when={props.onDelete}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onDelete!()
+                    setShowMenu(false)
+                  }}
+                  class="w-full px-3 py-1.5 text-left text-[12px] hover:bg-surface-base-hover transition-colors text-text-diff-delete-base"
+                >
+                  删除
+                </button>
+              </Show>
             </div>
           </Show>
         </div>

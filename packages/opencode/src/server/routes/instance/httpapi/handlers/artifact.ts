@@ -9,6 +9,15 @@ import path from "path"
 import { injectArtifactBridges } from "./artifact-bridge"
 
 const ARTIFACTS_BASE_DIR = ".octo/artifacts/make"
+const UPLOAD_FILES_DIR = "upload-files"
+
+function sanitizePath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
+    return ""
+  }
+  return normalized
+}
 
 const KIND_BY_EXT: Record<string, string> = {
   html: "html",
@@ -163,58 +172,110 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
     const fs = yield* AppFileSystem.Service
     const fileSvc = yield* File.Service
 
-    const list = Effect.fn("ArtifactHttpApi.list")(function* (ctx: { query: { sessionId: string; path?: string } }) {
+    const list = Effect.fn("ArtifactHttpApi.list")(function* (ctx: { query: { sessionId: string; category?: "generated" | "uploaded"; path?: string } }) {
       const sessionId = ctx.query.sessionId
-      const subPath = ctx.query.path
+      const category = ctx.query.category ?? "generated"
+      const subPath = ctx.query.path ?? ""
       const instanceCtx = yield* InstanceState.context
       const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, sessionId)
-      const targetDir = subPath ? path.join(artifactDir, subPath) : artifactDir
+      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
 
-      const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
-      if (!exists) {
-        return { files: [] }
+      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.catch(() => Effect.void))
+
+      if (category === "generated") {
+        const exists = yield* fs.exists(artifactDir).pipe(Effect.catch(() => Effect.succeed(false)))
+        if (!exists) return { files: [] }
+
+        const entries = yield* fs.readDirectory(artifactDir).pipe(Effect.catch(() => Effect.succeed([])))
+        const files: Array<{
+          name: string
+          path: string
+          relativePath: string
+          sessionId: string
+          kind: string
+          isFolder: boolean
+          size: number
+          mtime: number
+          mime: string
+        }> = []
+
+        for (const name of entries) {
+          if (name.startsWith(".") || name === UPLOAD_FILES_DIR) continue
+
+          const fullPath = path.join(artifactDir, name)
+          const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
+
+          if (!stat) continue
+
+          const isFolder = stat.type === "Directory"
+          const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
+          const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+
+          files.push({
+            name,
+            path: fullPath,
+            relativePath: name,
+            sessionId,
+            kind: isFolder ? "folder" : getKind(name),
+            isFolder,
+            size: sizeNum,
+            mtime: mtimeNum,
+            mime: isFolder ? "" : getMime(name),
+          })
+        }
+
+        return { files }
       }
 
-      const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
-      const files: Array<{
-        name: string
-        path: string
-        relativePath: string
-        sessionId: string
-        kind: string
-        isFolder: boolean
-        size: number
-        mtime: number
-        mime: string
-      }> = []
+      if (category === "uploaded") {
+        const targetDir = subPath ? path.join(uploadFilesDir, sanitizePath(subPath)) : uploadFilesDir
 
-      for (const name of entries) {
-        if (name.startsWith(".")) continue
+        const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
+        if (!exists) return { files: [] }
 
-        const fullPath = path.join(targetDir, name)
-        const relativePath = subPath ? `${subPath}/${name}` : name
-        const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
+        const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
+        const files: Array<{
+          name: string
+          path: string
+          relativePath: string
+          sessionId: string
+          kind: string
+          isFolder: boolean
+          size: number
+          mtime: number
+          mime: string
+        }> = []
 
-        if (!stat) continue
+        for (const name of entries) {
+          if (name.startsWith(".")) continue
 
-        const isFolder = stat.type === "Directory"
-        const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
-        const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+          const fullPath = path.join(targetDir, name)
+          const relativePath = subPath ? `upload-files/${sanitizePath(subPath)}/${name}` : `upload-files/${name}`
+          const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
-        files.push({
-          name,
-          path: fullPath,
-          relativePath,
-          sessionId,
-          kind: isFolder ? "folder" : getKind(name),
-          isFolder,
-          size: sizeNum,
-          mtime: mtimeNum,
-          mime: isFolder ? "" : getMime(name),
-        })
+          if (!stat) continue
+
+          const isFolder = stat.type === "Directory"
+          const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
+          const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
+
+          files.push({
+            name,
+            path: fullPath,
+            relativePath,
+            sessionId,
+            kind: isFolder ? "folder" : getKind(name),
+            isFolder,
+            size: sizeNum,
+            mtime: mtimeNum,
+            mime: isFolder ? "" : getMime(name),
+          })
+        }
+
+        return { files }
       }
 
-      return { files }
+      return { files: [] }
     })
 
     const content = Effect.fn("ArtifactHttpApi.content")(function* (ctx: { query: { path: string } }) {
@@ -286,19 +347,20 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
       const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
+      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
 
-      // Resolve target directory (root or subfolder)
-      let targetDir = artifactDir
+      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.orDie)
+
+      let targetDir = uploadFilesDir
+      let targetSubPath = ""
       if (body.path && body.path.trim() !== "") {
-        // Sanitize path: reject path traversal
-        const normalizedPath = body.path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
-        if (normalizedPath.includes("..") || normalizedPath.includes("~")) {
+        targetSubPath = sanitizePath(body.path)
+        if (targetSubPath === "") {
           yield* Effect.fail(new HttpApiError.BadRequest({}))
         }
-        targetDir = path.join(artifactDir, normalizedPath)
+        targetDir = path.join(uploadFilesDir, targetSubPath)
+        yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
-
-      yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
 
       let finalFilename = body.filename
       let counter = 1
@@ -321,10 +383,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const sizeNum = stat ? (typeof stat.size === "bigint" ? Number(stat.size) : stat.size) : contentBuffer.length
       const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
-      // Build relativePath: if uploaded to subfolder, include it
-      const relativePath = body.path && body.path.trim() !== ""
-        ? `${body.path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")}/${finalFilename}`
-        : finalFilename
+      const relativePath = targetSubPath ? `${targetSubPath}/${finalFilename}` : finalFilename
 
       return {
         name: finalFilename,
@@ -343,16 +402,21 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
       const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
-      
-      let targetDir = artifactDir
+      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
+
+      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.orDie)
+
+      let targetDir = uploadFilesDir
+      let targetSubPath = ""
       if (body.path && body.path.trim() !== "") {
-        const normalizedPath = body.path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
-        if (normalizedPath.includes("..") || normalizedPath.includes("~")) {
+        targetSubPath = sanitizePath(body.path)
+        if (targetSubPath === "") {
           yield* Effect.fail(new HttpApiError.BadRequest({}))
         }
-        targetDir = path.join(artifactDir, normalizedPath)
+        targetDir = path.join(uploadFilesDir, targetSubPath)
+        yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
-      
+
       const folderDir = path.join(targetDir, body.folderName)
 
       yield* fs.ensureDir(folderDir).pipe(Effect.orDie)
@@ -369,10 +433,12 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const stat = yield* fs.stat(folderDir).pipe(Effect.catch(() => Effect.succeed(null)))
       const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
+      const relativePath = targetSubPath ? `${targetSubPath}/${body.folderName}` : body.folderName
+
       return {
         name: body.folderName,
         path: folderDir,
-        relativePath: body.folderName,
+        relativePath,
         sessionId: body.sessionId,
         kind: "folder",
         isFolder: true,

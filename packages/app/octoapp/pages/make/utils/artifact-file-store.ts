@@ -9,7 +9,7 @@ export type SortKey = "name" | "kind" | "mtime"
 export type SortDir = "asc" | "desc"
 export { type ArtifactFile, type ArtifactFileKind, kindSortPriority }
 
-const VIEW_STATE_KEY_PREFIX = "octo:make:design-files:view-state:v1:"
+const VIEW_STATE_KEY_PREFIX = "octo:make:design-files:view-state:v3:"
 const DEFAULT_SORT_KEY: SortKey = "mtime"
 const DEFAULT_SORT_DIR: SortDir = "desc"
 
@@ -18,6 +18,9 @@ interface PersistedViewState {
   sortDir?: SortDir
   kindFilter?: ArtifactFileKind[]
   groupMode?: GroupMode
+  collapsedGenerated?: boolean
+  collapsedUploaded?: boolean
+  collapsedSections?: string[]
 }
 
 function readViewState(sessionId: string): PersistedViewState {
@@ -74,51 +77,34 @@ export const MODIFIED_SECTION_LABELS: Record<ModifiedSection, string> = {
 }
 
 export type ArtifactFileStore = {
-  files: ArtifactFile[]
-  loading: boolean
-  error: string | null
+  currentPath: string
+  generatedFiles: ArtifactFile[]
+  uploadedFiles: ArtifactFile[]
+  collapsedGenerated: boolean
+  collapsedUploaded: boolean
+  collapsedSections: Set<string>
   selected: Set<string>
   sortKey: SortKey
   sortDir: SortDir
-  groupMode: GroupMode
   kindFilter: Set<ArtifactFileKind>
-  collapsedSections: Set<string>
-  viewMode: "tabs" | "files"
-  currentPath: string
+  groupMode: GroupMode
+  loading: boolean
+  error: string | null
 }
 
-export function createArtifactFileStore(sessionId: string) {
-  const savedViewState = readViewState(sessionId)
-
-  const [previewFile, setPreviewFile] = createSignal<ArtifactFile | null>(null)
-
-  const [store, setStore] = createStore<ArtifactFileStore>({
-    files: [],
-    loading: false,
-    error: null,
-    selected: new Set(),
-    sortKey: savedViewState.sortKey ?? DEFAULT_SORT_KEY,
-    sortDir: savedViewState.sortDir ?? DEFAULT_SORT_DIR,
-    groupMode: savedViewState.groupMode ?? "kind",
-    kindFilter: new Set(savedViewState.kindFilter ?? []),
-    collapsedSections: new Set(),
-    viewMode: "tabs",
-    currentPath: "",
-  })
-
-  const [dayBoundary, setDayBoundary] = createSignal(Date.now())
-
-  createEffect(() => {
-    const now = Date.now()
-    const startOfTomorrow = new Date(now)
-    startOfTomorrow.setHours(24, 0, 0, 0)
-    const timer = setTimeout(() => setDayBoundary(Date.now()), Math.max(1, startOfTomorrow.getTime() - now))
-    return () => clearTimeout(timer)
-  })
-
+function createFileListComputed(
+  files: () => ArtifactFile[],
+  sortKey: () => SortKey,
+  sortDir: () => SortDir,
+  kindFilter: () => Set<ArtifactFileKind>,
+  groupMode: () => GroupMode,
+  collapsedSections: () => Set<string>,
+  sectionPrefix: string,
+  dayBoundary: () => number,
+) {
   const kindCounts = createMemo(() => {
     const counts = new Map<ArtifactFileKind, number>()
-    for (const file of store.files) {
+    for (const file of files()) {
       counts.set(file.kind, (counts.get(file.kind) ?? 0) + 1)
     }
     return counts
@@ -129,22 +115,26 @@ export function createArtifactFileStore(sessionId: string) {
   )
 
   const filteredFiles = createMemo(() => {
-    if (store.kindFilter.size === 0) return store.files
-    return store.files.filter((f) => store.kindFilter.has(f.kind))
+    const filter = kindFilter()
+    if (filter.size === 0) return files()
+    return files().filter((f) => filter.has(f.kind))
   })
 
   const sortedFiles = createMemo(() => {
+    const key = sortKey()
+    const dir = sortDir()
     return [...filteredFiles()].sort((a, b) => {
       let cmp: number
-      if (store.sortKey === "name") cmp = a.name.localeCompare(b.name)
-      else if (store.sortKey === "kind") cmp = kindSortPriority(a.kind) - kindSortPriority(b.kind)
+      if (key === "name") cmp = a.name.localeCompare(b.name)
+      else if (key === "kind") cmp = kindSortPriority(a.kind) - kindSortPriority(b.kind)
       else cmp = a.mtime - b.mtime
-      return store.sortDir === "asc" ? cmp : -cmp
+      return dir === "asc" ? cmp : -cmp
     })
   })
 
   const kindGroups = createMemo(() => {
     const groups = new Map<ArtifactFileKind, ArtifactFile[]>()
+    if (groupMode() !== "kind") return groups
     for (const file of sortedFiles()) {
       const existing = groups.get(file.kind) ?? []
       groups.set(file.kind, [...existing, file])
@@ -160,6 +150,7 @@ export function createArtifactFileStore(sessionId: string) {
       previous30Days: [],
       older: [],
     }
+    if (groupMode() !== "modified") return groups
     const thresholds = modifiedSectionThresholds(dayBoundary())
     for (const file of sortedFiles()) {
       const section = modifiedSectionFor(file.mtime, thresholds)
@@ -169,17 +160,83 @@ export function createArtifactFileStore(sessionId: string) {
   })
 
   const visibleModifiedSections = createMemo(() => {
-    const sections = MODIFIED_SECTION_ORDER.filter((section) => modifiedGroups()[section].length > 0)
-    return store.sortDir === "asc" ? [...sections].reverse() : sections
+    const dir = sortDir()
+    const groups = modifiedGroups()
+    const sections = MODIFIED_SECTION_ORDER.filter((section) => groups[section].length > 0)
+    return dir === "asc" ? [...sections].reverse() : sections
   })
 
-  const allPageSelected = createMemo(() =>
-    sortedFiles().length > 0 && sortedFiles().every((f) => store.selected.has(f.path)),
+  const kindGroupEntries = createMemo(() =>
+    Array.from(kindGroups().entries())
+      .sort(([a], [b]) => kindSortPriority(a) - kindSortPriority(b)),
   )
 
-  const somePageSelected = createMemo(() =>
-    !allPageSelected() && sortedFiles().some((f) => store.selected.has(f.path)),
+  return {
+    kindCounts,
+    availableKinds,
+    filteredFiles,
+    sortedFiles,
+    kindGroups,
+    kindGroupEntries,
+    modifiedGroups,
+    visibleModifiedSections,
+  }
+}
+
+export function createArtifactFileStore(sessionId: string) {
+  const savedViewState = readViewState(sessionId)
+
+  const [previewFile, setPreviewFile] = createSignal<ArtifactFile | null>(null)
+
+  const [store, setStore] = createStore<ArtifactFileStore>({
+    currentPath: "",
+    generatedFiles: [],
+    uploadedFiles: [],
+    collapsedGenerated: savedViewState.collapsedGenerated ?? false,
+    collapsedUploaded: savedViewState.collapsedUploaded ?? false,
+    collapsedSections: new Set(savedViewState.collapsedSections ?? []),
+    selected: new Set(),
+    sortKey: savedViewState.sortKey ?? DEFAULT_SORT_KEY,
+    sortDir: savedViewState.sortDir ?? DEFAULT_SORT_DIR,
+    kindFilter: new Set(savedViewState.kindFilter ?? []),
+    groupMode: savedViewState.groupMode ?? "kind",
+    loading: false,
+    error: null,
+  })
+
+  const [dayBoundary, setDayBoundary] = createSignal(Date.now())
+
+  createEffect(() => {
+    const now = Date.now()
+    const startOfTomorrow = new Date(now)
+    startOfTomorrow.setHours(24, 0, 0, 0)
+    const timer = setTimeout(() => setDayBoundary(Date.now()), Math.max(1, startOfTomorrow.getTime() - now))
+    return () => clearTimeout(timer)
+  })
+
+  const generatedComputed = createFileListComputed(
+    () => store.generatedFiles,
+    () => store.sortKey,
+    () => store.sortDir,
+    () => store.kindFilter,
+    () => store.groupMode,
+    () => store.collapsedSections,
+    "generated",
+    dayBoundary,
   )
+
+  const uploadedComputed = createFileListComputed(
+    () => store.uploadedFiles,
+    () => store.sortKey,
+    () => store.sortDir,
+    () => store.kindFilter,
+    () => store.groupMode,
+    () => store.collapsedSections,
+    "uploaded",
+    dayBoundary,
+  )
+
+  const isTopLevel = createMemo(() => store.currentPath === "")
 
   createEffect(on(
     () => store.kindFilter,
@@ -187,35 +244,71 @@ export function createArtifactFileStore(sessionId: string) {
   ))
 
   createEffect(on(
-    [() => store.sortKey, () => store.sortDir, () => store.kindFilter, () => store.groupMode],
+    () => store.currentPath,
+    () => {
+      setStore("selected", new Set())
+      setPreviewFile(null)
+    },
+  ))
+
+  createEffect(on(
+    [
+      () => store.sortKey,
+      () => store.sortDir,
+      () => store.kindFilter,
+      () => store.groupMode,
+      () => store.collapsedGenerated,
+      () => store.collapsedUploaded,
+      () => store.collapsedSections,
+    ],
     () => {
       writeViewState(sessionId, {
         sortKey: store.sortKey,
         sortDir: store.sortDir,
         kindFilter: Array.from(store.kindFilter),
         groupMode: store.groupMode,
+        collapsedGenerated: store.collapsedGenerated,
+        collapsedUploaded: store.collapsedUploaded,
+        collapsedSections: Array.from(store.collapsedSections),
       })
     },
   ))
+
+  const allPageSelected = createMemo(() => {
+    const files = isTopLevel()
+      ? [...generatedComputed.sortedFiles(), ...uploadedComputed.sortedFiles()]
+      : uploadedComputed.sortedFiles()
+    return files.length > 0 && files.every((f) => store.selected.has(f.path))
+  })
+
+  const somePageSelected = createMemo(() =>
+    !allPageSelected() && (
+      isTopLevel()
+        ? [...generatedComputed.sortedFiles(), ...uploadedComputed.sortedFiles()].some((f) => store.selected.has(f.path))
+        : uploadedComputed.sortedFiles().some((f) => store.selected.has(f.path))
+    ),
+  )
+
+  const selectedUploadedFiles = createMemo(() =>
+    Array.from(store.selected).filter((path) =>
+      store.uploadedFiles.some((f) => f.path === path),
+    ),
+  )
 
   return {
     store,
     setStore,
     previewFile,
-    kindCounts,
-    availableKinds,
-    filteredFiles,
-    sortedFiles,
-    kindGroups,
-    modifiedGroups,
-    visibleModifiedSections,
+    setPreviewFile,
+    dayBoundary,
+    isTopLevel,
+
+    generated: generatedComputed,
+    uploaded: uploadedComputed,
+
     allPageSelected,
     somePageSelected,
-    dayBoundary,
-
-    setFiles(files: ArtifactFile[]) {
-      setStore("files", reconcile(files))
-    },
+    selectedUploadedFiles,
 
     setLoading(loading: boolean) {
       setStore("loading", loading)
@@ -223,6 +316,33 @@ export function createArtifactFileStore(sessionId: string) {
 
     setError(error: string | null) {
       setStore("error", error)
+    },
+
+    setCurrentPath(path: string) {
+      setStore("currentPath", path)
+    },
+
+    setGeneratedFiles(files: ArtifactFile[]) {
+      setStore("generatedFiles", reconcile(files))
+    },
+
+    setUploadedFiles(files: ArtifactFile[]) {
+      setStore("uploadedFiles", reconcile(files))
+    },
+
+    toggleGeneratedSection() {
+      setStore("collapsedGenerated", !store.collapsedGenerated)
+    },
+
+    toggleUploadedSection() {
+      setStore("collapsedUploaded", !store.collapsedUploaded)
+    },
+
+    toggleSection(section: string) {
+      const next = new Set(store.collapsedSections)
+      if (next.has(section)) next.delete(section)
+      else next.add(section)
+      setStore("collapsedSections", next)
     },
 
     setSortKey(key: SortKey) {
@@ -248,25 +368,6 @@ export function createArtifactFileStore(sessionId: string) {
       setStore("kindFilter", new Set())
     },
 
-    toggleSection(section: string) {
-      const next = new Set(store.collapsedSections)
-      if (next.has(section)) next.delete(section)
-      else next.add(section)
-      setStore("collapsedSections", next)
-    },
-
-    selectFile(path: string) {
-      const next = new Set(store.selected)
-      next.add(path)
-      setStore("selected", next)
-    },
-
-    deselectFile(path: string) {
-      const next = new Set(store.selected)
-      next.delete(path)
-      setStore("selected", next)
-    },
-
     toggleFileSelection(path: string) {
       const next = new Set(store.selected)
       if (next.has(path)) next.delete(path)
@@ -276,7 +377,10 @@ export function createArtifactFileStore(sessionId: string) {
 
     selectAllPage() {
       const next = new Set(store.selected)
-      for (const file of sortedFiles()) next.add(file.path)
+      const files = isTopLevel()
+        ? [...generatedComputed.sortedFiles(), ...uploadedComputed.sortedFiles()]
+        : uploadedComputed.sortedFiles()
+      for (const file of files) next.add(file.path)
       setStore("selected", next)
     },
 
@@ -284,14 +388,8 @@ export function createArtifactFileStore(sessionId: string) {
       setStore("selected", new Set())
     },
 
-    setPreviewFile,
-
-    setViewMode(mode: "tabs" | "files") {
-      setStore("viewMode", mode)
-    },
-
     deleteFile(path: string) {
-      setStore("files", store.files.filter((f) => f.path !== path))
+      setStore("uploadedFiles", store.uploadedFiles.filter((f) => f.path !== path))
       const nextSelected = new Set(store.selected)
       nextSelected.delete(path)
       setStore("selected", nextSelected)
@@ -300,18 +398,10 @@ export function createArtifactFileStore(sessionId: string) {
       }
     },
 
-    setCurrentPath(path: string) {
-      setStore("currentPath", path)
-      setStore("selected", new Set())
-      setPreviewFile(null)
-    },
-
     navigateToFolder(folder: ArtifactFile) {
       if (!folder.isFolder) return
-      const newPath = folder.relativePath
-      setStore("currentPath", newPath)
-      setStore("selected", new Set())
-      setPreviewFile(null)
+      const path = folder.relativePath.replace(/^upload-files\//, "")
+      setStore("currentPath", path)
     },
   }
 }

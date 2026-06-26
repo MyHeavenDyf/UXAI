@@ -597,8 +597,11 @@ const sessionMessagesLoaded = createMemo(() => {
     async ({ sessionId, url, directory }) => {
       if (!sessionId) return []
       try {
-        const result = await fetchArtifactList(url, directory ?? "", sessionId)
-        return result.files
+        const [gen, upl] = await Promise.all([
+          fetchArtifactList(url, directory ?? "", sessionId, "generated"),
+          fetchArtifactList(url, directory ?? "", sessionId, "uploaded"),
+        ])
+        return [...gen.files, ...upl.files]
       } catch {
         return []
       }
