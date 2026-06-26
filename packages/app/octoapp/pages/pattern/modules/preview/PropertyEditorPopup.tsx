@@ -78,7 +78,7 @@ const TW_PREFIXES = [
 function isTailwindToken(cls: string): boolean {
   for (const p of TW_PREFIXES) {
     if (cls === p) return true
-    if (cls.startsWith(p + '-') || cls.startsWith(p + '[')) return true
+    if (cls.startsWith(p) || cls.startsWith(p + '[')) return true
   }
   return false
 }
