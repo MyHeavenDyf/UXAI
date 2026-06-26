@@ -32,13 +32,17 @@ monkey-patch 模块，覆盖 `AbortController.prototype.abort`：
   - **完整 stack**（不限行数，原始保留）
   - 业务代码帧（Top 5）单独提取
   - `FromUserCode` 标记：用于过滤纯 Node 内部调用
-- **双写**：
-  - `stderr` 实时输出（运行时可见）
-  - 文件追加（事后分析，避免被日志系统覆盖）
+- **三路并行写入**（保证至少一路可见）：
+  1. **独立日志文件**：`<Global.Path.log>/abort-debug.log`
+     - Linux/macOS: `~/.local/share/opencode/log/abort-debug.log`
+     - Windows: `%LOCALAPPDATA%\opencode\log\abort-debug.log`
+  2. **opencode 主日志**：通过 `Log.Default.error` 写入（`dev.log` 或 `<时间戳>.log`）
+  3. **stderr**：运行时实时可见
+- **写入失败可见**：所有 `try/catch` 都不静默吞，错误会输出到 stderr，必要时降级写到 `os.tmpdir()/opencode-abort-debug-failed.log`
+- **启动标记**：模块加载时同步创建空 `abort-debug.log` 文件并写 boot 消息，用于验证 monkey-patch 是否真正生效（若文件不存在，说明构建未重新执行）
 - **环境变量**：
   - `OPENCODE_ABORT_DEBUG=0` 临时禁用
-  - `OPENCODE_ABORT_DEBUG_LOG=/path/to/file` 自定义日志路径
-  - 默认路径：`$CWD/.opencode-abort-debug.log`
+  - `OPENCODE_ABORT_DEBUG_LOG=/path/to/file` 自定义独立日志路径
 - 启动时打标记日志，确认 patch 已生效
 
 ### 修改：`packages/opencode/src/index.ts`
@@ -58,16 +62,55 @@ import "@/util/debug-abort"
 
 ## 验证方法
 
-1. 重新构建 opencode（`bun run build` 或对应命令）
-2. 启动时 stderr 应出现：`=== abort-debug monkey-patch installed ===`
-3. 复现 abort 报错场景
-4. 查看日志 `$CWD/.opencode-abort-debug.log`：
-   - 关注 `FromUserCode: YES` 的条目
-   - 看 `Top user-code frames` 直接定位调用函数
-   - 看 `Full Stack` 看完整调用链
-5. 排查完成后：
-   - 删除 `packages/opencode/src/index.ts` 顶部的 `import "@/util/debug-abort"`
-   - 删除 `packages/opencode/src/util/debug-abort.ts`
+### 关键：必须重新构建 opencode，否则 monkey-patch 不生效
+
+```bash
+# 在 packages/opencode 下构建（具体命令按项目约定）
+cd packages/opencode
+bun run build   # 或对应 dev:build 命令
+```
+
+### 确认 monkey-patch 已生效
+
+启动 opencode 后，stderr 应出现：
+
+```
+[2026-06-26T...] === abort-debug monkey-patch installed ===
+Log file: /完整绝对路径/abort-debug.log
+To disable: OPENCODE_ABORT_DEBUG=0
+```
+
+同时以下文件应被创建（即使没触发 abort 也会存在）：
+
+```
+<Global.Path.log>/abort-debug.log    # 空文件 + boot 消息
+```
+
+若文件**不存在**，说明构建未生效或 patch 未加载，需排查：
+- 是否运行了 `bun run build`
+- 是否运行的是新构建产物（而非旧版本）
+- turbo 缓存：`bun turbo typecheck --force`
+
+### 触发 abort 后查看日志
+
+```bash
+# 主日志目录
+ls ~/.local/share/opencode/log/        # Linux/macOS
+ls "$LOCALAPPDATA/opencode/log/"       # Windows
+
+# 查看 abort 独立日志
+cat ~/.local/share/opencode/log/abort-debug.log
+
+# 或在 opencode 主日志里搜索
+grep "abort-debug" ~/.local/share/opencode/log/dev.log
+```
+
+关注 `FromUserCode: YES` 的条目，看 `Top user-code frames` 第一帧，就是触发 abort 的业务代码位置。
+
+### 排查完成后
+
+1. 删除 `packages/opencode/src/index.ts` 顶部的 `import "@/util/debug-abort"`
+2. 删除 `packages/opencode/src/util/debug-abort.ts`
 
 ## 预期产出
 
