@@ -77,6 +77,7 @@ const api: ElectronAPI = {
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
+  deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),

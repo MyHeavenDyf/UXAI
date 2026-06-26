@@ -41,7 +41,7 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
         ...inputCtx, 
         ...lastData
     })
-    debugger
+    
     // 暂时屏蔽非修改场景
     if (triage.routing !== "modify"){
         return {}

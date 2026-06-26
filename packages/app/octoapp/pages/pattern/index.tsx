@@ -19,30 +19,17 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useProjectDir } from "@/hooks/use-project-dir"
-import { Dialog } from "@opencode-ai/ui/dialog"
-import { Button } from "@opencode-ai/ui/button"
 import { type Attachment } from "./modules/chat/attachment_bar"
 import { type OutputCard } from "./modules/chat/insight-turn"
-
-import proto_intent from "./agents/proto_intent"
-import proto_intent_audit from "./agents/proto_intent_audit"
-import proto_planner_create from "./agents/proto_planner_create"
-import proto_module_create from "./agents/proto_module_create"
-// import { getDesignMap, readDesignFile } from "./design/load_design"
-
-import create_json from './workflow/create_json'
+import { create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create_json'
 import modify_json_ai from './workflow/modify_json_ai'
-
-// import { runProtoPlannerModify } from "./agents/proto_planner_modify"
-// import { runModuleModify } from "./agents/proto_module_modify"
 import { mergeModules } from "./agents/merge"
-import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
+import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint, type VersionEntry } from "./utils/persist"
 import { rollbackToVersion } from "./utils/history"
 import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
-import { ProtoIntroduction } from './modules/chat/proto_introduction'
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
+import { WireframeReview, type WireframeReviewResult } from "./modules/preview/WireframeReview"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 
@@ -127,6 +114,7 @@ function PatternContent() {
           setSending(false)
           setPhase("idle")
           setSelectedDesignSystem("ICT-3.1")
+          setReviewUserInput("")
         }
 
         // ── 2. 无条件同步重置 ──
@@ -154,7 +142,19 @@ function PatternContent() {
           // 恢复历史版本状态并推送到预览
           const dir = patternHistoryDir()
           if (dir) {
-            void loadCurrentPatternState(dir, id).then((state) => {
+            // 优先检查线框审查检查点
+            void loadReviewCheckpoint(dir, id).then(async (checkpoint) => {
+              if (params.id !== id) return
+              if (checkpoint) {
+                // 恢复到线框审查阶段，复用 lastPlanner/lastIntent
+                setLastPlanner(checkpoint.planner)
+                setLastIntent(checkpoint.intentDescription)
+                setReviewUserInput(checkpoint.userInput)
+                setPhase("review")
+                return
+              }
+              // 无检查点，加载已完成状态
+              const state = await loadCurrentPatternState(dir, id)
               if (!state || params.id !== id) return
               if (state.lastIntent) setLastIntent(state.lastIntent)
               if (state.lastPlanner) setLastPlanner(state.lastPlanner)
@@ -313,7 +313,7 @@ function PatternContent() {
 
   const [prompt, setPrompt] = createSignal("")
   const [sending, setSending] = createSignal(false)
-  const [phase, setPhase] = createSignal<"idle" | "intent" | "audit" | "planner" | "module">("idle")
+  const [phase, setPhase] = createSignal<"idle" | "intent" | "audit" | "planner" | "review" | "module">("idle")
   const [detectedCatalog, setDetectedCatalog] = createSignal<ComponentCatalog>("desktop")
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
@@ -326,6 +326,8 @@ function PatternContent() {
   const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
   const [isModifying, setIsModifying] = createSignal(false)
+  // 线框审查阶段的用户原始输入（planner/intent 复用 lastPlanner/lastIntent）
+  const [reviewUserInput, setReviewUserInput] = createSignal<string>("")
   const lastVersionSave = new Map<string, number>()
   const VERSION_THROTTLE_MS = 2000
 
@@ -450,7 +452,6 @@ function PatternContent() {
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
 
   function sendToPreview(data: unknown) {
-    console.log("[Pattern] sendToPreview called")
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
     setHasPreviewContent(true)
@@ -464,11 +465,7 @@ function PatternContent() {
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
-    const controller = new AbortController()
     const mk = activeModelKey()!
-    // const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
-    //  const css = await desktopApi?.tailwindToCss?.("flex items-center justify-between px-inset py-inline bg-surface-container-highest shadow-sm z-10")
-    //   console.log("[Pattern] tailwind css:", css)
     try {
       let sid = submitSessionId
       if (!sid) {
@@ -521,7 +518,7 @@ function PatternContent() {
           }
       }
 
-      if(lastIntent()){
+      if(lastModules().length > 0){
         let lastData = {
           lastIntent: lastIntent(),
           lastPlanner: lastPlanner(),
@@ -532,8 +529,25 @@ function PatternContent() {
         await modify_json_ai(intentCtx, lastData, onFinshed);
         setIsModifying(false)
       }else{
-        // 首次创建页面
-        await create_json(intentCtx, onFinshed);
+        // 首次创建页面 — 阶段 1：意图扩展 + 布局规划
+        const new_planner = await create_planner_json(intentCtx)
+        // 持久化线框审查检查点
+        const userDir = patternHistoryDir()
+        if (userDir) {
+          await saveReviewCheckpoint(userDir, sid, {
+            planner: new_planner.planner.layout_planner,
+            intentDescription: new_planner.intent.intent_description,
+            userInput: text,
+            rootSessionId: sid,
+            createdAt: Date.now(),
+          })
+        }
+
+        // 进入线框审查阶段，planner/intent 复用 lastPlanner/lastIntent
+        setLastPlanner(new_planner.planner.layout_planner)
+        setLastIntent(new_planner.intent.intent_description)
+        setReviewUserInput(text)
+        setPhase("review")
       }
 
       const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
@@ -545,6 +559,71 @@ function PatternContent() {
       if (!submitSessionId || params.id === submitSessionId) {
         setSending(false)
       }
+    }
+  }
+
+  // 线框审查确认后，继续执行阶段 2：模块生成
+  async function handleConfirmReview(result: WireframeReviewResult) {
+    const sid = params.id
+    if (!sid) return
+    const mk = activeModelKey()
+    if (!mk) return
+
+    const planner = lastPlanner()
+    if (!planner) return
+
+    const userInput = reviewUserInput()
+
+    // 把设计师编辑后的意图合并回 lastIntent
+    setLastIntent(result.intentDescription)
+
+    // 删除检查点（阶段 2 启动后不再需要回退到审查）
+    const ckptDir = patternHistoryDir()
+    if (ckptDir) await clearReviewCheckpoint(ckptDir, sid)
+
+    setPhase("module")
+    setSending(true)
+
+    const intentCtx: ProtoCreateJsonInput = {
+      sdk,
+      sync,
+      modelKey: mk,
+      rootSession: sid,
+      userInput: userInput,
+      onSessionCreated: (childID: string) => {
+        setChildSessionIDs((prev) => [...prev, childID])
+      },
+    }
+
+    let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
+        // 触发页面渲染
+        if (pageJson) sendToPreview(pageJson)
+        // 内存数据更新
+        setLastIntent(pageIntent)
+        setLastPlanner(layoutPlanner)
+        setLastModules(modulesJson)
+        // 历史文件
+        const dir = patternHistoryDir()
+        if (dir) {
+          const vid = await appendPatternVersion(dir, sid, {
+              lastIntent: lastIntent(),
+              lastPlanner: lastPlanner(),
+              lastModules: lastModules(),
+              mergedA2UI: pageJson as unknown as Record<string, unknown>,
+          }, userInput.slice(0, 80))
+          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: userInput.slice(0, 80) }])
+          setCurrentVersionId(vid)
+        }
+    }
+    
+    try {
+      await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
+    } catch (err: unknown) {
+      console.error("[PatternPage] handleConfirmReview failed", err)
+    } finally {
+      setPhase("idle")
+      setSending(false)
+      setReviewUserInput("")
     }
   }
 
@@ -761,7 +840,7 @@ function PatternContent() {
     }
   }
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey()
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || phase() === "review"
 
   const chartInputProps = () => ({
     value: prompt(),
@@ -827,19 +906,31 @@ function PatternContent() {
         {/* 预览页 */}
         <Show when={hasContent()}>
           <div style={{ position: "relative", overflow: "hidden" }}>
-            <Show when={hasPreviewContent()} fallback={<PatternPreviewEmpty />}>
-              <PreviewPage
-                api={previewApi}
-                pendingData={pendingPreviewData()}
-                onModifyElement={handleModifyElement}
-                onPickerSubmit={handlePickerSubmit}
-                onDownload={handleDownload}
-                onLivePreview={handleLivePreview}
-                onPixsoPreview={handlePixsoPreview}
-                versions={versions()}
-                currentVersionId={currentVersionId()}
-                onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
-              />
+            {/* 线框审查阶段 */}
+            <Show when={phase() === "review"} fallback={
+              <Show when={hasPreviewContent()} fallback={<PatternPreviewEmpty />}>
+                <PreviewPage
+                  api={previewApi}
+                  pendingData={pendingPreviewData()}
+                  onModifyElement={handleModifyElement}
+                  onPickerSubmit={handlePickerSubmit}
+                  onDownload={handleDownload}
+                  onLivePreview={handleLivePreview}
+                  onPixsoPreview={handlePixsoPreview}
+                  versions={versions()}
+                  currentVersionId={currentVersionId()}
+                  onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+                />
+              </Show>
+            }>
+              <Show when={lastPlanner() && lastIntent()} fallback={<PatternPreviewEmpty />}>
+                <WireframeReview
+                  planner={lastPlanner()!}
+                  intentDescription={lastIntent()!}
+                  userInput={reviewUserInput()}
+                  onConfirm={handleConfirmReview}
+                />
+              </Show>
             </Show>
             <Show when={isModifying()}>
               <div

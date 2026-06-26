@@ -92,6 +92,7 @@ export type ElectronAPI = {
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>

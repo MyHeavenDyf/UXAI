@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises"
 import { dirname, join, basename } from "node:path"
 import { homedir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
@@ -231,6 +231,14 @@ export function registerIpcHandlers(deps: Deps) {
       return buf.buffer
     } catch {
       return null
+    }
+  })
+
+  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
+    try { 
+      await unlink(path)
+    } catch {
+      // 文件不存在时忽略，不执行任何代码
     }
   })
 

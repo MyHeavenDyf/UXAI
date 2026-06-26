@@ -1,0 +1,202 @@
+.wireframe-review-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--octo-surface-page, #fff);
+  overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────────────────── */
+.wireframe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--octo-border-divider);
+  flex-shrink: 0;
+  background: #fff;
+}
+
+.wireframe-header-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--octo-text-strong, #101828);
+}
+
+.wireframe-header-subtitle {
+  font-size: 12px;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+  margin-top: 2px;
+}
+
+/* ── Body: 布局面板 + 模块面板 ──────────────────────── */
+.wireframe-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── 左侧：粗略布局示意 ─────────────────────────────── */
+.wireframe-layout-panel {
+  flex: 0 0 38%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--octo-border-divider);
+  background: #f9fafb;
+  overflow: hidden;
+}
+
+.wireframe-layout-label {
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--octo-text-tertiary, #364153);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.wireframe-canvas {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wireframe-slot-box {
+  border: 2px dashed var(--octo-border-default, #e5e7eb);
+  border-radius: var(--octo-radius-lg, 8px);
+  padding: 16px 20px;
+  background: #fff;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 0.15s;
+}
+
+.wireframe-slot-box:hover {
+  border-color: var(--octo-brand-a40);
+  background: var(--octo-brand-a3);
+}
+
+.wireframe-slot-id {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--octo-brand, #0a59f7);
+}
+
+.wireframe-slot-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--octo-text-strong, #101828);
+}
+
+.wireframe-slot-desc {
+  font-size: 12px;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+  line-height: 1.4;
+}
+
+/* ── 右侧：模块意图编辑面板 ─────────────────────────── */
+.wireframe-modules-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wireframe-modules-label {
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--octo-text-tertiary, #364153);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.wireframe-modules-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wireframe-module-card {
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border-radius: var(--octo-radius-xl, 12px);
+  padding: 14px 18px;
+  background: #fff;
+  box-shadow: var(--octo-shadow-xs, 0 1px 2px rgba(0,0,0,0.04));
+}
+
+.wireframe-module-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.wireframe-module-card-id {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--octo-brand, #0a59f7);
+  background: var(--octo-brand-a8);
+  padding: 2px 8px;
+  border-radius: var(--octo-radius-pill, 999px);
+}
+
+.wireframe-module-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--octo-text-strong, #101828);
+}
+
+.wireframe-module-empty {
+  font-size: 12px;
+  color: var(--octo-text-disabled, #bfbfbf);
+}
+
+.wireframe-module-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── 字段编辑器 ─────────────────────────────────────── */
+.wireframe-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wireframe-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--octo-text-tertiary, #364153);
+}
+
+.wireframe-field-input {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--octo-border-input, #c9c9c9);
+  border-radius: var(--octo-radius-md, 6px);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--octo-text-strong, #101828);
+  background: #fff;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.wireframe-field-input:focus {
+  border-color: var(--octo-brand, #0a59f7);
+}
