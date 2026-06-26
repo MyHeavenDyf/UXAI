@@ -61,6 +61,72 @@ opencode 有多个运行入口，全部覆盖才能保证 monkey-patch 在任意
 
 - `packages/opencode/src/util/debug-abort.ts`（新增）
 - `packages/opencode/src/index.ts`（顶部加一行 import）
+- `packages/opencode/src/node.ts`（顶部加一行 import，desktop sidecar 入口）
+- `packages/opencode/src/cli/cmd/tui/worker.ts`（顶部加一行 import，TUI worker 入口）
+
+## 补充：fetch 层诊断（fetch-debug）
+
+### 背景
+
+`AbortController.prototype.abort` 的 monkey-patch 只能捕获"主动调用 `controller.abort()`"的路径。但 `provider.ts` 的 fetch 包装器中存在另一条路径：
+
+```ts
+signals.push(AbortSignal.timeout(options["timeout"]))
+```
+
+`AbortSignal.timeout(N)` **不会经过 `AbortController.prototype.abort`** —— Node 直接标记 signal 为 aborted。这是 monkey-patch 漏掉的部分。
+
+因此在 `provider/provider.ts` 的 fetch 包装器处再加一层诊断，直接监听 `opts.signal` 的 abort 事件，覆盖 timeout / any / 手动 abort 全部路径。
+
+### 修改内容
+
+**`packages/opencode/src/provider/provider.ts`**：
+
+1. 在 `wrapSSE` 上方新增模块级 logger 与 helper：
+   - `const fetchDebug = Log.create({ service: "fetch-debug" })`
+   - `let fetchDebugSeq = 0`
+   - `function describeAbortReason(sig)` — 渲染 signal.reason 为可读字符串
+
+2. 改造 `options["fetch"]` 包装器，在 fetch 调用前后增加：
+   - 进入时打 `fetch #N start`（info）—— provider_id / url / body_model / body_stream / timeout_ms / chunk_timeout_ms / has_user_signal
+   - 若 `opts.signal.aborted === true`（进 fetch 前就 abort）打 `signal ALREADY aborted pre-call`（error）
+   - 在 `opts.signal` 上挂 `{ once: true }` abort listener：触发时打 `signal aborted`（error），含 `at_ms`（请求开始到 abort 的毫秒）
+   - `fetchFn` 抛错时打 `fetchFn threw`（error）—— `error_name` / `error_code` / `error_message` / `error_cause` / `signal_aborted_at_error` / `signal_reason` / `abort_fired_during`
+   - 拿到 response 打 `response headers`（info）—— `status` / `content_type` / `duration_ms`
+   - 无 chunk 包装路径打 `done (no chunk wrap)`（info）
+   - 走 wrapSSE 路径打 `wrapped SSE`（info）
+
+3. 关键：abort listener 用 `{ once: true }`，捕获 `AbortSignal.timeout(N)` / `AbortSignal.any([...])` 触发的 abort，**补上 monkey-patch 的盲区**。
+
+### 验证方法
+
+```bash
+# 重新构建
+cd packages/opencode
+bun turbo build --force
+
+# 启动 opencode 后过滤 fetch-debug 日志
+grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log
+
+# 只看 abort/error 事件
+grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log | grep -E "aborted|threw|ALREADY"
+
+# 看最近一次请求的完整生命周期
+grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log | tail -20
+```
+
+### 关键诊断字段说明
+
+- `at_ms` —— 请求开始到 abort 的毫秒数。对照 `response headers` 的 `duration_ms` 能区分：
+  - abort 在 headers 之前 → 网络层 / 请求阶段
+  - abort 在 headers 之后 → SSE 流读取阶段（chunk timeout 或上游断流）
+- `error_code` —— `UND_ERR_ABORTED` 即 undici 主动 abort；其他 code 可能是服务端 4xx/5xx
+- `signal_aborted_at_error` + `signal_reason` —— 错误抛出时 signal 的真实状态，对照 `error_code` 能区分「真 abort」与「服务端错误」
+
+### 排查完成后移除
+
+1. 删除 `provider/provider.ts` 中 `wrapSSE` 上方的 `fetchDebug` / `fetchDebugSeq` / `describeAbortReason` 模块级块
+2. 删除 `options["fetch"]` 包装器中 `// ===== fetch-debug` 到 `// ===== /fetch-debug =====` 之间的代码，恢复原始的 `await fetchFn(...) → if (!chunkAbortCtl) return res; return wrapSSE(...)` 三行
 
 ## 验证方法
 

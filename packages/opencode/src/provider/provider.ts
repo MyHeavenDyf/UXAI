@@ -38,6 +38,24 @@ function shouldUseCopilotResponsesApi(modelID: string): boolean {
   return Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")
 }
 
+// 临时调试：捕获 LLM fetch 全生命周期，定位 AbortError / UND_ERR_ABORTED 真凶
+// 移除方法：删除本块（fetch-debug logger + helpers），并把下方 options["fetch"] 包装器改回原样
+const fetchDebug = Log.create({ service: "fetch-debug" })
+let fetchDebugSeq = 0
+function describeAbortReason(sig: any): string {
+  if (!sig?.reason) return "<none>"
+  const r = sig.reason
+  if (r instanceof Error) {
+    const causeStr = r.cause instanceof Error ? ` (cause: ${r.cause.name}: ${r.cause.message})` : ""
+    return `${r.name}: ${r.message}${causeStr}`
+  }
+  try {
+    return JSON.stringify(r).slice(0, 500)
+  } catch {
+    return String(r).slice(0, 500)
+  }
+}
+
 function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   if (typeof ms !== "number" || ms <= 0) return res
   if (!res.body) return res
@@ -1637,14 +1655,111 @@ const layer: Layer.Layer<
             }
           }
 
-          const res = await fetchFn(input, {
-            ...opts,
-            // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
-            timeout: false,
+          // ===== fetch-debug: capture LLM fetch lifecycle =====
+          const seq = ++fetchDebugSeq
+          const startMs = Date.now()
+          const url = typeof input === "string" ? input : input?.url ?? String(input)
+          const method = opts.method ?? "GET"
+
+          let bodyModel: string | undefined
+          let bodyStream: boolean | undefined
+          try {
+            if (opts.body && typeof opts.body === "string") {
+              const parsed = JSON.parse(opts.body)
+              bodyModel = parsed.model
+              bodyStream = parsed.stream === true
+            }
+          } catch {}
+
+          let abortFired: { at_ms: number; reason: string } | undefined
+          const onAbort = () => {
+            abortFired = { at_ms: Date.now() - startMs, reason: describeAbortReason(opts.signal) }
+            fetchDebug.error(`fetch #${seq} signal aborted`, {
+              seq,
+              provider_id: model.providerID,
+              url,
+              at_ms: abortFired.at_ms,
+              reason: abortFired.reason,
+            })
+          }
+          if (opts.signal) {
+            if (opts.signal.aborted) {
+              fetchDebug.error(`fetch #${seq} signal ALREADY aborted pre-call`, {
+                seq,
+                provider_id: model.providerID,
+                url,
+                reason: describeAbortReason(opts.signal),
+              })
+            } else {
+              opts.signal.addEventListener("abort", onAbort, { once: true })
+            }
+          }
+
+          fetchDebug.info(`fetch #${seq} start`, {
+            seq,
+            provider_id: model.providerID,
+            npm: model.api.npm,
+            method,
+            url,
+            body_model: bodyModel,
+            body_stream: bodyStream,
+            timeout_ms: options["timeout"] ?? null,
+            chunk_timeout_ms: chunkTimeout ?? null,
+            has_user_signal: signals.length > 0,
           })
 
-          if (!chunkAbortCtl) return res
-          return wrapSSE(res, chunkTimeout, chunkAbortCtl)
+          let res: Response
+          try {
+            res = await fetchFn(input, {
+              ...opts,
+              // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+              timeout: false,
+            })
+          } catch (e: any) {
+            fetchDebug.error(`fetch #${seq} fetchFn threw`, {
+              seq,
+              provider_id: model.providerID,
+              url,
+              error_name: e?.name,
+              error_code: e?.code,
+              error_message: e?.message,
+              error_cause:
+                e?.cause instanceof Error ? `${e.cause.name}: ${e.cause.message}` : String(e?.cause ?? ""),
+              duration_ms: Date.now() - startMs,
+              signal_aborted_at_error: opts.signal?.aborted === true,
+              signal_reason: opts.signal?.aborted === true ? describeAbortReason(opts.signal) : null,
+              abort_fired_during: abortFired ?? null,
+            })
+            throw e
+          }
+
+          const headersMs = Date.now() - startMs
+          fetchDebug.info(`fetch #${seq} response headers`, {
+            seq,
+            provider_id: model.providerID,
+            url,
+            status: res.status,
+            status_text: res.statusText,
+            content_type: res.headers.get("content-type"),
+            duration_ms: headersMs,
+          })
+
+          if (!chunkAbortCtl) {
+            fetchDebug.info(`fetch #${seq} done (no chunk wrap)`, {
+              seq,
+              duration_ms: Date.now() - startMs,
+            })
+            return res
+          }
+
+          const wrapped = wrapSSE(res, chunkTimeout, chunkAbortCtl)
+          fetchDebug.info(`fetch #${seq} wrapped SSE`, {
+            seq,
+            chunk_timeout_ms: chunkTimeout,
+            headers_ms: headersMs,
+          })
+          return wrapped
+          // ===== /fetch-debug =====
         }
 
         const bundledLoader = BUNDLED_PROVIDERS[model.api.npm]
