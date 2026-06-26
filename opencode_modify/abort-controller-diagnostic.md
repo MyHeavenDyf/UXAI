@@ -27,22 +27,20 @@ AI_RetryError (maxRetriesExceeded) / AI_APICallError
 monkey-patch 模块，覆盖 `AbortController.prototype.abort`：
 
 - 每次调用时记录：
-  - 时间戳 + 全局调用编号（便于关联多次 abort）
+  - 全局调用编号
   - `reason`（兼容 `Error` / `string` / `object`，含 cause）
   - **完整 stack**（不限行数，原始保留）
   - 业务代码帧（Top 5）单独提取
-  - `FromUserCode` 标记：用于过滤纯 Node 内部调用
-- **三路并行写入**（保证至少一路可见）：
-  1. **独立日志文件**：`<Global.Path.log>/abort-debug.log`
-     - Linux/macOS: `~/.local/share/opencode/log/abort-debug.log`
-     - Windows: `%LOCALAPPDATA%\opencode\log\abort-debug.log`
-  2. **opencode 主日志**：通过 `Log.Default.error` 写入（`dev.log` 或 `<时间戳>.log`）
-  3. **stderr**：运行时实时可见
-- **写入失败可见**：所有 `try/catch` 都不静默吞，错误会输出到 stderr，必要时降级写到 `os.tmpdir()/opencode-abort-debug-failed.log`
-- **启动标记**：模块加载时同步创建空 `abort-debug.log` 文件并写 boot 消息，用于验证 monkey-patch 是否真正生效（若文件不存在，说明构建未重新执行）
+  - `from_user_code` 标记：用于过滤纯 Node 内部调用
+- **只通过 opencode 原生 Log 模块输出**：
+  - 用 `Log.create({ service: "abort-debug" })` 创建专用 logger
+  - 日志写入 opencode 主日志文件：`<Global.Path.log>/<dev|时间戳>.log`
+  - Linux/macOS: `~/.local/share/opencode/log/dev.log`
+  - Windows: `%LOCALAPPDATA%\opencode\log\dev.log`
+  - 用 `grep "service=abort-debug"` 即可过滤
+- **不再创建独立文件**：之前的 abort-debug.log 方案因构建/路径等问题难以发现，本次改为复用 opencode 原生日志通道，确保只要 opencode 主日志能写，abort 信息也能写
 - **环境变量**：
   - `OPENCODE_ABORT_DEBUG=0` 临时禁用
-  - `OPENCODE_ABORT_DEBUG_LOG=/path/to/file` 自定义独立日志路径
 - 启动时打标记日志，确认 patch 已生效
 
 ### 修改：`packages/opencode/src/index.ts`
@@ -67,45 +65,48 @@ import "@/util/debug-abort"
 ```bash
 # 在 packages/opencode 下构建（具体命令按项目约定）
 cd packages/opencode
-bun run build   # 或对应 dev:build 命令
+bun turbo build --force
+# 或：bun run build（具体看 package.json scripts）
 ```
 
 ### 确认 monkey-patch 已生效
 
-启动 opencode 后，stderr 应出现：
+启动 opencode 后，主日志文件最后应出现一条：
 
 ```
-[2026-06-26T...] === abort-debug monkey-patch installed ===
-Log file: /完整绝对路径/abort-debug.log
-To disable: OPENCODE_ABORT_DEBUG=0
+ERROR service=abort-debug monkey-patch installed started_at=...
 ```
 
-同时以下文件应被创建（即使没触发 abort 也会存在）：
+主日志文件路径：
+- Linux/macOS: `~/.local/share/opencode/log/dev.log`（开发模式）或 `~/.local/share/opencode/log/<时间戳>.log`
+- Windows: `%LOCALAPPDATA%\opencode\log\dev.log`
 
+```bash
+# 验证 patch 已安装
+grep "service=abort-debug" ~/.local/share/opencode/log/dev.log | head
+# 期望：能看到 "monkey-patch installed" 这条
 ```
-<Global.Path.log>/abort-debug.log    # 空文件 + boot 消息
-```
-
-若文件**不存在**，说明构建未生效或 patch 未加载，需排查：
-- 是否运行了 `bun run build`
-- 是否运行的是新构建产物（而非旧版本）
-- turbo 缓存：`bun turbo typecheck --force`
 
 ### 触发 abort 后查看日志
 
 ```bash
-# 主日志目录
-ls ~/.local/share/opencode/log/        # Linux/macOS
-ls "$LOCALAPPDATA/opencode/log/"       # Windows
+# 查看所有 abort-debug 日志
+grep "service=abort-debug" ~/.local/share/opencode/log/dev.log
 
-# 查看 abort 独立日志
-cat ~/.local/share/opencode/log/abort-debug.log
+# 关注 from_user_code=YES 的条目
+grep "service=abort-debug" ~/.local/share/opencode/log/dev.log | grep "from_user_code=YES"
 
-# 或在 opencode 主日志里搜索
-grep "abort-debug" ~/.local/share/opencode/log/dev.log
+# 看最近一条 abort 的完整信息（含 stack）
+grep "service=abort-debug" ~/.local/share/opencode/log/dev.log | tail -1
 ```
 
-关注 `FromUserCode: YES` 的条目，看 `Top user-code frames` 第一帧，就是触发 abort 的业务代码位置。
+每条 abort 日志格式：
+
+```
+ERROR service=abort-debug abort #<编号> from_user_code=YES reason=<...> top_frames=["..."] full_stack="Error\n    at ..."
+```
+
+`from_user_code=YES` 的条目，看 `top_frames` 第一帧就是触发 abort 的业务代码位置。
 
 ### 排查完成后
 
