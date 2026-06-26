@@ -35,7 +35,7 @@
 | 23 | interaction | insight | file-open-in-app | 文件兜底卡点「本地打开」 | `fileType`(扩展名兜底 mime) | `result-viewer/index.tsx` `handleOpenInApp` |
 | 24 | interaction | insight | file-reveal-folder | 文件兜底卡点「文件夹打开」 | `fileType` | `result-viewer/index.tsx` `handleRevealInFolder` |
 | 25 | interaction | insight | file-save-as | 文件兜底卡点「下载 / 另存为」 | `fileType` | `result-viewer/index.tsx` `handleSaveAs` |
-| 26 | interaction | insight | session-load-more | 会话列表点「加载更多」（已显示数 < 该目录 insight 会话 total 时出现，SPEC-INS-013 服务端分页） | `limit`(加载后的新上限) | `session-list/index.tsx` `loadMore` |
+| 26 | interaction | insight | session-load-more | 会话列表点「加载更多」（已显示数 < 该目录 insight 会话 total 时出现，SPEC-INS-013 服务端分页） | `limit`(加载后的新上限)、`source`(panel=insight 侧栏 / shell=外壳侧栏) | `session-list/index.tsx` `loadMore` + `_shell/sidebar.tsx` `loadMore` |
 
 ## 维护说明
 

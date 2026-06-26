@@ -112,7 +112,7 @@ export function InsightSessionList(): JSX.Element {
   function loadMore() {
     const next = limit() + PAGE_STEP
     setLimit(next)
-    tracker.interaction({ module: "insight", name: "session-load-more", extend: JSON.stringify({ limit: next }) })
+    tracker.interaction({ module: "insight", name: "session-load-more", extend: JSON.stringify({ limit: next, source: "panel" }) })
   }
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
