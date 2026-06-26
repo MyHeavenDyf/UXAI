@@ -553,7 +553,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
               border: "2px dashed rgba(10, 89, 247, 1)",
             }}
           >
-            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "WebkitUserDrag": "none" }} alt="" draggable={false} />
+            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
             <span
               class="text-[16px]"
               style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
