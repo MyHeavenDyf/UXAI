@@ -1,7 +1,26 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
+import { isStudioGenerationStatusRegression } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns } from "./turns"
 import type { StudioGenerationResult } from "./types"
+
+describe("Studio generation status merging", () => {
+  test("rejects active states after a terminal state", () => {
+    expect(isStudioGenerationStatusRegression("create_failed", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("create_failed", "queued")).toBe(true)
+    expect(isStudioGenerationStatusRegression("failed", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("failed", "queued")).toBe(true)
+    expect(isStudioGenerationStatusRegression("succeeded", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("succeeded", "queued")).toBe(true)
+  })
+
+  test("allows active progress and terminal transitions", () => {
+    expect(isStudioGenerationStatusRegression("queued", "running")).toBe(false)
+    expect(isStudioGenerationStatusRegression("running", "queued")).toBe(false)
+    expect(isStudioGenerationStatusRegression("running", "failed")).toBe(false)
+    expect(isStudioGenerationStatusRegression("running", "succeeded")).toBe(false)
+  })
+})
 
 const userMessage = (id: string, time = 1) =>
   ({
@@ -87,6 +106,36 @@ const runningToolPart = (
       time: { start: 1 },
       input: { capability: "image.generate", aspectRatio: "3:4" },
       metadata: studio ? { studio } : undefined,
+    },
+  }) as Part
+
+const erroredToolPart = (
+  id: string,
+  messageID: string,
+  capability: "image.generate" | "video.generate",
+  error = "用户取消生成",
+  status: "create_failed" | "failed" = "failed",
+) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
+    type: "tool",
+    callID: `call_${id}`,
+    tool: "internel_image_generate",
+    state: {
+      status: "error",
+      time: { start: 1, end: 2 },
+      input: { capability, aspectRatio: capability === "video.generate" ? "16:9" : "3:4" },
+      error,
+      metadata: {
+        studio: {
+          generationID: `studio_gen_${id}`,
+          status,
+          rawStatus: 4,
+          progress: 0,
+        },
+      },
     },
   }) as Part
 
@@ -297,6 +346,22 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.status).toBe("running")
   })
 
+  test("keeps queued video fallback labelled as video generation", () => {
+    const turns = buildStudioTurns({
+      messages: [],
+      parts: {},
+      fallback: {
+        ...pendingResult("queued"),
+        capability: "video.generate",
+        aspectRatio: "16:9",
+      },
+    })
+
+    expect(turns[0].toolTitle).toBe("视频生成中")
+    expect(turns[0].toolRunning).toBe(true)
+    expect(turns[0].result?.capability).toBe("video.generate")
+  })
+
   test("restores queued generation progress from running tool metadata", () => {
     const user = userMessage("msg_progress_user")
     const assistant = assistantMessage("msg_progress_assistant", 2)
@@ -323,6 +388,67 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.rawStatus).toBe(6)
   })
 
+  test("preserves video capability after cancelling the first generation", () => {
+    const user = userMessage("msg_video_user")
+    const assistant = assistantMessage("msg_video_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_video_text", user.id, "生成一段海边日落视频")],
+        [assistant.id]: [erroredToolPart("p_video_tool", assistant.id, "video.generate")],
+      },
+    })
+
+    expect(turns[0].toolTitle).toBe("视频生成失败")
+    expect(turns[0].toolError).toBe("用户取消生成")
+    expect(turns[0].result?.id).toBe("studio_gen_p_video_tool")
+    expect(turns[0].result?.status).toBe("failed")
+    expect(turns[0].result?.capability).toBe("video.generate")
+    expect(turns[0].result?.aspectRatio).toBe("16:9")
+    expect(turns[0].result?.error).toBe("用户取消生成")
+  })
+
+  test("keeps image capability for failed image generations", () => {
+    const user = userMessage("msg_image_user")
+    const assistant = assistantMessage("msg_image_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_image_text", user.id, "生成一张海报")],
+        [assistant.id]: [erroredToolPart("p_image_tool", assistant.id, "image.generate", "生成失败")],
+      },
+    })
+
+    expect(turns[0].toolTitle).toBe("图片生成失败")
+    expect(turns[0].result?.status).toBe("failed")
+    expect(turns[0].result?.capability).toBe("image.generate")
+    expect(turns[0].result?.error).toBe("生成失败")
+  })
+
+  test("restores create failure separately from generation failure", () => {
+    const user = userMessage("msg_create_failed_user")
+    const assistant = assistantMessage("msg_create_failed_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_create_failed_text", user.id, "生成一张海报")],
+        [assistant.id]: [
+          erroredToolPart(
+            "p_create_failed_tool",
+            assistant.id,
+            "image.generate",
+            "最多支持同时进行3个生成任务",
+            "create_failed",
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].toolTitle).toBe("图片创建失败")
+    expect(turns[0].result?.status).toBe("create_failed")
+    expect(turns[0].result?.error).toBe("最多支持同时进行3个生成任务")
+  })
+
   test("builds a continuity summary from the latest completed turn", () => {
     const m1 = userMessage("msg_1")
     const a1 = assistantMessage("msg_2")
@@ -338,9 +464,34 @@ describe("buildStudioTurns", () => {
       },
     })
 
-    expect(summary).toContain("上一轮用户需求：生成一张卡通小猫的图")
-    expect(summary).toContain("上一轮助手说明：保持可爱风格，背景更明亮")
-    expect(summary).toContain("上一轮生成结果：模型 jimeng_image_generate，比例 3:4，1 张图")
+    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).not.toContain("上一轮助手说明")
+    expect(summary).not.toContain("3:4")
+    expect(summary).not.toContain("https://example.com/one.png")
+  })
+
+  test("uses the last successful generation when the latest turn is not completed", () => {
+    const m1 = userMessage("msg_1", 1)
+    const a1 = assistantMessage("msg_2", 2)
+    const m2 = userMessage("msg_3", 3)
+    const a2 = assistantMessage("msg_4", 4)
+
+    const summary = buildStudioConversationContext({
+      messages: [m1, a1, m2, a2],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
+        [a1.id]: [
+          textPart("p_2", a1.id, "第一轮完成"),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+        ],
+        [m2.id]: [textPart("p_4", m2.id, "把它改成夜景")],
+        [a2.id]: [runningToolPart("p_5", a2.id)],
+      },
+    })
+
+    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).not.toContain("https://example.com/one.png")
+    expect(summary).not.toContain("把它改成夜景")
   })
 
   test("marks internel tool results with the internel provider", () => {

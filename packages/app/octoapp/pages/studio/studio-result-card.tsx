@@ -1,13 +1,18 @@
 import { For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
 import { isVideoMedia } from "./studio-shared"
-import type { StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
+
+const PORTRAIT_RATIOS: StudioAspectRatio[] = ["2:3", "3:4", "9:16"]
+const LANDSCAPE_RATIOS: StudioAspectRatio[] = ["16:9", "3:2", "4:3"]
 
 type StudioResultCardProps = {
   turn: StudioTurnData
   fallbackCapability?: StudioCapability
   busy: boolean
+  cancelling: boolean
+  onCancelGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
@@ -34,6 +39,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     return index <= 0 ? "studio-capability-icon" : `studio-capability-icon studio-capability-icon-${index + 1}`
   }
   const status = (): StudioGenerationStatus => {
+    if (props.turn.result?.status === "create_failed") return "create_failed"
     if (props.turn.toolError || props.turn.result?.error) return "failed"
     if (props.turn.result?.images.length) return "succeeded"
     if (props.turn.result?.status) return props.turn.result.status
@@ -41,6 +47,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     return "failed"
   }
   const generating = () => status() === "queued" || status() === "running"
+  const cancellable = () => generating() && props.turn.result?.id.startsWith("studio_gen")
   const progress = () => {
     if (status() === "succeeded") return 100
     return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
@@ -50,12 +57,33 @@ export function StudioResultCard(props: StudioResultCardProps) {
     if (!props.turn.createdAt) return ""
     return new Date(props.turn.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
   }
+  const isPortrait = () => {
+    const img = props.turn.result?.images?.[0]
+    if (!img) return false
+    if (img.width && img.height) return img.height > img.width
+    return PORTRAIT_RATIOS.includes(props.turn.result?.aspectRatio ?? "1:1")
+  }
+  const isLandscape = () => {
+    const img = props.turn.result?.images?.[0]
+    if (!img) return false
+    if (img.width && img.height) return img.width > img.height
+    return LANDSCAPE_RATIOS.includes(props.turn.result?.aspectRatio ?? "1:1")
+  }
+  const isSinglePortrait = () => isPortrait() && (props.turn.result?.images.length ?? 0) === 1
+  const isSingleLandscape = () => isLandscape() && (props.turn.result?.images.length ?? 0) === 1
+  const isMultiPortrait = () => isPortrait() && (props.turn.result?.images.length ?? 0) > 1
+  const isMultiLandscape = () => isLandscape() && (props.turn.result?.images.length ?? 0) > 1
+  const isSingle1x1 = () => props.turn.result?.aspectRatio === "1:1" && (props.turn.result?.images.length ?? 0) === 1
+  const isMulti1x1 = () => props.turn.result?.aspectRatio === "1:1" && (props.turn.result?.images.length ?? 0) > 1
   const statusLabel = () => {
     if (status() === "queued") {
-      return props.turn.result?.order === undefined ? "排队中" : `排队中，前方 ${props.turn.result.order} 人`
+      if (props.turn.result?.order != null && props.turn.result.order > 0) return "排队中"
+      if (progress() > 0 || props.busy) return "生成中"
+      return ""
     }
     if (status() === "running") return "生成中"
     if (status() === "succeeded") return "生成完成"
+    if (status() === "create_failed") return "创建失败"
     return "生成失败"
   }
 
@@ -65,7 +93,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
       classList={{
         generating: generating(),
         complete: status() === "succeeded",
-        failed: status() === "failed",
+        failed: status() === "failed" || status() === "create_failed",
       }}
     >
       <div class="studio-result-progress-header">
@@ -73,7 +101,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
           <span class={`studio-result-progress-icon ${capabilityIconClass()}`} />
           <span>{mediaLabel()}</span>
         </div>
-        <span class="studio-result-progress-status">{statusLabel()}</span>
+        <span class="studio-result-progress-status" classList={{ invisible: !statusLabel() }}>{statusLabel()}</span>
         <Show when={generating()}>
           <>
             <div
@@ -87,6 +115,16 @@ export function StudioResultCard(props: StudioResultCardProps) {
               <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
             </div>
             <span class="studio-result-progress-percent">{progress()}%</span>
+            <Show when={cancellable()}>
+              <button
+                type="button"
+                class="studio-result-cancel"
+                disabled={props.cancelling}
+                onClick={() => props.turn.result && props.onCancelGeneration(props.turn.result.id)}
+              >
+                {props.cancelling ? "取消中..." : "取消生成"}
+              </button>
+            </Show>
           </>
         </Show>
       </div>
@@ -94,13 +132,15 @@ export function StudioResultCard(props: StudioResultCardProps) {
         <div class="studio-result-meta">创建时间：{createdAt()}</div>
       </Show>
       <div class="studio-result-progress-preview">
-        <Show when={status() === "failed"}>
+        <Show when={status() === "failed" || status() === "create_failed"}>
           <div class="studio-result-error">
-            {props.turn.toolError ?? props.turn.result?.error ?? "生成失败"}
+            {props.turn.toolError ??
+              props.turn.result?.error ??
+              (status() === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")}
           </div>
         </Show>
         <Show when={status() === "succeeded" && props.turn.result?.images.length}>
-          <div class="studio-result-grid">
+          <div class="studio-result-grid" classList={{ "single-portrait": isSinglePortrait(), "single-landscape": isSingleLandscape(), "multi-portrait": isMultiPortrait(), "multi-landscape": isMultiLandscape(), "single-1x1": isSingle1x1(), "multi-1x1": isMulti1x1() }}>
             <For each={props.turn.result?.images ?? []}>
               {(image) => (
                 <button

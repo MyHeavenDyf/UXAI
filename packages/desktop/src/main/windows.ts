@@ -2,6 +2,8 @@ import windowState from "electron-window-state"
 import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { readFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
@@ -21,11 +23,21 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
     },
   },
+  {
+    scheme: "local",
+    privileges: {
+      secure: true,
+      standard: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
 ])
 
 let backgroundColor: string | undefined
 const titlebarThemes = new WeakMap<BrowserWindow, Partial<TitlebarTheme>>()
 const titlebarHeight = 40
+const titlebarOverlayHidden = new WeakSet<BrowserWindow>()
 
 export function setBackgroundColor(color: string) {
   backgroundColor = color
@@ -64,7 +76,17 @@ export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = 
 
 export function updateTitlebar(win: BrowserWindow) {
   if (process.platform !== "win32") return
-  win.setTitleBarOverlay(overlay(titlebarThemes.get(win), win.webContents.getZoomFactor()))
+  const o = overlay(titlebarThemes.get(win), win.webContents.getZoomFactor())
+  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { ...o, height: 0 } : o)
+}
+
+export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
+  if (hidden) {
+    titlebarOverlayHidden.add(win)
+  } else {
+    titlebarOverlayHidden.delete(win)
+  }
+  updateTitlebar(win)
 }
 
 export function setDockIcon() {
@@ -233,6 +255,73 @@ export function registerRendererProtocol() {
     }
 
     return net.fetch(pathToFileURL(file).toString())
+  })
+}
+
+export function registerLocalProtocol() {
+  if (protocol.isProtocolHandled("local")) return
+
+  protocol.handle("local", async (request) => {
+    const url = new URL(request.url)
+    const host = url.host
+    const pathname = decodeURIComponent(url.pathname)
+
+    let filePath = pathname
+    if (host && /^[A-Za-z]$/.test(host)) {
+      // Windows: C:/Users/... → C:\Users\...
+      filePath = `${host}:${pathname}`
+    } else if (host) {
+      // MacOS/Linux: local://Users/... → /Users/...
+      filePath = `/${host}${pathname}`
+    }
+
+    if (!filePath || filePath.includes("..")) {
+      return new Response("Invalid path", { status: 400 })
+    }
+
+    let absolutePath: string
+    if (process.platform === "win32") {
+      absolutePath = filePath.replace(/^[\/\\]+/, "").replace(/\//g, "\\")
+    } else {
+      // MacOS/Linux: normalize multiple leading slashes to single /
+      absolutePath = filePath.replace(/^\/+/, "/")
+    }
+
+    if (!existsSync(absolutePath)) {
+      return new Response("File not found", { status: 404 })
+    }
+
+    const ext = absolutePath.toLowerCase().split(".").pop()
+    const mimeTypes: Record<string, string> = {
+      html: "text/html",
+      htm: "text/html",
+      css: "text/css",
+      js: "application/javascript",
+      json: "application/json",
+      png: "image/png",
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      gif: "image/gif",
+      svg: "image/svg+xml",
+      ico: "image/x-icon",
+      woff: "font/woff",
+      woff2: "font/woff2",
+      ttf: "font/ttf",
+      eot: "application/vnd.ms-fontobject",
+    }
+    const mimeType = mimeTypes[ext || ""] || "application/octet-stream"
+
+    try {
+      const content = await readFile(absolutePath)
+      return new Response(content, {
+        headers: {
+          "Content-Type": mimeType,
+          "Access-Control-Allow-Origin": "*",
+        },
+      })
+    } catch (err) {
+      return new Response(`Read error: ${err}`, { status: 500 })
+    }
   })
 }
 

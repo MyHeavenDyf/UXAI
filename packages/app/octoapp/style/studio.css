@@ -105,18 +105,6 @@
   height: 42px;
   background: transparent !important;
 }
-.studio-menu .grid > button:nth-of-type(1)  > span:first-child { background: url('/studio/studioModel1.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(2)  > span:first-child { background: url('/studio/studioModel2.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(3)  > span:first-child { background: url('/studio/studioModel3.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(4)  > span:first-child { background: url('/studio/studioModel4.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(5)  > span:first-child { background: url('/studio/studioModel5.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(6)  > span:first-child { background: url('/studio/studioModel6.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(7)  > span:first-child { background: url('/studio/studioModel7.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(8)  > span:first-child { background: url('/studio/studioModel8.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(9)  > span:first-child { background: url('/studio/studioModel9.png')  center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(10) > span:first-child { background: url('/studio/studioModel10.png') center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(11) > span:first-child { background: url('/studio/studioModel11.png') center/contain no-repeat !important; }
-.studio-menu .grid > button:nth-of-type(12) > span:first-child { background: url('/studio/studioModel12.png') center/contain no-repeat !important; }
 /* 10. StyleMenu 弹框样式覆盖 */
 .studio-menu > div:first-child {
   font-size: 14px;

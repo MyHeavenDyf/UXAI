@@ -20,6 +20,7 @@ export class ApiStudioGenerationError extends Schema.ErrorClass<ApiStudioGenerat
 export const StudioPaths = {
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
+  generationCancel: `${root}/generations/:generationID/cancel`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
   permission: `${root}/permissions/check`,
@@ -85,6 +86,7 @@ const StudioGenerationResult = Schema.Struct({
     Schema.Literal("queued"),
     Schema.Literal("running"),
     Schema.Literal("succeeded"),
+    Schema.Literal("create_failed"),
     Schema.Literal("failed"),
   ]),
   capability: StudioGenerationPayload.fields.capability,
@@ -168,6 +170,17 @@ export const StudioApi = HttpApi.make("studio")
         ),
       )
       .add(
+        HttpApiEndpoint.post("cancelGeneration", StudioPaths.generationCancel, {
+          params: { generationID: Schema.String },
+          success: described(StudioGenerationResult, "Cancelled Studio generation"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.cancel",
+            summary: "Cancel Studio generation",
+            description: "Cancels an active asynchronous Studio generation.",
+          }),
+        ),
         HttpApiEndpoint.get("getGeneration", StudioPaths.generation, {
           params: { generationID: Schema.String },
           success: described(StudioGenerationResult, "Studio generation status"),

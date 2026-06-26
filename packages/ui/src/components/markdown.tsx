@@ -40,6 +40,7 @@ const config = {
 const iconPaths = {
   copy: '<path d="M6.2513 6.24935V2.91602H17.0846V13.7493H13.7513M13.7513 6.24935V17.0827H2.91797V6.24935H13.7513Z" stroke="currentColor" stroke-linecap="round"/>',
   check: '<path d="M5 11.9657L8.37838 14.7529L15 5.83398" stroke="currentColor" stroke-linecap="square"/>',
+  preview: '<path d="M1 8s2-4 7-4 7 4 7 4-2 4-7 4-7-4-7-4zm7-2a2 2 0 100 4 2 2 0 000-4z" fill="currentColor"/>',
 }
 
 function sanitize(html: string) {
@@ -78,6 +79,13 @@ function codeUrl(text: string) {
   }
 }
 
+function isLocalFilePath(codeContent: string): boolean {
+  const trimmed = codeContent.trim()
+  if (trimmed.includes('\n')) return false
+  const lower = trimmed.toLowerCase()
+  return lower.endsWith('.html') || lower.endsWith('.htm')
+}
+
 function createIcon(path: string, slot: string) {
   const icon = document.createElement("div")
   icon.setAttribute("data-component", "icon")
@@ -107,6 +115,20 @@ function createCopyButton(labels: CopyLabels) {
   return button
 }
 
+function createPreviewButton(label: string, onClick: () => void) {
+  const button = document.createElement("button")
+  button.type = "button"
+  button.setAttribute("data-component", "icon-button")
+  button.setAttribute("data-variant", "secondary")
+  button.setAttribute("data-size", "small")
+  button.setAttribute("data-slot", "markdown-preview-button")
+  button.setAttribute("aria-label", label)
+  button.setAttribute("data-tooltip", label)
+  button.appendChild(createIcon(iconPaths.preview, "preview-icon"))
+  button.addEventListener("click", onClick)
+  return button
+}
+
 function setCopyState(button: HTMLButtonElement, labels: CopyLabels, copied: boolean) {
   if (copied) {
     button.setAttribute("data-copied", "true")
@@ -119,17 +141,39 @@ function setCopyState(button: HTMLButtonElement, labels: CopyLabels, copied: boo
   button.setAttribute("data-tooltip", labels.copy)
 }
 
-function ensureCodeWrapper(block: HTMLPreElement, labels: CopyLabels) {
+function ensureCodeWrapper(
+  block: HTMLPreElement,
+  labels: CopyLabels,
+  previewLabel: string,
+  onOpenLocalFile?: (filePath: string) => void,
+) {
   const parent = block.parentElement
   if (!parent) return
   const wrapped = parent.getAttribute("data-component") === "markdown-code"
+  const codeContent = block.querySelector("code")?.textContent ?? ""
+
   if (!wrapped) {
     const wrapper = document.createElement("div")
     wrapper.setAttribute("data-component", "markdown-code")
     parent.replaceChild(wrapper, block)
     wrapper.appendChild(block)
+
+    if (isLocalFilePath(codeContent) && onOpenLocalFile) {
+      wrapper.appendChild(createPreviewButton(previewLabel, () => onOpenLocalFile(codeContent.trim())))
+    }
+
     wrapper.appendChild(createCopyButton(labels))
     return
+  }
+
+  const existingPreview = parent.querySelector('[data-slot="markdown-preview-button"]')
+  if (existingPreview) existingPreview.remove()
+
+  if (isLocalFilePath(codeContent) && onOpenLocalFile) {
+    const previewBtn = createPreviewButton(previewLabel, () => onOpenLocalFile(codeContent.trim()))
+    const copyBtn = parent.querySelector('[data-slot="markdown-copy-button"]')
+    if (copyBtn) parent.insertBefore(previewBtn, copyBtn)
+    else parent.appendChild(previewBtn)
   }
 
   const buttons = Array.from(parent.querySelectorAll('[data-slot="markdown-copy-button"]')).filter(
@@ -175,10 +219,15 @@ function markCodeLinks(root: HTMLDivElement) {
   }
 }
 
-function decorate(root: HTMLDivElement, labels: CopyLabels) {
+function decorate(
+  root: HTMLDivElement,
+  labels: CopyLabels,
+  previewLabel: string,
+  onOpenLocalFile?: (filePath: string) => void,
+) {
   const blocks = Array.from(root.querySelectorAll("pre"))
   for (const block of blocks) {
-    ensureCodeWrapper(block, labels)
+    ensureCodeWrapper(block, labels, previewLabel, onOpenLocalFile)
   }
   markCodeLinks(root)
 }
@@ -245,9 +294,11 @@ export function Markdown(
     streaming?: boolean
     class?: string
     classList?: Record<string, boolean>
+    onOpenLocalFile?: (filePath: string) => void
+    projectDir?: string
   },
 ) {
-  const [local, others] = splitProps(props, ["text", "cacheKey", "streaming", "class", "classList"])
+  const [local, others] = splitProps(props, ["text", "cacheKey", "streaming", "class", "classList", "onOpenLocalFile", "projectDir"])
   const marked = useMarked()
   const i18n = useI18n()
   const [root, setRoot] = createSignal<HTMLDivElement>()
@@ -304,9 +355,10 @@ export function Markdown(
       copy: i18n.t("ui.message.copy"),
       copied: i18n.t("ui.message.copied"),
     }
+    const previewLabel = i18n.t("ui.message.previewFile")
     const temp = document.createElement("div")
     temp.innerHTML = content
-    decorate(temp, labels)
+    decorate(temp, labels, previewLabel, local.onOpenLocalFile)
 
     morphdom(container, temp, {
       childrenOnly: true,

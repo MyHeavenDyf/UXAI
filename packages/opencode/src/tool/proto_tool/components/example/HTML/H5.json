@@ -1,0 +1,28 @@
+{
+  "state": {
+    "pageTitle": "移动端应用演示",
+    "heroTitle": "欢迎回来",
+    "heroDesc": "针对移动端优化的响应式 H5 页面。",
+    "features": [
+      { "icon": "smartphone", "label": "全响应式" },
+      { "icon": "flash", "label": "极速加载" },
+      { "icon": "flash", "label": "原生质感" },
+      { "icon": "lock", "label": "安全稳定" }
+    ],
+    "actionText": "立即开始体验"
+  },
+  "rootId": "appContainer",
+  "elements": [
+    {"id":"appContainer","component":"div","props":{"className":"flex flex-col min-h-screen bg-gray-50"},"children":["headerComp","mainContent"]},
+    {"id":"headerComp","component":"h1","props":{"className":"bg-white p-4 text-center font-bold border-b","value":{"path":"/pageTitle"}}},
+    {"id":"mainContent","component":"div","props":{"className":"flex-1 p-4"},"children":["heroCard","featureList","actionBtn"]},
+    {"id":"heroCard","component":"div","props":{"className":"bg-blue-600 text-white p-6 rounded-2xl mb-4"},"children":["heroTitle","heroDesc"]},
+    {"id":"heroTitle","component":"h2","props":{"className":"text-xl font-bold","value":{"path":"/heroTitle"}}},
+    {"id":"heroDesc","component":"p","props":{"className":"text-xs opacity-80","value":{"path":"/heroDesc"}}},
+    {"id":"featureList","component":"div","props":{"className":"flex flex-col gap-2 mb-4"},"children":{"path":"/features","componentId":"featureRow"}},
+    {"id":"featureRow","component":"div","props":{"className":"bg-white p-3 rounded-lg flex items-center gap-3 shadow-sm"},"children":["rowIcon","rowLabel"]},
+    {"id":"rowIcon","component":"Icon","props":{"name":{"path":"icon"}}},
+    {"id":"rowLabel","component":"span","props":{"className":"text-sm","value":{"path":"label"}}},
+    {"id":"actionBtn","component":"Button","props":{"className":"w-full bg-blue-600 text-white p-4 rounded-xl font-bold","value":{"path":"/actionText"}}}
+  ]
+}

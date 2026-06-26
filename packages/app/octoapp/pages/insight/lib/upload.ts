@@ -48,8 +48,28 @@ export class UploadError extends Error {
 
 function getExt(filename: string): string {
   const dot = filename.lastIndexOf(".")
-  if (dot < 0 || dot === filename.length - 1) return ""
+  // 与 Node path.parse / Python os.path.splitext 一致：开头的点不算扩展名分隔符，
+  // 即 ".txt" / ".env" 视为「没有扩展名的隐藏文件」(dot===0)，而非 "txt" 扩展名。
+  // 这样真·dotfile 会落到 validateFile 的 EXT_NOT_ALLOWED，被客户端清晰拒掉。
+  if (dot <= 0 || dot === filename.length - 1) return ""
   return filename.slice(dot + 1).toLowerCase()
+}
+
+// 文件名清洗：内网上传服务把**未编码的原始文件名**直接拼进返回 URL，URL 再交给 MCP 取文件。
+// 文件名里出现允许集之外的特殊字符（如 ()（）、&、%、+、@、！、，、各种全角标点，以及
+// 路径/通配相关的 \ : * ? < > |）会让 MCP 端解析/取文件失败。这里在上传前把这类字符整段去掉。
+//
+// 允许保留：字母 / 数字 / 各类文字（含中文等 Unicode 字母）+ 以下特殊字符与空格：
+//   # - . / [ ] ^ _ ` { } 和空格
+// 其余字符一律删除。删空后兜底为 "file"（极端情况下整名都是非法字符）。
+//
+// 本函数只去非法字符、不造主名：形如 ".txt"、或清洗后塌成 ".txt" 的 "***.txt"，属
+// 「无扩展名的隐藏文件」(见 getExt：开头的点不算扩展名)，交由 validateFile 以
+// EXT_NOT_ALLOWED 清晰拒掉，而非偷偷改名成 file.txt 再上传。
+const FILENAME_DISALLOWED = /[^\p{L}\p{N} #./[\]^_`{}-]/gu
+
+export function sanitizeFileName(name: string): string {
+  return name.replace(FILENAME_DISALLOWED, "").trim() || "file"
 }
 
 export function validateFile(file: File): UploadError | null {

@@ -1,7 +1,8 @@
 import "./studio/studio.css"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
+import { tracker } from "@/utils/tracker"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -23,8 +24,10 @@ import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
 import { useServer } from "@/context/server"
 import {
+  STUDIO_ASPECT_RATIOS,
   capabilityLabel,
   styleModelLabel,
+  styleModelRequiresSeedreamPermission,
 } from "./studio/data"
 import type {
   StudioAsset,
@@ -33,9 +36,11 @@ import type {
   StudioGenerationResult,
   StudioGenerationStatus,
   StudioImage,
+  StudioImageTool,
   StudioMode,
 } from "./studio/types"
 import {
+  buildStudioConversationContext,
   buildStudioDisplayPrompt,
   buildStudioTurns,
   type StudioTurnData,
@@ -53,9 +58,14 @@ import {
   formatStudioGenerationError,
   hasVideoFrameAssets,
   isVideoMedia,
+  isStudioGenerationFailure,
+  isStudioGenerationStatusRegression,
+  recordValue,
+  STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
   STUDIO_VIDEO_ASPECT_RATIOS,
+  stringValue,
   studioGenerationTitle,
   SUPPORTED_STUDIO_CAPABILITIES,
   triggerBrowserDownload,
@@ -71,6 +81,20 @@ import {
 import { createStudioSessionData } from "./studio/studio-session-data"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+type StudioGenerationOverrides = {
+  capability?: StudioCapability
+  prompt?: string
+  sourceImage?: string
+  referenceImages?: string[]
+  extra?: Record<string, unknown>
+  videoFrames?: { first?: string; last?: string }
+  styleModel?: string
+  aspectRatio?: StudioAspectRatio
+  count?: 1 | 2 | 3 | 4
+  videoDuration?: StudioVideoDuration
+  videoQualityMode?: StudioVideoQualityMode
+  useRestoredInputs?: boolean
+}
 
 export default function StudioPage() {
   const params = useParams<{ id?: string; dir?: string }>()
@@ -83,6 +107,9 @@ export default function StudioPage() {
   const server = useServer()
   const dialog = useDialog()
   let studioPermissionChecked = false
+  let studioPageRef!: HTMLDivElement
+
+  onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -98,6 +125,7 @@ export default function StudioPage() {
   })
 
   const slug = createMemo(() => base64Encode(projectDir()))
+  const routeSlug = createMemo(() => params.dir && decode64(params.dir) ? params.dir : slug())
 
   createEffect(
     on(
@@ -115,29 +143,36 @@ export default function StudioPage() {
   createEffect(() => {
     if (params.id) return
     if (new URLSearchParams(location.search).has("hint")) return
-    const dir = projectDir()
-    if (!dir) return
-    const lastId = layout.lastSessionPerTab.studio(dir)
+    const decoded = decode64(params.dir)
+    if (!decoded) return
+    const lastId = layout.lastSessionPerTab.studio(decoded)
     if (!lastId || !isValidStudioSession(lastId)) return
-    navigate(`/${slug()}/studio/${lastId}`, { replace: true })
+    navigate(`/${routeSlug()}/studio/${lastId}`, { replace: true })
   })
 
   const [prompt, setPrompt] = createSignal("")
   const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
-  const [styleModel, setStyleModel] = createSignal("qwen")
+  const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
   const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
   const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
+  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
+  const [imageSettingStore, setImageSettingStore] = persisted(
+    Persist.global("studio.image.settings"),
+    createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
+  )
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
   const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
+  const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
   const processedAutoAddResults = new Set<string>()
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(false)
+  const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
@@ -145,6 +180,8 @@ export default function StudioPage() {
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
+  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
+  const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
@@ -197,13 +234,24 @@ export default function StudioPage() {
       .then(async (response) => {
         const bodyText = await response.text()
         if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
-        const result = JSON.parse(bodyText) as { code?: number; data?: unknown[] }
-        setCanGenerateVideo(result.code === 200 && result.data?.[0] === true)
+        const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
+        const permissionData = Array.isArray(result.data) ? result.data : []
+        const permissionOk = result.code === 200 || result.resp_code === 200
+        setCanGenerateVideo(permissionOk && permissionData[0] === true)
+        setCanUseSeedream(permissionOk && permissionData[1] === true)
+        setStudioPermissionReady(true)
       })
       .catch((error) => {
         setCanGenerateVideo(false)
+        setCanUseSeedream(false)
+        setStudioPermissionReady(true)
         console.error("[StudioPage] permission check failed", error)
       })
+  })
+  createEffect(() => {
+    if (!studioPermissionReady()) return
+    if (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) return
+    setStyleModel("qwen")
   })
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
@@ -366,7 +414,7 @@ export default function StudioPage() {
     const startWidth = studioCenterWidth()
     function onMove(e: MouseEvent) {
       const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
+      setStudioCenterWidth(Math.min(700, Math.max(468, startWidth + delta)))
     }
     function onUp() {
       document.removeEventListener("mousemove", onMove)
@@ -403,8 +451,8 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: studioGenerationTitle(pending.capability, pending.status === "failed" ? "failed" : pending.status === "succeeded" ? "succeeded" : "running"),
-          toolName: `内部 · ${pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
+          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
+          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "running",
           result: normalizeResultValue(pending),
         }
@@ -421,13 +469,13 @@ export default function StudioPage() {
       if (!pending) return mergeEditorEntries(next)
       const latest = next.at(-1)
       if (latest?.userText === pending.prompt && !latest.result?.images.length && latest.toolRunning) {
-        if (pending.status === "failed") {
+        if (isStudioGenerationFailure(pending.status)) {
           return mergeEditorEntries([
             ...next.slice(0, -1),
             {
               ...latest,
-              toolTitle: studioGenerationTitle(pending.capability, "failed"),
-              toolName: "内部 · 失败",
+              toolTitle: studioGenerationTitle(pending.capability, pending.status),
+              toolName: pending.status === "create_failed" ? "内部 · 创建失败" : "内部 · 失败",
               toolRunning: false,
               result: normalizeResultValue(pending),
             },
@@ -450,7 +498,7 @@ export default function StudioPage() {
           },
         ])
       }
-      if (!sending() && pending.status !== "failed" && next.length > 0) return mergeEditorEntries(next)
+      if (!sending() && !isStudioGenerationFailure(pending.status) && next.length > 0) return mergeEditorEntries(next)
       if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return mergeEditorEntries(next)
       return mergeEditorEntries([
         ...next,
@@ -462,8 +510,8 @@ export default function StudioPage() {
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           }),
-          toolTitle: studioGenerationTitle(pending.capability, pending.status === "failed" ? "failed" : "running"),
-          toolName: `内部 · ${pending.status === "failed" ? "失败" : "生成中"}`,
+          toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : "running"),
+          toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -497,13 +545,16 @@ export default function StudioPage() {
   })
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     if (canvasResult()?.images.length) return "succeeded"
+    // isBusy 优先于 result status 检查，避免发送新生成时
+    // 因旧 turn 的 failed result 导致闪现"生成失败"
+    if (isBusy()) return "running"
+    if (status() === "create_failed" || result()?.status === "create_failed") return "create_failed"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
     if (result()?.status === "running") return "running"
     if (studioTurn()?.toolError) return "failed"
     if (studioTurn()?.assistantText && params.id) return "failed"
     if (status() === "succeeded") return "succeeded"
-    if (isBusy()) return "running"
     return status()
   })
 
@@ -528,7 +579,7 @@ export default function StudioPage() {
       if (canvasTabImages().length === 0) {
         // 无 tabs：创建第一个 tab
         setCanvasTabImages([r.images[0]])
-        setCanvasTabLabels({ [r.images[0].id]: extractKeywords(r.prompt) })
+        setCanvasTabLabels({ [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) })
       } else {
         // 已有 tabs：追加，与 selectStudioImage 逻辑一致
         setCanvasTabImages((prev) => {
@@ -537,7 +588,7 @@ export default function StudioPage() {
         })
         setCanvasTabLabels((prev) => {
           if (prev[r.images[0].id]) return prev
-          return { ...prev, [r.images[0].id]: extractKeywords(r.prompt) }
+          return { ...prev, [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) }
         })
       }
     }
@@ -569,7 +620,7 @@ export default function StudioPage() {
         if (tabImg && imageIndex !== -1) {
           setCanvasTabLabels((prev) => ({
             ...prev,
-            [tabImg.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}`,
+            [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt),
           }))
         }
         setDeletedImageIds(new Set<string>())
@@ -585,7 +636,7 @@ export default function StudioPage() {
         setSelectedImageId(input.imageID)
         setShowStudioCanvas(true)
         setCanvasTabImages((prev) => [...prev, first])
-        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r.prompt)}-${imageIndex + 1}` }))
+        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt) }))
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
@@ -642,10 +693,11 @@ export default function StudioPage() {
     if (!pending) return
     if (studioTurn()?.id === pending.id) return
     if (studioTurn()?.userText !== pending.prompt) return
-    if (pending.status === "failed" && studioTurn()?.toolRunning) return
+    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) return
     if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
     if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
       const next = studioTurn()!.result!
+      if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
         return { ...current, ...next, sourceImage: current.sourceImage }
@@ -655,7 +707,7 @@ export default function StudioPage() {
     }
     if (!studioTurn()?.result && !studioTurn()?.toolError) return
     setPendingResult(undefined)
-    setStatus(studioTurn()?.toolError ? "failed" : "succeeded")
+    setStatus(studioTurn()?.result?.status ?? (studioTurn()?.toolError ? "failed" : "succeeded"))
   })
 
   createEffect(() => {
@@ -671,6 +723,7 @@ export default function StudioPage() {
     }
     if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
       const next = studioTurn()!.result!
+      if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
         return { ...current, ...next, sourceImage: current.sourceImage }
@@ -682,13 +735,13 @@ export default function StudioPage() {
       setStatus("succeeded")
       return
     }
-    if (pending.status === "failed" && studioTurn()?.toolRunning) {
-      setStatus("failed")
+    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) {
+      setStatus(pending.status)
       return
     }
     if (!studioTurn()?.toolError && !studioTurn()?.assistantText) return
     setPendingResult(undefined)
-    setStatus("failed")
+    setStatus(studioTurn()?.result?.status ?? "failed")
   })
 
   createEffect(
@@ -712,7 +765,7 @@ export default function StudioPage() {
           setStatus("idle")
           setPendingResult(undefined)
         }
-        if (id && !sending()) {
+        if (id && !sending() && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
           setStatus("idle")
           setPendingResult(undefined)
         }
@@ -749,10 +802,12 @@ export default function StudioPage() {
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isBusy() &&
+    !selectedCapabilityNeedsImage() &&
+    (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
         ? prompt().trim().length > 0 || hasVideoFrames()
-        : prompt().trim().length > 0 || (selectedCapabilityNeedsImage() && Boolean(workspaceEditImage()))
+        : prompt().trim().length > 0
     ),
   )
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
@@ -815,6 +870,7 @@ export default function StudioPage() {
             if (index !== -1) draft.session[index].title = next
           }),
         )
+        tracker.interaction({ module: "studio", name: "rename-session" })
         setHeaderTitle({ editing: false, draft: "" })
       })
       .catch((err) => {
@@ -827,6 +883,7 @@ export default function StudioPage() {
   }
 
   const deleteHeaderSession = async (session: Session) => {
+    tracker.interaction({ module: "studio", name: "delete-session" })
     const sessions = syncStore.session
       .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
       .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
@@ -852,11 +909,12 @@ export default function StudioPage() {
       }),
     )
     if (nextSession) {
-      navigate(`/${slug()}/studio/${nextSession.id}`)
+      navigate(`/${routeSlug()}/studio/${nextSession.id}`)
       return true
     }
-    layout.lastSessionPerTab.setStudio(projectDir(), "")
-    navigate(`/${slug()}/studio`)
+    const decoded = decode64(params.dir)
+    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
+    navigate(`/${routeSlug()}/studio`)
     return true
   }
 
@@ -909,6 +967,11 @@ export default function StudioPage() {
   async function downloadCurrentImage() {
     const image = selectedImage()
     if (!image) return
+    tracker.interaction({
+      module: "studio",
+      name: "download",
+      extend: JSON.stringify({ name: currentImageLabel(), url: image.remoteUrl ?? image.url }),
+    })
     const source = image.remoteUrl ?? image.url
     try {
       const response = await fetch(source)
@@ -949,6 +1012,9 @@ export default function StudioPage() {
           })
           return
         }
+        // 若已在编辑模式（由 openHD/openCutout/openInpaint/openOutpaint 触发），
+        // 不覆盖 workspaceUploadRequested，避免编辑区变成上传界面而非复用原图。
+        if (isEditingWorkspaceMode()) return
         batch(() => {
           setWorkspaceImage(undefined)
           setWorkspaceUploadRequested(true)
@@ -980,6 +1046,31 @@ export default function StudioPage() {
     })
   }
 
+  function readBlobAsDataUrl(blob: Blob) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result !== "string") {
+          reject(new Error("Unable to read image data."))
+          return
+        }
+        resolve(reader.result)
+      }
+      reader.onerror = () => reject(reader.error ?? new Error("Unable to read image data."))
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  async function resolveImageDataUrl(image: StudioImage) {
+    if (image.remoteUrl?.startsWith("data:image/")) return image.remoteUrl
+    if (image.url.startsWith("data:image/")) return image.url
+    const response = await fetch(image.remoteUrl ?? image.url)
+    if (!response.ok) throw new Error(`Unable to load selected image. status=${response.status}`)
+    const blob = await response.blob()
+    if (!blob.type.startsWith("image/")) throw new Error(`Selected media is not an image. content-type=${blob.type || "unknown"}`)
+    return readBlobAsDataUrl(blob)
+  }
+
   async function validateVideoFrame(file: File) {
     if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
     if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
@@ -1005,11 +1096,77 @@ export default function StudioPage() {
     return asset
   }
 
+  function autoSetAspectRatioFromDimensions(width: number, height: number) {
+    if (!width || !height) return
+    const imageRatio = width / height
+    const candidates: { key: StudioAspectRatio; value: number }[] = [
+      { key: "1:1", value: 1 },
+      { key: "2:3", value: 2 / 3 },
+      { key: "3:4", value: 3 / 4 },
+      { key: "9:16", value: 9 / 16 },
+      { key: "3:2", value: 3 / 2 },
+      { key: "4:3", value: 4 / 3 },
+      { key: "16:9", value: 16 / 9 },
+    ]
+    let best = candidates[0]
+    let bestDiff = Math.abs(imageRatio - best.value)
+    for (const item of candidates) {
+      const diff = Math.abs(imageRatio - item.value)
+      if (diff < bestDiff) {
+        bestDiff = diff
+        best = item
+      }
+    }
+    setAspectRatio(best.key)
+  }
+
+  const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const
+
   function addAssets(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
+    const isJimeng = imageTool() === "jimeng"
+    const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
+    const ext = file.name.split(".").pop()?.toLowerCase()
+    if (!ext || !allowedExts.includes(ext)) {
+      showToast({
+        title: "上传失败",
+        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
+      })
+      return
+    }
+    const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+    const maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    if (file.size > maxSize) {
+      showToast({
+        title: "上传失败",
+        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
+      })
+      return
+    }
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: files.length }) })
     readStudioAsset(file)
-      .then((asset) => setAssets([asset]))
+      .then((asset) => {
+        const img = new Image()
+        img.onload = () => {
+          if (img.naturalWidth > 7500 || img.naturalHeight > 7500) {
+            showToast({
+              title: "上传失败",
+              description: "图片最大尺寸不能超过 7500px。",
+            })
+            return
+          }
+          setAssets([asset])
+          autoSetAspectRatioFromDimensions(img.naturalWidth, img.naturalHeight)
+        }
+        img.onerror = () => {
+          showToast({
+            title: "上传失败",
+            description: "无法读取图片尺寸。",
+          })
+        }
+        img.src = asset.dataUrl
+      })
       .catch((error) => {
         showToast({
           title: "上传失败",
@@ -1054,8 +1211,56 @@ export default function StudioPage() {
   function uploadWorkspaceImage(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
+    const isJimeng = imageTool() === "jimeng"
+    const isGenerate = capability() === "image.generate"
+    const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
+    const ext = file.name.split(".").pop()?.toLowerCase()
+    if (!ext || !allowedExts.includes(ext)) {
+      showToast({
+        title: "上传失败",
+        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
+      })
+      return
+    }
+    const isStrictEdit = capability() === "image.outpaint" || capability() === "image.inpaint" || capability() === "image.cutout"
+    let maxSize: number
+    let maxSizeLabel: string
+    if (isStrictEdit) {
+      maxSize = 8 * 1024 * 1024
+      maxSizeLabel = "8MB"
+    } else if (isGenerate) {
+      maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+      maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    } else {
+      maxSize = 20 * 1024 * 1024
+      maxSizeLabel = "20MB"
+    }
+    if (file.size > maxSize) {
+      showToast({
+        title: "上传失败",
+        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
+      })
+      return
+    }
     readWorkspaceImage(file)
       .then((image) => {
+        if (image.width != null && image.height != null) {
+          if (image.width > 7500 || image.height > 7500) {
+            showToast({
+              title: "上传失败",
+              description: "图片最大尺寸不能超过 7500px。",
+            })
+            return
+          }
+          const minSide = capability() === "image.cutout" ? 50 : isStrictEdit ? 300 : 0
+          if (minSide > 0 && Math.min(image.width, image.height) < minSide) {
+            showToast({
+              title: "上传失败",
+              description: `图片最小边不能小于 ${minSide}px。`,
+            })
+            return
+          }
+        }
         batch(() => {
           setWorkspaceImage(image)
           setWorkspaceUploadRequested(false)
@@ -1063,7 +1268,12 @@ export default function StudioPage() {
           setSelectedImageId(undefined)
         })
       })
-      .catch((error) => console.error("[StudioPage] workspace image upload failed", error))
+      .catch((error) => {
+        showToast({
+          title: "上传失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   function deleteWorkspaceImage() {
@@ -1145,7 +1355,7 @@ export default function StudioPage() {
         if (!sessionID) throw new Error("Unable to create Studio session.")
         if (!existingSession) {
           pendingEditorSessionID = sessionID
-          navigate(`/${slug()}/studio/${sessionID}`)
+          navigate(`/${routeSlug()}/studio/${sessionID}`)
         }
         await createStudioEditorEntry({ sessionID, capability, entryID })
         void loadSessionMessages(sessionID)
@@ -1210,22 +1420,43 @@ export default function StudioPage() {
   function generateVideoFromSelectedImage() {
     const image = selectedImage()
     if (!image || isVideoMedia(image) || !canGenerateVideo()) return
-    pendingVideoFirstFrame = {
-      id: crypto.randomUUID(),
-      name: currentImageLabel(),
-      mime: "image/png",
-      dataUrl: image.remoteUrl ?? image.url,
-    }
-    if (!(params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed())) {
-      setVideoRiskDialogOpen(true)
-      return
-    }
-    applyStudioCapability("video.generate")
-    setVideoFrames("first", pendingVideoFirstFrame)
-    pendingVideoFirstFrame = undefined
+    tracker.interaction({
+      module: "studio",
+      name: "video-generate",
+      extend: JSON.stringify({
+        aspectRatio: aspectRatio(),
+        duration: videoDuration(),
+        quality: videoQualityMode(),
+        mode: videoFrames.first ? "first_last_frame" : "text",
+      }),
+    })
+    void resolveImageDataUrl(image)
+      .then((dataUrl) => {
+        pendingVideoFirstFrame = {
+          id: crypto.randomUUID(),
+          name: currentImageLabel(),
+          mime: "image/png",
+          dataUrl,
+        }
+        if (!(params.id ? videoRiskConfirmedSessionID() === params.id : draftVideoRiskConfirmed())) {
+          setVideoRiskDialogOpen(true)
+          return
+        }
+        applyStudioCapability("video.generate")
+        setVideoFrames("first", pendingVideoFirstFrame)
+        pendingVideoFirstFrame = undefined
+      })
+      .catch((error) => {
+        pendingVideoFirstFrame = undefined
+        showToast({
+          title: "图片处理失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   function startNewStudioConversation() {
+    tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
     generationToken++
     setVideoRiskDialogOpen(false)
@@ -1234,7 +1465,7 @@ export default function StudioPage() {
     setStatus("idle")
     setPendingResult(undefined)
     setSending(false)
-    navigate(`/${slug()}/studio?hint=${Date.now()}`)
+    navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
   }
 
   async function createStudioSession(title?: string) {
@@ -1251,6 +1482,11 @@ export default function StudioPage() {
   }
 
   function buildStudioThinkingText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
+    const isEditorCapability =
+      input.capability === "image.upscale" ||
+      input.capability === "image.cutout" ||
+      input.capability === "image.inpaint" ||
+      input.capability === "image.outpaint"
     const opening =
       input.capability === "image.upscale"
         ? "好的，我将提升当前图片的清晰度和细节。"
@@ -1263,11 +1499,11 @@ export default function StudioPage() {
           : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
     return [
       opening,
-      input.capability === "video.generate" ? undefined : `风格模型：${styleModelLabel(styleModel())}`,
-      `画幅比例：${aspectRatio()}`,
-      `生成数量：${count()}`,
+      input.capability === "video.generate" || isEditorCapability ? undefined : `风格模型：${styleModelLabel(styleModel())}`,
+      isEditorCapability ? undefined : `画幅比例：${aspectRatio()}`,
+      isEditorCapability ? undefined : `生成数量：${count()}`,
       input.sourceImage
-        ? "将延续上一轮画面设定重新生成。"
+        ? "将基于当前画面设定重新生成。"
         : undefined,
       `用户需求：${input.text}`,
     ]
@@ -1275,10 +1511,118 @@ export default function StudioPage() {
       .join("\n")
   }
 
+  function stringArrayValue(value: unknown) {
+    if (!Array.isArray(value)) return []
+    return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+  }
+
+  function countValue(value: unknown) {
+    return value === 1 || value === 2 || value === 3 || value === 4 ? value : undefined
+  }
+
+  function aspectRatioValue(value: unknown) {
+    return STUDIO_ASPECT_RATIOS.includes(value as StudioAspectRatio) ? value as StudioAspectRatio : undefined
+  }
+
+  function videoDurationValue(value: unknown) {
+    return value === "10" ? "10" : value === "5" ? "5" : undefined
+  }
+
+  function videoQualityModeValue(value: unknown) {
+    return value === "pro" ? "pro" : value === "std" ? "std" : undefined
+  }
+
+  function dataUrlFromBase64(value?: string) {
+    if (!value) return
+    return value.startsWith("data:image/") ? value : `data:image/png;base64,${value}`
+  }
+
+  function inputRecord(result: StudioGenerationResult) {
+    const value = recordValue(result.request, "input")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function inputExtraRecord(result: StudioGenerationResult) {
+    const value = recordValue(inputRecord(result), "extra")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function taskRequestRecord(result: StudioGenerationResult) {
+    const value = recordValue(recordValue(result.request, "task"), "request")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function restoredVideoFrames(result: StudioGenerationResult) {
+    const input = inputRecord(result)
+    const extra = inputExtraRecord(result)
+    const referenceImages = stringArrayValue(recordValue(input, "referenceImages"))
+    const args = recordValue(taskRequestRecord(result), "args")
+    const restoredFirstFrame =
+      stringValue(extra, "firstFrame") ??
+      referenceImages[0] ??
+      referenceImages[1] ??
+      dataUrlFromBase64(stringValue(args, "image"))
+    return {
+      first: restoredFirstFrame,
+      last:
+        stringValue(extra, "lastFrame") ??
+        (restoredFirstFrame ? referenceImages[1] : undefined) ??
+        dataUrlFromBase64(stringValue(args, "image_tail")),
+    }
+  }
+
+  function restoreGenerationInput(result: StudioGenerationResult): StudioGenerationOverrides {
+    const input = inputRecord(result)
+    const extra = inputExtraRecord(result)
+    const nextAspectRatio = aspectRatioValue(recordValue(input, "aspectRatio")) ?? result.aspectRatio
+    const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
+    if (result.capability === "video.generate") {
+      return {
+        capability: result.capability,
+        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+        extra: extra ? { ...extra } : undefined,
+        videoFrames: restoredVideoFrames(result),
+        aspectRatio: nextAspectRatio,
+        count: nextCount,
+        videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
+        videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
+        useRestoredInputs: true,
+      }
+    }
+    if (result.capability === "image.generate") {
+      return {
+        capability: result.capability,
+        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+        extra: extra ? { ...extra } : undefined,
+        styleModel: stringValue(input, "styleModel"),
+        aspectRatio: nextAspectRatio,
+        count: nextCount,
+        useRestoredInputs: true,
+      }
+    }
+    return {
+      capability: result.capability,
+      prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+      sourceImage: stringValue(input, "sourceImage"),
+      extra: extra ? { ...extra } : undefined,
+      aspectRatio: nextAspectRatio,
+      count: nextCount,
+      useRestoredInputs: true,
+    }
+  }
+
   async function createStudioGeneration(input: {
     sessionID: string
     text: string
     capability: StudioCapability
+    styleModel?: string
+    aspectRatio?: StudioAspectRatio
+    count?: 1 | 2 | 3 | 4
     referenceImages?: string[]
     sourceImage?: string
     extra?: Record<string, unknown>
@@ -1305,10 +1649,10 @@ export default function StudioPage() {
         sessionID: input.sessionID,
         capability: input.capability,
         prompt: input.text,
-        styleModel: input.capability === "video.generate" ? undefined : styleModelLabel(styleModel()),
-        aspectRatio: aspectRatio(),
-        count: count(),
-        imageTool: "internel",
+        styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
+        aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? input.aspectRatio ?? aspectRatio() : undefined,
+        count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
+        imageTool: imageTool(),
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
         extra: {
@@ -1345,14 +1689,74 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
+  async function cancelStudioGeneration(id: string) {
+    if (cancellingGenerationIDs().has(id)) return
+    tracker.interaction({ module: "studio", name: "stop-generation" })
+    const current = server.current
+    if (!current) {
+      console.error("[StudioPage] cancel generation failed", new Error("No active server."))
+      return
+    }
+    setCancellingGenerationIDs((ids) => new Set([...ids, id]))
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        "x-opencode-directory": projectDir(),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_CANCEL_TIMEOUT_MS)
+      const response = await fetch(
+        new URL(`/studio/generations/${encodeURIComponent(id)}/cancel`, current.http.url),
+        { method: "POST", headers, signal: controller.signal },
+      ).finally(() => clearTimeout(timeout))
+      const bodyText = await response.text()
+      if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+      const generation = JSON.parse(bodyText) as StudioGenerationResult
+      setPendingResult((item) => {
+        if (!item || item.id !== generation.id) return item
+        return { ...generation, sourceImage: item.sourceImage }
+      })
+      setStatus(generation.status)
+      const sessionID = generation.sessionID ?? params.id
+      if (sessionID) {
+        void loadSessionMessages(sessionID).catch((error) => {
+          console.error("[StudioPage] cancelled session load failed", error)
+        })
+      }
+    } catch (error) {
+      console.error("[StudioPage] cancel generation failed", error)
+    } finally {
+      setCancellingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
+    }
+  }
+
   function isStudioGenerationID(id: string) {
     return id.startsWith("studio_gen")
   }
 
-  async function runGeneration(overrides?: { capability?: StudioCapability; sourceImage?: string; prompt?: string; extra?: Record<string, unknown> }) {
+  async function runGeneration(overrides?: StudioGenerationOverrides) {
     const nextCapability = overrides?.capability ?? capability()
-    const nextVideoFrames = videoFrames
-    const nextHasVideoFrames = nextCapability === "video.generate" && hasVideoFrameAssets(nextVideoFrames)
+    const nextStyleModel = overrides?.styleModel ?? styleModelLabel(styleModel())
+    const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
+    const nextCount = overrides?.count ?? count()
+    const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
+    const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
+    const restoredVideoFrames = overrides?.videoFrames
+    const nextVideoFrames = restoredVideoFrames
+      ? restoredVideoFrames
+      : overrides?.useRestoredInputs
+        ? {}
+        : {
+            first: videoFrames.first?.dataUrl,
+            last: videoFrames.last?.dataUrl,
+          }
+    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first || nextVideoFrames.last)
     const text = (overrides?.prompt ?? prompt()).trim() || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
@@ -1369,17 +1773,40 @@ export default function StudioPage() {
     if (!text || isBusy()) return
     const currentToken = ++generationToken
     const previousPrompt = prompt()
+    const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
     const videoReferenceImages = [
-      nextVideoFrames.first?.dataUrl ?? nextVideoFrames.last?.dataUrl,
-      nextVideoFrames.first ? nextVideoFrames.last?.dataUrl : undefined,
+      nextVideoFrames.first ?? nextVideoFrames.last,
+      nextVideoFrames.first ? nextVideoFrames.last : undefined,
     ].filter((item): item is string => Boolean(item))
-    const referenceImages =
+    const referenceImages = overrides?.referenceImages ?? (
       nextCapability === "image.generate"
-        ? assets().map((item) => item.dataUrl)
+        ? overrides?.useRestoredInputs
+          ? []
+          : assets().map((item) => item.dataUrl)
         : nextCapability === "video.generate"
           ? videoReferenceImages
           : []
+    )
+    tracker.interaction({
+      module: "studio",
+      name: "send-message",
+      extend: JSON.stringify({
+        capability: nextCapability,
+        aspectRatio: aspectRatio(),
+        count: count(),
+        styleModel: styleModel(),
+        hasReferenceImage: referenceImages.length > 0,
+      }),
+    })
+    const studioContext = overrides?.useRestoredInputs
+      ? ""
+      : params.id
+        ? buildStudioConversationContext({
+            messages: dataStore.message[params.id] ?? [],
+            parts: dataStore.part,
+          })
+        : ""
     setOpenMenu(null)
     setMode("preview")
     setSending(true)
@@ -1391,8 +1818,8 @@ export default function StudioPage() {
       capability: nextCapability,
       prompt: text,
       provider: "internel",
-      model: styleModelLabel(styleModel()),
-      aspectRatio: aspectRatio(),
+      model: nextStyleModel,
+      aspectRatio: nextAspectRatio,
       images: [],
       progress: 0,
       createdAt: Date.now(),
@@ -1400,14 +1827,15 @@ export default function StudioPage() {
       ...(nextCapability === "video.generate"
         ? {
             videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-            duration: videoDuration(),
-            videoQualityMode: videoQualityMode(),
+            duration: nextVideoDuration,
+            videoQualityMode: nextVideoQualityMode,
           }
         : {}),
     })
-    setPrompt("")
-    setAssets([])
-    if (nextCapability === "video.generate") clearVideoFrames()
+    if (!overrides?.useRestoredInputs) {
+      setPrompt("")
+      setAssets([])
+    }
     try {
       const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
@@ -1415,27 +1843,33 @@ export default function StudioPage() {
       if (currentToken !== generationToken) return
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
-        navigate(`/${slug()}/studio/${sessionID}`)
+        setPendingResult((item) => item ? { ...item, sessionID } : item)
+        navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
       const generation = await createStudioGeneration({
         sessionID,
         text,
         capability: nextCapability,
+        styleModel: nextStyleModel,
+        aspectRatio: nextAspectRatio,
+        count: nextCount,
         referenceImages,
         sourceImage: overrides?.sourceImage,
         extra: {
           ...(overrides?.extra ?? {}),
+          ...(studioContext ? { studioContext } : {}),
           ...(nextCapability === "video.generate"
             ? {
-                videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-                duration: videoDuration(),
-                mode: videoQualityMode(),
-                firstFrame: nextVideoFrames.first?.dataUrl ?? nextVideoFrames.last?.dataUrl,
-                lastFrame: nextVideoFrames.first ? nextVideoFrames.last?.dataUrl : undefined,
-              }
+              videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+              duration: nextVideoDuration,
+              mode: nextVideoQualityMode,
+              firstFrame: nextVideoFrames.first ?? nextVideoFrames.last,
+              lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
+            }
             : {}),
         },
       })
+      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
       setPendingResult({
         ...generation,
@@ -1445,10 +1879,17 @@ export default function StudioPage() {
     } catch (error) {
       if (currentToken !== generationToken) return
       console.error("[StudioPage] studio prompt failed", error)
-      setPrompt(previousPrompt)
-      if (nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
-      setStatus("failed")
-      setPendingResult((item) => item ? { ...item, status: "failed", error: error instanceof Error ? error.message : String(error) } : item)
+      if (!overrides?.useRestoredInputs) {
+        setPrompt(previousPrompt)
+        setAssets(previousAssets)
+      }
+      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
+      setStatus("create_failed")
+      setPendingResult((item) => item ? {
+        ...item,
+        status: "create_failed",
+        error: error instanceof Error ? error.message : String(error),
+      } : item)
     } finally {
       if (currentToken === generationToken) setSending(false)
     }
@@ -1483,6 +1924,8 @@ export default function StudioPage() {
           try {
             const generation = await getStudioGeneration(id, controller.signal)
             if (stopped) return
+            const current = pendingResult()
+            if (current && current.id === id && isStudioGenerationStatusRegression(current.status, generation.status)) return
 
             setPendingResult((current) => {
               if (current && current.id !== id) return current
@@ -1498,7 +1941,11 @@ export default function StudioPage() {
             })
             setStatus(generation.status)
 
-            if (generation.status === "succeeded" || generation.status === "failed") {
+            if (
+              generation.status === "succeeded" ||
+              generation.status === "create_failed" ||
+              generation.status === "failed"
+            ) {
               const sessionID = generation.sessionID ?? params.id
               if (generation.status === "succeeded" && sessionID) {
                 void loadSessionMessages(sessionID).catch((error) => {
@@ -1574,6 +2021,7 @@ export default function StudioPage() {
   function openOutpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage())) return
     batch(() => {
+      setCapability("image.outpaint")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("outpaint")
@@ -1583,6 +2031,7 @@ export default function StudioPage() {
   function openHD() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.upscale")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("hd")
@@ -1592,6 +2041,7 @@ export default function StudioPage() {
   function openCutout() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.cutout")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("cutout")
@@ -1601,18 +2051,36 @@ export default function StudioPage() {
   function openInpaint() {
     if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
     batch(() => {
+      setCapability("image.inpaint")
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setMode("inpaint")
     })
   }
 
-  function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
+  async function submitOutpaint(input: { prompt: string; extra: Record<string, unknown> }) {
     const image = workspaceEditImage()
     if (!image) return
+    let sourceUrl = image.remoteUrl ?? image.url
+
+    // Auto-adjust original image (not local upload) if exceeds limits
+    if (!workspaceImage()) {
+      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 300 })
+    }
+
+    tracker.interaction({
+      module: "studio",
+      name: "outpaint",
+      extend: JSON.stringify({
+        aspectRatio: aspectRatio(),
+        hasCustomPrompt: !!input.prompt,
+        hasSourceImage: !!image,
+        isUploadedImage: !!workspaceImage(),
+      }),
+    })
     void runGeneration({
       capability: "image.outpaint",
-      sourceImage: image.remoteUrl ?? image.url,
+      sourceImage: sourceUrl,
       prompt: input.prompt || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
       extra: input.extra,
     })
@@ -1621,29 +2089,143 @@ export default function StudioPage() {
   function submitInpaint(input: {
     prompt: string
     mode: StudioInpaintMode
+    brushSize: number
     sourceImage: string
     compositeImage: string
     hasDrawing: boolean
   }) {
     if (isBusy() || !input.hasDrawing) return
-    void runGeneration({
-      capability: "image.inpaint",
-      sourceImage: input.sourceImage,
-      prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
-      extra: {
-        generateMode: input.mode,
-        compositeImage: input.compositeImage,
-        hasDrawing: input.hasDrawing,
-      },
+
+    async function doSubmit() {
+      let sourceUrl = input.sourceImage
+      let compositeData = input.compositeImage
+
+      // Auto-adjust original image (not local upload) if exceeds limits
+      if (!workspaceImage()) {
+        sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 300 })
+
+        // Resize composite image to match if source was adjusted
+        if (sourceUrl !== input.sourceImage) {
+          compositeData = await resizeCompositeImage(input.compositeImage, sourceUrl)
+        }
+      }
+
+      tracker.interaction({
+        module: "studio",
+        name: "inpaint",
+        extend: JSON.stringify({
+          mode: input.mode,
+          brushSize: input.brushSize,
+          hasCustomPrompt: !!input.prompt,
+          hasDrawing: input.hasDrawing,
+          isUploadedImage: !!workspaceImage(),
+        }),
+      })
+      void runGeneration({
+        capability: "image.inpaint",
+        sourceImage: sourceUrl,
+        prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+        extra: {
+          generateMode: input.mode,
+          compositeImage: compositeData,
+          hasDrawing: input.hasDrawing,
+        },
+      })
+    }
+
+    void doSubmit()
+  }
+
+  async function resizeCompositeImage(sourceDataUrl: string, targetDataUrl: string): Promise<string> {
+    const [compositeImg, targetImg] = await Promise.all([
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error("Failed to load composite image"))
+        img.src = sourceDataUrl
+      }),
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.crossOrigin = "anonymous"
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error("Failed to load target image"))
+        img.src = targetDataUrl
+      }),
+    ])
+
+    const canvas = document.createElement("canvas")
+    canvas.width = targetImg.naturalWidth
+    canvas.height = targetImg.naturalHeight
+    const ctx = canvas.getContext("2d")!
+    ctx.drawImage(compositeImg, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL("image/png")
+  }
+
+  async function adjustImageForEdit(
+    sourceUrl: string,
+    opts: { maxSize: number; maxDimension: number; minSide: number },
+  ): Promise<string> {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image()
+      image.crossOrigin = "anonymous"
+      image.onload = () => resolve(image)
+      image.onerror = () => reject(new Error("Failed to load image for adjustment"))
+      image.src = sourceUrl
+    })
+    let w = img.naturalWidth
+    let h = img.naturalHeight
+
+    // Scale down if either dimension exceeds maxDimension
+    if (w > opts.maxDimension || h > opts.maxDimension) {
+      const scale = opts.maxDimension / Math.max(w, h)
+      w = Math.round(w * scale)
+      h = Math.round(h * scale)
+    }
+
+    // Scale up if min side is below minimum
+    if (opts.minSide > 0 && Math.min(w, h) < opts.minSide) {
+      const scale = opts.minSide / Math.min(w, h)
+      w = Math.round(w * scale)
+      h = Math.round(h * scale)
+    }
+
+    const canvas = document.createElement("canvas")
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext("2d")!
+    ctx.drawImage(img, 0, 0, w, h)
+
+    // Compress if file size exceeds maxSize
+    let quality = 0.92
+    let blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality))
+    while (blob && blob.size > opts.maxSize && quality > 0.1) {
+      quality -= 0.1
+      blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality))
+    }
+
+    if (!blob) return sourceUrl
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error("Failed to read adjusted image"))
+      reader.readAsDataURL(blob)
     })
   }
 
-  function submitHD(input: { mode: StudioHDMode }) {
+  async function submitHD(input: { mode: StudioHDMode }) {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    let sourceUrl = image.remoteUrl ?? image.url
+
+    // Auto-adjust original image (not local upload) if exceeds limits
+    if (!workspaceImage()) {
+      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 20 * 1024 * 1024, maxDimension: 7500, minSide: 0 })
+    }
+
+    tracker.interaction({ module: "studio", name: "upscale", extend: JSON.stringify({ mode: input.mode, hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.upscale",
-      sourceImage: image.remoteUrl ?? image.url,
+      sourceImage: sourceUrl,
       prompt: "将当前图片变清晰，提升分辨率和细节",
       extra: {
         mode: input.mode,
@@ -1651,12 +2233,20 @@ export default function StudioPage() {
     })
   }
 
-  function submitCutout() {
+  async function submitCutout() {
     const image = workspaceEditImage()
     if (!image || isBusy()) return
+    let sourceUrl = image.remoteUrl ?? image.url
+
+    // Auto-adjust original image (not local upload) if exceeds limits
+    if (!workspaceImage()) {
+      sourceUrl = await adjustImageForEdit(sourceUrl, { maxSize: 8 * 1024 * 1024, maxDimension: 7500, minSide: 50 })
+    }
+
+    tracker.interaction({ module: "studio", name: "cutout", extend: JSON.stringify({ hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
     void runGeneration({
       capability: "image.cutout",
-      sourceImage: image.remoteUrl ?? image.url,
+      sourceImage: sourceUrl,
       prompt: "对当前图片进行抠图，移除背景并保留主体",
     })
   }
@@ -1665,10 +2255,17 @@ export default function StudioPage() {
     const current = result()
     if (!current) return
     if (current.capability === "video.generate" && !canGenerateVideo()) return
-    void runGeneration({
-      capability: current.capability,
-      prompt: current.prompt,
+    tracker.interaction({
+      module: "studio",
+      name: "regenerate",
+      extend: JSON.stringify({
+        capability: current.capability,
+        aspectRatio: current.aspectRatio,
+        count: current.images.length,
+        hasReferenceImage: current.images.length > 0,
+      }),
     })
+    void runGeneration(restoreGenerationInput(current))
   }
 
   const hasStudioConversation = createMemo(() =>
@@ -1693,16 +2290,21 @@ export default function StudioPage() {
   })
 
   return (
-    <div class="studio-page" style={{ position: "relative" }}>
+    <div ref={studioPageRef!} class="studio-page" style={{ position: "relative" }}>
       <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory directory={projectDir()} activeSessionID={params.id} onNewConversation={startNewStudioConversation} />
+        <StudioHistory
+          directory={projectDir()}
+          routeSlug={routeSlug()}
+          activeSessionID={params.id}
+          onNewConversation={startNewStudioConversation}
+        />
       </aside>
       <div
         style={{
           position: "absolute",
           top: "0",
           bottom: "0",
-          left: `${studioLeftWidth() - 4}px`,
+          left: `${studioLeftWidth()}px`,
           width: "8px",
           cursor: "col-resize",
           "z-index": "10",
@@ -1725,6 +2327,7 @@ export default function StudioPage() {
                   prompt={prompt()}
                   capability={capability()}
                   canGenerateVideo={canGenerateVideo()}
+                  canUseSeedream={canUseSeedream()}
                   styleModel={styleModel()}
                   aspectRatio={aspectRatio()}
                   count={count()}
@@ -1854,6 +2457,8 @@ export default function StudioPage() {
                 result={result()}
                 turns={displayTurns()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                cancellingGenerationIDs={cancellingGenerationIDs()}
+                onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
               />
@@ -1864,6 +2469,7 @@ export default function StudioPage() {
             prompt={prompt()}
             capability={capability()}
             canGenerateVideo={canGenerateVideo()}
+            canUseSeedream={canUseSeedream()}
             styleModel={styleModel()}
             aspectRatio={aspectRatio()}
             count={count()}
@@ -1899,7 +2505,7 @@ export default function StudioPage() {
         </section>
         <div
           class="absolute top-0 bottom-0 cursor-col-resize z-10"
-          style={{ left: `${studioLeftWidth() + studioCenterWidth() - 4}px`, width: "8px" }}
+          style={{ left: `${studioLeftWidth() + studioCenterWidth()}px`, width: "8px" }}
           onMouseDown={handleStudioCenterResize}
         />
 
@@ -1913,6 +2519,8 @@ export default function StudioPage() {
           <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
+              videoPlayerMount={() => studioPageRef}
+              fullscreenMount={() => studioPageRef}
               status={effectiveStatus()}
               image={selectedImage()}
               result={canvasResult()}
@@ -1932,7 +2540,78 @@ export default function StudioPage() {
                 })
               }}
               onCloseTab={closeCanvasTab}
-            />
+              onUpscale={openHD}
+              onCutout={openCutout}
+              onInpaint={openInpaint}
+              onOutpaint={openOutpaint}
+              onRegenerate={regenerateCurrentResult}
+              onGenerateVideo={generateVideoFromSelectedImage}
+              showVideoGeneration={canGenerateVideo()}
+              regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+            >
+              <Show when={showStudioCanvas() && canvasResult()?.images.length}>
+                <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
+                  <button
+                    class="studio-details-toggle"
+                    onClick={() => setShowStudioDetails((v) => !v)}
+                    aria-label={showStudioDetails() ? "收起详情" : "展开详情"}
+                  />
+                  <Show when={showStudioDetails()}>
+                    <aside class="studio-details">
+                      <StudioDetails
+                        result={result()!}
+                        image={selectedImage()}
+                        selectedImageId={selectedImageId()}
+                        imageLabel={currentImageLabel()}
+                        regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                        showVideoGeneration={canGenerateVideo()}
+                        onSelectImage={(id) => {
+                          const r = result()
+                          batch(() => {
+                            setShowStudioCanvas(true)
+                            if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
+                              // 已有 tab → 只切选中
+                              setSelectedImageId(id)
+                              const imageIndex = r.images.findIndex((img) => img.id === id)
+                              const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
+                              if (tabImg && imageIndex !== -1) {
+                                setCanvasTabLabels((prev) => ({
+                                  ...prev,
+                                  [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
+                                }))
+                              }
+                              setDeletedImageIds(new Set<string>())
+                              setWorkspaceImage(undefined)
+                              setWorkspaceUploadRequested(false)
+                              setMode("preview")
+                              return
+                            }
+                            // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
+                            const first = r?.images[0]
+                            if (first) {
+                              const imageIndex = r.images.findIndex((img) => img.id === id)
+                              setSelectedImageId(id)
+                              setCanvasTabImages((prev) => [...prev, first])
+                              setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
+                              setDeletedImageIds(new Set<string>())
+                              setWorkspaceImage(undefined)
+                              setWorkspaceUploadRequested(false)
+                              setMode("preview")
+                            }
+                          })
+                        }}
+                        onRegenerate={regenerateCurrentResult}
+                        onGenerateVideo={generateVideoFromSelectedImage}
+                        onUpscale={openHD}
+                        onCutout={openCutout}
+                        onInpaint={openInpaint}
+                        onOutpaint={openOutpaint}
+                      />
+                    </aside>
+                  </Show>
+                </div>
+              </Show>
+            </StudioResultCanvas>
           }>
             <Show when={!workspaceEditImage()}>
               <StudioWorkspaceUpload onUpload={uploadWorkspaceImage} />
@@ -1941,7 +2620,7 @@ export default function StudioPage() {
               {(image) => (
                 <StudioHDEditor
                   image={image()}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitHD}
                 />
@@ -1952,7 +2631,7 @@ export default function StudioPage() {
                 <StudioCutoutEditor
                   image={image()}
                   busy={isBusy()}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitCutout}
                 />
@@ -1964,7 +2643,7 @@ export default function StudioPage() {
                   image={image()}
                   aspectRatio={aspectRatio()}
                   onAspectRatio={setAspectRatio}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitOutpaint}
                 />
@@ -1975,7 +2654,7 @@ export default function StudioPage() {
                 <StudioInpaintEditor
                   image={image()}
                   busy={isBusy()}
-                  onClose={() => setMode("preview")}
+                  onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitInpaint}
                 />
@@ -1990,63 +2669,9 @@ export default function StudioPage() {
           </Show>
         </section>
         </Show>
-
-          <Show when={!isEditingWorkspaceMode() && showStudioCanvas() && canvasResult()?.images.length}>
-            <aside class="studio-details">
-              <StudioDetails
-                result={result()!}
-                image={selectedImage()}
-                selectedImageId={selectedImageId()}
-                imageLabel={currentImageLabel()}
-                regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
-                showVideoGeneration={canGenerateVideo()}
-                onSelectImage={(id) => {
-                  const r = result()
-                  batch(() => {
-                    setShowStudioCanvas(true)
-                    if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
-                      // 已有 tab → 只切选中
-                      setSelectedImageId(id)
-                      const imageIndex = r.images.findIndex((img) => img.id === id)
-                      const tabImg = canvasTabImages().find((tabImg) => r.images.some((img) => img.id === tabImg.id))
-                      if (tabImg && imageIndex !== -1) {
-                        setCanvasTabLabels((prev) => ({
-                          ...prev,
-                          [tabImg.id]: `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}`,
-                        }))
-                      }
-                      setDeletedImageIds(new Set<string>())
-                      setWorkspaceImage(undefined)
-                      setWorkspaceUploadRequested(false)
-                      setMode("preview")
-                      return
-                    }
-                    // 还没有 tab → 用第一张图创建 1 个 tab，展示点击的图片
-                    const first = r?.images[0]
-                    if (first) {
-                      const imageIndex = r.images.findIndex((img) => img.id === id)
-                      setSelectedImageId(id)
-                      setCanvasTabImages((prev) => [...prev, first])
-                      setCanvasTabLabels((prev) => ({ ...prev, [first.id]: `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` }))
-                      setDeletedImageIds(new Set<string>())
-                      setWorkspaceImage(undefined)
-                      setWorkspaceUploadRequested(false)
-                      setMode("preview")
-                    }
-                  })
-                }}
-                onRegenerate={regenerateCurrentResult}
-                onGenerateVideo={generateVideoFromSelectedImage}
-                onUpscale={openHD}
-                onCutout={openCutout}
-                onInpaint={openInpaint}
-                onOutpaint={openOutpaint}
-              />
-            </aside>
-          </Show>
         </main>
       </Show>
-      <input ref={fileInputRef!} type="file" accept="image/*" class="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden" onChange={handleFileChange} />
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />

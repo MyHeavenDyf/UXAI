@@ -1,4 +1,4 @@
-import { createMemo, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
@@ -25,6 +25,7 @@ export function StudioComposer(props: {
   prompt: string
   capability: StudioCapability
   canGenerateVideo: boolean
+  canUseSeedream: boolean
   styleModel: string
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
@@ -57,13 +58,16 @@ export function StudioComposer(props: {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
+  const [composing, setComposing] = createSignal(false)
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
+  const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
+  const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
 
   function handlePaste(event: ClipboardEvent) {
-    if (!isImageGeneration() && !isVideoGeneration()) return
+    if (isBusy() || !isImageGeneration() && !isVideoGeneration()) return
     const files = Array.from(event.clipboardData?.items ?? [])
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -90,15 +94,17 @@ export function StudioComposer(props: {
             <VideoFrameButton
               label="首帧"
               asset={props.videoFrames.first}
+              disabled={isBusy()}
               onPick={() => props.onPickVideoFrame("first")}
               onRemove={() => props.onRemoveVideoFrame("first")}
             />
-            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} aria-label="交换首尾帧" title="交换首尾帧">
+            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} disabled={isBusy()} aria-label="交换首尾帧" title="交换首尾帧">
               <img src="/studio/ic_public_switchover.svg" class="studio-composer-video-swap-icon" alt="" />
             </button>
             <VideoFrameButton
               label="尾帧"
               asset={props.videoFrames.last}
+              disabled={isBusy()}
               onPick={() => props.onPickVideoFrame("last")}
               onRemove={() => props.onRemoveVideoFrame("last")}
             />
@@ -110,6 +116,7 @@ export function StudioComposer(props: {
               <button
                 type="button"
                 onClick={props.onPickFile}
+                disabled={isBusy()}
                 class="studio-composer-ref-btn"
                 title={referenceAsset() ? "替换参考图" : "上传参考图"}
               >
@@ -125,6 +132,7 @@ export function StudioComposer(props: {
                       event.stopPropagation()
                       props.onRemoveAsset(asset().id)
                     }}
+                    disabled={isBusy()}
                     class="studio-composer-ref-remove"
                     aria-label="删除参考图"
                     title="删除参考图"
@@ -140,9 +148,15 @@ export function StudioComposer(props: {
               ref={inputRef}
               value={props.prompt}
               onInput={(event) => props.onPrompt(event.currentTarget.value)}
-              onKeyDown={props.onKeyDown}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && isImeComposing(event)) return
+                props.onKeyDown(event)
+              }}
+              onCompositionStart={() => setComposing(true)}
+              onCompositionEnd={() => setComposing(false)}
+              onBlur={() => setComposing(false)}
               onPaste={handlePaste}
-              placeholder={isVideoGeneration() ? undefined : props.capability === "image.upscale" ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
+              placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
               class="studio-composer-input"
               disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
             />
@@ -181,6 +195,7 @@ export function StudioComposer(props: {
             <ToolButton
               label={capabilityLabel(props.capability)}
               active={props.openMenu === "capability"}
+              disabled={isBusy()}
               onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
               onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
             />
@@ -188,11 +203,16 @@ export function StudioComposer(props: {
           <Show when={isImageGeneration()}>
             <div class="relative">
               <Show when={isImageGeneration() && props.openMenu === "style"}>
-                <StyleMenu value={props.styleModel} onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }} />
+                <StyleMenu
+                  value={props.styleModel}
+                  canUseSeedream={props.canUseSeedream}
+                  onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                />
               </Show>
               <ToolButton
                 label={styleModelLabel(props.styleModel)}
                 active={props.openMenu === "style"}
+                disabled={isBusy()}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
               />
@@ -208,6 +228,7 @@ export function StudioComposer(props: {
               </Show>
               <IconTool
                 label="参数"
+                disabled={isBusy()}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
               />
@@ -218,6 +239,7 @@ export function StudioComposer(props: {
               </Show>
               <IconTool
                 label="词书"
+                disabled={isBusy()}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
               />
@@ -240,6 +262,7 @@ export function StudioComposer(props: {
               </Show>
               <IconTool
                 label="参数"
+                disabled={isBusy()}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                 onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
               />
@@ -270,21 +293,22 @@ export function StudioComposer(props: {
   )
 }
 
-function ToolButton(props: { label: string; active?: boolean; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
+function ToolButton(props: { label: string; active?: boolean; disabled?: boolean; onClick: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
-    <button type="button" onPointerDown={props.onPointerDown} onClick={props.onClick} class="studio-composer-tool-btn" data-active={props.active ? "" : undefined}>
+    <button type="button" onPointerDown={props.onPointerDown} onClick={props.onClick} disabled={props.disabled} class="studio-composer-tool-btn" data-active={props.active ? "" : undefined}>
       <span class="studio-composer-tool-label">{props.label}</span>
       <span class="studio-composer-tool-caret" />
     </button>
   )
 }
 
-function IconTool(props: { label: string; title?: string; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
+function IconTool(props: { label: string; title?: string; disabled?: boolean; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
   return (
     <button
       type="button"
       onPointerDown={props.onPointerDown}
       onClick={props.onClick}
+      disabled={props.disabled}
       class={`studio-composer-icon-tool ${props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"}`}
       title={props.title ?? props.label}
       aria-label={props.label}
@@ -292,12 +316,13 @@ function IconTool(props: { label: string; title?: string; onClick?: () => void; 
   )
 }
 
-function VideoFrameButton(props: { label: string; asset?: StudioAsset; onPick: () => void; onRemove: () => void }): JSX.Element {
+function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?: boolean; onPick: () => void; onRemove: () => void }): JSX.Element {
   return (
     <div class="studio-composer-video-frame-wrap">
       <button
         type="button"
         onClick={props.onPick}
+        disabled={props.disabled}
         class="studio-composer-video-frame"
         classList={{ filled: Boolean(props.asset) }}
         title={props.asset ? `替换${props.label}` : `上传${props.label}`}
@@ -318,6 +343,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; onPick: (
             event.stopPropagation()
             props.onRemove()
           }}
+          disabled={props.disabled}
           class="studio-composer-video-remove"
           aria-label={`删除${props.label}`}
           title={`删除${props.label}`}
@@ -369,26 +395,33 @@ function CapabilityMenu(props: {
   )
 }
 
-function StyleMenu(props: { value: string; onSelect: (value: string) => void }): JSX.Element {
+function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (value: string) => void }): JSX.Element {
   return (
     <div class="studio-menu w-[414px] p-4">
       <div class="text-[13px] font-semibold mb-3">风格模型</div>
       <div class="grid grid-cols-2 gap-x-4 gap-y-3">
-        <For each={STUDIO_STYLE_MODELS}>
-          {(item, index) => (
-            <button
-              type="button"
-              onClick={() => props.onSelect(item.id)}
-              class="studio-style-option"
-              classList={{ active: item.id === props.value }}
-            >
-              <span class={`studio-style-icon studio-style-icon-${index() + 1}`} />
-              <span class="studio-style-label">{item.label}</span>
-              <Show when={item.id === props.value}>
-                <span class="studio-style-check" />
-              </Show>
-            </button>
-          )}
+        <For each={STUDIO_STYLE_MODELS.filter((item) => item.requiresSeedreamPermission !== true || props.canUseSeedream)}>
+          {(item) => {
+            return (
+              <button
+                type="button"
+                onClick={() => props.onSelect(item.id)}
+                title={item.label}
+                class="studio-style-option"
+                classList={{ active: item.id === props.value }}
+              >
+                <span class="studio-style-icon">
+                  <Show when={item.icon}>
+                    {(icon) => <img src={icon()} alt="" aria-hidden="true" />}
+                  </Show>
+                </span>
+                <span class="studio-style-label">{item.label}</span>
+                <Show when={item.id === props.value}>
+                  <span class="studio-style-check" />
+                </Show>
+              </button>
+            )
+          }}
         </For>
       </div>
     </div>
@@ -418,8 +451,8 @@ function ImageSettings(props: {
               <span
                 class="studio-image-settings-ratio-icon"
                 style={{
-                  "aspect-ratio": item.replace(":", " / "),
-                  width: item === "1:1" ? "22px" : item === "2:3" || item === "3:4" || item === "9:16" ? "14px" : "28px",
+                  "--icon-w": item === "1:1" ? "20px" : item === "2:3" ? "12px" : item === "3:4" ? "14px" : item === "9:16" ? "10px" : "20px",
+                  "--icon-h": item === "1:1" ? "20px" : item === "3:2" ? "12px" : item === "4:3" ? "14px" : item === "16:9" ? "10px" : "20px",
                 }}
               />
               <span class="studio-image-settings-ratio-text">{item}</span>
@@ -475,8 +508,8 @@ function VideoSettings(props: {
               <span
                 class="studio-image-settings-ratio-icon"
                 style={{
-                  "aspect-ratio": item.replace(":", " / "),
-                  width: item === "1:1" ? "22px" : item === "9:16" ? "14px" : "28px",
+                  "--icon-w": item === "1:1" ? "20px" : item === "9:16" ? "10px" : "20px",
+                  "--icon-h": item === "1:1" ? "20px" : item === "16:9" ? "10px" : "20px",
                 }}
               />
               <span class="studio-image-settings-ratio-text">{item}</span>

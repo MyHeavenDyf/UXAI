@@ -50,9 +50,11 @@ export function readTaskInfo(part: unknown): TaskInfo | null {
         : undefined
 
   // resultText:completed 时 content[] 里第一条 text part
+  // stop_task 对「已完成/已失败」任务调用时按终态返回的是控制文案(如"任务X已completed,无需终止,可用查询任务拿结果"),
+  // 不是交付物 —— 绝不采它的 text/resource_link,否则会污染卡片结果(查看结果会显示这句控制文案而非文件)。
   let resultText: string | undefined
   let resourceLinks: ResourceLink[] = []
-  if (status === "completed") {
+  if (status === "completed" && !isStopTool(toolName)) {
     const parsed = parseCallToolResult(state)
     if (parsed) {
       const textItem = parsed.content?.find(
@@ -152,6 +154,11 @@ function isBusinessTool(name: string): boolean {
   return false
 }
 
+/** stop_task(终止)是控制工具,其返回的 text 是控制文案,不是任务交付物。命名同样可能带前缀。 */
+function isStopTool(name: string): boolean {
+  return name === "stop_task" || name.endsWith(":stop_task") || name.endsWith("_stop_task")
+}
+
 type AggregateInput = {
   taskId: string
   status: TaskStatus
@@ -183,6 +190,17 @@ export function aggregateTaskCards(items: AggregateInput[]): Map<string, TaskCar
     const first = group[0]
     const latest = group[group.length - 1]
     const businessItem = group.find((g) => isBusinessTool(g.toolName))
+    // resourceLinks 锁定到「首次 completed 且带 resource_link」那次捕获:completed 任务产物不可变,
+    // 但用户每次"查询任务进度"都会重新调用 get_task_result(同一 task_id),server 可能为同一任务
+    // 返回一批新 URI。若取 latest 会让新 URI 顶替原始文件,用户感知成"又重新生成了一遍"。
+    // 取首次产物 = 把最初那批文件稳定地拿回来(spec: task-card.md 重复查询不重生成产物)。
+    const firstWithLinks = group.find((g) => g.status === "completed" && g.resourceLinks.length > 0)
+    // resultText 取时间序上「最后一个非空」捕获,而非严格 latest:对已完成任务点终止后,stop_task 会成为
+    // 最新 part 但已不带 resultText(见 readTaskInfo),若取 latest 会把先前 get_task_result 的摘要抹成空。
+    const latestText = group.reduce<string | undefined>(
+      (acc, g) => (g.resultText && g.resultText.length > 0 ? g.resultText : acc),
+      undefined,
+    )
     result.set(taskId, {
       taskId,
       status: latest.status,
@@ -191,8 +209,8 @@ export function aggregateTaskCards(items: AggregateInput[]): Map<string, TaskCar
       anchorUserMessageID: first.userMsgID,
       submittedAt: new Date(first.time),
       lastUpdatedAt: new Date(latest.time),
-      resultText: latest.resultText,
-      resourceLinks: latest.resourceLinks,
+      resultText: latestText,
+      resourceLinks: firstWithLinks?.resourceLinks ?? latest.resourceLinks,
     })
   }
   return result

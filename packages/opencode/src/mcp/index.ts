@@ -165,6 +165,7 @@ function convertMcpTool(
   clientGetter: () => MCPClient | undefined,
   clientName: string,
   timeout?: number,
+  onFailure?: (err: unknown) => void,
 ): Tool {
   const inputSchema = mcpTool.inputSchema
 
@@ -207,6 +208,17 @@ function convertMcpTool(
           tool: mcpTool.name,
           error: msg,
         })
+        // 兜底触发重连（方案 B）：catch 网络类错误后通知 reconnect 模块
+        // fire-and-forget，不影响本工具返回的 isError 结果
+        try {
+          onFailure?.(err)
+        } catch (cbErr) {
+          log.error("onFailure callback threw", {
+            clientName,
+            tool: mcpTool.name,
+            error: String(cbErr),
+          })
+        }
         return {
           content: [{ type: "text" as const, text: `Tool "${mcpTool.name}" on server "${clientName}" failed: ${msg}. The server may be reconnecting.` }],
           isError: true,
@@ -354,6 +366,26 @@ export const layer = Layer.effect(
           status: { status: "failed" as const, error: `Invalid MCP URL for "${key}"` },
         }
       }
+      // [octo:mcp] 连接前记录解析后的全部入参，便于内网 debug。proxyMode 是 mcpFetch 的代理决策镜像
+      // （仅为日志推导，与 mcpFetch 同口径，不改变实际行为）：proxy 显式 true/false 直接生效，
+      // 未设时按 isPrivateUrl 判定——7.x 内网 IP 不被识别为私有，故会落到 system(public) → 易触发代理 504。
+      const proxyMode =
+        mcp.proxy === true
+          ? "system(forced)"
+          : mcp.proxy === false
+            ? "bypass(forced)"
+            : isPrivateUrl(url)
+              ? "bypass(private)"
+              : "system(public)"
+      log.info("[octo:mcp] connect-remote", {
+        key,
+        url: url.href,
+        proxy: mcp.proxy,
+        proxyMode,
+        timeout: mcp.timeout ?? DEFAULT_TIMEOUT,
+        oauth: !oauthDisabled,
+        headerKeys: mcp.headers ? Object.keys(mcp.headers) : [],
+      })
       let authProvider: McpOAuthProvider | undefined
 
       if (!oauthDisabled) {
@@ -400,6 +432,7 @@ export const layer = Layer.effect(
       let lastStatus: Status | undefined
 
       for (const { name, transport } of transports) {
+        log.info("[octo:mcp] transport-try", { key, transport: name, url: url.href, timeout: connectTimeout })
         const result = yield* connectTransport(transport, connectTimeout).pipe(
           Effect.map((client) => ({ client, transportName: name })),
           Effect.catch((error) => {
@@ -443,12 +476,20 @@ export const layer = Layer.effect(
               url: mcp.url,
               error: lastError.message,
             })
+            // [octo:mcp] 失败也在 info/warn 级镜像一条（debug 级生产可能被过滤），带 proxyMode 便于判代理问题。
+            log.warn("[octo:mcp] transport-failed", {
+              key,
+              transport: name,
+              url: url.href,
+              proxyMode,
+              error: lastError.message,
+            })
             lastStatus = { status: "failed" as const, error: lastError.message }
             return Effect.succeed(undefined)
           }),
         )
         if (result) {
-          log.info("connected", { key, transport: result.transportName })
+          log.info("[octo:mcp] connected", { key, transport: result.transportName, url: url.href })
           return { client: result.client as MCPClient | undefined, status: { status: "connected" } as Status }
         }
         // If this was an auth error, stop trying other transports
@@ -771,6 +812,13 @@ export const layer = Layer.effect(
         waitAttempts++
       }
 
+      // 方案 D2: agent 启动前对 remote client 做 ping 健康检查
+      // 静默 TCP 丢包时 SDK 不会触发 onerror/onclose，主动 ping 兜底
+      const preflightBridge = yield* EffectBridge.make()
+      yield* Reconnect.verifyAndReconnectIfNeeded(preflightBridge, reconnectCtx)
+      // preflight 可能触发重连导致 s.clients 变化，重新拿一次
+      s = yield* InstanceState.get(state)
+
       const connectedClients = Object.entries(s.clients).filter(
         ([clientName]) => s.status[clientName]?.status === "connected",
       )
@@ -782,6 +830,21 @@ export const layer = Layer.effect(
         waitedMs: waitAttempts * 100,
         allStatus: Object.fromEntries(Object.entries(s.status).map(([k, v]) => [k, v.status])),
       })
+
+      // 方案 B: 工具调用失败的 onFailure 回调，触发 reconnect
+      // 每次 tools() 调用都新建 bridge，避免复用导致 scope 问题
+      const toolFailureBridge = yield* EffectBridge.make()
+      const handleToolFailure = (clientName: string, toolName: string) => (err: unknown) => {
+        toolFailureBridge
+          .promise(Reconnect.triggerReconnectFromToolFailure(clientName, toolFailureBridge, reconnectCtx, err, toolName))
+          .catch((e) => {
+            log.error("tool-failure reconnect trigger rejected", {
+              clientName,
+              toolName,
+              error: String(e),
+            })
+          })
+      }
 
       yield* Effect.forEach(
         connectedClients,
@@ -804,6 +867,7 @@ export const layer = Layer.effect(
                 () => s.clients[clientName],
                 clientName,
                 timeout,
+                handleToolFailure(clientName, mcpTool.name),
               )
             }
           }),

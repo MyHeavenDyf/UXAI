@@ -1513,6 +1513,21 @@ const layer: Layer.Layer<
           log.info("found", { providerID })
         }
 
+        // 诊断日志: 打印重建后每个 provider 的 hasAuth 关键字段, 定位 apiKey 是否被保留
+        for (const [id, provider] of Object.entries(providers)) {
+          log.info("state:provider", {
+            id,
+            source: provider.source,
+            hasKey: Boolean(provider.key),
+            optionsKeys: Object.keys(provider.options ?? {}),
+            hasOptionsApiKey: Boolean((provider.options as Record<string, unknown>)?.apiKey),
+            modelsCount: Object.keys(provider.models).length,
+          })
+        }
+        // 同时打印被删除的 (空 models) provider 列表 - 通过对比 database 推断
+        const deletedIDs = Object.keys(database).filter((id) => !providers[id as ProviderID])
+        log.info("state:deleted-providers", { deletedIDs })
+
         return {
           models: languages,
           providers,

@@ -1,5 +1,7 @@
 interface ImportMetaEnv {
   readonly OCTO_CHANNEL: string
+  readonly OCTO_KB_BASE_URL: string
+  readonly OCTO_UXR_MCP_URL: string
 }
 
 interface ImportMeta {

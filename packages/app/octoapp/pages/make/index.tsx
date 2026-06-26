@@ -26,11 +26,13 @@ import {
   For,
   on,
   onCleanup,
+  onMount,
   Show,
   type JSX,
 } from "solid-js"
+import { tracker } from "@/utils/tracker"
 import { createStore, produce } from "solid-js/store"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
 import { dropSessionCaches } from "@/context/global-sync/session-cache"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -45,11 +47,14 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
-import { InsightTurn, type OutputCard, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { MakeQuestionDock } from "./components/make-question-dock"
-import { sessionQuestionRequest } from "@/pages/session/composer/session-request-tree"
-import type { QuestionRequest } from "@opencode-ai/sdk/v2"
+import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
+import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
+import { usePermission } from "@/context/permission"
+import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
+import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
@@ -63,11 +68,24 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { autoSaveArtifact } from "./utils/artifact-auto-save"
-import { persistTabChanges } from "./utils/tab-persistence"
+import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
+import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
+  const params = useParams<{ id?: string }>()
+  const navigate = useNavigate()
+  
+  let lastProjectDir: string | undefined
+  
+  createEffect(() => {
+    const dir = projectDir()
+    if (lastProjectDir !== undefined && dir !== lastProjectDir && params.id) {
+      navigate("/make", { replace: true })
+    }
+    lastProjectDir = dir
+  })
 
   return (
     <Show when={projectDir()} keyed>
@@ -84,9 +102,12 @@ export default function MakePage() {
   )
 }
 
+let lastMakeDir: string | undefined
+
 function MakeContent() {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
@@ -97,13 +118,24 @@ function MakeContent() {
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
   const providers = useProviders()
+  const permission = usePermission()
 
   // Register Make slash commands
   useMakeCommands()
 
+  // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
+  // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
+  const prevMakeDir = lastMakeDir
+  lastMakeDir = sdk.directory
+  onMount(() => {
+    if (prevMakeDir === undefined || prevMakeDir === sdk.directory || !params.id) return
+    navigate("/make", { replace: true })
+  })
+
+  onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
+
   const projectDir = useProjectDir()
 
-  // ── 模型选择（复用 useLocal，与 Chat/Studio 逻辑一致） ────
   const local = useLocal()
   const currentModel = () => local.model.current()
 
@@ -199,6 +231,7 @@ function MakeContent() {
     if (!draft) { setTitleState("editing", false); return }
     try {
       await sdk.client.session.update({ sessionID: id, title: draft })
+      tracker.interaction({ module: "design", name: "rename-session" })
       void refetchSession()
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
@@ -211,6 +244,7 @@ function MakeContent() {
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
+      tracker.interaction({ module: "design", name: "delete-session" })
       navigate("/make")
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
@@ -229,7 +263,7 @@ function MakeContent() {
     on(
       projectDir,
       (newDir, oldDir) => {
-        if (!newDir || !oldDir || newDir === oldDir) return
+        if (!newDir || newDir === oldDir) return
         
         const currentId = params.id
         if (!currentId) return
@@ -274,10 +308,10 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(
     on(
       () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
-      ([id, missing]) => {
+      ([id, missing], prev) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
-          if (missing) void sync.session.sync(id).catch(() => {})
+          if (missing && id !== prev?.[0]) void sync.session.sync(id).catch(() => {})
         }
 
         setSending(false)
@@ -515,7 +549,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [blockTime, setBlockTime] = createSignal(0)
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
-    if (isBusy()) {
+    const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
+    if (isBusy() && !hasQuestion) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -532,6 +567,7 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
@@ -580,6 +616,15 @@ const sessionMessagesLoaded = createMemo(() => {
         source: cmd.source as "command" | "mcp",
       })
     }
+
+    // Builtin: /preview command
+    list.push({
+      trigger: "preview",
+      title: "预览文件",
+      description: "预览本地 HTML 文件或 URL",
+      id: "builtin.preview",
+      source: "builtin",
+    })
 
     // Sort alphabetically
     list.sort((a, b) => a.trigger.localeCompare(b.trigger))
@@ -649,7 +694,7 @@ const sessionMessagesLoaded = createMemo(() => {
     return 460
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
-  const [focusMode, setFocusMode] = createSignal(false)
+  const focusMode = layout.focusMode.get
 
   const MIN_CHAT = 345
   const MAX_CHAT = 720
@@ -706,11 +751,71 @@ const sessionMessagesLoaded = createMemo(() => {
     setSnapshotVersion((v) => v + 1)
   }
 
+  // ── 设计方案(design-plan)扫描 ─────────────────────────────
+  // 方案 artifact 从消息流中提取,但不再自动打开右侧 ResultViewer tab。
+  // 而是显示为输入框上方的横条,用户点击后才把 plan 放进 ResultViewer。
+  // 确认状态也从消息流推断:方案之后出现 [confirm-plan] 或 HTML artifact 即视为已确认。
+  const planCard = createMemo(() => {
+    const sid = params.id
+    if (!sid) return null
+    return scanDesignPlanFromMessages(sync.data.message[sid], sync.data.part, sid)
+  })
+
+  const planConfirmed = createMemo(() => {
+    const sid = params.id
+    if (!sid) return false
+    const ident = planCard()?.artifactIdentifier
+    if (!ident) return false
+    return isPlanConfirmed(sync.data.message[sid], sync.data.part, ident)
+  })
+
+  // 乐观锁:用户点 [确认开始生成] 后立即永久 disable,直到 planConfirmed 翻为 true 或 session 切换。
+  // 避免 sendMessage 飞行期间(session 还没进入 busy)用户连点重复发送。
+  const [optimisticConfirmed, setOptimisticConfirmed] = createSignal(false)
+  const planButtonDisabled = createMemo(() => planConfirmed() || optimisticConfirmed())
+
+  // 切换 session 时复位乐观锁,允许新 session 重新走方案流程
+  createEffect(on(() => params.id, () => setOptimisticConfirmed(false), { defer: true }))
+
+  /** 用户点击 [确认开始生成] → 自动发送隐藏指令 */
+  function handleConfirmPlan(identifier?: string) {
+    const sid = params.id
+    if (!sid) return
+    if (planButtonDisabled()) return   // 防重复
+    setOptimisticConfirmed(true)
+    const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
+    sendMessage(sid, cmd).catch((err) => {
+      console.error("[MakePage] confirm plan failed", err)
+      // 发送失败时回滚乐观锁,允许重试
+      setOptimisticConfirmed(false)
+    })
+  }
+
+  /** 用户点击 [调整方案] → 焦点切到输入框,预填引导文字 */
+  function handleAdjustPlan() {
+    setPrompt("请按以下方向调整方案:")
+    requestAnimationFrame(() => textareaRef?.focus())
+  }
+
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
+
+  // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
+  // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
+  // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
+
+  /** 用户点击 plan 横条 → 打开右侧 ResultViewer 显示 plan tab
+   *  优先用 snapshot 版本(用户可能编辑过);没有 snapshot 才用消息流版本 */
+  function handleViewPlan() {
+    const card = planCard()
+    if (!card) return
+    const edited = snapshotStore.restoreLatestByTabId(card.id)
+    const restored = edited ? tabToOutputCard(edited) : null
+    tabStore.openTab(restored ?? card)
+  }
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
@@ -729,6 +834,13 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
+  function handleCloseTab(id: string) {
+    tabStore.closeTab(id)
+    if (tabStore.tabs().length === 0) {
+      layout.focusMode.set(false)
+    }
+  }
+
   // ── session 操作 ──────────────────────────────────────────
 
   /** 创建新 session 并导航 */
@@ -742,6 +854,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const session = result.data as Session | undefined
       console.log("[MakePage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
+        tracker.interaction({ module: "design", name: "new-session" })
         navigate(`/make/${session.id}`)
         return session.id
       }
@@ -824,6 +937,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const textPart: TextPartInput = { type: "text", text: promptText }
       const modelKey = activeModelKey()
       if (!modelKey) return
+      tracker.interaction({
+        module: "design",
+        name: "send-message",
+        extend: JSON.stringify({ hasAttachment: fileParts.length > 0, designSystem: dsId ?? null }),
+      })
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
@@ -874,11 +992,23 @@ if (dsId) {
   async function halt() {
     const sid = params.id
     if (!sid) return
+    tracker.interaction({ module: "design", name: "stop-generation" })
     await sdk.client.session.abort({ sessionID: sid }).catch(() => {})
+  }
+
+  function handleCompositionStart() {
+    setComposing(true)
+  }
+  function handleCompositionEnd() {
+    setComposing(false)
   }
 
   /** Handle keyboard events including slash command navigation */
   function handleKeyDown(e: KeyboardEvent) {
+    // 输入法合成期间(如拼音待选)的回车用于确认候选词,不应触发发送
+    // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
+    if (e.isComposing || e.keyCode === 229) return
+
     const slash = slashState()
 
     // Slash command navigation
@@ -914,7 +1044,18 @@ if (dsId) {
 
     // Enter to send (only when slash popover is closed)
     if (e.key === "Enter" && !e.shiftKey && !slash) {
+      if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
+      
+      // Check for /preview command: /preview URL或路径
+      const previewMatch = prompt().match(/^\/preview\s+(.+)$/)
+      if (previewMatch) {
+        const target = previewMatch[1].trim()
+        handleOpenLocalFile(target)
+        setPrompt("")
+        return
+      }
+      
       void handleSubmit()
     }
   }
@@ -980,6 +1121,9 @@ if (dsId) {
       }
       reader.readAsDataURL(file)
     }
+    if (toAdd.length > 0) {
+      tracker.interaction({ module: "design", name: "add-attachment", extend: JSON.stringify({ count: toAdd.length }) })
+    }
   }
 
   /** 移除附件 */
@@ -1023,14 +1167,16 @@ if (dsId) {
     const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
     
     if (latestSnapshot) {
-      // Use edited version from localStorage
+      const snapshotTab = latestSnapshot.tab
+      if (snapshotTab.type === "local-file") return
+      
       card = {
-        id: latestSnapshot.tab.id,
-        title: latestSnapshot.tab.title,
-        type: latestSnapshot.tab.type,
-        content: latestSnapshot.tab.content,
-        filePath: latestSnapshot.tab.filePath,
-        artifactIdentifier: latestSnapshot.tab.artifactIdentifier,
+        id: snapshotTab.id,
+        title: snapshotTab.title,
+        type: snapshotTab.type as OutputCardType,
+        content: snapshotTab.content,
+        filePath: snapshotTab.filePath,
+        artifactIdentifier: snapshotTab.artifactIdentifier,
         createdAt: new Date(latestSnapshot.timestamp),
       }
       console.log("[MakePage] Restored edited version from localStorage:", card.id)
@@ -1078,6 +1224,62 @@ if (dsId) {
     }
   }
 
+  function handleOpenLocalFile(filePath: string) {
+    // 检测 http/https URL
+    if (/^https?:\/\//i.test(filePath)) {
+      let title: string
+      try {
+        const url = new URL(filePath)
+        const pathSegments = url.pathname.split('/').filter(Boolean)
+        const lastSegment = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : ''
+        title = lastSegment ? `${url.host}/${lastSegment}` : url.host
+      } catch {
+        title = filePath
+      }
+      
+      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
+      tabStore.openLocalFileTab({
+        id: tabId,
+        title,
+        absoluteFilePath: filePath,
+        createdAt: new Date(),
+      })
+      return
+    }
+    
+    const dir = projectDir()
+    
+    const normalizedPath = filePath.replace(/\\/g, '/')
+    
+    // 判断是否为绝对路径
+    // Windows: C:/... 或 C:\...
+    // MacOS/Linux: /...
+    const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
+    
+    let absolutePath: string
+    if (isAbsolute) {
+      absolutePath = normalizedPath
+    } else {
+      if (!dir) return
+      const normalizedDir = dir.replace(/\\/g, '/')
+      absolutePath = normalizedDir
+      if (!absolutePath.endsWith('/') && !normalizedPath.startsWith('/')) {
+        absolutePath += '/'
+      }
+      absolutePath += normalizedPath
+    }
+    absolutePath = absolutePath.replace(/\/+/g, '/')
+    
+    const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
+    
+    tabStore.openLocalFileTab({
+      id: tabId,
+      title: filePath.split(/[/\\]/).pop() ?? filePath,
+      absoluteFilePath: absolutePath,
+      createdAt: new Date(),
+    })
+  }
+
   /** 继续生成（追加被截断的内容作为 prompt） */
   function handleContinue(card: OutputCard) {
     const sid = params.id
@@ -1092,7 +1294,30 @@ if (dsId) {
     return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
   })
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest()
+  const permissionRequest = createMemo<PermissionRequest | undefined>(() => {
+    return sessionPermissionRequest(sync.data.session, sync.data.permission, params.id, (item) => {
+      return !permission.autoResponds(item, sdk.directory)
+    })
+  })
+
+  const [permissionResponding, setPermissionResponding] = createSignal(false)
+
+  const decidePermission = (response: "once" | "always" | "reject") => {
+    const perm = permissionRequest()
+    if (!perm || permissionResponding()) return
+    setPermissionResponding(true)
+    sdk.client.permission
+      .respond({ sessionID: perm.sessionID, permissionID: perm.id, response })
+      .catch((err: unknown) => {
+        const description = err instanceof Error ? err.message : String(err)
+        console.error("[MakePage] permission respond failed:", description)
+      })
+      .finally(() => {
+        setPermissionResponding(false)
+      })
+  }
+
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
   const maxAttachments = () => attachments().length >= 5
 
   return (
@@ -1223,10 +1448,13 @@ if (dsId) {
                   <ChatEmptyState />
                 <div class="w-full max-w-[800px]">
                   {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
-                  <StarterCards
-                    prompts={FEATURED_STARTERS}
-                    onClick={(starter) => setPrompt(starter.prompt)}
-                  />
+<StarterCards
+                     prompts={FEATURED_STARTERS}
+                     onClick={(starter) => {
+                       tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
+                       setPrompt(starter.prompt)
+                     }}
+                   />
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
@@ -1286,6 +1514,8 @@ if (dsId) {
                       ref={textareaRef}
                       value={prompt()}
                       onInput={handleInput}
+                      onCompositionStart={handleCompositionStart}
+                      onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}
@@ -1376,12 +1606,15 @@ if (dsId) {
                         blockTime={blockTime()}
                         onAbort={halt}
                         onOpenResult={handleOpenResult}
+                        onOpenLocalFile={handleOpenLocalFile}
+                        projectDir={projectDir()}
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
                         onFormSubmit={(text) => {
                           setPrompt(text)
                         }}
+                        hasQuestionRequest={!!questionRequest()}
                       />
                     )}
                   </For>
@@ -1395,6 +1628,26 @@ if (dsId) {
                   onRemove={removeAttachment}
                 />
 
+                {/* Plan banner - 设计方案横条(在输入框上方)。点击才打开右侧 ResultViewer */}
+                <PlanBanner
+                  plan={planCard()}
+                  confirmed={planConfirmed()}
+                  onView={handleViewPlan}
+                />
+
+                {/* Permission dock - 权限授权 UI */}
+                <Show when={permissionRequest()} keyed>
+                  {(request) => (
+                    <div class="w-full pb-3">
+                      <SessionPermissionDock
+                        request={request}
+                        responding={permissionResponding()}
+                        onDecide={decidePermission}
+                      />
+                    </div>
+                  )}
+                </Show>
+
                 {/* Question dock - 阻塞式提问 UI */}
                 <Show when={questionRequest()} keyed>
                   {(request) => (
@@ -1407,7 +1660,10 @@ if (dsId) {
                 {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
                 <StarterCards
                   prompts={FEATURED_STARTERS}
-                  onClick={(starter) => setPrompt(starter.prompt)}
+                  onClick={(starter) => {
+                    tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
+                    setPrompt(starter.prompt)
+                  }}
                 />
 
                 <div
@@ -1567,7 +1823,7 @@ if (dsId) {
                   type="button"
                   class="octo-focus-btn"
                   data-active={focusMode() ? "true" : undefined}
-                  onClick={() => setFocusMode(!focusMode())}
+                  onClick={() => layout.focusMode.toggle()}
                   title={focusMode() ? "退出焦点模式" : "焦点模式"}
                 >
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1588,8 +1844,13 @@ if (dsId) {
                 tabs={tabStore.tabs()}
                 activeId={tabStore.activeId()}
                 onActivate={tabStore.activate}
-                onClose={tabStore.closeTab}
+                onClose={handleCloseTab}
                 onContentChange={handleContentChange}
+                focusMode={focusMode()}
+                onFocusModeToggle={() => layout.focusMode.toggle()}
+                onConfirmPlan={handleConfirmPlan}
+                onAdjustPlan={handleAdjustPlan}
+                isPlanConfirmed={planButtonDisabled}
               />
             </div>
             <Show when={showVersionPanel()}>
@@ -1597,8 +1858,16 @@ if (dsId) {
                 snapshots={snapshotList()}
                 onRestore={(id) => {
                   const tab = snapshotStore.restore(id)
-                  if (tab) {
-                    tabStore.openTab(tab)
+                  if (tab && tab.type !== "local-file") {
+                    tabStore.openTab({
+                      id: tab.id,
+                      title: tab.title,
+                      type: tab.type as OutputCardType,
+                      content: tab.content,
+                      filePath: tab.filePath,
+                      artifactIdentifier: tab.artifactIdentifier,
+                      createdAt: tab.createdAt,
+                    })
                   }
                 }}
                 onRemove={(id) => {

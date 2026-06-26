@@ -119,6 +119,7 @@
   min-width: 0;
   min-height: 0;
   display: flex;
+  position: relative;
   background: #fff;
 }
 
@@ -146,9 +147,9 @@
   border: 1.5px solid transparent;
   border-radius: 24px;
   background:
-    linear-gradient(#fff, #fff) padding-box,
-    linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%) border-box;
-  box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
+    linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+    linear-gradient(135deg, rgba(246, 97, 23, 1) 1%, rgba(95, 45, 255, 1) 8%, rgba(61, 93, 255, 1) 22%, rgba(104, 138, 255, 1) 43%, rgba(28, 171, 111, 1) 54%, rgba(61, 93, 255, 1) 87%, rgba(206, 7, 232, 1) 92%) border-box;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12);
 }
 
 .studio-composer-compliance {
@@ -227,7 +228,7 @@
 }
 
 .studio-composer-compliance-tooltip-content .studio-video-risk-link {
-  color: inherit;
+  color: #8CA3FA;
 }
 
 .studio-composer-compliance-tooltip-arrow {
@@ -404,7 +405,7 @@
   height: 64px;
   overflow: hidden;
   border-radius: 4px;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+  border: 1px solid #f2f2f2;
 }
 
 .studio-composer-ref-image {
@@ -416,17 +417,17 @@
 
 .studio-composer-ref-remove {
   position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 22px;
-  height: 22px;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: rgba(8, 12, 20, 0.94);
   color: #fff;
-  font-size: 18px;
-  line-height: 18px;
+  font-size: 8px;
+  line-height: 8px;
   opacity: 0;
   transform: scale(0.9);
   transition: opacity 140ms ease, transform 140ms ease;

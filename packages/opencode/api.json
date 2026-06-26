@@ -6,16 +6,6 @@
     "npm": "@ai-sdk/openai-compatible",
     "api": "http://octoai-llm.ucd.huawei.com/v1",
     "models": {
-      "MiniMax-M2.5": {
-        "id": "MiniMax-M2.5",
-        "name": "MiniMax M2.5",
-        "release_date": "2025-01-01",
-        "attachment": true,
-        "reasoning": false,
-        "temperature": true,
-        "tool_call": true,
-        "limit": { "context": 128000, "output": 16000 }
-      },
       "DeepSeek-V4-Flash": {
         "id": "DeepSeek-V4-Flash",
         "name": "DeepSeek-V4-Flash",
