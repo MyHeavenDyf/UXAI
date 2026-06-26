@@ -19,6 +19,7 @@ const TABS: TabDef[] = [
   { label: "Chat", href: "/chat", icon: "/IconChat.svg" },
   { label: "Cowork", href: "/insight", icon: "/IconCowork.svg" },
   { label: "Make", href: "/make", icon: "/makeTab.svg" },
+  { label: "3D", href: "/3d", icon: "/Icon3D.svg" },
   { label: "Studio", href: "/studio", icon: "/IconStudio.svg" },
 ]
 
@@ -40,6 +41,7 @@ export function OctoTopbar(): JSX.Element {
     if (p === "/" || p.startsWith("/chat")) return "/chat"
     if (p.startsWith("/studio")) return "/studio"
     if (p.startsWith("/make")) return "/make"
+    if (p.startsWith("/3d")) return "/3d"
     return "/insight"
   }
 
@@ -118,6 +120,13 @@ export function OctoTopbar(): JSX.Element {
                         navigate(`/${dir}/studio/${sessionId}`)
                       } else {
                         navigate(`/${dir}/studio`)
+                      }
+                    } else if (tab.href === "/3d") {
+                      const threed = layout.lastSessionPerTab.threed()
+                      if (threed?.id) {
+                        navigate(`/3d/${threed.id}`)
+                      } else {
+                        navigate("/3d")
                       }
                     }
                   }}
