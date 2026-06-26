@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, For } from "solid-js"
 import { Portal } from "solid-js/web"
 import { createStore, reconcile } from "solid-js/store"
-import { logStartSession, logAgentCall } from "../../utils/persist"
+import { logStartSession, logAgentCall } from "../../utils/debug-log"
 
 interface ElementRect {
   top: number
@@ -947,7 +947,6 @@ export function PropertyEditorPopup(props: {
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
 
     console.log("[PropertyEditor] open, original className:", rawCls)
-    logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]\n原始 className: ${rawCls}\n原始 props: ${props.elementProps || '{}'}`)
 
     resetEditorSignals()
     setInitialPos('right', 20)
@@ -1218,6 +1217,7 @@ export function PropertyEditorPopup(props: {
   }
 
   async function handleConfirm(skipChangeCheck?: boolean) {
+    logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
     let className = ''
     const hasAnyTailwind = parsedClasses.some(c => isTailwindToken(c))
     if (hasClassEditor() && hasAnyTailwind) {
