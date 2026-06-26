@@ -1,5 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from '../run_child_session';
+import { logAgentParsed } from "../../utils/persist"
 
 const AGENT_NAME = "proto_planner_create"
 
@@ -47,12 +48,14 @@ export default async function proto_planner_create(input: ProtoPlannerCreateInpu
   })
   console.log("----- 布局规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 planner json
-  const plannerJson = extractJson(plannerResult)
+  const plannerJson = extractJson(plannerResult.text)
   if (!plannerJson) throw new Error("----- Planner Create did not return valid JSON -----")
-  return {
+  const returnValue = {
     "layout_planner": plannerJson,
     "current_step": "planner_create"
   }
+  logAgentParsed(plannerResult.childSessionId, returnValue)
+  return returnValue
 }
 
 // 组装布局规划的输入文本

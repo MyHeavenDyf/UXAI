@@ -1,5 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from '../run_child_session';
+import { logAgentParsed } from "../../utils/persist"
 
 const AGENT_NAME = "proto_intent_audit"
 
@@ -39,13 +40,15 @@ export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
   })
   console.log("----- 意图诊断Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 audit json
-  const intentJson = extractJson(auditResult)
+  const intentJson = extractJson(auditResult.text)
   if (!intentJson) throw new Error("----- Intent Audit did not return valid JSON -----")
-  return {
+  const returnValue = {
     "intent_audit_pass": intentJson.is_pass,
     "intent_audit_feedback": intentJson.feedback,
     "current_step": "intent_audit"
   };
+  logAgentParsed(auditResult.childSessionId, returnValue)
+  return returnValue
 }
 
 // 组装意图审查的输入文本

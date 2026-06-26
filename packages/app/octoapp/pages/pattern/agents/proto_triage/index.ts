@@ -1,5 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from "../run_child_session";
+import { logAgentParsed } from "../../utils/persist"
 
 const AGENT_NAME = "proto_triage"
 
@@ -31,10 +32,11 @@ export interface TriageModifyItem {
 }
 
 export interface TriageResult {
-  routing: "regenerate" | "modify"
+  routing: "regenerate" | "modify" | "chat"
   delete: string[]
   add: string[]
   modify: TriageModifyItem[]
+  reply: string
   updated_intent: Record<string, unknown>
   reason: string
 }
@@ -68,10 +70,10 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
   })
   console.log("----- 分诊Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 triage json
-  const triageJson = extractJson(triageRes)
+  const triageJson = extractJson(triageRes.text)
   if (!triageJson) throw new Error("----- Triage JSON did not return valid JSON -----")
-  return {
-    routing: (triageJson.routing as "regenerate" | "modify") ?? "regenerate",
+  const returnValue = {
+    routing: (triageJson.routing as "regenerate" | "modify" | "chat") ?? "regenerate",
     delete: (triageJson.delete as string[]) ?? [],
     add: (triageJson.add as string[]) ?? [],
     modify: ((triageJson.modify as TriageModifyItem[]) ?? []).map((m) => ({
@@ -79,9 +81,12 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
       element_id: m.element_id ?? "",
       action: m.action ?? "",
     })),
+    reply: (triageJson.reply as string) ?? "",
     updated_intent: (triageJson.updated_intent as Record<string, unknown>) ?? {},
     reason: (triageJson.reason as string) ?? "",
   }
+  logAgentParsed(triageRes.childSessionId, returnValue)
+  return returnValue
 }
 
 function buildHumanMessage(userInput:string, lastPlanner: any, lastModules: any): string {

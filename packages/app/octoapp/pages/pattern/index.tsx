@@ -1,8 +1,8 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { showToast, showPromiseToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast, Toast } from "@opencode-ai/ui/toast"
 import {
   createEffect,
   createMemo,
@@ -14,7 +14,6 @@ import {
   type JSX,
 } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useGlobalSync } from "@/context/global-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
@@ -25,13 +24,20 @@ import { type OutputCard } from "./modules/chat/insight-turn"
 import { create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create_json'
 import modify_json_ai from './workflow/modify_json_ai'
 import { mergeModules } from "./agents/merge"
-import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint, type VersionEntry } from "./utils/persist"
+import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
+import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/persist"
+import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/persist"
 import { rollbackToVersion } from "./utils/history"
-import { buildIntentPrompt, detectCatalog, detectA2UIJson, type ComponentCatalog } from "./utils/a2ui-protocol"
+import { detectA2UIJson } from "./utils/a2ui-protocol"
+import { autoRenameSession } from "./utils/rename-session"
+import { exportZip } from "./utils/previewHandler/zip"
+import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify_json_quick'
+import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/previewHandler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/WireframeReview"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
+import { PatternPreviewEmpty } from "./modules/preview/PatternPreviewEmpty"
 
 const AGENT_NAME = "proto_triage"
 
@@ -53,18 +59,7 @@ export default function PatternPage() {
   )
 }
 
-function PatternPreviewEmpty(): JSX.Element {
-  return (
-    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#f9fafb" }}>
-      <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-      <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>对话产出将在这里展示</div>
-      <div class="text-[12px]" style={{ color: "var(--octo-text-disabled, #BFBFBF)" }}>点击左侧输出卡片即可打开</div>
-    </div>
-  )
-}
-
 function PatternContent() {
-  const globalSync = useGlobalSync()
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sdk = useSDK()
@@ -78,7 +73,7 @@ function PatternContent() {
     return { providerID: m.provider.id, modelID: m.id }
   })
 
-  const [sessionInfo, { refetch: refetchSession }] = createResource(
+  const [sessionInfo, { refetch: refetchSession, mutate: mutateSession }] = createResource(
     () => params.id ?? "",
     async (id) => {
       if (!id) return null as Session | null
@@ -102,6 +97,7 @@ function PatternContent() {
   }
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<string[]>([])
+  const [sessionSynced, setSessionSynced] = createSignal(false)
   let discoverVersion = 0
 
   // session 切换：按顺序执行清理 → 重置 → 异步加载 → 滚动
@@ -111,14 +107,13 @@ function PatternContent() {
       (id, prevId) => {
         // ── 1. 切换 session 时同步清理 ──
         if (prevId !== undefined) {
-          setSending(false)
-          setPhase("idle")
           setSelectedDesignSystem("ICT-3.1")
           setReviewUserInput("")
         }
 
         // ── 2. 无条件同步重置 ──
         setChildSessionIDs([])
+        setSessionSynced(false)
         discoverVersion++
         setPendingPreviewData(null)
         previewApi.sendToPreview(null)
@@ -134,9 +129,14 @@ function PatternContent() {
           setHasPreviewContent(false)
           setIsModifying(false)
 
-          // 同步子 session 消息
-          void sync.session.sync(id).then(() => {
-            if (params.id === id) discoverChildSessions(id)
+          // 同步子 session 消息，全部加载完成后才标记 synced
+          void sync.session.sync(id).then(async () => {
+            if (params.id !== id) return
+            await discoverChildSessions(id)
+            if (params.id !== id) return
+            setSessionSynced(true)
+            // 滚动到底部
+            requestAnimationFrame(() => autoScroll.forceScrollToBottom())
           })
 
           // 恢复历史版本状态并推送到预览
@@ -150,7 +150,7 @@ function PatternContent() {
                 setLastPlanner(checkpoint.planner)
                 setLastIntent(checkpoint.intentDescription)
                 setReviewUserInput(checkpoint.userInput)
-                setPhase("review")
+                setIsPlanReview(true)
                 return
               }
               // 无检查点，加载已完成状态
@@ -160,19 +160,8 @@ function PatternContent() {
               if (state.lastPlanner) setLastPlanner(state.lastPlanner)
               if (state.lastModules.length > 0) {
                 setLastModules(state.lastModules)
-                const a2ui = state.mergedA2UI
-                  ?? (() => {
-                    const shell =
-                      (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
-                      state.lastPlanner
-                    return mergeModules(
-                      { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
-                      // @ts-expect-error pre-existing type mismatch in mergeModules
-                      state.lastModules,
-                    )
-                  })()
-                const mergedJson = detectA2UIJson(JSON.stringify(a2ui))
-                if (mergedJson) sendToPreview(mergedJson)
+                const a2uiJSON = state.mergedA2UI
+                if (a2uiJSON) sendToPreview(a2uiJSON)
               }
             })
             void listPatternVersions(dir, id).then(({ versions, current }) => {
@@ -182,9 +171,6 @@ function PatternContent() {
             })
           }
         }
-
-        // ── 4. 滚动到底部 ──
-        requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
@@ -229,7 +215,7 @@ function PatternContent() {
     if (childIDs.length === 0 && rootUserMsgs.length === 0) return []
 
     type Item = { sessionID: string; messageID: string; time: number }
-    type Round = { startTime: number; endTime?: number; items: Item[] }
+    type Round = { startTime: number; endTime?: number; items: Item[]; cancelled: boolean }
 
     // Collect all round boundary timestamps.
     // Create mode (round 1): no root user messages, child sessions exist → boundary at 0.
@@ -249,6 +235,26 @@ function PatternContent() {
       const items: Item[] = []
       let startTime = roundStart === 0 ? Infinity : roundStart
       let endTime: number | undefined
+      let cancelled = false
+
+      const checkCancelled = (m: Message) => {
+        if (cancelled || m.role !== "assistant") return
+        const msgError = (m as Record<string, unknown>).error as Record<string, unknown> | undefined
+        if (msgError?.name === "MessageAbortedError") {
+          cancelled = true
+          return
+        }
+        const parts = sync.data.part[m.id] as Array<Record<string, unknown>> | undefined
+        if (!parts) return
+        for (const p of parts) {
+          if (p.type !== "tool") continue
+          const st = p.state as Record<string, unknown> | undefined
+          if (st?.status === "error" && (st.error === "Cancelled" || st.error === "Tool execution aborted")) {
+            cancelled = true
+            return
+          }
+        }
+      }
 
       // Track earliest created & latest completed across all messages in this round
       const trackTime = (m: Message) => {
@@ -265,7 +271,7 @@ function PatternContent() {
         trackTime(m)
         const idx = allRootMsgs.findIndex((mm) => mm.id === m.id)
         const assistant = allRootMsgs.slice(idx + 1).find((mm) => mm.role === "assistant")
-        if (assistant) trackTime(assistant)
+        if (assistant) { trackTime(assistant); checkCancelled(assistant) }
       }
 
       // Child sessions in this round's time window: user messages → items, all messages → timing
@@ -276,12 +282,13 @@ function PatternContent() {
         for (const m of childMsgs) {
           if (m.role === "user") items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
           trackTime(m)
+          checkCancelled(m)
         }
       }
 
       items.sort((a, b) => a.time - b.time)
       if (startTime === Infinity) startTime = items.length > 0 ? items[0].time : Date.now()
-      return { startTime, endTime, items }
+      return { startTime, endTime, items, cancelled }
     })
   })
 
@@ -312,9 +319,8 @@ function PatternContent() {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const [sending, setSending] = createSignal(false)
-  const [phase, setPhase] = createSignal<"idle" | "intent" | "audit" | "planner" | "review" | "module">("idle")
-  const [detectedCatalog, setDetectedCatalog] = createSignal<ComponentCatalog>("desktop")
+  const [sendingSid, setSendingSid] = createSignal<string | null>(null)
+  const sending = () => sendingSid() != null && sendingSid() === params.id
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
@@ -326,10 +332,11 @@ function PatternContent() {
   const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
   const [isModifying, setIsModifying] = createSignal(false)
+
   // 线框审查阶段的用户原始输入（planner/intent 复用 lastPlanner/lastIntent）
   const [reviewUserInput, setReviewUserInput] = createSignal<string>("")
-  const lastVersionSave = new Map<string, number>()
-  const VERSION_THROTTLE_MS = 2000
+  // 是否处于线框审查阶段
+  const [isPlanReview, setIsPlanReview] = createSignal(false)
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
@@ -337,15 +344,8 @@ function PatternContent() {
     return `${home}/.octo/design/history`;
   })
 
-  const hasContent = () => {
-    const id = params.id
-    if (!id) return false
-    if (userMessages().length > 0) return true
-    if (sending()) return true
-    const rootMsgs = sync.data.message[id]
-    if (rootMsgs && rootMsgs.length > 0) return true
-    return false
-  }
+  const hasContent = () => !!(params.id && userMessages().length > 0)
+  const sessionMessagesLoaded = () => !params.id || sessionSynced()
 
   // 从预览页选中元素后触发的修改回调
   function handlePickerSubmit(text: string, domPickerId: string) {
@@ -353,48 +353,21 @@ function PatternContent() {
     void handleSubmit()
   }
 
-  async function handleModifyElement(data: { elementId: string; className: string; textContent: string; componentProps: Record<string, string>; tag?: string; saveToHistory?: boolean; keepOpen?: boolean }) {
-    console.log("[Pattern] modifyElement data:", data)
-    const current = pendingPreviewData()
-    if (!current || typeof current !== 'object') return
-    const doc = JSON.parse(JSON.stringify(current))
-    if (!doc?.elements || !Array.isArray(doc.elements)) return
-    let found = false
-    for (const el of doc.elements) {
-      if (el.id === data.elementId) {
-        found = true
-        el.props = el.props || {}
-        el.props.className = data.className
-        if (data.textContent) el.props.value = data.textContent
-        if (data.componentProps) Object.assign(el.props, data.componentProps)
-        break
-      }
-    }
-    console.log("[Pattern] element found:", found, "in", doc.elements.length, "elements")
-    sendToPreview(doc)
-    if (data.saveToHistory) {
-      const key = data.elementId
-      const now = Date.now()
-      const last = lastVersionSave.get(key) ?? 0
-      if (now - last >= VERSION_THROTTLE_MS) {
-        lastVersionSave.set(key, now)
-        const dir = patternHistoryDir()
-        const sid = params.id
-        if (dir && sid) {
-          const summary = (data.tag || data.componentProps?.value || Object.keys(data.componentProps || {}).join(',') || '快速修改').slice(0, 80)
-          const vid = await appendPatternVersion(dir, sid, {
-            lastIntent: lastIntent(),
-            lastPlanner: lastPlanner(),
-            lastModules: lastModules(),
-            mergedA2UI: doc as unknown as Record<string, unknown>,
-          }, summary)
-          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary }])
-          setCurrentVersionId(vid)
-        }
-      }
-    }
-    previewApi.refresh()
+  const quickModifyCtx: QuickModifyContext = {
+    getPendingData: pendingPreviewData,
+    sendToPreview,
+    refreshPreview: () => previewApi.refresh(),
+    getHistoryDir: () => patternHistoryDir(),
+    getSessionId: () => params.id,
+    getLastIntent: lastIntent,
+    getLastPlanner: lastPlanner,
+    getLastModules: lastModules,
+    setVersions,
+    setCurrentVersionId,
+  }
 
+  async function handleModifyElement(data: ModifyElementData) {
+    await runQuickModify(quickModifyCtx, data)
   }
 
 
@@ -449,7 +422,7 @@ function PatternContent() {
 
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { } }
+  const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { }, setEditingOff: () => { } }
 
   function sendToPreview(data: unknown) {
     setPendingPreviewData(data)
@@ -462,28 +435,25 @@ function PatternContent() {
     if (!text || sending() || !activeModelKey()) return
     const genStartTime = performance.now()
     console.log("[Pattern] 开始生成页面:", text)
-    setSending(true)
-    setPrompt("")
     const submitSessionId = params.id
+    setPrompt("")
     const mk = activeModelKey()!
+    // const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
+    //  const css = await desktopApi?.tailwindToCss?.("flex items-center justify-between px-inset py-inline bg-surface-container-highest shadow-sm z-10")
+    //   console.log("[Pattern] tailwind css:", css)
+    let sid = submitSessionId
     try {
-      let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
         const result = await sdk.client.session.create({ directory: dir, agent: AGENT_NAME })
         const session = result.data as Session | undefined
         if (!session) return
-        setPhase("intent")
         setSelectedDesignSystem("ICT-3.1")
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
-
-      const existing = sessionInfo()?.title
-      if (!existing || existing.startsWith("New session")) {
-        await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => { })
-      }
+      setSendingSid(sid)
 
       // 执行流程的基础上下文
       let intentCtx = {
@@ -493,29 +463,41 @@ function PatternContent() {
         rootSession: sid,
         userInput: text,
         onSessionCreated: (childID: string) => {
+          if (params.id !== sid) return
           setChildSessionIDs((prev) => [...prev, childID])
         },
+        refreshPreview: () => previewApi.refresh(),
       }
+
+      // 开启本次调试日志
+      logStartSession(sid, text)
       // 流程执行完毕后的回调
       let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
+          // 历史保存始终执行（与当前查看的 session 无关）
+          const dir = patternHistoryDir()
+          if (dir) {
+            const debug = getDebugSnapshot()
+            const vid = await appendPatternVersion(dir, sid!, {
+                lastIntent: pageIntent,
+                lastPlanner: layoutPlanner,
+                lastModules: modulesJson,
+                mergedA2UI: pageJson as unknown as Record<string, unknown>,
+                debug,
+            }, text.slice(0, 80))
+            if (params.id === sid) {
+              setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+              setCurrentVersionId(vid)
+              clearDebugLog()
+          }
+          }
+          // 视图状态仅在仍在该 session 时更新
+          if (params.id !== sid) return
           // 触发页面渲染
           if (pageJson) sendToPreview(pageJson)
           // 内存数据更新
           setLastIntent(pageIntent)
           setLastPlanner(layoutPlanner)
           setLastModules(modulesJson)
-          // 历史文件
-          const dir = patternHistoryDir()
-          if (dir) {
-            const vid = await appendPatternVersion(dir, sid, {
-                lastIntent: lastIntent(),
-                lastPlanner: lastPlanner(),
-                lastModules: lastModules(),
-                mergedA2UI: pageJson as unknown as Record<string, unknown>,
-            }, text.slice(0, 80))
-            setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
-            setCurrentVersionId(vid)
-          }
       }
 
       if(lastModules().length > 0){
@@ -526,9 +508,23 @@ function PatternContent() {
         }
         // AI 修改页面 — 先切到加载态
         setIsModifying(true)
-        await modify_json_ai(intentCtx, lastData, onFinshed);
+        const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
         setIsModifying(false)
+        if ((modifyResult as any)?.reply) {
+          showToast({ title: (modifyResult as any).reply })
+        }
       }else{
+        // 首次创建页面：异步获取标题（不阻塞 pipeline）
+        void autoRenameSession({
+          client: sdk.client,
+          directory: sdk.directory,
+          targetSessionID: sid!,
+          userText: text,
+          modelKey: mk,
+        }).then((title) => {
+          if (title && params.id === sid) mutateSession(prev => prev ? { ...prev, title } : prev)
+        }).catch(() => {})
+
         // 首次创建页面 — 阶段 1：意图扩展 + 布局规划
         const new_planner = await create_planner_json(intentCtx)
         // 持久化线框审查检查点
@@ -547,7 +543,7 @@ function PatternContent() {
         setLastPlanner(new_planner.planner.layout_planner)
         setLastIntent(new_planner.intent.intent_description)
         setReviewUserInput(text)
-        setPhase("review")
+        setIsPlanReview(true)
       }
 
       const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
@@ -556,9 +552,7 @@ function PatternContent() {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
     } finally {
-      if (!submitSessionId || params.id === submitSessionId) {
-        setSending(false)
-      }
+      setSendingSid((prev) => (prev === sid ? null : prev))
     }
   }
 
@@ -581,8 +575,7 @@ function PatternContent() {
     const ckptDir = patternHistoryDir()
     if (ckptDir) await clearReviewCheckpoint(ckptDir, sid)
 
-    setPhase("module")
-    setSending(true)
+    setIsPlanReview(false)
 
     const intentCtx: ProtoCreateJsonInput = {
       sdk,
@@ -621,8 +614,6 @@ function PatternContent() {
     } catch (err: unknown) {
       console.error("[PatternPage] handleConfirmReview failed", err)
     } finally {
-      setPhase("idle")
-      setSending(false)
       setReviewUserInput("")
     }
   }
@@ -640,7 +631,7 @@ function PatternContent() {
         await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
       }
     }
-    setSending(false)
+    setSendingSid((prev) => (prev === sid ? null : prev))
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -712,6 +703,7 @@ function PatternContent() {
         { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
         // @ts-expect-error pre-existing type mismatch in mergeModules
         lastModules(),
+        (shellLayout?.slots as any[]) ?? undefined,
       )
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)
@@ -726,6 +718,7 @@ function PatternContent() {
         { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
         // @ts-expect-error pre-existing type mismatch in mergeModules
         lastModules(),
+        (shellLayout?.slots as any[]) ?? undefined,
       )
       const mergedJson = detectA2UIJson(JSON.stringify(merged))
       if (mergedJson) sendToPreview(mergedJson)
@@ -744,103 +737,45 @@ function PatternContent() {
 
   // 回退到指定历史版本
   async function handleSelectVersion(versionId: string) {
-    const id = params.id
-    const dir = patternHistoryDir()
-    if (!id || !dir) return
-    const state = await rollbackToVersion(dir, id, versionId, sendToPreview)
-    if (!state) return
-    setCurrentVersionId(versionId)
-    if (state.lastIntent) setLastIntent(state.lastIntent)
-    if (state.lastPlanner) setLastPlanner(state.lastPlanner)
-    if (state.lastModules.length > 0) setLastModules(state.lastModules)
-    previewApi.refresh()
+    await selectVersion({
+      versionId,
+      sessionId: params.id,
+      historyDir: patternHistoryDir(),
+      previewApi,
+      sendToPreview,
+      setCurrentVersionId,
+      onStateRestored: (state) => {
+        if (state.lastIntent) setLastIntent(state.lastIntent)
+        if (state.lastPlanner) setLastPlanner(state.lastPlanner)
+        if (state.lastModules.length > 0) setLastModules(state.lastModules)
+      },
+    })
   }
 
   function handleDownload() {
-    const data = pendingPreviewData()
-    if (!data) {
-      showToast({ title: "暂无可下载的内容" })
-      return
-    }
-    const jsonStr = typeof data === "string" ? data : JSON.stringify(data, null, 2)
-    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `pattern-${params.id ?? "export"}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    download(pendingPreviewData(), params.id ?? "export")
+  }
+
+  // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
+  async function handleShare() {
+    await exportZip({
+      patternId: params.id ?? "export",
+      intent: lastIntent(),
+      planner: lastPlanner(),
+      modules: lastModules(),
+      previewData: pendingPreviewData(),
+    })
   }
 
   async function handleLivePreview() {
-    const data = pendingPreviewData()
-    if (!data) {
-      showToast({ title: "暂无可预览的内容" })
-      return
-    }
-    const desktopApi = (window as unknown as {
-      api?: {
-        getPreviewDistDir?: () => Promise<string>
-        writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
-      }
-    }).api
-
-    const dir = await desktopApi?.getPreviewDistDir?.()
-    if (!dir || !desktopApi?.writeFileBuffer) {
-      showToast({ title: "当前环境不支持实时预览" })
-      return
-    }
-
-    const jsonStr = typeof data === "string" ? data : JSON.stringify(data)
-    const buffer = new TextEncoder().encode(jsonStr).buffer
-    await desktopApi.writeFileBuffer(`${dir}/live-data.json`, buffer)
-    window.open("http://127.0.0.1:51856?fetch=live-data.json")
+    await livePreview(pendingPreviewData())
   }
-
-  const [pixsoLoading, setPixsoLoading] = createSignal(false)
 
   async function handlePixsoPreview() {
-    if (pixsoLoading()) return
-    setPixsoLoading(true)
-
-    const desktopApi = (window as unknown as {
-      api?: {
-        runPixsoBuild?: (input: string) => Promise<string>
-        writeClipboardText?: (text: string) => Promise<void>
-      }
-    }).api
-
-    if (!desktopApi?.runPixsoBuild) {
-      showToast({ title: "当前环境不支持 Pixso 转换" })
-      setPixsoLoading(false)
-      return
-    }
-
-    const data = pendingPreviewData()
-    const jsonStr = typeof data === "string" ? data : JSON.stringify(data ?? "")
-    const buildPromise = desktopApi.runPixsoBuild(jsonStr)
-
-    showPromiseToast(buildPromise, {
-      loading: "Pixso 转换中，请等待...",
-      success: (result: string) => {
-        void desktopApi.writeClipboardText?.(result)
-        return `转换完成，传送码已复制到剪贴板`
-      },
-      error: (err: unknown) => `转换失败: ${err instanceof Error ? err.message : String(err)}`,
-    })
-
-    try {
-      await buildPromise
-    } catch {
-      // showPromiseToast 已处理错误提示
-    } finally {
-      setPixsoLoading(false)
-    }
+    await pixsoPreview(pendingPreviewData())
   }
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || phase() === "review"
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || isPlanReview()
 
   const chartInputProps = () => ({
     value: prompt(),
@@ -877,6 +812,7 @@ function PatternContent() {
         <Show when={!focusMode()}>
           <ChatPanel
             hasContent={hasContent()}
+            sessionMessagesLoaded={sessionMessagesLoaded()}
             isBusy={isBusy()}
             sessionInfo={sessionInfo() ?? null}
             userMessages={userMessages()}
@@ -895,7 +831,7 @@ function PatternContent() {
             hasPreview={lastModules().length > 0 && !isBusy()}
             onOpenPreview={handleOpenPreview}
             onDeleteSession={deleteSession}
-            onTitleChanged={() => void refetchSession()}
+            onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
           />
         </Show>
 
@@ -907,7 +843,7 @@ function PatternContent() {
         <Show when={hasContent()}>
           <div style={{ position: "relative", overflow: "hidden" }}>
             {/* 线框审查阶段 */}
-            <Show when={phase() === "review"} fallback={
+            <Show when={isPlanReview()} fallback={
               <Show when={hasPreviewContent()} fallback={<PatternPreviewEmpty />}>
                 <PreviewPage
                   api={previewApi}
@@ -933,19 +869,7 @@ function PatternContent() {
               </Show>
             </Show>
             <Show when={isModifying()}>
-              <div
-                style={{
-                  position: "absolute",
-                  inset: "0",
-                  "z-index": "50",
-                  background: "rgba(249, 250, 251, 0.85)",
-                  display: "flex",
-                  "flex-direction": "column",
-                  "align-items": "center",
-                  "justify-content": "center",
-                  gap: "12px",
-                }}
-              >
+              <div class="change-content">
                 <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
                 <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>正在修改页面中...</div>
               </div>

@@ -1,5 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from "../run_child_session"
+import { logAgentParsed } from "../../utils/persist"
 
 const AGENT_NAME = "proto_module_modify";
 
@@ -9,6 +10,7 @@ export interface ModuleModifyInput {
   sectionId: string
   originModules: Record<string, unknown>
   modifications: Record<string, unknown>
+  intentDescription?: Record<string, unknown>
 }
 
 export interface ModuleModifyResult {
@@ -60,7 +62,7 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
   })
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 json 数据
-  const modifyJson = extractJson(modifyRes)
+  const modifyJson = extractJson(modifyRes.text)
   if (!modifyJson) throw new Error("module_modify did not return valid JSON")
 
   const rootElementId = ctx.input.originModules.rootId as string
@@ -72,17 +74,19 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
     }
   }
 
-  return {
+  const returnValue = {
     ui_json: modifyJson,
     sectionId: ctx.input.sectionId,
     elementId: rootElementId,
     idPrefix: ctx.input.idPrefix,
   }
+  logAgentParsed(modifyRes.childSessionId, returnValue)
+  return returnValue
 }
 
 
 function buildHumanMessage(input: ModuleModifyInput): string {
-  return [
+  const lines = [
     `[顶层布局和Slots]: ===============`,
     JSON.stringify(input.layoutPlanner),
     ``,
@@ -97,5 +101,13 @@ function buildHumanMessage(input: ModuleModifyInput): string {
     ``,
     `[修改意见] ===============`,
     JSON.stringify(input.modifications),
-  ].join("\n")
+  ]
+  if (input.intentDescription) {
+    lines.push(
+      ``,
+      `[更新后的页面意图] ===============`,
+      JSON.stringify(input.intentDescription),
+    )
+  }
+  return lines.join("\n")
 }

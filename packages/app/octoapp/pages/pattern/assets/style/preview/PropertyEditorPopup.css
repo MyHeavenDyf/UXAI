@@ -1,0 +1,146 @@
+/* ==========================================================================
+   属性编辑器弹窗 / 快速修改面板样式
+   ========================================================================== */
+
+.property-editor-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 199;
+}
+
+.property-editor-popup {
+  position: absolute;
+  z-index: 200;
+  width: 240px;
+  max-height: 560px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px 0px rgba(0, 0, 0, 0.16);
+  user-select: none;
+  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.property-editor-popup .popup-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.property-editor-popup .popup-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+
+.property-editor-popup .popup-header:active {
+  cursor: grabbing;
+}
+#popup-header-close-btn:hover{
+  background-color: #c9c9c9;
+}
+.property-input {
+  border-radius: 2px;
+  border: 1px solid #c9c9c9;
+  background: #f8fafc;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #191919;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.property-input:focus {
+  border-color: #0067d1;
+  box-shadow: 0 0 0 1px #8abef3;
+}
+
+.property-select {
+  border-radius: 2px;
+  border: 1px solid #c9c9c9;
+  background: #f8fafc;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #191919;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.property-select:focus {
+  border-color: #0067d1;
+  box-shadow: 0 0 0 1px #8abef3;
+}
+
+.property-editor-popup select {
+  border: 1px solid #e5e7eb !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  background: #f4f4f5;
+  outline: none;
+}
+
+.property-editor-popup select:focus {
+  border-color: #93c5fd !important;
+  box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.3) !important;
+  outline: none;
+}
+
+.property-editor-popup select option {
+  padding: 6px 12px;
+  background: #fff;
+  color: #191919;
+  font-size: 13px;
+}
+
+.property-number-input {
+  border-radius: 6px;
+  border: 1px solid #F4F4F5;
+  background: #F4F4F5;
+  padding: 4px 2px;
+  font-size: 12px;
+  text-align: center;
+  color: #191919;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.property-number-input:focus {
+  border-color: #0067d1;
+  box-shadow: 0 0 0 1px #8abef3;
+}
+
+.prop-chip {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: transparent;
+  cursor: pointer;
+}
+
+.prop-chip:hover {
+  background-color: #D0D0D0;
+}
+
+.prop-chip-active {
+  border: none;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: none;
+  background: #F4F4F5;
+  cursor: pointer;
+}
+
+.prop-chip-active:hover {
+  background-color: #D0D0D0;
+}

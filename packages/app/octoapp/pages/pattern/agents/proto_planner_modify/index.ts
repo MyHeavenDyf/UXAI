@@ -1,5 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from "../run_child_session"
+import { logAgentParsed } from "../../utils/persist"
 
 const AGENT_NAME = "proto_planner_modify"
 
@@ -76,7 +77,7 @@ export default async function proto_planner_modify(ctx: PlannerModifyContext): P
   })
   console.log("----- 布局修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 modify json
-  const modifyJson = extractJson(modifyRes)
+  const modifyJson = extractJson(modifyRes.text)
   if (!modifyJson) throw new Error("----- Planner Modify JSON did not return valid JSON -----")
   const output: PlannerModifyOutput = {
     rootId: (modifyJson.rootId as string) ?? "",
@@ -92,7 +93,9 @@ export default async function proto_planner_modify(ctx: PlannerModifyContext): P
   const newSectionIds = new Set(output.slots.map((s) => s.section_id))
   const oldSlots = (ctx.input.layoutPlanner.slots as Array<Record<string, unknown>>) ?? []
   const removedSectionIds = oldSlots.map((s) => s.section_id as string).filter((id) => !newSectionIds.has(id))
-  return { output, removedSectionIds }
+  const returnValue = { output, removedSectionIds }
+  logAgentParsed(modifyRes.childSessionId, returnValue)
+  return returnValue
 }
 
 function cleanSlots(layoutPlanner: Record<string, unknown>): Record<string, unknown> {

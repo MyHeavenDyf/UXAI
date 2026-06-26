@@ -22,7 +22,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none"
       style={{
-        transform: props.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+        transform: props.collapsed ? "rotate(0deg)" : "rotate(-90deg)",
         transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
         "flex-shrink": "0",
       }}
@@ -108,9 +108,6 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
 
   const [patternCollapsed, setPatternCollapsed] = createSignal(false)
   const [creating, setCreating] = createSignal(false)
-  let createTimer: ReturnType<typeof setTimeout> | undefined
-
-  onCleanup(() => clearTimeout(createTimer))
 
   const [contextMenu, setContextMenu] = createStore<{
     show: boolean
@@ -201,15 +198,24 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
   function newSession() {
     if (creating()) return
     setCreating(true)
-    clearTimeout(createTimer)
-    createTimer = setTimeout(() => setCreating(false), 500)
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
     void client.session.create({ directory: dir, agent: "proto_triage" }).then((result) => {
+      setCreating(false)
       const session = result.data as Session | undefined
       if (session) navigate(`/pattern/${session.id}`)
     })
+  }
+
+  let fileInputRef: HTMLInputElement | undefined
+
+  function triggerImport() {
+    fileInputRef?.click()
+  }
+
+  async function handleFileImport(e: Event) {
+   // 导入文件
   }
 
   return (
@@ -225,15 +231,33 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
       <div class="shrink-0 flex flex-col px-[12px]">
         <ProjectInfo />
         <div class="relative">
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full mb-[8px] rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-            onClick={newSession}
-          >
-            <Icon name="plus" size="normal" class="shrink-0" />
-            <span>新建</span>
-          </button>
+          <div class="flex items-center justify-between gap-2 mb-[8px]">
+            <button
+              type="button"
+              class="flex items-center gap-2  rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+              onClick={newSession}
+            >
+              <Icon name="plus" size="normal" class="shrink-0" />
+              <span>新建</span>
+            </button>
+            <button
+              type="button"
+              class="flex items-center gap-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+              onClick={triggerImport}
+            >
+              <Icon name="download" size="normal" class="shrink-0" />
+              <span>导入</span>
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: "none" }}
+            onChange={handleFileImport}
+          />
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>

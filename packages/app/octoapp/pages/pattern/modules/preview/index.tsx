@@ -13,6 +13,7 @@ export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
   postMessage: (data: unknown) => void
   refresh: () => void
+  setEditingOff: () => void
 }
 
 interface RawRect {
@@ -28,6 +29,7 @@ export function PreviewPage(props: {
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
+  onShare?: () => void
   onLivePreview?: () => void
   onPixsoPreview?: () => void
   versions?: VersionEntry[]
@@ -37,12 +39,17 @@ export function PreviewPage(props: {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
 
-  let canvasRef: { reset: () => void } | undefined
+  let canvasRef: { reset: () => void; setScale: (scale: number) => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
 
-  const TARGET_WIDTH = 1920
-  const TARGET_HEIGHT = 1080
+  const DEVICE_DIMENSIONS: Record<string, [number, number]> = {
+    desktop: [1920, 1080],
+    tablet: [768, 1024],
+    mobile: [375, 667],
+  }
+  const [targetWidth, setTargetWidth] = createSignal(1920)
+  const [targetHeight, setTargetHeight] = createSignal(1080)
 
   createEffect(() => {
     if (!editing()) setPropertyEditor('show', false)
@@ -56,6 +63,16 @@ export function PreviewPage(props: {
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
     console.log(`切换类型: ${type}, 选中值: ${value}`)
 
+    if (type === "device") {
+      const dims = DEVICE_DIMENSIONS[value]
+      if (dims) {
+        setTargetWidth(dims[0])
+        setTargetHeight(dims[1])
+        queueMicrotask(() => canvasRef?.reset())
+      }
+      return
+    }
+
     if (type === "preview" && value === "live") {
       props.onLivePreview?.()
       return
@@ -66,8 +83,8 @@ export function PreviewPage(props: {
       return
     }
 
-    if (type === "zoom" && value === "auto") {
-      canvasRef?.reset()
+    if (type === "zoom") {
+      canvasRef?.setScale(Number(value) / 100)
     }
 
     if (type === "theme") {
@@ -91,6 +108,12 @@ export function PreviewPage(props: {
       previewIframeRef.contentWindow.postMessage(data, "*")
     }
     props.api.refresh = triggerRefresh
+    props.api.setEditingOff = () => {
+      setEditing(false)
+      previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+      setPropertyEditor('show', false)
+      unfreezeDomPicker()
+    }
   }
 
   // ==========================================================================
@@ -111,7 +134,7 @@ export function PreviewPage(props: {
     const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
     if (!wrapper) return { x: iframeX, y: iframeY }
     const rect = wrapper.getBoundingClientRect()
-    const scale = rect.width / TARGET_WIDTH
+    const scale = rect.width / targetWidth()
     return { x: rect.left + iframeX * scale, y: rect.top + iframeY * scale }
   }
 
@@ -169,11 +192,11 @@ export function PreviewPage(props: {
     const paneRect = previewPageRef?.getBoundingClientRect()
     const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
     const wrapperRect = wrapper?.getBoundingClientRect()
-    const scale = (wrapperRect?.width ?? TARGET_WIDTH) / TARGET_WIDTH
+    const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
     const rawRect = ctxMenu.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
 
-    const cx = 20
-    const cy = 115
+    const cx = 46
+    const cy = 57
 
     setPropertyEditor('show', false)
     queueMicrotask(() => {
@@ -249,6 +272,9 @@ export function PreviewPage(props: {
     if (e.data?.type === "A2UI_READY" && props.pendingData) {
       console.log("[preview] A2UI_READY, re-sending pendingData")
       sendToPreview(props.pendingData)
+      if (editing()) {
+        previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+      }
     }
   }
 
@@ -293,6 +319,7 @@ export function PreviewPage(props: {
           if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
         }}
         onDownload={props.onDownload}
+        onShare={props.onShare}
         versions={props.versions}
         currentVersionId={props.currentVersionId}
         onSelectVersion={props.onSelectVersion}
@@ -309,8 +336,8 @@ export function PreviewPage(props: {
       <CanvasView
         ref={(el) => { canvasRef = el }}
         canvasMode={canvasMode()}
-        targetWidth={TARGET_WIDTH}
-        targetHeight={TARGET_HEIGHT}
+        targetWidth={targetWidth()}
+        targetHeight={targetHeight()}
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}

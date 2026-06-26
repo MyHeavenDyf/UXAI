@@ -32,6 +32,7 @@ export async function rollbackToVersion(
           { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
           // @ts-expect-error pre-existing type mismatch in mergeModules
           state.lastModules,
+          (shell?.slots as any[]) ?? undefined,
         )
       })()
     const mergedJson = detectA2UIJson(JSON.stringify(a2ui))

@@ -1,0 +1,18 @@
+.preview-iframe-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  position: relative;
+}
+
+.preview-iframe-wrapper {
+  background-color: #ffffff; /* 画布大卡片白底 */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
