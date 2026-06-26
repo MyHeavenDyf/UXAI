@@ -263,15 +263,13 @@ export default function StudioPage() {
     Persist.global("studio.left.width"),
     createStore({ width: 296 }),
   )
-  const studioLeftWidth = () => studioLeftStore.width
-  const setStudioLeftWidth = (w: number) => setStudioLeftStore({ width: w })
+  const [studioLeftWidth, setStudioLeftWidth] = createSignal(studioLeftStore.width)
   const toggleStudioLeft = () => setStudioLeftCollapsed((v) => !v)
   const [studioCenterStore, setStudioCenterStore] = persisted(
     Persist.global("studio.center.width"),
     createStore({ width: 468 }),
   )
-  const studioCenterWidth = () => studioCenterStore.width
-  const setStudioCenterWidth = (w: number) => setStudioCenterStore({ width: w })
+  const [studioCenterWidth, setStudioCenterWidth] = createSignal(studioCenterStore.width)
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
     sessionID: () => params.id,
     globalSDK,
@@ -392,24 +390,42 @@ export default function StudioPage() {
     blobUrlCache.clear()
   })
 
-  function handleStudioLeftResize(event: MouseEvent) {
-    event.preventDefault()
-    const startX = event.clientX
-    const startWidth = studioLeftWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX
-      setStudioLeftWidth(Math.max(200, Math.min(360, startWidth + delta)))
+  const [resizingLeft, setResizingLeft] = createSignal(false)
+  const [resizingCenter, setResizingCenter] = createSignal(false)
+  const [resizeState, setResizeState] = createStore({ startX: 0, startWidth: 0 })
+
+  function onPagePointerMove(e: PointerEvent) {
+    if (resizingLeft()) {
+      const delta = e.clientX - resizeState.startX
+      setStudioLeftWidth(Math.max(200, Math.min(360, resizeState.startWidth + delta)))
     }
-    function onUp() {
+    if (resizingCenter()) {
+      const delta = e.clientX - resizeState.startX
+      setStudioCenterWidth(Math.min(700, Math.max(360, resizeState.startWidth + delta)))
+    }
+  }
+
+  function onPagePointerUp() {
+    if (resizingLeft()) {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+      setResizingLeft(false)
+      setStudioLeftStore("width", studioLeftWidth())
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+    if (resizingCenter()) {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      setResizingCenter(false)
+      setStudioCenterStore("width", studioCenterWidth())
+    }
+  }
+
+  function handleStudioLeftResize(event: PointerEvent) {
+    event.preventDefault()
+    setResizeState({ startX: event.clientX, startWidth: studioLeftWidth() })
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    setResizingLeft(true)
   }
 
   // 折叠图标：窗口 ≥1456px 且 <1920px 时显示
@@ -491,20 +507,17 @@ export default function StudioPage() {
     })
   })
 
-  function handleStudioCenterResize(event: MouseEvent) {
+  const centerResizeLeft = createMemo(() => {
+    if (studioLeftCollapsed()) return 68
+    return studioLeftWidth()
+  })
+
+  function handleStudioCenterResize(event: PointerEvent) {
     event.preventDefault()
-    const startX = event.clientX
-    const startWidth = studioCenterWidth()
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
-    }
-    function onUp() {
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+    setResizeState({ startX: event.clientX, startWidth: studioCenterWidth() })
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    setResizingCenter(true)
   }
 
   const isBusy = createMemo(() =>
@@ -2373,7 +2386,13 @@ export default function StudioPage() {
   })
 
   return (
-    <div ref={studioPageRef!} class="studio-page" style={{ position: "relative" }}>
+    <div
+      ref={studioPageRef!}
+      class="studio-page"
+      style={{ position: "relative" }}
+      onPointerMove={onPagePointerMove}
+      onPointerUp={onPagePointerUp}
+    >
       <aside
         class="studio-left"
         classList={{ collapsed: studioLeftCollapsed() }}
@@ -2381,7 +2400,7 @@ export default function StudioPage() {
           width: studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
           "flex-basis": studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
           "min-width": studioLeftCollapsed() ? "68px" : undefined,
-          transition: "width 200ms ease, flex-basis 200ms ease",
+          transition: resizingLeft() ? "none" : "width 200ms ease, flex-basis 200ms ease",
         }}
       >
         <Show
@@ -2439,12 +2458,12 @@ export default function StudioPage() {
           />
         </Show>
       </aside>
-      <Show when={!studioLeftCollapsed()}>
-        <div
-          style={{ width: "8px", "flex-shrink": "0", cursor: "col-resize" }}
-          onMouseDown={handleStudioLeftResize}
-        />
-      </Show>
+      <div
+        class="absolute top-0 bottom-0 cursor-col-resize z-10"
+        classList={{ hidden: studioLeftCollapsed() }}
+        style={{ left: `${studioLeftWidth()}px`, width: "8px" }}
+        onPointerDown={handleStudioLeftResize}
+      />
 
       <Show when={hasStudioConversation()} fallback={
         <main class="studio-empty-workspace">
@@ -2638,12 +2657,13 @@ export default function StudioPage() {
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
           />
         </section>
-        <div
-          class="cursor-col-resize z-10"
-          style={{ width: "8px", "flex-shrink": "0" }}
-          onMouseDown={handleStudioCenterResize}
-        />
         </Show>
+        <div
+          class="absolute top-0 bottom-0 cursor-col-resize z-10"
+          classList={{ hidden: !showStudioCenter() }}
+          style={{ left: `${centerResizeLeft() + studioCenterWidth()}px`, width: "8px" }}
+          onPointerDown={handleStudioCenterResize}
+        />
 
       <main class="studio-workspace">
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
