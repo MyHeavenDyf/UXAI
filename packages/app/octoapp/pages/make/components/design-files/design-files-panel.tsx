@@ -5,8 +5,10 @@ import {
   Show,
   Switch,
   Match,
+  onCleanup,
   createSignal,
   on,
+  batch,
 } from "solid-js"
 import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
@@ -86,9 +88,20 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
-  createEffect(on(() => props.sessionId, () => {
-    fileStore.setCurrentPath("")
-  }))
+  createEffect(on(
+    [() => props.sessionId, () => fileStore.store.currentPath],
+    ([sessionId], prev) => {
+      if (prev && prev[0] !== sessionId) {
+        batch(() => {
+          fileStore.setCurrentPath("")
+          fileStore.clearKindFilter()
+          fileStore.setGeneratedFiles([])
+          fileStore.setUploadedFiles([])
+        })
+      }
+      void refresh()
+    }
+  ))
 
   const refresh = async () => {
     fileStore.setLoading(true)
@@ -119,10 +132,6 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       fileStore.setLoading(false)
     }
   }
-
-  createEffect(on(() => fileStore.store.currentPath, () => {
-    void refresh()
-  }))
 
   const handleDelete = async (file: ArtifactFile) => {
     dialog.show(() => (
@@ -574,14 +583,16 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           class="hidden"
         />
 
-        <DesignFilesToolbar
-          fileStore={fileStore}
-          onRefresh={refresh}
-          onUploadFile={() => fileInputRef?.click()}
-          onUploadFolder={() => folderInputRef?.click()}
-          onBatchDownload={handleBatchDownload}
-          onBatchDelete={handleBatchDelete}
-        />
+        <Show when={hasAnyFiles()}>
+          <DesignFilesToolbar
+            fileStore={fileStore}
+            onRefresh={refresh}
+            onUploadFile={() => fileInputRef?.click()}
+            onUploadFolder={() => folderInputRef?.click()}
+            onBatchDownload={handleBatchDownload}
+            onBatchDelete={handleBatchDelete}
+          />
+        </Show>
 
         <div class="flex-1 min-h-0 overflow-auto">
           <div style={{ padding: "24px" }} class="h-full">
@@ -1082,7 +1093,7 @@ function FileRow(props: {
             <div class="flex flex-col gap-0.5 min-w-0">
               <span class="truncate">{props.file.name}</span>
               <Show when={!props.file.isFolder}>
-                <span class="text-[11px]" style={{ color: "var(--octo-text-secondary)" }}>
+                <span class="text-[14px]" style={{ color: "var(--octo-text-secondary)" }}>
                   {formatFileSize(props.file.size)}
                 </span>
               </Show>
@@ -1150,7 +1161,7 @@ function FileRow(props: {
                   class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] hover:bg-[#eee] transition-colors"
                   style={{ color: "rgba(0,0,0,0.9)" }}
                 >
-                  在文件资源管理器中打开
+                  打开所在文件夹
                 </button>
               </Show>
               <button
