@@ -1,3 +1,7 @@
+// 临时调试：捕获所有 AbortController.abort() 调用，定位 UND_ERR_ABORTED 根因
+// 移除方法：删除下面这行，并删除 packages/opencode/src/util/debug-abort.ts
+import "@/util/debug-abort"
+
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { RunCommand } from "./cli/cmd/run"

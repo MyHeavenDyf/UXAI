@@ -1,0 +1,93 @@
+# AbortController 调用诊断 Monkey-Patch
+
+## 背景
+
+octo AI 预制 provider 下的对话（包含主对话与 title 生成任务）频繁报错：
+
+```
+AI_RetryError (maxRetriesExceeded) / AI_APICallError
+  └── cause.cause: { name: "AbortError", code: "UND_ERR_ABORTED" }
+  └── url: http://octoai-llm.ucd.huawei.com/v1/chat/completions
+  └── requestBodyValues.model: DeepSeek-V4-Flash
+```
+
+排查现象：
+- **几秒内必现**（排除 5 分钟级 timeout）
+- **每次都失败**（排除偶发网络抖动）
+- **curl 同 URL 能拿到 SSE 流**（排除服务端、网络层、API Key、URL）
+
+`UND_ERR_ABORTED` 是 undici 的特有错误码，**唯一触发条件**是 fetch 的 signal 被 abort。也就是说，必然有业务代码主动调用了 `AbortController.prototype.abort()`。
+
+要精确定位是哪条调用链触发的 abort，只能 monkey-patch `AbortController.abort`，在每次调用时打印完整调用栈。
+
+## 修改内容
+
+### 新增：`packages/opencode/src/util/debug-abort.ts`
+
+monkey-patch 模块，覆盖 `AbortController.prototype.abort`：
+
+- 每次调用时记录：
+  - 时间戳 + 全局调用编号（便于关联多次 abort）
+  - `reason`（兼容 `Error` / `string` / `object`，含 cause）
+  - **完整 stack**（不限行数，原始保留）
+  - 业务代码帧（Top 5）单独提取
+  - `FromUserCode` 标记：用于过滤纯 Node 内部调用
+- **双写**：
+  - `stderr` 实时输出（运行时可见）
+  - 文件追加（事后分析，避免被日志系统覆盖）
+- **环境变量**：
+  - `OPENCODE_ABORT_DEBUG=0` 临时禁用
+  - `OPENCODE_ABORT_DEBUG_LOG=/path/to/file` 自定义日志路径
+  - 默认路径：`$CWD/.opencode-abort-debug.log`
+- 启动时打标记日志，确认 patch 已生效
+
+### 修改：`packages/opencode/src/index.ts`
+
+在文件**第一行**（所有 import 之前）新增：
+
+```ts
+import "@/util/debug-abort"
+```
+
+利用 ES module 副作用执行特性，保证 monkey-patch 在任何业务代码运行之前生效（即所有 fetch / abortSignal 链路启动前）。
+
+## 涉及文件
+
+- `packages/opencode/src/util/debug-abort.ts`（新增）
+- `packages/opencode/src/index.ts`（顶部加一行 import）
+
+## 验证方法
+
+1. 重新构建 opencode（`bun run build` 或对应命令）
+2. 启动时 stderr 应出现：`=== abort-debug monkey-patch installed ===`
+3. 复现 abort 报错场景
+4. 查看日志 `$CWD/.opencode-abort-debug.log`：
+   - 关注 `FromUserCode: YES` 的条目
+   - 看 `Top user-code frames` 直接定位调用函数
+   - 看 `Full Stack` 看完整调用链
+5. 排查完成后：
+   - 删除 `packages/opencode/src/index.ts` 顶部的 `import "@/util/debug-abort"`
+   - 删除 `packages/opencode/src/util/debug-abort.ts`
+
+## 预期产出
+
+每次 abort 调用会产出形如：
+
+```
+=========================================================
+[2026-06-26T...] ABORT #3 (patch started at 2026-06-26T...)
+FromUserCode: YES  <<< 关注这条
+Reason: AbortError: This operation was aborted
+
+--- Top user-code frames ---
+at Object.abort (packages/opencode/src/util/debug-abort.ts:...)
+at SessionProcessor.<anonymous> (packages/opencode/src/session/processor.ts:690)
+...
+
+--- Full Stack ---
+Error
+at Object.abort (packages/opencode/src/util/debug-abort.ts:...)
+...
+```
+
+其中 **`Top user-code frames` 的第一帧就是触发 abort 的业务代码位置**，能直接回答"是谁主动 abort 了请求"这个问题。
