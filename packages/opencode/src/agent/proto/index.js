@@ -17,6 +17,10 @@ import _PROMPT_PROTO_MODULE_MODIFY from "./prompt/proto_module_modify.txt"
 import _PROMPT_PROTO_PLANNER_CREATE from "./prompt/proto_planner_create.txt"
 import _PROMPT_PROTO_PLANNER_MODIFY from "./prompt/proto_planner_modify.txt"
 import _PROMPT_PROTO_TRIAGE from "./prompt/proto_triage.txt"
+import _PROMPT_PROTO_3D_INTENT from "./prompt/proto_3d_intent.txt"
+import _PROMPT_PROTO_3D_PLANNER from "./prompt/proto_3d_planner.txt"
+import _PROMPT_PROTO_3D_OBJECT from "./prompt/proto_3d_object.txt"
+import _PROMPT_PROTO_3D_TRIAGE from "./prompt/proto_3d_triage.txt"
 
 const data = {
   COMPONENTS_CATALOG,
@@ -46,3 +50,7 @@ export const PROMPT_PROTO_MODULE_MODIFY = formatPrompt(_PROMPT_PROTO_MODULE_MODI
 export const PROMPT_PROTO_PLANNER_CREATE = formatPrompt(_PROMPT_PROTO_PLANNER_CREATE)
 export const PROMPT_PROTO_PLANNER_MODIFY = formatPrompt(_PROMPT_PROTO_PLANNER_MODIFY)
 export const PROMPT_PROTO_TRIAGE = formatPrompt(_PROMPT_PROTO_TRIAGE)
+export const PROMPT_PROTO_3D_INTENT = formatPrompt(_PROMPT_PROTO_3D_INTENT)
+export const PROMPT_PROTO_3D_PLANNER = formatPrompt(_PROMPT_PROTO_3D_PLANNER)
+export const PROMPT_PROTO_3D_OBJECT = formatPrompt(_PROMPT_PROTO_3D_OBJECT)
+export const PROMPT_PROTO_3D_TRIAGE = formatPrompt(_PROMPT_PROTO_3D_TRIAGE)
