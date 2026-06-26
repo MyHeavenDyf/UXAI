@@ -1,6 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { getResultFromMessages, extractJson } from '../utils/json_parser'
-import { logAgentCall } from "../utils/persist"
+import { logAgentCall } from "../utils/debug-log"
 
 export type RunChildSessionInput = {
   sync?: any

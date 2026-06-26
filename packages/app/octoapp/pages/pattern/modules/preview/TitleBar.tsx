@@ -1,5 +1,5 @@
 import { createSignal, onCleanup, For, Show } from "solid-js"
-import type { VersionEntry } from "../../utils/persist"
+import type { VersionEntry } from "../../utils/version-history"
 import "../../assets/style/preview/titleBar.css"
 
 interface DropdownItem {

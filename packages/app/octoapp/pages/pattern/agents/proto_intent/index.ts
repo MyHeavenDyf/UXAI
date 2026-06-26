@@ -1,6 +1,6 @@
 import { extractJson } from '../../utils/json_parser';
 import { runChildSession } from '../run_child_session';
-import { logAgentParsed } from "../../utils/persist"
+import { logAgentParsed } from "../../utils/debug-log"
 
 const AGENT_NAME = "proto_intent"
 

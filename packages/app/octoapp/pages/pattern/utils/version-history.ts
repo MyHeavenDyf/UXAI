@@ -9,15 +9,10 @@
  * 浏览器环境降级使用 localStorage。
  */
 
-type DesktopApi = {
-  writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
-  readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
-  deleteFile?: (path: string) => Promise<void>
-}
-
-function getDesktopApi(): DesktopApi | undefined {
-  return (window as unknown as { api?: DesktopApi }).api
-}
+import { getDesktopApi } from "./desktop-api"
+import type { SessionDebugLog } from "./debug-log"
+import { mergeModules } from "../agents/merge"
+import { detectA2UIJson } from "./a2ui-protocol"
 
 /** 一次生成/修改的完整页面状态 */
 export type PatternSessionState = {
@@ -226,127 +221,39 @@ export async function deletePatternVersion(
   await writeIndex(dir, sessionId, index)
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Review Checkpoint — 设计师审查阶段的持久化检查点
-// 当 planner_create 完成后、module_create 执行前，把 planner + intent 写入磁盘。
-// 用户确认后删除；关闭软件重开时检测到此文件则恢复到审查视图。
-// ──────────────────────────────────────────────────────────────────────────────
-
-export type ReviewCheckpoint = {
-  planner: Record<string, unknown>
-  intentDescription: Record<string, unknown>
-  userInput: string
-  rootSessionId: string
-  createdAt: number
-}
-
-// 存储二次确认planner json到的路径
-function reviewCheckpointPath(dir: string, sessionId: string) {
-  return `${dir}/${sessionId}/review_planner.json`
-}
-
-// 存储二次确认planner json到本地
-export async function saveReviewCheckpoint(
+/**
+ * 回退到指定版本，恢复预览。
+ * @param dir        历史文件所在目录
+ * @param sessionId  会话 ID
+ * @param versionId  目标版本 ID
+ * @param onPreview  将合并后的 A2UI JSON 推送到预览页的回调
+ * @returns 版本状态，失败返回 null
+ */
+export async function rollbackToVersion(
   dir: string,
   sessionId: string,
-  checkpoint: ReviewCheckpoint,
-): Promise<void> {
-  const api = getDesktopApi()
-  const path = reviewCheckpointPath(dir, sessionId)
-  const payload = JSON.stringify(checkpoint, null, 2)
-  if (api?.writeFileBuffer) {
-    const encoder = new TextEncoder()
-    await api.writeFileBuffer(path, encoder.encode(payload).buffer)
-    return
+  versionId: string,
+  onPreview: (data: unknown) => void,
+) {
+  const state = await switchToVersion(dir, sessionId, versionId)
+  if (!state) return null
+
+  if (state.lastModules.length > 0) {
+    const a2ui = state.mergedA2UI
+      ?? (() => {
+        const shell =
+          (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
+          state.lastPlanner
+        return mergeModules(
+          { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
+          // @ts-expect-error pre-existing type mismatch in mergeModules
+          state.lastModules,
+          (shell?.slots as any[]) ?? undefined,
+        )
+      })()
+    const mergedJson = detectA2UIJson(JSON.stringify(a2ui))
+    if (mergedJson) onPreview(mergedJson)
   }
-}
 
-// 读取二次确认planner json到本地
-export async function loadReviewCheckpoint(
-  dir: string,
-  sessionId: string,
-): Promise<ReviewCheckpoint | null> {
-  const api = getDesktopApi()
-  const path = reviewCheckpointPath(dir, sessionId)
-  if (api?.readFileBuffer) {
-    try {
-      const buf = await api.readFileBuffer(path)
-      if (!buf) return null
-      return JSON.parse(new TextDecoder().decode(buf)) as ReviewCheckpoint
-    } catch {
-      return null
-    }
-  }
-  return null
-}
-export async function clearReviewCheckpoint(
-  dir: string,
-  sessionId: string,
-): Promise<void> {
-  const api = getDesktopApi()
-  const path = reviewCheckpointPath(dir, sessionId)
-  if (api?.deleteFile) {
-    await api.deleteFile(path)
-    return
-  }
-}
-// ─── Debug 日志收集（内存累积，管线结束后注入版本 JSON） ───
-
-export type LogEntry = {
-  idx: number
-  ts: number
-  agent: string
-  sessionId: string
-  input: string
-  output: unknown
-  parsed: unknown
-}
-
-export type SessionDebugLog = {
-  sessionId: string
-  userInput: string
-  startedAt: number
-  entries: LogEntry[]
-}
-
-let _current: SessionDebugLog | null = null
-let _entryIdx = 0
-const _sessionIdxMap = new Map<string, number>()
-
-export function logStartSession(sessionId: string, userInput: string) {
-  _current = {
-    sessionId,
-    userInput,
-    startedAt: Date.now(),
-    entries: [],
-  }
-  _entryIdx = 0
-  _sessionIdxMap.clear()
-}
-
-export function logAgentCall(agent: string, sessionId: string, input: string, output: unknown) {
-  if (!_current) return
-  const idx = ++_entryIdx
-  _current.entries.push({ idx, ts: Date.now(), agent, sessionId, input, output, parsed: null })
-  _sessionIdxMap.set(sessionId, idx)
-}
-
-export function logAgentParsed(sessionId: string, parsed: unknown) {
-  if (!_current) return
-  const idx = _sessionIdxMap.get(sessionId)
-  if (!idx) return
-  const entry = _current.entries.find((e) => e.idx === idx)
-  if (entry) {
-    entry.parsed = parsed
-  }
-}
-
-export function getDebugSnapshot(): SessionDebugLog | null {
-  return _current ? { ..._current, entries: [..._current.entries] } : null
-}
-
-export function clearDebugLog() {
-  _current = null
-  _entryIdx = 0
-  _sessionIdxMap.clear()
+  return state
 }
