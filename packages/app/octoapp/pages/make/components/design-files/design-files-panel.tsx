@@ -31,7 +31,6 @@ import {
   type FolderUploadFile,
 } from "../../utils/artifact-file-api"
 import { showToast } from "@opencode-ai/ui/toast"
-import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -41,7 +40,7 @@ import { PreviewPane } from "./preview-pane"
 import { Breadcrumb } from "./breadcrumb"
 import { DesignFilesToolbar } from "./design-files-toolbar"
 import emptyPng from "../../icons/empty.png"
-import { IconChevronDown, IconSortArrow, IconTableEllipsis } from "../../icons/design-files-icons"
+import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
@@ -627,7 +626,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                   "line-height": "22px",
                 }}
               >
-                <Icon name="upload" size="small" />
+                <IconUpload size={16} />
                 <span>{language.t("designFiles.uploadFileAction")}</span>
               </button>
             </div>
@@ -645,7 +644,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                   color: "white",
                 }}
               >
-                <Icon name="upload" size="small" />
+                <IconUpload size={16} />
                 <span>{language.t("designFiles.uploadFileAction")}</span>
               </button>
             </div>
