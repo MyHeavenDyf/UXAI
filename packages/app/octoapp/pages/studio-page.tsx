@@ -10,6 +10,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -19,6 +20,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
+import { DialogSettings } from "@/components/dialog-settings"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
@@ -256,16 +258,18 @@ export default function StudioPage() {
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   let generationToken = 0
+  const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
     Persist.global("studio.left.width"),
     createStore({ width: 296 }),
   )
+  const studioLeftWidth = () => studioLeftStore.width
+  const setStudioLeftWidth = (w: number) => setStudioLeftStore({ width: w })
+  const toggleStudioLeft = () => setStudioLeftCollapsed((v) => !v)
   const [studioCenterStore, setStudioCenterStore] = persisted(
     Persist.global("studio.center.width"),
     createStore({ width: 468 }),
   )
-  const studioLeftWidth = () => studioLeftStore.width
-  const setStudioLeftWidth = (w: number) => setStudioLeftStore({ width: w })
   const studioCenterWidth = () => studioCenterStore.width
   const setStudioCenterWidth = (w: number) => setStudioCenterStore({ width: w })
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
@@ -396,7 +400,7 @@ export default function StudioPage() {
     document.body.style.userSelect = "none"
     function onMove(e: MouseEvent) {
       const delta = e.clientX - startX
-      setStudioLeftWidth(Math.max(160, Math.min(360, startWidth + delta)))
+      setStudioLeftWidth(Math.max(200, Math.min(360, startWidth + delta)))
     }
     function onUp() {
       document.body.style.cursor = ""
@@ -408,13 +412,92 @@ export default function StudioPage() {
     document.addEventListener("mouseup", onUp)
   }
 
+  // 折叠图标：窗口 ≥1456px 且 <1920px 时显示
+  const [showToggleDrawer, setShowToggleDrawer] = createSignal(false)
+
+  // 窗口 <1228px 时隐藏 studio-center
+  const [showStudioCenter, setShowStudioCenter] = createSignal(true)
+  createEffect(() => {
+    const mql = window.matchMedia("(min-width: 1228px)")
+    const update = () => setShowStudioCenter(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // 窗口 <1456px 时左侧栏以遮罩层形式展示
+  const [studioLeftOverlayOpen, setStudioLeftOverlayOpen] = createSignal(false)
+  const [isOverlayMode, setIsOverlayMode] = createSignal(false)
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 1455px)")
+    const update = () => {
+      setIsOverlayMode(mql.matches)
+      if (!mql.matches) setStudioLeftOverlayOpen(false)
+    }
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // 窗口 <1456px 时左侧栏默认收缩
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 1455px)")
+    const update = () => setStudioLeftCollapsed(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    window.addEventListener("resize", update)
+    onCleanup(() => {
+      mql.removeEventListener("change", update)
+      window.removeEventListener("resize", update)
+    })
+  })
+
+  // 自适应布局：
+  //   ≥1920px:         left=296, center=(w-296)*29%, 限幅[360,700]
+  //   1228px-1919px:   left=296, center=(w-296)*31%, 限幅[360,700]
+  createEffect(() => {
+    const mqlWide = window.matchMedia("(min-width: 1920px)")
+    const mqlMedium = window.matchMedia("(min-width: 1456px) and (max-width: 1919px)")
+    const mqlCenter31 = window.matchMedia("(min-width: 1228px) and (max-width: 1919px)")
+
+    const calcCenterWidth = () => {
+      if (mqlWide.matches) {
+        const target = Math.round((window.innerWidth - 296) * 0.29)
+        setStudioCenterWidth(Math.min(700, Math.max(360, target)))
+      } else if (mqlCenter31.matches) {
+        const target = Math.round((window.innerWidth - 296) * 0.31)
+        setStudioCenterWidth(Math.min(700, Math.max(360, target)))
+      }
+    }
+
+    const onMediaChange = () => {
+      setShowToggleDrawer(mqlMedium.matches)
+      if (mqlWide.matches || mqlMedium.matches) {
+        if (!studioLeftCollapsed()) setStudioLeftWidth(296)
+      }
+      calcCenterWidth()
+    }
+
+    onMediaChange()
+    mqlWide.addEventListener("change", onMediaChange)
+    mqlMedium.addEventListener("change", onMediaChange)
+    mqlCenter31.addEventListener("change", onMediaChange)
+    window.addEventListener("resize", calcCenterWidth)
+    onCleanup(() => {
+      mqlWide.removeEventListener("change", onMediaChange)
+      mqlMedium.removeEventListener("change", onMediaChange)
+      mqlCenter31.removeEventListener("change", onMediaChange)
+      window.removeEventListener("resize", calcCenterWidth)
+    })
+  })
+
   function handleStudioCenterResize(event: MouseEvent) {
     event.preventDefault()
     const startX = event.clientX
     const startWidth = studioCenterWidth()
     function onMove(e: MouseEvent) {
       const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(468, startWidth + delta)))
+      setStudioCenterWidth(Math.min(700, Math.max(360, startWidth + delta)))
     }
     function onUp() {
       document.removeEventListener("mousemove", onMove)
@@ -2291,26 +2374,77 @@ export default function StudioPage() {
 
   return (
     <div ref={studioPageRef!} class="studio-page" style={{ position: "relative" }}>
-      <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory
-          directory={projectDir()}
-          routeSlug={routeSlug()}
-          activeSessionID={params.id}
-          onNewConversation={startNewStudioConversation}
-        />
-      </aside>
-      <div
+      <aside
+        class="studio-left"
+        classList={{ collapsed: studioLeftCollapsed() }}
         style={{
-          position: "absolute",
-          top: "0",
-          bottom: "0",
-          left: `${studioLeftWidth()}px`,
-          width: "8px",
-          cursor: "col-resize",
-          "z-index": "10",
+          width: studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
+          "flex-basis": studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
+          "min-width": studioLeftCollapsed() ? "68px" : undefined,
+          transition: "width 200ms ease, flex-basis 200ms ease",
         }}
-        onMouseDown={handleStudioLeftResize}
-      />
+      >
+        <Show
+          when={!studioLeftCollapsed()}
+          fallback={
+            <div
+              class="h-full flex flex-col items-center"
+              style={{
+                background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+                padding: "12px 10px 24px 10px",
+                cursor: "pointer",
+              }}
+              onClick={() => {
+                if (isOverlayMode()) {
+                  setStudioLeftOverlayOpen(true)
+                } else {
+                  toggleStudioLeft()
+                }
+              }}
+            >
+              <div class="flex flex-col items-center shrink-0" style={{ gap: "8px" }}>
+                <button
+                  type="button"
+                  class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+                  style={{ width: "36px", height: "36px" }}
+                  onClick={(e) => { e.stopPropagation(); startNewStudioConversation(); }}
+                >
+                  <Icon name="plus" size="normal" />
+                </button>
+                <div style={{ width: "48px", height: "1px", background: "rgba(0,0,0,0.1)" }} />
+              </div>
+              <img
+                src="/studio/IconStudio1.svg"
+                alt="Octo Studio"
+                style={{ width: "20px", height: "20px", "margin-top": "16px", "flex-shrink": "0" }}
+              />
+              <div class="flex-1" />
+              <button
+                type="button"
+                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
+                style={{ width: "36px", height: "36px" }}
+                onClick={(e) => { e.stopPropagation(); dialog.show(() => <DialogSettings />); }}
+              >
+                <Icon name="settings-gear" size="small" />
+              </button>
+            </div>
+          }
+        >
+          <StudioHistory
+            directory={projectDir()}
+            routeSlug={routeSlug()}
+            activeSessionID={params.id}
+            onNewConversation={startNewStudioConversation}
+            toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
+          />
+        </Show>
+      </aside>
+      <Show when={!studioLeftCollapsed()}>
+        <div
+          style={{ width: "8px", "flex-shrink": "0", cursor: "col-resize" }}
+          onMouseDown={handleStudioLeftResize}
+        />
+      </Show>
 
       <Show when={hasStudioConversation()} fallback={
         <main class="studio-empty-workspace">
@@ -2365,7 +2499,8 @@ export default function StudioPage() {
         </div>
         </main>
       }>
-        <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
+        <Show when={showStudioCenter()}>
+          <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
           <div class="studio-center-header">
             <Show
               when={headerTitle.editing}
@@ -2504,10 +2639,11 @@ export default function StudioPage() {
           />
         </section>
         <div
-          class="absolute top-0 bottom-0 cursor-col-resize z-10"
-          style={{ left: `${studioLeftWidth() + studioCenterWidth()}px`, width: "8px" }}
+          class="cursor-col-resize z-10"
+          style={{ width: "8px", "flex-shrink": "0" }}
           onMouseDown={handleStudioCenterResize}
         />
+        </Show>
 
       <main class="studio-workspace">
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
@@ -2675,6 +2811,41 @@ export default function StudioPage() {
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />
+      </Show>
+      <Show when={isOverlayMode() && studioLeftOverlayOpen()}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            "z-index": "100",
+            background: "rgba(0, 0, 0, 0.2)",
+          }}
+          onClick={() => setStudioLeftOverlayOpen(false)}
+        />
+        <aside
+          style={{
+            position: "absolute",
+            top: "0",
+            left: "0",
+            bottom: "0",
+            width: "296px",
+            "z-index": "101",
+            background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+            "border-right": "1px solid var(--border-weak-base)",
+            overflow: "hidden",
+          }}
+        >
+          <StudioHistory
+            directory={projectDir()}
+            routeSlug={routeSlug()}
+            activeSessionID={params.id}
+            onNewConversation={() => {
+              setStudioLeftOverlayOpen(false)
+              startNewStudioConversation()
+            }}
+            toggleDrawer={() => setStudioLeftOverlayOpen(false)}
+          />
+        </aside>
       </Show>
     </div>
   )
