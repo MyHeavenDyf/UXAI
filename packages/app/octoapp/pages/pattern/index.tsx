@@ -151,20 +151,8 @@ function PatternContent() {
               if (state.lastPlanner) setLastPlanner(state.lastPlanner)
               if (state.lastModules.length > 0) {
                 setLastModules(state.lastModules)
-                const a2ui = state.mergedA2UI
-                  ?? (() => {
-                    const shell =
-                      (state.lastPlanner?.layout_planner as Record<string, unknown> | undefined) ??
-                      state.lastPlanner
-                    return mergeModules(
-                      { rootId: (shell?.rootId as string) ?? "", elements: ((shell?.elements ?? []) as never) },
-                      // @ts-expect-error pre-existing type mismatch in mergeModules
-                      state.lastModules,
-                      (shell?.slots as any[]) ?? undefined,
-                    )
-                  })()
-                const mergedJson = detectA2UIJson(JSON.stringify(a2ui))
-                if (mergedJson) sendToPreview(mergedJson)
+                const a2uiJSON = state.mergedA2UI
+                if (a2uiJSON) sendToPreview(a2uiJSON)
               }
             })
             void listPatternVersions(dir, id).then(({ versions, current }) => {
@@ -465,6 +453,7 @@ function PatternContent() {
           if (params.id !== sid) return
           setChildSessionIDs((prev) => [...prev, childID])
         },
+        refreshPreview: () => previewApi.refresh(),
       }
 
       // 开启本次调试日志

@@ -20,7 +20,9 @@ function copyChildren(children: unknown): unknown {
 interface SlotEntry {
   section_id: string
   element_id: string
+  operation?: string
 }
+
 
 export function mergeModules(shell: A2UIModule, modules: A2UIModule[], slots?: SlotEntry[]): A2UIModule {
   const elements = shell.elements.map((e) => ({
@@ -30,12 +32,16 @@ export function mergeModules(shell: A2UIModule, modules: A2UIModule[], slots?: S
   }))
   const state = { ...(shell.state ?? {}) }
 
-  // 构建 module rootId → shell element_id 的映射
+  // 构建 module rootId → shell element_id 的映射，仅对 create 操作的 slot 生效
   const rootIdRemap = new Map<string, string>()
   if (slots && modules.length === slots.length) {
     for (let i = 0; i < modules.length; i++) {
       if (modules[i].rootId !== slots[i].element_id) {
-        rootIdRemap.set(modules[i].rootId, slots[i].element_id)
+        if (slots[i].operation === "create") {
+          rootIdRemap.set(modules[i].rootId, slots[i].element_id)
+        } else if (slots[i].operation !== "create") {
+          console.warn(`[Merge] slot[${i}] operation="${slots[i].operation}" rootId="${modules[i].rootId}" 与 element_id="${slots[i].element_id}" 不匹配，请检查 Planner 输出`)
+        }
       }
     }
   }
