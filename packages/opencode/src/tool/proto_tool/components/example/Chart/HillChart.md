@@ -1,4 +1,4 @@
-# HillChart | 山丘图
+# HillChart | 山峰图
 
 The chart already includes a legend and does not require an additional one.
 

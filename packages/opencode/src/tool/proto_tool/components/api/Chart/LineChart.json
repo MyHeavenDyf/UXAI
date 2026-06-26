@@ -108,6 +108,10 @@
                 }
               },
               "description": "markline configuration for displaying horizontal reference lines"
+            },
+            "area": {
+              "type": "boolean",
+              "description": "Whether to display as area chart"
             }
           },
           "required": ["data", "xAxis", "yAxisTitle"]

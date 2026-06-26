@@ -1,6 +1,6 @@
 {
-  "name": "PieChart",
-  "description": "Pie chart component for displaying proportions of a whole.",
+  "name": "TreeMapChart",
+  "description": "Bar chart component for displaying data with rectangular bars.",
   "type": "object",
   "$defs": {
     "DataBinding": {
@@ -30,7 +30,7 @@
     },
     "component": {
       "type": "string",
-      "const": "PieChart"
+      "const": "TreeMapChart"
     },
     "props": {
       "type": "object",
@@ -43,18 +43,32 @@
                 {
                   "type": "array",
                   "items": {
-                    "type": "object"
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "children": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    },
+                    "required": ["value", "name"]
                   }
                 },
                 {
                   "$ref": "#/$defs/DataBinding"
                 }
               ],
-              "description": "Core data source (required)"
+              "description": "Core chart data source (required)"
             },
             "color":{
-              "oneOf": [
-                {
+              "oneOf": [{
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -66,37 +80,9 @@
                 }
               ],
               "description": "Stick to default color groups. Override only upon explicit user request."
-            },
-            "label": {
-              "type": "object",
-              "properties": {
-                "show": {
-                  "type": "boolean"
-                }
-              },
-              "description": "Pie chart text label"
-            },
-            "title": {
-              "type": "object",
-              "properties": {
-                "text": {
-                  "type": "string"
-                },
-                "subtext": {
-                  "type": "string"
-                }
-              },
-              "required": ["text"],
-              "description": "Center text configuration for the pie chart"
-            },
-            "legendPosition": {
-              "type": "string",
-              "enum": ["centerRight", "bottomCenter"],
-              "description": "Legend position relative to the chart",
-              "default": "centerRight"
             }
           },
-          "required": ["data", "title"]
+          "required": ["data"]
         },
         "className": {
           "type": "string",
