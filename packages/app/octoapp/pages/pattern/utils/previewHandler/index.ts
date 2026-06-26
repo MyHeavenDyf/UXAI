@@ -1,6 +1,8 @@
 import { createSignal } from "solid-js"
 import { showToast, showPromiseToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../desktop-api"
+import { rollbackToVersion } from "../history"
+import type { PatternSessionState } from "../persist"
 
 // 下载预览 JSON
 export function handleDownload(previewData: unknown, patternId: string): void {
@@ -76,4 +78,24 @@ export async function handlePixsoPreview(previewData: unknown): Promise<void> {
   } finally {
     setPixsoLoading(false)
   }
+}
+
+// 回退到指定历史版本
+export async function handleSelectVersion(opts: {
+  versionId: string
+  sessionId: string | undefined
+  historyDir: string | undefined
+  previewApi: { setEditingOff: () => void; refresh: () => void }
+  sendToPreview: (data: unknown) => void
+  onStateRestored: (state: PatternSessionState) => void
+  setCurrentVersionId: (id: string) => void
+}): Promise<void> {
+  const { versionId, sessionId, historyDir, previewApi, sendToPreview, onStateRestored, setCurrentVersionId } = opts
+  if (!sessionId || !historyDir) return
+  previewApi.setEditingOff()
+  const state = await rollbackToVersion(historyDir, sessionId, versionId, sendToPreview)
+  if (!state) return
+  setCurrentVersionId(versionId)
+  onStateRestored(state)
+  previewApi.refresh()
 }

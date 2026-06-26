@@ -256,7 +256,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
             type="file"
             accept=".json,application/json"
             style={{ display: "none" }}
-            // onChange={handleFileImport}
+            onChange={handleFileImport}
           />
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />

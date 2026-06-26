@@ -33,11 +33,10 @@ import { handleModifyElement as runQuickModify, type QuickModifyContext, type Mo
 import { mergeModules } from "./agents/merge"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
 import { autoRenameSession } from "./utils/rename-session"
-import { rollbackToVersion } from "./utils/history"
 import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/persist"
 import { exportZip } from "./utils/previewHandler/zip"
-import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download } from "./utils/previewHandler"
+import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/previewHandler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
@@ -655,17 +654,19 @@ function PatternContent() {
 
   // 回退到指定历史版本
   async function handleSelectVersion(versionId: string) {
-    const id = params.id
-    const dir = patternHistoryDir()
-    if (!id || !dir) return
-    previewApi.setEditingOff()
-    const state = await rollbackToVersion(dir, id, versionId, sendToPreview)
-    if (!state) return
-    setCurrentVersionId(versionId)
-    if (state.lastIntent) setLastIntent(state.lastIntent)
-    if (state.lastPlanner) setLastPlanner(state.lastPlanner)
-    if (state.lastModules.length > 0) setLastModules(state.lastModules)
-    previewApi.refresh()
+    await selectVersion({
+      versionId,
+      sessionId: params.id,
+      historyDir: patternHistoryDir(),
+      previewApi,
+      sendToPreview,
+      setCurrentVersionId,
+      onStateRestored: (state) => {
+        if (state.lastIntent) setLastIntent(state.lastIntent)
+        if (state.lastPlanner) setLastPlanner(state.lastPlanner)
+        if (state.lastModules.length > 0) setLastModules(state.lastModules)
+      },
+    })
   }
 
   function handleDownload() {
@@ -774,19 +775,7 @@ function PatternContent() {
               />
             </Show>
             <Show when={isModifying()}>
-              <div
-                style={{
-                  position: "absolute",
-                  inset: "0",
-                  "z-index": "50",
-                  background: "rgba(249, 250, 251, 0.85)",
-                  display: "flex",
-                  "flex-direction": "column",
-                  "align-items": "center",
-                  "justify-content": "center",
-                  gap: "12px",
-                }}
-              >
+              <div class="change-content">
                 <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
                 <div class="text-[13px]" style={{ color: "var(--octo-text-secondary, rgba(0,0,0,0.6))" }}>正在修改页面中...</div>
               </div>
