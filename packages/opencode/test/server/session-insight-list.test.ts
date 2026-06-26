@@ -7,6 +7,7 @@ import * as Log from "@opencode-ai/core/util/log"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 import { Database } from "@/storage/db"
 import { SessionTable } from "@/session/session.sql"
+import type { SessionID } from "@/session/schema"
 import { eq } from "drizzle-orm"
 import { mkdir } from "fs/promises"
 import path from "path"
@@ -23,7 +24,7 @@ const svc = {
   },
 }
 
-function projectIDOf(sessionID: string) {
+function projectIDOf(sessionID: SessionID) {
   return Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())!.project_id
 }
 
