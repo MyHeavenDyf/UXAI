@@ -54,6 +54,7 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
+import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
@@ -67,7 +68,8 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { autoSaveArtifact } from "./utils/artifact-auto-save"
-import { persistTabChanges } from "./utils/tab-persistence"
+import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
+import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
@@ -749,11 +751,71 @@ const sessionMessagesLoaded = createMemo(() => {
     setSnapshotVersion((v) => v + 1)
   }
 
+  // ── 设计方案(design-plan)扫描 ─────────────────────────────
+  // 方案 artifact 从消息流中提取,但不再自动打开右侧 ResultViewer tab。
+  // 而是显示为输入框上方的横条,用户点击后才把 plan 放进 ResultViewer。
+  // 确认状态也从消息流推断:方案之后出现 [confirm-plan] 或 HTML artifact 即视为已确认。
+  const planCard = createMemo(() => {
+    const sid = params.id
+    if (!sid) return null
+    return scanDesignPlanFromMessages(sync.data.message[sid], sync.data.part, sid)
+  })
+
+  const planConfirmed = createMemo(() => {
+    const sid = params.id
+    if (!sid) return false
+    const ident = planCard()?.artifactIdentifier
+    if (!ident) return false
+    return isPlanConfirmed(sync.data.message[sid], sync.data.part, ident)
+  })
+
+  // 乐观锁:用户点 [确认开始生成] 后立即永久 disable,直到 planConfirmed 翻为 true 或 session 切换。
+  // 避免 sendMessage 飞行期间(session 还没进入 busy)用户连点重复发送。
+  const [optimisticConfirmed, setOptimisticConfirmed] = createSignal(false)
+  const planButtonDisabled = createMemo(() => planConfirmed() || optimisticConfirmed())
+
+  // 切换 session 时复位乐观锁,允许新 session 重新走方案流程
+  createEffect(on(() => params.id, () => setOptimisticConfirmed(false), { defer: true }))
+
+  /** 用户点击 [确认开始生成] → 自动发送隐藏指令 */
+  function handleConfirmPlan(identifier?: string) {
+    const sid = params.id
+    if (!sid) return
+    if (planButtonDisabled()) return   // 防重复
+    setOptimisticConfirmed(true)
+    const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
+    sendMessage(sid, cmd).catch((err) => {
+      console.error("[MakePage] confirm plan failed", err)
+      // 发送失败时回滚乐观锁,允许重试
+      setOptimisticConfirmed(false)
+    })
+  }
+
+  /** 用户点击 [调整方案] → 焦点切到输入框,预填引导文字 */
+  function handleAdjustPlan() {
+    setPrompt("请按以下方向调整方案:")
+    requestAnimationFrame(() => textareaRef?.focus())
+  }
+
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
+
+  // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
+  // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
+  // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
+
+  /** 用户点击 plan 横条 → 打开右侧 ResultViewer 显示 plan tab
+   *  优先用 snapshot 版本(用户可能编辑过);没有 snapshot 才用消息流版本 */
+  function handleViewPlan() {
+    const card = planCard()
+    if (!card) return
+    const edited = snapshotStore.restoreLatestByTabId(card.id)
+    const restored = edited ? tabToOutputCard(edited) : null
+    tabStore.openTab(restored ?? card)
+  }
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
@@ -1566,6 +1628,13 @@ if (dsId) {
                   onRemove={removeAttachment}
                 />
 
+                {/* Plan banner - 设计方案横条(在输入框上方)。点击才打开右侧 ResultViewer */}
+                <PlanBanner
+                  plan={planCard()}
+                  confirmed={planConfirmed()}
+                  onView={handleViewPlan}
+                />
+
                 {/* Permission dock - 权限授权 UI */}
                 <Show when={permissionRequest()} keyed>
                   {(request) => (
@@ -1779,6 +1848,9 @@ if (dsId) {
                 onContentChange={handleContentChange}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                onConfirmPlan={handleConfirmPlan}
+                onAdjustPlan={handleAdjustPlan}
+                isPlanConfirmed={planButtonDisabled}
               />
             </div>
             <Show when={showVersionPanel()}>

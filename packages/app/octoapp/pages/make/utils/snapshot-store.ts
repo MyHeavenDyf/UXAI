@@ -69,5 +69,12 @@ export function createSnapshotStore(sessionId: () => string | undefined) {
     return snapshot?.tab
   }
 
-  return { snapshots, save, load, remove, restore }
+  /** 通过 tab.id(plan:sessionID:identifier 等) 查找最近一次快照,用于 plan 编辑版本恢复 */
+  function restoreLatestByTabId(tabId: string): ResultTab | undefined {
+    const sid = sessionId()
+    if (!sid) return undefined
+    return readAll(sid).find((s) => s.tab.id === tabId)?.tab
+  }
+
+  return { snapshots, save, load, remove, restore, restoreLatestByTabId }
 }

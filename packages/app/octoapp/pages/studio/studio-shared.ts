@@ -147,6 +147,11 @@ export function isVideoMedia(image?: StudioImage) {
   return /^data:video\//i.test(image.url) || /\.(mp4|mov|webm)(?:[?#]|$)/i.test(image.url)
 }
 
+export function getImageOrientation(image?: StudioImage): "portrait" | "landscape" | "" {
+  if (!image?.width || !image?.height) return ""
+  return image.height > image.width ? "portrait" : "landscape"
+}
+
 export function hasVideoFrameAssets(frames: { first?: StudioAsset; last?: StudioAsset }) {
   return Boolean(frames.first || frames.last)
 }

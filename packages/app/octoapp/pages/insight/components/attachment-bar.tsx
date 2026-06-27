@@ -107,14 +107,17 @@ function AttachmentChip(props: {
 
       {/* 文字区 */}
       <div style={{ position: "absolute", left: "44px", top: "8px", right: "28px" }}>
-        <div style={{
-          "font-size": "13px",
-          color: "rgba(0,0,0,0.9)",
-          "line-height": "24px",
-          "white-space": "nowrap",
-          overflow: "hidden",
-          "text-overflow": "ellipsis",
-        }}>
+        <div
+          title={props.att.filename}
+          style={{
+            "font-size": "13px",
+            color: "rgba(0,0,0,0.9)",
+            "line-height": "24px",
+            "white-space": "nowrap",
+            overflow: "hidden",
+            "text-overflow": "ellipsis",
+          }}
+        >
           {props.att.filename}
         </div>
 
@@ -122,15 +125,18 @@ function AttachmentChip(props: {
         <Show when={isError()}>
           <div style={{ display: "flex", "align-items": "center", gap: "4px", height: "18px" }}>
             <ExclamationCircleIcon />
-            <span style={{
-              "font-size": "11px",
-              color: "rgb(224,33,40)",
-              "white-space": "nowrap",
-              overflow: "hidden",
-              "text-overflow": "ellipsis",
-              flex: "1",
-              "min-width": "0",
-            }}>
+            <span
+              title={props.att.error ?? "上传失败"}
+              style={{
+                "font-size": "11px",
+                color: "rgb(224,33,40)",
+                "white-space": "nowrap",
+                overflow: "hidden",
+                "text-overflow": "ellipsis",
+                flex: "1",
+                "min-width": "0",
+              }}
+            >
               {props.att.error ?? "上传失败"}
             </span>
             <Show when={props.att.retriable && props.onRetry}>
