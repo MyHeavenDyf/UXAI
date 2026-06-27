@@ -902,7 +902,10 @@ export function MessageTimeline(props: {
                                 </DropdownMenu.Item> */}
                                 <DropdownMenu.Separator />
                                 <DropdownMenu.Item
-                                  onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
+                                  onSelect={() => {
+                                    setTitle("menuOpen", false)
+                                    dialog.show(() => <DialogDeleteSession sessionID={id} />)
+                                  }}
                                 >
                                   <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
