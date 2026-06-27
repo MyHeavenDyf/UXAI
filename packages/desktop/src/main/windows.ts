@@ -241,7 +241,9 @@ export function registerRendererProtocol() {
         const mockResponse = handleMockApi(url.pathname, url.search)
         if (mockResponse) return mockResponse
       }
-      const realUrl = `https://octo.hdesign.huawei.com${url.pathname}${url.search}`
+      // baseUrl 从 VITE_OCTO_BASE_URL 读取, 支持内网 beta/prod 不同域名; 原硬编码只指向公网默认域名
+      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
+      const realUrl = `${baseUrl}${url.pathname}${url.search}`
       return net.fetch(realUrl, {
         method: request.method,
         headers: Object.fromEntries(request.headers.entries()),
