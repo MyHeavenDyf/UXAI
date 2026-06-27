@@ -589,32 +589,44 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
-  const [mentionIndex, setMentionIndex] = createSignal(0)
 
   // ── Artifact Files Resource (for @ mention) ──
   const [artifactFiles] = createResource(
     () => ({ sessionId: params.id, url: globalSDK.url, directory: sdk.directory }),
     async ({ sessionId, url, directory }) => {
-      if (!sessionId) return []
+      if (!sessionId) return null
       try {
         const [gen, upl] = await Promise.all([
-          fetchArtifactList(url, directory ?? "", sessionId, "generated"),
-          fetchArtifactList(url, directory ?? "", sessionId, "uploaded"),
+          fetchArtifactList(url, directory ?? "", sessionId, "generated", undefined, true),
+          fetchArtifactList(url, directory ?? "", sessionId, "uploaded", undefined, true),
         ])
-        return [...gen.files, ...upl.files]
+        return { generated: gen.files.filter(f => !f.isFolder), uploaded: upl.files.filter(f => !f.isFolder) }
       } catch {
-        return []
+        return null
       }
     },
   )
 
   const mentionFiles = createMemo(() => {
     const state = mentionState()
-    if (!state) return []
+    if (!state) return null
     const query = state.query.toLowerCase()
-    const files = artifactFiles() ?? []
-    return files.filter(f => f.name.toLowerCase().includes(query)).slice(0, 12)
+    const data = artifactFiles()
+    if (!data) return null
+    
+    const generated = data.generated.filter(f => !f.isFolder && f.name.toLowerCase().includes(query))
+    const uploaded = data.uploaded.filter(f => !f.isFolder && f.name.toLowerCase().includes(query))
+    
+    if (generated.length === 0 && uploaded.length === 0) return null
+    return { generated, uploaded }
   })
+
+  function getUploadFileDirectory(relativePath: string): string {
+    const withoutPrefix = relativePath.replace(/^upload-files\//, "")
+    const lastSlash = withoutPrefix.lastIndexOf("/")
+    if (lastSlash === -1) return ""
+    return withoutPrefix.slice(0, lastSlash + 1)
+  }
 
   // ── Slash Command List ──
   interface SlashCommand {
@@ -1057,29 +1069,8 @@ if (dsId) {
     const slash = slashState()
     const mention = mentionState()
 
-    // Mention navigation (优先于 slash，因为两者互斥)
-    if (mention && mentionFiles().length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault()
-        e.stopPropagation()
-        setMentionIndex(i => Math.min(i + 1, mentionFiles().length - 1))
-        return
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault()
-        e.stopPropagation()
-        setMentionIndex(i => Math.max(i - 1, 0))
-        return
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault()
-        e.stopPropagation()
-        const files = mentionFiles()
-        if (files.length > 0) {
-          pickMention(files[mentionIndex()])
-        }
-        return
-      }
+    // Mention popover close on Escape
+    if (mention && mentionFiles()) {
       if (e.key === "Escape") {
         e.preventDefault()
         e.stopPropagation()
@@ -1160,7 +1151,6 @@ if (dsId) {
     const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(before)
     if (mentionMatch) {
       setMentionState({ query: mentionMatch[1] ?? "", cursor })
-      setMentionIndex(0)
     } else {
       setMentionState(null)
     }
@@ -1745,31 +1735,55 @@ if (dsId) {
                     </Show>
 
                     {/* Mention Popover（新建对话） */}
-                    <Show when={mentionState() && mentionFiles().length > 0}>
-                      <div class="mention-popover">
-                        <div class="mention-popover-head">
-                          <span class="mention-popover-title">Design Files</span>
-                          <span class="mention-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                    <Show when={mentionFiles()}>
+                      {(files) => (
+                        <div class="mention-popover">
+                          <div class="mention-popover-head">
+                            <span class="mention-popover-title">Design Files</span>
+                            <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
+                          </div>
+                          <Show when={files().generated.length > 0}>
+                            <div class="mention-section">
+                              <div class="mention-section-title">生成文件</div>
+                              <For each={files().generated}>
+                                {(file) => (
+                                  <button
+                                    type="button"
+                                    class="mention-item"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => pickMention(file)}
+                                  >
+                                    <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                    <span class="mention-item-name" title={file.name}>{file.name}</span>
+                                  </button>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                          <Show when={files().uploaded.length > 0}>
+                            <div class="mention-section">
+                              <div class="mention-section-title">上传文件</div>
+                              <For each={files().uploaded}>
+                                {(file) => {
+                                  const dirPath = getUploadFileDirectory(file.relativePath)
+                                  return (
+                                    <button
+                                      type="button"
+                                      class="mention-item"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => pickMention(file)}
+                                    >
+                                      <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                      <span class="mention-item-name" title={file.name}>{file.name}</span>
+                                      {dirPath && <span class="mention-item-dir" title={dirPath}>{dirPath}</span>}
+                                    </button>
+                                  )
+                                }}
+                              </For>
+                            </div>
+                          </Show>
                         </div>
-                        <For each={mentionFiles()}>
-                          {(file, i) => {
-                            const active = i() === mentionIndex()
-                            return (
-                              <button
-                                type="button"
-                                class={`mention-item ${active ? "active" : ""}`}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onMouseEnter={() => setMentionIndex(i())}
-                                onClick={() => pickMention(file)}
-                              >
-                                <Icon name={getFileIcon(file.kind)} class="size-4" />
-                                <span class="mention-item-name">{file.name}</span>
-                                <span class="mention-item-size">{formatFileSize(file.size)}</span>
-                              </button>
-                            )
-                          }}
-                        </For>
-                      </div>
+                      )}
                     </Show>
 
                     <textarea
@@ -1979,31 +1993,55 @@ if (dsId) {
                   </Show>
 
                   {/* Mention Popover */}
-                  <Show when={mentionState() && mentionFiles().length > 0}>
-                    <div class="mention-popover">
-                      <div class="mention-popover-head">
-                        <span class="mention-popover-title">项目文件</span>
-                        <span class="mention-popover-hint"> Enter/Tab 确认 · Esc 关闭</span>
+                  <Show when={mentionFiles()}>
+                    {(files) => (
+                      <div class="mention-popover">
+                        <div class="mention-popover-head">
+                          <span class="mention-popover-title">Design Files</span>
+                          <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
+                        </div>
+                        <Show when={files().generated.length > 0}>
+                          <div class="mention-section">
+                            <div class="mention-section-title">生成文件</div>
+                            <For each={files().generated}>
+                              {(file) => (
+                                <button
+                                  type="button"
+                                  class="mention-item"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => pickMention(file)}
+                                >
+                                  <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                  <span class="mention-item-name" title={file.name}>{file.name}</span>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                        <Show when={files().uploaded.length > 0}>
+                          <div class="mention-section">
+                            <div class="mention-section-title">上传文件</div>
+                            <For each={files().uploaded}>
+                              {(file) => {
+                                const dirPath = getUploadFileDirectory(file.relativePath)
+                                return (
+                                  <button
+                                    type="button"
+                                    class="mention-item"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => pickMention(file)}
+                                  >
+                                    <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                    <span class="mention-item-name" title={file.name}>{file.name}</span>
+                                    {dirPath && <span class="mention-item-dir" title={dirPath}>{dirPath}</span>}
+                                  </button>
+                                )
+                              }}
+                            </For>
+                          </div>
+                        </Show>
                       </div>
-                      <For each={mentionFiles()}>
-                        {(file, i) => {
-                          const active = i() === mentionIndex()
-                          return (
-                            <button
-                              type="button"
-                              class={`mention-item ${active ? "active" : ""}`}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onMouseEnter={() => setMentionIndex(i())}
-                              onClick={() => pickMention(file)}
-                            >
-                              <Icon name={getFileIcon(file.kind)} class="size-4" />
-                              <span class="mention-item-name">{file.name}</span>
-                              <span class="mention-item-size">{formatFileSize(file.size)}</span>
-                            </button>
-                          )
-                        }}
-                      </For>
-                    </div>
+                    )}
                   </Show>
 
                   <textarea

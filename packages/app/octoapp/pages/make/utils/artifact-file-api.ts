@@ -42,6 +42,7 @@ export async function fetchArtifactList(
   sessionId: string,
   category: "generated" | "uploaded",
   subPath?: string,
+  recursive?: boolean,
 ): Promise<ArtifactListResponse> {
   const params = new URLSearchParams({
     sessionId,
@@ -49,6 +50,9 @@ export async function fetchArtifactList(
   })
   if (subPath && subPath.trim() !== "") {
     params.set("path", subPath)
+  }
+  if (recursive) {
+    params.set("recursive", "true")
   }
   const url = `${sdkUrl}/artifact/list?${params.toString()}`
   const response = await fetch(url, {

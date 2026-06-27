@@ -21,6 +21,7 @@ const ArtifactListQuery = Schema.Struct({
   sessionId: Schema.String,
   category: Schema.optional(Schema.Union([Schema.Literal("generated"), Schema.Literal("uploaded")])),
   path: Schema.optional(Schema.String),
+  recursive: Schema.optional(Schema.Boolean),
 })
 
 const ArtifactContentQuery = Schema.Struct({
