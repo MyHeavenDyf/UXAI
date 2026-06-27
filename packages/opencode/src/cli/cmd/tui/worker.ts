@@ -2,6 +2,10 @@
 // 移除方法：删除下面这行，并删除 packages/opencode/src/util/debug-abort.ts
 import "@/util/debug-abort"
 
+// 本地 provider 直连兜底：追加 NO_PROXY 让 Node 跳过华为内网域名
+import { setupBypassProxyForLocalProviders } from "@/util/network"
+setupBypassProxyForLocalProviders()
+
 import { Installation } from "@/installation"
 import { Server } from "@/server/server"
 import * as Log from "@opencode-ai/core/util/log"

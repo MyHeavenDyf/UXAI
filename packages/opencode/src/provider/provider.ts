@@ -306,6 +306,60 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
   }
 }
 
+// 正式业务代码：本地 provider 直连 dispatcher
+// 背景：octo AI 等本地预配 provider 走华为内网域名（octoai-llm.ucd.huawei.com 等），
+// 在某些用户机器上（系统代理 / ClashX 增强模式 / Surge / TUN 模式 / 公司网关）会出现
+// 6 秒规律 fetch failed with "Request was cancelled." code: 0（signal 全程未 abort），
+// 参见 https://github.com/nodejs/undici/issues/2161。
+// 解决方案：针对本地 provider 强制使用无代理 dispatcher，禁用所有 timeout，绕过系统代理。
+//
+// 可通过环境变量关闭：OPENCODE_DISABLE_BYPASS_DISPATCHER=1
+const LOCAL_PROVIDER_IDS = new Set(["opencode", "bpit", "bpit-beta"])
+const LOCAL_PROVIDER_HOST_PATTERNS = [
+  /\.huawei\.com$/i,
+  /^localhost$/i,
+  /^127\.0\.0\.\d+$/,
+  /^::1$/,
+]
+
+let _bypassDispatcher: any = null
+let _bypassDispatcherInited = false
+async function getBypassDispatcher(): Promise<any | null> {
+  if (_bypassDispatcherInited) return _bypassDispatcher
+  _bypassDispatcherInited = true
+  // Bun.fetch 不读 HTTP_PROXY，无需修复
+  if (typeof process === "undefined" || !process.versions?.node) return null
+  if (process.env.OPENCODE_DISABLE_BYPASS_DISPATCHER === "1") return null
+  try {
+    // @ts-ignore - undici 是 Node.js 内置模块，但作为外部包未安装类型声明
+    const mod = await import("undici")
+    _bypassDispatcher = new mod.Agent({
+      // 禁用所有可能的 timeout（用户 SSE 流可能慢）
+      headersTimeout: 0,
+      bodyTimeout: 0,
+      // 连接建立仍给 30s 兜底
+      connectTimeout: 30_000,
+      // 短 keepalive，避免连接池里的陈旧连接被服务端 RST
+      keepAliveTimeout: 1_000,
+      keepAliveMaxTimeout: 5_000,
+    })
+    return _bypassDispatcher
+  } catch {
+    return null
+  }
+}
+
+function shouldUseBypassDispatcher(providerID: string, url: string): boolean {
+  if (LOCAL_PROVIDER_IDS.has(providerID)) return true
+  try {
+    const u = new URL(url)
+    for (const pattern of LOCAL_PROVIDER_HOST_PATTERNS) {
+      if (pattern.test(u.hostname)) return true
+    }
+  } catch {}
+  return false
+}
+
 function wrapSSE(res: Response, ms: number, ctl: AbortController, seq?: number) {
   if (typeof ms !== "number" || ms <= 0) return res
   if (!res.body) return res
@@ -2033,9 +2087,25 @@ const layer: Layer.Layer<
           }
 
           let res: Response
+          // 本地 provider 直连：用自定义 undici dispatcher 绕过系统代理
+          let dispatcherOpt: Record<string, unknown> = {}
+          if (shouldUseBypassDispatcher(model.providerID, url)) {
+            const dispatcher = await getBypassDispatcher()
+            if (dispatcher) {
+              dispatcherOpt = { dispatcher }
+              try {
+                fetchDebug.info(`fetch #${seq} using bypass dispatcher`, {
+                  seq,
+                  provider_id: model.providerID,
+                  url,
+                })
+              } catch {}
+            }
+          }
           try {
             res = await fetchFn(input, {
               ...opts,
+              ...dispatcherOpt,
               // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
               timeout: false,
             })
