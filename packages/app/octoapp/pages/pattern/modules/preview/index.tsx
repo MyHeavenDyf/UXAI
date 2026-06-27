@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
-import type { VersionEntry } from "../../utils/persist"
+import type { VersionEntry } from "../../utils/version-history"
 
 import { TitleBar } from "./TitleBar"
 import { CanvasView } from "./CanvasView"

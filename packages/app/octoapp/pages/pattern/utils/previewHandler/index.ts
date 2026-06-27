@@ -1,8 +1,8 @@
 import { createSignal } from "solid-js"
 import { showToast, showPromiseToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../desktop-api"
-import { rollbackToVersion } from "../history"
-import type { PatternSessionState } from "../persist"
+import { rollbackToVersion } from "../version-history"
+import type { PatternSessionState } from "../version-history"
 
 // 下载预览 JSON
 export function handleDownload(previewData: unknown, patternId: string): void {

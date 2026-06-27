@@ -24,10 +24,10 @@ import { type OutputCard } from "./modules/chat/insight-turn"
 import { create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create_json'
 import modify_json_ai from './workflow/modify_json_ai'
 import { mergeModules } from "./agents/merge"
-import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
-import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/persist"
-import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/persist"
-import { rollbackToVersion } from "./utils/history"
+import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
+import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
+import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/debug-log"
+import { rollbackToVersion } from "./utils/version-history"
 import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { autoRenameSession } from "./utils/rename-session"
 import { exportZip } from "./utils/previewHandler/zip"
@@ -851,6 +851,7 @@ function PatternContent() {
                   onModifyElement={handleModifyElement}
                   onPickerSubmit={handlePickerSubmit}
                   onDownload={handleDownload}
+                  onShare={handleShare}
                   onLivePreview={handleLivePreview}
                   onPixsoPreview={handlePixsoPreview}
                   versions={versions()}
