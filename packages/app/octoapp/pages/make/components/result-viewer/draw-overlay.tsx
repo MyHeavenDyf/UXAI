@@ -1,5 +1,6 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, type JSX } from "solid-js"
 import { getDesktopApi } from "../../lib/electron-api"
+import { tracker } from "@/utils/tracker"
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[] }
@@ -530,8 +531,8 @@ export function DrawOverlay(props: Props): JSX.Element {
         }
 
         window.setTimeout(() => {
-          finish({ ok: false, message: 'Annotation timeout' })
-        }, 60000)
+          finish({ ok: false, message: '标注超时' })
+        }, 600000)
 
         const detail: AnnotationEventDetail = {
           file,
@@ -546,11 +547,12 @@ export function DrawOverlay(props: Props): JSX.Element {
       if (!result.ok) {
         setCaptureWarning({
           action,
-          message: result.message || 'Annotation failed',
+          message: result.message || '标注失败',
         })
         return
       }
 
+      tracker.interaction({ module: "design", name: "send-annotation", extend: JSON.stringify({ annotationCount: strokesRef.length + (hasBox() ? 1 : 0) }) })
       clearInk()
       setCaptureWarning(null)
       setNote('')
