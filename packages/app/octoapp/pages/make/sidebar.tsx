@@ -20,6 +20,7 @@ import { useLayout } from "@/context/layout"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
+import { tracker } from "@/utils/tracker"
 import {
   IconSkill, IconSkill1,
   IconAsset, IconAsset1,
@@ -342,15 +343,18 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
                         }>
                           <button
                             type="button"
-                            onClick={() => {
-                              notification.session.markViewed(session.id)
-                              // 确保session属于当前项目目录，否则刷新列表
-                              if (session.directory !== resolvedDir()) {
-                                void refetch()
-                                return
-                              }
-                              navigate(`/make/${session.id}`)
-                            }}
+onClick={() => {
+                               notification.session.markViewed(session.id)
+                               // 确保session属于当前项目目录，否则刷新列表
+                               if (session.directory !== resolvedDir()) {
+                                 void refetch()
+                                 return
+                               }
+                               if (!isActive()) {
+                                 tracker.interaction({ module: "design", name: "select-session" })
+                               }
+                               navigate(`/make/${session.id}`)
+                             }}
                             onContextMenu={(e) => {
                               e.preventDefault()
                               setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: hasMessages() })
