@@ -12,7 +12,11 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
-export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx"] as const
+// 图片(png/jpg/jpeg/gif/webp)是前端单独放开的白名单项：产品要求输入框能粘贴/上传图片，
+// 但 file-upload spec 里服务端白名单（由 analyze_interview 可处理格式决定）暂未含图片。
+// 这是「前端先放校验、后端后续跟进」的有意为之，别照 spec 把图片项删掉——删了图片就上传不了。
+// UPLOAD_ACCEPT / UPLOAD_HINT / validateFile 都从本常量派生，单一事实源。
+export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "png", "jpg", "jpeg", "gif", "webp"] as const
 
 export type UploadResult = {
   url: string
