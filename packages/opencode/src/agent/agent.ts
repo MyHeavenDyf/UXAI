@@ -167,7 +167,9 @@ export const layer = Layer.effect(
                   "*": "deny",
                   [path.join(".opencode", "plans", "*.md")]: "allow",
                   ...(ctx.worktree
-                    ? { [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow" }
+                    ? {
+                        [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
+                      }
                     : {}),
                 },
               }),
@@ -219,7 +221,8 @@ export const layer = Layer.effect(
           },
           make_component: {
             name: "make_component",
-            description: "HTML component generator. Generates a single self-contained HTML fragment for a specified UI component, following design system tokens.",
+            description:
+              "HTML component generator. Generates a single self-contained HTML fragment for a specified UI component, following design system tokens.",
             prompt: PROMPT_MAKE_COMPONENT,
             permission: Permission.merge(
               defaults,
@@ -235,7 +238,8 @@ export const layer = Layer.effect(
           },
           octo_insight: {
             name: "octo_insight",
-            description: "用研 Agent，从访谈材料中提取结构化洞察。支持多维度分析（关键发现/按提纲聚类/用户画像/评估/思维导图/知识问答）。",
+            description:
+              "用研 Agent，从访谈材料中提取结构化洞察。支持多维度分析（关键发现/按提纲聚类/用户画像/评估/思维导图/知识问答）。",
             prompt: PROMPT_OCTO_INSIGHT,
             permission: Permission.merge(defaults, user),
             options: {},
@@ -246,12 +250,14 @@ export const layer = Layer.effect(
           },
           octo_make: {
             name: "octo_make",
-            description: "Web design prototyping specialist. Creates high-fidelity interactive HTML prototypes using Tailwind CSS.",
+            description:
+              "Web design prototyping specialist. Creates high-fidelity interactive HTML prototypes using Tailwind CSS.",
             prompt: PROMPT_OCTO_MAKE,
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
-                write: "deny",
+                write: "allow",
+                edit: "ask",
                 apply_patch: "deny",
                 todowrite: "deny",
                 websearch: "deny",
@@ -282,7 +288,8 @@ export const layer = Layer.effect(
           },
           octo_studio: {
             name: "octo_studio",
-            description: "Studio image creation specialist. Generates images via Jimeng/Internal tools and creative assets.",
+            description:
+              "Studio image creation specialist. Generates images via Jimeng/Internal tools and creative assets.",
             prompt: PROMPT_OCTO_STUDIO,
             permission: Permission.merge(defaults, user),
             options: {},
@@ -292,7 +299,8 @@ export const layer = Layer.effect(
           },
           octo_pattern_intent: {
             name: "octo_pattern_intent",
-            description: "A2UI generative UI specialist. Analyzes user requirements, expands into structured blueprints, and produces A2UI JSON documents.",
+            description:
+              "A2UI generative UI specialist. Analyzes user requirements, expands into structured blueprints, and produces A2UI JSON documents.",
             prompt: PROMPT_OCTO_PATTERN_INTENT,
             permission: Permission.merge(defaults, user),
             options: {},
@@ -427,7 +435,7 @@ export const layer = Layer.effect(
             name: "proto_triage",
             description: "Proto triage agent.",
             prompt: PROMPT_PROTO_TRIAGE,
-            permission: Permission.fromConfig({ "*": "deny"}),
+            permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,

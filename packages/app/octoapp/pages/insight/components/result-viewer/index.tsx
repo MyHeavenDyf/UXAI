@@ -314,10 +314,13 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
           <MarkdownRenderer content={content()} />
         </Show>
       </Match>
-      <Match when={props.tab.type === "mindmap"}>
-        {/* 预览态仅在内容真能渲染成思维导图时走 MindmapRenderer;否则(源码态 / 内容非 mindmap shape)
-            直接降级为代码视图看原始 JSON —— 服务端 business_type:"mindmap" 但内容违约时,
-            不出空的错误占位、也不另起新卡(原始 JSON 就在这张卡里)。详见 output-renderers.md §6.A。 */}
+      <Match when={props.tab.type === "mindmap" || props.tab.type === "json"}>
+        {/* mindmap 卡(路径 A business_type:"mindmap")与 json 卡(路径 C .json / 路径 A application/json /
+            路径 B 嗅探)共用渲染:内容是思维导图 shape 且处于预览态 → markmap;否则(源码态 / 非 shape)→ 原始 JSON(shiki)。
+            - json 卡内容恰为树形(顶层带 children)→ `isMindmapJSON` 真 → 默认打开即 markmap 预览,并出「预览/代码」切换
+              (切换可见性见 action-bar.showToggle:json 卡按内容判定);普通配置 JSON(无 children)单显源。
+            - mindmap 卡内容违约(非 shape)→ 降级源视图,不空白/不另起卡。详见 output-renderers.md §1 + §6.A。
+            判定与渲染共用同一条 isMindmapJSON,杜绝"判中但渲空"漂移。 */}
         <Show
           when={!isSource() && isMindmapJSON(content())}
           fallback={<SourceCodeView content={content()} lang="json" />}
@@ -329,9 +332,6 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" />}>
           <HtmlRenderer content={content()} />
         </Show>
-      </Match>
-      <Match when={props.tab.type === "json"}>
-        <SourceCodeView content={content()} lang="json" />
       </Match>
       <Match when={props.tab.type === "code"}>
         {/* 路径 C 通用代码/纯文本(.py/.ts/.csv/.txt/…):shiki 按扩展名高亮,单视图。
