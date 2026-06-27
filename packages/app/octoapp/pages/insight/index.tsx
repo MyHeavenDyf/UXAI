@@ -17,6 +17,7 @@ import {
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { SDKProvider, useSDK } from "@/context/sdk"
@@ -175,6 +176,7 @@ function InsightContent() {
   const language = useLanguage()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
+  const layout = useLayout()
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
   const insightDebug = installInsightDebug({
@@ -262,6 +264,13 @@ function InsightContent() {
   // 记录当前所在对话(id 空 = 新建空态)及其所属目录,供下次整页加载恢复。
   createEffect(() => {
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify({ dir: projectDir(), id: params.id ?? "" }))
+  })
+
+  // 记录当前对话到 cowork tab 的"上次会话",供顶栏切回 Cowork(insight)时恢复最后对话窗口。
+  // 与 studio/make/chat 各 tab 一致(它们都调用 setStudio/setMake/setChat)。
+  createEffect(() => {
+    const id = params.id
+    if (id) layout.lastSessionPerTab.setCowork(id)
   })
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
