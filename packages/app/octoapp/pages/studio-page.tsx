@@ -160,15 +160,24 @@ export default function StudioPage() {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
-  const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
-  const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
-  const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
-  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [imageSettingStore, setImageSettingStore] = persisted(
     Persist.global("studio.image.settings"),
-    createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
+    createStore({
+      capability: "image.generate" as StudioCapability,
+      aspectRatio: "3:4" as StudioAspectRatio,
+      count: 1 as 1 | 2 | 3 | 4,
+      styleModel: "seedream-5-lite",
+    }),
   )
+  const capability = () => imageSettingStore.capability
+  const setCapability = (v: StudioCapability) => setImageSettingStore("capability", v)
+  const aspectRatio = () => imageSettingStore.aspectRatio
+  const setAspectRatio = (v: StudioAspectRatio) => setImageSettingStore("aspectRatio", v)
+  const count = () => imageSettingStore.count
+  const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
+  const styleModel = () => imageSettingStore.styleModel
+  const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
@@ -647,7 +656,15 @@ export default function StudioPage() {
   })
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
-  const defaultResult = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
+  const defaultResult = createMemo(() => {
+    const turn = studioTurn()
+    // 跳过无图片的失败结果（包括用户取消生成），canvas 不应显示红色报错
+    if (turn?.result && turn.result.images.length === 0 &&
+        (turn.result.status === "failed" || turn.result.status === "create_failed")) {
+      return latestCompletedTurn()?.result ?? pendingResult()
+    }
+    return turn?.result ?? latestCompletedTurn()?.result ?? pendingResult()
+  })
   const selectedResult = createMemo(() => {
     const id = selectedResultId()
     if (!id) return
@@ -1842,11 +1859,12 @@ export default function StudioPage() {
       const bodyText = await response.text()
       if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
       const generation = JSON.parse(bodyText) as StudioGenerationResult
+      // 用户主动取消，清除 pendingResult 避免 canvas 显示"生成失败"
       setPendingResult((item) => {
         if (!item || item.id !== generation.id) return item
-        return { ...generation, sourceImage: item.sourceImage }
+        return undefined
       })
-      setStatus(generation.status)
+      setStatus("idle")
       const sessionID = generation.sessionID ?? params.id
       if (sessionID) {
         void loadSessionMessages(sessionID).catch((error) => {
@@ -1896,6 +1914,32 @@ export default function StudioPage() {
     )
     if (!text || isBusy()) return
     const currentToken = ++generationToken
+    // Set UI state immediately so "生成中" feedback appears without delay.
+    setOpenMenu(null)
+    setMode("preview")
+    setSending(true)
+    setStatus("submitting")
+    setSelectedResultId(undefined)
+    setPendingResult({
+      id: `studio_pending_${Date.now()}`,
+      status: "running",
+      capability: nextCapability,
+      prompt: text,
+      provider: "internel",
+      model: nextStyleModel,
+      aspectRatio: nextAspectRatio,
+      images: [],
+      progress: 0,
+      createdAt: Date.now(),
+      sourceImage: overrides?.sourceImage,
+      ...(nextCapability === "video.generate"
+        ? {
+            videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+            duration: nextVideoDuration,
+            videoQualityMode: nextVideoQualityMode,
+          }
+        : {}),
+    })
     const previousPrompt = prompt()
     const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
@@ -1931,31 +1975,6 @@ export default function StudioPage() {
             parts: dataStore.part,
           })
         : ""
-    setOpenMenu(null)
-    setMode("preview")
-    setSending(true)
-    setStatus("submitting")
-    setSelectedResultId(undefined)
-    setPendingResult({
-      id: `studio_pending_${Date.now()}`,
-      status: "running",
-      capability: nextCapability,
-      prompt: text,
-      provider: "internel",
-      model: nextStyleModel,
-      aspectRatio: nextAspectRatio,
-      images: [],
-      progress: 0,
-      createdAt: Date.now(),
-      sourceImage: overrides?.sourceImage,
-      ...(nextCapability === "video.generate"
-        ? {
-            videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-            duration: nextVideoDuration,
-            videoQualityMode: nextVideoQualityMode,
-          }
-        : {}),
-    })
     if (!overrides?.useRestoredInputs) {
       setPrompt("")
       setAssets([])
@@ -2110,6 +2129,19 @@ export default function StudioPage() {
       },
     ),
   )
+
+  function handleCancelGeneration() {
+    const pollingId = pollingGenerationID()
+    if (pollingId) {
+      void cancelStudioGeneration(pollingId)
+      return
+    }
+    // Still in submitting phase — abort via token
+    generationToken++
+    setPendingResult(undefined)
+    setStatus("idle")
+    setSending(false)
+  }
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
@@ -2532,6 +2564,7 @@ export default function StudioPage() {
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onOpenMenu={setOpenMenu}
+                  onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
                   onPickFile={() => fileInputRef.click()}
@@ -2676,6 +2709,7 @@ export default function StudioPage() {
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}
+            onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
             onPickFile={() => fileInputRef.click()}
@@ -2895,7 +2929,6 @@ export default function StudioPage() {
               setStudioLeftOverlayOpen(false)
               startNewStudioConversation()
             }}
-            toggleDrawer={() => setStudioLeftOverlayOpen(false)}
           />
         </aside>
       </Show>

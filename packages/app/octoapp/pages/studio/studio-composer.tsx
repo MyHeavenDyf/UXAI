@@ -46,6 +46,7 @@ export function StudioComposer(props: {
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
+  onCancel?: () => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
@@ -275,6 +276,14 @@ export function StudioComposer(props: {
               disabled={!props.canSubmit}
               class="studio-composer-send"
               title="生成"
+            />
+          </Show>
+          <Show when={isBusy() && props.onCancel}>
+            <button
+              type="button"
+              onClick={props.onCancel}
+              class="studio-composer-stop"
+              title="停止生成"
             />
           </Show>
         </div>

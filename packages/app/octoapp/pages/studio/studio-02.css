@@ -51,6 +51,22 @@
   opacity: 0.45;
 }
 
+.studio-composer-stop {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-image: url("/pauseIcon.svg");
+  background-size: 48.4px auto;
+  background-position: -8px -3.5px;
+  background-repeat: no-repeat;
+  background-color: transparent;
+  cursor: pointer;
+}
+
 .studio-gradient-button {
   color: #fff;
   background: linear-gradient(135deg, var(--studio-violet), var(--studio-magenta));
