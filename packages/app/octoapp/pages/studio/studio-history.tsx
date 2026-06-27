@@ -39,11 +39,10 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   const layout = useLayout()
 
   const [sessions, { refetch }] = createResource(
-    () => ({ dir: props.directory ?? "", id: props.activeSessionID }),
-    async (source) => {
-      const d = source.dir
-      if (!d) return [] as Session[]
-      const client = globalSDK.createClient({ directory: d })
+    () => props.directory ?? "",
+    async (dir) => {
+      if (!dir) return [] as Session[]
+      const client = globalSDK.createClient({ directory: dir })
       const result = await client.session.list()
       const data = ((result.data ?? []) as Session[])
         .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))

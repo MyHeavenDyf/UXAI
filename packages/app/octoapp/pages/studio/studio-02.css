@@ -127,6 +127,7 @@
   transform: translateY(0);
   box-shadow: none;
   filter: none;
+  border-radius: 4px;
 }
 
 .studio-canvas-download-action:active {
@@ -171,6 +172,7 @@
   transform: translateY(0);
   box-shadow: none;
   filter: none;
+  border-radius: 4px;
 }
 
 .studio-canvas-regenerate-action:active {
@@ -212,6 +214,7 @@
 .studio-canvas-video-action:hover {
   background: rgba(25, 25, 25, 0.06);
   color: #191919;
+  border-radius: 4px;
 }
 
 .studio-canvas-action-group {
@@ -239,6 +242,7 @@
 .studio-canvas-icon-action:hover {
   background: rgba(25, 25, 25, 0.06);
   color: #191919;
+  border-radius: 4px;
 }
 
 .studio-canvas-icon-action-icon {
@@ -489,7 +493,6 @@
 .studio-image-settings-count.active {
   background: #fff;
   color: #191919;
-  font-weight: 850;
 }
 
 .studio-image-settings-ratio {

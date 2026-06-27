@@ -548,6 +548,7 @@ export default function StudioPage() {
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
       parts: dataStore.part,
       fallback: pendingResult(),
+      currentSessionID: params.id,
     }),
   )
   const displayTurns = createMemo(() =>
@@ -878,7 +879,10 @@ export default function StudioPage() {
           setStatus("idle")
           setPendingResult(undefined)
         }
-        if (id && !sending() && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
+        // Clear pendingResult when switching to an unrelated session, even
+        // when sending() is still true (the pending result is scoped to the
+        // previous session and should not ghost into the new one).
+        if (id && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
           setStatus("idle")
           setPendingResult(undefined)
         }
@@ -1954,9 +1958,10 @@ export default function StudioPage() {
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       if (currentToken !== generationToken) return
+      // Always attach sessionID to pendingResult so it can be scoped to the correct session.
+      setPendingResult((item) => item ? { ...item, sessionID } : item)
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
-        setPendingResult((item) => item ? { ...item, sessionID } : item)
         navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
       const generation = await createStudioGeneration({
@@ -2565,8 +2570,7 @@ export default function StudioPage() {
                 onBlur={() => void saveHeaderTitleEditor()}
               />
             </Show>
-            <Show when={activeStudioSession()} keyed>
-              {(session) => (
+            <Show when={params.id}>
                 <DropdownMenu
                   gutter={4}
                   placement="bottom-end"
@@ -2603,14 +2607,16 @@ export default function StudioPage() {
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item
-                        onSelect={() => dialog.show(() => <DialogDeleteHeaderSession session={session} />)}
+                        onSelect={() => {
+                          const session = activeStudioSession()
+                          if (session) dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                        }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu>
-              )}
             </Show>
           </div>
 
