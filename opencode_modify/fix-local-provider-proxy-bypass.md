@@ -40,13 +40,17 @@ Surge / 公司网关 / TUN 模式）。
 
 - 命中本地 provider（`opencode` / `bpit` / `bpit-beta`）或华为内网域名（`*.huawei.com`）时
 - 使用独立的 undici `Agent`，配置：
-  - `headersTimeout: 0` — 禁用 headers 超时
-  - `bodyTimeout: 0` — 禁用 body 超时（SSE 流可能慢）
+  - `headersTimeout: 5 * 60 * 1000` — 5 分钟兜底（覆盖 6 秒问题但避免假死）
+  - `bodyTimeout: 5 * 60 * 1000` — 同上
   - `connectTimeout: 30_000` — 连接建立仍给 30s 兜底
   - `keepAliveTimeout: 1_000` / `keepAliveMaxTimeout: 5_000` — 短 keepalive，
     避免连接池里的陈旧连接被服务端 RST
 - 通过 `fetchFn(input, { ...opts, dispatcher })` 传入，**覆盖**任何全局 dispatcher
   （包括 EnvHttpProxyAgent / setGlobalDispatcher 设置的代理）
+
+上层兜底：本地 provider 场景下，如果用户没配 `options["timeout"]`，注入 5 分钟
+默认值通过 `AbortSignal.timeout` 加到 fetch signal，让 ai-sdk 能感知超时并 retry
+（schema 文档承诺的 "Default is 300000" 原本未被实际代码应用）。
 
 Bun 环境自动跳过（Bun.fetch 不读 HTTP_PROXY，无需修复）。
 

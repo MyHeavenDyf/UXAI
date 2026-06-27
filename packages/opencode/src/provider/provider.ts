@@ -333,9 +333,9 @@ async function getBypassDispatcher(): Promise<any | null> {
   try {
     const mod = await import("undici")
     _bypassDispatcher = new mod.Agent({
-      // 禁用所有可能的 timeout（用户 SSE 流可能慢）
-      headersTimeout: 0,
-      bodyTimeout: 0,
+      // 5 分钟兜底：覆盖 6 秒问题（远高于），同时防止服务端死锁导致 fetch 假死
+      headersTimeout: 5 * 60 * 1000,
+      bodyTimeout: 5 * 60 * 1000,
       // 连接建立仍给 30s 兜底
       connectTimeout: 30_000,
       // 短 keepalive，避免连接池里的陈旧连接被服务端 RST
@@ -1986,8 +1986,15 @@ const layer: Layer.Layer<
 
             userSignal = (opts.signal as AbortSignal | undefined) ?? null
             chunkSignal = chunkAbortCtl?.signal ?? null
-            if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false) {
-              optionsTimeoutSignal = AbortSignal.timeout(options["timeout"])
+            // 本地 provider 兜底：用户没配 timeout 时注入 5 分钟默认值，
+            // 防止 dispatcher headersTimeout/bodyTimeout 之外没有上层超时，
+            // 避免服务端死锁导致 fetch 永远挂起。
+            const effectiveTimeout =
+              options["timeout"] === undefined && shouldUseBypassDispatcher(model.providerID, url)
+                ? 5 * 60 * 1000
+                : options["timeout"]
+            if (effectiveTimeout !== undefined && effectiveTimeout !== null && effectiveTimeout !== false) {
+              optionsTimeoutSignal = AbortSignal.timeout(effectiveTimeout as number)
             }
           } catch (e) {
             try {
