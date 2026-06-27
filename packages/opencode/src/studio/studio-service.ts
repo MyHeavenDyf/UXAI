@@ -351,7 +351,7 @@ const PROMPT_REFINE_SYSTEM = [
 async function refineStudioPrompt(input: StudioGenerationRequest, session: typeof SessionTable.$inferSelect): Promise<StudioPromptRefineResult> {
   if (!shouldRefineWithLLM(input)) return promptRefineFallback(input)
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(new Error("Studio prompt refine timed out.")), 12_000)
+  const timeout = setTimeout(() => controller.abort(new Error("Studio prompt refine timed out.")), 15_000)
   try {
     const model = session.model
       ? { providerID: ProviderID.make(session.model.providerID), modelID: ModelID.make(session.model.id) }
@@ -413,6 +413,7 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
             }),
           ),
         )
+        const maxOutputTokens = 800
         const chatHeaders = yield* Effect.promise(() =>
           studioPromptPluginRuntime.runPromise((plugin) =>
             plugin.trigger("chat.headers", chatHookInput, {
@@ -458,7 +459,7 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
           temperature: chatParams.temperature,
           topP: chatParams.topP,
           topK: chatParams.topK,
-          maxOutputTokens: chatParams.maxOutputTokens,
+          maxOutputTokens: maxOutputTokens,
           messageRoles: messages.map((item) => item.role),
           messageContentLengths: messages.map((item) =>
             typeof item.content === "string" ? item.content.length : JSON.stringify(item.content).length,
@@ -478,7 +479,7 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
             temperature: chatParams.temperature,
             topP: chatParams.topP,
             topK: chatParams.topK,
-            maxOutputTokens: chatParams.maxOutputTokens,
+            maxOutputTokens: maxOutputTokens,
             messages,
             providerOptions,
             abortSignal: controller.signal,
