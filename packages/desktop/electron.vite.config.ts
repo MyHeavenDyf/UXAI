@@ -4,6 +4,7 @@ import { loadEnv } from "vite"
 import appPlugin from "@opencode-ai/app/vite"
 import { octoMockPlugin } from "../app/mock/index.ts"
 import * as fs from "node:fs/promises"
+import { readFileSync } from "node:fs"
 
 const OPENCODE_SERVER_DIST = "../opencode/dist/node"
 
@@ -12,13 +13,55 @@ const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 // jk-j60099994-replace-with-electron-vite-config-1-start
 // jk-j60099994-replace-with-electron-vite-config-1-end
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "")
   const channel = (() => {
     const raw = env.OCTO_CHANNEL ?? process.env.OCTO_CHANNEL
     if (raw === "dev" || raw === "beta" || raw === "prod") return raw
     return "dev"
   })()
+
+  // [octo:env] 以 .env.example 声明的业务变量(OCTO_*/VITE_*)为清单,逐个打印**实际生效值**
+  // (loadEnv 结果,优先级 process.env > .env.<mode> > .env;未配置标 (未设置))。这样 dev/build 都能
+  // 看到完整业务变量清单 + 各自当前值,直接确认"连 beta 还是 prod",不必猜哪个 .env 文件生效。
+  // 以 .env.example 为单一真相源(新增变量自动纳入);只列业务变量,不打整个 process.env(系统变量 + 密钥)。
+  const declaredKeys = (() => {
+    try {
+      return readFileSync(".env.example", "utf8")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith("#") && l.includes("="))
+        .map((l) => l.slice(0, l.indexOf("=")).trim())
+        .filter((k) => k.startsWith("OCTO_") || k.startsWith("VITE_"))
+    } catch {
+      // 读不到 .env.example 时回退:只列 env 里实际存在的 OCTO_/VITE_ 变量。
+      return Object.keys(env)
+        .filter((k) => k.startsWith("OCTO_") || k.startsWith("VITE_"))
+        .sort()
+    }
+  })()
+  const logOctoEnv = () => {
+    // 多行 banner + 前后空行,dev 时即使被 electron 启动日志夹住也好辨认 / 好 grep(搜 octo:env)。
+    const lines = [
+      "",
+      `[octo:env] ┌─ effective env  mode=${mode}  channel=${channel}  command=${command}  (${declaredKeys.length} keys)`,
+      ...declaredKeys.map((k) => `[octo:env] │  ${k}=${env[k] || "(未设置)"}`),
+      "[octo:env] └─ 值=process.env > .env.<mode> > .env 覆盖后的最终生效;清单来自 .env.example",
+      "",
+    ]
+    console.log(lines.join("\n"))
+  }
+  // build:此刻打印即稳定可见。dev(serve):vite dev server 启动会 clearScreen 清屏,此处打会被刷掉,
+  // 故 dev 改由下面 octoEnvDebugPlugin 在 server listening 之后补打,保证 run dev 也能看到。
+  if (command === "build") logOctoEnv()
+  const octoEnvDebugPlugin = {
+    name: "octo:env-debug",
+    apply: "serve" as const,
+    configureServer(server: { httpServer: { once(e: string, cb: () => void): void } | null }) {
+      // 延到下一个 tick,确保排在 vite 打印 server url(含 clearScreen)之后,不被清屏吞掉。
+      server.httpServer?.once("listening", () => setTimeout(logOctoEnv, 0))
+    },
+  }
 
   const sentry =
     process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
@@ -92,7 +135,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     renderer: {
-      plugins: [appPlugin, octoMockPlugin(), sentry],
+      plugins: [appPlugin, octoMockPlugin(), sentry, octoEnvDebugPlugin],
       publicDir: "../../../app/public",
       root: "src/renderer",
       define: {
