@@ -82,21 +82,37 @@ signals.push(AbortSignal.timeout(options["timeout"]))
 
 **`packages/opencode/src/provider/provider.ts`**：
 
-1. 在 `wrapSSE` 上方新增模块级 logger 与 helper：
+1. 在 `wrapSSE` 上方新增模块级 logger 与 helpers：
    - `const fetchDebug = Log.create({ service: "fetch-debug" })`
    - `let fetchDebugSeq = 0`
-   - `function describeAbortReason(sig)` — 渲染 signal.reason 为可读字符串
+   - `describeAbortReason(sig)` — 渲染 signal.reason
+   - `describeError(e)` — 抓 Error 字段 + Node/undici/Bun 系统错误字段（code/errno/syscall/address/port 等）+ 所有可枚举属性
+   - `sanitizeHeaders(h)` — 自动脱敏 authorization / x-api-key / cookie / set-cookie 等
+   - `describeInit(init)` — 完整 init 字段（含 body keys / preview 脱敏 / signal 状态）
+   - `describeRequest(req)` — Request 对象的所有字段（mode/credentials/cache/keepalive/signal 等）
+   - `attachSourceListener(sig, source, fire)` — 在指定 source signal 上挂一次性 abort listener
 
-2. 改造 `options["fetch"]` 包装器，在 fetch 调用前后增加：
-   - 进入时打 `fetch #N start`（info）—— provider_id / url / body_model / body_stream / timeout_ms / chunk_timeout_ms / has_user_signal
-   - 若 `opts.signal.aborted === true`（进 fetch 前就 abort）打 `signal ALREADY aborted pre-call`（error）
-   - 在 `opts.signal` 上挂 `{ once: true }` abort listener：触发时打 `signal aborted`（error），含 `at_ms`（请求开始到 abort 的毫秒）
-   - `fetchFn` 抛错时打 `fetchFn threw`（error）—— `error_name` / `error_code` / `error_message` / `error_cause` / `signal_aborted_at_error` / `signal_reason` / `abort_fired_during`
-   - 拿到 response 打 `response headers`（info）—— `status` / `content_type` / `duration_ms`
-   - 无 chunk 包装路径打 `done (no chunk wrap)`（info）
-   - 走 wrapSSE 路径打 `wrapped SSE`（info）
+2. 改造 `wrapSSE`，接受可选 `seq` 参数：触发 chunk timeout 时打 `SSE chunk timeout fired`（error），消费方 cancel 时打 `SSE consumer cancelled`（warn），流自然结束打 `SSE stream ended`（info）
 
-3. 关键：abort listener 用 `{ once: true }`，捕获 `AbortSignal.timeout(N)` / `AbortSignal.any([...])` 触发的 abort，**补上 monkey-patch 的盲区**。
+3. 改造 `options["fetch"]` 包装器：
+   - **三 source signal 分别打 label**：`user`（ai-sdk 传入的 init.signal）、`chunk`（chunkAbortCtl）、`options-timeout`（`AbortSignal.timeout(N)`）、`combined`（最终合并 signal）。每条 signal 单独挂 listener，触发时打 `source-signal aborted`（error），区分是哪条 signal 触发的 abort
+   - **start 事件**（info）：`provider_id` / `npm` / `base_url` / `method` / `url` / `options_timeout_ms` / `chunk_timeout_ms` / 各 signal 的 present + pre-aborted 状态 / `init` 完整内容（脱敏）/ `request` 对象所有字段 / `caller_stack`（fetch 调用栈）
+   - **response headers 事件**（info）：`status` / `status_text` / `ok` / `type` / `headers` 全量（脱敏）/ `duration_ms`
+   - **body 流包装**（`wrapBodyForDebug`）：每个 chunk 都记录 size + at_ms + delta_ms，第一个 chunk 额外记录 512 字节 preview（utf-8 解码）；body 流结束打 `body done`；body 流被消费方 cancel 打 `body cancelled`；body 读抛错打 `body read threw`（含完整 error）
+   - **fetchFn 抛错事件**（error）：完整 `describeError(e)` + 各 signal 在错误时刻的 aborted 状态 + `first_abort_source`（区分 user / chunk / options-timeout / combined 哪个先触发）
+
+### 关键诊断字段说明
+
+| 字段 | 含义 |
+|---|---|
+| `at_ms` | 请求开始到事件发生的毫秒数 |
+| `source` | 哪条 signal 触发了 abort：`user` / `chunk` / `options-timeout` / `combined` |
+| `first_abort_source` | 第一条触发 abort 的 signal，区分因果方向 |
+| `combined_aborted_at_error` | fetch 抛错时 combined signal 是否已经 aborted。**`false` 说明 fetch 自己抛错，signal abort 是副作用** |
+| `error.code` / `error.syscall` / `error.errno` | 系统/网络层错误（ECONNRESET / ETIMEDOUT / UND_ERR_*） |
+| `error.cause` | 嵌套错误，常含真正根因（如 `Request was cancelled`） |
+| `body chunk count` + `first_chunk_ms` | SSE 流实际收到的 chunk 数和首 chunk 延迟，区分"完全没建立"和"建立后中断" |
+| `caller_stack` | fetch 调用栈，定位是 ai-sdk 哪个调用路径（streamText / generateText / retry） |
 
 ### 验证方法
 
@@ -108,20 +124,15 @@ bun turbo build --force
 # 启动 opencode 后过滤 fetch-debug 日志
 grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log
 
+# 看某次请求的完整生命周期（按 seq 过滤）
+grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log | grep "#5"
+
 # 只看 abort/error 事件
-grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log | grep -E "aborted|threw|ALREADY"
+grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log | grep -iE "abort|threw|timeout|cancel"
 
-# 看最近一次请求的完整生命周期
-grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log | tail -20
+# 看 SSE chunk 时间线
+grep "service=fetch-debug" ~/.local/share/opencode/log/dev.log | grep -E "body (first chunk|chunk #|done|read threw|cancelled)"
 ```
-
-### 关键诊断字段说明
-
-- `at_ms` —— 请求开始到 abort 的毫秒数。对照 `response headers` 的 `duration_ms` 能区分：
-  - abort 在 headers 之前 → 网络层 / 请求阶段
-  - abort 在 headers 之后 → SSE 流读取阶段（chunk timeout 或上游断流）
-- `error_code` —— `UND_ERR_ABORTED` 即 undici 主动 abort；其他 code 可能是服务端 4xx/5xx
-- `signal_aborted_at_error` + `signal_reason` —— 错误抛出时 signal 的真实状态，对照 `error_code` 能区分「真 abort」与「服务端错误」
 
 ### 排查完成后移除
 
