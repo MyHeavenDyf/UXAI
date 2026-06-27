@@ -26,7 +26,7 @@ import modify_json_ai from './workflow/modify_json_ai'
 import { mergeModules } from "./agents/merge"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
-import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/debug-log"
+import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
 import { rollbackToVersion } from "./utils/version-history"
 import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { autoRenameSession } from "./utils/rename-session"
@@ -482,13 +482,19 @@ function PatternContent() {
                 lastPlanner: layoutPlanner,
                 lastModules: modulesJson,
                 mergedA2UI: pageJson as unknown as Record<string, unknown>,
-                debug,
             }, text.slice(0, 80))
             if (params.id === sid) {
               setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
               setCurrentVersionId(vid)
               clearDebugLog()
-          }
+            }
+            void saveDebugLog(dir, sid!, {
+              lastIntent: pageIntent,
+              lastPlanner: layoutPlanner,
+              lastModules: modulesJson,
+              mergedA2UI: pageJson as unknown as Record<string, unknown>,
+              debug,
+            }, text.slice(0, 80))
           }
           // 视图状态仅在仍在该 session 时更新
           if (params.id !== sid) return
@@ -599,13 +605,22 @@ function PatternContent() {
         const dir = patternHistoryDir()
         if (dir) {
           const vid = await appendPatternVersion(dir, sid, {
-              lastIntent: lastIntent(),
-              lastPlanner: lastPlanner(),
-              lastModules: lastModules(),
+              lastIntent: pageIntent,
+              lastPlanner: layoutPlanner,
+              lastModules: modulesJson,
               mergedA2UI: pageJson as unknown as Record<string, unknown>,
           }, userInput.slice(0, 80))
           setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: userInput.slice(0, 80) }])
           setCurrentVersionId(vid)
+          const debug = getDebugSnapshot()
+          void saveDebugLog(dir, sid, {
+            lastIntent: pageIntent,
+            lastPlanner: layoutPlanner,
+            lastModules: modulesJson,
+            mergedA2UI: pageJson as unknown as Record<string, unknown>,
+            debug,
+          }, userInput.slice(0, 80))
+          clearDebugLog()
         }
     }
     

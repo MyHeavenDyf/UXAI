@@ -10,7 +10,6 @@
  */
 
 import { getDesktopApi } from "./desktop-api"
-import type { SessionDebugLog } from "./debug-log"
 import { mergeModules } from "../agents/merge"
 import { detectA2UIJson } from "./a2ui-protocol"
 
@@ -20,7 +19,6 @@ export type PatternSessionState = {
   lastPlanner: Record<string, unknown> | null
   lastModules: Array<Record<string, unknown>>
   mergedA2UI?: Record<string, unknown>
-  debug?: SessionDebugLog | null
 }
 
 /** 版本列表条目（不含具体 state，用于菜单展示） */
