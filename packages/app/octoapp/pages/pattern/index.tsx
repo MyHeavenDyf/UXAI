@@ -28,6 +28,7 @@ import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, typ
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
 import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
 import { rollbackToVersion } from "./utils/version-history"
+import { classifyAIError } from "./utils/error-msg"
 import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { autoRenameSession } from "./utils/rename-session"
 import { exportZip } from "./utils/previewHandler/zip"
@@ -367,7 +368,13 @@ function PatternContent() {
   }
 
   async function handleModifyElement(data: ModifyElementData) {
-    await runQuickModify(quickModifyCtx, data)
+    try {
+      await runQuickModify(quickModifyCtx, data)
+    } catch (err: unknown) {
+      console.error("[PatternPage] handleModifyElement failed", err)
+      const error = classifyAIError(err)
+      if (error.title) showToast({ title: error.title, description: error.description })
+    }
   }
 
 
@@ -557,6 +564,9 @@ function PatternContent() {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
+      setIsModifying(false)
+      const error = classifyAIError(err)
+      if (error.title) showToast({ title: error.title, description: error.description })
     } finally {
       setSendingSid((prev) => (prev === sid ? null : prev))
     }
@@ -628,6 +638,9 @@ function PatternContent() {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
       console.error("[PatternPage] handleConfirmReview failed", err)
+      const error = classifyAIError(err)
+      if (error.title) showToast({ title: error.title, description: error.description })
+      setIsPlanReview(true)
     } finally {
       setReviewUserInput("")
     }

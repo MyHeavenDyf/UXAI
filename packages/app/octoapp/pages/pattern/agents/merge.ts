@@ -40,7 +40,7 @@ export function mergeModules(shell: A2UIModule, modules: A2UIModule[], slots?: S
         if (slots[i].operation === "create") {
           rootIdRemap.set(modules[i].rootId, slots[i].element_id)
         } else if (slots[i].operation !== "create") {
-          console.warn(`[Merge] slot[${i}] operation="${slots[i].operation}" rootId="${modules[i].rootId}" 与 element_id="${slots[i].element_id}" 不匹配，请检查 Planner 输出`)
+          throw new Error(`[Merge] slot[${i}] operation="${slots[i].operation}" rootId="${modules[i].rootId}" 与 element_id="${slots[i].element_id}" 不匹配，Planner 输出的 ID 不一致`)
         }
       }
     }
