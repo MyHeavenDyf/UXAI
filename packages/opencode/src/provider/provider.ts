@@ -331,7 +331,6 @@ async function getBypassDispatcher(): Promise<any | null> {
   if (typeof process === "undefined" || !process.versions?.node) return null
   if (process.env.OPENCODE_DISABLE_BYPASS_DISPATCHER === "1") return null
   try {
-    // @ts-ignore - undici 是 Node.js 内置模块，但作为外部包未安装类型声明
     const mod = await import("undici")
     _bypassDispatcher = new mod.Agent({
       // 禁用所有可能的 timeout（用户 SSE 流可能慢）
