@@ -118,6 +118,8 @@ function PatternContent() {
         discoverVersion++
         setPendingPreviewData(null)
         previewApi.sendToPreview(null)
+        lastSentPreviewJson = ""
+        lastOpenedModules = null
 
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {
@@ -431,7 +433,11 @@ function PatternContent() {
 
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { }, setEditingOff: () => { } }
 
+  let lastSentPreviewJson = ""
   function sendToPreview(data: unknown) {
+    const json = typeof data === "string" ? data : JSON.stringify(data)
+    if (json === lastSentPreviewJson) return
+    lastSentPreviewJson = json
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
     setHasPreviewContent(true)
@@ -755,9 +761,12 @@ function PatternContent() {
 
   // 生成完成后自动发送预览
   let wasBusy = false
+  let lastOpenedModules: unknown[] | null = null
   createEffect(() => {
     const busy = isBusy() || sending()
-    if (wasBusy && !busy && lastModules().length > 0) {
+    const modules = lastModules()
+    if (wasBusy && !busy && modules.length > 0 && modules !== lastOpenedModules) {
+      lastOpenedModules = modules
       handleOpenPreview()
     }
     wasBusy = busy

@@ -101,22 +101,6 @@ export function PreviewPage(props: {
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
   }
 
-  const PREVIEW_SRC = "http://127.0.0.1:51856"
-  let readyRetry = 0
-  let readyTimer: ReturnType<typeof setTimeout> | undefined
-
-  function onIframeLoad() {
-    clearTimeout(readyTimer)
-    readyTimer = setTimeout(() => {
-      if (readyRetry < 3 && previewIframeRef) {
-        readyRetry++
-        console.warn(`[preview] A2UI_READY timeout, reloading (${readyRetry}/3)`)
-        previewIframeRef.src = PREVIEW_SRC
-      }
-    }, 2000)
-    if (props.pendingData) sendToPreview(props.pendingData)
-  }
-
   if (props.api) {
     props.api.sendToPreview = sendToPreview
     props.api.postMessage = (data: unknown) => {
@@ -286,8 +270,6 @@ export function PreviewPage(props: {
   const handleIframeMessage = (e: MessageEvent) => {
     handlePickerMessage(e)
     if (e.data?.type === "A2UI_READY") {
-      clearTimeout(readyTimer)
-      readyRetry = 0
       if (props.pendingData) {
         console.log("[preview] A2UI_READY, re-sending pendingData")
         sendToPreview(props.pendingData)
@@ -319,7 +301,6 @@ export function PreviewPage(props: {
     window.removeEventListener("message", handleIframeMessage)
     window.removeEventListener("click", onClickOutside)
     window.removeEventListener("keydown", onKeyDown)
-    clearTimeout(readyTimer)
   })
 
   return (
@@ -362,8 +343,10 @@ export function PreviewPage(props: {
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
-          src={PREVIEW_SRC}
-          onLoad={onIframeLoad}
+          src="http://127.0.0.1:51856"
+          onLoad={() => {
+            if (props.pendingData) sendToPreview(props.pendingData)
+          }}
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>
