@@ -17,6 +17,8 @@ import { useNotification } from "@/context/notification"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconSettings } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
+import { importPatternZip } from "../../utils/previewHandler/zip"
+import { getDesktopApi } from "../../utils/desktop-api"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -208,14 +210,56 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     })
   }
 
-  let fileInputRef: HTMLInputElement | undefined
+  async function handleFileImport() {
+    const dir = resolvedDir()
+    if (!dir) {
+      showToast({ title: "请先选择项目目录" })
+      return
+    }
 
-  function triggerImport() {
-    fileInputRef?.click()
-  }
+    const files = await importPatternZip()
+    if (!files) return
 
-  async function handleFileImport(e: Event) {
-   // 导入文件
+    setCreating(true)
+    const client = globalSDK.createClient({ directory: dir })
+    const sessionResult = await client.session.create({ directory: dir, agent: "proto_triage" })
+    setCreating(false)
+
+    const session = sessionResult.data as Session | undefined
+    if (!session) {
+      showToast({ title: "创建会话失败" })
+      return
+    }
+
+    const api = getDesktopApi()
+    const encoder = new TextEncoder()
+    const historyDir = `${dir}/.octo/design/history/${session.id}`
+
+    for (const file of files) {
+      await api?.writeFileBuffer?.(`${historyDir}/${file.name}`, encoder.encode(file.content).buffer)
+    }
+
+    const versionsFile = files.find((f) => f.name === "_versions.json")
+    let title = ""
+    if (versionsFile) {
+      try {
+        const idx = JSON.parse(versionsFile.content)
+        const current = idx.versions?.find((v: { id: string }) => v.id === idx.current)
+        title = current?.summary ?? idx.versions?.[0]?.summary ?? ""
+      } catch {}
+    }
+
+    if (title) {
+      await client.session.promptAsync({
+        sessionID: session.id,
+        parts: [{ type: "text", text: title }],
+        noReply: true,
+      })
+      try { await client.session.update({ sessionID: session.id, title }) } catch {}
+    }
+
+    await refetch()
+    navigate(`/pattern/${session.id}`)
   }
 
   return (
@@ -245,19 +289,12 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
               type="button"
               class="flex items-center gap-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
               style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-              onClick={triggerImport}
+              onClick={() => void handleFileImport()}
             >
               <Icon name="download" size="normal" class="shrink-0" />
               <span>导入</span>
             </button>
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            style={{ display: "none" }}
-            onChange={handleFileImport}
-          />
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
       </div>

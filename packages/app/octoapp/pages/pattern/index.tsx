@@ -784,14 +784,12 @@ function PatternContent() {
     download(pendingPreviewData(), params.id ?? "export")
   }
 
-  // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
+  // 分享 — 打包 session 历史版本目录为 ZIP
   async function handleShare() {
     await exportZip({
-      patternId: params.id ?? "export",
-      intent: lastIntent(),
-      planner: lastPlanner(),
-      modules: lastModules(),
-      previewData: pendingPreviewData(),
+      historyDir: patternHistoryDir(),
+      sessionId: params.id ?? "",
+      title: sessionInfo()?.title ?? params.id ?? "export",
     })
   }
 

@@ -99,5 +99,11 @@ export type ElectronAPI = {
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
   runPixsoBuild: (input: string) => Promise<string>
-  exportZip: (opts: { defaultName: string; files: { name: string; content: string }[] }) => Promise<string | null>
+  exportZip: (opts: {
+    defaultName: string
+    files?: { name: string; content: string }[]
+    sourceDir?: string
+    comment?: string
+  }) => Promise<string | null>
+  importZip: () => Promise<{ name: string; content: string }[] | null>
 }
