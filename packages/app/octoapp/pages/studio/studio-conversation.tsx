@@ -1,9 +1,10 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
-import { isStudioEditResult, isVideoMedia } from "./studio-shared"
+import { isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
 import { STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
@@ -109,6 +110,20 @@ export function StudioResultCanvas(props: {
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
+  let canvasStageRef!: HTMLDivElement
+  const [compactActions, setCompactActions] = createSignal(false)
+  const [editToolsOpen, setEditToolsOpen] = createSignal(false)
+
+  createEffect(() => {
+    const el = canvasStageRef
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? Infinity
+      setCompactActions(w < 700)
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
 
   createEffect(() => {
     const image = fullscreenImage()
@@ -187,18 +202,20 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
-              <div class="studio-canvas-stage">
-                <Show
-                  when={isVideoMedia(image())}
-                  fallback={<StudioMediaPreview image={image()} class="studio-canvas-image" onClick={() => setFullscreenImage(image())} />}
-                >
-                  <StudioVideoPlayer
-                    src={image().remoteUrl ?? image().url}
-                    poster={image().thumbnailUrl}
-                    class="studio-canvas-image"
-                    mount={props.videoPlayerMount}
-                  />
-                </Show>
+              <div ref={canvasStageRef!} class="studio-canvas-stage">
+                <div class="studio-canvas-image-wrapper">
+                  <Show
+                    when={isVideoMedia(image())}
+                    fallback={<StudioMediaPreview image={image()} class={`studio-canvas-image ${getImageOrientation(image())}`} onClick={() => setFullscreenImage(image())} />}
+                  >
+                    <StudioVideoPlayer
+                      src={image().remoteUrl ?? image().url}
+                      poster={image().thumbnailUrl}
+                      class={`studio-canvas-image ${getImageOrientation(image())}`}
+                      mount={props.videoPlayerMount}
+                    />
+                  </Show>
+                </div>
                 <div class="studio-canvas-floating-actions">
                   <button
                     type="button"
@@ -221,28 +238,59 @@ export function StudioResultCanvas(props: {
                   </Show>
                   <Show when={!isVideoResult()}>
                     <span class="studio-canvas-action-divider" />
-                    <div class="studio-canvas-action-group">
-                      <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
-                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
-                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
-                        <span>变清晰</span>
-                      </button>
-                      <button type="button" onClick={props.onCutout} disabled={props.regenerateDisabled}
-                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
-                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
-                        <span>抠图</span>
-                      </button>
-                      <button type="button" onClick={props.onInpaint} disabled={props.regenerateDisabled}
-                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
-                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
-                        <span>智能重绘</span>
-                      </button>
-                      <button type="button" onClick={props.onOutpaint} disabled={props.regenerateDisabled}
-                        class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
-                        <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
-                        <span>扩图</span>
-                      </button>
-                    </div>
+                    <Show when={!compactActions()} fallback={
+                      <DropdownMenu gutter={4} placement="bottom" open={editToolsOpen()} onOpenChange={setEditToolsOpen}>
+                        <DropdownMenu.Trigger class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" disabled={props.regenerateDisabled}>
+                          <span>AI修图</span>
+                          <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{ "margin-left": "4px", transform: editToolsOpen() ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>
+                            <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Portal>
+                          <DropdownMenu.Content>
+                            <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.regenerateDisabled}>
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <DropdownMenu.ItemLabel>变清晰</DropdownMenu.ItemLabel>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onSelect={props.onCutout} disabled={props.regenerateDisabled}>
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <DropdownMenu.ItemLabel>抠图</DropdownMenu.ItemLabel>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.regenerateDisabled}>
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <DropdownMenu.ItemLabel>智能重绘</DropdownMenu.ItemLabel>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.regenerateDisabled}>
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <DropdownMenu.ItemLabel>扩图</DropdownMenu.ItemLabel>
+                            </DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                      </DropdownMenu>
+                    }>
+                      <div class="studio-canvas-action-group">
+                        <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
+                          <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
+                          <span>变清晰</span>
+                        </button>
+                        <button type="button" onClick={props.onCutout} disabled={props.regenerateDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
+                          <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
+                          <span>抠图</span>
+                        </button>
+                        <button type="button" onClick={props.onInpaint} disabled={props.regenerateDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
+                          <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
+                          <span>智能重绘</span>
+                        </button>
+                        <button type="button" onClick={props.onOutpaint} disabled={props.regenerateDisabled}
+                          class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
+                          <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
+                          <span>扩图</span>
+                        </button>
+                      </div>
+                    </Show>
                     <span class="studio-canvas-action-divider" />
                   </Show>
                   <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">

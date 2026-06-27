@@ -128,11 +128,40 @@
   }
 }
 
+@media (min-width: 1228px) and (max-width: 1919px) {
+  /* studio-canvas min-width removed — resize handles govern the layout */
+}
+
+@media (min-width: 1456px) and (max-width: 1919px) {
+  .studio-left {
+    width: 296px;
+    flex-basis: 296px;
+  }
+
+  .studio-left.collapsed {
+    width: 68px;
+    flex-basis: 68px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .studio-left {
+    width: 296px;
+    flex-basis: 296px;
+  }
+
+  .studio-left.collapsed {
+    width: 68px;
+    flex-basis: 68px;
+  }
+}
+
 .studio-page {
   background: #fff;
 }
 
 .studio-left {
+  min-width: 200px;
   padding: 0;
   background: linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%);
   border-right-color: var(--border-weak-base);
