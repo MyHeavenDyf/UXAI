@@ -86,6 +86,7 @@ const StudioGenerationResult = Schema.Struct({
     Schema.Literal("queued"),
     Schema.Literal("running"),
     Schema.Literal("succeeded"),
+    Schema.Literal("create_failed"),
     Schema.Literal("failed"),
   ]),
   capability: StudioGenerationPayload.fields.capability,
