@@ -1,0 +1,22 @@
+.el-select-dropdown.is-multiple{
+  .el-select-dropdown__item.is-selected {
+    background-color: transparent;
+    &::after {
+      display: none;
+    }
+  }
+  .el-select-dropdown__item.is-hovering {
+    background-color: transparent;
+  }
+}
+.theme-dark {
+  .el-select {
+    .el-tag {
+      background-color: rgb(from var(--neutral-50) r g b / 0.2);
+      color: var(--text-default);
+      .el-tag__close {
+        color: var(--text-default);
+      }
+    }
+  }
+}

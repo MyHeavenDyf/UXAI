@@ -1,0 +1,1656 @@
+{
+  "state": {
+    "logoInfo": {
+      "brandText": "Product",
+      "logoIcon": "flower-2"
+    },
+    "selectedNavKey": [
+      "dashboard"
+    ],
+    "navTabs": [
+      {
+        "title": "Dashboard",
+        "key": "dashboard",
+        "tabName": "Dashboard",
+        "isActive": true
+      },
+      {
+        "title": "Monitor",
+        "key": "monitor",
+        "tabName": "Monitor",
+        "isActive": false
+      },
+      {
+        "title": "Analysis",
+        "key": "analysis",
+        "tabName": "Analysis",
+        "isActive": false
+      },
+      {
+        "title": "Report",
+        "key": "report",
+        "tabName": "Report",
+        "isActive": false
+      },
+      {
+        "title": "Config",
+        "key": "config",
+        "tabName": "Config",
+        "isActive": false
+      }
+    ],
+    "toolIcons": [
+      {
+        "iconName": "search"
+      },
+      {
+        "iconName": "help-circle"
+      },
+      {
+        "iconName": "ellipsis"
+      }
+    ],
+    "userAvatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
+    "backgroundWatermarkText": "Chart",
+    "stackedBar1Data": [
+      {
+        "星期": "Mon",
+        "已用": 120,
+        "空闲": 220
+      },
+      {
+        "星期": "Tue",
+        "已用": 132,
+        "空闲": 182
+      },
+      {
+        "星期": "Wed",
+        "已用": 101,
+        "空闲": 191
+      },
+      {
+        "星期": "Thu",
+        "已用": 134,
+        "空闲": 234
+      },
+      {
+        "星期": "Fri",
+        "已用": 90,
+        "空闲": 290
+      },
+      {
+        "星期": "Sat",
+        "已用": 230,
+        "空闲": 330
+      },
+      {
+        "星期": "Sun",
+        "已用": 210,
+        "空闲": 310
+      }
+    ],
+    "stackedBar2Data": [
+      {
+        "月份": "Jan",
+        "完成": 320
+      },
+      {
+        "月份": "Feb",
+        "完成": 332
+      },
+      {
+        "月份": "Mar",
+        "完成": 301
+      },
+      {
+        "月份": "Apr",
+        "完成": 334
+      },
+      {
+        "月份": "May",
+        "完成": 390
+      },
+      {
+        "月份": "Jun",
+        "完成": 330
+      }
+    ],
+    "pie1Data": [
+      {
+        "name": "Engine",
+        "value": 1048
+      },
+      {
+        "name": "Direct",
+        "value": 735
+      },
+      {
+        "name": "Email",
+        "value": 580
+      },
+      {
+        "name": "Union Ads",
+        "value": 484
+      }
+    ],
+    "pie2Data": [
+      {
+        "name": "Mobile",
+        "value": 1248
+      },
+      {
+        "name": "PC",
+        "value": 935
+      },
+      {
+        "name": "Tablet",
+        "value": 380
+      },
+      {
+        "name": "Others",
+        "value": 284
+      }
+    ],
+    "pie3Data": [
+      {
+        "name": "Timeout",
+        "value": 348
+      },
+      {
+        "name": "Network",
+        "value": 535
+      },
+      {
+        "name": "Server",
+        "value": 480
+      },
+      {
+        "name": "Client",
+        "value": 384
+      }
+    ],
+    "complexTrendData": [
+      {
+        "时间": "00:00",
+        "请求数": 120,
+        "延迟(ms)": 22,
+        "吞吐量(MB/s)": 150
+      },
+      {
+        "时间": "02:00",
+        "请求数": 200,
+        "延迟(ms)": 33,
+        "吞吐量(MB/s)": 120
+      },
+      {
+        "时间": "04:00",
+        "请求数": 150,
+        "延迟(ms)": 28,
+        "吞吐量(MB/s)": 180
+      },
+      {
+        "时间": "06:00",
+        "请求数": 80,
+        "延迟(ms)": 45,
+        "吞吐量(MB/s)": 140
+      },
+      {
+        "时间": "08:00",
+        "请求数": 70,
+        "延迟(ms)": 19,
+        "吞吐量(MB/s)": 160
+      },
+      {
+        "时间": "10:00",
+        "请求数": 110,
+        "延迟(ms)": 25,
+        "吞吐量(MB/s)": 190
+      },
+      {
+        "时间": "12:00",
+        "请求数": 130,
+        "延迟(ms)": 30,
+        "吞吐量(MB/s)": 170
+      },{
+        "时间": "14:00",
+        "请求数": 120,
+        "延迟(ms)": 22,
+        "吞吐量(MB/s)": 150
+      },
+      {
+        "时间": "16:00",
+        "请求数": 200,
+        "延迟(ms)": 33,
+        "吞吐量(MB/s)": 120
+      },
+      {
+        "时间": "18:00",
+        "请求数": 150,
+        "延迟(ms)": 28,
+        "吞吐量(MB/s)": 180
+      },
+      {
+        "时间": "20:00",
+        "请求数": 80,
+        "延迟(ms)": 45,
+        "吞吐量(MB/s)": 140
+      },
+      {
+        "时间": "22:00",
+        "请求数": 70,
+        "延迟(ms)": 19,
+        "吞吐量(MB/s)": 160
+      },
+      {
+        "时间": "24:00",
+        "请求数": 110,
+        "延迟(ms)": 25,
+        "吞吐量(MB/s)": 190
+      }
+    ],
+    "complexTrendMenu": [
+      {
+        "label": "Today",
+        "key": "today"
+      },
+      {
+        "label": "Yesterday",
+        "key": "yesterday"
+      },
+      {
+        "label": "Last 7 Days",
+        "key": "last7days"
+      }
+    ],
+    "gaugeData": [
+      {
+        "value": 68.5,
+        "name": "System Load"
+      }
+    ],
+    "lineData": [
+      {
+        "日期": "15:34",
+        "会话数": 55
+      },
+      {
+        "日期": "15:35",
+        "会话数": 32
+      },
+      {
+        "日期": "15:36",
+        "会话数": 51
+      },
+      {
+        "日期": "15:37",
+        "会话数": 50
+      },
+      {
+        "日期": "15:38",
+        "会话数": 62
+      },
+      {
+        "日期": "15:39",
+        "会话数": 60
+      },
+      {
+        "日期": "15:40",
+        "会话数": 68
+      },
+      {
+        "日期": "15:41",
+        "会话数": 28
+      },
+      {
+        "日期": "15:42",
+        "会话数": 24
+      },
+      {
+        "日期": "15:43",
+        "会话数": 70
+      },
+      {
+        "日期": "15:44",
+        "会话数": 75
+      },
+      {
+        "日期": "15:45",
+        "会话数": 50
+      }
+    ],
+    "largeBarData": [
+      {
+        "类别": "ECS",
+        "营收": 101
+      },
+      {
+        "类别": "DHA",
+        "营收": 166
+      },
+      {
+        "类别": "FBP",
+        "营收": 105
+      },
+      {
+        "类别": "RDS",
+        "营收": 83
+      },
+      {
+        "类别": "SCG",
+        "营收": 166
+      },
+      {
+        "类别": "SAAS",
+        "营收": 105
+      },
+      {
+        "类别": "DEV",
+        "营收": 83
+      },
+      {
+        "类别": "WORD",
+        "营收": 166
+      },
+      {
+        "类别": "VC",
+        "营收": 105
+      },
+      {
+        "类别": "DC",
+        "营收": 83
+      }
+    ],
+    "cardTitle": "Node Management",
+    "searchValue": "",
+    "selectedKeys": [],
+    "bulkActionsMenu": [
+      {
+        "label": "Restart Selected",
+        "key": "restart",
+        "icon": "power"
+      },
+      {
+        "label": "Tag Selected",
+        "key": "tag",
+        "icon": "tag"
+      },
+      {
+        "label": "Delete Selected",
+        "key": "delete",
+        "icon": "trash-2"
+      }
+    ],
+    "toolbarConfig": {
+      "searchPlaceholder": "Search by node name...",
+      "actionButtons": [
+        {
+          "text": "Refresh",
+          "iconName": "RefreshCw",
+          "type": "default"
+        },
+        {
+          "text": "Export",
+          "iconName": "",
+          "type": "default"
+        },
+        {
+          "text": "Add Node",
+          "iconName": "Plus",
+          "type": "primary"
+        },
+        {
+          "text": "Bulk Actions",
+          "iconName": "ChevronDown",
+          "type": "default",
+          "isDropdown": true
+        }
+      ]
+    },
+    "tableColumns": [
+      {
+        "key": "selection",
+        "type": "checkbox",
+        "width": 40
+      },
+      {
+        "key": "nodeName",
+        "title": "Node Name",
+        "width": 150
+      },
+      {
+        "key": "ipAddress",
+        "title": "IP Address",
+        "sortable": true,
+        "filterable": true,
+        "width": 150
+      },
+      {
+        "key": "cpuUsage",
+        "title": "CPU Usage",
+        "sortable": true,
+        "filterable": true,
+        "width": 100
+      },
+      {
+        "key": "memoryUsage",
+        "title": "Memory Usage",
+        "sortable": true,
+        "filterable": true,
+        "width": 120
+      },
+      {
+        "key": "diskSpace",
+        "title": "Disk Space",
+        "sortable": true,
+        "filterable": true,
+        "width": 100
+      },
+      {
+        "key": "actionRun",
+        "title": "Run",
+        "type": "action",
+        "actionIcon": "Play",
+        "width": 60
+      },
+      {
+        "key": "actionExpand",
+        "title": "Expand",
+        "type": "action",
+        "actionIcon": "LayoutGrid",
+        "width": 70
+      },
+      {
+        "key": "actionMore",
+        "title": "More",
+        "type": "action",
+        "actionIcon": "MoreHorizontal",
+        "width": 60
+      },
+      {
+        "key": "actionAbout",
+        "title": "About",
+        "type": "action",
+        "actionIcon": "Info",
+        "width": 60
+      },
+      {
+        "key": "actionDelete",
+        "title": "Delete",
+        "type": "action",
+        "actionIcon": "Trash",
+        "width": 60
+      },
+      {
+        "key": "actionReport",
+        "title": "Report",
+        "type": "action",
+        "actionIcon": "FileText",
+        "width": 60
+      },
+      {
+        "key": "actionConfig",
+        "title": "Config",
+        "type": "action",
+        "actionIcon": "Settings",
+        "width": 60
+      }
+    ],
+    "paginationConfig": {
+      "totalPages": 50,
+      "currentPage": 1,
+      "pageSize": 10,
+      "pageSizeOptions": [
+        10,
+        20,
+        50
+      ]
+    },
+    "tableRows": [
+      {
+        "id": 1,
+        "nodeName": "prod-web-01",
+        "ipAddress": "192.168.1.10",
+        "cpuUsage": "45%",
+        "memoryUsage": "60%",
+        "diskSpace": "500GB",
+        "status": "Running",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 2,
+        "nodeName": "prod-web-02",
+        "ipAddress": "192.168.1.11",
+        "cpuUsage": "22%",
+        "memoryUsage": "45%",
+        "diskSpace": "500GB",
+        "status": "Running",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 3,
+        "nodeName": "prod-db-01",
+        "ipAddress": "10.0.0.5",
+        "cpuUsage": "88%",
+        "memoryUsage": "92%",
+        "diskSpace": "2TB",
+        "status": "High Load",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 4,
+        "nodeName": "prod-cache-01",
+        "ipAddress": "10.0.0.8",
+        "cpuUsage": "15%",
+        "memoryUsage": "30%",
+        "diskSpace": "100GB",
+        "status": "Idle",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 5,
+        "nodeName": "staging-web-01",
+        "ipAddress": "172.16.0.12",
+        "cpuUsage": "33%",
+        "memoryUsage": "55%",
+        "diskSpace": "250GB",
+        "status": "Running",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 6,
+        "nodeName": "staging-db-01",
+        "ipAddress": "172.16.0.15",
+        "cpuUsage": "48%",
+        "memoryUsage": "70%",
+        "diskSpace": "1TB",
+        "status": "Running",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 7,
+        "nodeName": "analytics-worker",
+        "ipAddress": "192.168.2.20",
+        "cpuUsage": "76%",
+        "memoryUsage": "80%",
+        "diskSpace": "800GB",
+        "status": "Processing",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 8,
+        "nodeName": "log-collector",
+        "ipAddress": "192.168.2.25",
+        "cpuUsage": "10%",
+        "memoryUsage": "25%",
+        "diskSpace": "4TB",
+        "status": "Running",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 9,
+        "nodeName": "auth-service",
+        "ipAddress": "10.0.1.5",
+        "cpuUsage": "55%",
+        "memoryUsage": "65%",
+        "diskSpace": "200GB",
+        "status": "Running",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      },
+      {
+        "id": 10,
+        "nodeName": "notification-svc",
+        "ipAddress": "10.0.1.8",
+        "cpuUsage": "12%",
+        "memoryUsage": "35%",
+        "diskSpace": "150GB",
+        "status": "Idle",
+        "statusIcon": "circle-play",
+        "statusColor": "success"
+      }
+    ],
+    "cardList": [
+      {
+        "mainTitle": "183,000",
+        "subTitle": "Task 01"
+      },
+      {
+        "mainTitle": "183,000",
+        "subTitle": "Task 02"
+      },
+      {
+        "mainTitle": "97.2%",
+        "subTitle": "Success rate"
+      },
+      {
+        "mainTitle": "10.8%",
+        "mainStyle": "text-red-500",
+        "subTitle": "Success rate"
+      },
+      {
+        "mainTitle": "183,000",
+        "subTitle": "Task 01"
+      },
+      {
+        "mainTitle": "183,000",
+        "subTitle": "Task 02"
+      }
+    ]
+  },
+  "rootId": "rootDashboardContainer",
+  "elements": [
+    {
+      "id": "rootDashboardContainer",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col min-h-screen w-full bg-surface-container-lowest"
+      },
+      "children": [
+        "headerNavigation",
+        "mainContentArea"
+      ]
+    },
+    {
+      "id": "headerNavigation",
+      "component": "header",
+      "props": {
+        "className": "w-full h-12 bg-surface-container-highest shadow-sm flex-shrink-0 z-10"
+      },
+      "children": [
+        "hdrInnerContainer"
+      ]
+    },
+    {
+      "id": "mainContentArea",
+      "component": "main",
+      "props": {
+        "className": "flex-1 flex flex-col gap-section p-page overflow-y-auto"
+      },
+      "children": [
+        "chartsOverviewSection",
+        "detailedTableSection"
+      ]
+    },
+    {
+      "id": "chartsOverviewSection",
+      "component": "section",
+      "props": {
+        "className": "relative flex-shrink-0 w-full"
+      },
+      "children": [
+        "chrtsGridMain"
+      ]
+    },
+    {
+      "id": "detailedTableSection",
+      "component": "section",
+      "props": {
+        "className": "flex-shrink-0 w-full"
+      },
+      "children": [
+        "tblCardContainer"
+      ]
+    },
+    {
+      "id": "hdrInnerContainer",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-between h-full w-full px-4"
+      },
+      "children": [
+        "hdrLogoArea",
+        "hdrNavWrap",
+        "hdrToolArea"
+      ]
+    },
+    {
+      "id": "hdrLogoArea",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2 shrink-0"
+      },
+      "children": [
+        "hdrLogoIcon",
+        "hdrBrandWrap"
+      ]
+    },
+    {
+      "id": "hdrLogoIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "/logoInfo/logoIcon"
+        },
+        "color": "primary",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "hdrBrandWrap",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col leading-tight"
+      },
+      "children": [
+        "hdrBrandText"
+      ]
+    },
+    {
+      "id": "hdrBrandText",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/logoInfo/brandText"
+        },
+        "className": "text-xl font-bold text-on-surface"
+      }
+    },
+    {
+      "id": "hdrNavWrap",
+      "component": "div",
+      "props": {
+        "className": "flex-1 flex justify-center min-w-0"
+      },
+      "children": [
+        "hdrNavMenu"
+      ]
+    },
+    {
+      "id": "hdrNavMenu",
+      "component": "Menu",
+      "props": {
+        "mode": "horizontal",
+        "selectedKeys": {
+          "path": "/selectedNavKey"
+        },
+        "items": {
+          "path": "/navTabs"
+        },
+        "className": "border-b-0 min-w-0"
+      }
+    },
+    {
+      "id": "hdrToolArea",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 shrink-0"
+      },
+      "children": [
+        "hdrToolIconList",
+        "hdrUserAvatar"
+      ]
+    },
+    {
+      "id": "hdrToolIconList",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3"
+      },
+      "children": {
+        "path": "/toolIcons",
+        "componentId": "hdrToolIconItem"
+      }
+    },
+    {
+      "id": "hdrToolIconItem",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "iconName"
+        },
+        "color": "default",
+        "shape": "outline",
+        "className": "w-5 h-5 cursor-pointer transition-colors hover:text-primary"
+      }
+    },
+    {
+      "id": "hdrUserAvatar",
+      "component": "div",
+      "props": {
+        "className": "w-8 h-8 rounded-full overflow-hidden border border-divider"
+      },
+      "children": [
+        "hdrUserAvatarImg"
+      ]
+    },
+    {
+      "id": "hdrUserAvatarImg",
+      "component": "img",
+      "props": {
+        "src": {
+          "path": "/userAvatarImage"
+        },
+        "alt": "用户头像",
+        "className": "w-full h-full object-cover"
+      }
+    },
+    {
+      "id": "chrtsGridMain",
+      "component": "div",
+      "props": {
+        "className": "relative grid gap-section z-10"
+      },
+      "children": [
+        "chrtsGrid1",
+        "chrtsGrid2",
+        "chrtsGrid3"
+      ]
+    },
+    {
+      "id": "chrtsGrid1",
+      "component": "div",
+      "props": {
+        "className": "relative h-[460px] grid grid-cols-4 bg-surface-container-highest gap-8 rounded-l shadow-sm  p-8 z-10"
+      },
+      "children": [
+        "chrtsStackBar1Card",
+        "chrtsStackBar2Card",
+        "chrtsComplexCard"
+      ]
+    },
+    {
+      "id": "chrtsGrid2",
+      "component": "div",
+      "props": {
+        "className": "relative h-[438px] grid grid-cols-4 bg-surface-container-highest rounded-l shadow-sm gap-8 p-8 z-10"
+      },
+      "children": [
+        "chrtsPie1Card",
+        "chrtsGaugeCard",
+        "chrtsPie2Card",
+        "chrtsCard"
+      ]
+    },
+    {
+      "id": "chrtsGrid3",
+      "component": "div",
+      "props": {
+        "className": "relative h-[418px] grid grid-cols-2 z-10 bg-surface-container-highest rounded-l shadow-sm gap-8 p-8"
+      },
+      "children": [
+        "chrtsLineCard",
+        "chrtsLargeBarCard"
+      ]
+    },
+    {
+      "id": "chrtsComplexCard",
+      "component": "div",
+      "props": {
+        "className": "col-span-2  flex flex-col"
+      },
+      "children": [
+        "chrtsComplexHeader",
+        "chrtsComplexChart"
+      ]
+    },
+    {
+      "id": "chrtsComplexHeader",
+      "component": "div",
+      "props": {
+        "className": "flex justify-between items-center mb-section"
+      },
+      "children": [
+        "chrtsComplexTitle",
+        "chrtsComplexTools"
+      ]
+    },
+    {
+      "id": "chrtsComplexTitle",
+      "component": "span",
+      "props": {
+        "value": "Platform Services Top 3",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "chrtsComplexTools",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-section"
+      },
+      "children": [
+        "chrtsComplexToolbar"
+      ]
+    },
+    {
+      "id": "chrtsComplexToolbar",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-1"
+      },
+      "children": [
+        "chrtsComplexIconEllipsis"
+      ]
+    },
+    {
+      "id": "chrtsComplexIconEllipsis",
+      "component": "Icon",
+      "props": {
+        "name": "ellipsis",
+        "color": "#191919",
+        "className": "w-5 h-5 cursor-pointer hover:text-primary transition-colors"
+      }
+    },
+    {
+      "id": "chrtsComplexChart",
+      "component": "LineChart",
+      "props": {
+        "option": {
+          "data": {
+            "path": "/complexTrendData"
+          },
+          "xAxis": {
+            "data": "时间"
+          },
+          "yAxisTitle": "Percentage(%)",
+          "smooth": true
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "chrtsStackBar1Card",
+      "component": "div",
+      "props": {
+        "className": " flex flex-col"
+      },
+      "children": [
+        "chrtsStackBar1Header",
+        "chrtsStackBar1Chart"
+      ]
+    },
+    {
+      "id": "chrtsStackBar1Header",
+      "component": "span",
+      "props": {
+        "value": "Cloud Service Memory Statistics",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsStackBar1Chart",
+      "component": "BarChart",
+      "props": {
+        "option": {
+          "type": "stack",
+          "stack": {
+            "Allocation": [
+              "已用",
+              "空闲"
+            ]
+          },
+          "data": {
+            "path": "/stackedBar1Data"
+          },
+          "xAxis": {
+            "data": "星期"
+          },
+          "yAxisTitle": "Count"
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "chrtsStackBar2Card",
+      "component": "div",
+      "props": {
+        "className": " flex flex-col"
+      },
+      "children": [
+        "chrtsStackBar2Header",
+        "chrtsStackBar2Chart"
+      ]
+    },
+    {
+      "id": "chrtsStackBar2Header",
+      "component": "span",
+      "props": {
+        "value": "Cloud Service Memory Statistics",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsStackBar2Chart",
+      "component": "BarChart",
+      "props": {
+        "option": {
+          "type": "stack",
+          "stack": {
+            "Request": [
+              "成功",
+              "失败"
+            ]
+          },
+          "data": {
+            "path": "/stackedBar2Data"
+          },
+          "xAxis": {
+            "data": "月份"
+          },
+          "yAxisTitle": "Count"
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "chrtsGaugeCard",
+      "component": "div",
+      "props": {
+        "className": " flex flex-col"
+      },
+      "children": [
+        "chrtsGaugeHeader",
+        "chrtsGaugeChart"
+      ]
+    },
+    {
+      "id": "chrtsGaugeHeader",
+      "component": "span",
+      "props": {
+        "value": "Resource Usage",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsGaugeChart",
+      "component": "GaugeChart",
+      "props": {
+        "option": {
+          "data": {
+            "path": "/gaugeData"
+          },
+          "axisLabel":{
+            "show":true 
+          },
+          "itemStyle": {
+            "width": 10
+          }
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "chrtsPie1Card",
+      "component": "div",
+      "props": {
+        "className": " flex flex-col"
+      },
+      "children": [
+        "chrtsPie1Header",
+        "chrtsPie1Chart"
+      ]
+    },
+    {
+      "id": "chrtsPie1Header",
+      "component": "span",
+      "props": {
+        "value": "Server Percentage",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsPie1Chart",
+      "component": "PieChart",
+      "props": {
+        "option": {
+          "type": "circle",
+          "title":{
+            "text": "256",
+            "subtext": "Total"
+          },
+          "data": {
+            "path": "/pie1Data"
+          }
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "chrtsPie2Card",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col"
+      },
+      "children": [
+        "chrtsPie2Header",
+        "chrtsPie2Chart"
+      ]
+    },
+    {
+      "id": "chrtsPie2Header",
+      "component": "span",
+      "props": {
+        "value": "Server Percentage",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsPie2Chart",
+      "component": "PieChart",
+      "props": {
+        "option": {
+          "type": "circle",
+          "title":{
+            "text": "192",
+            "subtext": "Total"
+          },
+          "data": {
+            "path": "/pie2Data"
+          }
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "chrtsCard",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col"
+      },
+      "children": [
+        "chrtsCardHeader",
+        "chrtsCardGrid"
+      ]
+    },
+    {
+      "id": "chrtsCardHeader",
+      "component": "span",
+      "props": {
+        "value": "Chrts Name",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsCardGrid",
+      "component": "div",
+      "props": {
+        "className": "w-full grid grid-cols-2 gap-6 mt-8"
+      },
+      "children": {
+        "path": "cardList",
+        "componentId": "listItemTemplate"
+      }
+    },
+    {
+      "id": "listItemTemplate",
+      "component": "div",
+      "props": {
+        "className": "bg-white flex flex-col h-14"
+      },
+      "children": [
+        "itemMainTitle",
+        "itemSubTitle"
+      ]
+    },
+    {
+      "id": "itemMainTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "mainTitle"
+        },
+        "className": "text-3xl text-gray-900"
+      }
+    },
+    {
+      "id": "itemSubTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "subTitle"
+        },
+        "className": "text-md text-gray-900"
+      }
+    },
+    {
+      "id": "chrtsLineCard",
+      "component": "div",
+      "props": {
+        "className": "  flex flex-col"
+      },
+      "children": [
+        "chrtsLineHeader",
+        "chrtsLineChart"
+      ]
+    },
+    {
+      "id": "chrtsLineHeader",
+      "component": "span",
+      "props": {
+        "value": "CPU Usage Trend Chart",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsLineChart",
+      "component": "LineChart",
+      "props": {
+        "option": {
+          "data": {
+            "path": "/lineData"
+          },
+          "xAxis": {
+            "data": "日期"
+          },
+          "yAxisTitle": "Unit",
+          "smooth": true
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "chrtsLargeBarCard",
+      "component": "div",
+      "props": {
+        "className": " flex flex-col"
+      },
+      "children": [
+        "chrtsLargeBarHeader",
+        "chrtsLargeBarChart"
+      ]
+    },
+    {
+      "id": "chrtsLargeBarHeader",
+      "component": "span",
+      "props": {
+        "value": "Revenue Summary",
+        "className": "text-2xl text-on-surface mb-section"
+      }
+    },
+    {
+      "id": "chrtsLargeBarChart",
+      "component": "BarChart",
+      "props": {
+        "option": {
+          "data": {
+            "path": "/largeBarData"
+          },
+          "xAxis": {
+            "data": "类别"
+          },
+          "yAxisTitle": "Units"
+        },
+        "className": "flex-1 w-full"
+      }
+    },
+    {
+      "id": "tblCardContainer",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-l shadow-sm p-6"
+      },
+      "children": [
+        "tblCardHeader",
+        "tblToolbar",
+        "tblMainTable"
+      ]
+    },
+    {
+      "id": "tblCardHeader",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-between mb-4"
+      },
+      "children": [
+        "tblCardTitle"
+      ]
+    },
+    {
+      "id": "tblCardTitle",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "/cardTitle"
+        },
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "tblToolbar",
+      "component": "div",
+      "props": {
+        "className": "flex items-center justify-between mb-4"
+      },
+      "children": [
+        "tblToolbarLeft",
+        "tblToolbarRight"
+      ]
+    },
+    {
+      "id": "tblToolbarLeft",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3"
+      },
+      "children": [
+        "tblSearchInput"
+      ]
+    },
+    {
+      "id": "tblSearchInput",
+      "component": "Input",
+      "props": {
+        "value": {
+          "path": "/searchValue"
+        },
+        "placeholder": "Search by node name...",
+        "prefix": "search",
+        "className": "w-72"
+      }
+    },
+    {
+      "id": "tblToolbarRight",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2"
+      },
+      "children": [
+        "tblBtnDownload",
+        "tblBtnPlay",
+        "tblBtnDelete",
+        "tblDropdownBulk",
+        "tblCellRefresh",
+        "tblCellSettings"
+      ]
+    },
+    {
+      "id": "tblBtnDownload",
+      "component": "Button",
+      "props": {
+        "value": "Download"
+      }
+    },
+    {
+      "id": "tblBtnPlay",
+      "component": "Button",
+      "props": {
+        "value": "Export"
+      }
+    },
+    {
+      "id": "tblBtnDelete",
+      "component": "Button",
+      "props": {
+        "value": "Delete"
+      }
+    },
+    {
+      "id": "tblDropdownBulk",
+      "component": "Dropdown",
+      
+      "props": {
+        "trigger": [
+          "click"
+        ],
+        "placement": "bottomRight",
+        "menu": {
+          "path": "/bulkActionsMenu"
+        }
+      },
+      "children": [
+        "tblBtnBulk"
+      ]
+    },
+    {
+      "id": "tblBtnBulk",
+      "component": "Button",
+      "props": {
+        "value": "More",
+        "icon": "chevron-down",
+        "iconPlacement": "end",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblBtnBulk",
+      "component": "Button",
+      "props": {
+        "value": "More",
+        "icon": "chevron-down",
+        "iconPlacement": "end",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblCellRefresh",
+      "component": "Button",
+      
+      "props": {
+        "className": "ml-2",
+        "icon": "rotate-cw",
+        "size": "small",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblCellSettings",
+      "component": "Button",
+      "props": {
+        "icon": "settings",
+        "size": "small",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblMainTable",
+      "component": "Table",
+      "props": {
+        "rowKey": "id",
+        "dataSource": {
+          "path": "/tableRows"
+        },
+        "rowSelection": {
+          "type": "checkbox",
+          "selectedRowKeys": {
+            "path": "/selectedKeys"
+          }
+        },
+        "columns": [
+          {
+            "title": "Node Name",
+            "dataIndex": "nodeName"
+          },
+          {
+            "title": "IP Address",
+            "dataIndex": "ipAddress",
+            "sort": true
+          },
+          
+          {
+            "title": "CPU Usage",
+            "dataIndex": "cpuUsage",
+            "sort": true
+          },
+          {
+            "title": "Memory Usage",
+            "dataIndex": "memoryUsage",
+            "sort": true
+          },
+          {
+            "title": "Disk Space",
+            "dataIndex": "diskSpace",
+            "sort": true
+          },
+          {
+            "title": "Status",
+            "dataIndex": "status"
+          },
+          {
+            "title": "Operation",
+            "dataIndex": "actionRun"
+          }
+        ],
+        "className": "mb-2"
+      },
+      "children": {
+        "path": "/tableRows",
+        "componentId": "tblMainRow"
+      }
+    },
+    {
+      "id": "tblMainRow",
+      "component": "TableRow",
+      "children": [
+        "tblCellNodeName",
+        "tblCellIpAddress",
+        "tblCellCpu",
+        "tblCellMemory",
+        "tblCellDisk",
+        "tblCellStatus",
+        "tblCellActionRun"
+      ]
+    },
+    {
+      "id": "tblCellNodeName",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "nodeName"
+        },
+        "className": "text-md font-medium text-on-surface"
+      }
+    },
+    {
+      "id": "tblCellIpAddress",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "ipAddress"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tblCellStatus",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-2"
+      },
+      "children": [
+        "tblCellStatusIcon",
+        "tblCellStatusText"
+      ]
+    },
+    {
+      "id": "tblCellStatusIcon",
+      "component": "Icon",
+      "props": {
+        "name": {
+          "path": "statusIcon"
+        },
+        "color": {
+          "path": "statusColor"
+        },
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "tblCellStatusText",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "status"
+        },
+        "className": "text-md text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tblCellCpu",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "cpuUsage"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "tblCellMemory",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "memoryUsage"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "tblCellDisk",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "diskSpace"
+        },
+        "className": "text-md text-on-surface"
+      }
+    },
+    {
+      "id": "tblCellActionRun",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "tblCellActionReport",
+        "tblCellActionDelete",
+        "tblCellActionAbout",
+        "tblCellActionMore"
+      ]
+    },
+    {
+      "id": "tblCellActionExpand",
+      "component": "Button",
+      "props": {
+        "icon": "layout-grid",
+        "size": "small",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblCellActionMore",
+      "component": "Button",
+      "props": {
+        "icon": "more-horizontal",
+        "size": "small",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblCellActionAbout",
+      "component": "Button",
+      "props": {
+        "icon": "info",
+        "size": "small",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblCellActionDelete",
+      "component": "Button",
+      "props": {
+        "icon": "trash",
+        "size": "small",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tblCellActionReport",
+      "component": "Button",
+      "props": {
+        "icon": "file-text",
+        "size": "small",
+        "color": "default"
+      }
+    }
+  ]
+}
