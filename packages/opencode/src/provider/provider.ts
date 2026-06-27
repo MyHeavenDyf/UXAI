@@ -1900,24 +1900,47 @@ const layer: Layer.Layer<
           const chunkAbortCtl = typeof chunkTimeout === "number" && chunkTimeout > 0 ? new AbortController() : undefined
 
           // ===== fetch-debug: capture LLM fetch lifecycle =====
+          // 所有诊断代码包 try/catch，确保诊断崩了不影响 fetch 本身
           const seq = ++fetchDebugSeq
           const startMs = Date.now()
-          const callerStack = (new Error().stack ?? "").slice(0, 4000)
-          const url = typeof input === "string" ? input : input?.url ?? String(input)
-          const method = opts.method ?? (typeof input === "object" && input?.method) ?? "GET"
-
-          // 分别打 source label 的 signals，便于知道是哪条 signal 触发了 abort
-          const userSignal = (opts.signal as AbortSignal | undefined) ?? null
-          const chunkSignal: AbortSignal | null = chunkAbortCtl?.signal ?? null
+          let callerStack = ""
+          let url = "<unknown>"
+          let method = "GET"
+          let userSignal: AbortSignal | null = null
+          let chunkSignal: AbortSignal | null = null
           let optionsTimeoutSignal: AbortSignal | null = null
-          if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false) {
-            optionsTimeoutSignal = AbortSignal.timeout(options["timeout"])
+          let combined: AbortSignal | null = null
+          let firstAbortSource: { source: string; at_ms: number; reason: string } | undefined
+          const sourcesSeen = new Set<string>()
+          const detachFns: Array<() => void> = []
+          const detachAll = () => {
+            for (const fn of detachFns) {
+              try {
+                fn()
+              } catch {}
+            }
           }
+          try {
+            callerStack = (new Error().stack ?? "").slice(0, 2000)
+            url = typeof input === "string" ? input : input?.url ?? String(input)
+            method = opts.method ?? (typeof input === "object" && input?.method) ?? "GET"
+
+            userSignal = (opts.signal as AbortSignal | undefined) ?? null
+            chunkSignal = chunkAbortCtl?.signal ?? null
+            if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false) {
+              optionsTimeoutSignal = AbortSignal.timeout(options["timeout"])
+            }
+          } catch (e) {
+            try {
+              fetchDebug.error(`fetch #${seq} diag-prep threw`, { seq, error: describeError(e) })
+            } catch {}
+          }
+
           const signals: AbortSignal[] = []
           if (userSignal) signals.push(userSignal)
           if (chunkSignal) signals.push(chunkSignal)
           if (optionsTimeoutSignal) signals.push(optionsTimeoutSignal)
-          const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
+          combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
           if (combined) opts.signal = combined
 
           // Strip openai itemId metadata following what codex does
@@ -1938,56 +1961,70 @@ const layer: Layer.Layer<
             }
           }
 
-          // 每条 source signal 独立监听，触发时打 source 标签
-          let firstAbortSource: { source: string; at_ms: number; reason: string } | undefined
-          const sourcesSeen = new Set<string>()
-          const onSourceAbort = (source: string, sig: AbortSignal) => {
-            if (firstAbortSource === undefined) {
-              firstAbortSource = {
-                source,
-                at_ms: Date.now() - startMs,
-                reason: describeAbortReason(sig),
+          try {
+            const onSourceAbort = (source: string, sig: AbortSignal) => {
+              try {
+                if (firstAbortSource === undefined) {
+                  firstAbortSource = {
+                    source,
+                    at_ms: Date.now() - startMs,
+                    reason: describeAbortReason(sig),
+                  }
+                }
+                if (!sourcesSeen.has(source)) {
+                  sourcesSeen.add(source)
+                }
+                fetchDebug.error(`fetch #${seq} source-signal aborted`, {
+                  seq,
+                  provider_id: model.providerID,
+                  url,
+                  source,
+                  at_ms: Date.now() - startMs,
+                  reason: describeAbortReason(sig),
+                  combined_aborted: combined?.aborted === true,
+                  sources_seen: Array.from(sourcesSeen),
+                })
+              } catch {}
+            }
+            detachFns.push(attachSourceListener(userSignal, "user", onSourceAbort))
+            detachFns.push(attachSourceListener(chunkSignal, "chunk", onSourceAbort))
+            detachFns.push(attachSourceListener(optionsTimeoutSignal, "options-timeout", onSourceAbort))
+            detachFns.push(attachSourceListener(combined, "combined", onSourceAbort))
+
+            // start 事件：把所有可用信息一次打全（每个字段独立 try/catch，单个失败不阻塞）
+            const safeDescribe = <T>(fn: () => T, label: string): T | { __error: string } => {
+              try {
+                return fn()
+              } catch (e) {
+                return { __error: `${label}: ${e instanceof Error ? e.message : String(e)}` }
               }
             }
-            if (!sourcesSeen.has(source)) {
-              sourcesSeen.add(source)
-            }
-            fetchDebug.error(`fetch #${seq} source-signal aborted`, {
+            fetchDebug.info(`fetch #${seq} start`, {
               seq,
               provider_id: model.providerID,
+              npm: model.api.npm,
+              base_url: options["baseURL"] ?? null,
+              method,
               url,
-              source,
-              at_ms: Date.now() - startMs,
-              reason: describeAbortReason(sig),
-              combined_aborted: combined?.aborted === true,
-              sources_seen: Array.from(sourcesSeen),
+              options_timeout_ms: options["timeout"] ?? null,
+              chunk_timeout_ms: chunkTimeout ?? null,
+              combined_signal_present: !!combined,
+              user_signal_present: !!userSignal,
+              user_signal_pre_aborted: userSignal?.aborted === true,
+              chunk_signal_present: !!chunkSignal,
+              options_timeout_signal_present: !!optionsTimeoutSignal,
+              init: safeDescribe(() => describeInit(opts), "describeInit"),
+              request:
+                typeof input !== "string"
+                  ? safeDescribe(() => describeRequest(input), "describeRequest")
+                  : { kind: "string-url" },
+              caller_stack: callerStack,
             })
+          } catch (e) {
+            try {
+              fetchDebug.error(`fetch #${seq} diag-start threw`, { seq, error: describeError(e) })
+            } catch {}
           }
-          const detachUser = attachSourceListener(userSignal, "user", onSourceAbort)
-          const detachChunk = attachSourceListener(chunkSignal, "chunk", onSourceAbort)
-          const detachOptsTimeout = attachSourceListener(optionsTimeoutSignal, "options-timeout", onSourceAbort)
-          // combined 自身也要监听，区分 user-signal 链路是否最终触发 combined
-          const detachCombined = attachSourceListener(combined, "combined", onSourceAbort)
-
-          // start 事件：把所有可用信息一次打全
-          fetchDebug.info(`fetch #${seq} start`, {
-            seq,
-            provider_id: model.providerID,
-            npm: model.api.npm,
-            base_url: options["baseURL"] ?? null,
-            method,
-            url,
-            options_timeout_ms: options["timeout"] ?? null,
-            chunk_timeout_ms: chunkTimeout ?? null,
-            combined_signal_present: !!combined,
-            user_signal_present: !!userSignal,
-            user_signal_pre_aborted: userSignal?.aborted === true,
-            chunk_signal_present: !!chunkSignal,
-            options_timeout_signal_present: !!optionsTimeoutSignal,
-            init: describeInit(opts),
-            request: typeof input !== "string" ? describeRequest(input) : { kind: "string-url" },
-            caller_stack: callerStack,
-          })
 
           let res: Response
           try {
@@ -1997,63 +2034,83 @@ const layer: Layer.Layer<
               timeout: false,
             })
           } catch (e: any) {
-            const errAtMs = Date.now() - startMs
-            fetchDebug.error(`fetch #${seq} fetchFn threw`, {
-              seq,
-              provider_id: model.providerID,
-              url,
-              method,
-              at_ms: errAtMs,
-              error: describeError(e),
-              combined_aborted_at_error: combined?.aborted === true,
-              user_signal_aborted_at_error: userSignal?.aborted === true,
-              chunk_signal_aborted_at_error: chunkSignal?.aborted === true,
-              options_timeout_signal_aborted_at_error: optionsTimeoutSignal?.aborted === true,
-              first_abort_source: firstAbortSource ?? null,
-              sources_seen: Array.from(sourcesSeen),
-            })
-            detachUser()
-            detachChunk()
-            detachOptsTimeout()
-            detachCombined()
+            try {
+              const errAtMs = Date.now() - startMs
+              fetchDebug.error(`fetch #${seq} fetchFn threw`, {
+                seq,
+                provider_id: model.providerID,
+                url,
+                method,
+                at_ms: errAtMs,
+                error: describeError(e),
+                combined_aborted_at_error: combined?.aborted === true,
+                user_signal_aborted_at_error: userSignal?.aborted === true,
+                chunk_signal_aborted_at_error: chunkSignal?.aborted === true,
+                options_timeout_signal_aborted_at_error: optionsTimeoutSignal?.aborted === true,
+                first_abort_source: firstAbortSource ?? null,
+                sources_seen: Array.from(sourcesSeen),
+              })
+            } catch {}
+            detachAll()
             throw e
           }
 
-          const headersMs = Date.now() - startMs
-          fetchDebug.info(`fetch #${seq} response headers`, {
-            seq,
-            provider_id: model.providerID,
-            url,
-            status: res.status,
-            status_text: res.statusText,
-            ok: res.ok,
-            type: res.type,
-            headers: sanitizeHeaders(res.headers),
-            duration_ms: headersMs,
-          })
-
-          // 总是包一层 body 用于记录 SSE/非 SSE 的 chunk 时间线
-          const wrappedBody = wrapBodyForDebug(res, seq, startMs)
-
-          if (!chunkAbortCtl) {
-            fetchDebug.info(`fetch #${seq} done (no chunk wrap)`, {
+          try {
+            const headersMs = Date.now() - startMs
+            fetchDebug.info(`fetch #${seq} response headers`, {
               seq,
-              duration_ms: Date.now() - startMs,
+              provider_id: model.providerID,
+              url,
+              status: res.status,
+              status_text: res.statusText,
+              ok: res.ok,
+              type: res.type,
+              headers: sanitizeHeaders(res.headers),
+              duration_ms: headersMs,
             })
-            detachUser()
-            detachChunk()
-            detachOptsTimeout()
-            detachCombined()
-            return wrappedBody
+          } catch (e) {
+            try {
+              fetchDebug.error(`fetch #${seq} diag-headers threw`, { seq, error: describeError(e) })
+            } catch {}
           }
 
-          // 注意：在 wrappedBody（已经记录 chunk 时间线）之上再套 chunk-timeout 包装
-          const wrapped = wrapSSE(wrappedBody, chunkTimeout, chunkAbortCtl, seq)
-          fetchDebug.info(`fetch #${seq} wrapped SSE`, {
-            seq,
-            chunk_timeout_ms: chunkTimeout,
-            headers_ms: headersMs,
-          })
+          // 注意：不再调用 wrapBodyForDebug —— 它改变了 Response 链路，曾导致下游消费失败
+          // 如果需要 body chunk 时间线，将下面的 OPENCODE_FETCH_BODY_DEBUG 设置为 "1" 重新启用
+          const enableBodyDebug = process.env.OPENCODE_FETCH_BODY_DEBUG === "1"
+          const resOrWrapped = enableBodyDebug
+            ? (() => {
+                try {
+                  return wrapBodyForDebug(res, seq, startMs)
+                } catch (e) {
+                  try {
+                    fetchDebug.error(`fetch #${seq} wrapBodyForDebug threw`, {
+                      seq,
+                      error: describeError(e),
+                    })
+                  } catch {}
+                  return res
+                }
+              })()
+            : res
+
+          if (!chunkAbortCtl) {
+            try {
+              fetchDebug.info(`fetch #${seq} done (no chunk wrap)`, {
+                seq,
+                duration_ms: Date.now() - startMs,
+              })
+            } catch {}
+            detachAll()
+            return resOrWrapped
+          }
+
+          const wrapped = wrapSSE(resOrWrapped, chunkTimeout, chunkAbortCtl, seq)
+          try {
+            fetchDebug.info(`fetch #${seq} wrapped SSE`, {
+              seq,
+              chunk_timeout_ms: chunkTimeout,
+            })
+          } catch {}
           return wrapped
           // ===== /fetch-debug =====
         }
