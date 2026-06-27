@@ -1,4 +1,4 @@
-
+import './assets/library/@tailwindcss-browser.js'
 import { createApp } from 'vue'
 import ElementPlus from 'element-plus'
 import App from './App.vue'
