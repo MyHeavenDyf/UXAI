@@ -222,82 +222,88 @@ function attachSourceListener(
 
 function wrapBodyForDebug(res: Response, seq: number, startMs: number): Response {
   if (!res.body) return res
-  const reader = res.body.getReader()
+  try {
+    // 用 tee() 复制流：debug 分支异步消费，passthrough 分支返回给消费者。
+    // 比手写 ReadableStream pull 稳定得多：不会改 backpressure、cancel 行为，
+    // 也不会因为 pull 抛错破坏消费者读取。
+    const [debugBody, passthroughBody] = res.body.tee()
+    void consumeForDebug(debugBody, seq, startMs)
+    return new Response(passthroughBody, {
+      headers: new Headers(res.headers),
+      status: res.status,
+      statusText: res.statusText,
+    })
+  } catch (e) {
+    try {
+      fetchDebug.error(`fetch #${seq} wrapBodyForDebug init threw`, {
+        seq,
+        error: describeError(e),
+      })
+    } catch {}
+    return res
+  }
+}
+
+async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, startMs: number) {
+  const reader = stream.getReader()
   let chunkCount = 0
   let totalBytes = 0
   let firstChunkMs: number | null = null
   let lastChunkMs: number | null = null
-  const body = new ReadableStream<Uint8Array>({
-    async pull(ctrl) {
-      try {
-        const { value, done } = await reader.read()
-        if (done) {
-          fetchDebug.info(`fetch #${seq} body done`, {
-            seq,
-            chunk_count: chunkCount,
-            total_bytes: totalBytes,
-            first_chunk_ms: firstChunkMs,
-            last_chunk_ms: lastChunkMs,
-            total_ms: Date.now() - startMs,
-          })
-          ctrl.close()
-          return
-        }
-        chunkCount++
-        totalBytes += value.byteLength
-        const now = Date.now() - startMs
-        lastChunkMs = now
-        if (chunkCount === 1) {
-          firstChunkMs = now
-          const previewBytes = value.slice(0, 512)
-          let preview: string
-          try {
-            preview = new TextDecoder("utf-8", { fatal: false }).decode(previewBytes)
-          } catch {
-            preview = `<${previewBytes.byteLength} bytes, decode failed>`
-          }
-          fetchDebug.info(`fetch #${seq} body first chunk`, {
-            seq,
-            size: value.byteLength,
-            at_ms: now,
-            preview,
-          })
-        } else if (chunkCount <= 3 || chunkCount % 20 === 0) {
-          fetchDebug.info(`fetch #${seq} body chunk #${chunkCount}`, {
-            seq,
-            size: value.byteLength,
-            at_ms: now,
-            delta_ms: now - (lastChunkMs ?? now),
-          })
-        }
-        ctrl.enqueue(value)
-      } catch (e: any) {
-        fetchDebug.error(`fetch #${seq} body read threw`, {
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) {
+        fetchDebug.info(`fetch #${seq} body done`, {
           seq,
           chunk_count: chunkCount,
           total_bytes: totalBytes,
-          at_ms: Date.now() - startMs,
-          error: describeError(e),
+          first_chunk_ms: firstChunkMs,
+          last_chunk_ms: lastChunkMs,
+          total_ms: Date.now() - startMs,
         })
-        throw e
+        return
       }
-    },
-    async cancel(reason) {
-      fetchDebug.warn(`fetch #${seq} body cancelled by consumer`, {
+      chunkCount++
+      totalBytes += value.byteLength
+      const now = Date.now() - startMs
+      const delta = lastChunkMs !== null ? now - lastChunkMs : null
+      lastChunkMs = now
+      if (chunkCount === 1) {
+        firstChunkMs = now
+        const previewBytes = value.slice(0, 512)
+        let preview: string
+        try {
+          preview = new TextDecoder().decode(previewBytes)
+        } catch {
+          preview = `<${previewBytes.byteLength} bytes, decode failed>`
+        }
+        fetchDebug.info(`fetch #${seq} body first chunk`, {
+          seq,
+          size: value.byteLength,
+          at_ms: now,
+          preview,
+        })
+      } else if (chunkCount <= 5 || chunkCount % 50 === 0) {
+        fetchDebug.info(`fetch #${seq} body chunk #${chunkCount}`, {
+          seq,
+          size: value.byteLength,
+          at_ms: now,
+          delta_ms: delta,
+        })
+      }
+    }
+  } catch (e) {
+    try {
+      fetchDebug.error(`fetch #${seq} body read threw`, {
         seq,
-        reason: describeAbortReason({ reason } as any),
         chunk_count: chunkCount,
         total_bytes: totalBytes,
         at_ms: Date.now() - startMs,
+        error: describeError(e),
       })
-      await reader.cancel(reason)
-    },
-  })
-  return new Response(body, {
-    headers: res.headers,
-    status: res.status,
-    statusText: res.statusText,
-  })
+    } catch {}
+  }
 }
 
 function wrapSSE(res: Response, ms: number, ctl: AbortController, seq?: number) {
@@ -2074,24 +2080,8 @@ const layer: Layer.Layer<
             } catch {}
           }
 
-          // 注意：不再调用 wrapBodyForDebug —— 它改变了 Response 链路，曾导致下游消费失败
-          // 如果需要 body chunk 时间线，将下面的 OPENCODE_FETCH_BODY_DEBUG 设置为 "1" 重新启用
-          const enableBodyDebug = process.env.OPENCODE_FETCH_BODY_DEBUG === "1"
-          const resOrWrapped = enableBodyDebug
-            ? (() => {
-                try {
-                  return wrapBodyForDebug(res, seq, startMs)
-                } catch (e) {
-                  try {
-                    fetchDebug.error(`fetch #${seq} wrapBodyForDebug threw`, {
-                      seq,
-                      error: describeError(e),
-                    })
-                  } catch {}
-                  return res
-                }
-              })()
-            : res
+          // body 包装用 tee() 实现，不会破坏消费者读取链路
+          const resOrWrapped = wrapBodyForDebug(res, seq, startMs)
 
           if (!chunkAbortCtl) {
             try {

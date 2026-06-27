@@ -95,10 +95,11 @@ signals.push(AbortSignal.timeout(options["timeout"]))
 2. 改造 `wrapSSE`，接受可选 `seq` 参数：触发 chunk timeout 时打 `SSE chunk timeout fired`（error），消费方 cancel 时打 `SSE consumer cancelled`（warn），流自然结束打 `SSE stream ended`（info）
 
 3. 改造 `options["fetch"]` 包装器：
+   - **所有诊断代码段（prep / source-listener / start / headers / threw / wrapBody）整体 try/catch 包保护**：诊断代码任意一处崩了，最多打一条 `diag-*-threw` error，fetch 本身完全不受影响
    - **三 source signal 分别打 label**：`user`（ai-sdk 传入的 init.signal）、`chunk`（chunkAbortCtl）、`options-timeout`（`AbortSignal.timeout(N)`）、`combined`（最终合并 signal）。每条 signal 单独挂 listener，触发时打 `source-signal aborted`（error），区分是哪条 signal 触发的 abort
-   - **start 事件**（info）：`provider_id` / `npm` / `base_url` / `method` / `url` / `options_timeout_ms` / `chunk_timeout_ms` / 各 signal 的 present + pre-aborted 状态 / `init` 完整内容（脱敏）/ `request` 对象所有字段 / `caller_stack`（fetch 调用栈）
+   - **start 事件**（info）：`provider_id` / `npm` / `base_url` / `method` / `url` / `options_timeout_ms` / `chunk_timeout_ms` / 各 signal 的 present + pre-aborted 状态 / `init` 完整内容（脱敏，`safeDescribe` 包保护）/ `request` 对象所有字段（`safeDescribe` 包保护）/ `caller_stack`（截断到 2000 字符）
    - **response headers 事件**（info）：`status` / `status_text` / `ok` / `type` / `headers` 全量（脱敏）/ `duration_ms`
-   - **body 流包装**（`wrapBodyForDebug`）：每个 chunk 都记录 size + at_ms + delta_ms，第一个 chunk 额外记录 512 字节 preview（utf-8 解码）；body 流结束打 `body done`；body 流被消费方 cancel 打 `body cancelled`；body 读抛错打 `body read threw`（含完整 error）
+   - **body 流包装**（`wrapBodyForDebug`，用 `tee()` 复制流实现，不替换内部 ReadableStream 的 pull，避免破坏 ai-sdk 消费链路）：debug 分支异步消费记录 chunk 时间线，每个 chunk 都记录 size + at_ms + delta_ms，第一个 chunk 额外记录 512 字节 preview；body 流结束打 `body done`；body 读抛错打 `body read threw`（含完整 error）
    - **fetchFn 抛错事件**（error）：完整 `describeError(e)` + 各 signal 在错误时刻的 aborted 状态 + `first_abort_source`（区分 user / chunk / options-timeout / combined 哪个先触发）
 
 ### 关键诊断字段说明
