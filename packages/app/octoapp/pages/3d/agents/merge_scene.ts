@@ -95,9 +95,11 @@ export function mergeScene(planner: ScenePlanner, slotResults: SlotResult[]): Sc
     version: "1",
     angleUnit: "degree",
     scene: (planner.scene as SceneDocument["scene"]) ?? { environment: { preset: "studio" }, renderStyle: "studio" },
-    camera: planner.camera as SceneDocument["camera"],
+    camera: planner.camera as unknown as SceneDocument["camera"],
     lights: (planner.lights as SceneDocument["lights"]) ?? [],
-    assets: hasAssets ? { glb: assetsGlb, materials: assetsMaterials, textures: assetsTextures } : undefined,
+    assets: hasAssets
+      ? ({ glb: assetsGlb, materials: assetsMaterials, textures: assetsTextures } as unknown as SceneDocument["assets"])
+      : undefined,
     objects: topoSortByParent(deduped),
   }
 }
