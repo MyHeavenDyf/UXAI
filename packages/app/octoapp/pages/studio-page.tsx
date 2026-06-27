@@ -118,8 +118,15 @@ export default function StudioPage() {
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
+    // Fast path: check global sync store.
     const session = syncStore.session.find(s => s.id === sessionId)
-    return session?.agent === "octo_studio"
+    if (session?.agent === "octo_studio") return true
+    // Fallback: if messages have already been loaded for this session (the user
+    // is actively viewing it), treat it as valid even if the sync store hasn't
+    // caught up yet.  Otherwise runGeneration/openInpaint would create a new
+    // session when the user clicks generate in an existing one.
+    if (dataStore.message[sessionId]) return true
+    return false
   }
   const activeStudioSession = createMemo(() => {
     if (!params.id) return
@@ -2212,7 +2219,7 @@ export default function StudioPage() {
     compositeImage: string
     hasDrawing: boolean
   }) {
-    if (isBusy() || !input.hasDrawing) return
+    if (isBusy()) return
 
     async function doSubmit() {
       let sourceUrl = input.sourceImage
@@ -2242,7 +2249,9 @@ export default function StudioPage() {
       void runGeneration({
         capability: "image.inpaint",
         sourceImage: sourceUrl,
-        prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+        prompt: input.prompt || (input.hasDrawing
+          ? input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"
+          : input.mode === "erase" ? "消除图中的物体" : "重绘图片"),
         extra: {
           generateMode: input.mode,
           compositeImage: compositeData,

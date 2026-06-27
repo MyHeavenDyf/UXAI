@@ -268,13 +268,15 @@ export function StudioComposer(props: {
               />
             </div>
           </Show>
-          <button
-            type="button"
-            onClick={props.onSubmit}
-            disabled={!props.canSubmit}
-            class="studio-composer-send"
-            title="生成"
-          />
+          <Show when={!isBusy()}>
+            <button
+              type="button"
+              onClick={props.onSubmit}
+              disabled={!props.canSubmit}
+              class="studio-composer-send"
+              title="生成"
+            />
+          </Show>
         </div>
       </div>
       <div class="studio-composer-compliance">
