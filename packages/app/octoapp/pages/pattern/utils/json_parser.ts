@@ -36,7 +36,7 @@ export function getResultFromMessages(
   sessionId: string,
   knownIds: Set<string>,
 ): Promise<string> {
-  return new Promise<string>((resolve) => {
+  return new Promise<string>((resolve, reject) => {
     let disposed = false
     createRoot((dispose) => {
       createEffect(() => {
@@ -54,6 +54,15 @@ export function getResultFromMessages(
         if (!target) return
         const time = target.time as { created: number; completed?: number } | undefined
         if (!time || typeof time.completed !== "number") return
+
+        // 用户取消生成时不解析文本，直接抛中止信号
+        const msgError = target.error as { name?: string } | undefined
+        if (msgError?.name === "MessageAbortedError") {
+          disposed = true
+          dispose()
+          reject(new Error("aborted"))
+          return
+        }
 
         // 收集所有文本 parts
         const parts = (sync.data.part[target.id as string] ?? []) as Array<Record<string, unknown>>

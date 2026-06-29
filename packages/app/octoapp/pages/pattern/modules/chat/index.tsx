@@ -34,18 +34,19 @@ function RoundCard(props: {
   cancelled: boolean
   startTime: number
   endTime?: number
+  error?: string
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
   const generating = () => isLatest() && props.pipelineBusy
   const done = () => !isLatest() || !props.pipelineBusy
-  // 最新轮次已完成但没有任何已完成的 assistant 消息（endTime 为空）→ 被取消
-  const cancelled = () => done() && (props.cancelled || (isLatest() && props.endTime === undefined))
+  const cancelled = () => !props.error && done() && (props.cancelled || (isLatest() && props.endTime === undefined))
   return (
     <>
       <GenerationCard
         generating={generating()}
-        canPreview={done() && !cancelled()}
+        canPreview={done() && !cancelled() && !props.error}
         cancelled={cancelled()}
+        error={props.error}
       />
       <Show when={done() || generating()}>
         <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} />
@@ -284,6 +285,7 @@ export function ChatPanel(props: {
                           cancelled={round().cancelled}
                           startTime={round().startTime}
                           endTime={round().endTime}
+                          error={round().error}
                         />
                       </>
                     )}
