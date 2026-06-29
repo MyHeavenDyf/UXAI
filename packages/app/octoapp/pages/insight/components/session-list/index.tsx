@@ -211,8 +211,9 @@ export function InsightSessionList(): JSX.Element {
       <Show
         when={!sessions.loading || sessionList.length > 0}
         fallback={
-          <div class="px-[8px] py-[6px]">
-            <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
+          <div class="text-12-regular text-text-weak py-4 text-center">
+            <Spinner class="size-4 mx-auto mb-1" />
+            {language.t("common.loading")}
           </div>
         }
       >
