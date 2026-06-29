@@ -2022,8 +2022,7 @@ if (dsId) {
                     {(files) => (
                       <div class="mention-popover">
                         <div class="mention-popover-head">
-                          <span class="mention-popover-title">Design Files</span>
-                          <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
+                          <span class="mention-popover-title">从文件管理选择内容添加到上下文</span>
                         </div>
                         <ScrollView class="mention-scroll">
                         <Show when={files().generated.length > 0}>

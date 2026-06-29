@@ -36,8 +36,7 @@ export function AttachmentBar(props: {
   return (
     <Show when={props.attachments.length > 0}>
       <div
-        class="flex flex-wrap gap-1.5 px-3 py-2"
-        style={{ "border-bottom": "1px solid rgba(0,0,0,0.06)" }}
+        class="flex flex-wrap gap-1.5 px-[2px] py-2"
       >
         <For each={props.attachments}>
           {(att) => (
