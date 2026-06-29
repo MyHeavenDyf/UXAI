@@ -822,7 +822,7 @@ export const dict = {
 
   "session.delete.failed.title": "删除会话失败",
   "session.delete.title": "删除会话",
-  "session.delete.confirm": '删除会话 "{{name}}"？',
+  "session.delete.confirm": '确定删除 "{{name}}"？',
   "session.delete.button": "删除会话",
 
   "workspace.new": "新建工作区",
