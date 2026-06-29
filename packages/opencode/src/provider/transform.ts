@@ -17,6 +17,53 @@ function mimeToModality(mime: string): Modality | undefined {
   return undefined
 }
 
+/**
+ * 把 file part 的 data 解码为 UTF-8 文本。覆盖常见的几种 data 形态:
+ *   - Uint8Array / ArrayBuffer:直接 TextDecoder 解码
+ *   - data: URL(base64):抽取 base64 段解码
+ *   - 纯 base64 字符串:尝试 atob
+ *   - 普通 string:原样返回
+ *   - URL(外部资源,需 fetch):返回 undefined,由调用方决定怎么处理
+ * 解码失败也返回 undefined,让上游走原 part 流程(可能最终抛 UnsupportedFunctionalityError)。
+ */
+function tryDecodeFileAsText(data: unknown): string | undefined {
+  try {
+    if (data instanceof Uint8Array) {
+      return new TextDecoder("utf-8", { fatal: false }).decode(data)
+    }
+    if (data instanceof ArrayBuffer) {
+      return new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(data))
+    }
+    if (typeof data === "string") {
+      const m = data.match(/^data:[^;]*;base64,(.*)$/s)
+      if (m) {
+        const binary = atob(m[1])
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+        return new TextDecoder("utf-8", { fatal: false }).decode(bytes)
+      }
+      // 看起来像 base64(只含 base64 字符且长度合理):尝试解码
+      if (data.length > 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+        try {
+          const binary = atob(data)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+          const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+          // fatal=true 成功说明确实是 UTF-8 文本;否则抛错走 fallback
+          return decoded
+        } catch {
+          // 不是合法 UTF-8 → 当作普通字符串返回
+        }
+      }
+      return data
+    }
+    // URL / 其他类型:不同步 fetch,返回 undefined
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
 export function sanitizeSurrogates(content: string) {
@@ -400,7 +447,20 @@ function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMes
       const mime = part.type === "image" ? String(part.image).split(";")[0].replace("data:", "") : part.mediaType
       const filename = part.type === "file" ? part.filename : undefined
       const modality = mimeToModality(mime)
-      if (!modality) return part
+      if (!modality) {
+        // 未识别 modality(如 application/json、text/* 等):尝试把文件内容解码为
+        // text 塞进消息,让模型读到。不能解码(URL/外部资源)就原样返回,由下游
+        // convert 函数决定是否抛 UnsupportedFunctionalityError。
+        if (part.type === "file") {
+          const text = tryDecodeFileAsText(part.data)
+          if (text !== undefined) {
+            const header = filename ? `--- file: ${filename} (${mime}) ---` : `--- file (${mime}) ---`
+            const footer = filename ? `--- end ${filename} ---` : `--- end ---`
+            return { type: "text" as const, text: `${header}\n${text}\n${footer}` }
+          }
+        }
+        return part
+      }
       if (model.capabilities.input[modality]) return part
 
       const name = filename ? `"${filename}"` : modality

@@ -4,7 +4,7 @@ import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { useCheckServerHealth } from "@/utils/server-health"
 import { isValidUserPath } from "@/utils/path-valid"
-import type { Domain, ProductLine, Product, Version } from "@/components/dialog-project-onboarding/project-product-select-api"
+import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
