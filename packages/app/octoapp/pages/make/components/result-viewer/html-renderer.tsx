@@ -825,6 +825,7 @@ return (
                         // Step 4: Clean IDs and save
                         const cleanHtml = doc.documentElement.outerHTML.replace(/ data-od-id="[^"]*"/g, '')
                         props.onContentChange?.(wrapHtmlContent(cleanHtml, props.content))
+                        tracker.interaction({ module: "design", name: "save-inspect-changes" })
                         // Close inspect panel
                         setInspectTarget(null)
                         setSavedOverrides([])

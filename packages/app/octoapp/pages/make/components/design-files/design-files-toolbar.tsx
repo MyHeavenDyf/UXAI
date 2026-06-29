@@ -4,6 +4,7 @@ import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import type { ArtifactFileKind } from "../../utils/artifact-file-api"
 import { useLanguage } from "@/context/language"
+import { tracker } from "@/utils/tracker"
 import { IconUpload, IconRefresh, IconFilter, IconDownload, IconFolder, IconFile } from "../../icons/design-files-icons"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
@@ -72,7 +73,10 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
       <div class="flex items-center gap-2">
         <button
           type="button"
-          onClick={props.onRefresh}
+          onClick={() => {
+            props.onRefresh()
+            tracker.interaction({ module: "design", name: "files-refresh" })
+          }}
           disabled={props.fileStore.store.loading}
           class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
           title="Refresh"
@@ -100,7 +104,10 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
         >
           <button
             type="button"
-            onClick={() => props.fileStore.setGroupMode("kind")}
+            onClick={() => {
+              props.fileStore.setGroupMode("kind")
+              tracker.interaction({ module: "design", name: "files-group-mode", extend: JSON.stringify({ mode: "kind" }) })
+            }}
             class="transition-colors"
             style={{
               "min-width": "88px",
@@ -119,7 +126,10 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           </button>
           <button
             type="button"
-            onClick={() => props.fileStore.setGroupMode("modified")}
+            onClick={() => {
+              props.fileStore.setGroupMode("modified")
+              tracker.interaction({ module: "design", name: "files-group-mode", extend: JSON.stringify({ mode: "modified" }) })
+            }}
             class="transition-colors"
             style={{
               "min-width": "88px",
@@ -184,7 +194,10 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
                         <input
                           type="checkbox"
                           checked={props.fileStore.store.kindFilter.has(kind)}
-                          onChange={() => props.fileStore.toggleKindFilter(kind)}
+                          onChange={() => {
+                            props.fileStore.toggleKindFilter(kind)
+                            tracker.interaction({ module: "design", name: "files-filter", extend: JSON.stringify({ kinds: Array.from(props.fileStore.store.kindFilter) }) })
+                          }}
                           style={{
                             width: "16px",
                             height: "16px",

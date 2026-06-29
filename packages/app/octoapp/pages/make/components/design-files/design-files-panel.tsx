@@ -14,6 +14,7 @@ import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
+import { tracker } from "@/utils/tracker"
 import {
   createArtifactFileStore,
   type ArtifactFile,
@@ -174,6 +175,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       props.onRemoveAttachmentsByPath?.([file.path])
 
       showToast({ title: "Deleted", description: file.name })
+      tracker.interaction({ module: "design", name: "files-delete-file" })
     } catch (err) {
       showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -225,6 +227,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       props.onRemoveAttachmentsByPath?.(paths)
 
       showToast({ title: "Deleted", description: `${result.deleted} files deleted` })
+      tracker.interaction({ module: "design", name: "files-batch-delete", extend: JSON.stringify({ count: result.deleted }) })
     } catch (err) {
       showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -242,6 +245,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       a.download = `artifacts-${new Date().toISOString().slice(0, 10)}.zip`
       a.click()
       URL.revokeObjectURL(url)
+      tracker.interaction({ module: "design", name: "files-batch-download", extend: JSON.stringify({ count: files.length }) })
     } catch (err) {
       showToast({ title: "Download failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -261,6 +265,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         if (!filePath) return
         await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
         showToast({ title: "下载完成", description: file.name })
+        tracker.interaction({ module: "design", name: "files-download-file" })
         return
       }
 
@@ -271,6 +276,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       a.click()
       URL.revokeObjectURL(url)
       showToast({ title: "下载完成", description: file.name })
+      tracker.interaction({ module: "design", name: "files-download-file" })
     } catch (err) {
       showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
     }
@@ -278,11 +284,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const handleOpenFile = (file: ArtifactFile) => {
     props.onOpenFile(file)
+    tracker.interaction({ module: "design", name: "files-open-in-tab" })
   }
 
   const handlePreview = (file: ArtifactFile) => {
     if (file.isFolder) return
     fileStore.setPreviewFile(file)
+    tracker.interaction({ module: "design", name: "files-preview-file" })
   }
 
   const handleOpenInExplorer = (file: ArtifactFile) => {
@@ -292,6 +300,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       return
     }
     api.showItemInFolder(file.path)
+    tracker.interaction({ module: "design", name: "files-open-in-explorer" })
   }
 
   const startRename = (file: ArtifactFile) => {
@@ -308,6 +317,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     if (typeof api?.renameArtifactFile === "function") {
       try {
         await api.renameArtifactFile(file.path, newName)
+        tracker.interaction({ module: "design", name: "files-rename-file" })
         await refresh()
       } catch (err) {
         showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
@@ -332,6 +342,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
             currentPath,
           )
           showToast({ title: "Uploaded", description: result.name })
+          tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
           await refresh()
         } catch (err) {
           showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
@@ -426,6 +437,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         currentPath,
       )
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
+      tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
     } catch (err) {
       showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
@@ -520,6 +532,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         currentPath,
       )
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
+      tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
     } catch (err) {
       showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
@@ -1056,6 +1069,7 @@ function FileRow(props: {
         if (e.target instanceof HTMLButtonElement) return
         if (props.file.isFolder) {
           props.onNavigateFolder?.()
+          tracker.interaction({ module: "design", name: "files-navigate-folder" })
         } else {
           props.onPreview()
         }
@@ -1134,6 +1148,7 @@ function FileRow(props: {
                   type="button"
                   onClick={() => {
                     props.onAddToSession!()
+                    tracker.interaction({ module: "design", name: "files-add-to-session" })
                     setShowMenu(false)
                   }}
                   class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] hover:bg-[#eee] transition-colors"
