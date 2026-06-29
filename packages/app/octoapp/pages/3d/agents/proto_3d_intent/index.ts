@@ -45,9 +45,11 @@ export default async function proto_3d_intent(input: Proto3DIntentInput) {
 }
 
 function buildHumanMessage(userInput: string): string {
-  return `[用户的 3D 场景需求]: ${userInput}
-
-请开始 3D 场景意图拓展,严格按输出格式返回纯 JSON 蓝图。`
+  const prefix = "[用户的 3D 场景需求]: "
+  const suffix = "\n\n请开始 3D 场景意图拓展,严格按输出格式返回纯 JSON 蓝图。"
+  // 已有包装时跳过,避免双层嵌套(多轮对话或回传时)
+  if (userInput.startsWith(prefix)) return userInput
+  return `${prefix}${userInput}${suffix}`
 }
 
 /** 精简版意图(供 UI 展示与下游快速读取) */
@@ -58,6 +60,7 @@ function simplifyIntent(data: any) {
     sceneAnalysis: d.sceneAnalysis ?? "",
     styleSuggestion: d.styleSuggestion ?? "studio",
     scaleSuggestion: d.scaleSuggestion ?? "medium",
+    scale: typeof d.scale === "number" ? d.scale : 1,
     lightingPlan: d.lightingPlan ?? "",
     cameraPlan: d.cameraPlan ?? "",
     sections: d.sections ?? [],

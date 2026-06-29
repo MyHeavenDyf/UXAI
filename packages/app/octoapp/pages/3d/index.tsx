@@ -57,10 +57,10 @@ export default function ThreeDPage() {
 
 function ThreeDPreviewEmpty(): JSX.Element {
   return (
-    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#0d1117" }}>
+    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#ffffff" }}>
       <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-      <div class="text-[13px]" style={{ color: "rgba(255,255,255,0.6)" }}>3D 场景将在这里展示</div>
-      <div class="text-[12px]" style={{ color: "rgba(255,255,255,0.35)" }}>在左侧描述需求即可生成</div>
+      <div class="text-[13px]" style={{ color: "rgba(0,0,0,0.55)" }}>3D 场景将在这里展示</div>
+      <div class="text-[12px]" style={{ color: "rgba(0,0,0,0.35)" }}>在左侧描述需求即可生成</div>
     </div>
   )
 }
@@ -177,7 +177,7 @@ function ThreeDContent() {
     const result: (Message & { _sessionID: string })[] = rootMsgs.map((m) => ({ ...m, _sessionID: id }))
     for (const childID of childSessionIDs()) {
       const childMsgs = ((sync.data.message[childID] ?? []) as Message[]).filter((m) =>
-        m.role === "user" && !((m as any).parts?.[0]?.text?.startsWith("[ThreeD")),
+        m.role === "user" && !((m as any).parts?.[0]?.text?.startsWith("[")),
       )
       for (const m of childMsgs) {
         result.push({ ...m, _sessionID: childID })
@@ -228,7 +228,7 @@ function ThreeDContent() {
         const childCreated = childMsgs[0]?.time?.created ?? Infinity
         if (childCreated < roundStart || childCreated >= roundEnd) continue
         for (const m of childMsgs) {
-          if (m.role === "user" && !(m as any).parts?.[0]?.text?.startsWith("[ThreeD"))
+          if (m.role === "user" && !(m as any).parts?.[0]?.text?.startsWith("["))
             items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
           trackTime(m)
         }
@@ -658,7 +658,7 @@ function ThreeDContent() {
                   position: "absolute",
                   inset: "0",
                   "z-index": "50",
-                  background: "rgba(13, 17, 23, 0.85)",
+                  background: "rgba(255, 255, 255, 0.85)",
                   display: "flex",
                   "flex-direction": "column",
                   "align-items": "center",
@@ -667,7 +667,7 @@ function ThreeDContent() {
                 }}
               >
                 <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-                <div class="text-[13px]" style={{ color: "rgba(255,255,255,0.7)" }}>正在修改场景中...</div>
+                <div class="text-[13px]" style={{ color: "rgba(0,0,0,0.55)" }}>正在修改场景中...</div>
               </div>
             </Show>
           </div>

@@ -1,1 +1,147 @@
-{"version":"1","angleUnit":"degree","scene":{"environment":{"preset":"studio","intensity":1},"background":"#e0e0e0","renderStyle":"studio"},"camera":{"type":"perspective","position":[3,2,4],"lookAt":[0,0.5,0],"perspective":{"fov":50,"near":0.1,"far":50}},"lights":[{"type":"ambient","intensity":0.4,"color":"#ffffff"},{"type":"directional","color":"#ffffff","intensity":2.5,"position":[-4,6,3],"target":[0,0.5,0],"castShadow":true,"shadow":{"mapSize":1024,"camera":{"near":0.1,"far":20,"left":-5,"right":5,"top":5,"bottom":-5}}}],"objects":[{"id":"sceneRoot","type":"group","parentId":null,"position":[0,0,0]},{"id":"groundBase","parentId":"sceneRoot","type":"mesh","geometry":{"type":"circle","params":{"radius":2.5,"segments":64}},"material":{"type":"standard","color":"#CCCCCC","roughness":0.8,"metalness":0},"position":[0,0,0],"rotation":[-90,0,0],"receiveShadow":true,"castShadow":false},{"id":"cubeBox","parentId":"sceneRoot","type":"mesh","geometry":{"type":"box","params":{"width":1,"height":1,"depth":1}},"material":{"type":"standard","color":"#f0f0f0","roughness":0.5,"metalness":0},"position":[0,0.5,0],"castShadow":true,"receiveShadow":true}]}
+{
+  "version": "1",
+  "angleUnit": "degree",
+  "scene": {
+    "environment": {
+      "preset": "studio",
+      "intensity": 1
+    },
+    "background": "#e8e8e8",
+    "renderStyle": "studio"
+  },
+  "camera": {
+    "type": "perspective",
+    "position": [4, 3, 5],
+    "lookAt": [0, 0.5, 0],
+    "perspective": {
+      "fov": 50,
+      "near": 0.1,
+      "far": 100
+    }
+  },
+  "lights": [{
+    "type": "ambient",
+    "intensity": 0.5
+  }, {
+    "type": "directional",
+    "color": "#ffffff",
+    "intensity": 2,
+    "position": [5, 8, 5],
+    "target": [0, 0, 0],
+    "castShadow": true,
+    "shadow": {
+      "mapSize": 1024,
+      "camera": {
+        "near": 0.5,
+        "far": 30,
+        "left": -10,
+        "right": 10,
+        "top": 10,
+        "bottom": -10
+      }
+    }
+  }],
+  "objects": [{
+    "id": "sceneRoot",
+    "type": "group",
+    "parentId": null,
+    "position": [0, 0, 0]
+  }, {
+    "id": "groundGroup",
+    "type": "group",
+    "parentId": "sceneRoot",
+    "position": [0, 0, 0]
+  }, {
+    "id": "cubesGroup",
+    "type": "group",
+    "parentId": "sceneRoot",
+    "position": [0, 0, 0]
+  }, {
+    "id": "groundPlane",
+    "parentId": "groundGroup",
+    "type": "mesh",
+    "geometry": {
+      "type": "plane",
+      "params": {
+        "width": 20,
+        "height": 20
+      }
+    },
+    "material": {
+      "type": "standard",
+      "color": "#B0B0B0",
+      "roughness": 0.9,
+      "metalness": 0
+    },
+    "position": [0, 0, 0],
+    "rotation": [-90, 0, 0],
+    "receiveShadow": true,
+    "castShadow": false
+  }, {
+    "id": "cubeMatte",
+    "parentId": "cubesGroup",
+    "type": "mesh",
+    "geometry": {
+      "type": "box",
+      "params": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      }
+    },
+    "material": {
+      "type": "standard",
+      "color": "#E05A4F",
+      "roughness": 0.85,
+      "metalness": 0
+    },
+    "position": [-1.5, 0.5, 0],
+    "castShadow": true,
+    "receiveShadow": true
+  }, {
+    "id": "cubeMetal",
+    "parentId": "cubesGroup",
+    "type": "mesh",
+    "geometry": {
+      "type": "box",
+      "params": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      }
+    },
+    "material": {
+      "type": "standard",
+      "color": "#D9D9D9",
+      "roughness": 0.2,
+      "metalness": 1
+    },
+    "position": [0, 0.5, 0],
+    "castShadow": true,
+    "receiveShadow": true
+  }, {
+    "id": "cubeFrosted",
+    "parentId": "cubesGroup",
+    "type": "mesh",
+    "geometry": {
+      "type": "box",
+      "params": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      }
+    },
+    "material": {
+      "type": "physical",
+      "color": "#5BA3D9",
+      "roughness": 0.5,
+      "metalness": 0,
+      "transmission": 0.6,
+      "thickness": 0.5,
+      "ior": 1.4
+    },
+    "position": [1.5, 0.5, 0],
+    "castShadow": true,
+    "receiveShadow": true
+  }]
+}
