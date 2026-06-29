@@ -48,6 +48,9 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
   if (sync?.session?.sync) await sync.session.sync(childSession.id)
   // 创建时回调, 如果是根节点，则不在返回创建回调
   if (onSessionCreated && !isRoot) onSessionCreated(childSession.id)
+  // 记录 promptAsync 之前已存在的消息 ID，用于区分新生成的 assistant 消息
+  const existingMessages = ((sync?.data?.message?.[childSession.id] ?? []) as Array<Record<string, unknown>>)
+  const knownIds = new Set(existingMessages.map((m) => m.id as string))
   // LLM 内容通过 SSE 流式推送，服务端 prompt 端点返回 streaming response
   await client.session.promptAsync({
     agent,
@@ -55,8 +58,8 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     sessionID: childSession.id,
     parts: [{ type: "text", text: promptText }],
   })
-  // 轮询等待本 session 执行完毕，取出最终结果
-  const result = await getResultFromMessages({ client }, childSession.id, !!aborted)
+  // 监听 reactive store，等待新 assistant 消息完成
+  const result = await getResultFromMessages(sync, childSession.id, knownIds)
   const sessionId = isRoot ? parentSessionID : childSession.id
   const cleaned = extractJson(result)
   logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)

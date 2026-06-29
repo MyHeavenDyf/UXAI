@@ -8,7 +8,7 @@ export function GenerationCard(props: {
   onOpenPreview: () => void
 }): JSX.Element {
   return (
-    <Show when={props.generating || props.canPreview}>
+    <Show when={props.generating || props.canPreview || props.cancelled}>
       <button
         type="button"
         disabled={props.generating}

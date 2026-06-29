@@ -1,3 +1,5 @@
+import { createRoot, createEffect } from "solid-js"
+
 // 从 AI 返回的字符串中提取 JSON
 export function extractJson(text: string): Record<string, unknown> | null {
   if (!text || !text.trim()) return null
@@ -21,34 +23,47 @@ export function extractJson(text: string): Record<string, unknown> | null {
   }
 }
 
-// 从 Session 中每2秒轮询, 取出最终结果
-export async function getResultFromMessages(sdk: any, sessionId: string, aborted: boolean): Promise<string> {
-  while (!aborted) {
-    await new Promise((r) => setTimeout(r, 2000));
-    if (aborted) throw new Error("aborted");
-    try {
-      const res = await sdk.client.session.messages({ sessionID: sessionId});
-      const items = res.data;
-      if (!items || items.length === 0) continue;      
-      // 找到最新的 assistant 消息
-      for (let i = items.length - 1; i >= 0; i--) {
-        if (items[i].info.role !== "assistant") continue;
-        const item = items[i];
-        const msg = item.info;
-        // 最新 assistant 消息尚未完成，继续等待
-        if (msg.time?.completed == null) break;
-        // 收集所有文本 parts
-        const texts: string[] = []
-        for (let j = 0; j < item.parts.length; j++) {
-          const part = item.parts[j]
-          if (part.type === "text" && part.text) texts.push(part.text)
+/**
+ * 监听 sync store 中的消息状态，当指定 session 出现新的已完成 assistant 消息时返回其文本。
+ * 替代原先每 2 秒 REST 轮询的方案，零延迟、零额外网络请求。
+ *
+ * @param sync       前端同步 store（含 data.message / data.part）
+ * @param sessionId  目标 session ID
+ * @param knownIds   调用 promptAsync 之前已存在的消息 ID 集合，用于区分新消息
+ */
+export function getResultFromMessages(
+  sync: { data: { message: Record<string, Array<Record<string, unknown>>>; part: Record<string, Array<Record<string, unknown>>> } },
+  sessionId: string,
+  knownIds: Set<string>,
+): Promise<string> {
+  return new Promise<string>((resolve) => {
+    let disposed = false
+    createRoot((dispose) => {
+      createEffect(() => {
+        if (disposed) { dispose(); return }
+        const messages = (sync.data.message[sessionId] ?? []) as Array<Record<string, unknown>>
+        // 从末尾找最新的、不在 knownIds 中的 assistant 消息
+        let target: Record<string, unknown> | undefined
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i]
+          if (m.role === "assistant" && !knownIds.has(m.id as string)) {
+            target = m
+            break
+          }
         }
-        if (texts.length > 0) return texts.join("\n")
-        break;
-      }
-    } catch (error) {
-      if (aborted) throw new Error("aborted");
-    }
-  }
-  throw new Error("aborted");
+        if (!target) return
+        const time = target.time as { created: number; completed?: number } | undefined
+        if (!time || typeof time.completed !== "number") return
+
+        // 收集所有文本 parts
+        const parts = (sync.data.part[target.id as string] ?? []) as Array<Record<string, unknown>>
+        const texts: string[] = []
+        for (const p of parts) {
+          if (p.type === "text" && p.text) texts.push(p.text as string)
+        }
+        dispose()
+        resolve(texts.join("\n"))
+      })
+    })
+  })
 }
