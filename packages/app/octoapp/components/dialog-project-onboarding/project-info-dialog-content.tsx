@@ -72,9 +72,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     return (
       <>
         <Show when={o.isTop}>
-          <svg class="top-mark" width="16" height="16" viewBox="0 0 1024 1024" fill="none" style={{ "flex-shrink": "0" }}>
-            <path d="M477.366 269.291C495.926 252.95 523.062 251.67 542.987 265.494L547.808 269.249L877.653 553.452C889.216 563.564 896 578.156 896 593.516C896 621.121 875.136 643.863 848.213 646.593L842.666 646.849L684.683 646.849L684.683 832.001C684.683 867.329 656.011 896.007 620.683 896.007L401.334 896.007C368.097 896.007 340.747 870.444 337.633 837.974L337.334 832.001L337.334 646.849L181.333 646.849C167.936 646.849 155.264 641.814 145.493 632.812L141.226 628.759C123.05 608.108 123.946 577.388 142.079 557.548L145.919 553.495L477.366 269.291ZM512.566 323.477L209.493 582.848L369.334 582.848C385.547 582.848 398.945 594.88 401.078 610.496L401.334 614.848L401.334 832L620.683 832L620.683 614.848C620.683 598.635 632.715 585.28 648.331 583.147L652.683 582.848L814.08 582.848L512.566 323.477L512.566 323.477ZM864 128C881.673 128 896 142.327 896 160C896 176.2 883.886 189.589 868.267 191.708L864 192L160 192C142.327 192 128 177.673 128 160C128 143.8 140.039 130.411 155.658 128.292L160 128L864 128L864 128Z" fill="#E53E3E" fill-rule="nonzero" />
-          </svg>
+          <span class="top-mark"></span>
         </Show>
         <span style={{ overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{o.name}</span>
         <Show when={o.isEnd}>
@@ -121,6 +119,8 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   }
 
   return (
+    <>
+    <style>{`.top-mark { width: 16px; height: 16px; flex-shrink: 0; background-image: url("/top-mark.png"); background-size: contain; background-repeat: no-repeat; }`}</style>
     <div style={{ width: "100%", height: "40px", display: "flex", gap: "4px", "align-items": "center" }}>
       <ProjectProductSelect
         domain={store.domain}
@@ -164,5 +164,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         }}
       />
     </div>
+    </>
   )
 }
