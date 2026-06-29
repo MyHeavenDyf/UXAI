@@ -164,8 +164,9 @@ function mockVersionCancelTop(teamId: number) {
   return false
 }
 
+// errorCode 改为 200 以匹配 parseResponse(data?.data ?? data) 中的 errorCode===200 检查; 原值 0 会导致 parseResponse 抛错
 function wrapResponse(content: any) {
-  return JSON.stringify({ data: { errorCode: 0, errorMessage: "", content } })
+  return JSON.stringify({ data: { errorCode: 200, errorMessage: "", content } })
 }
 
 function parseQuery(search: string) {

@@ -124,8 +124,15 @@ export default function StudioPage() {
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
+    // Fast path: check global sync store.
     const session = syncStore.session.find(s => s.id === sessionId)
-    return session?.agent === "octo_studio"
+    if (session?.agent === "octo_studio") return true
+    // Fallback: if messages have already been loaded for this session (the user
+    // is actively viewing it), treat it as valid even if the sync store hasn't
+    // caught up yet.  Otherwise runGeneration/openInpaint would create a new
+    // session when the user clicks generate in an existing one.
+    if (dataStore.message[sessionId]) return true
+    return false
   }
   const activeStudioSession = createMemo(() => {
     if (!params.id) return
@@ -159,15 +166,24 @@ export default function StudioPage() {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
-  const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
-  const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
-  const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
-  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [imageSettingStore, setImageSettingStore] = persisted(
     Persist.global("studio.image.settings"),
-    createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
+    createStore({
+      capability: "image.generate" as StudioCapability,
+      aspectRatio: "3:4" as StudioAspectRatio,
+      count: 1 as 1 | 2 | 3 | 4,
+      styleModel: "seedream-5-lite",
+    }),
   )
+  const capability = () => imageSettingStore.capability
+  const setCapability = (v: StudioCapability) => setImageSettingStore("capability", v)
+  const aspectRatio = () => imageSettingStore.aspectRatio
+  const setAspectRatio = (v: StudioAspectRatio) => setImageSettingStore("aspectRatio", v)
+  const count = () => imageSettingStore.count
+  const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
+  const styleModel = () => imageSettingStore.styleModel
+  const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
@@ -554,6 +570,7 @@ export default function StudioPage() {
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
       parts: dataStore.part,
       fallback: pendingResult(),
+      currentSessionID: params.id,
     }),
   )
   const displayTurns = createMemo(() =>
@@ -654,7 +671,15 @@ export default function StudioPage() {
   })
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
-  const defaultResult = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
+  const defaultResult = createMemo(() => {
+    const turn = studioTurn()
+    // 跳过无图片的失败结果（包括用户取消生成），canvas 不应显示红色报错
+    if (turn?.result && turn.result.images.length === 0 &&
+        (turn.result.status === "failed" || turn.result.status === "create_failed")) {
+      return latestCompletedTurn()?.result ?? pendingResult()
+    }
+    return turn?.result ?? latestCompletedTurn()?.result ?? pendingResult()
+  })
   function isSamePendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
     return Boolean(turn && (turn.id === pending.id || turn.id === `studio_${pending.id}` || turn.result?.id === pending.id))
   }
@@ -900,7 +925,10 @@ export default function StudioPage() {
           setStatus("idle")
           setPendingResult(undefined)
         }
-        if (id && !sending() && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
+        // Clear pendingResult when switching to an unrelated session, even
+        // when sending() is still true (the pending result is scoped to the
+        // previous session and should not ghost into the new one).
+        if (id && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
           setStatus("idle")
           setPendingResult(undefined)
         }
@@ -1865,15 +1893,12 @@ export default function StudioPage() {
       const bodyText = await response.text()
       if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
       const generation = JSON.parse(bodyText) as StudioGenerationResult
+      // 用户主动取消，清除 pendingResult 避免 canvas 显示"生成失败"
       setPendingResult((item) => {
         if (!item || item.id !== generation.id) return item
-        return {
-          ...generation,
-          displayPrompt: item.displayPrompt ?? generation.displayPrompt,
-          sourceImage: item.sourceImage,
-        }
+        return undefined
       })
-      setStatus(generation.status)
+      setStatus("idle")
       const sessionID = generation.sessionID ?? params.id
       if (sessionID) {
         void loadSessionMessages(sessionID).catch((error) => {
@@ -1993,9 +2018,10 @@ export default function StudioPage() {
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       if (currentToken !== generationToken) return
+      // Always attach sessionID to pendingResult so it can be scoped to the correct session.
+      setPendingResult((item) => item ? { ...item, sessionID } : item)
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
-        setPendingResult((item) => item ? { ...item, sessionID } : item)
         navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
       const generation = await createStudioGeneration({
@@ -2146,6 +2172,19 @@ export default function StudioPage() {
     ),
   )
 
+  function handleCancelGeneration() {
+    const pollingId = pollingGenerationID()
+    if (pollingId) {
+      void cancelStudioGeneration(pollingId)
+      return
+    }
+    // Still in submitting phase — abort via token
+    generationToken++
+    setPendingResult(undefined)
+    setStatus("idle")
+    setSending(false)
+  }
+
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
     if (capability() === "image.upscale") {
@@ -2254,7 +2293,7 @@ export default function StudioPage() {
     compositeImage: string
     hasDrawing: boolean
   }) {
-    if (isBusy() || !input.hasDrawing) return
+    if (isBusy()) return
 
     async function doSubmit() {
       let sourceUrl = input.sourceImage
@@ -2284,7 +2323,9 @@ export default function StudioPage() {
       void runGeneration({
         capability: "image.inpaint",
         sourceImage: sourceUrl,
-        prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+        prompt: input.prompt || (input.hasDrawing
+          ? input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"
+          : input.mode === "erase" ? "消除图中的物体" : "重绘图片"),
         extra: {
           generateMode: input.mode,
           compositeImage: compositeData,
@@ -2565,6 +2606,7 @@ export default function StudioPage() {
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onOpenMenu={setOpenMenu}
+                  onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
                   onPickFile={() => fileInputRef.click()}
@@ -2612,8 +2654,7 @@ export default function StudioPage() {
                 onBlur={() => void saveHeaderTitleEditor()}
               />
             </Show>
-            <Show when={activeStudioSession()} keyed>
-              {(session) => (
+            <Show when={params.id}>
                 <DropdownMenu
                   gutter={4}
                   placement="bottom-end"
@@ -2650,14 +2691,16 @@ export default function StudioPage() {
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item
-                        onSelect={() => dialog.show(() => <DialogDeleteHeaderSession session={session} />)}
+                        onSelect={() => {
+                          const session = activeStudioSession()
+                          if (session) dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                        }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu>
-              )}
             </Show>
           </div>
 
@@ -2708,6 +2751,7 @@ export default function StudioPage() {
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}
+            onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
             onPickFile={() => fileInputRef.click()}
@@ -2927,7 +2971,6 @@ export default function StudioPage() {
               setStudioLeftOverlayOpen(false)
               startNewStudioConversation()
             }}
-            toggleDrawer={() => setStudioLeftOverlayOpen(false)}
           />
         </aside>
       </Show>

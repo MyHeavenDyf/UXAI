@@ -209,7 +209,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
           >
             <DropdownMenu.Trigger
               as={IconButton}
-              icon="dot-grid"
+              icon="ellipsis"
               variant="ghost"
               class="size-6 rounded-md shrink-0 data-[expanded]:bg-surface-base-active"
               aria-label="更多操作"

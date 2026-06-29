@@ -477,7 +477,7 @@ function buildResult(input: {
   }
 }
 
-export function buildStudioTurns(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioGenerationResult }) {
+export function buildStudioTurns(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioGenerationResult; currentSessionID?: string }) {
   const messages = sortMessages(input.messages)
   const turns = messages
     .filter((message) => message.role === "user")
@@ -525,6 +525,9 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
   }
 
   if (!input.fallback) return []
+
+  // Reject fallback that belongs to a different session to avoid task ghosting.
+  if (input.currentSessionID && input.fallback.sessionID && input.fallback.sessionID !== input.currentSessionID) return []
 
   const fallbackGenerating = input.fallback.status === "queued" || input.fallback.status === "running"
   return [

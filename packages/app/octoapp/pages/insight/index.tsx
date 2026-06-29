@@ -24,6 +24,7 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
+import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
@@ -51,6 +52,9 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
+
+// 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
+const EMPTY_MESSAGES: Message[] = []
 
 /**
  * InsightPage —— 用研 agent 页面
@@ -292,11 +296,26 @@ function InsightContent() {
     ),
   )
 
-  const userMessages = createMemo((): Message[] => {
-    const id = params.id
-    if (!id) return []
-    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
-  })
+  // equals: same — 生成回复时 sync.data.message[id] 每个 token 都会变,若不做浅比较,
+  // 这个 memo 每帧都吐新数组,下游 <Show>/<For>/各 memo 全部空转重算 → 闪烁。
+  const userMessages = createMemo(
+    (): Message[] => {
+      const id = params.id
+      if (!id) return EMPTY_MESSAGES
+      return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+    },
+    EMPTY_MESSAGES,
+    { equals: same },
+  )
+
+  // 消息列表按**稳定的 messageID 字符串**迭代(对齐上游 message-timeline 的 rendered):
+  // <For> 用引用做 key,直接迭代 message 对象时,流式更新一旦换了对象引用就会整轮 DOM 重建,
+  // 滚动容器内容塌掉再重建 → scrollTop 归零(弹回顶部)+ 闪烁。改用 id 字符串值做 key 即稳定。
+  const userMessageIDs = createMemo(
+    () => userMessages().map((m) => m.id),
+    [] as string[],
+    { equals: same },
+  )
 
   // 会话消息是否已加载:切到"未加载过的已存在会话"时 message[id] 为 undefined,
   // 期间不渲染首页空态(否则会闪一下 Octo Insight 首页),等加载完再按是否为空决定。
@@ -1000,7 +1019,7 @@ function InsightContent() {
   // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）
   const filesById = new Map<string, File>()
 
-  function addAttachments(files: File[], method: "picker" | "drop") {
+  function addAttachments(files: File[], method: "picker" | "drop" | "paste") {
     const slots = MAX_ATTACHMENTS - attachments().length
     // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
     if (files.length > slots) {
@@ -1138,6 +1157,20 @@ function InsightContent() {
     if (!isExternalFileDrag(e)) return
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length > 0) addAttachments(files, "drop")
+  }
+
+  // 粘贴文件(与 chat 一致):截获剪贴板里的文件本体走附件上传,格式是否支持交给
+  // addAttachments→validateFile 把关——白名单内(txt/md/docx/xlsx)正常上传,白名单外
+  // (含图片)照常落「不支持的格式」错误 chip,与拖拽/选择器行为一致。
+  // 纯文本/含文字的粘贴没有 file item,不拦截,交给 textarea 默认行为。
+  function handlePaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    e.preventDefault()
+    addAttachments(files, "paste")
   }
 
   function handleOpenResult(card: OutputCard) {
@@ -1451,6 +1484,7 @@ function InsightContent() {
                         onCompositionStart={handleCompositionStart}
                         onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         placeholder="请描述您的需求..."
                         class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
                         style={{
@@ -1568,15 +1602,15 @@ function InsightContent() {
                   class="py-3 flex flex-col gap-0 w-full mx-auto"
                   style={{ "max-width": "800px" }}
                 >
-                  <For each={userMessages()}>
-                    {(msg) => (
+                  <For each={userMessageIDs()}>
+                    {(msgID) => (
                       <InsightTurn
                         sessionID={params.id!}
-                        messageID={msg.id}
+                        messageID={msgID}
                         status={sessionStatus()}
                         active={isBusy()}
                         onOpenResult={handleOpenResult}
-                        taskCards={taskCardsByAnchor().get(msg.id) ?? []}
+                        taskCards={taskCardsByAnchor().get(msgID) ?? []}
                         onTaskRefresh={handleTaskRefresh}
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
@@ -1654,6 +1688,7 @@ function InsightContent() {
                     onCompositionStart={() => setComposing(true)}
                     onCompositionEnd={() => setComposing(false)}
                     onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
                     placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{

@@ -3,7 +3,7 @@ import { useServer } from "@/context/server"
 import { useLayout } from "@/context/layout"
 import { unwrap } from "solid-js/store"
 import { createEffect, createSignal, Show } from "solid-js"
-import type { Domain, ProductLine, Product, Version } from "@/components/dialog-project-onboarding/project-product-select-api"
+import type { Domain, ProductLine, Product, Version } from "@/network/types"
 import type { JSX } from "solid-js"
 
 type SelectionData = { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }
