@@ -194,6 +194,18 @@ const params = useParams()
 
   const [collapsed, setCollapsed] = createSignal(false)
 
+  const sessionRefs = new Map<string, HTMLElement>()
+  createEffect(() => {
+    const id = params.id
+    if (!id) return
+    // 读取 sessionList.length 建立响应式依赖，确保列表加载完成后重新滚动
+    void sessionList.length
+    requestAnimationFrame(() => {
+      const el = sessionRefs.get(id)
+      if (el) el.scrollIntoView({ block: "nearest" })
+    })
+  })
+
   return (
     <div
       class="flex h-full w-full flex-col"
@@ -264,7 +276,7 @@ const params = useParams()
                       const isRenaming = () => renamingId() === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
                       return (
-                        <div class="group/item relative">
+                        <div ref={(el) => { if (el) sessionRefs.set(session.id, el) }} class="group/item relative">
                           <Show when={!isRenaming()} fallback={
                             <div
                               class="w-full rounded-[8px] flex items-center"

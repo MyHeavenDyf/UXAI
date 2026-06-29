@@ -1,7 +1,7 @@
 import "./make/octo-tokens.css"
 import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useParams } from "@solidjs/router"
+import { useParams, useNavigate } from "@solidjs/router"
 import { tracker } from "@/utils/tracker"
 import { Sidebar } from "@/components/sidebar"
 import { useLocal } from "@/context/local"
@@ -31,6 +31,7 @@ function SessionProviders(props: { children: JSX.Element }) {
 
 export default function ChatPage() {
   const params = useParams<{ dir?: string; id?: string }>()
+  const navigate = useNavigate()
   const local = useLocal()
   const layout = useLayout()
   const sdk = useSDK()
@@ -44,15 +45,21 @@ export default function ChatPage() {
 
   createEffect(
     on(
-      () => ({ dir: params.dir, id: params.id }),
+      () => ({ dir: sdk.directory, id: params.id }),
       ({ dir, id }) => {
-        if (dir && id) {
-          const decoded = decode64(dir)
-          if (decoded) layout.lastSessionPerTab.setChat(decoded, id)
-        }
+        if (dir && id) layout.lastSessionPerTab.setChat(dir, id)
       },
     ),
   )
+
+  // 进入 /chat 无 session 时，自动跳转到上次选中的会话
+  createEffect(() => {
+    if (params.id) return
+    const dir = resolvedDirectory()
+    if (!dir) return
+    const lastId = layout.lastSessionPerTab.chat(dir)
+    if (lastId) navigate(`/${params.dir}/chat/${lastId}`, { replace: true })
+  })
 
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
     Persist.global("chat.sidebar.width"),

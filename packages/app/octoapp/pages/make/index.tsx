@@ -134,6 +134,13 @@ function MakeContent() {
 
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
+  // 进入 /make 无 session 时，自动跳转到上次选中的会话
+  createEffect(() => {
+    if (params.id) return
+    const lastId = layout.lastSessionPerTab.make(sdk.directory)
+    if (lastId) navigate(`/make/${lastId}`, { replace: true })
+  })
+
   const projectDir = useProjectDir()
 
   const local = useLocal()
