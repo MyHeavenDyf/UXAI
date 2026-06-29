@@ -1,7 +1,8 @@
 import { Switch } from "@opencode-ai/ui/switch"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { For, Show, Suspense, ErrorBoundary, createSignal, createResource, createEffect, type JSX } from "solid-js"
-import { fetchDomains, fetchProductLines, fetchProducts, searchProducts, fetchDomainInfoByProduct, topProduct, cancelTopProduct, type Domain, type ProductLine, type Product, type Version, type SearchResult } from "./project-product-select-api"
+import { fetchDomains, fetchProductLines, fetchProducts, searchProducts, fetchDomainInfoByProduct, topProduct, cancelTopProduct } from "@/network/pipelineRequest"
+import type { Domain, ProductLine, Product, Version, SearchResult } from "@/network/types"
 
 export type { Domain, ProductLine, Product, Version }
 

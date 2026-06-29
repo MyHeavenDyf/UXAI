@@ -3,9 +3,9 @@ import { Select } from "./select"
 import { createStore } from "solid-js/store"
 import { createEffect, createResource, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import type { Domain, ProductLine, Product, Version } from "./project-product-select-api"
-import { fetchVersions, topVersion, cancelTopVersion } from "./project-product-select-api"
+import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
+import { fetchVersions, topVersion, cancelTopVersion } from "@/network/pipelineRequest"
 interface ProjectInfoDialogContentProps {
   domain?: Domain
   productLine?: ProductLine

@@ -102,13 +102,22 @@ export function InsightSessionList(): JSX.Element {
 
   // reconcile(key=id):保持 <For> 行引用稳定,避免每次 refetch 重建每行的 globalSync.child
   // 订阅与状态点 memo(否则状态点会闪)。
+  // total 也在此镜像进信号:关键——绝不能在 render 里直接读 resource accessor sessions()。
+  // 否则每次 session.updated 触发的 refetch 会把该 resource 推回 pending,而它被全局
+  // <Suspense>(octo.tsx 的 Splash)追踪 → 整页闪「初始加载动画」(本组件无就近 Suspense 边界)。
+  // 见 octo-agent docs/learning。effect 里读 sessions 不会触发 Suspense,故安全。
   const [sessionList, setSessionList] = createStore<Session[]>([])
+  const [sessionTotal, setSessionTotal] = createSignal(0)
   createEffect(on(sessions, (data) => {
-    if (data) setSessionList(reconcile(data.items, { key: "id" }))
+    if (data) {
+      setSessionList(reconcile(data.items, { key: "id" }))
+      setSessionTotal(data.total)
+    }
   }, { defer: true }))
 
   // hasMore 用服务端 total 精确判断(已显示数 < 该目录 insight 会话总数)。
-  const hasMore = () => sessionList.length < (sessions()?.total ?? 0)
+  // 读镜像信号 sessionTotal(),不读 sessions()——避免上面说的全局 Suspense 闪屏。
+  const hasMore = () => sessionList.length < sessionTotal()
   function loadMore() {
     const next = limit() + PAGE_STEP
     setLimit(next)

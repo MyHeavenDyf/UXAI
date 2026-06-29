@@ -5,8 +5,9 @@ import {
   queryInternalGeneration,
   summarizeInternalOutput,
 } from "@/tool/internel_image_generate"
-import { generateObject } from "ai"
+import { streamText, type ModelMessage } from "ai"
 import z from "zod"
+import { mergeDeep } from "remeda"
 import * as Database from "@/storage/db"
 import { and, eq, inArray, lte } from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
@@ -14,12 +15,17 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { MessageTable, PartTable, SessionTable } from "@/session/session.sql"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Provider } from "@/provider/provider"
+import { Auth } from "@/auth"
+import { Plugin } from "@/plugin"
+import { ProviderTransform } from "@/provider/transform"
 import { SyncEvent } from "@/sync"
 import { Identifier } from "@/id/id"
 import { Instance } from "@/project/instance"
 import { registerDisposer } from "@/effect/instance-registry"
 import { makeRuntime } from "@/effect/run-service"
 import { Effect } from "effect"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import type { ImageGenerationQuery, ImageGenerationTask, ImageGenerateOutput, StudioCapability } from "./image-provider"
 import { StudioGenerationTable, type StudioGenerationStatus } from "./studio-generation.sql"
 
@@ -301,7 +307,32 @@ const promptRefineSchema = z.object({
   refinedPrompt: z.string().min(1),
 })
 
+function parsePromptRefineText(text: string) {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]
+  const objectStart = trimmed.indexOf("{")
+  const objectEnd = trimmed.lastIndexOf("}")
+  const candidates = [
+    trimmed,
+    fenced,
+    objectStart >= 0 && objectEnd > objectStart ? trimmed.slice(objectStart, objectEnd + 1) : undefined,
+  ].filter((item): item is string => Boolean(item))
+  for (const item of candidates) {
+    try {
+      const parsed = promptRefineSchema.safeParse(JSON.parse(item))
+      if (parsed.success) return parsed.data
+    } catch {
+      continue
+    }
+  }
+}
+
 const studioPromptProviderRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
+const studioPromptAuthRuntime = makeRuntime(Auth.Service, Auth.defaultLayer)
+const studioPromptPluginRuntime = makeRuntime(Plugin.Service, Plugin.defaultLayer)
+
+const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
+  mergeDeep(target, source ?? {}) as Record<string, any>
 
 const PROMPT_REFINE_SYSTEM = [
   "你是 Octo Studio 的创意提示词润色助手。",
@@ -319,34 +350,161 @@ const PROMPT_REFINE_SYSTEM = [
 
 async function refineStudioPrompt(input: StudioGenerationRequest, session: typeof SessionTable.$inferSelect): Promise<StudioPromptRefineResult> {
   if (!shouldRefineWithLLM(input)) return promptRefineFallback(input)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(new Error("Studio prompt refine timed out.")), 15_000)
   try {
     const model = session.model
       ? { providerID: ProviderID.make(session.model.providerID), modelID: ModelID.make(session.model.id) }
       : undefined
-    const result = await Promise.race([
-      studioPromptProviderRuntime.runPromise((provider) =>
-        Effect.gen(function* () {
-          const selected = model ?? (yield* provider.defaultModel())
-          const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
-          const language = yield* provider.getLanguage(resolved)
-          return yield* Effect.promise(() =>
-            generateObject({
-              model: language,
-              temperature: 0.4,
-              schema: promptRefineSchema,
-              messages: [
-                { role: "system", content: PROMPT_REFINE_SYSTEM },
-                {
-                  role: "user",
-                  content: JSON.stringify(promptRefineInput(input, lastSuccessfulGeneration(SessionID.zod.parse(session.id))), null, 2),
-                },
-              ],
+    const result = await studioPromptProviderRuntime.runPromise((provider) =>
+      Effect.gen(function* () {
+        const selected = model ?? (yield* provider.defaultModel())
+        const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
+        const providerInfo = yield* provider.getProvider(selected.providerID)
+        const language = yield* provider.getLanguage(resolved)
+        console.log("[studio.service] prompt refine model", {
+          sessionID: session.id,
+          selectedProviderID: selected.providerID,
+          selectedModelID: selected.modelID,
+          resolvedProviderID: resolved.providerID,
+          resolvedModelID: resolved.id,
+          apiID: resolved.api.id,
+          apiNpm: resolved.api.npm,
+        })
+        const authInfo = yield* Effect.promise(() =>
+          studioPromptAuthRuntime.runPromise((auth) => auth.get(selected.providerID).pipe(Effect.orDie)),
+        )
+        const isOpenaiOauth = selected.providerID === ProviderID.openai && authInfo?.type === "oauth"
+        const system = [PROMPT_REFINE_SYSTEM]
+        const userContent = JSON.stringify(promptRefineInput(input, lastSuccessfulGeneration(SessionID.zod.parse(session.id))), null, 2)
+        const base = ProviderTransform.options({
+          model: resolved,
+          sessionID: session.id,
+          providerOptions: providerInfo.options,
+        })
+        const options = mergeOptions(base, resolved.options)
+        if (isOpenaiOauth) options.instructions = system.join("\n")
+        const pluginMessage: MessageV2.User = {
+          id: MessageID.ascending(),
+          sessionID: SessionID.zod.parse(session.id),
+          role: "user",
+          time: { created: Date.now() },
+          agent: "octo_studio",
+          model: {
+            providerID: selected.providerID,
+            modelID: selected.modelID,
+          },
+        }
+        const chatHookInput = {
+          sessionID: session.id,
+          agent: "octo_studio",
+          model: resolved,
+          provider: providerInfo,
+          message: pluginMessage,
+        }
+        const chatParams = yield* Effect.promise(() =>
+          studioPromptPluginRuntime.runPromise((plugin) =>
+            plugin.trigger("chat.params", chatHookInput, {
+              temperature: resolved.capabilities.temperature ? 0.4 : undefined,
+              topP: ProviderTransform.topP(resolved),
+              topK: ProviderTransform.topK(resolved),
+              maxOutputTokens: ProviderTransform.maxOutputTokens(resolved),
+              options,
             }),
-          )
-        }),
-      ).then((item) => item.object),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Studio prompt refine timed out.")), 12_000)),
-    ])
+          ),
+        )
+        const maxOutputTokens = 800
+        const chatHeaders = yield* Effect.promise(() =>
+          studioPromptPluginRuntime.runPromise((plugin) =>
+            plugin.trigger("chat.headers", chatHookInput, {
+              headers: {},
+            }),
+          ),
+        )
+        const headers = {
+          ...(selected.providerID.startsWith("opencode")
+            ? {
+                "x-opencode-project": Instance.current.project.id,
+                "x-opencode-session": session.id,
+                "x-opencode-request": pluginMessage.id,
+                "x-opencode-client": Flag.OPENCODE_CLIENT,
+                "User-Agent": `opencode/${InstallationVersion}`,
+              }
+            : {
+                "x-session-affinity": session.id,
+                "User-Agent": `opencode/${InstallationVersion}`,
+              }),
+          ...resolved.headers,
+          ...chatHeaders.headers,
+        }
+        const providerOptions = ProviderTransform.providerOptions(resolved, chatParams.options)
+        const messages = [
+          ...(isOpenaiOauth
+            ? []
+            : system.map((item): ModelMessage => ({
+                role: "system",
+                content: item,
+              }))),
+          {
+            role: "user" as const,
+            content: userContent,
+          },
+        ]
+        console.log("[studio.service] prompt refine params", {
+          sessionID: session.id,
+          providerID: resolved.providerID,
+          modelID: resolved.id,
+          apiID: resolved.api.id,
+          apiNpm: resolved.api.npm,
+          temperature: chatParams.temperature,
+          topP: chatParams.topP,
+          topK: chatParams.topK,
+          maxOutputTokens: maxOutputTokens,
+          messageRoles: messages.map((item) => item.role),
+          messageContentLengths: messages.map((item) =>
+            typeof item.content === "string" ? item.content.length : JSON.stringify(item.content).length,
+          ),
+          providerOptionsKeys: Object.keys(providerOptions),
+          providerOptionsNestedKeys: Object.fromEntries(
+            Object.entries(providerOptions).map(([key, value]) => [
+              key,
+              value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : typeof value,
+            ]),
+          ),
+          headerKeys: Object.keys(headers),
+        })
+        return yield* Effect.promise(async () => {
+          const stream = streamText({
+            model: language,
+            temperature: chatParams.temperature,
+            topP: chatParams.topP,
+            topK: chatParams.topK,
+            maxOutputTokens: maxOutputTokens,
+            messages,
+            providerOptions,
+            abortSignal: controller.signal,
+            headers,
+            maxRetries: 0,
+            onError: (error) => {
+              console.warn("[studio.service] prompt refine stream error", error)
+            },
+          })
+          let text = ""
+          for await (const part of stream.fullStream) {
+            if (part.type === "error") throw part.error
+            if (part.type !== "text-delta") continue
+            text += part.text
+            const parsed = parsePromptRefineText(text)
+            if (!parsed) continue
+            controller.abort()
+            return parsed
+          }
+          const parsed = parsePromptRefineText(text)
+          if (parsed) return parsed
+          throw new Error("Studio prompt refine did not return valid JSON.")
+        })
+      }),
+    )
     return {
       assistantText: result.assistantText.trim(),
       refinedPrompt: result.refinedPrompt.trim(),
@@ -354,8 +512,14 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
       raw: result,
     }
   } catch (error) {
-    console.warn("[studio.service] prompt refine failed", error)
+    console.warn("[studio.service] prompt refine failed", {
+      sessionID: session.id,
+      capability: input.capability,
+      error,
+    })
     return promptRefineFallback(input)
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

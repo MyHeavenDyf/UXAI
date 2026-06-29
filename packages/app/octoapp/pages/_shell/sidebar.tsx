@@ -180,12 +180,21 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     },
   )
 
+  // total 镜像进信号:render 里绝不能直接读 resource accessor sessions()。
+  // 否则每次 session.updated 触发的 refetch 会把该 resource 推回 pending,而它被全局
+  // <Suspense>(octo.tsx 的 Splash)追踪 → 整页闪「初始加载动画」(本组件无就近 Suspense 边界)。
+  // 见 octo-agent docs/learning/resource-accessor-refetch-flashes-global-suspense.md。
   const [sessionList, setSessionList] = createStore<Session[]>([])
+  const [sessionTotal, setSessionTotal] = createSignal(0)
   createEffect(on(sessions, (data) => {
-    if (data) setSessionList(reconcile(data.items, { key: "id" }))
+    if (data) {
+      setSessionList(reconcile(data.items, { key: "id" }))
+      setSessionTotal(data.total)
+    }
   }, { defer: true }))
 
-  const hasMore = () => sessionList.length < (sessions()?.total ?? 0)
+  // 读镜像信号 sessionTotal(),不读 sessions()——避免上面说的全局 Suspense 闪屏。
+  const hasMore = () => sessionList.length < sessionTotal()
   function loadMore() {
     const next = limit() + PAGE_STEP
     setLimit(next)
