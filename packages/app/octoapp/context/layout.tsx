@@ -590,6 +590,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         setCowork(id: string) {
           setLastSession("cowork", { id })
         },
+        clearCowork() {
+          setLastSession("cowork", undefined)
+        },
         make: (dir: string) => lastSessionPerTab.make[dir],
         setMake(dir: string, id: string) {
           setLastSession("make", dir, id)

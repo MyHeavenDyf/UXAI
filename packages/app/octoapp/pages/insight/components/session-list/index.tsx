@@ -18,6 +18,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
+import { useLayout } from "@/context/layout"
 
 /**
  * InsightSessionList —— Insight 会话段(SPEC-INS-010 §11.3 / D11)
@@ -48,6 +49,7 @@ export function InsightSessionList(): JSX.Element {
   const permission = usePermission()
   const dialog = useDialog()
   const language = useLanguage()
+  const layout = useLayout()
 
   // 走全栈统一 useProjectDir():路由 :dir → server.projects.last() → globalSync.data.path.home 兜底,
   // 与 _shell/sidebar.tsx / make / studio 完全一致;避免"insight 自读 home 而其他模块走 selection"造成
@@ -178,6 +180,7 @@ export function InsightSessionList(): JSX.Element {
     try {
       await globalSDK.client.session.delete({ sessionID: sessionId })
       tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
+      if (layout.lastSessionPerTab.cowork()?.id === sessionId) layout.lastSessionPerTab.clearCowork()
       if (activeSessionId() === sessionId) navigate("/insight")
     } catch (err) {
       console.error("[insight:session-list] delete failed", err)

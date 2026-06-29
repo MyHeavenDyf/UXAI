@@ -14,6 +14,7 @@ import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
+import { useLayout } from "@/context/layout"
 
 /**
  * ConversationHeader —— Insight 对话面板顶部的会话标题栏
@@ -41,6 +42,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
   const sync = useSync()
   const sdk = useSDK()
   const dialog = useDialog()
+  const layout = useLayout()
 
   const sessionID = () => params.id
   const info = createMemo(() => {
@@ -117,7 +119,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
           draft.session = draft.session.filter((s) => s.id !== id)
         }),
       )
-      // 删的是当前会话 → 回到 Insight 首页（sidebar 监听 session.deleted 自动刷新列表）
+      if (layout.lastSessionPerTab.cowork()?.id === id) layout.lastSessionPerTab.clearCowork()
       if (params.id === id) navigate("/insight")
     } catch (err) {
       showToast({ title: "删除失败", description: errorDescription(err) })
