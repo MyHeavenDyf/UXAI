@@ -1,6 +1,6 @@
 import { Popover } from "@opencode-ai/ui/popover"
 import { ProjectProductSelectPanel } from "./project-product-select-panel"
-import type { Domain, ProductLine, Product } from "./project-product-select-api"
+import type { Domain, ProductLine, Product } from "@/network/types"
 import { createSignal } from "solid-js"
 import type { JSX } from "solid-js"
 

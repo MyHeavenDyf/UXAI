@@ -250,7 +250,8 @@ export function StudioInpaintEditor(props: {
 
   function submit() {
     const nextHasDrawing = updateHasDrawing()
-    if (!nextHasDrawing || props.busy) return
+    // Allow one-click generation without painting as long as there is a prompt.
+    if ((!nextHasDrawing && !editorPrompt().trim()) || props.busy) return
     try {
       props.onSubmit({
         prompt: editorPrompt().trim(),
@@ -406,11 +407,16 @@ export function StudioInpaintEditor(props: {
               value={editorPrompt()}
               disabled={props.busy}
               onInput={(event) => setEditorPrompt(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey) return
+                event.preventDefault()
+                submit()
+              }}
             />
             <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
             <button
               type="button"
-              disabled={!hasDrawing() || props.busy}
+              disabled={(!hasDrawing() && !editorPrompt().trim()) || props.busy}
               onClick={submit}
               class="studio-hd-create"
             >
