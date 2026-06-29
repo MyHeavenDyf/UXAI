@@ -87,7 +87,7 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
                         children: [],
                     }
                 } else {
-                    console.warn(`[Planner Fix] section="${slot.section_id}" 无法在 shell elements 中定位原元素 "${origElementId}"`)
+                    throw new Error(`[Planner Fix] section="${slot.section_id}" Planner 错误地修改了 element_id，且自动修正失败：无法在 shell elements 中定位原元素 "${origElementId}"`)
                 }
                 // 修正父元素的 children 引用
                 for (const el of modifyResult.output.elements) {

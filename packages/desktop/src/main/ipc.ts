@@ -53,6 +53,29 @@ type Deps = {
   // jk-j60099994-replace-with-ipc-2-end
 }
 
+function addZipComment(zipPath: string, comment: string) {
+  const buf = readFileSync(zipPath)
+  const eocdSig = Buffer.from([0x50, 0x4b, 0x05, 0x06])
+  const eocdOffset = buf.lastIndexOf(eocdSig)
+  if (eocdOffset === -1) return
+
+  const eocd = Buffer.from(buf.subarray(eocdOffset, eocdOffset + 22))
+  const commentBuf = Buffer.from(comment, "utf-8")
+  eocd.writeUInt16LE(commentBuf.length, 20)
+
+  writeFileSync(zipPath, Buffer.concat([buf.subarray(0, eocdOffset), eocd, commentBuf]))
+}
+
+function readZipComment(zipPath: string): string {
+  const buf = readFileSync(zipPath)
+  const eocdSig = Buffer.from([0x50, 0x4b, 0x05, 0x06])
+  const eocdOffset = buf.lastIndexOf(eocdSig)
+  if (eocdOffset === -1) return ""
+  const commentLen = buf.readUInt16LE(eocdOffset + 20)
+  if (commentLen === 0) return ""
+  return buf.subarray(eocdOffset + 22, eocdOffset + 22 + commentLen).toString("utf-8")
+}
+
 export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
@@ -433,8 +456,15 @@ export function registerIpcHandlers(deps: Deps) {
     "export-zip",
     async (
       event: IpcMainInvokeEvent,
-      opts: { defaultName: string; files: { name: string; content: string }[] },
+      opts: {
+        defaultName: string
+        files?: { name: string; content: string }[]
+        sourceDir?: string
+        comment?: string
+      },
     ) => {
+      if (opts.sourceDir && !existsSync(opts.sourceDir)) return null
+
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
         title: "导出压缩包",
@@ -447,14 +477,17 @@ export function registerIpcHandlers(deps: Deps) {
       if (result.canceled || !result.filePath) return null
 
       const destZip = result.filePath
-      const tmpDir = join(tmpdir(), `octo-export-${Date.now()}`)
-      await mkdir(tmpDir, { recursive: true })
+      const isDirect = !!opts.sourceDir
+      const workDir = opts.sourceDir ?? join(tmpdir(), `octo-export-${Date.now()}`)
+
+      if (!isDirect) {
+        await mkdir(workDir, { recursive: true })
+        for (const file of opts.files ?? []) {
+          await writeFile(join(workDir, file.name), file.content, "utf-8")
+        }
+      }
 
       try {
-        for (const file of opts.files) {
-          await writeFile(join(tmpDir, file.name), file.content, "utf-8")
-        }
-
         await new Promise<void>((resolve, reject) => {
           if (process.platform === "win32") {
             execFile(
@@ -462,23 +495,63 @@ export function registerIpcHandlers(deps: Deps) {
               [
                 "-NoProfile",
                 "-Command",
-                `Compress-Archive -Path '${join(tmpDir, "*")}' -DestinationPath '${destZip}' -Force`,
+                `Compress-Archive -Path '${join(workDir, "*")}' -DestinationPath '${destZip}' -Force`,
               ],
               (err) => (err ? reject(err) : resolve()),
             )
           } else {
-            execFile("zip", ["-j", destZip].concat(opts.files.map((f) => join(tmpDir, f.name))), (err) =>
+            const filePaths = readdirSync(workDir).map((f) => join(workDir, f))
+            execFile("zip", ["-j", destZip].concat(filePaths), (err) =>
               err ? reject(err) : resolve(),
             )
           }
         })
 
+        if (opts.comment) addZipComment(destZip, opts.comment)
+
         return destZip
-      } finally {
-        await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      }       finally {
+        if (!isDirect) await rm(workDir, { recursive: true, force: true }).catch(() => {})
       }
     },
   )
+
+  ipcMain.handle("import-zip", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "导入压缩包",
+      filters: [{ name: "ZIP", extensions: ["zip"] }],
+      properties: ["openFile"],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+
+    const zipPath = result.filePaths[0]
+    if (readZipComment(zipPath) !== "a2ui-pattern") return []
+
+    const extractDir = join(tmpdir(), `octo-import-${Date.now()}`)
+    await mkdir(extractDir, { recursive: true })
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        if (process.platform === "win32") {
+          execFile(
+            "powershell",
+            ["-NoProfile", "-Command", `Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force`],
+            (err) => (err ? reject(err) : resolve()),
+          )
+        } else {
+          execFile("unzip", ["-o", zipPath, "-d", extractDir], (err) =>
+            err ? reject(err) : resolve(),
+          )
+        }
+      })
+
+      return readdirSync(extractDir)
+        .filter((f) => f.endsWith(".json"))
+        .map((name) => ({ name, content: readFileSync(join(extractDir, name), "utf-8") }))
+    } finally {
+      await rm(extractDir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

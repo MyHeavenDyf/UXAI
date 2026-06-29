@@ -134,6 +134,14 @@ export const IconActionDownload = mk("0 0 20 20", `
 	</g>
 `, 20)
 
+export const IconActionShare = mk("0 0 24 24", `
+  <circle cx="18" cy="5" r="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <circle cx="6" cy="12" r="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <circle cx="18" cy="19" r="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+`, 16)
+
 export const IconActionEdit = mk("0 0 20 20", `
   <path d="M13.586 3.586a2 2 0 112.828 2.828l-9.121 9.121a2 2 0 01-.878.515l-2.829.707.707-2.829a2 2 0 01.515-.878l8.778-8.778zm1.414 1.414l-8.778 8.778a1 1 0 00-.258.439l-.353 1.414 1.414-.353a1 1 0 00.439-.258l8.778-8.778a1 1 0 00-1.242-1.242z" fill="rgb(25,25,25)" fill-rule="nonzero"/>
 `, 20)
@@ -240,4 +248,52 @@ export const IllustrationResultEmpty = mkIllustration("0 0 414 433", `
 		</g>
 	</g>
 `, 414, 433)
+
+// ========== TitleBar 按钮图标 ==========
+
+export const IconRefresh = mk("0 0 24 24", `
+  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+`, 14)
+
+export const IconChevronDown = mk("0 0 24 24", `
+  <polyline points="6 9 12 15 18 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+`, 12)
+
+export const IconCanvasHand = mk("0 0 24 24", `
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" fill="none" d="M8 11V7a2 2 0 114 0v4m0 0V9a2 2 0 114 0v2m0 0v-1a2 2 0 114 0v3a7 7 0 11-14 0v-4a2 2 0 114 0v3" />
+`, 16)
+
+export const IconPageCursor = mk("0 0 24 24", `
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" fill="none" d="M4 4l7.14 16.29a.5.5 0 00.93-.16l2.19-6.42 6.42-2.19a.5.5 0 00.16-.93L4 4z" />
+`, 16)
+
+export const IconCenterReset = mk("0 0 24 24", `
+  <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none" />
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" fill="none" d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+`, 16)
+
+export const IconEditPencil = mk("0 0 24 24", `
+  <path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+`, 16)
+
+export const IconHistoryClock = mk("0 0 24 24", `
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" fill="none" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+`, 16)
+
+export const IconSun = mk("0 0 24 24", `
+  <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="1" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="21" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+`, 16)
+
+export const IconMoon = mk("0 0 24 24", `
+  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+`, 16)
 

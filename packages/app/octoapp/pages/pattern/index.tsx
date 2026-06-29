@@ -24,10 +24,11 @@ import { type OutputCard } from "./modules/chat/insight-turn"
 import { create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create_json'
 import modify_json_ai from './workflow/modify_json_ai'
 import { mergeModules } from "./agents/merge"
-import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/persist"
-import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/persist"
-import { logStartSession, getDebugSnapshot, clearDebugLog } from "./utils/persist"
-import { rollbackToVersion } from "./utils/history"
+import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
+import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
+import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
+import { rollbackToVersion } from "./utils/version-history"
+import { classifyAIError } from "./utils/error-msg"
 import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { autoRenameSession } from "./utils/rename-session"
 import { exportZip } from "./utils/previewHandler/zip"
@@ -117,6 +118,8 @@ function PatternContent() {
         discoverVersion++
         setPendingPreviewData(null)
         previewApi.sendToPreview(null)
+        lastSentPreviewJson = ""
+        lastOpenedModules = null
 
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {
@@ -367,7 +370,13 @@ function PatternContent() {
   }
 
   async function handleModifyElement(data: ModifyElementData) {
-    await runQuickModify(quickModifyCtx, data)
+    try {
+      await runQuickModify(quickModifyCtx, data)
+    } catch (err: unknown) {
+      console.error("[PatternPage] handleModifyElement failed", err)
+      const error = classifyAIError(err)
+      if (error.title) showToast({ title: error.title, description: error.description })
+    }
   }
 
 
@@ -424,7 +433,11 @@ function PatternContent() {
 
   const previewApi: PreviewPageAPI = { sendToPreview: () => { }, postMessage: () => { }, refresh: () => { }, setEditingOff: () => { } }
 
+  let lastSentPreviewJson = ""
   function sendToPreview(data: unknown) {
+    const json = typeof data === "string" ? data : JSON.stringify(data)
+    if (json === lastSentPreviewJson) return
+    lastSentPreviewJson = json
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
     setHasPreviewContent(true)
@@ -479,13 +492,19 @@ function PatternContent() {
                 lastPlanner: layoutPlanner,
                 lastModules: modulesJson,
                 mergedA2UI: pageJson as unknown as Record<string, unknown>,
-                debug,
             }, text.slice(0, 80))
             if (params.id === sid) {
               setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
               setCurrentVersionId(vid)
               clearDebugLog()
-          }
+            }
+            void saveDebugLog(dir, sid!, {
+              lastIntent: pageIntent,
+              lastPlanner: layoutPlanner,
+              lastModules: modulesJson,
+              mergedA2UI: pageJson as unknown as Record<string, unknown>,
+              debug,
+            }, text.slice(0, 80))
           }
           // 视图状态仅在仍在该 session 时更新
           if (params.id !== sid) return
@@ -548,6 +567,9 @@ function PatternContent() {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
+      setIsModifying(false)
+      const error = classifyAIError(err)
+      if (error.title) showToast({ title: error.title, description: error.description })
     } finally {
       setSendingSid((prev) => (prev === sid ? null : prev))
     }
@@ -596,13 +618,22 @@ function PatternContent() {
         const dir = patternHistoryDir()
         if (dir) {
           const vid = await appendPatternVersion(dir, sid, {
-              lastIntent: lastIntent(),
-              lastPlanner: lastPlanner(),
-              lastModules: lastModules(),
+              lastIntent: pageIntent,
+              lastPlanner: layoutPlanner,
+              lastModules: modulesJson,
               mergedA2UI: pageJson as unknown as Record<string, unknown>,
           }, userInput.slice(0, 80))
           setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: userInput.slice(0, 80) }])
           setCurrentVersionId(vid)
+          const debug = getDebugSnapshot()
+          void saveDebugLog(dir, sid, {
+            lastIntent: pageIntent,
+            lastPlanner: layoutPlanner,
+            lastModules: modulesJson,
+            mergedA2UI: pageJson as unknown as Record<string, unknown>,
+            debug,
+          }, userInput.slice(0, 80))
+          clearDebugLog()
         }
     }
     
@@ -610,6 +641,9 @@ function PatternContent() {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
       console.error("[PatternPage] handleConfirmReview failed", err)
+      const error = classifyAIError(err)
+      if (error.title) showToast({ title: error.title, description: error.description })
+      setIsPlanReview(true)
     } finally {
       setReviewUserInput("")
     }
@@ -724,9 +758,12 @@ function PatternContent() {
 
   // 生成完成后自动发送预览
   let wasBusy = false
+  let lastOpenedModules: unknown[] | null = null
   createEffect(() => {
     const busy = isBusy() || sending()
-    if (wasBusy && !busy && lastModules().length > 0) {
+    const modules = lastModules()
+    if (wasBusy && !busy && modules.length > 0 && modules !== lastOpenedModules) {
+      lastOpenedModules = modules
       handleOpenPreview()
     }
     wasBusy = busy
@@ -753,14 +790,12 @@ function PatternContent() {
     download(pendingPreviewData(), params.id ?? "export")
   }
 
-  // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
+  // 分享 — 打包 session 历史版本目录为 ZIP
   async function handleShare() {
     await exportZip({
-      patternId: params.id ?? "export",
-      intent: lastIntent(),
-      planner: lastPlanner(),
-      modules: lastModules(),
-      previewData: pendingPreviewData(),
+      historyDir: patternHistoryDir(),
+      sessionId: params.id ?? "",
+      title: sessionInfo()?.title ?? params.id ?? "export",
     })
   }
 
@@ -848,6 +883,7 @@ function PatternContent() {
                   onModifyElement={handleModifyElement}
                   onPickerSubmit={handlePickerSubmit}
                   onDownload={handleDownload}
+                  onShare={handleShare}
                   onLivePreview={handleLivePreview}
                   onPixsoPreview={handlePixsoPreview}
                   versions={versions()}

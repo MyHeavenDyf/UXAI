@@ -4,9 +4,9 @@
  * 与 modify_json_ai.ts 不同，本模块不走意图识别 → 重新规划 → 模块生成的完整链路，
  * 而是直接操作 A2UI JSON 树中指定元素的 props，适用于用户在预览区手动调整样式/属性的场景。
  */
-import type { VersionEntry } from "../utils/persist"
-import { appendPatternVersion, getDebugSnapshot, clearDebugLog } from "../utils/persist"
-
+import type { VersionEntry } from "../utils/version-history"
+import { appendPatternVersion } from "../utils/version-history"
+import { getDebugSnapshot, clearDebugLog, saveDebugLog } from "../utils/debug-log"
 /** 一次快速修改操作的数据，由 PropertyEditorPopup 提交 */
 export type ModifyElementData = {
   /** A2UI 元素 ID */
@@ -92,10 +92,12 @@ export async function handleModifyElement(
   if (!(doc as any)?.elements || !Array.isArray((doc as any).elements)) return
 
   // 在元素列表中查找目标元素并更新 props
+  // 剥离预览 iframe 分配的实例后缀（如 metrMetricCard:1 → metrMetricCard）
+  const baseElementId = data.elementId.replace(/:\d+$/, "")
   let found = false
   let beforeProps: unknown = null
   for (const el of (doc as any).elements) {
-    if (el.id === data.elementId) {
+    if (el.id === baseElementId) {
       found = true
       beforeProps = JSON.parse(JSON.stringify(el.props ?? {}))
       el.props = el.props || {}
@@ -149,12 +151,19 @@ export async function handleModifyElement(
             lastPlanner: ctx.getLastPlanner(),
             lastModules: ctx.getLastModules(),
             mergedA2UI: doc as unknown as Record<string, unknown>,
-            debug,
           },
           summary,
         )
 
         clearDebugLog()
+
+        void saveDebugLog(dir, sid, {
+          lastIntent: ctx.getLastIntent(),
+          lastPlanner: ctx.getLastPlanner(),
+          lastModules: ctx.getLastModules(),
+          mergedA2UI: doc as unknown as Record<string, unknown>,
+          debug,
+        }, summary)
 
         // 更新 UI 版本列表与当前选中
         ctx.setVersions((prev) => [
