@@ -18,6 +18,8 @@ type Proto3DObjectInput = {
   sectionDetail: any
   // 整体意图蓝图
   intentDescription: any
+  // 现有场景物体的简化引用，供生成时参考
+  referenceObjects?: any[]
   onSessionCreated?: (childSessionID: string) => void
 }
 
