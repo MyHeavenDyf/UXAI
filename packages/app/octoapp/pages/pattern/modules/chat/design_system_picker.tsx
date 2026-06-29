@@ -3,8 +3,12 @@ import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import type { DesignSystemEntry } from "../../utils/design-system-loader"
 import "../../assets/style/chat/design_system_picker.css"
+
+type DesignSystemEntry = {
+  id: string
+  title: string
+}
 
 export function DesignSystemPicker(props: {
   selected: string | null

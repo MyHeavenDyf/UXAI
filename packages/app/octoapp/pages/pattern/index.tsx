@@ -20,15 +20,12 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment_bar"
-import { type OutputCard } from "./modules/chat/insight-turn"
 import { create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create_json'
 import modify_json_ai from './workflow/modify_json_ai'
-import { mergeModules } from "./agents/merge"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
 import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
 import { classifyAIError } from "./utils/error-msg"
-import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { autoRenameSession } from "./utils/rename-session"
 import { groupRounds } from "./utils/round-messages"
 import { exportZip } from "./utils/previewHandler/zip"
@@ -119,7 +116,6 @@ function PatternContent() {
         setPendingPreviewData(null)
         previewApi.sendToPreview(null)
         lastSentPreviewJson = ""
-        lastOpenedModules = null
 
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {
@@ -658,53 +654,6 @@ function PatternContent() {
     if (files.length > 0) addAttachments(files)
   }
 
-  function handleOpenResult(card: OutputCard) {
-    const doc = detectA2UIJson(card.content)
-    if (doc) {
-      sendToPreview(doc)
-    } else if (lastModules().length > 0) {
-      // Card isn't raw A2UI JSON but we have generated content — reshow it
-      const shell = lastPlanner()
-      const shellLayout = (shell?.layout_planner as Record<string, unknown> | undefined) ?? shell
-      const merged = mergeModules(
-        { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
-        // @ts-expect-error pre-existing type mismatch in mergeModules
-        lastModules(),
-        (shellLayout?.slots as any[]) ?? undefined,
-      )
-      const mergedJson = detectA2UIJson(JSON.stringify(merged))
-      if (mergedJson) sendToPreview(mergedJson)
-    }
-  }
-
-  function handleOpenPreview() {
-    if (lastModules().length > 0) {
-      const shell = lastPlanner()
-      const shellLayout = (shell?.layout_planner as Record<string, unknown> | undefined) ?? shell
-      const merged = mergeModules(
-        { rootId: (shellLayout?.rootId as string) ?? "", elements: ((shellLayout?.elements ?? []) as never) },
-        // @ts-expect-error pre-existing type mismatch in mergeModules
-        lastModules(),
-        (shellLayout?.slots as any[]) ?? undefined,
-      )
-      const mergedJson = detectA2UIJson(JSON.stringify(merged))
-      if (mergedJson) sendToPreview(mergedJson)
-    }
-  }
-
-  // 生成完成后自动发送预览
-  let wasBusy = false
-  let lastOpenedModules: unknown[] | null = null
-  createEffect(() => {
-    const busy = isBusy() || sending()
-    const modules = lastModules()
-    if (wasBusy && !busy && modules.length > 0 && modules !== lastOpenedModules) {
-      lastOpenedModules = modules
-      handleOpenPreview()
-    }
-    wasBusy = busy
-  })
-
   // 回退到指定历史版本
   async function handleSelectVersion(versionId: string) {
     await selectVersion({
@@ -792,11 +741,8 @@ function PatternContent() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onOpenResult={handleOpenResult}
             pipelineBusy={isBusy() || sending()}
             roundMessages={roundMessages()}
-            hasPreview={lastModules().length > 0 && !isBusy()}
-            onOpenPreview={handleOpenPreview}
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
           />

@@ -5,14 +5,10 @@ export function GenerationCard(props: {
   generating: boolean
   canPreview: boolean
   cancelled: boolean
-  onOpenPreview: () => void
 }): JSX.Element {
   return (
     <Show when={props.generating || props.canPreview || props.cancelled}>
-      <button
-        type="button"
-        disabled={props.generating}
-        onClick={() => !props.generating && props.onOpenPreview()}
+      <div
         class="generation-card mx-3 mb-3 text-left transition-all"
         classList={{ generating: props.generating, cancelled: props.cancelled }}
       >
@@ -35,7 +31,7 @@ export function GenerationCard(props: {
             </span>
           </Show>
         </div>
-      </button>
+      </div>
     </Show>
   )
 }

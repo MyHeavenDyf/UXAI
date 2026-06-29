@@ -15,7 +15,7 @@ import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./attachment_bar"
-import { InsightTurn, type OutputCard } from "./insight-turn"
+import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto_introduction"
@@ -31,11 +31,9 @@ function RoundCard(props: {
   roundIndex: number
   totalRounds: number
   pipelineBusy: boolean
-  hasPreview: boolean
   cancelled: boolean
   startTime: number
   endTime?: number
-  onOpenPreview: () => void
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
   const generating = () => isLatest() && props.pipelineBusy
@@ -48,7 +46,6 @@ function RoundCard(props: {
         generating={generating()}
         canPreview={done() && !cancelled()}
         cancelled={cancelled()}
-        onOpenPreview={props.onOpenPreview}
       />
       <Show when={done() || generating()}>
         <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} />
@@ -86,16 +83,10 @@ export function ChatPanel(props: {
   onDragLeave: () => void
   /** 拖拽释放回调 */
   onDrop: (e: DragEvent) => void
-  /** 点击消息中的结果卡片回调 */
-  onOpenResult: (card: OutputCard) => void
   /** 主流程是否正在生成 */
   pipelineBusy: boolean
   /** 按轮分组的消息 */
   roundMessages: Round[]
-  /** 是否有可预览内容 */
-  hasPreview: boolean
-  /** 点击预览回调 */
-  onOpenPreview: () => void
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
   /** 标题修改后通知父组件更新 */
@@ -268,7 +259,6 @@ export function ChatPanel(props: {
                           messageID={msg.id}
                           status={props.sessionStatus}
                           pipelineBusy={props.pipelineBusy}
-                          onOpenResult={props.onOpenResult}
                         />
                       )}
                     </For>
@@ -284,7 +274,6 @@ export function ChatPanel(props: {
                               messageID={item.messageID}
                               status={props.sessionStatus}
                               pipelineBusy={props.pipelineBusy}
-                              onOpenResult={props.onOpenResult}
                             />
                           )}
                         </For>
@@ -292,11 +281,9 @@ export function ChatPanel(props: {
                           roundIndex={ri}
                           totalRounds={props.roundMessages.length}
                           pipelineBusy={props.pipelineBusy}
-                          hasPreview={props.hasPreview}
                           cancelled={round().cancelled}
                           startTime={round().startTime}
                           endTime={round().endTime}
-                          onOpenPreview={props.onOpenPreview}
                         />
                       </>
                     )}
