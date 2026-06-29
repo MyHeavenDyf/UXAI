@@ -274,6 +274,7 @@ export default function StudioPage() {
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   let generationToken = 0
+  const terminatedGenerationIDs = new Set<string>()
   const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
     Persist.global("studio.left.width"),
@@ -1838,6 +1839,14 @@ export default function StudioPage() {
       console.error("[StudioPage] cancel generation failed", new Error("No active server."))
       return
     }
+    // 立即阻止轮询并更新 UI，让停止/发送按钮同步切换，不等 API 返回
+    terminatedGenerationIDs.add(id)
+    generationToken++
+    const fallback = pendingResult()
+    if (fallback?.id === id) {
+      setPendingResult(undefined)
+      setStatus("idle")
+    }
     setCancellingGenerationIDs((ids) => new Set([...ids, id]))
     try {
       const headers: Record<string, string> = {
@@ -1859,12 +1868,7 @@ export default function StudioPage() {
       const bodyText = await response.text()
       if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
       const generation = JSON.parse(bodyText) as StudioGenerationResult
-      // 用户主动取消，清除 pendingResult 避免 canvas 显示"生成失败"
-      setPendingResult((item) => {
-        if (!item || item.id !== generation.id) return item
-        return undefined
-      })
-      setStatus("idle")
+      // API 成功 — UI 已在上面立即更新
       const sessionID = generation.sessionID ?? params.id
       if (sessionID) {
         void loadSessionMessages(sessionID).catch((error) => {
@@ -1873,6 +1877,12 @@ export default function StudioPage() {
       }
     } catch (error) {
       console.error("[StudioPage] cancel generation failed", error)
+      // API 失败 — 回滚状态，允许轮询重新接管
+      terminatedGenerationIDs.delete(id)
+      if (fallback?.id === id) {
+        setPendingResult(fallback)
+        setStatus(fallback.status)
+      }
     } finally {
       setCancellingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
     }
@@ -2068,6 +2078,11 @@ export default function StudioPage() {
           try {
             const generation = await getStudioGeneration(id, controller.signal)
             if (stopped) return
+            // 用户主动取消后不再更新 pendingResult，防止任务"重新出现"
+            if (terminatedGenerationIDs.has(id)) {
+              stopped = true
+              return
+            }
             const current = pendingResult()
             if (current && current.id === id && isStudioGenerationStatusRegression(current.status, generation.status)) return
 
