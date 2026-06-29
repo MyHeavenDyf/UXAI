@@ -99,27 +99,6 @@
     "castShadow": true,
     "receiveShadow": true
   }, {
-    "id": "cubeMetal",
-    "parentId": "cubesGroup",
-    "type": "mesh",
-    "geometry": {
-      "type": "box",
-      "params": {
-        "width": 1,
-        "height": 1,
-        "depth": 1
-      }
-    },
-    "material": {
-      "type": "standard",
-      "color": "#D9D9D9",
-      "roughness": 0.2,
-      "metalness": 1
-    },
-    "position": [0, 0.5, 0],
-    "castShadow": true,
-    "receiveShadow": true
-  }, {
     "id": "cubeFrosted",
     "parentId": "cubesGroup",
     "type": "mesh",
@@ -141,6 +120,28 @@
       "ior": 1.4
     },
     "position": [1.5, 0.5, 0],
+    "castShadow": true,
+    "receiveShadow": true
+  }, {
+    "id": "cubeMetalCube",
+    "parentId": "cubesGroup",
+    "type": "mesh",
+    "geometry": {
+      "type": "box",
+      "params": {
+        "width": 1,
+        "height": 1,
+        "depth": 1
+      }
+    },
+    "material": {
+      "type": "standard",
+      "color": "#C0C0C0",
+      "roughness": 0.3,
+      "metalness": 1
+    },
+    "position": [0, 0.25, 0],
+    "scale": [0.5, 0.5, 0.5],
     "castShadow": true,
     "receiveShadow": true
   }]
