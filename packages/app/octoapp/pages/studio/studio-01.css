@@ -491,6 +491,14 @@
   margin-top: 18px;
 }
 
+.studio-composer-toolbar-items {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .studio-composer-tool-btn,
 .studio-composer-icon-tool {
   height: 32px;
