@@ -1,0 +1,177 @@
+.el-table {
+  --el-table-border-color: var(--el-border-color-light);
+  --el-table-header-text-color: var(--el-text-color-regular);
+  --el-table-row-hover-bg-color: var(--surface-primary-subtle-hover);
+  --el-table-header-bg-color: #f3f3f3;
+  --table-expand-row-container-bg: rgb(from var(--neutral-50) r g b / 0.5);
+}
+
+.el-table thead th {
+  font-weight: var(--font-weight-medium);
+}
+
+.el-table thead .el-table__cell {
+  padding: 4px 0;
+  &:not(&:nth-of-type(1)) {
+    position: relative;
+    .cell {
+      &::before {
+        content: "";
+        position: relative;
+        left: -11px;
+        top: -1px;
+        width: 1px;
+        height: 1em;
+        background-color: var(--neutral-200);
+      }
+      
+    }
+  }
+}
+
+.el-table__header-wrapper,
+.el-table__body-wrapper {
+  .el-table-column--selection>.cell {
+    height: auto;
+  }
+}
+
+.el-table .cell {
+  display: flex;
+  align-items: center;
+}
+
+.el-table .el-table__cell {
+  padding: 4px 0 3px 0;
+
+  &.is-left .cell {
+    justify-content: start;
+  }
+
+  &.is-center .cell {
+    justify-content: center;
+  }
+
+  &.is-right .cell {
+    justify-content: end;
+  }
+}
+
+.el-table__column-filter-trigger {
+  margin-left: 4px;
+}
+
+
+.el-table .el-table__row {
+  &:has(.el-table__expand-icon.el-table__expand-icon--expanded),
+  &:has(.el-table-column--selection>.cell>.el-checkbox.is-checked) {
+    background-color: var(--primary-50);
+  }
+}
+
+.el-pagination .el-select {
+  width: 112px;
+}
+
+.el-pagination.is-background {
+
+  .btn-prev.is-active,
+  .btn-next.is-active,
+  .el-pager li.is-active {
+    background-color: var(--primary-50);
+    color: var(--text-primary);
+    font-weight: var(--el-font-weight-primary);
+  }
+
+  .btn-prev,
+  .btn-next,
+  .el-pager li {
+    background-color: transparent;
+
+    &:hover {
+      color: var(--el-text-color-primary);
+      background-color: rgba(25, 25, 25, 0.05);
+    }
+  }
+
+  .btn-prev:disabled,
+  .btn-prev.is-disabled,
+  .btn-next:disabled,
+  .btn-next.is-disabled,
+  .el-pager li:disabled,
+  .el-pager li.is-disabled {
+    color: var(--el-text-color-placeholder);
+    background-color: transparent;
+  }
+}
+
+.el-pagination .btn-prev .el-icon,
+.el-pagination .btn-next .el-icon {
+  font-size: var(--el-font-size-medium);
+}
+
+// 展开行样式
+.table-expanded-row {
+  margin: -4px 0 -3px 0;
+  padding: 20px 24px;
+  background-color: var(--table-expand-row-container-bg);
+}
+
+// 收起展开图标样式
+.el-table__expand-icon {
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+
+  &.el-table__expand-icon--expanded {
+    transform: rotate(90deg);
+  }
+}
+
+
+
+.theme-dark {
+  .el-table {
+    --table-expand-row-container-bg: var(--neutral-700);
+    --el-table-row-hover-bg-color: #0f3863;
+    --el-table-header-bg-color: #2e2e2e;
+  }
+
+  .el-pagination__sizes,
+  .el-pagination__total,
+  .el-pagination__jump {
+    color: var(--neutral-0)
+  }
+
+  .el-pagination.is-background {
+
+    .btn-prev.is-active,
+    .btn-next.is-active,
+    .el-pager li.is-active {
+      background-color: rgba(0, 103, 209, 0.4);
+      color: var(--neutral-0);
+    }
+
+    .btn-prev,
+    .btn-next,
+    .el-pager li {
+      background-color: transparent;
+      color: var(--neutral-0);
+
+      &:hover {
+        color: var(--el-text-color-primary);
+        background-color: rgb(from var(--neutral-50) r g b / 0.2);
+      }
+    }
+
+    .btn-prev:disabled,
+    .btn-prev.is-disabled,
+    .btn-next:disabled,
+    .btn-next.is-disabled,
+    .el-pager li:disabled,
+    .el-pager li.is-disabled {
+      color: var(--el-text-color-placeholder);
+      background-color: transparent;
+    }
+  }
+}

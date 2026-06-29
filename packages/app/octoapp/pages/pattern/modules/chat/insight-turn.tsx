@@ -210,7 +210,7 @@ export function InsightTurn(props: {
 
   const assistantGenerating = createMemo(() => {
     const msgs = allAssistantMsgs()
-    if (msgs.length === 0) return true
+    if (msgs.length === 0) return props.pipelineBusy
     return msgs.some((m) => typeof m.time.completed !== "number")
   })
 

@@ -269,9 +269,11 @@ export function PreviewPage(props: {
 
   const handleIframeMessage = (e: MessageEvent) => {
     handlePickerMessage(e)
-    if (e.data?.type === "A2UI_READY" && props.pendingData) {
-      console.log("[preview] A2UI_READY, re-sending pendingData")
-      sendToPreview(props.pendingData)
+    if (e.data?.type === "A2UI_READY") {
+      if (props.pendingData) {
+        console.log("[preview] A2UI_READY, re-sending pendingData")
+        sendToPreview(props.pendingData)
+      }
       if (editing()) {
         previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
       }

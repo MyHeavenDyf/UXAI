@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>element-ts</title>
+    <!--
+      @tailwindcss/browser 运行时主题配置
+      此 @theme 块与 tailwind.config.ts 中的自定义 token 一一对应。
+      修改 tailwind.config.ts 时务必同步更新此处。
+    -->
+    <style type="text/tailwindcss">
+      @theme {
+        /* ── colors → --color-* ── */
+        --color-primary: var(--primary, #0067D1);
+        --color-on-primary: var(--on-primary, #FFFFFF);
+        --color-primary-container: var(--primary-container, #E6F2FD);
+        --color-on-primary-container: var(--on-primary-container, #191919);
+        --color-primary-fixed: var(--primary-fixed, #0067D1);
+        --color-primary-fixed-dim: var(--primary-fixed-dim, #004EA8);
+        --color-on-primary-fixed: var(--on-primary-fixed, #FFFFFF);
+        --color-on-primary-fixed-variant: var(--on-primary-fixed-variant, #F3F3F3);
+
+        --color-surface: var(--surface, #F3F3F3);
+        --color-surface-dim: var(--surface-dim, #DFDFDF);
+        --color-surface-bright: var(--surface-bright, #FFFFFF);
+        --color-on-surface: var(--on-surface, #191919);
+        --color-surface-variant: var(--surface-variant, rgba(192,192,192,0.2));
+        --color-on-surface-variant: var(--on-surface-variant, #777777);
+        --color-surface-container-lowest: var(--surface-container-lowest, #F3F3F3);
+        --color-surface-container-low: var(--surface-container-low, rgba(255,255,255,0.5));
+        --color-surface-container: var(--surface-container, rgba(255,255,255,0.65));
+        --color-surface-container-high: var(--surface-container-high, rgba(255,255,255,0.8));
+        --color-surface-container-highest: var(--surface-container-highest, #FFFFFF);
+
+        --color-inverse-surface: var(--inverse-surface, #191919);
+        --color-inverse-on-surface: var(--inverse-on-surface, #FFFFFF);
+        --color-inverse-on-surface-variant: var(--inverse-on-surface-variant, #C9C9C9);
+        --color-inverse-primary: var(--inverse-primary, #0067D1);
+
+        --color-error: var(--error, #E02128);
+        --color-on-error: var(--on-error, #FFFFFF);
+        --color-error-container: var(--error-container, #FEE7E8);
+        --color-on-error-container: var(--on-error-container, #191919);
+
+        --color-success: var(--success, #09AA71);
+        --color-on-success: var(--on-success, #FFFFFF);
+        --color-success-container: var(--success-container, #E7FBF2);
+        --color-on-success-container: var(--on-success-container, #191919);
+
+        --color-critical: var(--critical, #F4840C);
+        --color-on-critical: var(--on-critical, #FFFFFF);
+        --color-critical-container: var(--critical-container, #FEF5E8);
+        --color-on-critical-container: var(--on-critical-container, #191919);
+
+        --color-warning: var(--warning, #FCC800);
+        --color-on-warning: var(--on-warning, #FFFFFF);
+        --color-warning-container: var(--warning-container, #FEFCE0);
+        --color-on-warning-container: var(--on-warning-container, #191919);
+
+        --color-info: var(--info, #0067D1);
+        --color-on-info: var(--on-info, #FFFFFF);
+        --color-info-container: var(--info-container, #E6F2FD);
+        --color-on-info-container: var(--on-info-container, #191919);
+
+        --color-divider: var(--divider, #F3F3F3);
+
+        /* borderColor / outlineColor → --color-* */
+        --color-base: var(--border, #C9C9C9);
+        --color-selected: var(--primary-500, #0067D1);
+        --color-brand: var(--primary-500, #0067D1);
+
+        /* ── spacing → --spacing-* ── */
+        --spacing-inline: 0.5rem;
+        --spacing-stack: 0.75rem;
+        --spacing-gutter: 1rem;
+        --spacing-inset: 1.5rem;
+        --spacing-section: 1rem;
+        --spacing-page: 2rem;
+
+        /* ── boxShadow → --shadow-* ── */
+        --shadow-sm: var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08));
+        --shadow-md: var(--shadow-md, 0 4px 12px 0px rgba(0, 0, 0, 0.16));
+        --shadow-lg: var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16));
+        --shadow-xl: var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16));
+        --shadow-card: var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08));
+        --shadow-popover: var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16));
+        --shadow-modal: var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16));
+
+        /* ── borderRadius → --radius-* ── */
+        --radius-none: 0px;
+        --radius-sm: 2px;
+        --radius-md: 4px;
+        --radius-lg: 6px;
+        --radius-xl: 8px;
+        --radius-full: 9999px;
+        --radius-badge: 4px;
+        --radius-action: 4px;
+        --radius-container: 8px;
+        --radius-overlay: 8px;
+
+        /* ── outlineWidth / outlineOffset ── */
+        --outline-width-focus: 1px;
+        --outline-offset-gap: 2px;
+
+        /* ── fontSize → --text-* (+ --text-*--line-height) ── */
+        --text-xs: 10px;
+        --text-xs--line-height: 1.8;
+        --text-sm: 12px;
+        --text-sm--line-height: 1.6;
+        --text-md: 14px;
+        --text-md--line-height: 1.5;
+        --text-lg: 16px;
+        --text-lg--line-height: 1.5;
+        --text-xl: 18px;
+        --text-xl--line-height: 1.5;
+        --text-2xl: 20px;
+        --text-2xl--line-height: 1.4;
+        --text-3xl: 24px;
+        --text-3xl--line-height: 1.4;
+        --text-4xl: 28px;
+        --text-4xl--line-height: 1.4;
+        --text-5xl: 36px;
+        --text-5xl--line-height: 1.4;
+        --text-6xl: 48px;
+        --text-6xl--line-height: 1.3;
+        --text-7xl: 60px;
+        --text-7xl--line-height: 1.3;
+        --text-8xl: 72px;
+        --text-8xl--line-height: 1.2;
+        --text-9xl: 96px;
+        --text-9xl--line-height: 1.2;
+
+        /* ── fontFamily ── */
+        --font-sans: 'HarmonyOS Sans', 'Microsoft YaHei', Arial, 'PingFang SC', 'San Francisco', sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

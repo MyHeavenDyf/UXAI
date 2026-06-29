@@ -1,0 +1,37 @@
+.el-carousel {
+  --el-carousel-arrow-font-size: 16px;
+  --el-carousel-arrow-size: 32px;
+  --el-carousel-arrow-background: var(--neutral-400);
+  --el-carousel-arrow-hover-background: var(--neutral-500);
+  --el-carousel-indicator-width: 4px;
+  --el-carousel-indicator-height: 4px;
+  --el-carousel-indicator-padding-horizontal: 4px;
+  --el-carousel-indicator-padding-vertical: 12px;
+  --el-carousel-indicator-out-color: var(--el-border-color-hover);
+}
+
+.el-carousel__arrow {
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16);
+}
+
+.el-carousel__arrow--right {
+  right: 32px;
+}
+
+.el-carousel__arrow--left {
+  left: 32px;
+}
+
+.el-carousel__indicator {
+  &.is-active {
+    .el-carousel__button {
+      background-color: #0067d1;
+      width: 8px;
+    }
+  }
+}
+
+.el-carousel__button {
+  background-color: var(--neutral-100);
+  border-radius: 2px;
+}
