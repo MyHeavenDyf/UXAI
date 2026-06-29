@@ -135,7 +135,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
   cursor: pointer;
   transition: transform 140ms ease, background-color 140ms ease, color 140ms ease;
 }
@@ -167,7 +167,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -212,7 +212,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -251,7 +251,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
