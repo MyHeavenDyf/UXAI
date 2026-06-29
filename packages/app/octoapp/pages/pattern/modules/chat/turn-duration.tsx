@@ -13,7 +13,7 @@ export function TurnDuration(props: {
     const secs = Math.max(0, Math.round((end - props.startTime) / 1000))
     const m = Math.floor(secs / 60)
     const s = secs % 60
-    setDuration(`用时${m > 0 ? `${m}m ` : ""}${String(s).padStart(2, "0")}s`)
+    setDuration(`用时${m > 0 ? `${m}m ` : ""}${secs < 10 ? s : String(s).padStart(2, "0")}s`)
   }
 
   let timer: ReturnType<typeof setInterval> | undefined

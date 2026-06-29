@@ -208,12 +208,17 @@ function PatternContent() {
   const roundMessages = createMemo(() => {
     const id = params.id
     if (!id) return []
-    return groupRounds(
+    const rounds = groupRounds(
       id,
       childSessionIDs(),
       (sid) => (sync.data.message[sid] ?? []) as Message[],
       (mid) => sync.data.part[mid] as Array<Record<string, unknown>> | undefined,
     )
+    const error = sessionErrors()[id]
+    if (error && rounds.length > 0) {
+      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error }
+    }
+    return rounds
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -256,6 +261,26 @@ function PatternContent() {
   const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
   const [isModifying, setIsModifying] = createSignal(false)
+  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>(
+    (() => {
+      try {
+        const stored = localStorage.getItem("octo:pattern:session-errors")
+        return stored ? JSON.parse(stored) : {}
+      } catch {
+        return {}
+      }
+    })(),
+  )
+
+  createEffect(() => {
+    const errors = sessionErrors()
+    const keys = Object.keys(errors)
+    if (keys.length > 0) {
+      localStorage.setItem("octo:pattern:session-errors", JSON.stringify(errors))
+    } else {
+      localStorage.removeItem("octo:pattern:session-errors")
+    }
+  })
 
   // 线框审查阶段的用户原始输入（planner/intent 复用 lastPlanner/lastIntent）
   const [reviewUserInput, setReviewUserInput] = createSignal<string>("")
@@ -294,9 +319,14 @@ function PatternContent() {
     try {
       await runQuickModify(quickModifyCtx, data)
     } catch (err: unknown) {
+      if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleModifyElement failed", err)
       const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      if (error.title) {
+        const sid = params.id
+        if (sid) setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
+        showToast({ title: error.title, description: error.description })
+      }
     }
   }
 
@@ -385,6 +415,13 @@ function PatternContent() {
         sid = session.id
       }
       setSendingSids((prev) => new Set(prev).add(sid!))
+      // 清理该 session 的持久化错误
+      setSessionErrors((prev) => {
+        if (!prev[sid!]) return prev
+        const next = { ...prev }
+        delete next[sid!]
+        return next
+      })
 
       // 执行流程的基础上下文
       const ds = selectedDesignSystem()
@@ -493,7 +530,10 @@ function PatternContent() {
       console.error("[PatternPage] handleSubmit failed", err)
       setIsModifying(false)
       const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      if (error.title) {
+        setSessionErrors((prev) => ({ ...prev, [sid!]: error.title }))
+        showToast({ title: error.title, description: error.description })
+      }
     } finally {
       setSendingSids((prev) => {
         if (!prev.has(sid!)) return prev
@@ -571,9 +611,13 @@ function PatternContent() {
     try {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
+      if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleConfirmReview failed", err)
       const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      if (error.title) {
+        setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
+        showToast({ title: error.title, description: error.description })
+      }
       setIsPlanReview(true)
     } finally {
       setReviewUserInput("")
@@ -599,6 +643,7 @@ function PatternContent() {
       next.delete(sid)
       return next
     })
+    setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
   }
 
   function handleKeyDown(e: KeyboardEvent) {

@@ -1,2 +1,2 @@
-const AGENT_NAME = "proto_page_pattern"
+// const AGENT_NAME = "proto_page_pattern"
 

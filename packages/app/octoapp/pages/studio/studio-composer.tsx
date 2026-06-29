@@ -1,4 +1,4 @@
-import { createMemo, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
@@ -46,6 +46,7 @@ export function StudioComposer(props: {
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
+  onCancel?: () => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
@@ -58,10 +59,12 @@ export function StudioComposer(props: {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
+  const [composing, setComposing] = createSignal(false)
   const referenceAsset = createMemo(() => props.assets[0])
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
+  const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
 
   function handlePaste(event: ClipboardEvent) {
@@ -146,9 +149,15 @@ export function StudioComposer(props: {
               ref={inputRef}
               value={props.prompt}
               onInput={(event) => props.onPrompt(event.currentTarget.value)}
-              onKeyDown={props.onKeyDown}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && isImeComposing(event)) return
+                props.onKeyDown(event)
+              }}
+              onCompositionStart={() => setComposing(true)}
+              onCompositionEnd={() => setComposing(false)}
+              onBlur={() => setComposing(false)}
               onPaste={handlePaste}
-              placeholder={isVideoGeneration() ? undefined : props.capability === "image.upscale" ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
+              placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
               class="studio-composer-input"
               disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
             />
@@ -176,97 +185,109 @@ export function StudioComposer(props: {
         </div>
 
         <div class="studio-composer-toolbar">
-          <div class="relative">
-            <Show when={props.openMenu === "capability"}>
-              <CapabilityMenu
-                value={props.capability}
-                canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
-              />
-            </Show>
-            <ToolButton
-              label={capabilityLabel(props.capability)}
-              active={props.openMenu === "capability"}
-              disabled={isBusy()}
-              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
-            />
-          </div>
-          <Show when={isImageGeneration()}>
-            <div class="relative">
-              <Show when={isImageGeneration() && props.openMenu === "style"}>
-                <StyleMenu
-                  value={props.styleModel}
-                  canUseSeedream={props.canUseSeedream}
-                  onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+          <div class="studio-composer-toolbar-items">
+            <div class="relative studio-composer-toolbar-item">
+              <Show when={props.openMenu === "capability"}>
+                <CapabilityMenu
+                  value={props.capability}
+                  canGenerateVideo={props.canGenerateVideo}
+                  onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
                 />
               </Show>
               <ToolButton
-                label={styleModelLabel(props.styleModel)}
-                active={props.openMenu === "style"}
+                label={capabilityLabel(props.capability)}
+                active={props.openMenu === "capability"}
                 disabled={isBusy()}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
+                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
               />
             </div>
-            <div class="relative">
-              <Show when={isImageGeneration() && props.openMenu === "settings"}>
-                <ImageSettings
-                  aspectRatio={props.aspectRatio}
-                  count={props.count}
-                  onAspectRatio={props.onAspectRatio}
-                  onCount={props.onCount}
+            <Show when={isImageGeneration()}>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style">
+                <Show when={isImageGeneration() && props.openMenu === "style"}>
+                  <StyleMenu
+                    value={props.styleModel}
+                    canUseSeedream={props.canUseSeedream}
+                    onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                  />
+                </Show>
+                <ToolButton
+                  label={styleModelLabel(props.styleModel)}
+                  active={props.openMenu === "style"}
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
                 />
-              </Show>
-              <IconTool
-                label="参数"
-                disabled={isBusy()}
-                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
-              />
-            </div>
-            <div class="relative">
-              <Show when={isImageGeneration() && props.openMenu === "material" && props.wordBook}>
-                <MaterialMenu wordBook={props.wordBook!} onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
-              </Show>
-              <IconTool
-                label="词书"
-                disabled={isBusy()}
-                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
-              />
-            </div>
-          </Show>
-          <Show when={isVideoGeneration()}>
-            <div class="relative">
-              <Show when={props.openMenu === "settings"}>
-                <VideoSettings
-                  aspectRatio={props.aspectRatio}
-                  count={props.count}
-                  duration={props.videoDuration}
-                  qualityMode={props.videoQualityMode}
-                  qualityLocked={props.videoQualityLocked}
-                  onAspectRatio={props.onAspectRatio}
-                  onCount={props.onCount}
-                  onDuration={props.onVideoDuration}
-                  onQualityMode={props.onVideoQualityMode}
+              </div>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings">
+                <Show when={isImageGeneration() && props.openMenu === "settings"}>
+                  <ImageSettings
+                    aspectRatio={props.aspectRatio}
+                    count={props.count}
+                    onAspectRatio={props.onAspectRatio}
+                    onCount={props.onCount}
+                  />
+                </Show>
+                <IconTool
+                  label="参数"
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
                 />
-              </Show>
-              <IconTool
-                label="参数"
-                disabled={isBusy()}
-                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
-              />
-            </div>
+              </div>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--material">
+                <Show when={isImageGeneration() && props.openMenu === "material" && props.wordBook}>
+                  <MaterialMenu wordBook={props.wordBook!} onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
+                </Show>
+                <IconTool
+                  label="词书"
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+                />
+              </div>
+            </Show>
+            <Show when={isVideoGeneration()}>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings">
+                <Show when={props.openMenu === "settings"}>
+                  <VideoSettings
+                    aspectRatio={props.aspectRatio}
+                    count={props.count}
+                    duration={props.videoDuration}
+                    qualityMode={props.videoQualityMode}
+                    qualityLocked={props.videoQualityLocked}
+                    onAspectRatio={props.onAspectRatio}
+                    onCount={props.onCount}
+                    onDuration={props.onVideoDuration}
+                    onQualityMode={props.onVideoQualityMode}
+                  />
+                </Show>
+                <IconTool
+                  label="参数"
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                />
+              </div>
+            </Show>
+          </div>
+          <Show when={!isBusy()}>
+            <button
+              type="button"
+              onClick={props.onSubmit}
+              disabled={!props.canSubmit}
+              class="studio-composer-send"
+              title="生成"
+            />
           </Show>
-          <button
-            type="button"
-            onClick={props.onSubmit}
-            disabled={!props.canSubmit}
-            class="studio-composer-send"
-            title="生成"
-          />
+          <Show when={isBusy() && props.onCancel}>
+            <button
+              type="button"
+              onClick={props.onCancel}
+              class="studio-composer-stop"
+              title="停止生成"
+            />
+          </Show>
         </div>
       </div>
       <div class="studio-composer-compliance">

@@ -148,6 +148,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const mirror = { input: false }
   const inset = 20
   const space = `${inset}px`
+  const [editorEmpty, setEditorEmpty] = createSignal(true)
 
   const scrollCursorIntoView = () => {
     const container = scrollRef
@@ -793,6 +794,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       (parts) => {
         if (composing()) return
         reconcile(parts.filter((part) => part.type !== "image"))
+        const text = editorRef?.textContent ?? ""
+        setEditorEmpty(!NON_EMPTY_TEXT.test(text))
       },
     ),
   )
@@ -888,7 +891,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         ? rawParts[0].content
         : rawParts.map((p) => ("content" in p ? p.content : "")).join("")
     const hasNonText = rawParts.some((part) => part.type !== "text")
-    const shouldReset = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
+    const isEmpty = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
+    setEditorEmpty(isEmpty)
+    const shouldReset = isEmpty
 
     if (shouldReset) {
       closePopover()
@@ -1411,7 +1416,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             <div
               class="absolute top-0 inset-x-0 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
               classList={{ "font-mono!": store.mode === "shell" }}
-              style={{ "padding-bottom": space, display: prompt.dirty() ? "none" : undefined }}
+              style={{ "padding-bottom": space, display: !editorEmpty() ? "none" : undefined }}
             >
               {placeholder()}
             </div>

@@ -6985,7 +6985,7 @@ export type StudioGenerationsCreateResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "failed"
+    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
     capability:
       | "image.generate"
       | "video.generate"
@@ -7095,7 +7095,7 @@ export type StudioGenerationsCancelResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "failed"
+    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
     capability:
       | "image.generate"
       | "video.generate"
@@ -7168,7 +7168,7 @@ export type StudioGenerationsGetResponses = {
   200: {
     id: string
     sessionID: string
-    status: "queued" | "running" | "succeeded" | "failed"
+    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
     capability:
       | "image.generate"
       | "video.generate"
@@ -7212,6 +7212,39 @@ export type StudioGenerationsGetResponses = {
 }
 
 export type StudioGenerationsGetResponse = StudioGenerationsGetResponses[keyof StudioGenerationsGetResponses]
+
+export type InsightSessionsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    offset?: string
+  }
+  url: "/insight/sessions"
+}
+
+export type InsightSessionsListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightSessionsListError = InsightSessionsListErrors[keyof InsightSessionsListErrors]
+
+export type InsightSessionsListResponses = {
+  /**
+   * Insight sessions page
+   */
+  200: {
+    items: Array<Session>
+    total: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type InsightSessionsListResponse = InsightSessionsListResponses[keyof InsightSessionsListResponses]
 
 export type PtyConnectData = {
   body?: never

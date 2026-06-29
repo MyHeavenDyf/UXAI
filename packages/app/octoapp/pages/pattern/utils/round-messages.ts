@@ -15,6 +15,7 @@ export interface Round {
   endTime?: number
   items: RoundItem[]
   cancelled: boolean
+  error?: string
 }
 
 /**
