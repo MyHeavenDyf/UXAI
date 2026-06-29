@@ -8,9 +8,15 @@ import { app } from "electron"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const PREVIEW_PORT = 51856
+/** 3D 场景独立预览页端口(与 pattern 的 51856 隔离,各自独立 SPA fallback) */
+const PREVIEW_3D_PORT = 51857
 
 export function previewDistDir() {
   return app.isPackaged ? join(process.resourcesPath, "previewdist") : join(root, "../../../previewdist")
+}
+
+export function previewDist3dDir() {
+  return app.isPackaged ? join(process.resourcesPath, "previewdist-3d") : join(root, "../../../preview3d")
 }
 
 const MIME: Record<string, string> = {
@@ -33,9 +39,8 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
 }
 
-export function startPreviewServer() {
-  const dir = previewDistDir()
-
+/** 在 127.0.0.1 上静态托管一个目录:CORS + SPA fallback(index.html)+ 路径越权防护。 */
+function createStaticServer(dir: string, port: number) {
   const server = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*")
     res.setHeader("Access-Control-Allow-Headers", "*")
@@ -64,12 +69,17 @@ export function startPreviewServer() {
 
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      console.warn(`[preview-server] port ${PREVIEW_PORT} already in use, skipping (external server may be running)`)
+      console.warn(`[preview-server] port ${port} already in use, skipping (external server may be running)`)
       return
     }
-    console.error("[preview-server] failed to start:", err)
+    console.error(`[preview-server] port ${port} failed to start:`, err)
   })
 
-  server.listen(PREVIEW_PORT, "127.0.0.1")
+  server.listen(port, "127.0.0.1")
   return server
+}
+
+export function startPreviewServer() {
+  createStaticServer(previewDistDir(), PREVIEW_PORT)
+  createStaticServer(previewDist3dDir(), PREVIEW_3D_PORT)
 }

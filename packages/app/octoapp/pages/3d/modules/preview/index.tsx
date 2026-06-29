@@ -17,6 +17,8 @@ export function PreviewPage(props: {
   /** 完整场景文档,变化时 SceneCanvas 自动重建 */
   doc: SceneDocument | null
   onDownload?: () => void
+  /** 点「实时预览」:写 live-3d.json 并新开独立预览窗口 */
+  onLivePreview?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (id: string) => void
@@ -96,6 +98,7 @@ export function PreviewPage(props: {
             </div>
           </Show>
           <Show when={props.onDownload}>{toolBtn("下载", () => props.onDownload?.())}</Show>
+          <Show when={props.onLivePreview}>{toolBtn("实时预览", () => props.onLivePreview?.())}</Show>
           {toolBtn("全屏", () => containerRef?.requestFullscreen?.())}
         </div>
       </div>

@@ -30,7 +30,7 @@ import { getStore } from "./store"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
-import { previewDistDir } from "./preview-server"
+import { previewDistDir, previewDist3dDir } from "./preview-server"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -451,6 +451,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
+  ipcMain.handle("get-preview-dist-3d-dir", () => previewDist3dDir())
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {
