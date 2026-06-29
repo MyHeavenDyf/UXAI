@@ -35,7 +35,6 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     sync,
     modelKey,
     rootSession,
-    userInput,
     idPrefix,
     sectionId,
     elementId,
@@ -57,6 +56,7 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     prompt: humanMessage,
     sync,
     onSessionCreated,
+    extra: input.extra,
   })
   console.log("----- 模块渲染Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 a2ui json

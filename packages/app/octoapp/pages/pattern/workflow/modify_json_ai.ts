@@ -17,6 +17,8 @@ type ProtoModifyJsonInput = {
   rootSession: string
   // 用户输入
   userInput: string
+  // 透传到工具 ctx.extra 的数据
+  extra?: Record<string, unknown>
   // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
   // 强制刷新预览 iframe

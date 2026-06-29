@@ -44,12 +44,8 @@ const getBase = (): Configuration => ({
       to: "skills",
     },
     {
-      from: "../opencode/dist/node/components",
-      to: "components",
-    },
-    {
-      from: "../opencode/dist/node/design",
-      to: "design",
+      from: "../opencode/dist/node/prototype",
+      to: "prototype",
     },
     {
       from: "resources/bin",

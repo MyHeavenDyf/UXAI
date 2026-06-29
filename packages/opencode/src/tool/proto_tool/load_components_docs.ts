@@ -2,49 +2,75 @@ import { Effect, Schema } from "effect"
 import * as Tool from "../tool"
 import path from "path"
 import { homedir } from "os"
-import { readdirSync, statSync, mkdirSync } from "fs"
+
+import { readdirSync, statSync, readFileSync } from "fs"
 import { readFile } from "fs/promises"
 
-const CONFIG_DIR = path.join(homedir(), ".config", "octo")
-const API_DIR = path.join(CONFIG_DIR, "components", "api")
-const EXAMPLE_DIR = path.join(CONFIG_DIR, "components", "example")
-
-mkdirSync(API_DIR, { recursive: true })
-mkdirSync(EXAMPLE_DIR, { recursive: true })
 import * as Log from "@opencode-ai/core/util/log"
-
-const COMPONENT_CATALOG: Record<string, string[]> = {
-  General: ["Button", "Icon"],
-  Navigation: ["Tabs", "TabItem", "Steps", "StepItem", "Breadcrumb", "Dropdown", "Menu"],
-  DataEntry: ["Checkbox", "CheckboxGroup", "RadioGroup", "Select", "Slider", "Switch", "Input", "InputNumber", "TextArea", "TimePicker", "DatePicker", "Rate"],
-  DataDisplay: ["Tag", "Table", "TableRow", "Collapse", "CollapseItem", "Timeline", "TimelineItem", "Divider", "Badge", "Carousel", "Segmented", "Tree"],
-  Response: ["Progress"],
-  Chart: ["LineChart", "BarChart", "PieChart", "RadarChart", "GaugeChart", "ProcessChart", "BubbleChart", "AssembleBubbleChart", "BulletChart", "FunnelChart", "HillChart", "ScatterChart", "JadeJueChart", "CircleProcessChart", "TreeMapChart", "HeatMapChart", "SankeyChart", "BarLineChart"],
-  Custom: ["PatGauge", "PatStackedBar"],
-}
 
 const log = Log.create({ service: "load_components_docs" })
 
-const COMPONENT_CHILDREN: Record<string, string[]> = {
-  Tabs: ["TabItem"],
-  Steps: ["StepItem"],
-  Table: ["TableRow"],
-  Collapse: ["CollapseItem"],
-  Timeline: ["TimelineItem"],
+// 递归扫描 API 目录，发现所有组件
+// 父子关系从 api 目录下的 children.json 中读取
+function scanApiDir(apiDir: string): { components: string[]; childrenMap: Record<string, string[]> } {
+  const components: string[] = []
+  let childrenMap: Record<string, string[]> = {}
+
+  const childrenFile = path.join(apiDir, "children.json")
+  try {
+    const raw = readFileSync(childrenFile, "utf-8")
+    childrenMap = JSON.parse(raw)
+  } catch {}
+
+  const walk = (dir: string) => {
+    let entries: string[]
+    try { entries = readdirSync(dir) } catch { return }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry)
+      try {
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath)
+          continue
+        }
+        if (!entry.endsWith(".json")) continue
+        const compName = path.basename(entry, ".json")
+        // 跳过 children.json 本身和 H5.json（通用 HTML 容器，不算组件）
+        if (compName === "children") continue
+        components.push(compName)
+      } catch {}
+    }
+  }
+  walk(apiDir)
+  return { components, childrenMap }
+}
+
+// 按设计系统缓存扫描结果，避免重复扫描同一目录
+const scanCache = new Map<string, { components: string[]; childrenMap: Record<string, string[]> }>()
+
+function getScanResult(apiDir: string) {
+  if (!scanCache.has(apiDir)) scanCache.set(apiDir, scanApiDir(apiDir))
+  return scanCache.get(apiDir)!
+}
+
+// 根据设计系统 ID 解析对应的 components 目录路径（从 ~/.config/octo/prototype/ 读取部署后的文件）
+function designSystemDir(id: string) {
+  return path.join(homedir(), ".config", "octo", "prototype", id, "components")
 }
 
 export const Parameters = Schema.Struct({
   components: Schema.Array(Schema.String).annotate({
     description: '组件名称数组，例如 ["Table", "Tabs", "Button"]',
   }),
+  designSystem: Schema.optional(Schema.String).annotate({
+    description: '设计系统版本，如 "ICT3.1"、"ICT3.2"',
+  }),
 })
 
-const ALL_COMPONENTS = Object.values(COMPONENT_CATALOG).flat()
-
-function expandComponents(input: string[]): string[] {
+// 根据请求的组件列表，自动补全所需的子组件（如 Table → TableRow）
+function expandComponents(input: string[], childrenMap: Record<string, string[]>): string[] {
   const expanded = [...input]
   for (const comp of input) {
-    const children = COMPONENT_CHILDREN[comp] ?? []
+    const children = childrenMap[comp] ?? []
     for (const child of children) {
       if (!expanded.includes(child)) expanded.push(child)
     }
@@ -52,6 +78,7 @@ function expandComponents(input: string[]): string[] {
   return expanded
 }
 
+// 递归遍历目录，构建组件名 → 文件路径的扁平映射
 function indexComponentFiles(dir: string): Map<string, string> {
   const map = new Map<string, string>()
   const walk = (currentDir: string) => {
@@ -72,36 +99,41 @@ function indexComponentFiles(dir: string): Map<string, string> {
   return map
 }
 
-let _apiMap: Map<string, string> | null = null
-let _exampleMap: Map<string, string> | null = null
+// 按目录缓存文件路径映射，避免重复文件系统扫描
+const apiMapCache = new Map<string, Map<string, string>>()
+const exampleMapCache = new Map<string, Map<string, string>>()
 
-function getApiMap() {
-  if (!_apiMap) _apiMap = indexComponentFiles(API_DIR)
-  return _apiMap
+function getApiMap(apiDir: string) {
+  if (!apiMapCache.has(apiDir)) apiMapCache.set(apiDir, indexComponentFiles(apiDir))
+  return apiMapCache.get(apiDir)!
 }
 
-function getExampleMap() {
-  if (!_exampleMap) _exampleMap = indexComponentFiles(EXAMPLE_DIR)
-  return _exampleMap
+function getExampleMap(exampleDir: string) {
+  if (!exampleMapCache.has(exampleDir)) exampleMapCache.set(exampleDir, indexComponentFiles(exampleDir))
+  return exampleMapCache.get(exampleDir)!
 }
 
 type JsonSchema = Record<string, unknown>
 
+// 提取 JSON Schema $ref 路径的最后一段名称
 function refName(ref: string): string {
   const parts = ref.split("/")
   return parts[parts.length - 1] ?? ref
 }
 
+// 提取 JSON Schema 中的 $defs 或 definitions
 function getDefs(schema: JsonSchema): Record<string, JsonSchema> {
   return (schema.$defs as Record<string, JsonSchema>) ?? (schema.definitions as Record<string, JsonSchema>) ?? {}
 }
 
+// 将 enum 值格式化为联合类型字符串："a" | "b" | "c"
 function formatEnum(schema: JsonSchema): string {
   const values = schema.enum as unknown[]
   if (!values) return ""
   return values.map((v) => (typeof v === "string" ? `"${v}"` : String(v))).join(" | ")
 }
 
+// 递归解析 JSON Schema 节点为可读的类型字符串
 function formatType(schema: JsonSchema, defs: Record<string, JsonSchema>, sharedDefs: Record<string, JsonSchema>, visited: Set<string>): string {
   if (!schema) return "any"
 
@@ -151,6 +183,7 @@ function formatType(schema: JsonSchema, defs: Record<string, JsonSchema>, shared
   return "any"
 }
 
+// 构建共享类型定义的头部章节，用于多个组件复用的类型
 function buildSharedHeader(sharedDefs: Record<string, JsonSchema>): string {
   if (Object.keys(sharedDefs).length === 0) return ""
   const lines: string[] = ["## Shared Definitions"]
@@ -193,6 +226,7 @@ function buildSharedHeader(sharedDefs: Record<string, JsonSchema>): string {
   return lines.join("\n")
 }
 
+// 将单个组件的 JSON Schema 格式化为紧凑的 Markdown 文档
 function compactSchema(schema: JsonSchema, sharedDefs: Record<string, JsonSchema>): string {
   const defs = getDefs(schema)
   const name = (schema.name as string) ?? (schema.title as string) ?? "Unknown"
@@ -217,6 +251,7 @@ function compactSchema(schema: JsonSchema, sharedDefs: Record<string, JsonSchema
 
   lines.push("> " + topParts.join(" | "))
 
+// 渲染 props 表格
   if (hasProps) {
     const propsSchema = properties.props
     const propsProps = (propsSchema.properties ?? {}) as Record<string, JsonSchema>
@@ -253,6 +288,7 @@ function compactSchema(schema: JsonSchema, sharedDefs: Record<string, JsonSchema
     }
   }
 
+  // 渲染 children 约束
   if (hasChildren) {
     const childrenSchema = properties.children
     const childrenDesc = childrenSchema.description ? childrenSchema.description as string : ""
@@ -282,6 +318,7 @@ function compactSchema(schema: JsonSchema, sharedDefs: Record<string, JsonSchema
   return lines.join("\n")
 }
 
+// 批量格式化多个组件 schema，共享类型定义去重
 function compactSchemasBatch(schemas: JsonSchema[]): string {
   const sharedDefs: Record<string, JsonSchema> = {}
   for (const schema of schemas) {
@@ -311,59 +348,64 @@ export const LoadComponentsDocsTool = Tool.define(
       parameters: Parameters,
       execute: (params, ctx) =>
         Effect.gen(function* () {
-          const { components } = params as { components: string[] }
-          const expanded = expandComponents(components)
+          const { components, designSystem } = params as { components: string[]; designSystem?: string }
+          // 确定设计系统：优先参数 > ctx.extra > default
+          const ds = designSystem || (ctx.extra?.designSystem as string) || "default"
+          const resolvedDs = ds === "default" ? "ICT3.1" : ds
+          const baseDir = designSystemDir(resolvedDs)
+          const apiDir = path.join(baseDir, "api")
+          const exampleDir = path.join(baseDir, "example")
+          log.info(`[load_components_docs] 请求组件: [${components.join(", ")}]，设计系统: ${ds} → ${resolvedDs}，目录: ${apiDir}`)
+
+          // 发现当前设计系统下的可用组件和父子关系
+          const { components: allComponents, childrenMap } = getScanResult(apiDir)
+          const expanded = expandComponents(components, childrenMap)
+          if (expanded.length !== components.length) {
+            log.info(`[load_components_docs] 子组件补全后: [${expanded.join(", ")}]`)
+          }
 
           const validComps: string[] = []
           const apiSchemas: JsonSchema[] = []
 
-          const apiMap = getApiMap()
-          const exampleMap = getExampleMap()
-
-          log.warn("=== [DEBUG] 路径检查 ===");
-          log.warn("API_DIR 实际扫描路径", { path: API_DIR });
-          log.warn("API_DIR 扫描到的所有组件 Key", { keys: Array.from(apiMap.keys()) });
-          log.warn("=======================");
+          const apiMap = getApiMap(apiDir)
+          const exampleMap = getExampleMap(exampleDir)
 
           for (const comp of expanded) {
-            if (!ALL_COMPONENTS.includes(comp)) {
-              log.warn(`⚠️ 组件 [${comp}] 没在 COMPONENT_CATALOG 注册，已被过滤`);
+            if (!allComponents.includes(comp)) {
+              log.warn(`⚠️ 组件 [${comp}] 未在 API 目录中找到，已被过滤`)
               continue
             }
             validComps.push(comp)
 
             const apiFile = apiMap.get(comp)
-            // ======= 【DEBUG 2】打印文件匹配情况 =======
             if (!apiFile) {
-              log.warn(`❌ 组件 [${comp}] 注册了，但在 API 目录下找不到对应的文件名！`);
+              log.warn(`❌ 组件 [${comp}] 在设计系统 [${ds}] 的 API 目录下找不到对应的文件`)
               continue
             }
 
-            log.warn(`✅ 成功找到组件 [${comp}] 的文件`, { file: apiFile });
             const raw = yield* Effect.promise(() => readFile(apiFile, "utf-8"))
             const parsed = JSON.parse(raw)
             apiSchemas.push(parsed)
           }
 
+          log.info(`[load_components_docs] 有效组件: [${validComps.join(", ")}]，共 ${apiSchemas.length} 个 schema`)
+
           const resultParts: string[] = []
 
+          // 将 API schema 渲染为紧凑 Markdown
           if (apiSchemas.length > 0) {
             const compactMd = compactSchemasBatch(apiSchemas)
             resultParts.push(`# 组件 API Schema\n\n${compactMd}`)
           }
 
+          // 追加使用示例
           for (const comp of validComps) {
             const exampleFile = exampleMap.get(comp)
             if (!exampleFile) continue
             const content = yield* Effect.promise(() => readFile(exampleFile, "utf-8"))
             resultParts.push(content)
           }
-          log.warn("=========================================================tool", {
-            params,
-            title: `load_components_docs: ${validComps.join(", ")}`,
-            output: resultParts.join("\n\n---\n\n"),
-            metadata: {},
-          })
+
           return {
             title: `load_components_docs: ${validComps.join(", ")}`,
             output: resultParts.join("\n\n---\n\n"),

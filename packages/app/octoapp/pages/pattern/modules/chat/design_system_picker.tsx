@@ -14,7 +14,10 @@ export function DesignSystemPicker(props: {
   selected: string | null
   onSelect: (id: string | null) => void
 }): JSX.Element {
-  const entries: DesignSystemEntry[] = [{ id: "ICT-3.1", title: "ICT-3.1" }]
+  const entries: DesignSystemEntry[] = [
+    { id: "ICT3.1", title: "ICT-3.1" },
+    { id: "ICT3.2", title: "ICT-3.2" },
+  ]
   const [open, setOpen] = createSignal(false)
   const [search, setSearch] = createSignal("")
   const [hoveredId, setHoveredId] = createSignal<string | null>(null)

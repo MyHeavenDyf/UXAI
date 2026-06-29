@@ -105,7 +105,7 @@ function PatternContent() {
       (id, prevId) => {
         // ── 1. 切换 session 时同步清理 ──
         if (prevId !== undefined) {
-          setSelectedDesignSystem("ICT-3.1")
+        setSelectedDesignSystem("ICT3.1")
           setReviewUserInput("")
         }
 
@@ -387,12 +387,14 @@ function PatternContent() {
       setSendingSids((prev) => new Set(prev).add(sid!))
 
       // 执行流程的基础上下文
+      const ds = selectedDesignSystem()
       let intentCtx = {
         sdk: sdk,
         sync: sync,
         modelKey: mk,
         rootSession: sid,
         userInput: text,
+        extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
         onSessionCreated: (childID: string) => {
           if (params.id !== sid) return
           setChildSessionIDs((prev) => [...prev, childID])
@@ -523,12 +525,14 @@ function PatternContent() {
 
     setIsPlanReview(false)
 
+    const ds = selectedDesignSystem()
     const intentCtx: ProtoCreateJsonInput = {
       sdk,
       sync,
       modelKey: mk,
       rootSession: sid,
       userInput: userInput,
+      extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
       onSessionCreated: (childID: string) => {
         setChildSessionIDs((prev) => [...prev, childID])
       },
