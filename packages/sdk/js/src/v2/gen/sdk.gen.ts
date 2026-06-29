@@ -65,6 +65,8 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  InsightSessionsListErrors,
+  InsightSessionsListResponses,
   InstanceDisposeResponses,
   LspStatusResponses,
   McpAddErrors,
@@ -5369,6 +5371,49 @@ export class Studio extends HeyApiClient {
   }
 }
 
+export class Sessions extends HeyApiClient {
+  /**
+   * List insight sessions (paged)
+   *
+   * List octo_insight sessions for a directory, agent-filtered server-side, with total count for pagination.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      limit?: number
+      offset?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "offset" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<InsightSessionsListResponses, InsightSessionsListErrors, ThrowOnError>({
+      url: "/insight/sessions",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Insight extends HeyApiClient {
+  private _sessions?: Sessions
+  get sessions(): Sessions {
+    return (this._sessions ??= new Sessions({ client: this.client }))
+  }
+}
+
 export class OpencodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<OpencodeClient>()
 
@@ -5520,5 +5565,10 @@ export class OpencodeClient extends HeyApiClient {
   private _studio?: Studio
   get studio(): Studio {
     return (this._studio ??= new Studio({ client: this.client }))
+  }
+
+  private _insight?: Insight
+  get insight(): Insight {
+    return (this._insight ??= new Insight({ client: this.client }))
   }
 }

@@ -17,12 +17,14 @@ import {
 import { produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
+import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
@@ -50,6 +52,9 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
+
+// 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
+const EMPTY_MESSAGES: Message[] = []
 
 /**
  * InsightPage —— 用研 agent 页面
@@ -175,6 +180,7 @@ function InsightContent() {
   const language = useLanguage()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
+  const layout = useLayout()
 
   // §SPEC-INS-011 阶段1:旁路观测层(自包含;不动上游;无 UI 入口)
   const insightDebug = installInsightDebug({
@@ -264,6 +270,13 @@ function InsightContent() {
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify({ dir: projectDir(), id: params.id ?? "" }))
   })
 
+  // 记录当前对话到 cowork tab 的"上次会话",供顶栏切回 Cowork(insight)时恢复最后对话窗口。
+  // 与 studio/make/chat 各 tab 一致(它们都调用 setStudio/setMake/setChat)。
+  createEffect(() => {
+    const id = params.id
+    if (id) layout.lastSessionPerTab.setCowork(id)
+  })
+
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
   // event-reducer 已在 GlobalSyncProvider 内部全局唯一注册，无需我们再监听 SSE
   //
@@ -283,11 +296,26 @@ function InsightContent() {
     ),
   )
 
-  const userMessages = createMemo((): Message[] => {
-    const id = params.id
-    if (!id) return []
-    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
-  })
+  // equals: same — 生成回复时 sync.data.message[id] 每个 token 都会变,若不做浅比较,
+  // 这个 memo 每帧都吐新数组,下游 <Show>/<For>/各 memo 全部空转重算 → 闪烁。
+  const userMessages = createMemo(
+    (): Message[] => {
+      const id = params.id
+      if (!id) return EMPTY_MESSAGES
+      return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+    },
+    EMPTY_MESSAGES,
+    { equals: same },
+  )
+
+  // 消息列表按**稳定的 messageID 字符串**迭代(对齐上游 message-timeline 的 rendered):
+  // <For> 用引用做 key,直接迭代 message 对象时,流式更新一旦换了对象引用就会整轮 DOM 重建,
+  // 滚动容器内容塌掉再重建 → scrollTop 归零(弹回顶部)+ 闪烁。改用 id 字符串值做 key 即稳定。
+  const userMessageIDs = createMemo(
+    () => userMessages().map((m) => m.id),
+    [] as string[],
+    { equals: same },
+  )
 
   // 会话消息是否已加载:切到"未加载过的已存在会话"时 message[id] 为 undefined,
   // 期间不渲染首页空态(否则会闪一下 Octo Insight 首页),等加载完再按是否为空决定。
@@ -1559,15 +1587,15 @@ function InsightContent() {
                   class="py-3 flex flex-col gap-0 w-full mx-auto"
                   style={{ "max-width": "800px" }}
                 >
-                  <For each={userMessages()}>
-                    {(msg) => (
+                  <For each={userMessageIDs()}>
+                    {(msgID) => (
                       <InsightTurn
                         sessionID={params.id!}
-                        messageID={msg.id}
+                        messageID={msgID}
                         status={sessionStatus()}
                         active={isBusy()}
                         onOpenResult={handleOpenResult}
-                        taskCards={taskCardsByAnchor().get(msg.id) ?? []}
+                        taskCards={taskCardsByAnchor().get(msgID) ?? []}
                         onTaskRefresh={handleTaskRefresh}
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}

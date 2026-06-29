@@ -891,6 +891,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
   function handleCloseTab(id: string) {
+    const tab = tabStore.tabs().find((t) => t.id === id)
+    if (tab) {
+      tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
+    }
     tabStore.closeTab(id)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
@@ -1468,6 +1472,7 @@ if (dsId) {
         absoluteFilePath: filePath,
         createdAt: new Date(),
       })
+      tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
       return
     }
     
@@ -1502,10 +1507,12 @@ if (dsId) {
       absoluteFilePath: absolutePath,
       createdAt: new Date(),
     })
+    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local" }) })
   }
 
   /** 继续生成（追加被截断的内容作为 prompt） */
   function handleContinue(card: OutputCard) {
+    tracker.interaction({ module: "design", name: "continue-generation" })
     const sid = params.id
     if (!sid) return
     const lastChars = card.content.slice(-300)
@@ -1832,14 +1839,22 @@ if (dsId) {
                             <Icon name="plus" class="size-5" />
                           </Button>
                         </Tooltip>
-                        <ModelSelectorPopover
-                          model={local.model}
-                          triggerAs="button"
-                          triggerProps={{
-                             class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
-                             "data-action": "prompt-model",
+<ModelSelectorPopover
+                           model={local.model}
+                           triggerAs="button"
+                           triggerProps={{
+                              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                              "data-action": "prompt-model",
+                            }}
+                           onClose={(cause) => {
+                             if (cause === "select") {
+                               const m = currentModel()
+                               if (m) {
+                                 tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                               }
+                             }
                            }}
-                        >
+                         >
                           <span class="truncate">
                             {currentModel()?.name ?? "选择模型"}
                           </span>
@@ -2090,14 +2105,22 @@ if (dsId) {
                           <Icon name="plus" class="size-5" />
                         </Button>
                       </Tooltip>
-                       <ModelSelectorPopover
-                        model={local.model}
-                        triggerAs="button"
-                        triggerProps={{
-                          class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
-                          "data-action": "prompt-model",
-                        }}
-                      >
+<ModelSelectorPopover
+                         model={local.model}
+                         triggerAs="button"
+                         triggerProps={{
+                           class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                           "data-action": "prompt-model",
+                         }}
+                         onClose={(cause) => {
+                           if (cause === "select") {
+                             const m = currentModel()
+                             if (m) {
+                               tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                             }
+                           }
+                         }}
+                       >
                         <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                           {currentModel()?.name ?? "选择模型"}
                         </span>
@@ -2170,7 +2193,13 @@ if (dsId) {
               <ResultViewer
                 tabs={tabStore.tabs()}
                 activeId={tabStore.activeId()}
-                onActivate={tabStore.activate}
+                onActivate={(id) => {
+                  const tab = tabStore.tabs().find((t) => t.id === id)
+                  if (tab && id !== tabStore.activeId()) {
+                    tracker.interaction({ module: "design", name: "switch-tab", extend: JSON.stringify({ type: tab.type }) })
+                  }
+                  tabStore.activate(id)
+                }}
                 onClose={handleCloseTab}
                 onContentChange={handleContentChange}
                 sessionId={params.id}

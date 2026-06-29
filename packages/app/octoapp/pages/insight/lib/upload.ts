@@ -33,6 +33,7 @@ type ApiResponse<T> = {
 export type UploadErrorCode =
   | "FILE_TOO_LARGE"
   | "EXT_NOT_ALLOWED"
+  | "FILENAME_EMPTY"
   | "FILE_INVALID"
   | "RATE_LIMITED"
   | "ENDPOINT_NOT_CONFIGURED"
@@ -53,6 +54,15 @@ function getExt(filename: string): string {
   // 这样真·dotfile 会落到 validateFile 的 EXT_NOT_ALLOWED，被客户端清晰拒掉。
   if (dot <= 0 || dot === filename.length - 1) return ""
   return filename.slice(dot + 1).toLowerCase()
+}
+
+// 「只有扩展名、没有文件名」判定：主名（末尾扩展名之前、再去掉开头的点）为空。
+// 命中：".txt" / ".env" / 清洗后塌成 ".txt" 的 "***.txt" / "..txt" / "."。
+// 不命中：".index.md"（主名 ".index" 非空，合法隐藏文件）、"report"（无点，属无扩展名另一类）。
+function hasEmptyBaseName(filename: string): boolean {
+  const dot = filename.lastIndexOf(".")
+  if (dot < 0) return false
+  return filename.slice(0, dot).replace(/^\.+/, "") === ""
 }
 
 // 文件名清洗：内网上传服务把**未编码的原始文件名**直接拼进返回 URL，URL 再交给 MCP 取文件。
@@ -79,6 +89,10 @@ export function validateFile(file: File): UploadError | null {
       "FILE_TOO_LARGE",
       `文件超过 ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB 上限`,
     )
+  }
+  // 空主名（只有扩展名）优先于扩展名白名单判定：给「文件名为空」的精准文案，而非笼统「无扩展名」
+  if (hasEmptyBaseName(file.name)) {
+    return new UploadError("FILENAME_EMPTY", "文件名为空，请重命名文件后重新上传")
   }
   const ext = getExt(file.name)
   if (!ALLOWED_EXT.includes(ext as (typeof ALLOWED_EXT)[number])) {

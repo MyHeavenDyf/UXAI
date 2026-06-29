@@ -29,9 +29,10 @@ import { useLanguage } from "@/context/language"
  * 与 UX AI 的有意差异(经 spec 锁定):
  *  - 新建 = 懒创建跳空页(D4),不 eager session.create
  *
- * agent 过滤:strict `s.agent === "octo_insight"` —— 见 octo-agent `SPEC infra/session-agent-attribution`。
- * server 已把 agent 作为一等字段持久化(SessionTable.agent / Session.Info.agent / Session.CreateInput.agent),
- * 两仓 rsync 后行为一致;老数据 agent IS NULL 被天然过滤,即兜底机制。
+ * agent 过滤 + 分页:走 insight 专用端点 `/insight/sessions`(SPEC-INS-013)——服务端先按
+ * `agent=octo_insight` 过滤再 limit 分页,返回 `{ items, total }`。前端只管「加载更多」抬 limit。
+ * 修旧共享 session.list「先 limit 100 再前端筛 agent」导致会话超 100 后最早对话不可见的 bug。
+ * 老数据 agent IS NULL 被服务端 strict 过滤天然隐藏(见 octo-agent `SPEC infra/session-agent-attribution`)。
  *
  * 自包含、对外零参数:globalSDK / globalSync / notification / permission 自取
  * (均在 AppBaseProviders 全局层,搬出后照样拿得到)。宿主 shell 仅 import 摆位。
@@ -53,30 +54,75 @@ export function InsightSessionList(): JSX.Element {
   // 用户选了项目目录后 insight 仍查 home dir 而看不到自己历史对话的 directory 飘移 bug。
   const projectDir = useProjectDir()
 
-  const [sessions, { refetch }] = createResource<Session[], string>(projectDir, async (dir, info) => {
-    if (!dir) return [] as Session[]
-    try {
-      const result = await globalSDK.client.session.list({ directory: dir })
-      // strict 过滤:server 已把 agent 作为一等字段持久化。
-      const data = ((result.data ?? []) as Array<Session & { agent?: string }>).sort(
-        (a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0),
-      )
-      return data.filter((s) => s.agent === INSIGHT_AGENT)
-    } catch (err) {
-      // session.list 失败(如 server 端某行 Session.Info schema 编码失败 → 400 空 body)绝不能把整页
-      // 顶进 ErrorBoundary。降级为"列表保持上次内容、不刷新",而非整页崩 —— 用户仍可新建/继续对话。
-      // 根因类问题(脏数据/枚举越界)由 server 读取侧修;这里是"任意单次列表失败都不致命"的兜底。
-      console.error("[insight:session-list] list failed, keeping previous list", err)
-      return info.value ?? []
-    }
-  })
+  // ── 服务端分页(SPEC-INS-013)────────────────────────────────────────────
+  // 走 insight 专用端点 /insight/sessions:服务端**先按 agent=octo_insight 过滤再分页**,
+  // 修「会话超 100 条后最早 insight 对话看不到」(根因:旧共享 session.list「先 limit 100 再前端
+  // 筛 agent」顺序错)。前端不再 sort/filter——server 已按 time_updated DESC + agent 过滤好。
+  // 点「加载更多」抬高 limit 重拉;切目录回到首屏。
+  const FIRST_PAGE = 100
+  const PAGE_STEP = 100
+  const [limit, setLimit] = createSignal(FIRST_PAGE)
+  createEffect(on(projectDir, () => setLimit(FIRST_PAGE), { defer: true }))
+
+  const [sessions, { refetch }] = createResource(
+    () => ({ dir: projectDir(), limit: limit() }),
+    async ({ dir, limit: lim }, info): Promise<{ items: Session[]; total: number }> => {
+      if (!dir) return { items: [], total: 0 }
+      try {
+        // 优先新端点(SPEC-INS-013):服务端先按 agent=octo_insight 过滤再分页,返回 { items, total }。
+        // 防御性:`.insight` 在「dev 未重启致 SDK 预打包陈旧」或「旧版 SDK」时可能为 undefined;
+        // result.data 为空表示端点不存在/404(SDK 默认 throwOnError=false 不抛)。两种情况都回退旧端点。
+        const insightApi = globalSDK.client.insight
+        if (insightApi) {
+          const result = await insightApi.sessions.list({ directory: dir, limit: lim })
+          if (result.data) {
+            const items = (result.data.items ?? []) as Session[]
+            // total 是 effect Schema.Number 的编码形态(number | "NaN" | "Infinity"...),计数必为有限数,兜成 number。
+            const rawTotal = result.data.total
+            const total = typeof rawTotal === "number" ? rawTotal : items.length
+            return { items, total }
+          }
+        }
+        // ── 过渡回退:后端 /insight/sessions 未部署 / 旧 SDK。走通用 session.list + 前端过滤。
+        // 注意这是「先 limit 再筛 agent」的旧路径(会话极多时最早的可能看不到),仅兼容用;
+        // 后端端点到位后永远走上面的分支,不会落到这里。回退态不出「加载更多」(total=已得数)。
+        console.warn("[insight:session-list] /insight/sessions unavailable, falling back to session.list")
+        const legacy = await globalSDK.client.session.list({ directory: dir, limit: lim })
+        const filtered = ((legacy.data ?? []) as Array<Session & { agent?: string }>)
+          .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+          .filter((s) => s.agent === INSIGHT_AGENT)
+        return { items: filtered, total: filtered.length }
+      } catch (err) {
+        // 列表失败绝不能把整页顶进 ErrorBoundary。降级为"保持上次内容、不刷新",用户仍可新建/继续对话。
+        console.error("[insight:session-list] list failed, keeping previous list", err)
+        return info.value ?? { items: [], total: 0 }
+      }
+    },
+  )
 
   // reconcile(key=id):保持 <For> 行引用稳定,避免每次 refetch 重建每行的 globalSync.child
   // 订阅与状态点 memo(否则状态点会闪)。
+  // total 也在此镜像进信号:关键——绝不能在 render 里直接读 resource accessor sessions()。
+  // 否则每次 session.updated 触发的 refetch 会把该 resource 推回 pending,而它被全局
+  // <Suspense>(octo.tsx 的 Splash)追踪 → 整页闪「初始加载动画」(本组件无就近 Suspense 边界)。
+  // 见 octo-agent docs/learning。effect 里读 sessions 不会触发 Suspense,故安全。
   const [sessionList, setSessionList] = createStore<Session[]>([])
+  const [sessionTotal, setSessionTotal] = createSignal(0)
   createEffect(on(sessions, (data) => {
-    if (data) setSessionList(reconcile(data, { key: "id" }))
+    if (data) {
+      setSessionList(reconcile(data.items, { key: "id" }))
+      setSessionTotal(data.total)
+    }
   }, { defer: true }))
+
+  // hasMore 用服务端 total 精确判断(已显示数 < 该目录 insight 会话总数)。
+  // 读镜像信号 sessionTotal(),不读 sessions()——避免上面说的全局 Suspense 闪屏。
+  const hasMore = () => sessionList.length < sessionTotal()
+  function loadMore() {
+    const next = limit() + PAGE_STEP
+    setLimit(next)
+    tracker.interaction({ module: "insight", name: "session-load-more", extend: JSON.stringify({ limit: next, source: "panel" }) })
+  }
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   const unsub = globalSDK.event.listen((e) => {
@@ -163,7 +209,7 @@ export function InsightSessionList(): JSX.Element {
   return (
     <div class="flex flex-col">
       <Show
-        when={!sessions.loading}
+        when={!sessions.loading || sessionList.length > 0}
         fallback={
           <div class="px-[8px] py-[6px]">
             <div class="h-[10px] w-[80px] rounded-[3px] animate-pulse" style={{ background: "rgba(0,0,0,0.08)" }} />
@@ -279,6 +325,17 @@ export function InsightSessionList(): JSX.Element {
               )
             }}
           </For>
+          <Show when={hasMore()}>
+            <button
+              type="button"
+              disabled={sessions.loading}
+              onClick={loadMore}
+              class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center hover:bg-surface-base-hover disabled:opacity-60"
+              style={{ height: "36px", padding: "0 24px 0 44px", color: "rgba(0,0,0,0.6)" }}
+            >
+              {sessions.loading ? "加载中…" : "加载更多"}
+            </button>
+          </Show>
         </Show>
       </Show>
 

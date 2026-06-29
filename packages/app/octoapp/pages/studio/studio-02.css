@@ -33,6 +33,7 @@
   border-radius: 0;
   background: transparent;
   font-size: 0;
+  flex-shrink: 0;
 }
 
 .studio-composer-send::before {
@@ -49,6 +50,23 @@
 
 .studio-composer-send:disabled {
   opacity: 0.45;
+}
+
+.studio-composer-stop {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-image: url("/pauseIcon.svg");
+  background-size: 48.4px auto;
+  background-position: -8px -3.5px;
+  background-repeat: no-repeat;
+  background-color: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .studio-gradient-button {
@@ -127,6 +145,7 @@
   transform: translateY(0);
   box-shadow: none;
   filter: none;
+  border-radius: 4px;
 }
 
 .studio-canvas-download-action:active {
@@ -171,6 +190,7 @@
   transform: translateY(0);
   box-shadow: none;
   filter: none;
+  border-radius: 4px;
 }
 
 .studio-canvas-regenerate-action:active {
@@ -212,6 +232,7 @@
 .studio-canvas-video-action:hover {
   background: rgba(25, 25, 25, 0.06);
   color: #191919;
+  border-radius: 4px;
 }
 
 .studio-canvas-action-group {
@@ -239,6 +260,7 @@
 .studio-canvas-icon-action:hover {
   background: rgba(25, 25, 25, 0.06);
   color: #191919;
+  border-radius: 4px;
 }
 
 .studio-canvas-icon-action-icon {
@@ -489,7 +511,6 @@
 .studio-image-settings-count.active {
   background: #fff;
   color: #191919;
-  font-weight: 850;
 }
 
 .studio-image-settings-ratio {
@@ -729,10 +750,11 @@
 
 .studio-result-progress-header {
   display: grid;
-  grid-template-columns: max-content max-content minmax(96px, 1fr) max-content max-content;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content max-content;
   align-items: center;
   gap: 12px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .studio-result-progress-title {
@@ -784,3 +806,4 @@
   background: rgba(0, 0, 0, 0.1);
   border: none;
 }
+

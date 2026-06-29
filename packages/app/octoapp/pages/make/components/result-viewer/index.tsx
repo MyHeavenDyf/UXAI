@@ -24,6 +24,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } from "../../utils/artifact-file-api"
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
+import { tracker } from "@/utils/tracker"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -215,6 +216,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 onInspectToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextInspecting = !inspecting()
                   setInspecting(nextInspecting)
+                  tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
                   if (nextInspecting && editing()) {
                     setEditing(false)
                   }
@@ -226,6 +228,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 onEditToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextEditing = !editing()
                   setEditing(nextEditing)
+                  tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
                   if (nextEditing && inspecting()) {
                     setInspecting(false)
                   }
@@ -237,6 +240,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 onDrawToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextDrawing = !drawing()
                   setDrawing(nextDrawing)
+                  tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
                   if (nextDrawing && inspecting()) {
                     setInspecting(false)
                   }

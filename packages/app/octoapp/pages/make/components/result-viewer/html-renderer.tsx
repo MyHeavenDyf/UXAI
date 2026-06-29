@@ -9,6 +9,7 @@ import { DrawOverlay } from "./draw-overlay"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
+import { tracker } from "@/utils/tracker"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -908,6 +909,7 @@ onApplyPatch={async (patch: ManualEditPatch, label: string) => {
 onSaveDraft={async () => {
                    const ok = await flushManualEditStyleSave()
                    if (ok) {
+                    tracker.interaction({ module: "design", name: "save-edit-changes" })
                      setEditTarget(null)
                      manualEditPendingStyle = null
                      manualEditPendingText = null

@@ -31,6 +31,7 @@ import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir } from "./preview-server"
+import { pipelineRequest } from "../network/pipelineRequest"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -451,6 +452,10 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
+
+  // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
+  ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
+    pipelineRequest(url, method, uiplusToken, body, headers))
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

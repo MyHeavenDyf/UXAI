@@ -10,6 +10,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -19,6 +20,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
+import { DialogSettings } from "@/components/dialog-settings"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
@@ -116,8 +118,15 @@ export default function StudioPage() {
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
+    // Fast path: check global sync store.
     const session = syncStore.session.find(s => s.id === sessionId)
-    return session?.agent === "octo_studio"
+    if (session?.agent === "octo_studio") return true
+    // Fallback: if messages have already been loaded for this session (the user
+    // is actively viewing it), treat it as valid even if the sync store hasn't
+    // caught up yet.  Otherwise runGeneration/openInpaint would create a new
+    // session when the user clicks generate in an existing one.
+    if (dataStore.message[sessionId]) return true
+    return false
   }
   const activeStudioSession = createMemo(() => {
     if (!params.id) return
@@ -151,15 +160,24 @@ export default function StudioPage() {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const [capability, setCapability] = createSignal<StudioCapability>("image.generate")
-  const [styleModel, setStyleModel] = createSignal("seedream-5-lite")
-  const [aspectRatio, setAspectRatio] = createSignal<StudioAspectRatio>("3:4")
-  const [count, setCount] = createSignal<1 | 2 | 3 | 4>(1)
-  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [imageSettingStore, setImageSettingStore] = persisted(
     Persist.global("studio.image.settings"),
-    createStore({ aspectRatio: "3:4" as StudioAspectRatio, count: 1 as 1 | 2 | 3 | 4 }),
+    createStore({
+      capability: "image.generate" as StudioCapability,
+      aspectRatio: "3:4" as StudioAspectRatio,
+      count: 1 as 1 | 2 | 3 | 4,
+      styleModel: "seedream-5-lite",
+    }),
   )
+  const capability = () => imageSettingStore.capability
+  const setCapability = (v: StudioCapability) => setImageSettingStore("capability", v)
+  const aspectRatio = () => imageSettingStore.aspectRatio
+  const setAspectRatio = (v: StudioAspectRatio) => setImageSettingStore("aspectRatio", v)
+  const count = () => imageSettingStore.count
+  const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
+  const styleModel = () => imageSettingStore.styleModel
+  const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
@@ -256,18 +274,18 @@ export default function StudioPage() {
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   let generationToken = 0
+  const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
     Persist.global("studio.left.width"),
     createStore({ width: 296 }),
   )
+  const [studioLeftWidth, setStudioLeftWidth] = createSignal(studioLeftStore.width)
+  const toggleStudioLeft = () => setStudioLeftCollapsed((v) => !v)
   const [studioCenterStore, setStudioCenterStore] = persisted(
     Persist.global("studio.center.width"),
     createStore({ width: 468 }),
   )
-  const studioLeftWidth = () => studioLeftStore.width
-  const setStudioLeftWidth = (w: number) => setStudioLeftStore({ width: w })
-  const studioCenterWidth = () => studioCenterStore.width
-  const setStudioCenterWidth = (w: number) => setStudioCenterStore({ width: w })
+  const [studioCenterWidth, setStudioCenterWidth] = createSignal(studioCenterStore.width)
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
     sessionID: () => params.id,
     globalSDK,
@@ -388,40 +406,151 @@ export default function StudioPage() {
     blobUrlCache.clear()
   })
 
-  function handleStudioLeftResize(event: MouseEvent) {
-    event.preventDefault()
-    const startX = event.clientX
-    const startWidth = studioLeftWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX
-      setStudioLeftWidth(Math.max(160, Math.min(360, startWidth + delta)))
+  const [resizingLeft, setResizingLeft] = createSignal(false)
+  const [resizingCenter, setResizingCenter] = createSignal(false)
+  const [resizeState, setResizeState] = createStore({ startX: 0, startWidth: 0 })
+
+  function onPagePointerMove(e: PointerEvent) {
+    if (resizingLeft()) {
+      const delta = e.clientX - resizeState.startX
+      setStudioLeftWidth(Math.max(200, Math.min(360, resizeState.startWidth + delta)))
     }
-    function onUp() {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+    if (resizingCenter()) {
+      const delta = e.clientX - resizeState.startX
+      const pageWidth = studioPageRef?.clientWidth ?? window.innerWidth
+      const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
+      const minCanvas = 360
+      // 左增右剪，左减右增：center 最大 = min(700, 页面宽度 - 左侧面板 - canvas 最小宽度)
+      const maxCenter = Math.min(700, pageWidth - leftW - minCanvas)
+      setStudioCenterWidth(Math.min(maxCenter, Math.max(360, resizeState.startWidth + delta)))
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
   }
 
-  function handleStudioCenterResize(event: MouseEvent) {
+  function onPagePointerUp() {
+    if (resizingLeft()) {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      setResizingLeft(false)
+      setStudioLeftStore("width", studioLeftWidth())
+    }
+    if (resizingCenter()) {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      setResizingCenter(false)
+      setStudioCenterStore("width", studioCenterWidth())
+    }
+  }
+
+  function handleStudioLeftResize(event: PointerEvent) {
     event.preventDefault()
-    const startX = event.clientX
-    const startWidth = studioCenterWidth()
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX
-      setStudioCenterWidth(Math.min(700, Math.max(468, startWidth + delta)))
+    setResizeState({ startX: event.clientX, startWidth: studioLeftWidth() })
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    setResizingLeft(true)
+  }
+
+  // 窗口宽度（响应式追踪）
+  const [windowWidth, setWindowWidth] = createSignal(window.innerWidth)
+
+  // 折叠图标：窗口 ≥1456px 且 <1920px 时显示
+  const [showToggleDrawer, setShowToggleDrawer] = createSignal(false)
+
+  // 窗口 <1228px 时隐藏 studio-center
+  const [showStudioCenter, setShowStudioCenter] = createSignal(true)
+  createEffect(() => {
+    const mql = window.matchMedia("(min-width: 1228px)")
+    const update = () => setShowStudioCenter(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // studio-canvas 实际宽度（依赖 showStudioCenter，需放在其声明之后）
+  const canvasWidth = createMemo(() => {
+    const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
+    const centerW = showStudioCenter() ? studioCenterWidth() : 0
+    return windowWidth() - leftW - centerW
+  })
+
+  // 窗口 <1456px 时左侧栏以遮罩层形式展示
+  const [studioLeftOverlayOpen, setStudioLeftOverlayOpen] = createSignal(false)
+  const [isOverlayMode, setIsOverlayMode] = createSignal(false)
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 1455px)")
+    const update = () => {
+      setIsOverlayMode(mql.matches)
+      if (!mql.matches) setStudioLeftOverlayOpen(false)
     }
-    function onUp() {
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // 窗口 <1456px 时左侧栏默认收缩
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 1455px)")
+    const update = () => setStudioLeftCollapsed(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    window.addEventListener("resize", update)
+    onCleanup(() => {
+      mql.removeEventListener("change", update)
+      window.removeEventListener("resize", update)
+    })
+  })
+
+  // 自适应布局：
+  //   ≥1920px:         left=296, center=(w-296)*29%, 限幅[360,700]
+  //   1228px-1919px:   left=296, center=(w-296)*31%, 限幅[360,700]
+  createEffect(() => {
+    const mqlWide = window.matchMedia("(min-width: 1920px)")
+    const mqlMedium = window.matchMedia("(min-width: 1456px) and (max-width: 1919px)")
+    const mqlCenter31 = window.matchMedia("(min-width: 1228px) and (max-width: 1919px)")
+
+    const calcCenterWidth = () => {
+      setWindowWidth(window.innerWidth)
+      if (mqlWide.matches) {
+        const target = Math.round((window.innerWidth - 296) * 0.29)
+        setStudioCenterWidth(Math.min(700, Math.max(360, target)))
+      } else if (mqlCenter31.matches) {
+        const target = Math.round((window.innerWidth - 296) * 0.31)
+        setStudioCenterWidth(Math.min(700, Math.max(360, target)))
+      }
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+
+    const onMediaChange = () => {
+      setShowToggleDrawer(mqlMedium.matches)
+      if (mqlWide.matches || mqlMedium.matches) {
+        if (!studioLeftCollapsed()) setStudioLeftWidth(296)
+      }
+      setWindowWidth(window.innerWidth)
+      calcCenterWidth()
+    }
+
+    onMediaChange()
+    mqlWide.addEventListener("change", onMediaChange)
+    mqlMedium.addEventListener("change", onMediaChange)
+    mqlCenter31.addEventListener("change", onMediaChange)
+    window.addEventListener("resize", calcCenterWidth)
+    onCleanup(() => {
+      mqlWide.removeEventListener("change", onMediaChange)
+      mqlMedium.removeEventListener("change", onMediaChange)
+      mqlCenter31.removeEventListener("change", onMediaChange)
+      window.removeEventListener("resize", calcCenterWidth)
+    })
+  })
+
+  const centerResizeLeft = createMemo(() => {
+    if (studioLeftCollapsed()) return 68
+    return studioLeftWidth()
+  })
+
+  function handleStudioCenterResize(event: PointerEvent) {
+    event.preventDefault()
+    setResizeState({ startX: event.clientX, startWidth: studioCenterWidth() })
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    setResizingCenter(true)
   }
 
   const isBusy = createMemo(() =>
@@ -435,6 +564,7 @@ export default function StudioPage() {
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
       parts: dataStore.part,
       fallback: pendingResult(),
+      currentSessionID: params.id,
     }),
   )
   const displayTurns = createMemo(() =>
@@ -526,7 +656,15 @@ export default function StudioPage() {
   })
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
-  const defaultResult = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
+  const defaultResult = createMemo(() => {
+    const turn = studioTurn()
+    // 跳过无图片的失败结果（包括用户取消生成），canvas 不应显示红色报错
+    if (turn?.result && turn.result.images.length === 0 &&
+        (turn.result.status === "failed" || turn.result.status === "create_failed")) {
+      return latestCompletedTurn()?.result ?? pendingResult()
+    }
+    return turn?.result ?? latestCompletedTurn()?.result ?? pendingResult()
+  })
   const selectedResult = createMemo(() => {
     const id = selectedResultId()
     if (!id) return
@@ -765,7 +903,10 @@ export default function StudioPage() {
           setStatus("idle")
           setPendingResult(undefined)
         }
-        if (id && !sending() && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
+        // Clear pendingResult when switching to an unrelated session, even
+        // when sending() is still true (the pending result is scoped to the
+        // previous session and should not ghost into the new one).
+        if (id && !preserveGenerationCapability && pendingResult()?.sessionID !== id) {
           setStatus("idle")
           setPendingResult(undefined)
         }
@@ -1718,11 +1859,12 @@ export default function StudioPage() {
       const bodyText = await response.text()
       if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
       const generation = JSON.parse(bodyText) as StudioGenerationResult
+      // 用户主动取消，清除 pendingResult 避免 canvas 显示"生成失败"
       setPendingResult((item) => {
         if (!item || item.id !== generation.id) return item
-        return { ...generation, sourceImage: item.sourceImage }
+        return undefined
       })
-      setStatus(generation.status)
+      setStatus("idle")
       const sessionID = generation.sessionID ?? params.id
       if (sessionID) {
         void loadSessionMessages(sessionID).catch((error) => {
@@ -1772,6 +1914,32 @@ export default function StudioPage() {
     )
     if (!text || isBusy()) return
     const currentToken = ++generationToken
+    // Set UI state immediately so "生成中" feedback appears without delay.
+    setOpenMenu(null)
+    setMode("preview")
+    setSending(true)
+    setStatus("submitting")
+    setSelectedResultId(undefined)
+    setPendingResult({
+      id: `studio_pending_${Date.now()}`,
+      status: "running",
+      capability: nextCapability,
+      prompt: text,
+      provider: "internel",
+      model: nextStyleModel,
+      aspectRatio: nextAspectRatio,
+      images: [],
+      progress: 0,
+      createdAt: Date.now(),
+      sourceImage: overrides?.sourceImage,
+      ...(nextCapability === "video.generate"
+        ? {
+            videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+            duration: nextVideoDuration,
+            videoQualityMode: nextVideoQualityMode,
+          }
+        : {}),
+    })
     const previousPrompt = prompt()
     const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
@@ -1807,31 +1975,6 @@ export default function StudioPage() {
             parts: dataStore.part,
           })
         : ""
-    setOpenMenu(null)
-    setMode("preview")
-    setSending(true)
-    setStatus("submitting")
-    setSelectedResultId(undefined)
-    setPendingResult({
-      id: `studio_pending_${Date.now()}`,
-      status: "running",
-      capability: nextCapability,
-      prompt: text,
-      provider: "internel",
-      model: nextStyleModel,
-      aspectRatio: nextAspectRatio,
-      images: [],
-      progress: 0,
-      createdAt: Date.now(),
-      sourceImage: overrides?.sourceImage,
-      ...(nextCapability === "video.generate"
-        ? {
-            videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-            duration: nextVideoDuration,
-            videoQualityMode: nextVideoQualityMode,
-          }
-        : {}),
-    })
     if (!overrides?.useRestoredInputs) {
       setPrompt("")
       setAssets([])
@@ -1841,9 +1984,10 @@ export default function StudioPage() {
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       if (currentToken !== generationToken) return
+      // Always attach sessionID to pendingResult so it can be scoped to the correct session.
+      setPendingResult((item) => item ? { ...item, sessionID } : item)
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
-        setPendingResult((item) => item ? { ...item, sessionID } : item)
         navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
       const generation = await createStudioGeneration({
@@ -1986,6 +2130,19 @@ export default function StudioPage() {
     ),
   )
 
+  function handleCancelGeneration() {
+    const pollingId = pollingGenerationID()
+    if (pollingId) {
+      void cancelStudioGeneration(pollingId)
+      return
+    }
+    // Still in submitting phase — abort via token
+    generationToken++
+    setPendingResult(undefined)
+    setStatus("idle")
+    setSending(false)
+  }
+
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
     if (capability() === "image.upscale") {
@@ -2094,7 +2251,7 @@ export default function StudioPage() {
     compositeImage: string
     hasDrawing: boolean
   }) {
-    if (isBusy() || !input.hasDrawing) return
+    if (isBusy()) return
 
     async function doSubmit() {
       let sourceUrl = input.sourceImage
@@ -2124,7 +2281,9 @@ export default function StudioPage() {
       void runGeneration({
         capability: "image.inpaint",
         sourceImage: sourceUrl,
-        prompt: input.prompt || (input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"),
+        prompt: input.prompt || (input.hasDrawing
+          ? input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"
+          : input.mode === "erase" ? "消除图中的物体" : "重绘图片"),
         extra: {
           generateMode: input.mode,
           compositeImage: compositeData,
@@ -2290,26 +2449,83 @@ export default function StudioPage() {
   })
 
   return (
-    <div ref={studioPageRef!} class="studio-page" style={{ position: "relative" }}>
-      <aside class="studio-left" style={{ width: `${studioLeftWidth()}px`, "flex-basis": `${studioLeftWidth()}px` }}>
-        <StudioHistory
-          directory={projectDir()}
-          routeSlug={routeSlug()}
-          activeSessionID={params.id}
-          onNewConversation={startNewStudioConversation}
-        />
+    <div
+      ref={studioPageRef!}
+      class="studio-page"
+      style={{ position: "relative" }}
+      onPointerMove={onPagePointerMove}
+      onPointerUp={onPagePointerUp}
+    >
+      <aside
+        class="studio-left"
+        classList={{ collapsed: studioLeftCollapsed() }}
+        style={{
+          width: studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
+          "flex-basis": studioLeftCollapsed() ? "68px" : `${studioLeftWidth()}px`,
+          "min-width": studioLeftCollapsed() ? "68px" : undefined,
+          transition: resizingLeft() ? "none" : "width 200ms ease, flex-basis 200ms ease",
+        }}
+      >
+        <Show
+          when={!studioLeftCollapsed()}
+          fallback={
+            <div
+              class="h-full flex flex-col items-center"
+              style={{
+                background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+                padding: "12px 10px 24px 10px",
+                cursor: "pointer",
+              }}
+              onClick={() => {
+                if (isOverlayMode()) {
+                  setStudioLeftOverlayOpen(true)
+                } else {
+                  toggleStudioLeft()
+                }
+              }}
+            >
+              <div class="flex flex-col items-center shrink-0" style={{ gap: "8px" }}>
+                <button
+                  type="button"
+                  class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+                  style={{ width: "36px", height: "36px" }}
+                  onClick={(e) => { e.stopPropagation(); startNewStudioConversation(); }}
+                >
+                  <Icon name="plus" size="normal" />
+                </button>
+                <div style={{ width: "48px", height: "1px", background: "rgba(0,0,0,0.1)" }} />
+              </div>
+              <img
+                src="/studio/IconStudio1.svg"
+                alt="Octo Studio"
+                style={{ width: "20px", height: "20px", "margin-top": "16px", "flex-shrink": "0" }}
+              />
+              <div class="flex-1" />
+              <button
+                type="button"
+                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
+                style={{ width: "36px", height: "36px" }}
+                onClick={(e) => { e.stopPropagation(); dialog.show(() => <DialogSettings />); }}
+              >
+                <Icon name="settings-gear" size="small" />
+              </button>
+            </div>
+          }
+        >
+          <StudioHistory
+            directory={projectDir()}
+            routeSlug={routeSlug()}
+            activeSessionID={params.id}
+            onNewConversation={startNewStudioConversation}
+            toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
+          />
+        </Show>
       </aside>
       <div
-        style={{
-          position: "absolute",
-          top: "0",
-          bottom: "0",
-          left: `${studioLeftWidth()}px`,
-          width: "8px",
-          cursor: "col-resize",
-          "z-index": "10",
-        }}
-        onMouseDown={handleStudioLeftResize}
+        class="absolute top-0 bottom-0 cursor-col-resize z-10"
+        classList={{ hidden: studioLeftCollapsed() }}
+        style={{ left: `${studioLeftWidth()}px`, width: "8px" }}
+        onPointerDown={handleStudioLeftResize}
       />
 
       <Show when={hasStudioConversation()} fallback={
@@ -2348,6 +2564,7 @@ export default function StudioPage() {
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onOpenMenu={setOpenMenu}
+                  onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
                   onPickFile={() => fileInputRef.click()}
@@ -2365,7 +2582,8 @@ export default function StudioPage() {
         </div>
         </main>
       }>
-        <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
+        <Show when={showStudioCenter()}>
+          <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
           <div class="studio-center-header">
             <Show
               when={headerTitle.editing}
@@ -2394,8 +2612,7 @@ export default function StudioPage() {
                 onBlur={() => void saveHeaderTitleEditor()}
               />
             </Show>
-            <Show when={activeStudioSession()} keyed>
-              {(session) => (
+            <Show when={params.id}>
                 <DropdownMenu
                   gutter={4}
                   placement="bottom-end"
@@ -2432,14 +2649,16 @@ export default function StudioPage() {
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item
-                        onSelect={() => dialog.show(() => <DialogDeleteHeaderSession session={session} />)}
+                        onSelect={() => {
+                          const session = activeStudioSession()
+                          if (session) dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                        }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu>
-              )}
             </Show>
           </div>
 
@@ -2490,6 +2709,7 @@ export default function StudioPage() {
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}
+            onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
             onPickFile={() => fileInputRef.click()}
@@ -2503,10 +2723,12 @@ export default function StudioPage() {
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
           />
         </section>
+        </Show>
         <div
           class="absolute top-0 bottom-0 cursor-col-resize z-10"
-          style={{ left: `${studioLeftWidth() + studioCenterWidth()}px`, width: "8px" }}
-          onMouseDown={handleStudioCenterResize}
+          classList={{ hidden: !showStudioCenter() }}
+          style={{ left: `${centerResizeLeft() + studioCenterWidth()}px`, width: "8px" }}
+          onPointerDown={handleStudioCenterResize}
         />
 
       <main class="studio-workspace">
@@ -2549,7 +2771,7 @@ export default function StudioPage() {
               showVideoGeneration={canGenerateVideo()}
               regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
             >
-              <Show when={showStudioCanvas() && canvasResult()?.images.length}>
+              <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
                   <button
                     class="studio-details-toggle"
@@ -2675,6 +2897,40 @@ export default function StudioPage() {
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />
+      </Show>
+      <Show when={isOverlayMode() && studioLeftOverlayOpen()}>
+        <div
+          style={{
+            position: "absolute",
+            inset: "0",
+            "z-index": "100",
+            background: "rgba(0, 0, 0, 0.2)",
+          }}
+          onClick={() => setStudioLeftOverlayOpen(false)}
+        />
+        <aside
+          style={{
+            position: "absolute",
+            top: "0",
+            left: "0",
+            bottom: "0",
+            width: "296px",
+            "z-index": "101",
+            background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
+            "border-right": "1px solid var(--border-weak-base)",
+            overflow: "hidden",
+          }}
+        >
+          <StudioHistory
+            directory={projectDir()}
+            routeSlug={routeSlug()}
+            activeSessionID={params.id}
+            onNewConversation={() => {
+              setStudioLeftOverlayOpen(false)
+              startNewStudioConversation()
+            }}
+          />
+        </aside>
       </Show>
     </div>
   )

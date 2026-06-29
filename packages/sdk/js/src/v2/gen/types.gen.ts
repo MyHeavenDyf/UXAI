@@ -7369,6 +7369,39 @@ export type StudioGenerationsGetResponses = {
 
 export type StudioGenerationsGetResponse = StudioGenerationsGetResponses[keyof StudioGenerationsGetResponses]
 
+export type InsightSessionsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    limit?: number
+    offset?: string
+  }
+  url: "/insight/sessions"
+}
+
+export type InsightSessionsListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightSessionsListError = InsightSessionsListErrors[keyof InsightSessionsListErrors]
+
+export type InsightSessionsListResponses = {
+  /**
+   * Insight sessions page
+   */
+  200: {
+    items: Array<Session>
+    total: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type InsightSessionsListResponse = InsightSessionsListResponses[keyof InsightSessionsListResponses]
+
 export type PtyConnectData = {
   body?: never
   path: {
