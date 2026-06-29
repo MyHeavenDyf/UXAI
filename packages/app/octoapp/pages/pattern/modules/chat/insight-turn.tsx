@@ -170,7 +170,6 @@ export function InsightTurn(props: {
   messageID: string
   status: SessionStatus
   pipelineBusy: boolean
-  onOpenResult: (card: OutputCard) => void
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
