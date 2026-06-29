@@ -28,6 +28,8 @@ import {
   PROMPT_PROTO_PLANNER_CREATE,
   PROMPT_PROTO_PLANNER_MODIFY,
   PROMPT_PROTO_TRIAGE,
+  PROMPT_PROTO_PAGE_TEMPLATE_MATCHER,
+  PROMPT_PROTO_SECTION_TEMPLATE_MATCHER,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -427,6 +429,26 @@ export const layer = Layer.effect(
             name: "proto_triage",
             description: "Proto triage agent.",
             prompt: PROMPT_PROTO_TRIAGE,
+            permission: Permission.fromConfig({ "*": "deny"}),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_page_template_matcher: {
+            name: "proto_page_template_matcher",
+            description: "Proto page template matcher agent.",
+            prompt: PROMPT_PROTO_PAGE_TEMPLATE_MATCHER,
+            permission: Permission.fromConfig({ "*": "deny"}),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_section_template_matcher: {
+            name: "proto_section_template_matcher",
+            description: "Proto section template matcher agent.",
+            prompt: PROMPT_PROTO_SECTION_TEMPLATE_MATCHER,
             permission: Permission.fromConfig({ "*": "deny"}),
             options: {},
             mode: "primary",
