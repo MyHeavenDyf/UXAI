@@ -2,60 +2,74 @@
 
 .mention-popover {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: 100%;
   left: 0;
   right: 0;
   max-width: 400px;
-  max-height: 320px;
-  overflow-y: auto;
   background: var(--octo-surface-page);
   border: 1px solid var(--octo-border-default);
-  border-radius: var(--octo-radius-md);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 0 1px rgba(0, 0, 0, 0.05);
-  padding: 8px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  padding: 12px 0;
   z-index: 100;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .mention-popover-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px 6px;
+  height: 40px;
+  padding: 0 24px;
   margin-bottom: 4px;
 }
 
+.mention-scroll {
+  padding: 0 12px;
+}
+
+.mention-scroll .scroll-view__viewport {
+  max-height: 252px;
+}
+
+.mention-scroll .scroll-view__thumb {
+  width: 4px;
+}
+
 .mention-popover-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--octo-text-secondary);
-  letter-spacing: 0.02em;
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .mention-popover-hint {
-  font-size: 11px;
-  color: var(--octo-text-disabled);
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .mention-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  padding: 6px 8px;
-  border-radius: var(--octo-radius-sm);
+  height: 40px;
+  padding: 0 8px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background-color 0.15s ease;
   border: none;
   background: transparent;
   text-align: left;
 }
 
 .mention-item:hover {
-  background: var(--octo-surface-hover);
+  background-color: rgba(10, 89, 247, 0.08);
 }
 
 .mention-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin-top: 8px;
 }
 
@@ -64,16 +78,19 @@
 }
 
 .mention-section-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--octo-text-secondary);
-  padding: 4px 8px 6px;
-  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
+  height: 40px;
+  padding: 0 12px;
 }
 
 .mention-item-dir {
-  font-size: 11px;
-  color: var(--octo-text-secondary);
+  font-size: 14px;
+  line-height: 22px;
+  color: #808080;
   margin-left: auto;
   max-width: 30%;
   min-width: 0;
@@ -83,8 +100,9 @@
 }
 
 .mention-item-name {
-  font-size: 13px;
-  color: var(--octo-text-primary);
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
   max-width: 50%;
   min-width: 0;
   white-space: nowrap;

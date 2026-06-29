@@ -76,6 +76,7 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
+import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { useMakeCommands } from "./use-make-commands"
@@ -1259,12 +1260,6 @@ if (dsId) {
     return map[kind] ?? "application/octet-stream"
   }
 
-  function getFileIcon(kind: ArtifactFileKind): "photo" | "code" | "file-tree" {
-    if (kind === "image" || kind === "svg" || kind === "video" || kind === "audio") return "photo"
-    if (kind === "html" || kind === "code") return "code"
-    return "file-tree"
-  }
-
   // ── 附件管理 ─────────────────────────────────────────────
 
   let fileInputRef!: HTMLInputElement
@@ -1749,6 +1744,7 @@ if (dsId) {
                             <span class="mention-popover-title">Design Files</span>
                             <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
                           </div>
+                          <ScrollView class="mention-scroll">
                           <Show when={files().generated.length > 0}>
                             <div class="mention-section">
                               <div class="mention-section-title">生成文件</div>
@@ -1760,7 +1756,7 @@ if (dsId) {
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => pickMention(file)}
                                   >
-                                    <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
                                     <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
                                   </button>
                                 )}
@@ -1780,7 +1776,7 @@ if (dsId) {
                                       onMouseDown={(e) => e.preventDefault()}
                                       onClick={() => pickMention(file)}
                                     >
-                                      <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                      {getFileKindIcon(file.kind, file.name)({ size: 16 })}
                                       <span class="mention-item-name mention-item-name--uploaded" title={file.name}>{file.name}</span>
                                     </button>
                                   )
@@ -1788,6 +1784,7 @@ if (dsId) {
                               </For>
                             </div>
                           </Show>
+                          </ScrollView>
                         </div>
                       )}
                     </Show>
@@ -2014,6 +2011,7 @@ if (dsId) {
                           <span class="mention-popover-title">Design Files</span>
                           <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
                         </div>
+                        <ScrollView class="mention-scroll">
                         <Show when={files().generated.length > 0}>
                           <div class="mention-section">
                             <div class="mention-section-title">生成文件</div>
@@ -2025,7 +2023,7 @@ if (dsId) {
                                   onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => pickMention(file)}
                                 >
-                                  <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                  {getFileKindIcon(file.kind, file.name)({ size: 16 })}
                                   <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
                                 </button>
                               )}
@@ -2045,7 +2043,7 @@ if (dsId) {
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => pickMention(file)}
                                   >
-                                    <Icon name={getFileIcon(file.kind)} class="size-4" />
+                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
                                     <span class="mention-item-name" title={file.name}>{file.name}</span>
                                     {dirPath && <span class="mention-item-dir" title={dirPath}>{dirPath}</span>}
                                   </button>
@@ -2054,6 +2052,7 @@ if (dsId) {
                             </For>
                           </div>
                         </Show>
+                        </ScrollView>
                       </div>
                     )}
                   </Show>
