@@ -26,6 +26,8 @@ function requestToForm(request: QuestionRequest, t: (key: string) => string): Qu
           description: opt.description,
         })),
         required: true,
+        // SDK Info.custom 默认 true(undefined 视为允许);仅 false 时关闭
+        allowCustom: q.custom !== false,
       }),
     ),
   }
