@@ -420,7 +420,7 @@ export default function StudioPage() {
       const delta = e.clientX - resizeState.startX
       const pageWidth = studioPageRef?.clientWidth ?? window.innerWidth
       const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
-      const minCanvas = 360
+      const minCanvas = 800
       // 左增右剪，左减右增：center 最大 = min(700, 页面宽度 - 左侧面板 - canvas 最小宽度)
       const maxCenter = Math.min(700, pageWidth - leftW - minCanvas)
       setStudioCenterWidth(Math.min(maxCenter, Math.max(360, resizeState.startWidth + delta)))
