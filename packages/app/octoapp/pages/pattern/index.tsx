@@ -27,10 +27,10 @@ import { mergeModules } from "./agents/merge"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
 import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
-import { rollbackToVersion } from "./utils/version-history"
 import { classifyAIError } from "./utils/error-msg"
 import { detectA2UIJson } from "./utils/a2ui-protocol"
 import { autoRenameSession } from "./utils/rename-session"
+import { groupRounds } from "./utils/round-messages"
 import { exportZip } from "./utils/previewHandler/zip"
 import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify_json_quick'
 import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/previewHandler"
@@ -212,87 +212,12 @@ function PatternContent() {
   const roundMessages = createMemo(() => {
     const id = params.id
     if (!id) return []
-    const allRootMsgs = (sync.data.message[id] ?? []) as Message[]
-    const rootUserMsgs = allRootMsgs.filter((m) => m.role === "user")
-    const childIDs = childSessionIDs()
-    if (childIDs.length === 0 && rootUserMsgs.length === 0) return []
-
-    type Item = { sessionID: string; messageID: string; time: number }
-    type Round = { startTime: number; endTime?: number; items: Item[]; cancelled: boolean }
-
-    // Collect all round boundary timestamps.
-    // Create mode (round 1): no root user messages, child sessions exist → boundary at 0.
-    // Modify mode (round 2+): each root user message (triage prompt) is a boundary.
-    const roundStarts: number[] = []
-    const firstRootTime = rootUserMsgs.length > 0 ? (rootUserMsgs[0].time?.created ?? Infinity) : Infinity
-    const hasEarlyChildren = childIDs.some((cid) => {
-      const msgs = (sync.data.message[cid] ?? []) as Message[]
-      return (msgs[0]?.time?.created ?? Infinity) < firstRootTime
-    })
-    if (hasEarlyChildren) roundStarts.push(0)
-    for (const m of rootUserMsgs) roundStarts.push(m.time?.created ?? 0)
-    if (roundStarts.length === 0) return []
-
-    return roundStarts.map((roundStart, ri): Round => {
-      const roundEnd = ri < roundStarts.length - 1 ? roundStarts[ri + 1] : Infinity
-      const items: Item[] = []
-      let startTime = roundStart === 0 ? Infinity : roundStart
-      let endTime: number | undefined
-      let cancelled = false
-
-      const checkCancelled = (m: Message) => {
-        if (cancelled || m.role !== "assistant") return
-        const msgError = (m as Record<string, unknown>).error as Record<string, unknown> | undefined
-        if (msgError?.name === "MessageAbortedError") {
-          cancelled = true
-          return
-        }
-        const parts = sync.data.part[m.id] as Array<Record<string, unknown>> | undefined
-        if (!parts) return
-        for (const p of parts) {
-          if (p.type !== "tool") continue
-          const st = p.state as Record<string, unknown> | undefined
-          if (st?.status === "error" && (st.error === "Cancelled" || st.error === "Tool execution aborted")) {
-            cancelled = true
-            return
-          }
-        }
-      }
-
-      // Track earliest created & latest completed across all messages in this round
-      const trackTime = (m: Message) => {
-        const t = m.time as { created: number; completed?: number }
-        if (t.created < startTime) startTime = t.created
-        if (typeof t.completed === "number" && (!endTime || t.completed > endTime)) endTime = t.completed
-      }
-
-      // Root session: only user messages go into items; track time from user + its assistant response
-      for (const m of rootUserMsgs) {
-        const t = m.time?.created ?? 0
-        if (t < roundStart || t >= roundEnd) continue
-        items.push({ sessionID: id, messageID: m.id, time: t })
-        trackTime(m)
-        const idx = allRootMsgs.findIndex((mm) => mm.id === m.id)
-        const assistant = allRootMsgs.slice(idx + 1).find((mm) => mm.role === "assistant")
-        if (assistant) { trackTime(assistant); checkCancelled(assistant) }
-      }
-
-      // Child sessions in this round's time window: user messages → items, all messages → timing
-      for (const childID of childIDs) {
-        const childMsgs = (sync.data.message[childID] ?? []) as Message[]
-        const childCreated = childMsgs[0]?.time?.created ?? Infinity
-        if (childCreated < roundStart || childCreated >= roundEnd) continue
-        for (const m of childMsgs) {
-          if (m.role === "user") items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
-          trackTime(m)
-          checkCancelled(m)
-        }
-      }
-
-      items.sort((a, b) => a.time - b.time)
-      if (startTime === Infinity) startTime = items.length > 0 ? items[0].time : Date.now()
-      return { startTime, endTime, items, cancelled }
-    })
+    return groupRounds(
+      id,
+      childSessionIDs(),
+      (sid) => (sync.data.message[sid] ?? []) as Message[],
+      (mid) => sync.data.part[mid] as Array<Record<string, unknown>> | undefined,
+    )
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -322,8 +247,8 @@ function PatternContent() {
   })
 
   const [prompt, setPrompt] = createSignal("")
-  const [sendingSid, setSendingSid] = createSignal<string | null>(null)
-  const sending = () => sendingSid() != null && sendingSid() === params.id
+  const [sendingSids, setSendingSids] = createSignal<Set<string>>(new Set())
+  const sending = () => !!params.id && sendingSids().has(params.id)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
@@ -463,7 +388,7 @@ function PatternContent() {
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
-      setSendingSid(sid)
+      setSendingSids((prev) => new Set(prev).add(sid!))
 
       // 执行流程的基础上下文
       let intentCtx = {
@@ -532,6 +457,7 @@ function PatternContent() {
       }else{
         // 首次创建页面：异步获取标题（不阻塞 pipeline）
         void autoRenameSession({
+          sync: sync,
           client: sdk.client,
           directory: sdk.directory,
           targetSessionID: sid!,
@@ -571,7 +497,12 @@ function PatternContent() {
       const error = classifyAIError(err)
       if (error.title) showToast({ title: error.title, description: error.description })
     } finally {
-      setSendingSid((prev) => (prev === sid ? null : prev))
+      setSendingSids((prev) => {
+        if (!prev.has(sid!)) return prev
+        const next = new Set(prev)
+        next.delete(sid!)
+        return next
+      })
     }
   }
 
@@ -662,7 +593,12 @@ function PatternContent() {
         await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
       }
     }
-    setSendingSid((prev) => (prev === sid ? null : prev))
+    setSendingSids((prev) => {
+      if (!prev.has(sid)) return prev
+      const next = new Set(prev)
+      next.delete(sid)
+      return next
+    })
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -789,8 +725,7 @@ function PatternContent() {
   function handleDownload() {
     download(pendingPreviewData(), params.id ?? "export")
   }
-
-  // 分享 — 打包 session 历史版本目录为 ZIP
+  // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
     await exportZip({
       historyDir: patternHistoryDir(),

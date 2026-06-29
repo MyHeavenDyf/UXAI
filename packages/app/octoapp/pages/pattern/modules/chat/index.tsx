@@ -22,6 +22,7 @@ import { ProtoIntroduction } from "./proto_introduction"
 import { ChartInput, type ChartInputProps } from "./chart_input"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { ProtoTabSwitcher, type TabKey } from "./proto-tab-switcher"
+import type { Round } from "../../utils/round-messages"
 import "../../assets/style/chat/index.css"
 
 type AutoScrollApi = ReturnType<typeof createAutoScroll>
@@ -39,12 +40,14 @@ function RoundCard(props: {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
   const generating = () => isLatest() && props.pipelineBusy
   const done = () => !isLatest() || !props.pipelineBusy
+  // 最新轮次已完成但没有任何已完成的 assistant 消息（endTime 为空）→ 被取消
+  const cancelled = () => done() && (props.cancelled || (isLatest() && props.endTime === undefined))
   return (
     <>
       <GenerationCard
         generating={generating()}
-        canPreview={done()}
-        cancelled={done() && props.cancelled}
+        canPreview={done() && !cancelled()}
+        cancelled={cancelled()}
         onOpenPreview={props.onOpenPreview}
       />
       <Show when={done() || generating()}>
@@ -88,7 +91,7 @@ export function ChatPanel(props: {
   /** 主流程是否正在生成 */
   pipelineBusy: boolean
   /** 按轮分组的消息 */
-  roundMessages: { startTime: number; endTime?: number; items: { sessionID: string; messageID: string }[]; cancelled: boolean }[]
+  roundMessages: Round[]
   /** 是否有可预览内容 */
   hasPreview: boolean
   /** 点击预览回调 */
