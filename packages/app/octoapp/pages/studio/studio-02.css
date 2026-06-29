@@ -24,6 +24,7 @@
 
 .studio-composer-send {
   position: relative;
+  z-index: 1;
   width: 32px;
   min-width: 32px;
   height: 32px;
@@ -300,6 +301,16 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px);
   border-radius: 12px;
+}
+
+/* Dropdown anchor — positioned absolutely above the toolbar, outside
+   .studio-composer-toolbar-items so overflow:hidden doesn't clip it.
+   left is set dynamically via JS based on button measurement.
+   height:0 so inner .studio-menu's bottom:calc(100%+8px) = 8px above toolbar. */
+.studio-composer-dropdown-anchor {
+  position: absolute;
+  bottom: 100%;
+  height: 0;
 }
 
 .studio-image-settings-menu {

@@ -474,6 +474,7 @@
   flex-direction: row;
   align-items: stretch;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .studio-canvas-stage {
