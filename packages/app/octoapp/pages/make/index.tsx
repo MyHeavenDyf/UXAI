@@ -629,6 +629,20 @@ const sessionMessagesLoaded = createMemo(() => {
     return withoutPrefix.slice(0, lastSlash + 1)
   }
 
+  // ── Mention popover click-outside ──
+  createEffect(() => {
+    const state = mentionState()
+    if (!state) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest(".mention-popover")) {
+        setMentionState(null)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    onCleanup(() => document.removeEventListener("mousedown", handler))
+  })
+
   // ── Slash Command List ──
   interface SlashCommand {
     trigger: string
