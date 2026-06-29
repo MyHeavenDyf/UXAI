@@ -15,6 +15,8 @@ type ProtoModuleCreateInput = {
   rootSession: string
   // 用户输入
   userInput: string
+  // 透传到工具 ctx.extra 的数据
+  extra?: Record<string, unknown>
   // 用户输入
   idPrefix: string
   // 本模块对应意图模块
