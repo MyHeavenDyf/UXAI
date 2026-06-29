@@ -30,6 +30,7 @@ import {
   PROMPT_PROTO_TRIAGE,
   PROMPT_PROTO_PATTERN_PAGE,
   PROMPT_PROTO_PATTERN_BLOCK,
+  PROMPT_PROTO_INTENT_CONFIRM,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -449,6 +450,16 @@ export const layer = Layer.effect(
             name: "proto_pattern_block",
             description: "Proto block pattern agent.",
             prompt: PROMPT_PROTO_PATTERN_BLOCK,
+            permission: Permission.fromConfig({ "*": "deny"}),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_intent_confirm: {
+            name: "proto_intent_confirm",
+            description: "Proto intent confirm agent.",
+            prompt: PROMPT_PROTO_INTENT_CONFIRM,
             permission: Permission.fromConfig({ "*": "deny"}),
             options: {},
             mode: "primary",

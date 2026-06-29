@@ -19,7 +19,7 @@ import _PROMPT_PROTO_PLANNER_MODIFY from "./prompt/proto_planner_modify.txt"
 import _PROMPT_PROTO_TRIAGE from "./prompt/proto_triage.txt"
 import _PROMPT_PROTO_PATTERN_PAGE from "./prompt/proto_pattern_page.txt"
 import _PROMPT_PROTO_PATTERN_BLOCK from "./prompt/proto_pattern_block.txt"
-
+import _PROMPT_PROTO_INTENT_CONFIRM from "./prompt/proto_intent_confirm.txt"
 
 const data = {
   COMPONENTS_CATALOG,
@@ -51,3 +51,4 @@ export const PROMPT_PROTO_PLANNER_MODIFY = formatPrompt(_PROMPT_PROTO_PLANNER_MO
 export const PROMPT_PROTO_TRIAGE = formatPrompt(_PROMPT_PROTO_TRIAGE)
 export const PROMPT_PROTO_PATTERN_PAGE = formatPrompt(_PROMPT_PROTO_PATTERN_PAGE)
 export const PROMPT_PROTO_PATTERN_BLOCK = formatPrompt(_PROMPT_PROTO_PATTERN_BLOCK)
+export const PROMPT_PROTO_INTENT_CONFIRM = formatPrompt(_PROMPT_PROTO_INTENT_CONFIRM)
