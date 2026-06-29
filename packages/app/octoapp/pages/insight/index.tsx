@@ -1019,7 +1019,7 @@ function InsightContent() {
   // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）
   const filesById = new Map<string, File>()
 
-  function addAttachments(files: File[], method: "picker" | "drop") {
+  function addAttachments(files: File[], method: "picker" | "drop" | "paste") {
     const slots = MAX_ATTACHMENTS - attachments().length
     // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
     if (files.length > slots) {
@@ -1157,6 +1157,20 @@ function InsightContent() {
     if (!isExternalFileDrag(e)) return
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length > 0) addAttachments(files, "drop")
+  }
+
+  // 粘贴文件(与 chat 一致):截获剪贴板里的文件本体走附件上传,格式是否支持交给
+  // addAttachments→validateFile 把关——白名单内(txt/md/docx/xlsx)正常上传,白名单外
+  // (含图片)照常落「不支持的格式」错误 chip,与拖拽/选择器行为一致。
+  // 纯文本/含文字的粘贴没有 file item,不拦截,交给 textarea 默认行为。
+  function handlePaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    e.preventDefault()
+    addAttachments(files, "paste")
   }
 
   function handleOpenResult(card: OutputCard) {
@@ -1470,6 +1484,7 @@ function InsightContent() {
                         onCompositionStart={handleCompositionStart}
                         onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         placeholder="请描述您的需求..."
                         class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
                         style={{
@@ -1673,6 +1688,7 @@ function InsightContent() {
                     onCompositionStart={() => setComposing(true)}
                     onCompositionEnd={() => setComposing(false)}
                     onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
                     placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
