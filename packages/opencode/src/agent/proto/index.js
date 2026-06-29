@@ -17,8 +17,8 @@ import _PROMPT_PROTO_MODULE_MODIFY from "./prompt/proto_module_modify.txt"
 import _PROMPT_PROTO_PLANNER_CREATE from "./prompt/proto_planner_create.txt"
 import _PROMPT_PROTO_PLANNER_MODIFY from "./prompt/proto_planner_modify.txt"
 import _PROMPT_PROTO_TRIAGE from "./prompt/proto_triage.txt"
-import _PROMPT_PROTO_PAGE_PATTERN from "./prompt/proto_page_pattern.txt"
-import _PROMPT_PROTO_BLOCK_PATTERN from "./prompt/proto_block_pattern.txt"
+import _PROMPT_PROTO_PATTERN_PAGE from "./prompt/proto_pattern_page.txt"
+import _PROMPT_PROTO_PATTERN_BLOCK from "./prompt/proto_pattern_block.txt"
 
 
 const data = {
@@ -49,5 +49,5 @@ export const PROMPT_PROTO_MODULE_MODIFY = formatPrompt(_PROMPT_PROTO_MODULE_MODI
 export const PROMPT_PROTO_PLANNER_CREATE = formatPrompt(_PROMPT_PROTO_PLANNER_CREATE)
 export const PROMPT_PROTO_PLANNER_MODIFY = formatPrompt(_PROMPT_PROTO_PLANNER_MODIFY)
 export const PROMPT_PROTO_TRIAGE = formatPrompt(_PROMPT_PROTO_TRIAGE)
-export const PROMPT_PROTO_PAGE_PATTERN = formatPrompt(_PROMPT_PROTO_PAGE_PATTERN)
-export const PROMPT_PROTO_BLOCK_PATTERN = formatPrompt(_PROMPT_PROTO_BLOCK_PATTERN)
+export const PROMPT_PROTO_PATTERN_PAGE = formatPrompt(_PROMPT_PROTO_PATTERN_PAGE)
+export const PROMPT_PROTO_PATTERN_BLOCK = formatPrompt(_PROMPT_PROTO_PATTERN_BLOCK)
