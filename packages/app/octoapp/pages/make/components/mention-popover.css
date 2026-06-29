@@ -75,7 +75,7 @@
   font-size: 11px;
   color: var(--octo-text-secondary);
   margin-left: auto;
-  max-width: 50%;
+  max-width: 30%;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -90,4 +90,12 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.mention-item-name--full {
+  max-width: 100%;
+}
+
+.mention-item-name--uploaded {
+  max-width: 70%;
 }

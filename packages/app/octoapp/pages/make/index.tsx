@@ -1754,7 +1754,7 @@ if (dsId) {
                                     onClick={() => pickMention(file)}
                                   >
                                     <Icon name={getFileIcon(file.kind)} class="size-4" />
-                                    <span class="mention-item-name" title={file.name}>{file.name}</span>
+                                    <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
                                   </button>
                                 )}
                               </For>
@@ -1774,8 +1774,7 @@ if (dsId) {
                                       onClick={() => pickMention(file)}
                                     >
                                       <Icon name={getFileIcon(file.kind)} class="size-4" />
-                                      <span class="mention-item-name" title={file.name}>{file.name}</span>
-                                      {dirPath && <span class="mention-item-dir" title={dirPath}>{dirPath}</span>}
+                                      <span class="mention-item-name mention-item-name--uploaded" title={file.name}>{file.name}</span>
                                     </button>
                                   )
                                 }}
@@ -2012,7 +2011,7 @@ if (dsId) {
                                   onClick={() => pickMention(file)}
                                 >
                                   <Icon name={getFileIcon(file.kind)} class="size-4" />
-                                  <span class="mention-item-name" title={file.name}>{file.name}</span>
+                                  <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
                                 </button>
                               )}
                             </For>
