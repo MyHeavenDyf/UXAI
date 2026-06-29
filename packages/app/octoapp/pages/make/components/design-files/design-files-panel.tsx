@@ -42,6 +42,7 @@ import { PreviewPane } from "./preview-pane"
 import { Breadcrumb } from "./breadcrumb"
 import { DesignFilesToolbar } from "./design-files-toolbar"
 import emptyPng from "../../icons/empty.png"
+import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 
@@ -546,15 +547,19 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       >
         <Show when={isDragOver()}>
           <div
-            class="absolute inset-0 z-50 flex items-center justify-center pointer-events-none"
+            class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
             style={{
-              background: "rgba(10, 89, 247, 0.15)",
-              border: "2px dashed rgba(10, 89, 247, 0.5)"
+              background: "rgba(194, 214, 255, 0.11)",
+              border: "2px dashed rgba(10, 89, 247, 1)",
             }}
           >
-            <div class="text-[14px] leading-[22px] font-medium" style={{ color: "var(--octo-brand)" }}>
-              把文件拖拽到这里上传
-            </div>
+            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+            <span
+              class="text-[16px]"
+              style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
+            >
+              释放鼠标上传文件
+            </span>
           </div>
         </Show>
         <input
