@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, Show, For } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show, For, type Accessor } from "solid-js"
 import { Portal } from "solid-js/web"
 import { createStore, reconcile } from "solid-js/store"
 import { logStartSession, logAgentCall } from "../../utils/debug-log"
@@ -233,6 +233,13 @@ export function PropertyEditorPopup(props: {
   let initialBgUrl = ''
   let parsedClasses: string[] = []
 
+  function toHex(color: string): string {
+    if (!color.startsWith('rgb')) return color
+    const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+    if (!m) return color
+    return '#' + [Number(m[1]), Number(m[2]), Number(m[3])].map(n => n.toString(16).padStart(2, '0')).join('')
+  }
+
   const aligns = [
     { value: 'left', label: '左对齐' },
     { value: 'center', label: '居中' },
@@ -411,32 +418,23 @@ export function PropertyEditorPopup(props: {
     if (editVAlign()) parts.push(`items-${editVAlign()}`)
 
     const pv = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64]
-      ; (function () {
-        const vals = [editPt(), editPr(), editPb(), editPl()]
-        const same = new Set(vals).size === 1
-        if (same) {
-          const v = editPt(); if (!v) return
-          parts.push(pv.includes(v) ? `p-${v / 4}` : `p-[${v}px]`)
-        } else {
-          for (const [r, p] of [[editPt, 'pt'], [editPr, 'pr'], [editPb, 'pb'], [editPl, 'pl']] as const) {
-            const v = r(); if (!v) continue
-            parts.push(pv.includes(v) ? `${p}-${v / 4}` : `${p}-[${v}px]`)
-          }
-        }
-      })()
-      ; (function () {
-        const vals = [editMt(), editMr(), editMb(), editMl()]
-        const same = new Set(vals).size === 1
-        if (same) {
-          const v = editMt(); if (!v) return
-          parts.push(pv.includes(v) ? `m-${v / 4}` : `m-[${v}px]`)
-        } else {
-          for (const [r, p] of [[editMt, 'mt'], [editMr, 'mr'], [editMb, 'mb'], [editMl, 'ml']] as const) {
-            const v = r(); if (!v) continue
-            parts.push(pv.includes(v) ? `${p}-${v / 4}` : `${p}-[${v}px]`)
-          }
-        }
-      })()
+    const pushSpacing = (prefix: string, pairs: [Accessor<number>, string][]) => {
+      const vals = pairs.map(([r]) => r())
+      const same = new Set(vals).size === 1
+      if (same) {
+        const v = pairs[0][0]()
+        if (!v) return
+        parts.push(pv.includes(v) ? `${prefix}-${v / 4}` : `${prefix}-[${v}px]`)
+        return
+      }
+      for (const [r, p] of pairs) {
+        const v = r()
+        if (!v) continue
+        parts.push(pv.includes(v) ? `${p}-${v / 4}` : `${p}-[${v}px]`)
+      }
+    }
+    pushSpacing('p', [[editPt, 'pt'], [editPr, 'pr'], [editPb, 'pb'], [editPl, 'pl']])
+    pushSpacing('m', [[editMt, 'mt'], [editMr, 'mr'], [editMb, 'mb'], [editMl, 'ml']])
     if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
       if (foundRadiusTl() && editRadiusTl()) parts.push(`rounded-tl-[${editRadiusTl()}px]`)
       if (foundRadiusTr() && editRadiusTr()) parts.push(`rounded-tr-[${editRadiusTr()}px]`)
@@ -642,11 +640,11 @@ export function PropertyEditorPopup(props: {
 
     if (v.color) {
       const c = String(v.color)
-      if (c.startsWith('#') || c.startsWith('rgb')) setEditTextColor(c)
+      if (c.startsWith('#') || c.startsWith('rgb')) setEditTextColor(toHex(c))
     }
     if (v.backgroundColor) {
       const c = String(v.backgroundColor)
-      if (c.startsWith('#') || c.startsWith('rgb')) setEditBgColor(c)
+      if (c.startsWith('#') || c.startsWith('rgb')) setEditBgColor(toHex(c))
     }
     if (v.backgroundImage) {
       const m = String(v.backgroundImage).match(/url\(['"]?([^'"()]+)['"]?\)/)
@@ -658,11 +656,7 @@ export function PropertyEditorPopup(props: {
     setEffects([])
 
     if (v.backgroundColor && v.backgroundColor !== 'transparent') {
-      setFills([{ id: ++fillIdCounter, color: v.backgroundColor, opacity: 100, visible: true }])
-    } else {
-      for (const m of rawCls.matchAll(/\bbg-\[(#(?:[a-fA-F0-9]{3}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8}))(?:\/(\d+))?\]/g)) {
-        setFills([...fills, { id: ++fillIdCounter, color: m[1], opacity: m[2] ? Number(m[2]) : 100, visible: true }])
-      }
+      setFills([{ id: ++fillIdCounter, color: toHex(v.backgroundColor), opacity: 100, visible: true }])
     }
 
     if (v.borderColor) {
@@ -671,7 +665,7 @@ export function PropertyEditorPopup(props: {
       const hasBottom = !!v.borderBottomWidth; const hasLeft = !!v.borderLeftWidth
       const hasIndiv = hasTop || hasRight || hasBottom || hasLeft
       const s: typeof strokes[number] = {
-        id: ++strokeIdCounter, color: v.borderColor, visible: true, position: 'center',
+        id: ++strokeIdCounter, color: toHex(v.borderColor), visible: true, position: 'center',
         width: sw, widthTop: 0, widthRight: 0, widthBottom: 0, widthLeft: 0,
         foundWidth: !!v.borderWidth, foundWidthTop: false, foundWidthRight: false, foundWidthBottom: false, foundWidthLeft: false,
         individualOpen: hasIndiv,
@@ -681,26 +675,6 @@ export function PropertyEditorPopup(props: {
       if (hasBottom) { s.widthBottom = px(v.borderBottomWidth); s.foundWidthBottom = true }
       if (hasLeft) { s.widthLeft = px(v.borderLeftWidth); s.foundWidthLeft = true }
       setStrokes([s])
-    } else {
-      const strokeColors = [...rawCls.matchAll(/\bborder-\[(#(?:[a-fA-F0-9]{3}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8}))\]/g)]
-      for (const sm of strokeColors) {
-        const swMatch = rawCls.match(/border-\[(\d+)px\]/)
-        const hasIndiv = rawCls.includes('border-t-[') || rawCls.includes('border-r-[') || rawCls.includes('border-b-[') || rawCls.includes('border-l-[')
-        const s: typeof strokes[number] = {
-          id: ++strokeIdCounter, color: sm[1], visible: true, position: 'center',
-          width: swMatch ? Number(swMatch[1]) : 1,
-          widthTop: 0, widthRight: 0, widthBottom: 0, widthLeft: 0,
-          foundWidth: !!swMatch, foundWidthTop: false, foundWidthRight: false, foundWidthBottom: false, foundWidthLeft: false,
-          individualOpen: hasIndiv,
-        }
-        if (hasIndiv) {
-          const tm = rawCls.match(/border-t-\[(\d+)px\]/); if (tm) { s.widthTop = Number(tm[1]); s.foundWidthTop = true }
-          const rm = rawCls.match(/border-r-\[(\d+)px\]/); if (rm) { s.widthRight = Number(rm[1]); s.foundWidthRight = true }
-          const bm = rawCls.match(/border-b-\[(\d+)px\]/); if (bm) { s.widthBottom = Number(bm[1]); s.foundWidthBottom = true }
-          const lm = rawCls.match(/border-l-\[(\d+)px\]/); if (lm) { s.widthLeft = Number(lm[1]); s.foundWidthLeft = true }
-        }
-        setStrokes([...strokes, s])
-      }
     }
 
     if (v.boxShadow && v.boxShadow !== 'none') {
@@ -715,30 +689,10 @@ export function PropertyEditorPopup(props: {
         foundBlur: !!sm, foundOffsetX: !!sm, foundOffsetY: !!sm,
         layerBlur: 0, foundLayerBlur: false, bgBlur: 0, foundBgBlur: false,
       }])
-    } else {
-      for (const sm of rawCls.matchAll(/shadow-\[(-?\d+)px_(-?\d+)px_(\d+)px_((?:#[a-fA-F0-9]{6})[a-fA-F0-9]{2})\]/g)) {
-        const color = sm[4].slice(0, 7)
-        const alpha = parseInt(sm[4].slice(7), 16)
-        setEffects([...effects, {
-          id: ++effectIdCounter, type: 'drop-shadow', visible: true, expanded: false,
-          color, opacity: Math.round(alpha / 2.55), blur: Number(sm[3]), offsetX: Number(sm[1]), offsetY: Number(sm[2]),
-          foundBlur: true, foundOffsetX: true, foundOffsetY: true,
-          layerBlur: 0, foundLayerBlur: false, bgBlur: 0, foundBgBlur: false,
-        }])
-      }
     }
     if (v.filter) {
       const bm = String(v.filter).match(/blur\((\d+)px\)/)
       if (bm) {
-        setEffects([...effects, {
-          id: ++effectIdCounter, type: 'layer-blur', visible: true, expanded: false,
-          color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0,
-          foundBlur: false, foundOffsetX: false, foundOffsetY: false,
-          layerBlur: Number(bm[1]), foundLayerBlur: true, bgBlur: 0, foundBgBlur: false,
-        }])
-      }
-    } else {
-      for (const bm of rawCls.matchAll(/blur-\[(\d+)px\]/g)) {
         setEffects([...effects, {
           id: ++effectIdCounter, type: 'layer-blur', visible: true, expanded: false,
           color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0,
@@ -757,16 +711,11 @@ export function PropertyEditorPopup(props: {
           layerBlur: 0, foundLayerBlur: false, bgBlur: Number(bm[1]), foundBgBlur: true,
         }])
       }
-    } else {
-      for (const bm of rawCls.matchAll(/backdrop-blur-\[(\d+)px\]/g)) {
-        setEffects([...effects, {
-          id: ++effectIdCounter, type: 'background-blur', visible: true, expanded: false,
-          color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0,
-          foundBlur: false, foundOffsetX: false, foundOffsetY: false,
-          layerBlur: 0, foundLayerBlur: false, bgBlur: Number(bm[1]), foundBgBlur: true,
-        }])
-      }
     }
+
+    parseFillsFromRawCls(rawCls, !!(v.backgroundColor && v.backgroundColor !== 'transparent'))
+    parseStrokesFromRawCls(rawCls, !!v.borderColor)
+    parseEffectsFromRawCls(rawCls, { shadow: !!(v.boxShadow && v.boxShadow !== 'none'), blur: !!v.filter, bgBlur: !!v.backdropFilter })
 
     setEditText((parsed.value ?? '').toString())
     const bgUrl = v.backgroundImage ? '' : (parsed.backgroundImage || '').toString()
@@ -777,17 +726,7 @@ export function PropertyEditorPopup(props: {
       initialBgUrl = editBgUrl()
     }
 
-    setRawProps(reconcile(parsed as Record<string, string>))
-
-    const defKeys = COMPONENT_PROPS[props.componentType] || []
-    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_'))
-    setPropKeys(allKeys)
-    for (const k of allKeys) {
-      const raw = (parsed[k] ?? '').toString()
-      const opts = getEnumOptions(k)
-      const def = ENUM_DEFAULTS[`${props.componentType}.${k}`] ?? (opts.includes('default') ? 'default' : '')
-      setEditProps(k, raw || def)
-    }
+    syncComponentProps(parsed)
   }
 
   function applyParseClassFallback(rawCls: string, parsed: Record<string, unknown>) {
@@ -805,7 +744,7 @@ export function PropertyEditorPopup(props: {
     const tcMatch = rawCls.match(/\btext-\[#([a-fA-F0-9]{3,8})\]/)
     setEditTextColor(tcMatch ? '#' + tcMatch[1] : '')
     const bgcMatch = rawCls.match(/\bbg-\[#([a-fA-F0-9]{3,8})\]/)
-    setEditBgColor(bgcMatch ? '#' + bgcMatch[1] : (parsed.backgroundColor || parsed.background || '').toString())
+    setEditBgColor(bgcMatch ? '#' + bgcMatch[1] : toHex((parsed.backgroundColor || parsed.background || '').toString()))
 
     const bgUrlMatch = rawCls.match(/\bbg-\[url\(\/uploads\/([^)]+)\)\]/)
     const bgUrl = bgUrlMatch ? '/uploads/' + bgUrlMatch[1] : (parsed.backgroundImage || '').toString()
@@ -844,10 +783,22 @@ export function PropertyEditorPopup(props: {
     setFills([])
     setStrokes([])
     setEffects([])
+    parseFillsFromRawCls(rawCls, false)
+    parseStrokesFromRawCls(rawCls, false)
+    parseEffectsFromRawCls(rawCls, {})
+
+    syncComponentProps(parsed)
+  }
+
+  function parseFillsFromRawCls(rawCls: string, skip: boolean) {
+    if (skip) return
     for (const m of rawCls.matchAll(/\bbg-\[(#(?:[a-fA-F0-9]{3}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8}))(?:\/(\d+))?\]/g)) {
       setFills([...fills, { id: ++fillIdCounter, color: m[1], opacity: m[2] ? Number(m[2]) : 100, visible: true }])
     }
+  }
 
+  function parseStrokesFromRawCls(rawCls: string, skip: boolean) {
+    if (skip) return
     const strokeColors = [...rawCls.matchAll(/\bborder-\[(#(?:[a-fA-F0-9]{3}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8}))\]/g)]
     for (const sm of strokeColors) {
       const swMatch = rawCls.match(/border-\[(\d+)px\]/)
@@ -867,36 +818,45 @@ export function PropertyEditorPopup(props: {
       }
       setStrokes([...strokes, s])
     }
+  }
 
-    for (const sm of rawCls.matchAll(/shadow-\[(-?\d+)px_(-?\d+)px_(\d+)px_((?:#[a-fA-F0-9]{6})[a-fA-F0-9]{2})\]/g)) {
-      const color = sm[4].slice(0, 7)
-      const alpha = parseInt(sm[4].slice(7), 16)
-      setEffects([...effects, {
-        id: ++effectIdCounter, type: 'drop-shadow', visible: true, expanded: false,
-        color, opacity: Math.round(alpha / 2.55), blur: Number(sm[3]), offsetX: Number(sm[1]), offsetY: Number(sm[2]),
-        foundBlur: true, foundOffsetX: true, foundOffsetY: true,
-        layerBlur: 0, foundLayerBlur: false, bgBlur: 0, foundBgBlur: false,
-      }])
+  function parseEffectsFromRawCls(rawCls: string, skip: { shadow?: boolean; blur?: boolean; bgBlur?: boolean }) {
+    if (!skip.shadow) {
+      for (const sm of rawCls.matchAll(/shadow-\[(-?\d+)px_(-?\d+)px_(\d+)px_((?:#[a-fA-F0-9]{6})[a-fA-F0-9]{2})\]/g)) {
+        const color = sm[4].slice(0, 7)
+        const alpha = parseInt(sm[4].slice(7), 16)
+        setEffects([...effects, {
+          id: ++effectIdCounter, type: 'drop-shadow', visible: true, expanded: false,
+          color, opacity: Math.round(alpha / 2.55), blur: Number(sm[3]), offsetX: Number(sm[1]), offsetY: Number(sm[2]),
+          foundBlur: true, foundOffsetX: true, foundOffsetY: true,
+          layerBlur: 0, foundLayerBlur: false, bgBlur: 0, foundBgBlur: false,
+        }])
+      }
     }
-    for (const bm of rawCls.matchAll(/blur-\[(\d+)px\]/g)) {
-      setEffects([...effects, {
-        id: ++effectIdCounter, type: 'layer-blur', visible: true, expanded: false,
-        color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0,
-        foundBlur: false, foundOffsetX: false, foundOffsetY: false,
-        layerBlur: Number(bm[1]), foundLayerBlur: true, bgBlur: 0, foundBgBlur: false,
-      }])
+    if (!skip.blur) {
+      for (const bm of rawCls.matchAll(/blur-\[(\d+)px\]/g)) {
+        setEffects([...effects, {
+          id: ++effectIdCounter, type: 'layer-blur', visible: true, expanded: false,
+          color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0,
+          foundBlur: false, foundOffsetX: false, foundOffsetY: false,
+          layerBlur: Number(bm[1]), foundLayerBlur: true, bgBlur: 0, foundBgBlur: false,
+        }])
+      }
     }
-    for (const bm of rawCls.matchAll(/backdrop-blur-\[(\d+)px\]/g)) {
-      setEffects([...effects, {
-        id: ++effectIdCounter, type: 'background-blur', visible: true, expanded: false,
-        color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0,
-        foundBlur: false, foundOffsetX: false, foundOffsetY: false,
-        layerBlur: 0, foundLayerBlur: false, bgBlur: Number(bm[1]), foundBgBlur: true,
-      }])
+    if (!skip.bgBlur) {
+      for (const bm of rawCls.matchAll(/backdrop-blur-\[(\d+)px\]/g)) {
+        setEffects([...effects, {
+          id: ++effectIdCounter, type: 'background-blur', visible: true, expanded: false,
+          color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0,
+          foundBlur: false, foundOffsetX: false, foundOffsetY: false,
+          layerBlur: 0, foundLayerBlur: false, bgBlur: Number(bm[1]), foundBgBlur: true,
+        }])
+      }
     }
+  }
 
+  function syncComponentProps(parsed: Record<string, unknown>) {
     setRawProps(reconcile(parsed as Record<string, string>))
-
     const defKeys = COMPONENT_PROPS[props.componentType] || []
     const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_'))
     setPropKeys(allKeys)
@@ -967,12 +927,20 @@ export function PropertyEditorPopup(props: {
           console.log("[PropertyEditor] fallback: api returned empty, using parseClass")
           applyParseClassFallback(rawCls, parsed)
         }
+        if (!editBgColor()) {
+          const f = fills.find(x => x.visible)
+          if (f) setEditBgColor(toHex(f.color))
+        }
         setDragOffset({ x: 0, y: 0 })
         ready = true
       })
     } else {
       console.log("[PropertyEditor] fallback: no tailwindToCss api, using parseClass")
       applyParseClassFallback(rawCls, parsed)
+      if (!editBgColor()) {
+        const f = fills.find(x => x.visible)
+        if (f) setEditBgColor(f.color)
+      }
       setDragOffset({ x: 0, y: 0 })
       ready = true
     }
@@ -1186,6 +1154,8 @@ export function PropertyEditorPopup(props: {
       }
     }
 
+    if (editBgColor()) css['background-color'] = editBgColor()
+
     for (const s of strokes) {
       if (!s.visible) continue
       css['border-style'] = 'solid'
@@ -1301,6 +1271,33 @@ export function PropertyEditorPopup(props: {
     props.onConfirm(confirmData)
   }
 
+  type TrblInput = {
+    value: Accessor<number>
+    setValue: (v: number) => void
+    setFound: (v: boolean) => void
+    found: Accessor<boolean>
+    placeholder: string
+    icon?: string
+  }
+
+  function renderTrblGrid(
+    tl: TrblInput, tr: TrblInput, bl: TrblInput, br: TrblInput, hasSpacer?: boolean,
+  ) {
+    const row = (a: TrblInput, b: TrblInput) => (
+      <div class="flex items-center gap-1.5 w-full min-w-0">
+        <DragInput value={a.value} setValue={a.setValue} setFound={a.setFound} found={a.found} placeholder={a.placeholder} icon={a.icon} />
+        <DragInput value={b.value} setValue={b.setValue} setFound={b.setFound} found={b.found} placeholder={b.placeholder} icon={b.icon} />
+        {hasSpacer ? <div class="w-6 shrink-0" /> : null}
+      </div>
+    )
+    return (
+      <div class="flex flex-col gap-1.5 w-full min-w-0">
+        {row(tl, tr)}
+        {row(bl, br)}
+      </div>
+    )
+  }
+
   return (
     <Show when={props.show}>
       <div
@@ -1370,49 +1367,6 @@ export function PropertyEditorPopup(props: {
           </Show>
 
           <Show when={hasClassEditor()}>
-            {/* <div>
-              <label class="mb-1 block text-xs font-medium text-slate-500">文本内容</label>
-              <textarea value={editText()} onInput={(e) => setEditText(e.currentTarget.value)}
-                placeholder="输入文本内容" rows={2} class="property-input w-full" />
-            </div> */}
-
-            {/* <div class="flex items-center gap-2">
-              <label class="text-xs font-medium text-slate-500 w-14 shrink-0">字号</label>
-              <input type="number" min={8} max={128} value={editFontSize()}
-                onInput={(e) => setEditFontSize(parseInt(e.currentTarget.value) || 14)}
-                class="property-number-input" />
-              <span class="text-xs text-slate-400">px</span>
-              <div class="flex gap-1 ml-auto">
-                <For each={[12, 14, 16, 18, 20, 24]}>
-                  {(s) => (
-                    <button onClick={() => setEditFontSize(s)}
-                      class={editFontSize() === s ? 'prop-chip-active' : 'prop-chip'}>{s}</button>
-                  )}
-                </For>
-              </div>
-            </div> */}
-
-            {/* <div class="flex items-center gap-2">
-              <label class="text-xs font-medium text-slate-500 w-14 shrink-0">字重</label>
-              <input type="range" min={100} max={900} step={100} value={editFontWeight()}
-                onInput={(e) => setEditFontWeight(parseInt(e.currentTarget.value))}
-                class="flex-1 h-1 accent-sky-500" />
-              <span class="text-xs text-slate-500 w-8 text-right">{editFontWeight()}</span>
-            </div> */}
-
-            {/* <div class="flex items-center gap-2">
-              <label class="text-xs font-medium text-slate-500 w-14 shrink-0">对齐</label>
-              <div class="flex gap-0.5">
-                <For each={aligns}>
-                  {(a) => (
-                    <button onClick={() => setEditAlign(a.value)} title={a.label}
-                      class={editAlign() === a.value ? 'prop-chip-active w-8 h-7' : 'prop-chip w-8 h-7'}>
-                      <AlignIcon value={a.value} />
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div> */}
 
             <div class="grid gap-1.5 py-0.5 border-slate-100">
               <span class="text-[10px] font-medium text-slate-500">
@@ -1505,7 +1459,7 @@ export function PropertyEditorPopup(props: {
               </Show>
             </div>
 
-            {/* <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2">
               <label class="text-xs font-medium text-slate-500 w-14 shrink-0">文字色</label>
               <div class="flex items-center gap-2 flex-1">
                 <input type="color" value={editTextColor()} onInput={(e) => setEditTextColor(e.currentTarget.value)}
@@ -1515,9 +1469,9 @@ export function PropertyEditorPopup(props: {
                   <button onClick={() => setEditTextColor('')} class="text-xs text-slate-400 hover:text-slate-600 ml-auto">清除</button>
                 </Show>
               </div>
-            </div> */}
+            </div>
 
-            {/* <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2">
               <label class="text-xs font-medium text-slate-500 w-14 shrink-0">背景</label>
               <input type="color" value={editBgColor()} onInput={(e) => setEditBgColor(e.currentTarget.value)}
                 class="w-5 h-5 rounded border border-slate-200 cursor-pointer p-0" />
@@ -1528,7 +1482,7 @@ export function PropertyEditorPopup(props: {
               <Show when={editBgImage() || (editBgUrl() && editBgUrl() !== 'none')}>
                 <button onClick={() => { setEditBgImage(null); setEditBgUrl('') }} class="text-xs text-slate-400 hover:text-slate-600">✕</button>
               </Show>
-            </div> */}
+            </div>
 
             <div class="grid gap-1.5 py-0.5 border-slate-100 min-w-0">
               <div class="flex items-center justify-between">
@@ -1579,16 +1533,12 @@ export function PropertyEditorPopup(props: {
                 </div>
               </Show>
               <Show when={paddingMode() === 'trbl'}>
-                <div class="flex flex-col gap-1.5 w-full min-w-0">
-                  <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editPt} setValue={setEditPt} setFound={setFoundPt} found={foundPt} placeholder="上" icon="↑" />
-                    <DragInput value={editPr} setValue={setEditPr} setFound={setFoundPr} found={foundPr} placeholder="右" icon="→" />
-                  </div>
-                  <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editPb} setValue={setEditPb} setFound={setFoundPb} found={foundPb} placeholder="下" icon="↓" />
-                    <DragInput value={editPl} setValue={setEditPl} setFound={setFoundPl} found={foundPl} placeholder="左" icon="←" />
-                  </div>
-                </div>
+                {renderTrblGrid(
+                  { value: editPt, setValue: setEditPt, setFound: setFoundPt, found: foundPt, placeholder: "上", icon: "↑" },
+                  { value: editPr, setValue: setEditPr, setFound: setFoundPr, found: foundPr, placeholder: "右", icon: "→" },
+                  { value: editPb, setValue: setEditPb, setFound: setFoundPb, found: foundPb, placeholder: "下", icon: "↓" },
+                  { value: editPl, setValue: setEditPl, setFound: setFoundPl, found: foundPl, placeholder: "左", icon: "←" },
+                )}
               </Show>
             </div>
 
@@ -1641,16 +1591,12 @@ export function PropertyEditorPopup(props: {
                 </div>
               </Show>
               <Show when={marginMode() === 'trbl'}>
-                <div class="flex flex-col gap-1.5 w-full min-w-0">
-                  <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editMt} setValue={setEditMt} setFound={setFoundMt} found={foundMt} placeholder="上" icon="↑" />
-                    <DragInput value={editMr} setValue={setEditMr} setFound={setFoundMr} found={foundMr} placeholder="右" icon="→" />
-                  </div>
-                  <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editMb} setValue={setEditMb} setFound={setFoundMb} found={foundMb} placeholder="下" icon="↓" />
-                    <DragInput value={editMl} setValue={setEditMl} setFound={setFoundMl} found={foundMl} placeholder="左" icon="←" />
-                  </div>
-                </div>
+                {renderTrblGrid(
+                  { value: editMt, setValue: setEditMt, setFound: setFoundMt, found: foundMt, placeholder: "上", icon: "↑" },
+                  { value: editMr, setValue: setEditMr, setFound: setFoundMr, found: foundMr, placeholder: "右", icon: "→" },
+                  { value: editMb, setValue: setEditMb, setFound: setFoundMb, found: foundMb, placeholder: "下", icon: "↓" },
+                  { value: editMl, setValue: setEditMl, setFound: setFoundMl, found: foundMl, placeholder: "左", icon: "←" },
+                )}
               </Show>
             </div>
 
@@ -1695,18 +1641,13 @@ export function PropertyEditorPopup(props: {
                 </button>
               </div>
               <Show when={cornerOpen()}>
-                <div class="flex flex-col gap-1.5 w-full min-w-0">
-                  <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editRadiusTl} setValue={setEditRadiusTl} setFound={setFoundRadiusTl} found={foundRadiusTl} placeholder="左上" />
-                    <DragInput value={editRadiusTr} setValue={setEditRadiusTr} setFound={setFoundRadiusTr} found={foundRadiusTr} placeholder="右上" />
-                    <div class="w-6 shrink-0" />
-                  </div>
-                  <div class="flex items-center gap-1.5 w-full min-w-0">
-                    <DragInput value={editRadiusBl} setValue={setEditRadiusBl} setFound={setFoundRadiusBl} found={foundRadiusBl} placeholder="左下" />
-                    <DragInput value={editRadiusBr} setValue={setEditRadiusBr} setFound={setFoundRadiusBr} found={foundRadiusBr} placeholder="右下" />
-                    <div class="w-6 shrink-0" />
-                  </div>
-                </div>
+                {renderTrblGrid(
+                  { value: editRadiusTl, setValue: setEditRadiusTl, setFound: setFoundRadiusTl, found: foundRadiusTl, placeholder: "左上" },
+                  { value: editRadiusTr, setValue: setEditRadiusTr, setFound: setFoundRadiusTr, found: foundRadiusTr, placeholder: "右上" },
+                  { value: editRadiusBl, setValue: setEditRadiusBl, setFound: setFoundRadiusBl, found: foundRadiusBl, placeholder: "左下" },
+                  { value: editRadiusBr, setValue: setEditRadiusBr, setFound: setFoundRadiusBr, found: foundRadiusBr, placeholder: "右下" },
+                  true,
+                )}
               </Show>
             </div>
 
@@ -1861,18 +1802,13 @@ export function PropertyEditorPopup(props: {
                         </button>
                       </div>
                       <Show when={s.individualOpen}>
-                        <div class="flex flex-col gap-1.5 w-full min-w-0">
-                          <div class="flex items-center gap-1.5 w-full min-w-0">
-                            <DragInput value={() => s.widthTop} setValue={(v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthTop', v); setStrokes(i, 'foundWidthTop', true) } }} setFound={() => { }} found={() => s.foundWidthTop} placeholder="上" />
-                            <DragInput value={() => s.widthRight} setValue={(v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthRight', v); setStrokes(i, 'foundWidthRight', true) } }} setFound={() => { }} found={() => s.foundWidthRight} placeholder="右" />
-                            <div class="w-6 shrink-0" />
-                          </div>
-                          <div class="flex items-center gap-1.5 w-full min-w-0">
-                            <DragInput value={() => s.widthBottom} setValue={(v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthBottom', v); setStrokes(i, 'foundWidthBottom', true) } }} setFound={() => { }} found={() => s.foundWidthBottom} placeholder="下" />
-                            <DragInput value={() => s.widthLeft} setValue={(v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthLeft', v); setStrokes(i, 'foundWidthLeft', true) } }} setFound={() => { }} found={() => s.foundWidthLeft} placeholder="左" />
-                            <div class="w-6 shrink-0" />
-                          </div>
-                        </div>
+                        {renderTrblGrid(
+                          { value: () => s.widthTop, setValue: (v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthTop', v); setStrokes(i, 'foundWidthTop', true) } }, setFound: () => {}, found: () => s.foundWidthTop, placeholder: "上" },
+                          { value: () => s.widthRight, setValue: (v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthRight', v); setStrokes(i, 'foundWidthRight', true) } }, setFound: () => {}, found: () => s.foundWidthRight, placeholder: "右" },
+                          { value: () => s.widthBottom, setValue: (v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthBottom', v); setStrokes(i, 'foundWidthBottom', true) } }, setFound: () => {}, found: () => s.foundWidthBottom, placeholder: "下" },
+                          { value: () => s.widthLeft, setValue: (v) => { const i = strokes.findIndex(x => x.id === s.id); if (i >= 0) { setStrokes(i, 'widthLeft', v); setStrokes(i, 'foundWidthLeft', true) } }, setFound: () => {}, found: () => s.foundWidthLeft, placeholder: "左" },
+                          true,
+                        )}
                       </Show>
                     </>
                   )
@@ -1980,44 +1916,7 @@ export function PropertyEditorPopup(props: {
                 }}
               </For>
             </div>
-
-            {/* <div class="flex items-center gap-2">
-              <label class="text-xs font-medium text-slate-500 w-14 shrink-0">外边距</label>
-              <EdgeInput label="上" value={editMt} found={foundMt} onValue={setEditMt} onFound={setFoundMt} />
-              <EdgeInput label="右" value={editMr} found={foundMr} onValue={setEditMr} onFound={setFoundMr} />
-              <EdgeInput label="下" value={editMb} found={foundMb} onValue={setEditMb} onFound={setFoundMb} />
-              <EdgeInput label="左" value={editMl} found={foundMl} onValue={setEditMl} onFound={setFoundMl} />
-            </div> */}
-
-            {/* <div class="flex items-center gap-2">
-              <label class="text-xs font-medium text-slate-500 w-14 shrink-0">圆角</label>
-              <input type="text" inputmode="numeric" placeholder="-"
-                value={foundRadius() ? String(editRadius()) : '-'}
-                onInput={(e) => { setEditRadius(parseInt(e.currentTarget.value) || 0); setFoundRadius(true) }}
-                class="property-number-input w-16" />
-              <span class="text-xs text-slate-400">px</span>
-              <div class="flex gap-1 ml-auto">
-                <For each={[0, 4, 8, 12, 16, 999]}>
-                  {(r) => (
-                    <button onClick={() => { setEditRadius(r); setFoundRadius(true) }}
-                      class={editRadius() === r ? 'prop-chip-active' : 'prop-chip'}>{r === 999 ? '圆' : r}</button>
-                  )}
-                </For>
-              </div>
-            </div> */}
-
-            {/* <div class="flex items-center gap-2">
-              <label class="text-xs font-medium text-slate-500 w-14 shrink-0">宽度</label>
-              <input value={editWidth()} onInput={(e) => setEditWidth(e.currentTarget.value)}
-                placeholder="auto / 100% / 300px" class="property-input flex-1" />
-            </div> */}
           </Show>
-
-          {/* <div class="border-t border-slate-100 pt-3">
-            <label class="mb-1 block text-xs font-medium text-slate-500">历史标签</label>
-            <input value={editTag()} onInput={(e) => setEditTag(e.currentTarget.value)}
-              placeholder="输入标签以便回溯" class="property-input w-full" />
-          </div> */}
 
         </div>
       </div>
