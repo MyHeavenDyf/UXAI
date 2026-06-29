@@ -67,6 +67,15 @@ export function preferAppEnv(userDataPath: string) {
       XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
     }),
   )
+  // 诊断日志: 合并后最终生效的 XDG_*, 用于判断 sidecar 与主进程读写路径是否一致
+  console.log("[server:preferAppEnv] final env", {
+    platform: process.platform,
+    shell: shell ?? "<skipped on win32>",
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+    XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+    userDataPath,
+  })
 }
 
 export async function spawnLocalServer(
@@ -238,11 +247,17 @@ function createSidecarEnv(): Record<string, string> {
   )
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
+
   // 把内网知识库 base 注入 sidecar 供 knowledge_search 读(sidecar 进程读不到 .env / VITE_,
   // 故从 main 的编译期常量 import.meta.env.OCTO_KB_BASE_URL 透传)。
   // 已通过 shell/cross-env 显式设置 OCTO_KB_BASE_URL(如外网指 mock)时不覆盖。
   if (!env.OCTO_KB_BASE_URL && import.meta.env.OCTO_KB_BASE_URL) {
     env.OCTO_KB_BASE_URL = import.meta.env.OCTO_KB_BASE_URL
+  }
+  // 把 Insight uxr-tool MCP 地址注入 sidecar 供 builtin-mcp 读(同 OCTO_KB_BASE_URL,sidecar 读不到 .env)。
+  // 已通过 shell/cross-env 显式设置时不覆盖;留空则 builtin-mcp 回落代码内默认 beta IP。
+  if (!env.OCTO_UXR_MCP_URL && import.meta.env.OCTO_UXR_MCP_URL) {
+    env.OCTO_UXR_MCP_URL = import.meta.env.OCTO_UXR_MCP_URL
   }
   return env
 }

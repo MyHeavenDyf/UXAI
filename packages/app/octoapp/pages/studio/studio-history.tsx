@@ -15,6 +15,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import { decode64 } from "@/utils/base64"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -30,7 +31,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; onNewConversation: () => void }): JSX.Element {
+export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; onNewConversation: () => void; toggleDrawer?: () => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
@@ -38,11 +39,10 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   const layout = useLayout()
 
   const [sessions, { refetch }] = createResource(
-    () => ({ dir: props.directory ?? "", id: props.activeSessionID }),
-    async (source) => {
-      const d = source.dir
-      if (!d) return [] as Session[]
-      const client = globalSDK.createClient({ directory: d })
+    () => props.directory ?? "",
+    async (dir) => {
+      if (!dir) return [] as Session[]
+      const client = globalSDK.createClient({ directory: dir })
       const result = await client.session.list()
       const data = ((result.data ?? []) as Session[])
         .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
@@ -145,7 +145,8 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
       navigate(`/${props.routeSlug}/studio/${nextSessionID}`)
       return
     }
-    layout.lastSessionPerTab.setStudio(props.directory, "")
+    const decoded = decode64(props.routeSlug)
+    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
     navigate(`/${props.routeSlug}/studio`)
   }
 
@@ -216,15 +217,30 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
       <div class="flex-1 min-h-0 flex flex-col">
         {/* New session button + divider */}
         <div class="flex flex-col gap-2 shrink-0">
-          <button
-            type="button"
-            class="flex items-center gap-3 w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-            style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
-            onClick={props.onNewConversation}
-          >
-            <Icon name="plus" size="normal" class="shrink-0" />
-            <span>{language.t("command.session.new")}</span>
-          </button>
+          <div class="flex items-center">
+            <button
+              type="button"
+              class="flex items-center gap-3 flex-1 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+              onClick={props.onNewConversation}
+            >
+              <Icon name="plus" size="normal" class="shrink-0" />
+              <span>{language.t("command.session.new")}</span>
+            </button>
+            <Show when={typeof props.toggleDrawer === 'function'}>
+              <button
+                type="button"
+                class="flex items-center justify-center rounded-lg transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
+                style={{ width: "36px", height: "36px" }}
+                onClick={(e) => { e.stopPropagation(); props.toggleDrawer!(); }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="15" viewBox="0 0 12 15" fill="none" class="shrink-0">
+                  <rect x="0.5" y="0.5" width="11" height="14" rx="2" stroke="#000000" />
+                  <line x1="2.67" y1="0.5" x2="2.67" y2="14.5" stroke="#000000" />
+                </svg>
+              </button>
+            </Show>
+          </div>
           <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
         </div>
 
@@ -349,7 +365,9 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   style={{
                                     position: "absolute",
                                     left: `${contextMenu.x}px`,
-                                    top: `${contextMenu.y}px`,
+                                    ...(contextMenu.y > window.innerHeight - 120
+                                      ? { bottom: `${window.innerHeight - contextMenu.y}px` }
+                                      : { top: `${contextMenu.y}px` }),
                                     transform: "translateX(12px)",
                                     "min-width": "132px",
                                   }}

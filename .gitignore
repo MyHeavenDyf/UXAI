@@ -26,6 +26,10 @@ target
 .scripts
 .direnv/
 
+# Vditor 运行时资源(由 vite 插件从 node_modules/vditor/dist 拷贝,见 packages/app/vite.js)
+# 本地化离线用,体积大,不入库
+packages/app/public/vendor/
+
 # Local dev files
 opencode-dev
 UPCOMING_CHANGELOG.md

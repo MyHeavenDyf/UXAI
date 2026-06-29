@@ -10,6 +10,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
+import { tracker } from "@/utils/tracker"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
@@ -134,26 +135,71 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
     }
   })
 
+  // 服务端分页(SPEC-INS-013):走 insight 专用端点 /insight/sessions(服务端先按 agent 过滤再分页),
+  // 与 components/session-list/index.tsx 同源同策略。limit 跟随目录,点「加载更多」抬高重拉。
+  const FIRST_PAGE = 100
+  const PAGE_STEP = 100
+  const [limit, setLimit] = createSignal(FIRST_PAGE)
+  createEffect(on(resolvedDir, () => setLimit(FIRST_PAGE), { defer: true }))
+
   // Insight sessions
   const [sessions, { refetch }] = createResource(
-    () => isOnboarding() ? "" : (resolvedDir() ?? ""),
-    async (d) => {
-      if (!d) {
-        setInsightFetchedDir(d)
-        return [] as Session[]
+    () => ({ dir: isOnboarding() ? "" : (resolvedDir() ?? ""), limit: limit() }),
+    async ({ dir, limit: lim }): Promise<{ items: Session[]; total: number }> => {
+      if (!dir) {
+        setInsightFetchedDir(dir)
+        return { items: [], total: 0 }
       }
-      const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
-      const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-      setInsightFetchedDir(d)
-      return data.filter(s => s.agent === INSIGHT_AGENT)
+      const client = globalSDK.createClient({ directory: dir })
+      try {
+        // 防御性:.insight 在 SDK 陈旧/旧版时可能为 undefined;data 为空表示端点 404 未部署。两者都回退。
+        const insightApi = client.insight
+        if (insightApi) {
+          const result = await insightApi.sessions.list({ directory: dir, limit: lim })
+          if (result.data) {
+            const items = (result.data.items ?? []) as Session[]
+            const rawTotal = result.data.total
+            const total = typeof rawTotal === "number" ? rawTotal : items.length
+            setInsightFetchedDir(dir)
+            return { items, total }
+          }
+        }
+        // 过渡回退:后端端点未部署 / 旧 SDK → 通用 session.list + 前端过滤(旧「先 limit 再筛」路径,仅兼容用)。
+        console.warn("[shell:sidebar] /insight/sessions unavailable, falling back to session.list")
+        const legacy = await client.session.list()
+        const filtered = ((legacy.data ?? []) as Array<Session & { agent?: string }>)
+          .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
+          .filter(s => s.agent === INSIGHT_AGENT)
+        setInsightFetchedDir(dir)
+        return { items: filtered, total: filtered.length }
+      } catch (err) {
+        console.error("[shell:sidebar] insight list failed", err)
+        setInsightFetchedDir(dir)
+        return { items: [], total: 0 }
+      }
     },
   )
 
+  // total 镜像进信号:render 里绝不能直接读 resource accessor sessions()。
+  // 否则每次 session.updated 触发的 refetch 会把该 resource 推回 pending,而它被全局
+  // <Suspense>(octo.tsx 的 Splash)追踪 → 整页闪「初始加载动画」(本组件无就近 Suspense 边界)。
+  // 见 octo-agent docs/learning/resource-accessor-refetch-flashes-global-suspense.md。
   const [sessionList, setSessionList] = createStore<Session[]>([])
+  const [sessionTotal, setSessionTotal] = createSignal(0)
   createEffect(on(sessions, (data) => {
-    if (data) setSessionList(reconcile(data, { key: "id" }))
+    if (data) {
+      setSessionList(reconcile(data.items, { key: "id" }))
+      setSessionTotal(data.total)
+    }
   }, { defer: true }))
+
+  // 读镜像信号 sessionTotal(),不读 sessions()——避免上面说的全局 Suspense 闪屏。
+  const hasMore = () => sessionList.length < sessionTotal()
+  function loadMore() {
+    const next = limit() + PAGE_STEP
+    setLimit(next)
+    tracker.interaction({ module: "insight", name: "session-load-more", extend: JSON.stringify({ limit: next, source: "shell" }) })
+  }
 
   const insightStable = createMemo(() => insightFetchedDir() === resolvedDir())
 
@@ -195,6 +241,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         "padding-top": "12px",
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
         "border-right": "1px solid var(--border-weak-base)",
+        "z-index": 11,
       }}
     >
       <div class="shrink-0 flex flex-col px-[12px]">
@@ -238,6 +285,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
         <div
           data-slot="list-scroll"
           class="flex-1 min-h-0 overflow-y-auto px-[12px]"
+          style={{ position: "relative", "z-index": 11 }}
         >
           <div class="flex flex-col mb-[2px]">
             <Show
@@ -323,6 +371,17 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                     )
                   }}
                 </For>
+                <Show when={hasMore()}>
+                  <button
+                    type="button"
+                    disabled={sessions.loading}
+                    onClick={loadMore}
+                    class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center hover:bg-surface-base-hover disabled:opacity-60"
+                    style={{ height: "36px", padding: "0 24px 0 44px", color: "rgba(0,0,0,0.6)" }}
+                  >
+                    {sessions.loading ? "加载中…" : "加载更多"}
+                  </button>
+                </Show>
               </Show>
             </Show>
           </div>
@@ -353,6 +412,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                 title={item.label}
                 classList={{
                   "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,
+                  hidden: item.key === "knowledge_base",
                 }}
                 style={{
                   height: "36px",

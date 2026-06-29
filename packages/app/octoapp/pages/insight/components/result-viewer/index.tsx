@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, Show, Switch, Match } from "solid-js"
+import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -13,6 +14,10 @@ import { stripCodeFence } from "../../utils/detect"
 import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
+import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
+import { ensureLocalMarkdownFile } from "../../utils/local-resource"
+import { MarkdownEditor } from "../markdown-editor"
+import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
@@ -25,7 +30,11 @@ import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 // 自动获得 syntax highlight + 复制按钮(跟对话区的代码段视觉完全一致)。
 function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
   const fenced = createMemo(() => {
-    const raw = stripCodeFence(props.content)
+    // stripCodeFence 只对「内容本身可能被 ```lang 整段包裹」的来源(json/html,如 LLM 直出)有意义;
+    // 对 markdown / code 源**不能** strip —— md 源里合法存在代码围栏,strip 会把整篇抠成第一个围栏的内容
+    // (曾导致 md「代码」视图只剩一行,见 spec §8/output-renderers §1)。故仅 json/html 走 strip。
+    const stripable = props.lang === "json" || props.lang === "html"
+    const raw = stripable ? stripCodeFence(props.content) : props.content
     let body = raw
     if (props.lang === "json") {
       try { body = JSON.stringify(JSON.parse(raw), null, 2) } catch { /* 解析失败保持原样,shiki 容错 */ }
@@ -39,13 +48,12 @@ function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
   )
 }
 
-// ── Markdown 渲染器（复用上游 <Markdown> 组件） ────────────────
+// ── Markdown 渲染器 ──────────────────────────────────────────
+// 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
+// 效果一致(加粗/表格/代码块等);取代旧的上游 <Markdown>(渲染效果与编辑器有出入)。
+// 见 spec insight-markdown-editor.md §6.3。
 function MarkdownRenderer(props: { content: string }): JSX.Element {
-  return (
-    <div class="p-4 h-full overflow-auto prose prose-sm max-w-none">
-      <Markdown text={props.content} />
-    </div>
-  )
+  return <MarkdownPreview content={props.content} />
 }
 
 // ── 主容器 ────────────────────────────────────────────────────
@@ -62,6 +70,14 @@ export function ResultViewer(props: {
   onSetViewMode?: (id: string, mode: TabViewMode) => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
+  const projectDir = useProjectDir()
+  // 正在全屏编辑的 tab id(markdown 编辑器 overlay)。用 id 而非 tab 对象,
+  // 这样内容回写(cacheContent 换新对象)后仍指向同一 tab。
+  const [editingId, setEditingId] = createSignal<string | null>(null)
+  const editingTab = createMemo(() => {
+    const id = editingId()
+    return id ? props.tabs.find((t) => t.id === id) ?? null : null
+  })
 
   return (
     <div
@@ -83,6 +99,7 @@ export function ResultViewer(props: {
                 tab={tab()}
                 viewMode={tab().viewMode ?? "preview"}
                 onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
+                onEdit={() => setEditingId(tab().id)}
               />
               <div class="flex-1 overflow-hidden">
                 <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
@@ -90,6 +107,23 @@ export function ResultViewer(props: {
             </div>
           )}
         </Show>
+      </Show>
+
+      {/* 全屏 markdown 编辑器:Portal 到 body,盖住整个 insight 三栏布局。
+          关闭后把编辑内容回写 tab(cacheContent),使「预览/代码」显示编辑后内容。见 §2.2 / §2.3。 */}
+      <Show when={editingTab()}>
+        {(tab) => (
+          <Portal>
+            <MarkdownEditor
+              tab={tab()}
+              projectDir={projectDir() || ""}
+              onClose={(latest) => {
+                props.onCacheContent?.(tab().id, latest)
+                setEditingId(null)
+              }}
+            />
+          </Portal>
+        )}
       </Show>
     </div>
   )
@@ -108,7 +142,13 @@ function TabBody(props: {
       <Match when={props.tab.source === "path" && props.tab.type !== "file"}>
         <PathTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
-      {/* uri 模式未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
+      {/* uri markdown 卡:不直接 fetch(url),而是先把产物落成本地「工作副本」(download-resource-to-temp
+          已幂等:首次下原件、之后复用用户改过的那份),再读这份本地文件。于是卡片预览 / 编辑 / 重开卡
+          看到的都是同一份;要原件走「下载原件」(ActionBar)。见 spec insight-markdown-editor.md §3。 */}
+      <Match when={props.tab.source === "uri" && props.tab.type === "markdown" && !props.tab.content}>
+        <UriMarkdownTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      </Match>
+      {/* 其余 uri 模式(json/html/table/mindmap/file)未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
       <Match when={props.tab.source === "uri" && !props.tab.content}>
         <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
@@ -195,6 +235,58 @@ function UriTabBody(props: {
   )
 }
 
+// uri markdown 模式:先把产物落成本地工作副本(download-resource-to-temp 幂等),再读这份本地文件,
+// 使「卡片预览 / 编辑 / 本地打开 / 重开卡」回显的都是同一份(含用户改动)。要原件走「下载原件」。
+// 落点 <projectDir>/.octo/downloads/<namespace>/<file>;无项目目录时落 OS 临时目录(非持久,重启可能丢)。
+// 桌面端能力缺失(浏览器 __dev / 测试)时退回直接 fetch(url) 只读预览。见 insight-markdown-editor.md §3。
+function UriMarkdownTabBody(props: {
+  tab: ResultTab
+  onCacheContent?: (id: string, content: string) => void
+}): JSX.Element {
+  const projectDir = useProjectDir()
+  const [resource, { refetch }] = createResource(
+    () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri, dir: projectDir() || "" } : null),
+    async (src) => {
+      const api = getDesktopApi()
+      if (typeof api?.downloadResourceToTemp !== "function" || typeof api?.readFileBuffer !== "function") {
+        // 非桌面端:无本地落地能力,退回直接 fetch url(只读,不持久)
+        const text = await fetchResourceText(src.uri)
+        props.onCacheContent?.(src.id, text)
+        return text
+      }
+      // 与编辑器共用 ensureLocalMarkdownFile → 命中同一份本地工作副本(幂等:已落地复用,不重复下载)
+      const { path: localPath } = await ensureLocalMarkdownFile(props.tab, src.dir)
+      const buf = await api.readFileBuffer!(localPath)
+      const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
+      console.log("[octo:resource] md-local", { localPath, bytes: text.length })
+      props.onCacheContent?.(src.id, text)
+      return text
+    },
+  )
+
+  return (
+    <Show
+      when={!resource.error}
+      fallback={
+        <ResourceErrorFallback
+          tab={props.tab}
+          error={resource.error}
+          onRetry={() => {
+            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+            void refetch()
+          }}
+        />
+      }
+    >
+      <Show when={!resource.loading} fallback={<ResourceLoading />}>
+        <Show when={!props.onCacheContent}>
+          <TabContent tab={{ ...props.tab, content: resource() }} />
+        </Show>
+      </Show>
+    </Show>
+  )
+}
+
 // 实际内容渲染(content 已就位,inline 或缓存后均走这里)
 // toggle 类型(mindmap/html/table/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
 // json 单视图(源),file 单视图(本地打开/下载)。见 output-renderers.md §1 视图切换。
@@ -222,10 +314,13 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
           <MarkdownRenderer content={content()} />
         </Show>
       </Match>
-      <Match when={props.tab.type === "mindmap"}>
-        {/* 预览态仅在内容真能渲染成思维导图时走 MindmapRenderer;否则(源码态 / 内容非 mindmap shape)
-            直接降级为代码视图看原始 JSON —— 服务端 business_type:"mindmap" 但内容违约时,
-            不出空的错误占位、也不另起新卡(原始 JSON 就在这张卡里)。详见 output-renderers.md §6.A。 */}
+      <Match when={props.tab.type === "mindmap" || props.tab.type === "json"}>
+        {/* mindmap 卡(路径 A business_type:"mindmap")与 json 卡(路径 C .json / 路径 A application/json /
+            路径 B 嗅探)共用渲染:内容是思维导图 shape 且处于预览态 → markmap;否则(源码态 / 非 shape)→ 原始 JSON(shiki)。
+            - json 卡内容恰为树形(顶层带 children)→ `isMindmapJSON` 真 → 默认打开即 markmap 预览,并出「预览/代码」切换
+              (切换可见性见 action-bar.showToggle:json 卡按内容判定);普通配置 JSON(无 children)单显源。
+            - mindmap 卡内容违约(非 shape)→ 降级源视图,不空白/不另起卡。详见 output-renderers.md §1 + §6.A。
+            判定与渲染共用同一条 isMindmapJSON,杜绝"判中但渲空"漂移。 */}
         <Show
           when={!isSource() && isMindmapJSON(content())}
           fallback={<SourceCodeView content={content()} lang="json" />}
@@ -237,9 +332,6 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" />}>
           <HtmlRenderer content={content()} />
         </Show>
-      </Match>
-      <Match when={props.tab.type === "json"}>
-        <SourceCodeView content={content()} lang="json" />
       </Match>
       <Match when={props.tab.type === "code"}>
         {/* 路径 C 通用代码/纯文本(.py/.ts/.csv/.txt/…):shiki 按扩展名高亮,单视图。
@@ -353,10 +445,6 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   // 选了项目目录就把 MCP 文件落进 <projectDir>/.octo/downloads/ 持久保留;否则走 OS 临时目录。
   const projectDir = useProjectDir()
 
-  function sanitize(name: string): string {
-    return name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
-  }
-
   // 文件类型维度:优先取文件名扩展名,兜底 mimeType,供打点区分用户在不同类型文件上的操作偏好
   function trackFileType(): string {
     const fn = props.tab.fileName ?? ""
@@ -364,17 +452,8 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     return ext || props.tab.mimeType || ""
   }
 
-  function defaultFilename(): string {
-    if (props.tab.fileName) return sanitize(props.tab.fileName)
-    if (props.tab.uri) {
-      try {
-        const u = new URL(props.tab.uri)
-        const last = u.pathname.split("/").filter(Boolean).pop()
-        if (last) return sanitize(decodeURIComponent(last))
-      } catch { /* noop */ }
-    }
-    return sanitize(props.tab.title || "download")
-  }
+  // 默认落地文件名:复用共享 util(与 markdown 编辑器同一套规则,见 utils/local-file.ts)
+  const defaultFilename = () => defaultLocalFilename(props.tab)
 
   // path 源(write 产物):文件已在本地磁盘,直接 openPath(filePath),无需下载。
   const isPath = () => props.tab.source === "path" && !!props.tab.filePath

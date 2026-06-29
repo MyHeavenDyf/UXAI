@@ -11,8 +11,10 @@ import { DeckRenderer } from "./deck-renderer"
 import { SvgRenderer } from "./svg-renderer"
 import { ReactComponentRenderer } from "./react-component-renderer"
 import { DiagramRenderer } from "./diagram-renderer"
+import { DesignPlanRenderer } from "./design-plan-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
+import { tracker } from "@/utils/tracker"
 
 function extractCodeBlock(text: string, lang: string): string {
     const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -55,6 +57,11 @@ export function ResultViewer(props: {
   onActivate: (id: string) => void
   onClose: (id: string) => void
   onContentChange?: (id: string, content: string) => void
+  focusMode?: boolean
+  onFocusModeToggle?: () => void
+  onConfirmPlan?: (identifier?: string) => void
+  onAdjustPlan?: () => void
+  isPlanConfirmed?: () => boolean
 }): JSX.Element {
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
@@ -138,6 +145,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
         <Show when={activeTab()}>
           {(tab) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <Show when={tab().type !== "design-plan"}>
               <ActionBar
                 tab={tab()}
                 mode={canToggleMode(tab()) ? getHtmlMode(tab().id) : undefined}
@@ -150,6 +158,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 onInspectToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextInspecting = !inspecting()
                   setInspecting(nextInspecting)
+                  tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
                   if (nextInspecting && editing()) {
                     setEditing(false)
                   }
@@ -161,6 +170,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 onEditToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextEditing = !editing()
                   setEditing(nextEditing)
+                  tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
                   if (nextEditing && inspecting()) {
                     setInspecting(false)
                   }
@@ -172,6 +182,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                 onDrawToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
                   const nextDrawing = !drawing()
                   setDrawing(nextDrawing)
+                  tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
                   if (nextDrawing && inspecting()) {
                     setInspecting(false)
                   }
@@ -180,7 +191,10 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   }
                 }}
                 onRefresh={tab().type === "html" ? handleRefresh : undefined}
+                focusMode={props.focusMode}
+                onFocusModeToggle={tab().type === "local-file" || tab().type === "html" || tab().type === "svg" ? props.onFocusModeToggle : undefined}
               />
+              </Show>
               <div class="flex-1 min-h-0 overflow-hidden">
                 <Switch
                   fallback={
@@ -230,6 +244,25 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   </Match>
                   <Match when={tab().type === "react-component"}>
                     <ReactComponentRenderer content={tab().content} title={tab().title} />
+                  </Match>
+                  <Match when={tab().type === "design-plan"}>
+                    <DesignPlanRenderer
+                      content={tab().content}
+                      title={tab().title}
+                      artifactIdentifier={tab().artifactIdentifier}
+                      confirmed={props.isPlanConfirmed?.() ?? false}
+                      onConfirm={() => props.onConfirmPlan?.(tab().artifactIdentifier)}
+                      onAdjust={() => props.onAdjustPlan?.()}
+                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
+                    />
+                  </Match>
+                  <Match when={tab().type === "local-file"}>
+                    <iframe
+                      src={tab().absoluteFilePath?.match(/^https?:\/\//i)
+                        ? tab().absoluteFilePath
+                        : `local:///${tab().absoluteFilePath?.replace(/\\/g, '/')}`}
+                      style={{ width: "100%", height: "100%", border: "none" }}
+                    />
                   </Match>
                 </Switch>
               </div>

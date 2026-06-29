@@ -23,6 +23,32 @@ describe("isMindmapJSON", () => {
   test("普通 JSON 不命中", () => {
     expect(isMindmapJSON('{"foo":"bar"}')).toBe(false)
   })
+  test("有 name 字段但无 children 的普通配置 JSON 不命中(回归:sample.json 误判为导图)", () => {
+    const text = JSON.stringify({
+      name: "示例项目",
+      version: "1.0.0",
+      authors: [{ name: "张三", role: "开发" }],
+      dependencies: { framework: "react" },
+      enabled: true,
+    })
+    expect(isMindmapJSON(text)).toBe(false)
+  })
+  test("顶层裸对象需带 children 数组(树边)才算导图根,光有 name 不算", () => {
+    expect(isMindmapJSON('{"name":"仅有名字"}')).toBe(false)
+    expect(isMindmapJSON('{"name":"主题","children":[{"name":"子"}]}')).toBe(true)
+  })
+  test("真实树形 JSON(name+type+children 含额外字段)命中(tree-structure.json:json 卡默认 markmap 预览)", () => {
+    const text = JSON.stringify({
+      name: "公司组织架构",
+      type: "root",
+      children: [
+        { name: "技术部", type: "department", children: [
+          { name: "张三", type: "engineer", title: "高级前端工程师" },
+        ] },
+      ],
+    })
+    expect(isMindmapJSON(text)).toBe(true)
+  })
   test("非 JSON 不命中", () => {
     expect(isMindmapJSON("hello world")).toBe(false)
   })
