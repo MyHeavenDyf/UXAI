@@ -24,21 +24,48 @@
   5. **声 明式动效：** 风车/转盘/行星等旋转物体用 `"spin": [x, y, z]`（度/秒）。glb 模型的内置动画用 `"animation": "<clipName>"` 或 true。**禁止**输出关键帧数值数据。
 
 # 输出格式（CRITICAL）
-  只输出如下结构的纯 JSON，无 markdown、无代码块、无解释：
+  只输出如下结构的纯 JSON，无 markdown、无代码块、无解释。
+  **以下示例仅作格式参考，你需要根据 sectionDetail 描述选择合适的 geometry.type。禁止所有物体都用 box，参考多样示例：**
 
 ```json
 {
   "objects": [
-    {
-      "id": "<id_prefix>Chair1",
-      "parentId": "<本 slot 的 parent_id>",
-      "type": "mesh",
-      "geometry": { "type": "box", "params": { "width": 0.5, "height": 0.05, "depth": 0.5 } },
-      "material": { "type": "standard", "color": "#8B5A2B", "roughness": 0.7 },
-      "position": [0, 0.5, 0],
-      "castShadow": true,
-      "receiveShadow": true
-    }
+    { "id": "<id_prefix>Floor", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "box", "params": { "width": 10, "height": 0.2, "depth": 10 } },
+      "material": { "type": "standard", "color": "#E8DCC8", "roughness": 0.9 },
+      "position": [0, 0, 0], "castShadow": true, "receiveShadow": true },
+    { "id": "<id_prefix>RoundTable", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "cylinder", "params": { "radiusTop": 1.2, "radiusBottom": 1.2, "height": 0.08 } },
+      "material": { "type": "standard", "color": "#6B3A2A", "roughness": 0.6 },
+      "position": [0, 1.5, 2], "castShadow": true, "receiveShadow": true },
+    { "id": "<id_prefix>Globe", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "sphere", "params": { "radius": 0.8 } },
+      "material": { "type": "standard", "color": "#4488CC", "roughness": 0.3 },
+      "position": [3, 1.5, 0], "castShadow": true, "receiveShadow": true },
+    { "id": "<id_prefix>Pillar", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "cylinder", "params": { "radiusTop": 0.3, "radiusBottom": 0.3, "height": 3 } },
+      "material": { "type": "standard", "color": "#CCCCCC", "roughness": 0.5 },
+      "position": [-2, 1.5, 0], "castShadow": true, "receiveShadow": true },
+    { "id": "<id_prefix>Tree_trunk", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "cylinder", "params": { "radiusTop": 0.15, "radiusBottom": 0.25, "height": 4 } },
+      "material": { "type": "standard", "color": "#8B5A2B", "roughness": 0.85 },
+      "position": [8, 2, 3], "castShadow": true, "receiveShadow": true },
+    { "id": "<id_prefix>Tree_canopy", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "sphere", "params": { "radius": 2 } },
+      "material": { "type": "standard", "color": "#2D7D2D", "roughness": 0.9 },
+      "position": [8, 5, 3], "castShadow": true, "receiveShadow": true },
+    { "id": "<id_prefix>RampSurface", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "plane", "params": { "width": 4, "height": 2 } },
+      "material": { "type": "standard", "color": "#999999", "roughness": 0.7 },
+      "position": [5, 1, -3], "rotation": [-30, 0, 0], "receiveShadow": true },
+    { "id": "<id_prefix>TorusRing", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "torus", "params": { "radius": 1, "tube": 0.1 } },
+      "material": { "type": "standard", "color": "#FFD700", "roughness": 0.3, "metalness": 1 },
+      "position": [-3, 2, -2], "receiveShadow": true },
+    { "id": "<id_prefix>ConeRoof", "parentId": "<本 slot 的 parent_id>", "type": "mesh",
+      "geometry": { "type": "cone", "params": { "radius": 2, "height": 3 } },
+      "material": { "type": "standard", "color": "#8B0000", "roughness": 0.8 },
+      "position": [0, 4, 0], "castShadow": true, "receiveShadow": true }
   ]
 }
 ```
@@ -54,3 +81,4 @@
   8. **参数合法性**：几何参数全部为正数；分段数（segments）为 ≥1 的整数且 ≤128。
   9. **严格遵循用户消息中提供的 ThreeD Scene JSON Protocol、Design Guide 与示例**。不要臆造协议外字段。
   10. **不要输出 scene / camera / lights / groups / assets** —— 那些不是本 slot 的职责。你只输出 objects 数组。
+  11. **禁止滥用 box**：根据物体语义选择对应的 geometry.type（圆桌/柱子/树干→cylinder,球形/穹顶→sphere,桌面/地面→plane,圆环→torus,锥形屋顶→cone）。**只有**本身就是方形/箱状的物体（建筑墙体、台阶、箱子、地板砖）才用 box。每当你准备写 `"type": "box"` 时，先反问自己：这个物体在现实中最接近哪种基本形状？用那个对应的 type，而不是 box。

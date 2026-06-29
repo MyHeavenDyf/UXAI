@@ -176,7 +176,9 @@ function ThreeDContent() {
     const rootMsgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
     const result: (Message & { _sessionID: string })[] = rootMsgs.map((m) => ({ ...m, _sessionID: id }))
     for (const childID of childSessionIDs()) {
-      const childMsgs = ((sync.data.message[childID] ?? []) as Message[]).filter((m) => m.role === "user")
+      const childMsgs = ((sync.data.message[childID] ?? []) as Message[]).filter((m) =>
+        m.role === "user" && !((m as any).parts?.[0]?.text?.startsWith("[ThreeD")),
+      )
       for (const m of childMsgs) {
         result.push({ ...m, _sessionID: childID })
       }
@@ -226,7 +228,8 @@ function ThreeDContent() {
         const childCreated = childMsgs[0]?.time?.created ?? Infinity
         if (childCreated < roundStart || childCreated >= roundEnd) continue
         for (const m of childMsgs) {
-          if (m.role === "user") items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
+          if (m.role === "user" && !(m as any).parts?.[0]?.text?.startsWith("[ThreeD"))
+            items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
           trackTime(m)
         }
       }
