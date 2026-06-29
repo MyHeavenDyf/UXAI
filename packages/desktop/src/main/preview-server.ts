@@ -16,7 +16,7 @@ export function previewDistDir() {
 }
 
 export function previewDist3dDir() {
-  return app.isPackaged ? join(process.resourcesPath, "previewdist-3d") : join(root, "../../../preview3d")
+  return app.isPackaged ? join(process.resourcesPath, "preview3d") : join(root, "../../../preview3d")
 }
 
 const MIME: Record<string, string> = {

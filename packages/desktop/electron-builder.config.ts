@@ -62,8 +62,8 @@ const getBase = (): Configuration => ({
       filter: ["**/*"],
     },
     {
-      from: "../previewdist-3d",
-      to: "previewdist-3d",
+      from: "../preview3d",
+      to: "preview3d",
       filter: ["**/*"],
     },
   ],
