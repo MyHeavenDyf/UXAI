@@ -1,2 +1,2 @@
-const AGENT_NAME = "proto_intent_confirm"
+// const AGENT_NAME = "proto_intent_confirm"
 
