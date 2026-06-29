@@ -83,9 +83,15 @@ import {
 import { createStudioSessionData } from "./studio/studio-session-data"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
+const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
+
 type StudioGenerationOverrides = {
   capability?: StudioCapability
   prompt?: string
+  displayPrompt?: string
+  refinedPrompt?: string
+  effectivePrompt?: string
   sourceImage?: string
   referenceImages?: string[]
   extra?: Record<string, unknown>
@@ -556,17 +562,21 @@ export default function StudioPage() {
       const pendingTurnID = pending ? `studio_${pending.id}` : undefined
       const next = turns().map((turn) => {
         const normalized = turn.result ? { ...turn, result: normalizeResultValue(turn.result) } : turn
-        if (!pending || normalized.id !== pendingTurnID) return normalized
+        if (!pending || normalized.id !== pendingTurnID && normalized.result?.id !== pending.id) return normalized
+        const assistantText = pending.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT
+          ? STUDIO_REGENERATE_ASSISTANT_TEXT
+          : buildStudioThinkingText({
+              text: pending.prompt,
+              capability: pending.capability,
+              sourceImage: pending.sourceImage,
+            })
         return {
           ...normalized,
-          assistantText: normalized.assistantText || buildStudioThinkingText({
-            text: pending.prompt,
-            capability: pending.capability,
-            sourceImage: pending.sourceImage,
-          }),
+          userText: pending.displayPrompt || normalized.userText,
+          assistantText: pending.displayPrompt ? assistantText : normalized.assistantText || assistantText,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
-          toolRunning: pending.status === "running",
+          toolRunning: pending.status === "queued" || pending.status === "running",
           result: normalizeResultValue(pending),
         }
       })
@@ -580,13 +590,24 @@ export default function StudioPage() {
           .map((turn, index, all) => ({ ...turn, isLatest: index === all.length - 1 }))
       }
       if (!pending) return mergeEditorEntries(next)
+      const pendingUserText = pending.displayPrompt || pending.prompt
+      const pendingAssistantText = pending.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT
+        ? STUDIO_REGENERATE_ASSISTANT_TEXT
+        : buildStudioThinkingText({
+            text: pending.prompt,
+            capability: pending.capability,
+            sourceImage: pending.sourceImage,
+          })
       const latest = next.at(-1)
-      if (latest?.userText === pending.prompt && !latest.result?.images.length && latest.toolRunning) {
+      const pendingVisible = next.some((turn) => turn.id === pending.id || turn.id === pendingTurnID || turn.result?.id === pending.id)
+      if (latest?.userText === pendingUserText && !latest.result?.images.length && latest.toolRunning) {
         if (isStudioGenerationFailure(pending.status)) {
           return mergeEditorEntries([
             ...next.slice(0, -1),
             {
               ...latest,
+              userText: pendingUserText,
+              assistantText: pendingAssistantText,
               toolTitle: studioGenerationTitle(pending.capability, pending.status),
               toolName: pending.status === "create_failed" ? "内部 · 创建失败" : "内部 · 失败",
               toolRunning: false,
@@ -599,11 +620,8 @@ export default function StudioPage() {
           ...next.slice(0, -1),
           {
             ...latest,
-            assistantText: latest.assistantText || buildStudioThinkingText({
-              text: pending.prompt,
-              capability: pending.capability,
-              sourceImage: pending.sourceImage,
-            }),
+            userText: pendingUserText,
+            assistantText: pending.displayPrompt ? pendingAssistantText : latest.assistantText || pendingAssistantText,
             toolTitle: studioGenerationTitle(pending.capability, "succeeded"),
             toolName: "内部 · 完成",
             toolRunning: false,
@@ -611,20 +629,17 @@ export default function StudioPage() {
           },
         ])
       }
-      if (!sending() && !isStudioGenerationFailure(pending.status) && next.length > 0) return mergeEditorEntries(next)
-      if ([pending.id, pendingTurnID].includes(next.at(-1)?.id)) return mergeEditorEntries(next)
+      if (pendingVisible) return mergeEditorEntries(next)
+      if (!sending() && !isStudioGenerationFailure(pending.status) && next.length > 0 && !pending.displayPrompt) return mergeEditorEntries(next)
       return mergeEditorEntries([
         ...next,
         {
           id: pending.id,
-          userText: pending.prompt,
-          assistantText: buildStudioThinkingText({
-            text: pending.prompt,
-            capability: pending.capability,
-            sourceImage: pending.sourceImage,
-          }),
+          userText: pendingUserText,
+          assistantText: pendingAssistantText,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
+          toolRunning: pending.status === "queued" || pending.status === "running",
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -640,6 +655,13 @@ export default function StudioPage() {
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
   const defaultResult = createMemo(() => studioTurn()?.result ?? latestCompletedTurn()?.result ?? pendingResult())
+  function isSamePendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
+    return Boolean(turn && (turn.id === pending.id || turn.id === `studio_${pending.id}` || turn.result?.id === pending.id))
+  }
+  function matchesPendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
+    if (isSamePendingTurn(turn, pending)) return true
+    return !pending.displayPrompt && turn?.result?.prompt === pending.prompt
+  }
   const selectedResult = createMemo(() => {
     const id = selectedResultId()
     if (!id) return
@@ -804,57 +826,57 @@ export default function StudioPage() {
   createEffect(() => {
     const pending = pendingResult()
     if (!pending) return
-    if (studioTurn()?.id === pending.id) return
-    if (studioTurn()?.userText !== pending.prompt) return
-    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) return
-    if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) return
-    if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
-      const next = studioTurn()!.result!
+    const turn = studioTurn()
+    if (!matchesPendingTurn(turn, pending)) return
+    if (isStudioGenerationFailure(pending.status) && turn?.toolRunning) return
+    if (pending.status === "succeeded" && pending.images.length > 0 && turn?.toolRunning) return
+    if (turn?.result?.status === "queued" || turn?.result?.status === "running") {
+      const next = turn.result
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, sourceImage: current.sourceImage }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage }
       })
       setStatus(next.status)
       return
     }
-    if (!studioTurn()?.result && !studioTurn()?.toolError) return
+    if (!turn?.result && !turn?.toolError) return
     setPendingResult(undefined)
-    setStatus(studioTurn()?.result?.status ?? (studioTurn()?.toolError ? "failed" : "succeeded"))
+    setStatus(turn.result?.status ?? (turn.toolError ? "failed" : "succeeded"))
   })
 
   createEffect(() => {
     const pending = pendingResult()
     if (!pending || sending()) return
     if (sessionStatus().type !== "idle") return
-    if (studioTurn()?.id === pending.id) return
-    if (studioTurn()?.userText !== pending.prompt) return
-    if (studioTurn()?.result?.images.length) {
+    const turn = studioTurn()
+    if (!matchesPendingTurn(turn, pending)) return
+    if (turn?.result?.images.length) {
       setPendingResult(undefined)
       setStatus("succeeded")
       return
     }
-    if (studioTurn()?.result?.status === "queued" || studioTurn()?.result?.status === "running") {
-      const next = studioTurn()!.result!
+    if (turn?.result?.status === "queued" || turn?.result?.status === "running") {
+      const next = turn.result
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, sourceImage: current.sourceImage }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage }
       })
       setStatus(next.status)
       return
     }
-    if (pending.status === "succeeded" && pending.images.length > 0 && studioTurn()?.toolRunning) {
+    if (pending.status === "succeeded" && pending.images.length > 0 && turn?.toolRunning) {
       setStatus("succeeded")
       return
     }
-    if (isStudioGenerationFailure(pending.status) && studioTurn()?.toolRunning) {
+    if (isStudioGenerationFailure(pending.status) && turn?.toolRunning) {
       setStatus(pending.status)
       return
     }
-    if (!studioTurn()?.toolError && !studioTurn()?.assistantText) return
+    if (!turn?.toolError && !turn?.assistantText) return
     setPendingResult(undefined)
-    setStatus(studioTurn()?.result?.status ?? "failed")
+    setStatus(turn?.result?.status ?? "failed")
   })
 
   createEffect(
@@ -1707,11 +1729,17 @@ export default function StudioPage() {
       }
     }
     if (result.capability === "image.generate") {
+      const refinedPrompt = stringValue(input, "refinedPrompt")
+      const originalPrompt = stringValue(input, "prompt")
+      const effectivePrompt = stringValue(input, "effectivePrompt") ?? refinedPrompt ?? (result.displayPrompt && result.prompt === result.displayPrompt ? undefined : result.prompt)
       return {
         capability: result.capability,
-        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
+        displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        refinedPrompt,
+        effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
-        extra: extra ? { ...extra } : undefined,
+        extra: { ...(extra ?? {}), skipPromptRefine: true },
         styleModel: stringValue(input, "styleModel"),
         aspectRatio: nextAspectRatio,
         count: nextCount,
@@ -1732,12 +1760,15 @@ export default function StudioPage() {
   async function createStudioGeneration(input: {
     sessionID: string
     text: string
+    displayPrompt?: string
     capability: StudioCapability
     styleModel?: string
     aspectRatio?: StudioAspectRatio
     count?: 1 | 2 | 3 | 4
     referenceImages?: string[]
     sourceImage?: string
+    refinedPrompt?: string
+    effectivePrompt?: string
     extra?: Record<string, unknown>
   }) {
     const current = server.current
@@ -1762,6 +1793,9 @@ export default function StudioPage() {
         sessionID: input.sessionID,
         capability: input.capability,
         prompt: input.text,
+        displayPrompt: input.displayPrompt,
+        refinedPrompt: input.refinedPrompt,
+        effectivePrompt: input.effectivePrompt,
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
         aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? input.aspectRatio ?? aspectRatio() : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
@@ -1833,7 +1867,11 @@ export default function StudioPage() {
       const generation = JSON.parse(bodyText) as StudioGenerationResult
       setPendingResult((item) => {
         if (!item || item.id !== generation.id) return item
-        return { ...generation, sourceImage: item.sourceImage }
+        return {
+          ...generation,
+          displayPrompt: item.displayPrompt ?? generation.displayPrompt,
+          sourceImage: item.sourceImage,
+        }
       })
       setStatus(generation.status)
       const sessionID = generation.sessionID ?? params.id
@@ -1924,12 +1962,13 @@ export default function StudioPage() {
     setMode("preview")
     setSending(true)
     setStatus("submitting")
-    setSelectedResultId(undefined)
+    if (!overrides?.useRestoredInputs) setSelectedResultId(undefined)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
       status: "running",
       capability: nextCapability,
-      prompt: text,
+      prompt: overrides?.effectivePrompt ?? overrides?.refinedPrompt ?? text,
+      displayPrompt: overrides?.displayPrompt,
       provider: "internel",
       model: nextStyleModel,
       aspectRatio: nextAspectRatio,
@@ -1962,7 +2001,10 @@ export default function StudioPage() {
       const generation = await createStudioGeneration({
         sessionID,
         text,
+        displayPrompt: overrides?.displayPrompt,
         capability: nextCapability,
+        refinedPrompt: overrides?.refinedPrompt,
+        effectivePrompt: overrides?.effectivePrompt,
         styleModel: nextStyleModel,
         aspectRatio: nextAspectRatio,
         count: nextCount,
@@ -1984,10 +2026,11 @@ export default function StudioPage() {
       })
       if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
-      setPendingResult({
+      setPendingResult((current) => ({
         ...generation,
-        sourceImage: overrides?.sourceImage,
-      })
+        displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+        sourceImage: current?.sourceImage ?? overrides?.sourceImage,
+      }))
       setStatus(generation.status)
     } catch (error) {
       if (currentToken !== generationToken) return
@@ -2050,7 +2093,11 @@ export default function StudioPage() {
                 current.error === generation.error &&
                 current.images.length === generation.images.length
               ) return current
-              return { ...generation, sourceImage: current?.sourceImage }
+              return {
+                ...generation,
+                displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+                sourceImage: current?.sourceImage,
+              }
             })
             setStatus(generation.status)
 
@@ -2365,7 +2412,7 @@ export default function StudioPage() {
   }
 
   function regenerateCurrentResult() {
-    const current = result()
+    const current = canvasResult() ?? result()
     if (!current) return
     if (current.capability === "video.generate" && !canGenerateVideo()) return
     tracker.interaction({

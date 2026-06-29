@@ -368,12 +368,17 @@ function buildResult(input: {
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
   const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
+  const prompt = stringField(inputRecord, "effectivePrompt") ??
+    stringField(inputRecord, "refinedPrompt") ??
+    stringField(inputRecord, "prompt") ??
+    extractUserDemand(input.userText)
+  const displayPrompt = stringField(inputRecord, "displayPrompt")
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
   const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
-    userText: extractUserDemand(input.userText),
+    userText: displayPrompt || extractUserDemand(input.userText),
     assistantText: input.assistantText,
     toolTitle: media.length > 0
       ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
@@ -394,7 +399,8 @@ function buildResult(input: {
           id: `studio_${completed?.id ?? input.messageID}`,
           status: "succeeded",
           capability,
-          prompt: extractUserDemand(input.userText),
+          prompt,
+          displayPrompt,
           provider: resolveProvider(completed?.tool),
           toolAction: stringField(output, "toolAction") as StudioGenerationResult["toolAction"],
           taskType: stringField(output, "taskType") ?? stringField(output, "task_type") ?? stringField(inputRecord, "task_type") ?? stringField(inputRecord, "taskType"),
@@ -433,7 +439,8 @@ function buildResult(input: {
             id: progress.generationID,
             status: progress.status,
             capability,
-            prompt: extractUserDemand(input.userText),
+            prompt,
+            displayPrompt,
             provider: resolveProvider(running.tool),
             model: running.tool,
             aspectRatio,
@@ -449,7 +456,8 @@ function buildResult(input: {
               id: failure.generationID ?? `studio_${errored.id}`,
               status: failureStatus,
               capability,
-              prompt: extractUserDemand(input.userText),
+              prompt,
+              displayPrompt,
               provider: resolveProvider(errored.tool),
               model,
               aspectRatio,
@@ -522,7 +530,7 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
   return [
     {
       id: `studio_${input.fallback.id}`,
-      userText: extractUserDemand(input.fallback.prompt),
+      userText: input.fallback.displayPrompt || extractUserDemand(input.fallback.prompt),
       assistantText: "",
       toolTitle: `${input.fallback.capability === "video.generate" ? "视频生成" : "图片生成"}${
         fallbackGenerating
