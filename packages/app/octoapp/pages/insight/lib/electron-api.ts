@@ -11,6 +11,10 @@ export type DesktopApi = {
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp?: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
+  /** SPEC-INS-014:拷贝源文件进 <baseDir>/insight/sources/(撞名加后缀);返回落地路径 */
+  copyFileToWorktree?: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** 取拖拽/选取 File 的真实本地路径(Electron webUtils.getPathForFile;非桌面端为 undefined) */
+  getPathForFile?: (file: File) => string
   /** 覆盖写本地文本文件(markdown 编辑器自动保存;主进程校验路径白名单) */
   writeFile?: (path: string, content: string) => Promise<void>
   /** 读本地文件为二进制(uri markdown 卡读「本地工作副本」回显改动);文件不存在返回 null */

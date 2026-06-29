@@ -43,6 +43,7 @@ import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, sanitizeFileName, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
+import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
@@ -1042,25 +1043,21 @@ function InsightContent() {
         { id, filename: file.name, mime, size: file.size, status: "uploading" },
       ])
       void doUpload(id, file)
+      // SPEC-INS-014 §4.1:同时把源文件拷贝进 insight/sources(本地副本,供下游本地能力线;与 S3 上传解耦)。
+      // 用 rawFile(选取器/拖拽的原始 File)取真实路径——清洗后 new File() 重建的对象拿不到路径。
+      void copySourceToWorktree(file.name, rawFile)
     }
   }
 
   async function doUpload(id: string, file: File) {
     try {
       const result = await uploadFile(file)
-      tracker.interaction({
-        module: "insight",
-        name: "attachment-upload-result",
-        extend: JSON.stringify({ success: true }),
-      })
+      tracker.interaction({ module: "insight", name: "attachment-upload-result", extend: JSON.stringify({ success: true }) })
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
       )
     } catch (err) {
-      const message =
-        err instanceof UploadError ? err.message :
-        err instanceof Error ? err.message :
-        "上传失败"
+      const message = err instanceof UploadError ? err.message : err instanceof Error ? err.message : "上传失败"
       console.error("[InsightPage] upload failed", { id, filename: file.name, err })
       tracker.interaction({
         module: "insight",
@@ -1071,6 +1068,27 @@ function InsightContent() {
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
       )
+    }
+  }
+
+  // SPEC-INS-014 §4.1:把源文件拷贝进 worktree 的 insight/sources/(磁盘流式拷贝,原样不转格式)。
+  // 与 S3 上传完全解耦:拷贝是为本地能力线、上传是为 MCP。失败不阻断、不打扰用户(主进程已记日志)。
+  // 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)→ 跳过,降级不报错。
+  async function copySourceToWorktree(filename: string, srcFile: File) {
+    const api = getDesktopApi()
+    const baseDir = projectDir()
+    if (!baseDir || typeof api?.getPathForFile !== "function" || typeof api?.copyFileToWorktree !== "function") return
+    let srcPath = ""
+    try {
+      srcPath = api.getPathForFile(srcFile)
+    } catch {
+      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 跳过本地拷贝
+    }
+    if (!srcPath) return
+    try {
+      await api.copyFileToWorktree(srcPath, baseDir, filename)
+    } catch {
+      // 主进程已记 [octo:worktree] source-copy failed;此处静默,不阻断发送/MCP
     }
   }
 
