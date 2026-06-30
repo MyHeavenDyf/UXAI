@@ -390,7 +390,11 @@ function ThreeDContent() {
 
       // 生成完成回调:推送预览 + 落盘历史
       const onFinished = async ({ sceneIntent, scenePlanner, sceneJson }: any) => {
-        if (sceneJson) sendToPreview(sceneJson)
+        if (sceneJson) {
+          sendToPreview(sceneJson)
+          // 直接设 sceneDoc,绕过 detectSceneJson(serialize→parse)的静默失效风险
+          setSceneDoc(sceneJson as SceneDocument)
+        }
         setLastIntent(sceneIntent)
         setLastPlanner(scenePlanner)
         const dir = sceneHistoryDir()
