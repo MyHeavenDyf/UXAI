@@ -1,15 +1,6 @@
-/**
- * Shared Markdown-context helpers for the artifact parser.
- * Ported from open-design/apps/web/src/artifacts/markdown-context.ts
- */
-
 export const FENCE_OPEN_RE = /^```(\w[\w+-]*)?\s*$/
 export const FENCE_CLOSE_RE = /^```\s*$/
 export const INLINE_CODE_RE = /`[^`]+`/g
-
-const HEADING_RE = /^#{1,4}\s+/
-const UL_ITEM_RE = /^\s*[-*+]\s+/
-const OL_ITEM_RE = /^\s*\d+\.\s+/
 
 export function isRealArtifactOpenAt(content: string, idx: number): boolean {
   const next = content.charAt(idx + "<artifact".length)
@@ -45,7 +36,7 @@ export function computeSkipRanges(buffer: string): {
         fenceStart = pos
       } else if (line.trim() === "") {
         closeBlockBefore(pos)
-      } else if (HEADING_RE.test(line) || UL_ITEM_RE.test(line) || OL_ITEM_RE.test(line)) {
+      } else if (/^#{1,4}\s+/.test(line) || /^\s*[-*+]\s+/.test(line) || /^\s*\d+\.\s+/.test(line)) {
         closeBlockBefore(pos)
         blockRegions.push([pos, lineEnd])
       } else {
