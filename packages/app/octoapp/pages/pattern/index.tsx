@@ -25,7 +25,7 @@ import modify_json_ai from './workflow/modify_json_ai'
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
 import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
-import { classifyAIError } from "./utils/error-msg"
+import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename-session"
 import { groupRounds } from "./utils/round-messages"
 import { exportZip } from "./utils/previewHandler/zip"
@@ -134,6 +134,13 @@ function PatternContent() {
             await discoverChildSessions(id)
             if (params.id !== id) return
             setSessionSynced(true)
+            // 加载持久化的 workflow 错误
+            const errDir = patternHistoryDir()
+            if (errDir) {
+              void loadProtoError(errDir, id).then((errTitle) => {
+                if (errTitle && params.id === id) setSessionErrors((prev) => ({ ...prev, [id]: errTitle }))
+              })
+            }
             // 滚动到底部
             requestAnimationFrame(() => autoScroll.forceScrollToBottom())
           })
@@ -205,26 +212,7 @@ function PatternContent() {
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
-  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>(
-    (() => {
-      try {
-        const stored = localStorage.getItem("octo:pattern:session-errors")
-        return stored ? JSON.parse(stored) : {}
-      } catch {
-        return {}
-      }
-    })(),
-  )
-
-  createEffect(() => {
-    const errors = sessionErrors()
-    const keys = Object.keys(errors)
-    if (keys.length > 0) {
-      localStorage.setItem("octo:pattern:session-errors", JSON.stringify(errors))
-    } else {
-      localStorage.removeItem("octo:pattern:session-errors")
-    }
-  })
+  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>({})
 
   const roundMessages = createMemo(() => {
     const id = params.id
@@ -235,6 +223,7 @@ function PatternContent() {
       (sid) => (sync.data.message[sid] ?? []) as Message[],
       (mid) => sync.data.part[mid] as Array<Record<string, unknown>> | undefined,
     )
+    // 运行时 workflow 错误
     const error = sessionErrors()[id]
     if (error && rounds.length > 0) {
       rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error }
@@ -423,6 +412,8 @@ function PatternContent() {
         delete next[sid!]
         return next
       })
+      const startDir = patternHistoryDir()
+      if (startDir) void clearProtoError(startDir, sid!)
 
       // 执行流程的基础上下文
       const ds = selectedDesignSystem()
@@ -486,6 +477,7 @@ function PatternContent() {
         // AI 修改页面 — 先切到加载态
         setIsModifying(true)
         const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
+        if (params.id !== sid) return
         setIsModifying(false)
         if ((modifyResult as any)?.reply) {
           showToast({ title: (modifyResult as any).reply })
@@ -500,7 +492,7 @@ function PatternContent() {
           userText: text,
           modelKey: mk,
         }).then((title) => {
-          if (title && params.id === sid) mutateSession(prev => prev ? { ...prev, title } : prev)
+          if (title) mutateSession(prev => prev ? { ...prev, title } : prev)
         }).catch(() => {})
 
         // 首次创建页面 — 阶段 1：意图扩展 + 布局规划
@@ -518,6 +510,7 @@ function PatternContent() {
         }
 
         // 进入线框审查阶段，planner/intent 复用 lastPlanner/lastIntent
+        if (params.id !== sid) return
         setLastPlanner(new_planner.planner.layout_planner)
         setLastIntent(new_planner.intent.intent_description)
         setReviewUserInput(text)
@@ -533,15 +526,15 @@ function PatternContent() {
 
       // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
       for (const childID of childSessionIDs()) {
-        const msgs = (sync.data.message[childID] ?? []) as Message[]
-        const pending = msgs.findLast((m) => m.role === "assistant" && typeof m.time.completed !== "number")
-        if (pending) await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
       }
 
       const error = classifyAIError(err)
       if (error.title) {
         setSessionErrors((prev) => ({ ...prev, [sid!]: error.title }))
         showToast({ title: error.title, description: error.description })
+        const errDir = patternHistoryDir()
+        if (errDir) void saveProtoError(errDir, sid!, error.title)
       }
     } finally {
       setSendingSids((prev) => {
@@ -583,18 +576,13 @@ function PatternContent() {
       userInput: userInput,
       extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
       onSessionCreated: (childID: string) => {
+        if (params.id !== sid) return
         setChildSessionIDs((prev) => [...prev, childID])
       },
     }
 
     let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
-        // 触发页面渲染
-        if (pageJson) sendToPreview(pageJson)
-        // 内存数据更新
-        setLastIntent(pageIntent)
-        setLastPlanner(layoutPlanner)
-        setLastModules(modulesJson)
-        // 历史文件
+        // 历史保存始终执行（与当前查看的 session 无关）
         const dir = patternHistoryDir()
         if (dir) {
           const vid = await appendPatternVersion(dir, sid, {
@@ -603,8 +591,10 @@ function PatternContent() {
               lastModules: modulesJson,
               mergedA2UI: pageJson as unknown as Record<string, unknown>,
           }, userInput.slice(0, 80))
-          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: userInput.slice(0, 80) }])
-          setCurrentVersionId(vid)
+          if (params.id === sid) {
+            setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: userInput.slice(0, 80) }])
+            setCurrentVersionId(vid)
+          }
           const debug = getDebugSnapshot()
           void saveDebugLog(dir, sid, {
             lastIntent: pageIntent,
@@ -615,6 +605,14 @@ function PatternContent() {
           }, userInput.slice(0, 80))
           clearDebugLog()
         }
+        // 视图状态仅在仍在该 session 时更新
+        if (params.id !== sid) return
+        // 触发页面渲染
+        if (pageJson) sendToPreview(pageJson)
+        // 内存数据更新
+        setLastIntent(pageIntent)
+        setLastPlanner(layoutPlanner)
+        setLastModules(modulesJson)
     }
     
     try {
@@ -625,15 +623,15 @@ function PatternContent() {
 
       // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
       for (const childID of childSessionIDs()) {
-        const msgs = (sync.data.message[childID] ?? []) as Message[]
-        const pending = msgs.findLast((m) => m.role === "assistant" && typeof m.time.completed !== "number")
-        if (pending) await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
       }
 
       const error = classifyAIError(err)
       if (error.title) {
         setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
         showToast({ title: error.title, description: error.description })
+        const errDir = patternHistoryDir()
+        if (errDir) void saveProtoError(errDir, sid, error.title)
       }
       setIsPlanReview(true)
     } finally {
@@ -661,6 +659,8 @@ function PatternContent() {
       return next
     })
     setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
+    const haltDir = patternHistoryDir()
+    if (haltDir) void clearProtoError(haltDir, sid)
   }
 
   function handleKeyDown(e: KeyboardEvent) {

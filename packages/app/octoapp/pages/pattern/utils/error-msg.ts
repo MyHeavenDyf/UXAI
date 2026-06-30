@@ -1,3 +1,5 @@
+import { getDesktopApi } from "./desktop-api"
+
 export function classifyAIError(err: unknown): { title: string; description: string } {
   const msg = err instanceof Error ? err.message : String(err)
   if (msg === "aborted") return { title: "", description: "" }
@@ -14,4 +16,42 @@ export function classifyAIError(err: unknown): { title: string; description: str
   if (msg.includes("Failed to create session") || msg.includes("Failed to get") || msg.includes("session"))
     return { title: "会话异常", description: "Session 创建或获取失败，请重试" }
   return { title: "生成失败", description: msg.length > 150 ? msg.slice(0, 150) + "..." : msg }
+}
+
+function errorFilePath(dir: string, sessionId: string) {
+  return `${dir}/${sessionId}/proto_error.json`
+}
+
+export async function saveProtoError(dir: string, sessionId: string, errorTitle: string): Promise<void> {
+  const api = getDesktopApi()
+  const path = errorFilePath(dir, sessionId)
+  const payload = JSON.stringify({ error: errorTitle, createdAt: Date.now() })
+  if (api?.writeFileBuffer) {
+    const encoder = new TextEncoder()
+    await api.writeFileBuffer(path, encoder.encode(payload).buffer)
+  }
+}
+
+export async function loadProtoError(dir: string, sessionId: string): Promise<string | null> {
+  const api = getDesktopApi()
+  const path = errorFilePath(dir, sessionId)
+  if (api?.readFileBuffer) {
+    try {
+      const buf = await api.readFileBuffer(path)
+      if (!buf) return null
+      const data = JSON.parse(new TextDecoder().decode(buf))
+      return data.error ?? null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+export async function clearProtoError(dir: string, sessionId: string): Promise<void> {
+  const api = getDesktopApi()
+  const path = errorFilePath(dir, sessionId)
+  if (api?.deleteFile) {
+    await api.deleteFile(path).catch(() => {})
+  }
 }
