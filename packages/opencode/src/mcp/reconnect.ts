@@ -526,6 +526,10 @@ export function setupConnectionHandlers(
   // 装新 handler 前清理该 server 的模块级状态（避免标志残留导致新 client 永远不触发重连）
   terminalErrorCounts.delete(name)
   triggeredReconnectFlags.delete(name)
+  // 防御性清理：connect 成功（storeClient → setupConnectionHandlers）后，
+  // 清掉可能残留的 intentionalDisconnects 标志。disconnect 时设的标志在 connect 后应该失效。
+  // 历史背景：closeClient 曾误设此标志导致重连被永久拦下，已修复（移到 disconnect 显式调）。
+  intentionalDisconnects.delete(name)
   handlerInstalledAt.set(name, installedAt)
 
   log.info("[reconnect] connection handlers installed", {
