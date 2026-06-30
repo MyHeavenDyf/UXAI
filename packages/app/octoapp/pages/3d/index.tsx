@@ -57,10 +57,10 @@ export default function ThreeDPage() {
 
 function ThreeDPreviewEmpty(): JSX.Element {
   return (
-    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#ffffff" }}>
+    <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8" style={{ background: "#0d1117" }}>
       <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-      <div class="text-[13px]" style={{ color: "rgba(0,0,0,0.55)" }}>3D 场景将在这里展示</div>
-      <div class="text-[12px]" style={{ color: "rgba(0,0,0,0.35)" }}>在左侧描述需求即可生成</div>
+      <div class="text-[13px]" style={{ color: "rgba(255,255,255,0.6)" }}>3D 场景将在这里展示</div>
+      <div class="text-[12px]" style={{ color: "rgba(255,255,255,0.35)" }}>在左侧描述需求即可生成</div>
     </div>
   )
 }
@@ -176,9 +176,7 @@ function ThreeDContent() {
     const rootMsgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
     const result: (Message & { _sessionID: string })[] = rootMsgs.map((m) => ({ ...m, _sessionID: id }))
     for (const childID of childSessionIDs()) {
-      const childMsgs = ((sync.data.message[childID] ?? []) as Message[]).filter((m) =>
-        m.role === "user" && !((m as any).parts?.[0]?.text?.startsWith("[")),
-      )
+      const childMsgs = ((sync.data.message[childID] ?? []) as Message[]).filter((m) => m.role === "user")
       for (const m of childMsgs) {
         result.push({ ...m, _sessionID: childID })
       }
@@ -228,8 +226,7 @@ function ThreeDContent() {
         const childCreated = childMsgs[0]?.time?.created ?? Infinity
         if (childCreated < roundStart || childCreated >= roundEnd) continue
         for (const m of childMsgs) {
-          if (m.role === "user" && !(m as any).parts?.[0]?.text?.startsWith("["))
-            items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
+          if (m.role === "user") items.push({ sessionID: childID, messageID: m.id, time: m.time?.created ?? 0 })
           trackTime(m)
         }
       }
@@ -509,27 +506,13 @@ function ThreeDContent() {
     // sceneDoc 已是完整场景,PreviewPage 响应式渲染,无需额外处理
   }
 
-  // 实时预览:把当前场景写成 live-data.json,新开独立窗口(preview-server 51857 托管)渲染。
-  // 机制对齐 pattern 的 handleLivePreview(pattern/index.tsx)。
+  // 实时预览:把当前场景写成 live-data.json,新开独立窗口(preview-server 51857 托管)渲染
   async function handleLivePreview() {
     const data = sceneDoc()
-    if (!data) {
-      showToast({ title: "暂无可预览的内容" })
-      return
-    }
-    const api = (window as unknown as {
-      api?: {
-        getPreviewDist3dDir?: () => Promise<string>
-        writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
-      }
-    }).api
-
+    if (!data) return showToast({ title: "暂无可预览的内容" })
+    const api = (window as any).api
     const dir = await api?.getPreviewDist3dDir?.()
-    if (!dir || !api?.writeFileBuffer) {
-      showToast({ title: "当前环境不支持实时预览" })
-      return
-    }
-
+    if (!dir || !api?.writeFileBuffer) return showToast({ title: "当前环境不支持实时预览" })
     const buffer = new TextEncoder().encode(JSON.stringify(data)).buffer
     await api.writeFileBuffer(`${dir}/live-data.json`, buffer)
     window.open("http://127.0.0.1:51857/?fetch=live-data.json")
@@ -658,7 +641,7 @@ function ThreeDContent() {
                   position: "absolute",
                   inset: "0",
                   "z-index": "50",
-                  background: "rgba(255, 255, 255, 0.85)",
+                  background: "rgba(13, 17, 23, 0.85)",
                   display: "flex",
                   "flex-direction": "column",
                   "align-items": "center",
@@ -667,7 +650,7 @@ function ThreeDContent() {
                 }}
               >
                 <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-                <div class="text-[13px]" style={{ color: "rgba(0,0,0,0.55)" }}>正在修改场景中...</div>
+                <div class="text-[13px]" style={{ color: "rgba(255,255,255,0.7)" }}>正在修改场景中...</div>
               </div>
             </Show>
           </div>

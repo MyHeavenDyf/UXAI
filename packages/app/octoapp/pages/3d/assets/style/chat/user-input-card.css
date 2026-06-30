@@ -54,6 +54,4 @@
   background: var(--octo-brand-a8);
   border-radius: var(--octo-radius-md);
   word-break: break-all;
-  -webkit-user-select: text;
-  user-select: text;
 }

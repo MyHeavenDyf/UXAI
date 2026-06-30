@@ -28,9 +28,9 @@
 2. **确定场景基调:**
   - **styleSuggestion**：从 renderStyle 封闭目录中选一个最匹配的。
   - **scaleSuggestion**：small（桌面级，<5m）/ medium（房间级，5–30m）/ large（户外级，>30m）。
-  - **scale**（数字）：场景整体尺寸乘数。small→0.3~0.8, medium→1, large→2~10。下游用此数值统一缩放所有物体的 position/geometry 参数。
   - **lightingPlan**：用自然语言描述光照氛围（如「黄昏暖色主光 + 冷色环境补光，柔和长阴影」）。记住：PBR 物体必须有环境光。
   - **cameraPlan**：用自然语言描述相机（如「3/4 俯角，平视主体，浅景深」）。
+
 3. **区域划分（sections）:**
   - 将场景在空间上划分为若干 **区域（zone）**，每个区域是一组逻辑相关的物体。
   - 区域数量必须 ≥ 2（通常：地面/环境基底区 + 一个或多个主体物体区）。
@@ -54,7 +54,6 @@
   "sceneAnalysis": "场景业务意图与情境分析",
   "styleSuggestion": "studio | cinematic-bloom | soft-glow | neon | flat-shaded | wireframe-debug",
   "scaleSuggestion": "small | medium | large",
-  "scale": 1,
   "lightingPlan": "光照氛围的自然语言描述",
   "cameraPlan": "相机视角的自然语言描述",
   "sections": [
