@@ -1297,6 +1297,15 @@ export function PropertyEditorPopup(props: {
       </div>
     )
   }
+  function ImageUploadIcon() {
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image-up-icon lucide-image-up">
+        <path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21"/><path d="m14 19.5 3-3 3 3"/>
+        <path d="M17 22v-5.5"/>
+        <circle cx="9" cy="9" r="2"/>
+      </svg>
+    )
+  }
 
   return (
     <Show when={props.show}>
@@ -1463,7 +1472,7 @@ export function PropertyEditorPopup(props: {
               <label class="text-xs font-medium text-slate-500 w-14 shrink-0">文字色</label>
               <div class="flex items-center gap-2 flex-1">
                 <input type="color" value={editTextColor()} onInput={(e) => setEditTextColor(e.currentTarget.value)}
-                  class="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0" />
+                  class="w-5 h-5 rounded border border-slate-200 cursor-pointer p-0" />
                 <span class="text-xs text-slate-400">{editTextColor() || '继承'}</span>
                 <Show when={editTextColor()}>
                   <button onClick={() => setEditTextColor('')} class="text-xs text-slate-400 hover:text-slate-600 ml-auto">清除</button>
@@ -1475,7 +1484,7 @@ export function PropertyEditorPopup(props: {
               <label class="text-xs font-medium text-slate-500 w-14 shrink-0">背景</label>
               <input type="color" value={editBgColor()} onInput={(e) => setEditBgColor(e.currentTarget.value)}
                 class="w-5 h-5 rounded border border-slate-200 cursor-pointer p-0" />
-              <button onClick={openBgPicker} class="text-xs px-1.5 py-0.5 rounded-sm border border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50 whitespace-nowrap">图片</button>
+              <button onClick={openBgPicker} class="text-xs px-1.5 py-0.5 rounded-sm border border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50 whitespace-nowrap">{ImageUploadIcon()}</button>
               <Show when={(editBgUrl() && editBgUrl() !== 'none') || editBgImage()?.name}>
                 <span class="text-[10px] text-slate-500 truncate flex-1">{editBgImage()?.name || editBgUrl()}</span>
               </Show>
@@ -1759,7 +1768,7 @@ export function PropertyEditorPopup(props: {
                 <span class="text-[10px] font-medium text-slate-500">Stroke</span>
                 <button onClick={() => { setStrokes([...strokes, { id: ++strokeIdCounter, color: '#000000', visible: true, position: 'center', width: 1, widthTop: 0, widthRight: 0, widthBottom: 0, widthLeft: 0, foundWidth: false, foundWidthTop: false, foundWidthRight: false, foundWidthBottom: false, foundWidthLeft: false, individualOpen: false }]) }}
                   class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
-                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
                 </button>
               </div>
               <For each={strokes}>
@@ -1924,6 +1933,14 @@ export function PropertyEditorPopup(props: {
   )
 }
 
+function DragIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square h-3 w-3">
+      <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+    </svg>
+  )
+}
+
 function DragInput(props: {
   value: () => number
   setValue: (v: number) => void
@@ -1941,7 +1958,7 @@ function DragInput(props: {
   suffix?: string
   display?: string
 }) {
-  const icon = props.icon ?? '◧'
+  const icon = props.icon ?? DragIcon()
   const isV = props.direction === 'vertical'
   const mn = props.min ?? 0
   const border = props.hasBorder ? 'border border-slate-200' : ''
@@ -1982,11 +1999,9 @@ function DragInput(props: {
 
 function SettingsIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-      <rect x="3" y="1" width="10" height="3" rx=".5" />
-      <rect x="3" y="12" width="10" height="3" rx=".5" />
-      <rect x="1" y="3" width="3" height="10" rx=".5" />
-      <rect x="12" y="3" width="3" height="10" rx=".5" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings h-3 w-3">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+      <circle cx="12" cy="12" r="3"></circle>
     </svg>
   )
 }
@@ -2030,28 +2045,35 @@ function AlignIcon(props: { value: string }) {
 
 function FreeformIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-      <rect width="7" height="9" x="1" y="1" rx="1" stroke="currentColor" stroke-width="1" />
-      <rect width="7" height="5" x="1" y="11" rx="1" stroke="currentColor" stroke-width="1" />
-      <rect width="7" height="5" x="9" y="1" rx="1" stroke="currentColor" stroke-width="1" />
-      <rect width="7" height="9" x="9" y="7" rx="1" stroke="currentColor" stroke-width="1" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-layout-dashboard">
+      <rect width="7" height="9" x="3" y="3" rx="1"></rect>
+      <rect width="7" height="5" x="14" y="3" rx="1"></rect>
+      <rect width="7" height="9" x="14" y="12" rx="1"></rect>
+      <rect width="7" height="5" x="3" y="16" rx="1"></rect>
     </svg>
+
   )
 }
 
 function RowIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M14 8H2M5 5l-3 3 3 3M11 11l3-3-3-3" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-down-from-line">
+      <path d="M19 3H5"></path>
+      <path d="M12 21V7"></path>
+      <path d="m6 15 6 6 6-6"></path>
     </svg>
+
   )
 }
 
 function ColIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M8 14V2M5 5l3-3 3 3M11 11l-3 3-3-3" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right-from-line">
+      <path d="M3 5v14"></path>
+      <path d="M21 12H7"></path>
+      <path d="m15 18 6-6-6-6"></path>
     </svg>
+
   )
 }
 
