@@ -1051,8 +1051,10 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
-      // Artifact folder injection: 告诉 agent 用 write 工具时的目标目录绝对路径。
+      // Artifact folder injection: 告诉 agent 用 write 工具时的目标目录绝对路径,
+      // 以及当前会话已存在的产物文件列表(供 edit 工具使用)。
       // 必须放在 DesignSystem 注入之后,避免被 dsPrefix 重置覆盖。
+      // 文件列表每轮 sendMessage 都重新扫盘,保证新鲜。
       const folderProjDir = projectDir()
       if (folderProjDir && sessionId) {
         const sep = folderProjDir.includes("\\") ? "\\" : "/"
@@ -1061,13 +1063,32 @@ const sessionMessagesLoaded = createMemo(() => {
           ...".octo/artifacts/make".split("/"),
           sessionId,
         ].join(sep)
+
+        let existingList = ""
+        try {
+          const relPath = `.octo/artifacts/make/${sessionId}`
+          const result = await sdk.client.file.list({ path: relPath })
+          const files = (result.data ?? []).filter((n) => n.type === "file")
+          if (files.length > 0) {
+            const lines = files.map((n) => `- ${n.absolute}`)
+            existingList = [
+              ``,
+              `[Existing artifacts in this session]`,
+              ...lines,
+              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+            ].join("\n")
+          }
+        } catch {
+          // 目录可能还没创建(还没生成过产物),忽略
+        }
+
         const folderPrefix = [
           `[Artifact Folder]: ${artifactFolder}`,
           `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
-          ``,
+          existingList,
           `---`,
           ``,
-        ].join("\n")
+        ].filter(Boolean).join("\n")
         promptText = folderPrefix + "\n" + promptText
       }
 

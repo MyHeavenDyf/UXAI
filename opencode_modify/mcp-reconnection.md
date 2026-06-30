@@ -18,6 +18,137 @@
 
 ## 提交记录
 
+### 2026-06-30: 修复 closeClient 误设 intentionalDisconnects 导致重连被永久拦下
+
+**问题**：用户日志 `[reconnect] trigger suppressed - intentional disconnect`，所有重连触发（包括 tool-execute）都被第一道检查拦下。前 9 轮重连修复都没用，因为所有路径都被这一个标志拦在 triggerReconnect 入口。
+
+**根因（致命 bug）**：`closeClient`（`packages/opencode/src/mcp/index.ts:705-711`）在 3 个场景被复用，但**无条件**调 `Reconnect.markIntentionalDisconnect(name)`：
+
+| 调用点 | 场景 | 应设标志？ |
+|---|---|---|
+| `storeClient` line 721 | 装新 client 前关旧 client（**重连成功必走**） | ❌ |
+| `createAndStore` 失败 line 768 | create 失败清理 | ❌ |
+| `disconnect` line 793 | 用户主动断开 | ✓ |
+
+每次重连成功后 `storeClient` → `closeClient` → `markIntentionalDisconnect`，标志被设。下次断开时 `triggerReconnect` 第一道检查就拦下，**整个重连系统形同虚设**。
+
+**修复**：
+
+1. **`closeClient` 移除 `markIntentionalDisconnect` 调用**（index.ts:705-713）
+   ```ts
+   function closeClient(s: State, name: string) {
+     const client = s.clients[name]
+     delete s.defs[name]
+     if (!client) return Effect.void
+     // 不在此处调 markIntentionalDisconnect：closeClient 被 storeClient/createAndStore 复用
+     return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
+   }
+   ```
+
+2. **`disconnect` 显式调 `markIntentionalDisconnect`**（index.ts:793-800）
+   ```ts
+   const disconnect = Effect.fn("MCP.disconnect")(function* (name: string) {
+     const s = yield* InstanceState.get(state)
+     Reconnect.markIntentionalDisconnect(name)  // 显式：只有这里才是真"主动断开"
+     yield* closeClient(s, name)
+     delete s.clients[name]
+     s.status[name] = { status: "disabled" }
+   })
+   ```
+
+3. **`setupConnectionHandlers` 入口加 `intentionalDisconnects.delete(name)`**（reconnect.ts:529）
+   - 防御性兜底：connect 成功（storeClient → setupConnectionHandlers）后清掉可能残留的标志
+   - 即便 disconnect 后 connect 也能干净启动
+
+**用户日志时间线还原**：
+```
+T0      启动连接成功 → storeClient → closeClient（旧 client） → markIntentionalDisconnect 设
+T0+176s SSE stream disconnected → terminal error counted 1（< 2，未触发重连）
+T0+176s+8min  tool "get_task_result" failed "Session not found"
+        → triggerReconnect(source=tool-execute)
+        → 被 intentionalDisconnects 拦下 [trigger suppressed - intentional disconnect]
+        → 永久无法恢复
+```
+
+修复后：
+- storeClient 替换不再设标志 → 后续断开能正常触发重连
+- 单次终端错误累积到 2 → triggerReconnect → 标志没设 → 通过
+- 5 次重连第 1 次成功 → storeClient → setupConnectionHandlers 清所有标志
+
+**未改动**：
+- MAX_ERRORS_BEFORE_RECONNECT 保持 2（不是阈值问题）
+- 6 路触发架构不变
+- AbortError ping 验证（2026-06-30）保持
+- 方案 B（5 次失败后自愈）保持
+
+**反思**：这个 bug 之所以藏了 9 轮修复，因为：
+- 日志 `[reconnect] trigger suppressed - intentional disconnect` 不显眼（INFO 级别）
+- 重连触发逻辑本身没问题，问题在更上游（标志设置）
+- 测试只覆盖触发逻辑，没覆盖 closeClient 复用语义
+- 设计上 closeClient 应该叫 `closeClientForReplace` 或拆分成两个函数
+
+### 2026-06-30: AbortError 兜底（方案 B - onerror 异步 ping 验证）
+
+**问题**：用户日志显示 `[reconnect] transport error error=This operation was aborted isTerminal=false`，MCP 状态显示 connected 但实际不可用。
+
+**根因**：`isTerminalConnectionError` 的 9 个关键字不含 "aborted"。Node Web Streams 内部 stream 清理时会触发 `AbortController.abort()`（栈：`writableStreamAbort` → `readableStream.complete`，全部 `node:internal/webstreams/*`，`from_user_code=no`），SDK 把它转成 `client.onerror("This operation was aborted")`。reconnect.ts 当非终端处理 → 不计数、不重连 → status 残留 connected → 用户感知"MCP 不可用"。
+
+**为何不直接把 aborted 加入终端列表**：SDK 内部正常的 stream 清理（单 SSE 完成）也会触发 abort，列终端会误触发重连。需要区分"SDK 正常清理"和"transport 真死"。
+
+**修复（方案 B：onerror 异步 ping 验证）**：
+
+1. **`isAbortError(msg)`（reconnect.ts:51-56）**：新增辅助函数，匹配 `aborted` / `aborterror`（大小写不敏感）
+
+2. **`verifyClientAfterAbortedError`（reconnect.ts:278-348）**：新增 Effect 函数
+   - ping client（3s 超时，复用 `PREFLIGHT_PING_TIMEOUT_MS` + `withClientTimeout`）
+   - ping OK → info 日志，认为 SDK 正常清理，不触发重连
+   - ping 失败 → warn 日志，调 `triggerReconnect(source="onerror-aborted")`
+   - `Effect.catch` 兜底，永不让 onerror 失败
+
+3. **`client.onerror` 加优先级 3 分支（reconnect.ts:503-516）**：
+   ```ts
+   if (isAbortError(msg)) {
+     bridge.promise(verifyClientAfterAbortedError(...)).catch(...)
+     return
+   }
+   ```
+   fire-and-forget，不阻塞 onerror
+
+4. **`TriggerSource` 扩展**：新增 `"onerror-aborted"` union 成员
+
+**幂等保障**：
+- `triggerReconnect` 内的 `triggeredReconnectFlags` + `intentionalDisconnects` + stale 检查仍生效
+- ping 期间 client 被替换 → triggerReconnect 的 stale 检查拦下
+- ping 期间别的路径触发重连 → triggeredReconnectFlags 幂等
+
+**预期日志序列（transport 真死场景）**：
+```
+[reconnect] transport error  error="This operation was aborted" isTerminal=false
+[reconnect] aborted error - pinging to verify
+[reconnect] aborted error - ping failed, triggering reconnect  pingError="..."
+[reconnect] trigger fired - starting reconnect loop  source=onerror-aborted
+[reconnect] starting reconnect loop
+[reconnect] attempt starting  attempt=1
+[reconnect] succeeded  attempt=1
+```
+
+**预期日志序列（SDK 正常清理场景）**：
+```
+[reconnect] transport error  error="This operation was aborted" isTerminal=false
+[reconnect] aborted error - pinging to verify
+[reconnect] aborted error - ping ok, treating as SDK internal cleanup
+```
+
+**未改动**：
+- 现有 5 路触发架构不变（onerror-giveup / onerror-counter / onclose-fallback / tools-preflight / tool-execute）
+- `isTerminalConnectionError` 列表不变（不加入 aborted）
+- preflight / 重连循环 / 状态机不变
+
+**风险**：
+- 每次 AbortError 多 ~50ms 正常 / 最多 3s 异常的 ping 开销
+- SDK 高频内部清理会反复触发 ping，但 ping OK 不会触发重连（只是日志噪音）
+- 若 SDK 的 ping API 自身有问题（如 ping 永远 hang），3s 超时兜底
+
 ### 2026-06-29: 修复 5 次重连全失败后永久卡死（方案 B）
 
 **问题**：用户反馈"服务重启后客户端永久不可用"，需手动点 disconnect→connect 才能恢复。

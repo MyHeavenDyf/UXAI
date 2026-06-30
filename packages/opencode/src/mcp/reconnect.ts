@@ -48,6 +48,16 @@ function isSdkGiveUpSignal(msg: string): boolean {
   return /Maximum reconnection attempts.*exceeded/.test(msg)
 }
 
+/**
+ * 是否为 AbortError（Node Web Streams 内部清理 / SDK transport-level abort）。
+ * 这种错误 ambiguous：可能是 SDK 正常的 stream 清理（client 还活着），
+ * 也可能是 transport 实际已死（client 不能用）。需要 ping 验证才能区分。
+ */
+function isAbortError(msg: string): boolean {
+  const lower = msg.toLowerCase()
+  return lower.includes("aborted") || lower.includes("aborterror")
+}
+
 function backoffMs(attempt: number): number {
   return Math.min(INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1), MAX_BACKOFF_MS)
 }
@@ -264,6 +274,88 @@ export function triggerReconnectFromToolFailure(
   )
 }
 
+/**
+ * 方案 B（abort 兜底）：onerror 收到 AbortError 后异步 ping 验证 client 是否真死。
+ *
+ * 设计原因：Node Web Streams 内部 stream 清理时会触发 AbortController.abort()，
+ * 这种 abort 是 SDK 正常行为（client 还活着）；但 transport 实际死亡时也会抛
+ * AbortError（client 不能用）。两者单从 error message 区分不开，必须 ping 一次。
+ *
+ * 流程：
+ *   ping OK  → SDK 正常清理，忽略
+ *   ping 失败 → client 已死，triggerReconnect(source="onerror-aborted")
+ *
+ * 幂等保障：triggerReconnect 内部有 triggeredReconnectFlags + stale 检查，
+ * 即便 ping 期间 client 已被替换或别的路径已触发重连，也不会重复。
+ */
+function verifyClientAfterAbortedError(
+  name: string,
+  client: Client,
+  bridge: EffectBridge.Shape,
+  ctx: ReconnectContext,
+  originalError: string,
+) {
+  return Effect.gen(function* () {
+    log.info("[reconnect] aborted error - pinging to verify", {
+      name,
+      originalError,
+    })
+
+    let pingOk = false
+    let pingErr: unknown
+    yield* Effect.tryPromise({
+      try: () =>
+        withClientTimeout(client.ping(), PREFLIGHT_PING_TIMEOUT_MS).then(
+          () => {
+            pingOk = true
+          },
+          (e) => {
+            pingErr = e
+          },
+        ),
+      catch: (e) => {
+        pingErr = e
+        return e instanceof Error ? e : new Error(String(e))
+      },
+    })
+
+    if (pingOk) {
+      log.info("[reconnect] aborted error - ping ok, treating as SDK internal cleanup", {
+        name,
+        originalError,
+      })
+      return
+    }
+
+    const s = yield* ctx.state.get()
+    const pingMsg = pingErr instanceof Error ? pingErr.message : String(pingErr)
+    log.warn("[reconnect] aborted error - ping failed, triggering reconnect", {
+      name,
+      originalError,
+      pingError: pingMsg,
+    })
+    triggerReconnect(
+      s,
+      name,
+      client,
+      bridge,
+      ctx,
+      "onerror-aborted",
+      `abort detected + ping failed (orig=${originalError}, ping=${pingMsg})`,
+    )
+  }).pipe(
+    // 兜底：验证流程永远不应让 onerror 失败
+    Effect.catch((e) => {
+      log.warn("[reconnect] aborted verify aborted with error", {
+        name,
+        originalError,
+        error: String(e),
+      })
+      return Effect.void
+    }),
+  )
+}
+
 // === 辅助：Promise 超时包装（不依赖 Effect 的 withTimeout，保持纯 JS） ===
 
 function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -319,6 +411,7 @@ export interface ReconnectContext {
 export type TriggerSource =
   | "onerror-giveup"
   | "onerror-counter"
+  | "onerror-aborted"
   | "onclose-fallback"
   | "tools-preflight"
   | "tool-execute"
@@ -433,6 +526,10 @@ export function setupConnectionHandlers(
   // 装新 handler 前清理该 server 的模块级状态（避免标志残留导致新 client 永远不触发重连）
   terminalErrorCounts.delete(name)
   triggeredReconnectFlags.delete(name)
+  // 防御性清理：connect 成功（storeClient → setupConnectionHandlers）后，
+  // 清掉可能残留的 intentionalDisconnects 标志。disconnect 时设的标志在 connect 后应该失效。
+  // 历史背景：closeClient 曾误设此标志导致重连被永久拦下，已修复（移到 disconnect 显式调）。
+  intentionalDisconnects.delete(name)
   handlerInstalledAt.set(name, installedAt)
 
   log.info("[reconnect] connection handlers installed", {
@@ -497,6 +594,21 @@ export function setupConnectionHandlers(
           `terminal errors reached threshold (${newCount}/${MAX_ERRORS_BEFORE_RECONNECT}): ${msg}`,
         )
       }
+      return
+    }
+
+    // 优先级 3：AbortError — 异步 ping 验证 client 是否真死（方案 B）
+    // Node Web Streams 内部清理会触发 abort（client 还活着），transport 死也会抛 abort，
+    // 单从 msg 区分不开，ping 一次区分。fire-and-forget，不阻塞 onerror。
+    if (isAbortError(msg)) {
+      bridge
+        .promise(verifyClientAfterAbortedError(name, client, bridge, ctx, msg))
+        .catch((e) => {
+          log.error("[reconnect] aborted verify promise rejected", {
+            name,
+            error: String(e),
+          })
+        })
       return
     }
 
