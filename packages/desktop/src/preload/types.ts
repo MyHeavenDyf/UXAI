@@ -98,6 +98,8 @@ export type ElectronAPI = {
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
+  getPatternIndex: (category: string) => Promise<Record<string, unknown> | null>
+  getPatternFile: (category: string, filename: string) => Promise<string | null>
   runPixsoBuild: (input: string) => Promise<string>
   exportZip: (opts: {
     defaultName: string

@@ -419,16 +419,44 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 将 Tailwind 转换为 CSS - By WangQiang - 该注释请勿删除
   ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
     return convertTailwindToCSS(className)
   })
 
+  // 将 CSS 转换为 Tailwind - By WangQiang - 该注释请勿删除
   ipcMain.handle("css-to-tailwind", (_event: IpcMainInvokeEvent, cssObject: Record<string, unknown>) => {
     return convertCssToTailwind(cssObject)
   })
 
+  // pattern 资源目录: ~/.config/octo/prototype/pattern/{category}/
+  const patternDir = (category: string) => join(getOctoConfigPath(), "prototype", "pattern", category)
+
+  // 读取 pattern 资源目录下的 index.json 目录 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("get-pattern-index", (_event: IpcMainInvokeEvent, category: string) => {
+    const indexPath = join(patternDir(category), "index.json")
+    if (!existsSync(indexPath)) return null
+    try {
+      return JSON.parse(readFileSync(indexPath, "utf-8"))
+    } catch {
+      return null
+    }
+  })
+
+  // 读取 pattern 资源目录下的具体 pattern 文件 - By WangQiang - 该注释请勿删除
+  ipcMain.handle(
+    "get-pattern-file",
+    (_event: IpcMainInvokeEvent, category: string, filename: string) => {
+      const filePath = join(patternDir(category), filename)
+      if (!existsSync(filePath)) return null
+      return readFileSync(filePath, "utf-8")
+    },
+  )
+
+  // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
 
+  // 将页面转换为pixso转送码 - By WangQiang - 该注释请勿删除
   ipcMain.handle("run-pixso-build", async (_event: IpcMainInvokeEvent, input: string) => {
     const { pathToFileURL } = await import("node:url")
     const { existsSync } = await import("node:fs")
