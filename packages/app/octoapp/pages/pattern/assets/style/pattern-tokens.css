@@ -86,6 +86,8 @@
   opacity: 1;
   transition: opacity 220ms ease-out;
   z-index: 10;
+  --session-progress-color: var(--octo-brand);
+  --session-progress-ms: 1800ms;
 }
 
 [data-component="session-progress"][data-state="hiding"] {
@@ -100,6 +102,10 @@
   clip-path: inset(0 100% 0 0 round 999px);
   animation: session-progress-whip var(--session-progress-ms, 1800ms) infinite;
   will-change: clip-path;
+}
+
+.session-progress-wrap {
+  position: relative;
 }
 
 @keyframes octo-pop-in {

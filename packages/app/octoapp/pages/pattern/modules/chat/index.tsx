@@ -1,5 +1,5 @@
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
-import { For, Index, Show, createMemo, type JSX } from "solid-js"
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -141,6 +141,20 @@ export function ChatPanel(props: {
 
   const [state, setState] = createStore<{ activeTab: TabKey }>({ activeTab: "fullpage" })
 
+  // ── 会话进度条动画状态 ──
+  const [timeoutDone, setTimeoutDone] = createSignal(true)
+  const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
+    if (props.pipelineBusy) return "showing"
+    if (prev === "showing" || !timeoutDone()) return "hiding"
+    return "hidden"
+  })
+  createEffect(() => {
+    if (workingStatus() !== "hiding") return
+    setTimeoutDone(false)
+    const id = setTimeout(() => setTimeoutDone(true), 260)
+    onCleanup(() => clearTimeout(id))
+  })
+
   return (
     <div
       class="flex flex-col overflow-hidden"
@@ -153,10 +167,20 @@ export function ChatPanel(props: {
       onDrop={props.onDrop}
     >
       <Show when={props.hasContent}>
-        <div
-          class="shrink-0 flex items-center justify-between"
-          style={{ padding: "12px 24px", background: "#fff" }}
-        >
+        <div class="session-progress-wrap">
+          <Show when={workingStatus() !== "hidden"}>
+            <div
+              data-component="session-progress"
+              data-state={workingStatus()}
+              aria-hidden="true"
+            >
+              <div data-component="session-progress-bar" />
+            </div>
+          </Show>
+          <div
+            class="shrink-0 flex items-center justify-between"
+            style={{ padding: "12px 24px", background: "#fff" }}
+          >
           <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
             <Show when={props.isBusy}>
               <div class="shrink-0">
@@ -222,6 +246,7 @@ export function ChatPanel(props: {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu>
+        </div>
         </div>
       </Show>
 

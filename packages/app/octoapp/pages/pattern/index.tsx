@@ -529,6 +529,14 @@ function PatternContent() {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
       setIsModifying(false)
+
+      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
+      for (const childID of childSessionIDs()) {
+        const msgs = (sync.data.message[childID] ?? []) as Message[]
+        const pending = msgs.findLast((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        if (pending) await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+      }
+
       const error = classifyAIError(err)
       if (error.title) {
         setSessionErrors((prev) => ({ ...prev, [sid!]: error.title }))
@@ -613,6 +621,14 @@ function PatternContent() {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleConfirmReview failed", err)
+
+      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
+      for (const childID of childSessionIDs()) {
+        const msgs = (sync.data.message[childID] ?? []) as Message[]
+        const pending = msgs.findLast((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        if (pending) await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+      }
+
       const error = classifyAIError(err)
       if (error.title) {
         setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
