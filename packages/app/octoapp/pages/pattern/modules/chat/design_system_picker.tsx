@@ -4,6 +4,7 @@ import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import "../../assets/style/chat/design_system_picker.css"
+import { tracker } from "@/utils/tracker"
 
 type DesignSystemEntry = {
   id: string
@@ -72,7 +73,7 @@ export function DesignSystemPicker(props: {
                   background: !props.selected ? "var(--octo-brand-a8)" : "transparent",
                   color: !props.selected ? "var(--octo-brand)" : "var(--octo-text-primary)",
                 }}
-                onClick={() => { props.onSelect(null); setOpen(false) }}
+                onClick={() => { tracker.interaction({ module: "prototype", name: "select-design-system", extend: JSON.stringify({ designSystem: null }) }); props.onSelect(null); setOpen(false) }}
                 onMouseEnter={() => setHoveredId(null)}
               >
                 None
@@ -86,7 +87,7 @@ export function DesignSystemPicker(props: {
                       background: props.selected === entry.id ? "var(--octo-brand-a8)" : hoveredId() === entry.id ? "var(--octo-surface-hover)" : "transparent",
                       color: props.selected === entry.id ? "var(--octo-brand)" : "var(--octo-text-primary)",
                     }}
-                    onClick={() => { props.onSelect(entry.id); setOpen(false) }}
+                    onClick={() => { tracker.interaction({ module: "prototype", name: "select-design-system", extend: JSON.stringify({ designSystem: entry.id }) }); props.onSelect(entry.id); setOpen(false) }}
                     onMouseEnter={() => setHoveredId(entry.id)}
                   >
                     <span class="font-medium truncate block">{entry.title}</span>

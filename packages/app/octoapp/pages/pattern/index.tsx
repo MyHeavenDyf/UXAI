@@ -10,6 +10,7 @@ import {
   createSignal,
   on,
   onCleanup,
+  onMount,
   Show,
   type JSX,
 } from "solid-js"
@@ -36,6 +37,7 @@ import { WireframeReview, type WireframeReviewResult } from "./modules/preview/W
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/PatternPreviewEmpty"
+import { tracker } from "@/utils/tracker"
 
 const AGENT_NAME = "proto_triage"
 
@@ -64,6 +66,9 @@ function PatternContent() {
   const sync = useSync()
   const layout = useLayout()
   const local = useLocal()
+
+  onMount(() => { tracker.page({ module: "prototype", name: "pattern-page" }) })
+
   const currentModel = () => local.model.current()
   const activeModelKey = createMemo(() => {
     const m = currentModel()
@@ -88,6 +93,7 @@ function PatternContent() {
   async function deleteSession(sessionID: string) {
     try {
       await sdk.client.session.delete({ sessionID })
+      tracker.interaction({ module: "prototype", name: "delete-session" })
       navigate("/pattern")
     } catch (err) {
       showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
@@ -317,6 +323,7 @@ function PatternContent() {
 
   async function handleModifyElement(data: ModifyElementData) {
     try {
+      tracker.interaction({ module: "prototype", name: "modify-element" })
       await runQuickModify(quickModifyCtx, data)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
@@ -411,6 +418,7 @@ function PatternContent() {
         const session = result.data as Session | undefined
         if (!session) return
         setSelectedDesignSystem("ICT-3.1")
+        tracker.interaction({ module: "prototype", name: "new-session" })
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
@@ -484,6 +492,7 @@ function PatternContent() {
         }
         // AI 修改页面 — 先切到加载态
         setIsModifying(true)
+        tracker.interaction({ module: "prototype", name: "modify-page" })
         const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
         setIsModifying(false)
         if ((modifyResult as any)?.reply) {
@@ -503,6 +512,7 @@ function PatternContent() {
         }).catch(() => {})
 
         // 首次创建页面 — 阶段 1：意图扩展 + 布局规划
+        tracker.interaction({ module: "prototype", name: "create-page" })
         const new_planner = await create_planner_json(intentCtx)
         // 持久化线框审查检查点
         const userDir = patternHistoryDir()
@@ -563,6 +573,7 @@ function PatternContent() {
     const ckptDir = patternHistoryDir()
     if (ckptDir) await clearReviewCheckpoint(ckptDir, sid)
 
+    tracker.interaction({ module: "prototype", name: "confirm-review" })
     setIsPlanReview(false)
 
     const ds = selectedDesignSystem()
@@ -627,6 +638,7 @@ function PatternContent() {
   async function halt() {
     const sid = params.id
     if (!sid) return
+    tracker.interaction({ module: "prototype", name: "stop-generation" })
     // abort 根 session
     await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
     // abort 所有正在运行的子 session
@@ -672,6 +684,9 @@ function PatternContent() {
       }
       reader.readAsDataURL(file)
     }
+    if (toAdd.length > 0) {
+      tracker.interaction({ module: "prototype", name: "add-attachment", extend: JSON.stringify({ count: toAdd.length }) })
+    }
   }
 
   function removeAttachment(id: string) {
@@ -705,6 +720,7 @@ function PatternContent() {
 
   // 回退到指定历史版本
   async function handleSelectVersion(versionId: string) {
+    tracker.interaction({ module: "prototype", name: "select-version", extend: JSON.stringify({ versionId }) })
     await selectVersion({
       versionId,
       sessionId: params.id,
@@ -721,10 +737,12 @@ function PatternContent() {
   }
 
   function handleDownload() {
+    tracker.interaction({ module: "prototype", name: "download-result" })
     download(pendingPreviewData(), params.id ?? "export")
   }
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
+    tracker.interaction({ module: "prototype", name: "share-result" })
     await exportZip({
       historyDir: patternHistoryDir(),
       sessionId: params.id ?? "",
@@ -733,10 +751,12 @@ function PatternContent() {
   }
 
   async function handleLivePreview() {
+    tracker.interaction({ module: "prototype", name: "live-preview" })
     await livePreview(pendingPreviewData())
   }
 
   async function handlePixsoPreview() {
+    tracker.interaction({ module: "prototype", name: "pixso-preview" })
     await pixsoPreview(pendingPreviewData())
   }
 
@@ -756,6 +776,14 @@ function PatternContent() {
     selectedDesignSystem: selectedDesignSystem(),
     onSelectDesignSystem: setSelectedDesignSystem,
     model: local.model,
+    onModelClose: (cause: string) => {
+      if (cause === "select") {
+        const m = currentModel()
+        if (m) {
+          tracker.interaction({ module: "prototype", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+        }
+      }
+    },
     rows:undefined
   })
 

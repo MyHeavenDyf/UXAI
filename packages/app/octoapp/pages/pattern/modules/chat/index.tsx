@@ -14,6 +14,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
+import { tracker } from "@/utils/tracker"
 import { AttachmentBar, type Attachment } from "./attachment_bar"
 import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
@@ -120,6 +121,7 @@ export function ChatPanel(props: {
     if (!draft) { setTitleState("editing", false); return }
     try {
       await sdk.client.session.update({ sessionID: id, title: draft })
+      tracker.interaction({ module: "prototype", name: "rename-session" })
       props.onTitleChanged(draft)
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
