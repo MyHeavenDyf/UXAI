@@ -2,7 +2,7 @@ import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { STEP_A_PROMPT } from "./prompts/step-a"
 import { STEP_B_PROMPT } from "./prompts/step-b"
-import { saveArtifact, loadArtifact, clearArtifacts } from "./utils/artifact-persist"
+import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest } from "./utils/artifact-persist"
 import { IframeBridge } from "./lib/iframe-bridge"
 import { createThinkFilter, stripThinkTags } from "./lib/think-filter"
 
@@ -222,6 +222,7 @@ function MakeContent() {
   async function deleteSession(sessionID: string) {
     try {
       artifactCache.delete(sessionID)
+      dropHint(sessionID)
       if (dslDir) clearArtifacts(dslDir, sessionID).catch(() => {})
       await sdk.client.session.delete({ sessionID })
       navigate(`/dslToHex`)
@@ -451,7 +452,16 @@ const sessionMessagesLoaded = createMemo(() => {
       debugLog("[desc] 本地 stepADescription, length:", desc?.length ?? 0)
       debugLog("[desc] 全文:\n", desc)
       debugLog("[一致?]", confirmedText === desc)
-      if (!params.id) return
+      const id = params.id
+      if (!id) return
+      // 用户在步骤一编辑了语义化文本：采纳为新的步骤一产物并落盘。
+      // 否则 stepADescription 仍取旧的步骤一消息，restore effect 会用旧文本回灌覆盖，
+      // 重新打开 session 也是旧文本——表现为"步骤一显示旧的语义化"。
+      if (confirmedText && confirmedText !== desc) {
+        setStepAArtifact(confirmedText)
+        cacheArtifact(id, { a: confirmedText })
+        if (dslDir) saveArtifact(dslDir, id, "a", confirmedText).catch(() => {})
+      }
       void sendStepB(confirmedText || desc)
     })
     .on("DSL_NODE_UPDATED", (payload) => {
@@ -641,11 +651,55 @@ const sessionMessagesLoaded = createMemo(() => {
   function cacheArtifact(id: string, patch: Partial<ArtifactSnapshot>) {
     artifactCache.set(id, { ...(artifactCache.get(id) ?? { a: null, b: null, c: null }), ...patch })
   }
+  // ── 持久化步骤提示（manifest）──────────────────────────────
+  // 冷启动时内存 artifactCache 为空，靠磁盘 manifest 给 inferFromCache 提供初始步骤，
+  // 消除"切到已生成 session 先闪步骤一再跳目标步骤"。manifest 只是提示，产物到达后
+  // 仍由异步校验纠正；默认只升不降，真正的回退（删除/重生成/产物丢失）显式 allowLower。
+  const phaseHint = new Map<string, number>()
+  let hintReady = false
+  let hintDirty = false
+  function flushManifest() {
+    const dir = projectDir()
+    if (dir) saveManifest(dir, Object.fromEntries(phaseHint)).catch(() => {})
+  }
+  function persistHint(id: string, step: number, opts?: { allowLower?: boolean }) {
+    const cur = phaseHint.get(id)
+    if (cur === step) return
+    if (cur !== undefined && step < cur && !opts?.allowLower) return
+    phaseHint.set(id, step)
+    if (!hintReady) { hintDirty = true; return }
+    flushManifest()
+  }
+  function dropHint(id: string) {
+    if (!phaseHint.delete(id)) return
+    if (!hintReady) { hintDirty = true; return }
+    flushManifest()
+  }
+  // 挂载/切项目时预读一次 manifest 进内存（磁盘旧值不覆盖本次运行已写入的更新）
+  // 切项目时先清空，避免上一个项目的条目混入新项目的 manifest。
+  let hintLoadedFor = ""
+  createEffect(() => {
+    const dir = projectDir()
+    if (!dir || hintLoadedFor === dir) return
+    hintLoadedFor = dir
+    phaseHint.clear()
+    hintReady = false
+    loadManifest(dir)
+      .then((m) => { for (const k in m) if (!phaseHint.has(k)) phaseHint.set(k, m[k]) })
+      .catch(() => {})
+      .finally(() => { hintReady = true; if (hintDirty) { hintDirty = false; flushManifest() } })
+  })
+
   function inferFromCache(id: string | undefined): { phase: StepPhase; target: number; bInitiated: boolean; cConfirmed: boolean } {
     const snap = id ? artifactCache.get(id) : undefined
     if (snap?.c && isZipBuffer(snap.c)) return { phase: "c-done", target: 3, bInitiated: true, cConfirmed: true }
     if (snap?.b) return { phase: "b-done", target: 2, bInitiated: true, cConfirmed: false }
     if (snap?.a) return { phase: "a-done", target: 1, bInitiated: false, cConfirmed: false }
+    // 冷启动兜底：内存缓存为空时用 manifest 提示初始步骤（产物到达后仍会被异步校验纠正）
+    const hint = id ? phaseHint.get(id) : undefined
+    if (hint === 3) return { phase: "c-done", target: 3, bInitiated: true, cConfirmed: true }
+    if (hint === 2) return { phase: "b-done", target: 2, bInitiated: true, cConfirmed: false }
+    if (hint === 1) return { phase: "a-done", target: 1, bInitiated: false, cConfirmed: false }
     return { phase: "a-generating", target: 1, bInitiated: false, cConfirmed: false }
   }
 
@@ -990,6 +1044,7 @@ const sessionMessagesLoaded = createMemo(() => {
         debugLog("restore: 磁盘无有效 b 产物但 phase=b-done，回退步骤一，session:", targetId)
         setStepBArtifact(null)
         cacheArtifact(targetId, { b: null })
+        persistHint(targetId, 1, { allowLower: true })
         setStepPhase("a-done")
       }
     }).catch(() => {})
@@ -1014,6 +1069,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setStepCArtifact(null)
           setStepCConfirmed(false)
           cacheArtifact(targetId, { c: null })
+          persistHint(targetId, stepBArtifact() ? 2 : 1, { allowLower: true })
           setStepPhase(stepBArtifact() ? "b-done" : "a-done")
         }
       }
@@ -1041,6 +1097,17 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
+
+  // ── 结算后的 phase → 持久化 manifest 提示 ────────────────────
+  // 只在 idle 完成态(a/b/c-done)写入，generating 态不写；默认只升不降，
+  // 让冷启动 inferFromCache 能直达目标步骤。真正的回退在各自的回退点显式 allowLower。
+  createEffect(() => {
+    const id = params.id
+    if (!id || isBusy()) return
+    const phase = stepPhase()
+    const step = phase === "c-done" ? 3 : phase === "b-done" ? 2 : phase === "a-done" ? 1 : 0
+    if (step > 0) persistHint(id, step)
+  })
 
   const hasStepBData = createMemo(() => {
     const id = params.id
@@ -1100,6 +1167,8 @@ const sessionMessagesLoaded = createMemo(() => {
     setStepCArtifact(null)
     setStepCConfirmed(false)
     cacheArtifact(sessionId, { b: null, c: null })
+    // 重新生成步骤二会清掉步骤三产物：若原本停在 c-done(hint=3)，显式把提示降到 2
+    persistHint(sessionId, 2, { allowLower: true })
     if (dslDir) clearArtifacts(dslDir, sessionId, "b", "c").catch(() => {})
     setStepBInitiated(true)
     setStepPhase("b-generating")

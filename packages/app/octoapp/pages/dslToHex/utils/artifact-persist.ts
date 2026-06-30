@@ -14,6 +14,49 @@ function localStorageKey(sessionId: string, step: StepKey) {
   return `${STORAGE_PREFIX}:${sessionId}:${step}`
 }
 
+// ── manifest：每个项目一份 sessionId → 目标步骤(1|2|3) 的索引 ──
+// 冷启动时内存缓存为空，靠这份磁盘 manifest 给步骤推断提供初始提示，
+// 消除"切到已生成 session 先闪步骤一再跳目标步骤"。它只是提示，产物到达后仍以产物为准。
+export type Manifest = Record<string, number>
+
+function manifestPath(projectDir: string) {
+  return `${projectDir}/${ARTIFACT_DIR}/index.json`
+}
+
+function manifestStorageKey(projectDir: string) {
+  return `${STORAGE_PREFIX}:manifest:${projectDir}`
+}
+
+export async function loadManifest(projectDir: string): Promise<Manifest> {
+  const api = getDesktopApi()
+  if (api?.readFileBuffer) {
+    try {
+      const buf = await api.readFileBuffer(manifestPath(projectDir))
+      if (!buf || buf.byteLength === 0) return {}
+      return JSON.parse(new TextDecoder().decode(buf)) as Manifest
+    } catch {
+      return {}
+    }
+  }
+  const stored = localStorage.getItem(manifestStorageKey(projectDir))
+  if (!stored) return {}
+  try {
+    return JSON.parse(stored) as Manifest
+  } catch {
+    return {}
+  }
+}
+
+export async function saveManifest(projectDir: string, manifest: Manifest): Promise<void> {
+  const api = getDesktopApi()
+  const json = JSON.stringify(manifest)
+  if (api?.writeFileBuffer) {
+    await api.writeFileBuffer(manifestPath(projectDir), new TextEncoder().encode(json).buffer)
+    return
+  }
+  localStorage.setItem(manifestStorageKey(projectDir), json)
+}
+
 export async function saveArtifact(
   projectDir: string,
   sessionId: string,
