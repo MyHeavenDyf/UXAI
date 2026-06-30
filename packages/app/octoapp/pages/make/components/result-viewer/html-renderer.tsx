@@ -8,6 +8,7 @@ import { DrawOverlay } from "./draw-overlay"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
+import { tracker } from "@/utils/tracker"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -721,6 +722,7 @@ return (
                   const d = e.data
                   if (d && d.type === "od:inspect-overrides") {
                     console.log("[Inspect] Extracted overrides:", d.overrides)
+                    tracker.interaction({ module: "design", name: "save-inspect-changes" })
                     // Save overrides for reapplication after iframe reload
                     props.onSaveOverrides?.(d.overrides)
                     // Close inspect panel and clear state
@@ -803,6 +805,7 @@ onApplyPatch={(patch: ManualEditPatch, label: string) => {
                 onSaveDraft={() => {
                   const ok = flushManualEditStyleSave()
                   if (ok) {
+                    tracker.interaction({ module: "design", name: "save-edit-changes" })
                     setEditTarget(null)
                     manualEditPendingStyle = null
                     manualEditPendingText = null

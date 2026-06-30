@@ -37,6 +37,7 @@ protocol.registerSchemesAsPrivileged([
 let backgroundColor: string | undefined
 const titlebarThemes = new WeakMap<BrowserWindow, Partial<TitlebarTheme>>()
 const titlebarHeight = 40
+const titlebarOverlayHidden = new WeakSet<BrowserWindow>()
 
 export function setBackgroundColor(color: string) {
   backgroundColor = color
@@ -75,7 +76,17 @@ export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = 
 
 export function updateTitlebar(win: BrowserWindow) {
   if (process.platform !== "win32") return
-  win.setTitleBarOverlay(overlay(titlebarThemes.get(win), win.webContents.getZoomFactor()))
+  const o = overlay(titlebarThemes.get(win), win.webContents.getZoomFactor())
+  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { ...o, height: 0 } : o)
+}
+
+export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
+  if (hidden) {
+    titlebarOverlayHidden.add(win)
+  } else {
+    titlebarOverlayHidden.delete(win)
+  }
+  updateTitlebar(win)
 }
 
 export function setDockIcon() {
@@ -230,7 +241,9 @@ export function registerRendererProtocol() {
         const mockResponse = handleMockApi(url.pathname, url.search)
         if (mockResponse) return mockResponse
       }
-      const realUrl = `https://octo.hdesign.huawei.com${url.pathname}${url.search}`
+      // baseUrl 从 VITE_OCTO_BASE_URL 读取, 支持内网 beta/prod 不同域名; 原硬编码只指向公网默认域名
+      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
+      const realUrl = `${baseUrl}${url.pathname}${url.search}`
       return net.fetch(realUrl, {
         method: request.method,
         headers: Object.fromEntries(request.headers.entries()),

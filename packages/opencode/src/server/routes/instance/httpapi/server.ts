@@ -69,6 +69,7 @@ import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
 import { workspaceHandlers } from "./handlers/workspace"
 import { studioHandlers } from "./handlers/studio"
+import { insightHandlers } from "./handlers/insight"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
@@ -124,6 +125,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     tuiHandlers,
     workspaceHandlers,
     studioHandlers,
+    insightHandlers,
   ]),
 )
 

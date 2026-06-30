@@ -123,8 +123,36 @@
     min-width: 380px;
   }
 
-  .studio-details {
-    display: none;
+  .studio-details-wrapper.expanded {
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.12);
+  }
+}
+
+@media (min-width: 1228px) and (max-width: 1919px) {
+  /* studio-canvas min-width removed — resize handles govern the layout */
+}
+
+@media (min-width: 1456px) and (max-width: 1919px) {
+  .studio-left {
+    width: 296px;
+    flex-basis: 296px;
+  }
+
+  .studio-left.collapsed {
+    width: 68px;
+    flex-basis: 68px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .studio-left {
+    width: 296px;
+    flex-basis: 296px;
+  }
+
+  .studio-left.collapsed {
+    width: 68px;
+    flex-basis: 68px;
   }
 }
 
@@ -133,6 +161,7 @@
 }
 
 .studio-left {
+  min-width: 200px;
   padding: 0;
   background: linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%);
   border-right-color: var(--border-weak-base);
@@ -253,8 +282,8 @@
 }
 
 .studio-empty-stack .studio-composer-tool-btn {
+  max-width: 200px;
   height: 28px;
-  max-width: 92px;
   padding: 4px 8px;
   font-size: 13px;
 }
@@ -273,3 +302,63 @@
   transition: background-color 0.15s ease;
 }
 
+/* studio-details 折叠/展开面板 */
+.studio-details-wrapper {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.studio-details-toggle {
+  flex: 0 0 20px;
+  align-self: center;
+  width: 20px;
+  height: 37px;
+  border: none;
+  border-radius: 4px 0 0 4px;
+  background: rgba(25, 25, 25, 0.05);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 0.15s ease;
+}
+
+.studio-details-toggle::before {
+  content: "";
+  display: block;
+  width: 5px;
+  height: 8px;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='5' height='8' viewBox='0 0 5 8' fill='none'%3E%3Cpath d='M4 1L1 4L4 7' stroke='%23191919' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='5' height='8' viewBox='0 0 5 8' fill='none'%3E%3Cpath d='M4 1L1 4L4 7' stroke='%23191919' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  mask-size: contain;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+  background-color: #999;
+  transition: transform 0.2s ease, background-color 0.15s ease;
+}
+
+.studio-details-wrapper.expanded .studio-details-toggle::before {
+  transform: rotate(180deg);
+}
+
+.studio-details-toggle:hover {
+  background: rgba(25, 25, 25, 0.08);
+}
+
+.studio-details-toggle:hover::before {
+  background-color: #333;
+}
+
+/* 当 studio-canvas-stage 宽度不足 500px 时隐藏详情面板和切换按钮 */
+@container (max-width: 839px) {
+  .studio-details-toggle,
+  .studio-details {
+    display: none;
+  }
+}

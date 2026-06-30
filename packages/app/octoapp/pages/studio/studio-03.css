@@ -67,10 +67,13 @@
   line-height: 24px;
   white-space: nowrap;
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .studio-result-cancel:hover:not(:disabled) {
-  color: #615bff;
+  color: #0a59f7;
 }
 
 .studio-result-cancel:disabled {
@@ -464,24 +467,59 @@
   -webkit-mask: url("/studio/xmark.svg") center / contain no-repeat;
 }
 
+.studio-canvas-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
 .studio-canvas-stage {
+  position: relative;
   flex: 1;
   width: 100%;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 56px 56px 120px;
+  padding: 32px;
+  gap: 32px;
   background: #fff;
 }
 
+.studio-canvas-image-wrapper {
+  height: calc(100% - 116px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .studio-canvas-image {
-  max-width: min(100%, 520px);
-  max-height: min(100%, 420px);
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   display: block;
   object-fit: contain;
   border-radius: 6px;
+}
+
+.studio-canvas-image.portrait {
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+
+.studio-canvas-image.landscape {
+  max-width: 100%;
+  width: auto;
+  height: auto;
 }
 
 .studio-video-player-anchor {
@@ -491,13 +529,14 @@
 }
 
 .studio-video-player {
-  position: fixed;
+  position: absolute;
   z-index: 20;
   overflow: hidden;
   border-radius: 6px;
   background: #000;
   color: #fff;
   box-shadow: 0 12px 34px rgba(17, 24, 39, 0.14);
+  -webkit-app-region: no-drag;
 }
 
 .studio-video-player.fullscreen {
@@ -564,6 +603,35 @@
   line-height: 20px;
   text-align: center;
   transform: translate(-50%, -50%);
+}
+
+.studio-video-player-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.56);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.studio-video-player-close:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.studio-video-player-close svg {
+  width: 22px;
+  height: 22px;
 }
 
 .studio-video-player-controls {
@@ -661,6 +729,7 @@
 }
 
 .studio-video-player-button:focus-visible,
+.studio-video-player-close:focus-visible,
 .studio-video-player-center-play:focus-visible,
 .studio-video-player-progress:focus-visible,
 .studio-video-player-volume:focus-visible {
@@ -706,13 +775,25 @@
 }
 
 .studio-canvas-floating-actions {
-  position: absolute;
-  left: 50%;
-  bottom: 48px;
-  height: 48px;
+  height: 52px;
   display: flex;
   align-items: center;
-  transform: translateX(-50%);
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  padding: 0 6px;
+  gap: 6px;
+  margin-bottom: 32px;
+}
+
+.studio-canvas-action-divider {
+  width: 1px;
+  height: 14px;
+  flex-shrink: 0;
+  background: #dfdfdf;
 }
 
 .studio-workspace-upload {
@@ -886,20 +967,19 @@
   transition: background-color 140ms ease, transform 140ms ease;
 }
 
-/* 全屏遮罩层激活时，隐藏 Windows 窗口自带的关闭/最小化/最大化按钮 */
-body.studio-fullscreen-active [data-tauri-decorum-tb] {
-  display: none !important;
-}
+
 
 .studio-fullscreen-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 100;
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.92);
   animation: studioFadeIn 0.2s ease-out;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .studio-fullscreen-close {

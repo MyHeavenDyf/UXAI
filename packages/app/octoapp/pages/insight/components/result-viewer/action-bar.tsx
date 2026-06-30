@@ -6,6 +6,7 @@ import { isToggleType } from "./tab-store"
 import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder } from "../../icons"
 import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
+import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { getDesktopApi } from "../../lib/electron-api"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
@@ -182,8 +183,13 @@ export function ActionBar(props: {
   // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
-  const showToggle = () => isToggleType(props.tab.type)
-  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 .octo/downloads / path write 产物);
+  // 切换可见性:静态 toggle 类型(mindmap/html/table/markdown)恒显;json 卡按内容判定——
+  // 内容是思维导图 shape(顶层带 children 的树)时才出「预览(markmap)/代码(json)」切换,
+  // 普通配置 JSON 无切换单显源。内容随 path/uri 读取后回填,本函数响应式重算。见 output-renderers.md §1。
+  const showToggle = () =>
+    isToggleType(props.tab.type) ||
+    (props.tab.type === "json" && isMindmapJSON(props.tab.content ?? ""))
+  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 insight/outputs / path write 产物);
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()

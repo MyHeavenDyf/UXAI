@@ -54,6 +54,7 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
+import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
@@ -67,7 +68,8 @@ import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { autoSaveArtifact } from "./utils/artifact-auto-save"
-import { persistTabChanges } from "./utils/tab-persistence"
+import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
+import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
@@ -749,11 +751,71 @@ const sessionMessagesLoaded = createMemo(() => {
     setSnapshotVersion((v) => v + 1)
   }
 
+  // ── 设计方案(design-plan)扫描 ─────────────────────────────
+  // 方案 artifact 从消息流中提取,但不再自动打开右侧 ResultViewer tab。
+  // 而是显示为输入框上方的横条,用户点击后才把 plan 放进 ResultViewer。
+  // 确认状态也从消息流推断:方案之后出现 [confirm-plan] 或 HTML artifact 即视为已确认。
+  const planCard = createMemo(() => {
+    const sid = params.id
+    if (!sid) return null
+    return scanDesignPlanFromMessages(sync.data.message[sid], sync.data.part, sid)
+  })
+
+  const planConfirmed = createMemo(() => {
+    const sid = params.id
+    if (!sid) return false
+    const ident = planCard()?.artifactIdentifier
+    if (!ident) return false
+    return isPlanConfirmed(sync.data.message[sid], sync.data.part, ident)
+  })
+
+  // 乐观锁:用户点 [确认开始生成] 后立即永久 disable,直到 planConfirmed 翻为 true 或 session 切换。
+  // 避免 sendMessage 飞行期间(session 还没进入 busy)用户连点重复发送。
+  const [optimisticConfirmed, setOptimisticConfirmed] = createSignal(false)
+  const planButtonDisabled = createMemo(() => planConfirmed() || optimisticConfirmed())
+
+  // 切换 session 时复位乐观锁,允许新 session 重新走方案流程
+  createEffect(on(() => params.id, () => setOptimisticConfirmed(false), { defer: true }))
+
+  /** 用户点击 [确认开始生成] → 自动发送隐藏指令 */
+  function handleConfirmPlan(identifier?: string) {
+    const sid = params.id
+    if (!sid) return
+    if (planButtonDisabled()) return   // 防重复
+    setOptimisticConfirmed(true)
+    const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
+    sendMessage(sid, cmd).catch((err) => {
+      console.error("[MakePage] confirm plan failed", err)
+      // 发送失败时回滚乐观锁,允许重试
+      setOptimisticConfirmed(false)
+    })
+  }
+
+  /** 用户点击 [调整方案] → 焦点切到输入框,预填引导文字 */
+  function handleAdjustPlan() {
+    setPrompt("请按以下方向调整方案:")
+    requestAnimationFrame(() => textareaRef?.focus())
+  }
+
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
   createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
+
+  // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
+  // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
+  // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
+
+  /** 用户点击 plan 横条 → 打开右侧 ResultViewer 显示 plan tab
+   *  优先用 snapshot 版本(用户可能编辑过);没有 snapshot 才用消息流版本 */
+  function handleViewPlan() {
+    const card = planCard()
+    if (!card) return
+    const edited = snapshotStore.restoreLatestByTabId(card.id)
+    const restored = edited ? tabToOutputCard(edited) : null
+    tabStore.openTab(restored ?? card)
+  }
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
@@ -769,6 +831,17 @@ const sessionMessagesLoaded = createMemo(() => {
         snapshotStore: snapshotStore,
         refreshSnapshots: refreshSnapshots,
       })
+    }
+  }
+
+  function handleCloseTab(id: string) {
+    const tab = tabStore.tabs().find((t) => t.id === id)
+    if (tab) {
+      tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
+    }
+    tabStore.closeTab(id)
+    if (tabStore.tabs().length === 0) {
+      layout.focusMode.set(false)
     }
   }
 
@@ -1156,6 +1229,29 @@ if (dsId) {
   }
 
   function handleOpenLocalFile(filePath: string) {
+    // 检测 http/https URL
+    if (/^https?:\/\//i.test(filePath)) {
+      let title: string
+      try {
+        const url = new URL(filePath)
+        const pathSegments = url.pathname.split('/').filter(Boolean)
+        const lastSegment = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : ''
+        title = lastSegment ? `${url.host}/${lastSegment}` : url.host
+      } catch {
+        title = filePath
+      }
+      
+      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
+      tabStore.openLocalFileTab({
+        id: tabId,
+        title,
+        absoluteFilePath: filePath,
+        createdAt: new Date(),
+      })
+      tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
+      return
+    }
+    
     const dir = projectDir()
     
     const normalizedPath = filePath.replace(/\\/g, '/')
@@ -1187,10 +1283,12 @@ if (dsId) {
       absoluteFilePath: absolutePath,
       createdAt: new Date(),
     })
+    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local" }) })
   }
 
   /** 继续生成（追加被截断的内容作为 prompt） */
   function handleContinue(card: OutputCard) {
+    tracker.interaction({ module: "design", name: "continue-generation" })
     const sid = params.id
     if (!sid) return
     const lastChars = card.content.slice(-300)
@@ -1466,14 +1564,22 @@ if (dsId) {
                             <Icon name="plus" class="size-5" />
                           </Button>
                         </Tooltip>
-                        <ModelSelectorPopover
-                          model={local.model}
-                          triggerAs="button"
-                          triggerProps={{
-                             class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
-                             "data-action": "prompt-model",
+<ModelSelectorPopover
+                           model={local.model}
+                           triggerAs="button"
+                           triggerProps={{
+                              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                              "data-action": "prompt-model",
+                            }}
+                           onClose={(cause) => {
+                             if (cause === "select") {
+                               const m = currentModel()
+                               if (m) {
+                                 tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                               }
+                             }
                            }}
-                        >
+                         >
                           <span class="truncate">
                             {currentModel()?.name ?? "选择模型"}
                           </span>
@@ -1535,6 +1641,13 @@ if (dsId) {
                 <AttachmentBar
                   attachments={attachments()}
                   onRemove={removeAttachment}
+                />
+
+                {/* Plan banner - 设计方案横条(在输入框上方)。点击才打开右侧 ResultViewer */}
+                <PlanBanner
+                  plan={planCard()}
+                  confirmed={planConfirmed()}
+                  onView={handleViewPlan}
                 />
 
                 {/* Permission dock - 权限授权 UI */}
@@ -1665,14 +1778,22 @@ if (dsId) {
                           <Icon name="plus" class="size-5" />
                         </Button>
                       </Tooltip>
-                       <ModelSelectorPopover
-                        model={local.model}
-                        triggerAs="button"
-                        triggerProps={{
-                          class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
-                          "data-action": "prompt-model",
-                        }}
-                      >
+<ModelSelectorPopover
+                         model={local.model}
+                         triggerAs="button"
+                         triggerProps={{
+                           class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                           "data-action": "prompt-model",
+                         }}
+                         onClose={(cause) => {
+                           if (cause === "select") {
+                             const m = currentModel()
+                             if (m) {
+                               tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                             }
+                           }
+                         }}
+                       >
                         <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
                           {currentModel()?.name ?? "选择模型"}
                         </span>
@@ -1745,11 +1866,20 @@ if (dsId) {
               <ResultViewer
                 tabs={tabStore.tabs()}
                 activeId={tabStore.activeId()}
-                onActivate={tabStore.activate}
-                onClose={tabStore.closeTab}
+                onActivate={(id) => {
+                  const tab = tabStore.tabs().find((t) => t.id === id)
+                  if (tab && id !== tabStore.activeId()) {
+                    tracker.interaction({ module: "design", name: "switch-tab", extend: JSON.stringify({ type: tab.type }) })
+                  }
+                  tabStore.activate(id)
+                }}
+                onClose={handleCloseTab}
                 onContentChange={handleContentChange}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                onConfirmPlan={handleConfirmPlan}
+                onAdjustPlan={handleAdjustPlan}
+                isPlanConfirmed={planButtonDisabled}
               />
             </div>
             <Show when={showVersionPanel()}>

@@ -245,12 +245,13 @@ export function StudioInpaintEditor(props: {
     if (!context) throw new Error("无法创建智能重绘画布")
     context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
     context.drawImage(sourceMaskCanvas, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL("image/png").split(",")[1] ?? ""
+    return canvas.toDataURL("image/png")
   }
 
   function submit() {
     const nextHasDrawing = updateHasDrawing()
-    if (!nextHasDrawing || props.busy) return
+    // Allow one-click generation without painting as long as there is a prompt.
+    if ((!nextHasDrawing && !editorPrompt().trim()) || props.busy) return
     try {
       props.onSubmit({
         prompt: editorPrompt().trim(),
@@ -406,11 +407,16 @@ export function StudioInpaintEditor(props: {
               value={editorPrompt()}
               disabled={props.busy}
               onInput={(event) => setEditorPrompt(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey) return
+                event.preventDefault()
+                submit()
+              }}
             />
             <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
             <button
               type="button"
-              disabled={!hasDrawing() || props.busy}
+              disabled={(!hasDrawing() && !editorPrompt().trim()) || props.busy}
               onClick={submit}
               class="studio-hd-create"
             >
