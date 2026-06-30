@@ -120,7 +120,10 @@ export function verifyAndReconnectIfNeeded(
 ) {
   return Effect.gen(function* () {
     const s = yield* ctx.state.get()
-    const remoteNames = Object.keys(s.clients).filter((n) => remoteConfigs.has(n))
+    // 关键：检查范围是所有有 remote 配置的 server，不限于 s.clients 里现有的。
+    // 这样 5 次重连全失败（clients/defs 已删、status=failed）的 server 也能在
+    // 下次对话触发 tools() 时被重新拉起。disabled 的 server 由 intentionalDisconnects 拦住。
+    const remoteNames = Array.from(remoteConfigs.keys())
 
     if (remoteNames.length === 0) return
 
@@ -144,7 +147,27 @@ export function verifyAndReconnectIfNeeded(
           }
 
           const client = s.clients[name]
-          if (!client) return
+          const currentStatus = s.status[name]?.status
+
+          // 方案 B 核心：failed 或 missing client（5 次重连全失败 / 首次 create 失败）
+          // 无 client 可 ping，直接触发重连，让 reconnectWithBackoff 再走一轮 5 次。
+          if (!client || currentStatus === "failed") {
+            log.warn("[reconnect] preflight found dead client - triggering reconnect directly", {
+              name,
+              currentStatus: currentStatus ?? "missing",
+              hasClient: !!client,
+            })
+            triggerReconnect(
+              s,
+              name,
+              client,
+              bridge,
+              ctx,
+              "tools-preflight",
+              `client dead (status: ${currentStatus ?? "missing"}, hasClient: ${!!client})`,
+            )
+            return
+          }
 
           // 用 Promise 内部 catch 把失败转成 boolean，避免 Effect 错误通道类型复杂化
           let pingOk = false
@@ -316,7 +339,7 @@ export type TriggerSource =
 function triggerReconnect(
   s: InternalState,
   name: string,
-  client: Client,
+  client: Client | undefined,
   bridge: EffectBridge.Shape,
   ctx: ReconnectContext,
   source: TriggerSource,
@@ -343,6 +366,8 @@ function triggerReconnect(
   }
 
   // stale client 检查：state 中的 client 已经被替换（storeClient / connect 等场景）
+  // 注意：方案 B 的 failed 分支会传 client=undefined，此时若 s.clients[name] 也为 undefined，
+  // undefined === undefined 不算 stale；若 state 中已有别的 client，说明被别的路径接管，跳过。
   const currentClient = s.clients[name]
   if (currentClient !== client) {
     log.info("[reconnect] trigger suppressed - stale handler", {
@@ -369,9 +394,9 @@ function triggerReconnect(
   })
 
   // 异步清理旧 client（不依赖其 onclose 触发）
-  // 用 .catch 兜底，避免 close 抛错影响重连流程
+  // 用 ?. + .catch 双兜底，避免 close 抛错影响重连流程；client 可能是 undefined（failed 分支）
   try {
-    client.close().catch((e) => {
+    client?.close().catch((e) => {
       log.debug("[reconnect] old client close error (safe to ignore)", {
         name,
         error: String(e),
@@ -626,6 +651,11 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
         status: "failed",
         error: `Reconnect failed after ${MAX_RECONNECT_ATTEMPTS} attempts: ${lastError ?? "unknown"}`,
       }
+      // 关键：清掉已触发标志，否则下次 tools() 的 preflight 会因为标志残留而跳过，
+      // server 进入"永久死"状态，只能靠用户手动 disconnect→connect 恢复。
+      // 清掉后，下次用户发消息触发 tools() 时，preflight 会发现 status=failed + 无 client，
+      // 重新触发一轮 5 次重连。
+      triggeredReconnectFlags.delete(name)
       log.error("[reconnect] failed - max attempts reached", {
         name,
         totalDurationMs: Date.now() - reconnectStartAt,

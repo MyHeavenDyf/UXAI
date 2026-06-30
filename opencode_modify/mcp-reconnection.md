@@ -6,6 +6,8 @@
 
 **架构（2026-06-16 改造后）**：单层触发 — onerror 在满足条件时直接调用 `triggerReconnect()` 启动 `reconnectWithBackoff`，绕过 SDK 的 `onclose` 死链。onclose 仅作可观测性日志和最后兜底。
 
+**架构（2026-06-29 方案 B）**：preflight 检查范围从 `s.clients` 扩展到 `remoteConfigs.keys()`，覆盖 5 次重连全失败后的 failed 状态。失败分支补清 `triggeredReconnectFlags`。死 server 在下次对话触发 tools() 时自动尝试恢复。
+
 ## 设计决策
 
 - **独立文件**：重连核心逻辑放在 `src/mcp/reconnect.ts`，`index.ts` 仅做 ~20 行集成调用
@@ -15,6 +17,55 @@
 - **单层触发（2026-06-16）**：onerror 直接触发重连，不依赖 `client.close() → onclose` 链路。绕过 SDK 多个 race condition（give-up 后不调 onclose / 多 SSE stream 共享 `_reconnectionTimeout` / `transport.close()` 异步边界）
 
 ## 提交记录
+
+### 2026-06-29: 修复 5 次重连全失败后永久卡死（方案 B）
+
+**问题**：用户反馈"服务重启后客户端永久不可用"，需手动点 disconnect→connect 才能恢复。
+
+**根因**：`reconnectWithBackoff` 5 次全部失败的分支（reconnect.ts:646-659）只清 `clients/defs` + 设 `status=failed`，**没清 `triggeredReconnectFlags`**。`finally` 块只清 `activeReconnects`。后果是 server 进入"永久死"状态：
+
+| 触发路径 | 是否能自愈 | 原因 |
+|---------|-----------|------|
+| `onerror` / `onclose` | ❌ | client 已 `delete`，handler 不存在 |
+| `tools-preflight` | ❌ | `remoteNames = Object.keys(s.clients).filter(...)` 不含 failed 的 server（client 没了） |
+| `tool-execute` | ❌ | `clientGetter()` 返回 undefined → 直接返回 isError |
+| `setupConnectionHandlers` | ❌ | 没新 client 创建，不会装新 handler |
+
+唯一恢复途径：用户手动点 UI 的 disconnect→connect。
+
+**修复（方案 B：preflight 覆盖 failed 状态，按需触发）**：
+
+1. **`verifyAndReconnectIfNeeded`（reconnect.ts:116-205）**：
+   - `remoteNames` 从 `Object.keys(s.clients).filter(...)` 改为 `Array.from(remoteConfigs.keys())`，覆盖所有有 remote 配置的 server（含 failed/missing client）
+   - 新增 failed/missing 分支：`!client || currentStatus === "failed"` 时跳过 ping，直接 `triggerReconnect(s, name, client /* undefined */, ..., "tools-preflight", ...)`
+   - 不引入定时器，按需触发（用户发消息 → tools() → preflight），与现有设计哲学一致
+
+2. **`triggerReconnect`（reconnect.ts:339-418）**：
+   - 签名 `client: Client` → `client: Client | undefined`（适配 failed 分支）
+   - stale 检查逻辑不变（`undefined !== undefined === false`，不误判；`undefined !== someClient === true`，state 已有 client 时跳过）
+   - `client.close()` → `client?.close()` 防 undefined 崩溃
+
+3. **`reconnectWithBackoff` 失败分支（reconnect.ts:654）**：
+   - 补 `triggeredReconnectFlags.delete(name)`
+   - 否则下次 preflight 因标志残留被幂等检查拦下（`triggerReconnect` line 349）
+
+**预期行为**：
+- 服务重启 → SSE 断开 → 终端错误累积到 2 → triggerReconnect → 5 次重连全失败 → status=failed + 标志已清
+- 远端服务恢复 → 用户重新发消息 → tools() → preflight 发现 status=failed + 无 client → 直接 triggerReconnect → 5 次重连尝试 → 第 1 次成功 → storeClient → status=connected
+
+**未改动**：
+- onerror / onclose / 5 路触发架构保持不变
+- MAX_RECONNECT_ATTEMPTS=5 / backoff 序列不变
+- 前端 SSE 监听不变
+- `convertMcpTool` getter 不变
+
+**风险**：
+- 每次 tools() 都会遍历所有 remoteConfigs（含 failed 的），但 `triggeredReconnectFlags` 幂等检查保证同一 server 同一轮只触发一次
+- failed server 持续触发 5 次重试会消耗 ~30s（5×backoff），但因为是用户主动对话触发，用户本来就在等
+- 若远端真的死了（永久），每次对话都会浪费 ~30s 重试。后续可考虑加"连续 N 次失败后退避"机制（暂不做，等待实际反馈）
+
+**新日志**：
+- `[reconnect] preflight found dead client - triggering reconnect directly` — preflight 发现 failed/missing client 时（关键字段 `name, currentStatus, hasClient`）
 
 ### 2026-06-17: 新增 D2+B 方案 — preflight ping + 工具调用失败兜底
 

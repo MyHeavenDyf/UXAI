@@ -474,6 +474,7 @@
   flex-direction: row;
   align-items: stretch;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .studio-canvas-stage {
@@ -780,6 +781,7 @@
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   padding: 0 6px;

@@ -189,7 +189,7 @@ export function ActionBar(props: {
   const showToggle = () =>
     isToggleType(props.tab.type) ||
     (props.tab.type === "json" && isMindmapJSON(props.tab.content ?? ""))
-  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 .octo/downloads / path write 产物);
+  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 insight/outputs / path write 产物);
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
