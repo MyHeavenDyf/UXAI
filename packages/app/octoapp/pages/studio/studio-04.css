@@ -34,7 +34,7 @@
 
 .studio-hd-mode-label {
   color: #191919;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 100%;
   white-space: nowrap;
 }
@@ -49,7 +49,7 @@
   border-radius: 0;
   background: transparent;
   color: #191919;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 100%;
   white-space: nowrap;
   cursor: pointer;
@@ -371,7 +371,7 @@
 
 .studio-inpaint-mode-label {
   color: #191919;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 100%;
   white-space: nowrap;
 }
@@ -386,7 +386,7 @@
   border-radius: 0;
   background: transparent;
   color: #191919;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 100%;
   white-space: nowrap;
   cursor: pointer;

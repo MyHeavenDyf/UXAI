@@ -6,6 +6,8 @@ import type { StudioGenerationResult } from "./types"
 
 describe("Studio generation status merging", () => {
   test("rejects active states after a terminal state", () => {
+    expect(isStudioGenerationStatusRegression("create_failed", "running")).toBe(true)
+    expect(isStudioGenerationStatusRegression("create_failed", "queued")).toBe(true)
     expect(isStudioGenerationStatusRegression("failed", "running")).toBe(true)
     expect(isStudioGenerationStatusRegression("failed", "queued")).toBe(true)
     expect(isStudioGenerationStatusRegression("succeeded", "running")).toBe(true)
@@ -112,6 +114,7 @@ const erroredToolPart = (
   messageID: string,
   capability: "image.generate" | "video.generate",
   error = "用户取消生成",
+  status: "create_failed" | "failed" = "failed",
 ) =>
   ({
     id,
@@ -128,7 +131,7 @@ const erroredToolPart = (
       metadata: {
         studio: {
           generationID: `studio_gen_${id}`,
-          status: "failed",
+          status,
           rawStatus: 4,
           progress: 0,
         },
@@ -420,6 +423,30 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.status).toBe("failed")
     expect(turns[0].result?.capability).toBe("image.generate")
     expect(turns[0].result?.error).toBe("生成失败")
+  })
+
+  test("restores create failure separately from generation failure", () => {
+    const user = userMessage("msg_create_failed_user")
+    const assistant = assistantMessage("msg_create_failed_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_create_failed_text", user.id, "生成一张海报")],
+        [assistant.id]: [
+          erroredToolPart(
+            "p_create_failed_tool",
+            assistant.id,
+            "image.generate",
+            "最多支持同时进行3个生成任务",
+            "create_failed",
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].toolTitle).toBe("图片创建失败")
+    expect(turns[0].result?.status).toBe("create_failed")
+    expect(turns[0].result?.error).toBe("最多支持同时进行3个生成任务")
   })
 
   test("builds a continuity summary from the latest completed turn", () => {

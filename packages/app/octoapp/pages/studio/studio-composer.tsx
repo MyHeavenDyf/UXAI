@@ -46,6 +46,7 @@ export function StudioComposer(props: {
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
+  onCancel?: () => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
   onPickFile: () => void
@@ -184,97 +185,109 @@ export function StudioComposer(props: {
         </div>
 
         <div class="studio-composer-toolbar">
-          <div class="relative">
-            <Show when={props.openMenu === "capability"}>
-              <CapabilityMenu
-                value={props.capability}
-                canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
-              />
-            </Show>
-            <ToolButton
-              label={capabilityLabel(props.capability)}
-              active={props.openMenu === "capability"}
-              disabled={isBusy()}
-              onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-              onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
-            />
-          </div>
-          <Show when={isImageGeneration()}>
-            <div class="relative">
-              <Show when={isImageGeneration() && props.openMenu === "style"}>
-                <StyleMenu
-                  value={props.styleModel}
-                  canUseSeedream={props.canUseSeedream}
-                  onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+          <div class="studio-composer-toolbar-items">
+            <div class="relative studio-composer-toolbar-item">
+              <Show when={props.openMenu === "capability"}>
+                <CapabilityMenu
+                  value={props.capability}
+                  canGenerateVideo={props.canGenerateVideo}
+                  onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
                 />
               </Show>
               <ToolButton
-                label={styleModelLabel(props.styleModel)}
-                active={props.openMenu === "style"}
+                label={capabilityLabel(props.capability)}
+                active={props.openMenu === "capability"}
                 disabled={isBusy()}
                 onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
+                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "capability" ? null : "capability")}
               />
             </div>
-            <div class="relative">
-              <Show when={isImageGeneration() && props.openMenu === "settings"}>
-                <ImageSettings
-                  aspectRatio={props.aspectRatio}
-                  count={props.count}
-                  onAspectRatio={props.onAspectRatio}
-                  onCount={props.onCount}
+            <Show when={isImageGeneration()}>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style">
+                <Show when={isImageGeneration() && props.openMenu === "style"}>
+                  <StyleMenu
+                    value={props.styleModel}
+                    canUseSeedream={props.canUseSeedream}
+                    onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                  />
+                </Show>
+                <ToolButton
+                  label={styleModelLabel(props.styleModel)}
+                  active={props.openMenu === "style"}
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
                 />
-              </Show>
-              <IconTool
-                label="参数"
-                disabled={isBusy()}
-                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
-              />
-            </div>
-            <div class="relative">
-              <Show when={isImageGeneration() && props.openMenu === "material" && props.wordBook}>
-                <MaterialMenu wordBook={props.wordBook!} onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
-              </Show>
-              <IconTool
-                label="词书"
-                disabled={isBusy()}
-                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
-              />
-            </div>
-          </Show>
-          <Show when={isVideoGeneration()}>
-            <div class="relative">
-              <Show when={props.openMenu === "settings"}>
-                <VideoSettings
-                  aspectRatio={props.aspectRatio}
-                  count={props.count}
-                  duration={props.videoDuration}
-                  qualityMode={props.videoQualityMode}
-                  qualityLocked={props.videoQualityLocked}
-                  onAspectRatio={props.onAspectRatio}
-                  onCount={props.onCount}
-                  onDuration={props.onVideoDuration}
-                  onQualityMode={props.onVideoQualityMode}
+              </div>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings">
+                <Show when={isImageGeneration() && props.openMenu === "settings"}>
+                  <ImageSettings
+                    aspectRatio={props.aspectRatio}
+                    count={props.count}
+                    onAspectRatio={props.onAspectRatio}
+                    onCount={props.onCount}
+                  />
+                </Show>
+                <IconTool
+                  label="参数"
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
                 />
-              </Show>
-              <IconTool
-                label="参数"
-                disabled={isBusy()}
-                onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
-              />
-            </div>
+              </div>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--material">
+                <Show when={isImageGeneration() && props.openMenu === "material" && props.wordBook}>
+                  <MaterialMenu wordBook={props.wordBook!} onSelectTag={(tag) => props.onPrompt(props.prompt ? props.prompt + "，" + tag : tag)} />
+                </Show>
+                <IconTool
+                  label="词书"
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+                />
+              </div>
+            </Show>
+            <Show when={isVideoGeneration()}>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings">
+                <Show when={props.openMenu === "settings"}>
+                  <VideoSettings
+                    aspectRatio={props.aspectRatio}
+                    count={props.count}
+                    duration={props.videoDuration}
+                    qualityMode={props.videoQualityMode}
+                    qualityLocked={props.videoQualityLocked}
+                    onAspectRatio={props.onAspectRatio}
+                    onCount={props.onCount}
+                    onDuration={props.onVideoDuration}
+                    onQualityMode={props.onVideoQualityMode}
+                  />
+                </Show>
+                <IconTool
+                  label="参数"
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                />
+              </div>
+            </Show>
+          </div>
+          <Show when={!isBusy()}>
+            <button
+              type="button"
+              onClick={props.onSubmit}
+              disabled={!props.canSubmit}
+              class="studio-composer-send"
+              title="生成"
+            />
           </Show>
-          <button
-            type="button"
-            onClick={props.onSubmit}
-            disabled={!props.canSubmit}
-            class="studio-composer-send"
-            title="生成"
-          />
+          <Show when={isBusy() && props.onCancel}>
+            <button
+              type="button"
+              onClick={props.onCancel}
+              class="studio-composer-stop"
+              title="停止生成"
+            />
+          </Show>
         </div>
       </div>
       <div class="studio-composer-compliance">
