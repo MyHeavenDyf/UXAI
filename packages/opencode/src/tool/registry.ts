@@ -15,6 +15,7 @@ import { SkillTool } from "./skill"
 import { JimengImageGenerateTool } from "./jimeng_image_generate"
 import { InternelImageGenerateTool } from "./internel_image_generate"
 import { KnowledgeSearchTool } from "./knowledge_search"
+import { ExtractDocumentTool } from "./extract_document"
 import { LoadComponentsDocsTool } from "./proto_tool/load_components_docs"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
@@ -121,6 +122,7 @@ export const layer: Layer.Layer<
     const jimengtool = yield* JimengImageGenerateTool
     const interneltool = yield* InternelImageGenerateTool
     const knowledgesearch = yield* KnowledgeSearchTool
+    const extractdocument = yield* ExtractDocumentTool
     const loadComponentsDocs = yield* LoadComponentsDocsTool
     const agent = yield* Agent.Service
 
@@ -221,6 +223,7 @@ export const layer: Layer.Layer<
           jimeng: Tool.init(jimengtool),
           internel: Tool.init(interneltool),
           knowledge: Tool.init(knowledgesearch),
+          extract_document: Tool.init(extractdocument),
           components_docs: Tool.init(loadComponentsDocs),
           patch: Tool.init(patchtool),
           question: Tool.init(question),
@@ -247,6 +250,7 @@ export const layer: Layer.Layer<
             tool.jimeng,
             tool.internel,
             tool.knowledge,
+            tool.extract_document,
             tool.components_docs,
             tool.patch,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
@@ -310,6 +314,11 @@ export const layer: Layer.Layer<
         // 内网知识库工具只给 chat 的 octo_ai,避免泄漏到其他 agent。
         if (tool.id === KnowledgeSearchTool.id) {
           return input.agent.name === "octo_ai"
+        }
+
+        // office 文本抽取只给 insight 的 octo_insight(SPEC-INS-015 ②),不泄漏到 make/chat。
+        if (tool.id === ExtractDocumentTool.id) {
+          return input.agent.name === "octo_insight"
         }
 
         const usePatch =

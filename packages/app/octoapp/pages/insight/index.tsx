@@ -1,6 +1,6 @@
 import "./octo-tokens.css"
 import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
-import type { TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import {
@@ -42,7 +42,8 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, sanitizeFileName, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, sanitizeFileName, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { encodeFilePath } from "../../context/file/path"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -604,6 +605,7 @@ function InsightContent() {
     if (sendingNavigation) {
       sendingNavigation = false
     } else {
+      revokeAllPreviews()
       filesById.clear()
       setAttachments([])
       setPrompt("")
@@ -737,17 +739,36 @@ function InsightContent() {
    * spec: docs/specs/ui/task-card.md §6.1 + docs/specs/ui/insight-prompt-redesign.md §3.2
    */
   async function doSendPrompt(sessionId: string, text: string, opts: { consumeAttachments: boolean; source: string }) {
-    const doneAttachments = opts.consumeAttachments
-      ? attachments().filter((a) => a.status === "done" && a.url)
-      : []
-    // 上传 URL 块走独立 synthetic text part:LLM 收得到(server 只过滤 ignored),
-    // 但气泡不渲染(上游 UserMessageDisplay 过滤 synthetic)。文件卡片由 InsightTurn 解析渲染。
+    // SPEC-INS-015 文件传参路由:发送时按「文件类 × 用途」分流(spec docs/specs/infra/insight-file-passing.md)。
+    const done = opts.consumeAttachments ? attachments().filter((a) => a.status === "done") : []
+    // 非图片(已导入 worktree、有本地 path):进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
+    // 降级场景(无 projectDir/非桌面)拿不到 path → 不进清单(本地读 + MCP 都用不了)。
+    const localFiles = done.filter((a) => !isImageFile(a.filename) && a.path)
+    // 图片(已 change 即传拿到 S3 url):走 ③ vision FilePart{url},不进 [附件] 清单。
+    const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
+
+    // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
+    // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
     const uploadBlock = formatUploadsForPrompt(
-      doneAttachments.map((a) => ({ filename: a.filename, url: a.url! })),
+      localFiles.map((a) => ({ filename: a.filename, path: a.path! })),
     )
     const cleanTextPart: TextPartInput = { type: "text", text }
-    const parts: TextPartInput[] = [cleanTextPart]
+    const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
+    // ① txt/md → FilePart(file://, text/plain):opencode 组 prompt 时自动 Read 内联正文给本地模型读。
+    //   (office 不走此路 —— FilePart 二进制会被 base64,② 由模型调 extract_document 读。)
+    for (const a of localFiles) {
+      if (!isTextInlineFile(a.filename)) continue
+      parts.push({ type: "file", mime: "text/plain", url: `file://${encodeFilePath(a.path!)}`, filename: a.filename })
+    }
+    // ③ 图片 → vision FilePart{url:S3}:交多模态模型看(非多模态由 opencode stripMedia 换占位)。
+    const imageParts: FilePartInput[] = imageFiles.map((a) => ({
+      type: "file" as const,
+      mime: a.mime || "image/png",
+      url: a.url!,
+      filename: a.filename,
+    }))
+    parts.push(...imageParts)
     const messageID = Identifier.ascending("message")
     const agent = INSIGHT_AGENT
 
@@ -788,6 +809,19 @@ function InsightContent() {
         synthetic: true,
       } as Part)
     }
+    // 图片 FilePart 也写入 optimistic → 缩略图乐观即显(InsightTurn 从图片 part 渲染);
+    // server 回传同构,替换后无闪烁。txt/md FilePart 不入(InsightTurn 不从 part 渲染它们,由 [附件] 卡片覆盖)。
+    for (const p of imageParts) {
+      optimisticParts.push({
+        id: Identifier.ascending("part"),
+        sessionID: sessionId,
+        messageID,
+        type: "file",
+        mime: p.mime,
+        url: p.url,
+        filename: p.filename,
+      } as Part)
+    }
 
     console.log("[octo:prompt] send", {
       source: opts.source,
@@ -799,8 +833,9 @@ function InsightContent() {
       statusAtSend: sync.data.session_status[sessionId]?.type ?? "idle",
       text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
       textLen: text.length,
-      attachmentsCount: doneAttachments.length,
-      uploads: doneAttachments.map((a) => ({ name: a.filename, url: a.url })),
+      attachmentsCount: done.length,
+      localFiles: localFiles.map((a) => ({ name: a.filename, path: a.path })),
+      images: imageFiles.map((a) => ({ name: a.filename, url: a.url })),
     })
     // 完整 text 单独 dump(不截断),便于内网把怪 case 粘到外网定位
     console.log("[octo:prompt] send-full", {
@@ -821,7 +856,7 @@ function InsightContent() {
       statusAtSend: sync.data.session_status[sessionId]?.type ?? "idle",
       cleanText: text,
       uploadBlock,
-      attachmentsCount: doneAttachments.length,
+      attachmentsCount: done.length,
       endpoint: `${sdk.url}/session/${sessionId}/prompt_async`,
     } satisfies SendRecord)
 
@@ -833,6 +868,7 @@ function InsightContent() {
     console.log("[octo:prompt] optimistic added", { messageID, partsCount: optimisticParts.length })
 
     if (opts.consumeAttachments) {
+      revokeAllPreviews()
       filesById.clear()
       setAttachments([])
     }
@@ -1021,6 +1057,11 @@ function InsightContent() {
   // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）
   const filesById = new Map<string, File>()
 
+  // 释放当前所有图片附件的缩略图 objectURL（避免内存泄漏）。清空附件前调用。
+  function revokeAllPreviews() {
+    for (const a of attachments()) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
+  }
+
   function addAttachments(files: File[], method: "picker" | "drop" | "paste") {
     const slots = MAX_ATTACHMENTS - attachments().length
     // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
@@ -1057,59 +1098,107 @@ function InsightContent() {
         ])
         continue
       }
-      filesById.set(id, file)
-      setAttachments((prev) => [
-        ...prev,
-        { id, filename: file.name, mime, size: file.size, status: "uploading" },
-      ])
-      void doUpload(id, file)
-      // SPEC-INS-014 §4.1:同时把源文件拷贝进 insight/sources(本地副本,供下游本地能力线;与 S3 上传解耦)。
-      // 用 rawFile(选取器/拖拽的原始 File)取真实路径——清洗后 new File() 重建的对象拿不到路径。
-      void copySourceToWorktree(file.name, rawFile)
+      // SPEC-INS-015 路由分流(spec docs/specs/infra/insight-file-passing.md):
+      //   图片(③)→ change 即传 S3 + 本地 objectURL 缩略图;非图片 → 导入 worktree(本地路径,供 ②/④)。
+      const image = isImageFile(file.name)
+      if (image) {
+        // filesById 存清洗后的 file(重传用,文件名清洗过 → S3 url 干净);objectURL 本地秒显缩略图。
+        filesById.set(id, file)
+        const previewUrl = URL.createObjectURL(file)
+        setAttachments((prev) => [
+          ...prev,
+          { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl },
+        ])
+        void doImageUpload(id, file)
+      } else {
+        // filesById 存**原始 rawFile**(非清洗后重建对象):导入靠它取真实本地路径,重试复用。展示名走 filename。
+        filesById.set(id, rawFile)
+        setAttachments((prev) => [
+          ...prev,
+          { id, filename: file.name, mime, size: file.size, status: "uploading" },
+        ])
+        // 非图片不 eager 上传:只拷进 insight/sources(本地副本)。done 带 path,发送时进 [附件] 清单;
+        // 插件在模型调 MCP 时才按需上传(④)。
+        void doImport(id, rawFile, file.name)
+      }
     }
   }
 
-  async function doUpload(id: string, file: File) {
+  // ③ 图片:change 即传 S3。成功 → done + url(发送时产出 vision FilePart{url});失败 → retriable。
+  // 不拷进 sources、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
+  async function doImageUpload(id: string, file: File) {
     try {
       const result = await uploadFile(file)
-      tracker.interaction({ module: "insight", name: "attachment-upload-result", extend: JSON.stringify({ success: true }) })
+      tracker.interaction({ module: "insight", name: "attachment-upload-result", extend: JSON.stringify({ success: true, kind: "image" }) })
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
       )
     } catch (err) {
       const message = err instanceof UploadError ? err.message : err instanceof Error ? err.message : "上传失败"
-      console.error("[InsightPage] upload failed", { id, filename: file.name, err })
+      console.error("[octo:upload] image-upload failed", { id, filename: file.name, err })
       tracker.interaction({
         module: "insight",
         name: "attachment-upload-result",
-        extend: JSON.stringify({ success: false, errorCode: err instanceof UploadError ? err.code : "UNKNOWN" }),
+        extend: JSON.stringify({ success: false, kind: "image", errorCode: err instanceof UploadError ? err.code : "UNKNOWN" }),
       })
-      // 已发起过上传(File 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
       )
     }
   }
 
-  // SPEC-INS-014 §4.1:把源文件拷贝进 worktree 的 insight/sources/(磁盘流式拷贝,原样不转格式)。
-  // 与 S3 上传完全解耦:拷贝是为本地能力线、上传是为 MCP。失败不阻断、不打扰用户(主进程已记日志)。
-  // 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)→ 跳过,降级不报错。
-  async function copySourceToWorktree(filename: string, srcFile: File) {
+  // 把源文件导入 worktree 的 insight/sources/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式),
+  // 拿到本地绝对路径写进附件(SPEC-INS-015:供 [本地文件] 注入块,插件按需上传 S3)。
+  //   - 成功:status=done + path
+  //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
+  //   - 降级(无 projectDir / 非桌面 / 拿不到真实路径,如剪贴板内存 blob):status=done 但**无 path**,
+  //     不报错(不破坏 __dev),该文件不进注入块、MCP 不可用
+  async function doImport(id: string, rawFile: File, filename: string) {
+    try {
+      const dest = await copySourceToWorktree(filename, rawFile)
+      tracker.interaction({
+        module: "insight",
+        name: "attachment-import-result",
+        extend: JSON.stringify({ success: true, localized: !!dest }),
+      })
+      if (!dest) {
+        console.warn("[octo:upload] imported without local path (degraded: no projectDir / non-desktop / blob)", {
+          id, filename,
+        })
+      }
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "done", path: dest ?? undefined, error: undefined } : a)),
+      )
+    } catch (err) {
+      console.error("[octo:upload] import to worktree failed", { id, filename, err })
+      tracker.interaction({
+        module: "insight",
+        name: "attachment-import-result",
+        extend: JSON.stringify({ success: false }),
+      })
+      // 已发起过导入(rawFile 在 filesById):标 retriable=true → chip 显示重试
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "error", error: "导入失败，请重试", retriable: true } : a)),
+      )
+    }
+  }
+
+  // 把源文件拷贝进 worktree 的 insight/sources/(磁盘流式拷贝,原样不转格式),返回本地绝对路径。
+  //   - 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)/ 拿不到真实路径 → 返回 null(降级)
+  //   - copyFileToWorktree 抛错(真失败)→ 向上抛,由 doImport 转成可重试错误
+  async function copySourceToWorktree(filename: string, srcFile: File): Promise<string | null> {
     const api = getDesktopApi()
     const baseDir = projectDir()
-    if (!baseDir || typeof api?.getPathForFile !== "function" || typeof api?.copyFileToWorktree !== "function") return
+    if (!baseDir || typeof api?.getPathForFile !== "function" || typeof api?.copyFileToWorktree !== "function") return null
     let srcPath = ""
     try {
       srcPath = api.getPathForFile(srcFile)
     } catch {
-      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 跳过本地拷贝
+      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 降级
     }
-    if (!srcPath) return
-    try {
-      await api.copyFileToWorktree(srcPath, baseDir, filename)
-    } catch {
-      // 主进程已记 [octo:worktree] source-copy failed;此处静默,不阻断发送/MCP
-    }
+    if (!srcPath) return null
+    // copyFileToWorktree 返回落地后的本地绝对路径(撞名已加后缀);抛错则上抛
+    return api.copyFileToWorktree(srcPath, baseDir, filename)
   }
 
   function removeAttachment(id: string) {
@@ -1119,24 +1208,32 @@ function InsightContent() {
       name: "attachment-remove",
       extend: JSON.stringify({ stage: att?.status === "done" ? "uploaded" : "pending" }),
     })
+    if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl) // 释放图片缩略图 objectURL
     filesById.delete(id)
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
   function retryUpload(id: string) {
     const file = filesById.get(id)
-    if (!file) {
-      // 客户端 validate 失败的 chip 没有原 File，无法重传；用户应删除重新选。
+    const att = attachments().find((a) => a.id === id)
+    if (!file || !att) {
+      // 客户端 validate 失败的 chip 没有原 File，无法重试；用户应删除重新选。
       // 正常情况下这类 chip 已隐藏重试按钮(retriable=false),走到这里属兜底,打日志便于排查。
       console.warn("[octo:upload] retry skipped: no original File (client-validation chip)", { id })
       return
     }
-    console.log("[octo:upload] retry", { id, filename: file.name })
     tracker.interaction({ module: "insight", name: "attachment-retry" })
     setAttachments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
     )
-    void doUpload(id, file)
+    // 按文件类型走对应重试:图片重传 S3,非图片重新导入 worktree。
+    if (isImageFile(att.filename)) {
+      console.log("[octo:upload] retry image-upload", { id, filename: att.filename })
+      void doImageUpload(id, file)
+    } else {
+      console.log("[octo:upload] retry import", { id, filename: att.filename })
+      void doImport(id, file, att.filename)
+    }
   }
 
   function handleFileInputChange(e: Event) {

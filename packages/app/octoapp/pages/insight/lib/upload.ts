@@ -1,9 +1,14 @@
-// 上传服务客户端：spec 见 docs/specs/infra/file-upload.md
+// 上传服务客户端 + 附件清单格式：spec 见 docs/specs/infra/insight-file-passing.md、file-upload.md
+//
+// SPEC-INS-015 路由后,前端的 uploadFile 只服务 **③ 图片**（change 即传 S3 → vision FilePart{url}）：
+//   - 图片必然要上传(模型无法理解本地路径的图),故选/粘当下就传,与"是否调 MCP"无关。
+//   - 非图片文件(④ 喂 MCP)的 S3 上传**不在前端**——下沉到 server 端 octo-upload-inject 插件,
+//     模型真调 MCP 工具时才按需上传(见 insight-file-passing.md §3)。
+// 本文件保留:客户端校验 + 文件名清洗 + 图片 uploadFile + [附件] 清单 format/parse。
 //
 // 设计要点：
 // - form 里只发 file 一个字段，不组 S3 路径（路径策略是服务端的事）
-// - 端点从环境变量 VITE_OCTO_UPLOAD_ENDPOINT 读取，内网同学改 .env.local 即可，
-//   不需要改源码（详见 spec §端点）
+// - 端点从环境变量 VITE_OCTO_UPLOAD_ENDPOINT 读取，内网同学改 .env.local 即可（详见 spec §端点）
 // - 全链路 console 日志统一前缀 [octo:upload]，便于内外网隔空调试
 
 // 上传服务端地址。配置方式：packages/desktop/.env 里写 VITE_OCTO_UPLOAD_ENDPOINT=...
@@ -219,60 +224,56 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return body.content
 }
 
-// 从文件 URL 派生一个**全局唯一且稳定**的 handle token(FNV-1a 32bit → 8 位 hex)。
-//
-// 为什么不用顺序号(upload_1/2/…):顺序号是「按 turn」编的,用户分多次上传时每个 turn
-// 都从 1 重排 → 跨 turn 撞号(turn1 的 upload_1=任务书、turn2 的 upload_1=逐字稿),模型会
-// 误判「upload_1 被替换了」。URL 派生的 token:同一文件永远同一 handle,跨 turn 不撞、刷新
-// 也不变(URL 里含全局唯一的 S3 UUID 段)。插件对 handle 形态不挑,只按 session 区块建表来认。
-function uploadHandle(url: string): string {
-  let h = 0x811c9dc5
-  for (let i = 0; i < url.length; i++) {
-    h ^= url.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return `upload_${(h >>> 0).toString(16).padStart(8, "0")}`
+// 图片扩展名(ALLOWED_EXT 的子集)。SPEC-INS-015 路由 ③:图片走 vision FilePart{url:S3},
+// 与非图片文件(进 [附件] 清单 + 本地读 / MCP)分流。前端按文件名判定走哪条。
+const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp"])
+
+export function isImageFile(filename: string): boolean {
+  return IMAGE_EXT.has(getExt(filename))
 }
 
-// 按 spec §注入格式：拼成 [已上传文件] 段落。
-//
-// 该段落作为**独立的 synthetic text part** 发送(不再拼进用户可见文本):
-//   - server 的 toModelMessages 对 user 消息只过滤 ignored,synthetic 照样喂给模型 → LLM 拿得到 URL
-//   - 上游 UserMessageDisplay 只渲染非 synthetic text part → 气泡不暴露 S3 长地址
-// 文件卡片由 InsightTurn 解析本段落渲染(parseUploadedFiles),optimistic / server 回传后都稳定存在。
-//
-// 每行带一个稳定 handle `[upload_<8hex>]`(uploadHandle,全局唯一):
-//   模型被 prompt 约束「文件参数只写 handle、不写 URL」,server 端 octo-upload-inject 插件在工具
-//   执行前把 handle 换成此处的精确 URL —— 避免弱模型把 S3 转码字符微调坏。
-//   格式契约与该插件 parseUploadBlock 同源,改格式需两处同步。
-export function formatUploadsForPrompt(uploads: Array<{ filename: string; url: string }>): string {
-  if (uploads.length === 0) return ""
-  const lines = uploads.map((u) => `- ${u.filename} [${uploadHandle(u.url)}]: ${u.url}`)
-  return `[已上传文件]\n${lines.join("\n")}`
+// 可被 opencode 直接内联正文的纯文本类(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
+// 组 prompt 时 opencode 自动 Read 内联;office(docx/xlsx)是二进制,走 FilePart 会被 base64,不在此列
+// (② 由模型调 extract_document 读)。
+const TEXT_INLINE_EXT = new Set(["txt", "md"])
+
+export function isTextInlineFile(filename: string): boolean {
+  return TEXT_INLINE_EXT.has(getExt(filename))
 }
 
-// formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { handle, filename, url } 列表,
+// 按 SPEC-INS-015 §2 拼「附件清单」段落:每行 `- <文件名>: <本地绝对路径>`。
+//
+// 该段落作为**独立的 synthetic text part** 发送(不进用户可见文本):
+//   - server 的 toModelMessages 对 user 消息只过滤 ignored,synthetic 照样喂给模型 → 模型拿到文件清单
+//   - 上游 UserMessageDisplay 只渲染非 synthetic text part → 气泡不暴露裸路径;文件卡片由 InsightTurn
+//     解析本段落渲染(parseAttachmentManifest)
+//
+// 清单只给「文件名 + 本地路径」,**不触发任何上传**:
+//   - 本地读(① txt/md 另走 FilePart 内联、② office 由模型调 extract_document 拿路径读)
+//   - 喂 MCP(④):模型被 prompt 约束「文件参数只填文件名」,server 端 octo-upload-inject 插件在工具
+//     执行前按文件名找到本地路径、**按需**上传 S3、把文件名换成精确 URL。模型全程不接触 URL。
+//   格式契约与该插件 parseManifest 同源,改格式需两处同步。
+// 注:图片不进本清单(走 ③ FilePart{url})。
+export function formatUploadsForPrompt(files: Array<{ filename: string; path: string }>): string {
+  if (files.length === 0) return ""
+  const lines = files.map((f) => `- ${f.filename}: ${f.path}`)
+  return `[附件]\n${lines.join("\n")}`
+}
+
+// formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { filename, path } 列表,
 // 供 InsightTurn 渲染输入文件卡片。两者共用同一格式,是单一事实源。
-export function parseUploadedFiles(block: string): Array<{ handle: string; filename: string; url: string }> {
-  const out: Array<{ handle: string; filename: string; url: string }> = []
+export function parseUploadedFiles(block: string): Array<{ filename: string; path: string }> {
+  const out: Array<{ filename: string; path: string }> = []
   for (const line of block.split("\n")) {
     const trimmed = line.trim()
     if (!trimmed.startsWith("- ")) continue
-    // 按第一个 ": " 切分,不要用正则的 \S+ 匹配 URL:内网上传服务会把未编码的
-    // 原始文件名拼进 URL,文件名带空格 → URL 含空格 → \S+ 截断 → 整行丢弃(实测 10 个文件
-    // 发送后只剩不含空格的几个)。这里 filename / url 任一含空格都能完整还原。
+    // 按第一个 ": " 切分,不用正则 \S+:文件名 / 本地路径都可能含空格,\S+ 会截断 → 整行丢弃。
     const body = trimmed.slice(2)
     const sep = body.indexOf(": ")
     if (sep < 0) continue
-    const left = body.slice(0, sep).trim() // "<文件名> [upload_xxxx]"
-    const url = body.slice(sep + 2).trim()
-    if (!url) continue
-    // 末尾的 ` [upload_xxxx]` 是 handle 标记;剥离后还原干净文件名供卡片渲染。
-    // 兼容历史无 handle 的旧块(没匹配到就 handle 置空、filename 用整段)。
-    const m = left.match(/^(.*?)\s*\[(upload_\w+)\]$/)
-    const filename = m ? m[1].trim() : left
-    const handle = m ? m[2] : ""
-    if (filename) out.push({ handle, filename, url })
+    const filename = body.slice(0, sep).trim()
+    const path = body.slice(sep + 2).trim()
+    if (filename && path) out.push({ filename, path })
   }
   return out
 }
