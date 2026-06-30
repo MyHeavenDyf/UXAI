@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron"
+import { contextBridge, ipcRenderer, webUtils } from "electron"
 import type { ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
 
 const api: ElectronAPI = {
@@ -56,6 +56,12 @@ const api: ElectronAPI = {
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
   downloadResourceToTemp: (url, namespace, filename, baseDir) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir),
+  // SPEC-INS-014:把源文件拷贝进 <baseDir>/insight/sources/(主进程 fs.copyFile);返回落地路径。
+  copyFileToWorktree: (srcPath, baseDir, filename) =>
+    ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
+  // Electron 32+ 已移除 File.path —— 用 webUtils.getPathForFile 拿拖拽/选取文件的真实本地路径。
+  // 这是 Electron 官方推荐的 preload 暴露法(File 对象在此同步解析)。
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   readClipboardImage: () => ipcRenderer.invoke("read-clipboard-image"),
   showNotification: (title, body) => ipcRenderer.send("show-notification", title, body),
   getWindowFocused: () => ipcRenderer.invoke("get-window-focused"),

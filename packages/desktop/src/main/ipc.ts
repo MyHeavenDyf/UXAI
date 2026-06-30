@@ -2,7 +2,7 @@ import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat } from "node:fs/promises"
+import { mkdir, readFile, writeFile, lstat, copyFile } from "node:fs/promises"
 import { dirname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
@@ -37,6 +37,45 @@ const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
 }
+
+// ── SPEC-INS-014 Insight 本地工作目录布局(worktree)共享工具 ────────────────
+// sources(源文件拷贝)与 outputs(产物落地)用同一套文件名规则:sanitize + 撞名加后缀。
+// spec docs/specs/infra/insight-worktree-layout.md §3。
+
+// 文件名清洗(spec §3.1):保留 字母/数字/中文/-/_/./;空格→_;其他→_;主名截 100;空名兜底 unnamed。
+function sanitizeWorktreeName(raw: string): string {
+  const replaced = raw.replace(/\s+/g, "_").replace(/[^\p{L}\p{N}._-]/gu, "_")
+  const dot = replaced.lastIndexOf(".")
+  if (dot > 0 && dot < replaced.length - 1) {
+    const stem = replaced.slice(0, dot).slice(0, 100)
+    return (stem || "unnamed") + replaced.slice(dot)
+  }
+  return replaced.slice(0, 100) || "unnamed"
+}
+
+// 撞名加后缀(spec §3.3):目标已存在就 `name (2).ext`(操作系统下载器习惯),不覆盖。
+function collisionFreePath(dir: string, filename: string): string {
+  if (!existsSync(join(dir, filename))) return join(dir, filename)
+  const dot = filename.lastIndexOf(".")
+  const stem = dot > 0 ? filename.slice(0, dot) : filename
+  const ext = dot > 0 ? filename.slice(dot) : ""
+  let n = 2
+  while (existsSync(join(dir, `${stem} (${n})${ext}`))) n++
+  return join(dir, `${stem} (${n})${ext}`)
+}
+
+// 首次写入时确保目录存在,并在「这次才创建」时打 ensure-dir(spec §6)。
+async function ensureWorktreeDir(dir: string): Promise<void> {
+  const created = !existsSync(dir)
+  await mkdir(dir, { recursive: true })
+  if (created) console.log("[octo:worktree] ensure-dir", { dir, created: true })
+}
+
+// 产物落地幂等(spec §2/§4.2):同一张卡(namespace=tab.id)首次 materialize 后记下其
+// outputs 本地路径,本会话内稳定 —— 后续预览/编辑/打开都命中这份(含用户改动),绝不 re-fetch。
+// 用主进程内存表替代旧的 `.octo/downloads/<id>/` 目录分桶,使 outputs 扁平、显性。
+// 跨重启该表清空 → 同名产物会按 §3.3 加后缀新建(少见边界,spec 接受)。
+const materializedByNamespace = new Map<string, string>()
 
 type Deps = {
   killSidecar: () => Promise<void> | void
@@ -190,6 +229,31 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(destPath, buf)
   })
 
+  // SPEC-INS-014 §4.1:把用户选的源文件**拷贝**进 worktree(<baseDir>/insight/sources/)。
+  // 对本地路径而言这不是上传,是磁盘流式拷贝(100MB 也无压力);原样拷贝、绝不转格式。
+  // S3 上传是另一件只为 MCP 服务的事(走 lib/upload.ts,发预置时 lazy 触发),与本拷贝解耦。
+  ipcMain.handle(
+    "copy-file-to-worktree",
+    async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, filename: string) => {
+      const dir = join(baseDir, "insight", "sources")
+      await ensureWorktreeDir(dir)
+      const dest = collisionFreePath(dir, sanitizeWorktreeName(filename))
+      try {
+        await copyFile(srcPath, dest)
+        console.log("[octo:worktree] source-copy ok", { srcPath, dest })
+        return dest
+      } catch (err) {
+        // 拷贝失败不阻断 MCP 主流程(调用方 catch),本地能力线对该文件不可用。
+        console.error("[octo:worktree] source-copy failed", {
+          srcPath,
+          dest,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
   ipcMain.handle(
     "download-resource-to-temp",
     async (
@@ -199,40 +263,29 @@ export function registerIpcHandlers(deps: Deps) {
       filename: string,
       baseDir?: string,
     ) => {
-      const safeNs = namespace.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default"
-      const safeName = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 200) || "untitled"
-      // baseDir 提供时:文件落到 <baseDir>/.octo/downloads/<ns>/<name>(用户选了项目目录后,
-      // MCP 工具产物/"打开"/"在文件夹定位"全部进项目内,持久可查、可备份);
-      // 不传时 fallback 老逻辑走 OS 临时目录(无项目场景或纯一次性预览)。
-      const root =
-        baseDir && baseDir.length > 0
-          ? join(baseDir, ".octo", "downloads")
-          : join(app.getPath("temp"), "octo")
-      const destPath = join(root, safeNs, safeName)
-      // 幂等:已落地的本地副本即用户的「工作文件」——存在就直接复用,绝不 re-fetch / 覆盖。
-      // 否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的 MCP 原版盖掉用户改动
-      // (本函数最初只服务 Office 只读临时预览,加了 .octo/downloads 持久化 + markdown 二次编辑后,
-      //  覆盖语义就和编辑回写直接打架)。要拿原始版本走「另存为/下载原件」(download-resource 始终拉 url)。
-      if (existsSync(destPath)) {
-        console.log("[octo:office] reuse-existing", { destPath })
-        return destPath
+      const safeName = sanitizeWorktreeName(filename)
+      // 本会话幂等(spec §2/§4.2):同一张卡已落地的本地副本即用户的「工作文件」——直接复用,
+      // 绝不 re-fetch / 覆盖,否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的原版盖掉。
+      // 落点改为显性的 insight/outputs(扁平、撞名加后缀),幂等键由旧的 <id> 目录改为内存表。
+      const known = materializedByNamespace.get(namespace)
+      if (known && existsSync(known)) {
+        console.log("[octo:worktree] result-materialize", { filename: safeName, path: known, reused: true })
+        return known
       }
+      // baseDir 提供时落 <baseDir>/insight/outputs/(用户可见、可管理、跨会话共享);
+      // 不传时 fallback 走 OS 临时目录(无项目场景或纯一次性预览,非持久)。
+      const dir =
+        baseDir && baseDir.length > 0
+          ? join(baseDir, "insight", "outputs")
+          : join(app.getPath("temp"), "octo")
+      await ensureWorktreeDir(dir)
+      const destPath = collisionFreePath(dir, safeName)
       const res = await fetch(url)
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
-      await mkdir(dirname(destPath), { recursive: true })
-      try {
-        await writeFile(destPath, buf)
-      } catch (err) {
-        // 文件正被本地应用(Word/Excel/WPS)独占打开时,覆盖写会抛 EBUSY/EPERM。
-        // 此时已有本地副本 = 用户上次打开的那份,直接复用,让"打开/定位"正常完成而非报错。
-        const code = err instanceof Error && "code" in err ? err.code : undefined
-        if ((code === "EBUSY" || code === "EPERM") && existsSync(destPath)) {
-          console.warn("[octo:office] reuse-locked", { destPath, code })
-          return destPath
-        }
-        throw err
-      }
+      await writeFile(destPath, buf)
+      materializedByNamespace.set(namespace, destPath)
+      console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, reused: false })
       return destPath
     },
   )
@@ -245,16 +298,21 @@ export function registerIpcHandlers(deps: Deps) {
   // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
   // 两类合法目标:
-  //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/.octo/downloads/ 或 OS 临时目录(octo/);
+  //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/insight/outputs/(或旧 .octo/downloads 存量)或 OS 临时目录(octo/);
   //   ② write 工具产物(路径 C):Agent 写到任意位置的文件(如 ~/Downloads/...),不在白名单内。
   // 因编辑器只会覆盖"它正在展示的、已落地的本地文件",白名单外只放行"已存在的普通文件"
   // (拒绝凭空新建任意系统文件;拒绝经符号链接越权)。
   ipcMain.handle("write-file", async (_event: IpcMainInvokeEvent, path: string, content: string) => {
     const resolved = resolvePath(path)
     const tempRoot = resolvePath(join(app.getPath("temp"), "octo"))
+    // SPEC-INS-014:产物落点迁到 insight/outputs(markdown 编辑器自动保存的目标);
+    // 旧 .octo/downloads 仍放行以兼容存量文件。sources 一并放行(将来本地能力写派生文本)。
+    const inWorktree =
+      resolved.includes(`${sep}insight${sep}outputs${sep}`) ||
+      resolved.includes(`${sep}insight${sep}sources${sep}`)
     const inDownloads = resolved.includes(`${sep}.octo${sep}downloads${sep}`)
     const inTemp = resolved === tempRoot || resolved.startsWith(tempRoot + sep)
-    if (!inDownloads && !inTemp) {
+    if (!inWorktree && !inDownloads && !inTemp) {
       if (!existsSync(resolved)) {
         throw new Error(`拒绝写入(白名单外且文件不存在): ${path}`)
       }
