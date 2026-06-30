@@ -374,7 +374,7 @@ export function MessageTimeline(props: {
     ms: pace(640),
   })
 
-  let more: HTMLButtonElement | undefined
+  const [moreRef, setMoreRef] = createSignal<HTMLButtonElement | null>(null)
   let head: HTMLDivElement | undefined
 
   createResizeObserver(
@@ -836,9 +836,7 @@ export function MessageTimeline(props: {
                               class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
                               aria-label={language.t("common.moreOptions")}
                               style={{ color: "rgba(0,0,0,0.6)" }}
-                              ref={(el: HTMLButtonElement) => {
-                                more = el
-                              }}
+                              ref={setMoreRef}
                             >
                               <Icon name="ellipsis" class="size-5" />
                             </DropdownMenu.Trigger>
@@ -899,7 +897,10 @@ export function MessageTimeline(props: {
 
                           <KobaltePopover
                             open={share.open}
-                            anchorRef={() => more}
+                            anchorRef={() => {
+                              const el = moreRef()
+                              return el && el.isConnected ? el : undefined
+                            }}
                             placement="bottom-end"
                             gutter={4}
                             modal={false}

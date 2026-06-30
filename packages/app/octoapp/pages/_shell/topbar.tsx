@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useLayout } from "@/context/layout"
+import { useServer } from "@/context/server"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import {
   OctoLogo, IconSearch,
@@ -28,6 +29,7 @@ export function OctoTopbar(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const layout = useLayout()
+  const server = useServer()
   const projectDir = useProjectDir({ mode: "project" })
 
   const getConfigDirSlug = () => {
@@ -100,14 +102,18 @@ export function OctoTopbar(): JSX.Element {
                         navigate("/insight")
                       }
                     } else if (tab.href === "/chat") {
-                      const dir = getConfigDirSlug()
-                      if (!dir) return
-                      const decoded = decode64(dir)
-                      const sessionId = decoded ? layout.lastSessionPerTab.chat(decoded) : undefined
-                      if (sessionId) {
-                        navigate(`/${dir}/chat/${sessionId}`)
+                      const lastDir = layout.lastSessionPerTab.lastChatDir() || server.projects.last()
+                      if (lastDir) {
+                        const slug = base64Encode(lastDir)
+                        const sessionId = layout.lastSessionPerTab.chat(lastDir)
+                        if (sessionId) {
+                          navigate(`/${slug}/chat/${sessionId}`)
+                        } else {
+                          navigate(`/${slug}/chat`)
+                        }
                       } else {
-                        navigate(`/${dir}/chat`)
+                        const fallbackSlug = getConfigDirSlug()
+                        if (fallbackSlug) navigate(`/${fallbackSlug}/chat`)
                       }
                     } else if (tab.href === "/make") {
                       const dir = projectDir()

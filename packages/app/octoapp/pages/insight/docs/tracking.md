@@ -16,7 +16,7 @@
 | 4 | interaction | insight | message-send | 发送消息通过校验、受理后（按钮 / Enter） | `trigger`(button/enter)、`source`(welcome/conversation)、`attachmentCount`、`textLength`、`presetId`(文本源自某预置胶囊时带，可与 preset-click 打通漏斗)、`presetEdited`(是否改过预置文案) | `index.tsx` `handleSubmit` |
 | 5 | interaction | insight | message-send-blocked | 发送被拦截（未选模型，弹 toast） | `reason`(no_model) | `index.tsx` `handleSubmit` 未选模型分支 |
 | 6 | interaction | insight | message-abort | 点击停止生成 | — | `index.tsx` `handleAbort` |
-| 7 | interaction | insight | attachment-add | 添加附件（逐个文件，含 picker / 拖拽） | `method`(picker/drop)、`fileType`、`fileSize` | `index.tsx` `addAttachments` |
+| 7 | interaction | insight | attachment-add | 添加附件（逐个文件，含 picker / 拖拽 / 粘贴） | `method`(picker/drop/paste)、`fileType`、`fileSize` | `index.tsx` `addAttachments` |
 | 8 | interaction | insight | attachment-upload-result | 附件上传 promise 落定（成功 / 失败） | `success`(bool)、`errorCode`(失败时) | `index.tsx` `doUpload` |
 | 9 | interaction | insight | task-refresh | 任务卡片手动刷新（通过 busy/cooldown 校验后） | `taskId` | `index.tsx` `handleTaskRefresh` |
 | 10 | interaction | insight | task-stop | 任务停止（通过 busy 校验后） | `taskId` | `index.tsx` `handleTaskStop` |

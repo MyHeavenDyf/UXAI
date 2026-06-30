@@ -70,6 +70,10 @@ export type ElectronAPI = {
   showItemInFolder: (path: string) => void
   downloadResource: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
+  /** SPEC-INS-014:拷贝源文件进 <baseDir>/insight/sources/(撞名加后缀);返回落地路径 */
+  copyFileToWorktree: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** Electron 32+ 取拖拽/选取 File 的真实本地路径(File.path 已移除,改用 webUtils.getPathForFile) */
+  getPathForFile: (file: File) => string
   readClipboardImage: () => Promise<{ buffer: ArrayBuffer; width: number; height: number } | null>
   showNotification: (title: string, body?: string) => void
   getWindowFocused: () => Promise<boolean>
@@ -95,7 +99,7 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
-  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/downloads 或临时目录下) */
+  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 insight/outputs、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
   writeClipboardText: (text: string) => Promise<void>

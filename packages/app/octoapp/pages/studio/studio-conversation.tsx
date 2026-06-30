@@ -110,18 +110,20 @@ export function StudioResultCanvas(props: {
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
-  let canvasStageRef!: HTMLDivElement
+  const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
+  const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
   const [editToolsOpen, setEditToolsOpen] = createSignal(false)
 
   createEffect(() => {
-    const el = canvasStageRef
-    if (!el) return
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? Infinity
-      setCompactActions(w < 700)
+    const stage = canvasStageRef()
+    if (!stage) return
+    const ro = new ResizeObserver(() => {
+      // stage.clientWidth 含 32px×2 的 padding，内联按钮全部展开约需 620px 内容宽度
+      // clientWidth >= 700 时内容区足够宽，4 个按钮平铺展示
+      setCompactActions(stage.clientWidth < 700)
     })
-    ro.observe(el)
+    ro.observe(stage)
     onCleanup(() => ro.disconnect())
   })
 
@@ -202,7 +204,7 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
-              <div ref={canvasStageRef!} class="studio-canvas-stage">
+              <div ref={setCanvasStageRef} class="studio-canvas-stage">
                 <div class="studio-canvas-image-wrapper">
                   <Show
                     when={isVideoMedia(image())}
@@ -216,7 +218,7 @@ export function StudioResultCanvas(props: {
                     />
                   </Show>
                 </div>
-                <div class="studio-canvas-floating-actions">
+                <div ref={setFloatingActionsRef} class="studio-canvas-floating-actions">
                   <button
                     type="button"
                     onClick={props.onRegenerate}
