@@ -47,9 +47,8 @@ const params = useParams()
   const layout = useLayout()
 
   const [sessions, { refetch }] = createResource(
-    () => ({ dir: props.currentDir() ?? "", id: params.id }),
-    async (source) => {
-      const d = source.dir
+    () => props.currentDir() ?? "",
+    async (d) => {
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
       // scope=project 让后端跳过 directory 过滤，跨所有 directory 取当前 project 的 session
