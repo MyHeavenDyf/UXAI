@@ -809,6 +809,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
+  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -1916,6 +1917,7 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
+                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                       />
                     )}
                   </For>
@@ -2228,6 +2230,7 @@ if (dsId) {
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
+                filesRefreshKey={filesRefreshKey()}
               />
             </div>
             <Show when={showVersionPanel()}>

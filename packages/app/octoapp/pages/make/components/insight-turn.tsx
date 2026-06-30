@@ -531,6 +531,7 @@ export function InsightTurn(props: {
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
   hasQuestionRequest?: boolean
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1152,7 +1153,7 @@ const stateStatus = state.status as string | undefined
     if (!props.projectDir) return
     
     for (const card of cards) {
-      if (card.filePath) continue
+      if (card.filePath && card.filePath.includes(".octo/artifacts")) continue
       const key = card.id
       if (autoSavedArtifacts.has(key)) continue
       
@@ -1161,7 +1162,9 @@ const stateStatus = state.status as string | undefined
       
       autoSavedArtifacts.add(key)
       
-      autoSaveArtifact(props.sessionID, card, props.projectDir!).catch(err => {
+      autoSaveArtifact(props.sessionID, card, props.projectDir!).then(() => {
+        props.onFilesRefresh?.()
+      }).catch(err => {
         console.error("[InsightTurn] autoSave failed:", err, "card:", card.id)
       })
     }

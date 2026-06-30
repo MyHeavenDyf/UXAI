@@ -72,6 +72,7 @@ function formatFileSize(size: number): string {
 
 interface Props {
   sessionId: string
+  refreshKey?: number
   onOpenFile: (file: ArtifactFile) => void
   onAddToSession?: (file: ArtifactFile) => void
   onCloseTabsByPath?: (paths: string[]) => void
@@ -101,6 +102,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           fileStore.setUploadedFiles([])
         })
       }
+      void refresh()
+    }
+  ))
+
+  createEffect(on(
+    () => props.refreshKey,
+    () => {
       void refresh()
     }
   ))

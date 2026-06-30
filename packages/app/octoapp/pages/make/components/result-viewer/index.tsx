@@ -81,6 +81,7 @@ export function ResultViewer(props: {
   onConfirmPlan?: (identifier?: string) => void
   onAdjustPlan?: () => void
   isPlanConfirmed?: () => boolean
+  filesRefreshKey?: number
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -192,6 +193,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
           {(sid) => (
             <DesignFilesPanel
               sessionId={sid()}
+              refreshKey={props.filesRefreshKey ?? 0}
               onOpenFile={handleOpenArtifactFile}
               onAddToSession={props.onAddArtifactToSession}
               onCloseTabsByPath={handleCloseTabsByPath}
