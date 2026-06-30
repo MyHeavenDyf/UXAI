@@ -115,8 +115,6 @@ export function OctoTopbar(): JSX.Element {
                         const fallbackSlug = getConfigDirSlug()
                         if (fallbackSlug) navigate(`/${fallbackSlug}/chat`)
                       }
-                    } else if (tab.href === "/make") {
-                      navigate("/make")
                     } else if (tab.href === "/studio") {
                       const dir = getConfigDirSlug()
                       if (!dir) return

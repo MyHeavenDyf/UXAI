@@ -44,9 +44,12 @@ export default function ChatPage() {
 
   createEffect(
     on(
-      () => ({ dir: sdk.directory, id: params.id }),
+      () => ({ dir: params.dir, id: params.id }),
       ({ dir, id }) => {
-        if (dir && id) layout.lastSessionPerTab.setChat(dir, id)
+        if (dir && id) {
+          const decoded = decode64(dir)
+          if (decoded) layout.lastSessionPerTab.setChat(decoded, id)
+        }
       },
     ),
   )
