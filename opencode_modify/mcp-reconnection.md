@@ -18,6 +18,68 @@
 
 ## 提交记录
 
+### 2026-06-30: AbortError 兜底（方案 B - onerror 异步 ping 验证）
+
+**问题**：用户日志显示 `[reconnect] transport error error=This operation was aborted isTerminal=false`，MCP 状态显示 connected 但实际不可用。
+
+**根因**：`isTerminalConnectionError` 的 9 个关键字不含 "aborted"。Node Web Streams 内部 stream 清理时会触发 `AbortController.abort()`（栈：`writableStreamAbort` → `readableStream.complete`，全部 `node:internal/webstreams/*`，`from_user_code=no`），SDK 把它转成 `client.onerror("This operation was aborted")`。reconnect.ts 当非终端处理 → 不计数、不重连 → status 残留 connected → 用户感知"MCP 不可用"。
+
+**为何不直接把 aborted 加入终端列表**：SDK 内部正常的 stream 清理（单 SSE 完成）也会触发 abort，列终端会误触发重连。需要区分"SDK 正常清理"和"transport 真死"。
+
+**修复（方案 B：onerror 异步 ping 验证）**：
+
+1. **`isAbortError(msg)`（reconnect.ts:51-56）**：新增辅助函数，匹配 `aborted` / `aborterror`（大小写不敏感）
+
+2. **`verifyClientAfterAbortedError`（reconnect.ts:278-348）**：新增 Effect 函数
+   - ping client（3s 超时，复用 `PREFLIGHT_PING_TIMEOUT_MS` + `withClientTimeout`）
+   - ping OK → info 日志，认为 SDK 正常清理，不触发重连
+   - ping 失败 → warn 日志，调 `triggerReconnect(source="onerror-aborted")`
+   - `Effect.catch` 兜底，永不让 onerror 失败
+
+3. **`client.onerror` 加优先级 3 分支（reconnect.ts:503-516）**：
+   ```ts
+   if (isAbortError(msg)) {
+     bridge.promise(verifyClientAfterAbortedError(...)).catch(...)
+     return
+   }
+   ```
+   fire-and-forget，不阻塞 onerror
+
+4. **`TriggerSource` 扩展**：新增 `"onerror-aborted"` union 成员
+
+**幂等保障**：
+- `triggerReconnect` 内的 `triggeredReconnectFlags` + `intentionalDisconnects` + stale 检查仍生效
+- ping 期间 client 被替换 → triggerReconnect 的 stale 检查拦下
+- ping 期间别的路径触发重连 → triggeredReconnectFlags 幂等
+
+**预期日志序列（transport 真死场景）**：
+```
+[reconnect] transport error  error="This operation was aborted" isTerminal=false
+[reconnect] aborted error - pinging to verify
+[reconnect] aborted error - ping failed, triggering reconnect  pingError="..."
+[reconnect] trigger fired - starting reconnect loop  source=onerror-aborted
+[reconnect] starting reconnect loop
+[reconnect] attempt starting  attempt=1
+[reconnect] succeeded  attempt=1
+```
+
+**预期日志序列（SDK 正常清理场景）**：
+```
+[reconnect] transport error  error="This operation was aborted" isTerminal=false
+[reconnect] aborted error - pinging to verify
+[reconnect] aborted error - ping ok, treating as SDK internal cleanup
+```
+
+**未改动**：
+- 现有 5 路触发架构不变（onerror-giveup / onerror-counter / onclose-fallback / tools-preflight / tool-execute）
+- `isTerminalConnectionError` 列表不变（不加入 aborted）
+- preflight / 重连循环 / 状态机不变
+
+**风险**：
+- 每次 AbortError 多 ~50ms 正常 / 最多 3s 异常的 ping 开销
+- SDK 高频内部清理会反复触发 ping，但 ping OK 不会触发重连（只是日志噪音）
+- 若 SDK 的 ping API 自身有问题（如 ping 永远 hang），3s 超时兜底
+
 ### 2026-06-29: 修复 5 次重连全失败后永久卡死（方案 B）
 
 **问题**：用户反馈"服务重启后客户端永久不可用"，需手动点 disconnect→connect 才能恢复。
