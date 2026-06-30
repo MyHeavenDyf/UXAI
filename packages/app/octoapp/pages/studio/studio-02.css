@@ -786,6 +786,11 @@
 
 /* ── DropdownMenu（右键菜单，与 chat 页面一致） ────────── */
 
+/* 确保下拉菜单渲染在浮层侧边栏（z-index:101）之上 */
+[data-popper-positioner] {
+  z-index: 99999 !important;
+}
+
 [data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
   background-color: #fff;
   border-radius: 12px;
@@ -793,6 +798,8 @@
   border: none;
   padding: 8px;
   min-width: 132px !important;
+  position: relative;
+  z-index: 1000;
 }
 
 [data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {

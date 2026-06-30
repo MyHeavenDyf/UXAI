@@ -353,7 +353,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                           <Show when={contextMenu.show && contextMenu.session?.id === session.id}>
                             <Portal>
                               <div
-                                class="fixed inset-0 z-50"
+                                class="fixed inset-0" style={{"z-index": "150"}}
                                 onContextMenu={(e) => e.preventDefault()}
                                 onClick={closeContextMenu}
                                 onKeyDown={(e) => { if (e.key === "Escape") closeContextMenu() }}
@@ -364,6 +364,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                   data-component="dropdown-menu-content"
                                   style={{
                                     position: "absolute",
+                                    "z-index": "151",
                                     left: `${contextMenu.x}px`,
                                     ...(contextMenu.y > window.innerHeight - 120
                                       ? { bottom: `${window.innerHeight - contextMenu.y}px` }

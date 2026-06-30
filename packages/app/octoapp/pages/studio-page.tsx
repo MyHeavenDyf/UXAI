@@ -968,6 +968,16 @@ export default function StudioPage() {
   })
   let headerTitleRef: HTMLInputElement | undefined
 
+  // 菜单打开时关闭浮层侧边栏、清除 overflow 避免裁剪 Portal 内容
+  createEffect(() => {
+    if (headerTitle.menuOpen) {
+      setStudioLeftOverlayOpen(false)
+      studioPageRef.style.overflow = "visible"
+    } else {
+      studioPageRef.style.overflow = ""
+    }
+  })
+
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
       const data = (err as { data?: { message?: string } }).data
@@ -2645,13 +2655,13 @@ export default function StudioPage() {
                     as={IconButton}
                     icon="ellipsis"
                     variant="ghost"
-                    class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active"
+                    class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active" style={{"z-index": "150", position: "relative"}}
                     aria-label={language.t("common.moreOptions")}
                     aria-expanded={headerTitle.menuOpen}
                   />
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
-                      style={{ "min-width": "104px" }}
+                      style={{ "min-width": "104px", "z-index": "1000" }}
                       onCloseAutoFocus={(event) => {
 if (!headerTitle.pendingRename) return
                         event.preventDefault()
