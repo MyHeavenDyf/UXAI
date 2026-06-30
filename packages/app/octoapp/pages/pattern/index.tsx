@@ -205,6 +205,27 @@ function PatternContent() {
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
+  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>(
+    (() => {
+      try {
+        const stored = localStorage.getItem("octo:pattern:session-errors")
+        return stored ? JSON.parse(stored) : {}
+      } catch {
+        return {}
+      }
+    })(),
+  )
+
+  createEffect(() => {
+    const errors = sessionErrors()
+    const keys = Object.keys(errors)
+    if (keys.length > 0) {
+      localStorage.setItem("octo:pattern:session-errors", JSON.stringify(errors))
+    } else {
+      localStorage.removeItem("octo:pattern:session-errors")
+    }
+  })
+
   const roundMessages = createMemo(() => {
     const id = params.id
     if (!id) return []
@@ -261,26 +282,6 @@ function PatternContent() {
   const [hasPreviewContent, setHasPreviewContent] = createSignal(false)
   const [pendingPreviewData, setPendingPreviewData] = createSignal<unknown>(null)
   const [isModifying, setIsModifying] = createSignal(false)
-  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>(
-    (() => {
-      try {
-        const stored = localStorage.getItem("octo:pattern:session-errors")
-        return stored ? JSON.parse(stored) : {}
-      } catch {
-        return {}
-      }
-    })(),
-  )
-
-  createEffect(() => {
-    const errors = sessionErrors()
-    const keys = Object.keys(errors)
-    if (keys.length > 0) {
-      localStorage.setItem("octo:pattern:session-errors", JSON.stringify(errors))
-    } else {
-      localStorage.removeItem("octo:pattern:session-errors")
-    }
-  })
 
   // 线框审查阶段的用户原始输入（planner/intent 复用 lastPlanner/lastIntent）
   const [reviewUserInput, setReviewUserInput] = createSignal<string>("")
