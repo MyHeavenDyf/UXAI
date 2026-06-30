@@ -979,8 +979,11 @@ export default function StudioPage() {
 
   const openHeaderTitleEditor = () => {
     const session = activeStudioSession()
-    if (!session) return
-    setHeaderTitle({ editing: true, draft: sessionTitle(session.title) ?? "" })
+    // session 可能不在 syncStore 中，用 currentTitle() 兜底
+    const draft = session
+      ? (sessionTitle(session.title) ?? "")
+      : currentTitle()
+    setHeaderTitle({ editing: true, draft })
     requestAnimationFrame(() => {
       headerTitleRef?.focus()
       headerTitleRef?.select()
@@ -994,21 +997,25 @@ export default function StudioPage() {
 
   const saveHeaderTitleEditor = async () => {
     const session = activeStudioSession()
-    if (!session || headerTitle.saving) return
+    const sessionId = session?.id ?? params.id
+    if (!sessionId || headerTitle.saving) return
 
     const next = headerTitle.draft.trim()
-    if (!next || next === (sessionTitle(session.title) ?? "")) {
+    const oldTitle = session
+      ? (sessionTitle(session.title) ?? "")
+      : currentTitle()
+    if (!next || next === oldTitle) {
       setHeaderTitle({ editing: false, draft: "" })
       return
     }
 
     setHeaderTitle("saving", true)
     await globalSDK.createClient({ directory: projectDir() }).session
-      .update({ sessionID: session.id, title: next })
+      .update({ sessionID: sessionId, title: next })
       .then(() => {
         setSyncStore(
           produce((draft) => {
-            const index = draft.session.findIndex((item) => item.id === session.id)
+            const index = draft.session.findIndex((item) => item.id === sessionId)
             if (index !== -1) draft.session[index].title = next
           }),
         )
@@ -2636,7 +2643,7 @@ export default function StudioPage() {
                 >
                   <DropdownMenu.Trigger
                     as={IconButton}
-                    icon="dot-grid"
+                    icon="ellipsis"
                     variant="ghost"
                     class="studio-center-action size-7 rounded-md data-[expanded]:bg-surface-base-active"
                     aria-label={language.t("common.moreOptions")}
@@ -2646,7 +2653,7 @@ export default function StudioPage() {
                     <DropdownMenu.Content
                       style={{ "min-width": "104px" }}
                       onCloseAutoFocus={(event) => {
-                        if (!headerTitle.pendingRename) return
+if (!headerTitle.pendingRename) return
                         event.preventDefault()
                         setHeaderTitle("pendingRename", false)
                         openHeaderTitleEditor()
@@ -2654,10 +2661,7 @@ export default function StudioPage() {
                     >
                       <DropdownMenu.Item
                         onSelect={() => {
-                          setHeaderTitle({
-                            pendingRename: true,
-                            menuOpen: false,
-                          })
+                          setHeaderTitle({ pendingRename: true, menuOpen: false })
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
@@ -2665,8 +2669,8 @@ export default function StudioPage() {
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item
                         onSelect={() => {
-                          const session = activeStudioSession()
-                          if (session) dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                          const session = activeStudioSession() ?? { id: params.id!, title: currentTitle(), agent: "octo_studio" } as Session
+                          dialog.show(() => <DialogDeleteHeaderSession session={session} />)
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
