@@ -359,19 +359,15 @@ const PROMPT_REFINE_SYSTEM = [
   "- 如果用户当前输入是延续上一轮，请保留上一轮主体、构图、氛围、风格中仍相关的部分。",
   "- 如果用户当前输入明确是全新主题，请以当前输入为主。",
   "- assistantText 使用中文，简短、自然、友好，不要暴露内部参数。",
+  "- assistantText 不超过 40 个中文字。",
   "- refinedPrompt 只描述要生成的画面内容。",
+  "- refinedPrompt 不超过 300 个中文字。",
+  "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
   "- 只输出 JSON。",
 ].join("\n")
 
 async function refineStudioPrompt(input: StudioGenerationRequest, session: typeof SessionTable.$inferSelect): Promise<StudioPromptRefineResult> {
   if (!shouldRefineWithLLM(input)) return promptRefineFallback(input)
-  const controller = new AbortController()
-  const startedAt = Date.now()
-  let timedOut = false
-  const timeout = setTimeout(() => {
-    timedOut = true
-    controller.abort(new Error("Studio prompt refine timed out."))
-  }, PROMPT_REFINE_TIMEOUT_MS)
   try {
     const model = session.model
       ? { providerID: ProviderID.make(session.model.providerID), modelID: ModelID.make(session.model.id) }
@@ -433,7 +429,7 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
             }),
           ),
         )
-        const maxOutputTokens = 800
+        const maxOutputTokens = chatParams.maxOutputTokens ?? ProviderTransform.maxOutputTokens(resolved)
         const chatHeaders = yield* Effect.promise(() =>
           studioPromptPluginRuntime.runPromise((plugin) =>
             plugin.trigger("chat.headers", chatHookInput, {
@@ -494,44 +490,55 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
           headerKeys: Object.keys(headers),
         })
         return yield* Effect.promise(async () => {
-          const stream = streamText({
-            model: language,
-            temperature: chatParams.temperature,
-            topP: chatParams.topP,
-            topK: chatParams.topK,
-            maxOutputTokens: maxOutputTokens,
-            messages,
-            providerOptions,
-            abortSignal: controller.signal,
-            headers,
-            maxRetries: 0,
-            onError: (error) => {
-              console.warn("[studio.service] prompt refine stream error", error)
-            },
-          })
-          let text = ""
-          let abortReason: string | undefined
-          let finishReason: string | undefined
-          for await (const part of stream.fullStream) {
-            if (part.type === "error") throw part.error
-            if (part.type === "abort") {
-              abortReason = typeof part.reason === "string" ? part.reason : undefined
-              continue
+          const controller = new AbortController()
+          const startedAt = Date.now()
+          let timedOut = false
+          const timeout = setTimeout(() => {
+            timedOut = true
+            controller.abort(new Error("Studio prompt refine timed out."))
+          }, PROMPT_REFINE_TIMEOUT_MS)
+          try {
+            const stream = streamText({
+              model: language,
+              temperature: chatParams.temperature,
+              topP: chatParams.topP,
+              topK: chatParams.topK,
+              maxOutputTokens: maxOutputTokens,
+              messages,
+              providerOptions,
+              abortSignal: controller.signal,
+              headers,
+              maxRetries: 0,
+              onError: (error) => {
+                console.warn("[studio.service] prompt refine stream error", error)
+              },
+            })
+            let text = ""
+            let abortReason: string | undefined
+            let finishReason: string | undefined
+            for await (const part of stream.fullStream) {
+              if (part.type === "error") throw part.error
+              if (part.type === "abort") {
+                abortReason = typeof part.reason === "string" ? part.reason : undefined
+                continue
+              }
+              if (part.type === "finish") {
+                finishReason = part.finishReason
+                continue
+              }
+              if (part.type !== "text-delta") continue
+              text += part.text
+              const parsed = parsePromptRefineText(text)
+              if (!parsed) continue
+              controller.abort()
+              return parsed
             }
-            if (part.type === "finish") {
-              finishReason = part.finishReason
-              continue
-            }
-            if (part.type !== "text-delta") continue
-            text += part.text
             const parsed = parsePromptRefineText(text)
-            if (!parsed) continue
-            controller.abort()
-            return parsed
+            if (parsed) return parsed
+            throw new Error(`Studio prompt refine did not return valid JSON. timedOut=${timedOut} elapsed=${Date.now() - startedAt} finishReason=${finishReason ?? "unknown"} abortReason=${abortReason ?? "unknown"} raw=${promptRefineTextPreview(text)}`)
+          } finally {
+            clearTimeout(timeout)
           }
-          const parsed = parsePromptRefineText(text)
-          if (parsed) return parsed
-          throw new Error(`Studio prompt refine did not return valid JSON. timedOut=${timedOut} elapsed=${Date.now() - startedAt} finishReason=${finishReason ?? "unknown"} abortReason=${abortReason ?? "unknown"} raw=${promptRefineTextPreview(text)}`)
         })
       }),
     )
@@ -548,8 +555,6 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
       error,
     })
     return promptRefineFallback(input)
-  } finally {
-    clearTimeout(timeout)
   }
 }
 
