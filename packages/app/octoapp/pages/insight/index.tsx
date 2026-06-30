@@ -44,6 +44,7 @@ import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { uploadFile, validateFile, formatUploadsForPrompt, sanitizeFileName, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
+import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
@@ -275,6 +276,7 @@ function InsightContent() {
   createEffect(() => {
     const id = params.id
     if (id) layout.lastSessionPerTab.setCowork(id)
+    else layout.lastSessionPerTab.clearCowork()
   })
 
   // 切 session 时触发原生 sync 加载（带 inflight 去重 + cache + optimistic 合并）
@@ -1019,7 +1021,7 @@ function InsightContent() {
   // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）
   const filesById = new Map<string, File>()
 
-  function addAttachments(files: File[], method: "picker" | "drop") {
+  function addAttachments(files: File[], method: "picker" | "drop" | "paste") {
     const slots = MAX_ATTACHMENTS - attachments().length
     // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
     if (files.length > slots) {
@@ -1061,25 +1063,21 @@ function InsightContent() {
         { id, filename: file.name, mime, size: file.size, status: "uploading" },
       ])
       void doUpload(id, file)
+      // SPEC-INS-014 §4.1:同时把源文件拷贝进 insight/sources(本地副本,供下游本地能力线;与 S3 上传解耦)。
+      // 用 rawFile(选取器/拖拽的原始 File)取真实路径——清洗后 new File() 重建的对象拿不到路径。
+      void copySourceToWorktree(file.name, rawFile)
     }
   }
 
   async function doUpload(id: string, file: File) {
     try {
       const result = await uploadFile(file)
-      tracker.interaction({
-        module: "insight",
-        name: "attachment-upload-result",
-        extend: JSON.stringify({ success: true }),
-      })
+      tracker.interaction({ module: "insight", name: "attachment-upload-result", extend: JSON.stringify({ success: true }) })
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
       )
     } catch (err) {
-      const message =
-        err instanceof UploadError ? err.message :
-        err instanceof Error ? err.message :
-        "上传失败"
+      const message = err instanceof UploadError ? err.message : err instanceof Error ? err.message : "上传失败"
       console.error("[InsightPage] upload failed", { id, filename: file.name, err })
       tracker.interaction({
         module: "insight",
@@ -1090,6 +1088,27 @@ function InsightContent() {
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
       )
+    }
+  }
+
+  // SPEC-INS-014 §4.1:把源文件拷贝进 worktree 的 insight/sources/(磁盘流式拷贝,原样不转格式)。
+  // 与 S3 上传完全解耦:拷贝是为本地能力线、上传是为 MCP。失败不阻断、不打扰用户(主进程已记日志)。
+  // 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)→ 跳过,降级不报错。
+  async function copySourceToWorktree(filename: string, srcFile: File) {
+    const api = getDesktopApi()
+    const baseDir = projectDir()
+    if (!baseDir || typeof api?.getPathForFile !== "function" || typeof api?.copyFileToWorktree !== "function") return
+    let srcPath = ""
+    try {
+      srcPath = api.getPathForFile(srcFile)
+    } catch {
+      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 跳过本地拷贝
+    }
+    if (!srcPath) return
+    try {
+      await api.copyFileToWorktree(srcPath, baseDir, filename)
+    } catch {
+      // 主进程已记 [octo:worktree] source-copy failed;此处静默,不阻断发送/MCP
     }
   }
 
@@ -1157,6 +1176,20 @@ function InsightContent() {
     if (!isExternalFileDrag(e)) return
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length > 0) addAttachments(files, "drop")
+  }
+
+  // 粘贴文件(与 chat 一致):截获剪贴板里的文件本体走附件上传,格式是否支持交给
+  // addAttachments→validateFile 把关——白名单内(txt/md/docx/xlsx)正常上传,白名单外
+  // (含图片)照常落「不支持的格式」错误 chip,与拖拽/选择器行为一致。
+  // 纯文本/含文字的粘贴没有 file item,不拦截,交给 textarea 默认行为。
+  function handlePaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    e.preventDefault()
+    addAttachments(files, "paste")
   }
 
   function handleOpenResult(card: OutputCard) {
@@ -1470,6 +1503,7 @@ function InsightContent() {
                         onCompositionStart={handleCompositionStart}
                         onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
+                        onPaste={handlePaste}
                         placeholder="请描述您的需求..."
                         class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
                         style={{
@@ -1673,6 +1707,7 @@ function InsightContent() {
                     onCompositionStart={() => setComposing(true)}
                     onCompositionEnd={() => setComposing(false)}
                     onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
                     placeholder="请描述您的需求..."
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{

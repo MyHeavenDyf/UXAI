@@ -63,6 +63,7 @@ import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
 import { PlanBanner } from "./components/result-viewer/plan-banner"
+import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
@@ -78,7 +79,7 @@ import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/resul
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
-import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
+import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
 import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
@@ -863,6 +864,45 @@ const sessionMessagesLoaded = createMemo(() => {
     requestAnimationFrame(() => textareaRef?.focus())
   }
 
+  // ── 设计规划阶段引导(plan entry banner)─────────────────────
+  // agent 输出 [design-plan-intent] sentinel 但用户尚未响应、且还没有 plan artifact 时,
+  // 显示 PlanEntryBanner 让用户决定是否进入规划阶段。
+  const planIntentPending = createMemo(() => {
+    const sid = params.id
+    if (!sid) return false
+    if (planCard() != null) return false   // plan artifact 已存在 → 让 PlanBanner 接手
+    return !isPlanIntentResolved(sync.data.message[sid], sync.data.part)
+  })
+
+  // 乐观锁:用户点 [进入]/[直接执行] 后立即隐藏 banner,等消息流回灌确认。
+  // 避免 sendMessage 飞行期间用户连点重复发送。
+  const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
+  createEffect(on(() => params.id, () => setOptimisticIntentResolved(false), { defer: true }))
+
+  /** 用户点 [进入] → 发送 [enter-plan],agent 据此输出设计方案 artifact */
+  function handleEnterPlan() {
+    const sid = params.id
+    if (!sid) return
+    if (optimisticIntentResolved()) return
+    setOptimisticIntentResolved(true)
+    sendMessage(sid, "[enter-plan]").catch((err) => {
+      console.error("[MakePage] enter plan failed", err)
+      setOptimisticIntentResolved(false)
+    })
+  }
+
+  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
+  function handleSkipPlan() {
+    const sid = params.id
+    if (!sid) return
+    if (optimisticIntentResolved()) return
+    setOptimisticIntentResolved(true)
+    sendMessage(sid, "[skip-plan]").catch((err) => {
+      console.error("[MakePage] skip plan failed", err)
+      setOptimisticIntentResolved(false)
+    })
+  }
+
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
@@ -1009,6 +1049,26 @@ const sessionMessagesLoaded = createMemo(() => {
         if (dsPrefix) {
           promptText = dsPrefix + "\n" + text
         }
+      }
+
+      // Artifact folder injection: 告诉 agent 用 write 工具时的目标目录绝对路径。
+      // 必须放在 DesignSystem 注入之后,避免被 dsPrefix 重置覆盖。
+      const folderProjDir = projectDir()
+      if (folderProjDir && sessionId) {
+        const sep = folderProjDir.includes("\\") ? "\\" : "/"
+        const artifactFolder = [
+          folderProjDir,
+          ...".octo/artifacts/make".split("/"),
+          sessionId,
+        ].join(sep)
+        const folderPrefix = [
+          `[Artifact Folder]: ${artifactFolder}`,
+          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+          ``,
+          `---`,
+          ``,
+        ].join("\n")
+        promptText = folderPrefix + "\n" + promptText
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
@@ -1930,6 +1990,11 @@ if (dsId) {
                   attachments={attachments()}
                   onRemove={removeAttachment}
                 />
+
+                {/* Plan entry banner - agent 想进规划阶段,请用户确认。先于 PlanBanner 显示。 */}
+                <Show when={planIntentPending() && !optimisticIntentResolved()}>
+                  <PlanEntryBanner onEnter={handleEnterPlan} onSkip={handleSkipPlan} />
+                </Show>
 
                 {/* Plan banner - 设计方案横条(在输入框上方)。点击才打开右侧 ResultViewer */}
                 <PlanBanner

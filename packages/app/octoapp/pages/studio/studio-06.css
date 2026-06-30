@@ -354,3 +354,11 @@
 .studio-details-toggle:hover::before {
   background-color: #333;
 }
+
+/* 当 studio-canvas-stage 宽度不足 500px 时隐藏详情面板和切换按钮 */
+@container (max-width: 839px) {
+  .studio-details-toggle,
+  .studio-details {
+    display: none;
+  }
+}
