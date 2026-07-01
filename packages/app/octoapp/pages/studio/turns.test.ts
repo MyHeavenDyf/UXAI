@@ -55,20 +55,21 @@ const textPart = (id: string, messageID: string, text: string) =>
     text,
   }) as Part
 
-  const toolPart = (id: string, messageID: string, output: string, tool = "jimeng_image_generate") =>
-    ({
-      id,
-      sessionID: "ses_1",
-      messageID,
+const toolPart = (id: string, messageID: string, output: string, tool = "jimeng_image_generate", input?: Record<string, unknown>) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
     type: "tool",
     tool,
-      state: {
-        status: "completed",
-        title: "图片生成",
-        time: { start: 1, end: 2 },
-        output,
-      },
-    }) as Part
+    state: {
+      status: "completed",
+      title: "图片生成",
+      time: { start: 1, end: 2 },
+      input,
+      output,
+    },
+  }) as Part
 
 const attachmentToolPart = (id: string, messageID: string, url: string, tool = "jimeng_image_generate", mime = "image/png") =>
   ({
@@ -513,12 +514,15 @@ describe("buildStudioTurns", () => {
         [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
         [a1.id]: [
           textPart("p_2", a1.id, "保持可爱风格，背景更明亮"),
-          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] }), "jimeng_image_generate", {
+            prompt: "生成一张卡通小猫的图",
+            effectivePrompt: "一张可爱的卡通小猫插画，背景明亮，整体风格温暖",
+          }),
         ],
       },
     })
 
-    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).toBe("一张可爱的卡通小猫插画，背景明亮，整体风格温暖")
     expect(summary).not.toContain("上一轮助手说明")
     expect(summary).not.toContain("3:4")
     expect(summary).not.toContain("https://example.com/one.png")
@@ -536,14 +540,17 @@ describe("buildStudioTurns", () => {
         [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
         [a1.id]: [
           textPart("p_2", a1.id, "第一轮完成"),
-          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] }), "jimeng_image_generate", {
+            prompt: "生成一张卡通小猫的图",
+            effectivePrompt: "一张可爱的卡通小猫插画，背景明亮，整体风格温暖",
+          }),
         ],
         [m2.id]: [textPart("p_4", m2.id, "把它改成夜景")],
         [a2.id]: [runningToolPart("p_5", a2.id)],
       },
     })
 
-    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).toBe("一张可爱的卡通小猫插画，背景明亮，整体风格温暖")
     expect(summary).not.toContain("https://example.com/one.png")
     expect(summary).not.toContain("把它改成夜景")
   })

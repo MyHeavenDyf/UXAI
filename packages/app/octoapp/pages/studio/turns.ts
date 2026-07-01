@@ -566,7 +566,7 @@ export function latestStudioTurn(input: { messages: Message[]; parts: Record<str
 }
 
 export function buildStudioTurnSummary(turn: StudioTurnData) {
-  return turn.userText
+  return turn.result?.prompt || turn.userText
 }
 
 export function buildStudioConversationContext(input: {
