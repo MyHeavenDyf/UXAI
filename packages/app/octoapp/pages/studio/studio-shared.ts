@@ -29,6 +29,7 @@ export function isStudioGenerationFailure(status: StudioGenerationResult["status
 }
 
 export type StudioPendingResult = StudioGenerationResult & {
+  displayPrompt?: string
   sourceImage?: string
 }
 

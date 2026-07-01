@@ -116,6 +116,18 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
     return m?.[1]
   }
 
+  const sessionRefs = new Map<string, HTMLElement>()
+  createEffect(() => {
+    const id = activeSessionId()
+    if (!id) return
+    // 读取 sessionList.length 建立响应式依赖，确保列表加载完成后重新滚动
+    void sessionList.length
+    requestAnimationFrame(() => {
+      const el = sessionRefs.get(id)
+      if (el) el.scrollIntoView({ block: "nearest" })
+    })
+  })
+
   const [makeCollapsed, setMakeCollapsed] = createSignal(false)
   const [activeNav, setActiveNav] = createSignal<string | null>(null)
   const [creating, setCreating] = createSignal(false)
@@ -342,6 +354,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
                           </div>
                         }>
                           <button
+                            ref={(el) => { if (el) sessionRefs.set(session.id, el) }}
                             type="button"
 onClick={() => {
                                notification.session.markViewed(session.id)
