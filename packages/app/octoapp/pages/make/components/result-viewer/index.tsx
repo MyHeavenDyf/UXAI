@@ -82,6 +82,7 @@ export function ResultViewer(props: {
   onAdjustPlan?: () => void
   isPlanConfirmed?: () => boolean
   filesRefreshKey?: number
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -198,6 +199,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
               onAddToSession={props.onAddArtifactToSession}
               onCloseTabsByPath={handleCloseTabsByPath}
               onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+              onFilesRefresh={props.onFilesRefresh}
             />
           )}
         </Show>

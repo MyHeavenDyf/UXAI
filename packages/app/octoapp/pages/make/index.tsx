@@ -591,10 +591,11 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
   // ── Artifact Files Resource (for @ mention) ──
   const [artifactFiles] = createResource(
-    () => ({ sessionId: params.id, url: globalSDK.url, directory: sdk.directory }),
+    () => ({ sessionId: params.id, url: globalSDK.url, directory: sdk.directory, refreshKey: filesRefreshKey() }),
     async ({ sessionId, url, directory }) => {
       if (!sessionId) return null
       try {
@@ -810,7 +811,6 @@ const sessionMessagesLoaded = createMemo(() => {
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
-  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -2317,6 +2317,7 @@ if (dsId) {
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
                 filesRefreshKey={filesRefreshKey()}
+                onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
               />
             </div>
             <Show when={showVersionPanel()}>

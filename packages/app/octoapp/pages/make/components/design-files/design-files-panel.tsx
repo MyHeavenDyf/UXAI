@@ -77,6 +77,7 @@ interface Props {
   onAddToSession?: (file: ArtifactFile) => void
   onCloseTabsByPath?: (paths: string[]) => void
   onRemoveAttachmentsByPath?: (paths: string[]) => void
+  onFilesRefresh?: () => void
 }
 
 export function DesignFilesPanel(props: Props): JSX.Element {
@@ -85,8 +86,6 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const dialog = useDialog()
   const language = useLanguage()
   const fileStore = createArtifactFileStore(props.sessionId)
-  const [renamingPath, setRenamingPath] = createSignal<string | null>(null)
-  const [renameDraft, setRenameDraft] = createSignal("")
   const [isDragOver, setIsDragOver] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
@@ -184,6 +183,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
       showToast({ title: "Deleted", description: file.name })
       tracker.interaction({ module: "design", name: "files-delete-file" })
+      props.onFilesRefresh?.()
     } catch (err) {
       showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -236,6 +236,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
       showToast({ title: "Deleted", description: `${result.deleted} files deleted` })
       tracker.interaction({ module: "design", name: "files-batch-delete", extend: JSON.stringify({ count: result.deleted }) })
+      props.onFilesRefresh?.()
     } catch (err) {
       showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -311,28 +312,6 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     tracker.interaction({ module: "design", name: "files-open-in-explorer" })
   }
 
-  const startRename = (file: ArtifactFile) => {
-    setRenamingPath(file.path)
-    setRenameDraft(file.name)
-  }
-
-  const saveRename = async (file: ArtifactFile) => {
-    const newName = renameDraft().trim()
-    setRenamingPath(null)
-    if (!newName || newName === file.name) return
-
-    const api = (window as any).api
-    if (typeof api?.renameArtifactFile === "function") {
-      try {
-        await api.renameArtifactFile(file.path, newName)
-        tracker.interaction({ module: "design", name: "files-rename-file" })
-        await refresh()
-      } catch (err) {
-        showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
-      }
-    }
-  }
-
   const handleUpload = async (files: FileList) => {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
     for (const file of Array.from(files)) {
@@ -352,6 +331,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           showToast({ title: "Uploaded", description: result.name })
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
           await refresh()
+          props.onFilesRefresh?.()
         } catch (err) {
           showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
         }
@@ -447,6 +427,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
+      props.onFilesRefresh?.()
     } catch (err) {
       showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -471,6 +452,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       )
       showToast({ title: "Uploaded", description: result.name })
       await refresh()
+      props.onFilesRefresh?.()
     } catch (err) {
       showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -542,6 +524,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
+      props.onFilesRefresh?.()
     } catch (err) {
       showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
@@ -761,19 +744,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                   />
                   <Show when={!fileStore.store.collapsedGenerated}>
                     <KindGroupRows
-                      kindGroupEntries={fileStore.generated.kindGroupEntries()}
-                      modifiedGroups={fileStore.generated.modifiedGroups()}
-                      visibleModifiedSections={fileStore.generated.visibleModifiedSections()}
+                      kindGroupEntries={() => fileStore.generated.kindGroupEntries()}
+                      modifiedGroups={() => fileStore.generated.modifiedGroups()}
+                      visibleModifiedSections={() => fileStore.generated.visibleModifiedSections()}
                       collapsedSections={fileStore.store.collapsedSections}
                       groupMode={fileStore.store.groupMode}
                       sectionKey="generated"
                       selected={fileStore.store.selected}
-                      renamingPath={renamingPath()}
-                      renameDraft={renameDraft()}
-                      setRenamingPath={setRenamingPath}
-                      setRenameDraft={setRenameDraft}
-                      saveRename={saveRename}
-                      startRename={startRename}
                       onToggleSection={(key) => fileStore.toggleSection(key)}
                       onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                       onPreview={handlePreview}
@@ -793,19 +770,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                   />
                   <Show when={!fileStore.store.collapsedUploaded}>
                     <KindGroupRows
-                      kindGroupEntries={fileStore.uploaded.kindGroupEntries()}
-                      modifiedGroups={fileStore.uploaded.modifiedGroups()}
-                      visibleModifiedSections={fileStore.uploaded.visibleModifiedSections()}
+                      kindGroupEntries={() => fileStore.uploaded.kindGroupEntries()}
+                      modifiedGroups={() => fileStore.uploaded.modifiedGroups()}
+                      visibleModifiedSections={() => fileStore.uploaded.visibleModifiedSections()}
                       collapsedSections={fileStore.store.collapsedSections}
                       groupMode={fileStore.store.groupMode}
                       sectionKey="uploaded"
                       selected={fileStore.store.selected}
-                      renamingPath={renamingPath()}
-                      renameDraft={renameDraft()}
-                      setRenamingPath={setRenamingPath}
-                      setRenameDraft={setRenameDraft}
-                      saveRename={saveRename}
-                      startRename={startRename}
                       onToggleSection={(key) => fileStore.toggleSection(key)}
                       onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                       onPreview={handlePreview}
@@ -822,19 +793,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
                 <Show when={!fileStore.isTopLevel()}>
                   <KindGroupRows
-                    kindGroupEntries={fileStore.uploaded.kindGroupEntries()}
-                    modifiedGroups={fileStore.uploaded.modifiedGroups()}
-                    visibleModifiedSections={fileStore.uploaded.visibleModifiedSections()}
+                    kindGroupEntries={() => fileStore.uploaded.kindGroupEntries()}
+                    modifiedGroups={() => fileStore.uploaded.modifiedGroups()}
+                    visibleModifiedSections={() => fileStore.uploaded.visibleModifiedSections()}
                     collapsedSections={fileStore.store.collapsedSections}
                     groupMode={fileStore.store.groupMode}
                     sectionKey=""
                     selected={fileStore.store.selected}
-                    renamingPath={renamingPath()}
-                    renameDraft={renameDraft()}
-                    setRenamingPath={setRenamingPath}
-                    setRenameDraft={setRenameDraft}
-                    saveRename={saveRename}
-                    startRename={startRename}
                     onToggleSection={(key) => fileStore.toggleSection(key)}
                     onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                     onPreview={handlePreview}
@@ -897,19 +862,13 @@ function SectionRow(props: {
 }
 
 function KindGroupRows(props: {
-  kindGroupEntries: Array<[ArtifactFileKind, ArtifactFile[]]>
-  modifiedGroups: Record<ModifiedSection, ArtifactFile[]>
-  visibleModifiedSections: ModifiedSection[]
+  kindGroupEntries: () => Array<[ArtifactFileKind, ArtifactFile[]]>
+  modifiedGroups: () => Record<ModifiedSection, ArtifactFile[]>
+  visibleModifiedSections: () => ModifiedSection[]
   collapsedSections: Set<string>
   groupMode: GroupMode
   sectionKey: string
   selected: Set<string>
-  renamingPath: string | null
-  renameDraft: string
-  setRenamingPath: (v: string | null) => void
-  setRenameDraft: (v: string) => void
-  saveRename: (file: ArtifactFile) => void
-  startRename: (file: ArtifactFile) => void
   onToggleSection: (key: string) => void
   onToggleSelection: (file: ArtifactFile) => void
   onPreview: (file: ArtifactFile) => void
@@ -924,9 +883,14 @@ function KindGroupRows(props: {
   return (
     <Switch>
       <Match when={props.groupMode === "kind"}>
-        <For each={props.kindGroupEntries}>
-          {([kind, files]) => {
+        <For each={props.kindGroupEntries()}>
+          {([kind, _files]) => {
             const sectionKey = props.sectionKey ? `${props.sectionKey}-${kind}` : kind
+            const files = createMemo(() => {
+              const entries = props.kindGroupEntries()
+              const entry = entries.find(([k]) => k === kind)
+              return entry ? entry[1] : []
+            })
             return (
               <>
                 <tr class="df-section-row" style={{ background: "var(--octo-surface-page)", height: "54px" }}>
@@ -945,14 +909,12 @@ function KindGroupRows(props: {
                     </button>
                   </td>
                 </tr>
-                <Show when={!props.collapsedSections.has(sectionKey)}>
-                  <For each={files}>
+<Show when={!props.collapsedSections.has(sectionKey)}>
+                  <For each={files()}>
                     {(file) => (
                       <FileRow
                         file={file}
                         selected={props.selected.has(file.path)}
-                        renaming={props.renamingPath === file.path}
-                        renameDraft={props.renameDraft}
                         onToggleSelection={() => props.onToggleSelection(file)}
                         onPreview={() => props.onPreview(file)}
                         onOpen={() => props.onOpen(file)}
@@ -961,14 +923,6 @@ function KindGroupRows(props: {
                         onOpenInExplorer={() => props.onOpenInExplorer(file)}
                         onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                         onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
-                        onRename={() => props.startRename(file)}
-                        onRenameInput={(v) => props.setRenameDraft(v)}
-                        onRenameKeyDown={(e) => {
-                          e.stopPropagation()
-                          if (e.key === "Enter") { e.preventDefault(); void props.saveRename(file) }
-                          if (e.key === "Escape") { e.preventDefault(); props.setRenamingPath(null) }
-                        }}
-                        onRenameBlur={() => void props.saveRename(file)}
                       />
                     )}
                   </For>
@@ -979,10 +933,10 @@ function KindGroupRows(props: {
         </For>
       </Match>
       <Match when={props.groupMode === "modified"}>
-        <For each={props.visibleModifiedSections}>
+        <For each={props.visibleModifiedSections()}>
           {(section) => {
             const sectionKey = props.sectionKey ? `${props.sectionKey}-${section}` : section
-            const files = props.modifiedGroups[section]
+            const files = createMemo(() => props.modifiedGroups()[section])
             return (
               <>
                 <tr class="df-section-row" style={{ background: "var(--octo-surface-page)", height: "54px" }}>
@@ -1002,13 +956,11 @@ function KindGroupRows(props: {
                   </td>
                 </tr>
                 <Show when={!props.collapsedSections.has(sectionKey)}>
-                  <For each={files}>
+                  <For each={files()}>
                     {(file) => (
                       <FileRow
                         file={file}
                         selected={props.selected.has(file.path)}
-                        renaming={props.renamingPath === file.path}
-                        renameDraft={props.renameDraft}
                         onToggleSelection={() => props.onToggleSelection(file)}
                         onPreview={() => props.onPreview(file)}
                         onOpen={() => props.onOpen(file)}
@@ -1017,14 +969,6 @@ function KindGroupRows(props: {
                         onOpenInExplorer={() => props.onOpenInExplorer(file)}
                         onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                         onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
-                        onRename={() => props.startRename(file)}
-                        onRenameInput={(v) => props.setRenameDraft(v)}
-                        onRenameKeyDown={(e) => {
-                          e.stopPropagation()
-                          if (e.key === "Enter") { e.preventDefault(); void props.saveRename(file) }
-                          if (e.key === "Escape") { e.preventDefault(); props.setRenamingPath(null) }
-                        }}
-                        onRenameBlur={() => void props.saveRename(file)}
                       />
                     )}
                   </For>
@@ -1041,8 +985,6 @@ function KindGroupRows(props: {
 function FileRow(props: {
   file: ArtifactFile
   selected: boolean
-  renaming: boolean
-  renameDraft: string
   onToggleSelection: () => void
   onPreview: () => void
   onOpen: () => void
@@ -1051,10 +993,6 @@ function FileRow(props: {
   onOpenInExplorer: () => void
   onNavigateFolder?: () => void
   onAddToSession?: () => void
-  onRename: () => void
-  onRenameInput: (v: string) => void
-  onRenameKeyDown: (e: KeyboardEvent) => void
-  onRenameBlur: () => void
 }): JSX.Element {
   const language = useLanguage()
   const [showMenu, setShowMenu] = createSignal(false)
@@ -1101,17 +1039,6 @@ function FileRow(props: {
         />
       </td>
       <td class="px-4 truncate max-w-[200px]" title={props.file.name} style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
-        <Show when={!props.renaming} fallback={
-          <input
-            value={props.renameDraft}
-            onInput={(e) => props.onRenameInput(e.currentTarget.value)}
-            onKeyDown={(e) => props.onRenameKeyDown(e)}
-            onBlur={() => props.onRenameBlur()}
-            onClick={(e) => e.stopPropagation()}
-            class="w-full text-[14px] leading-[22px] px-1 py-0.5 rounded"
-            style={{ border: "1px solid #0a59f7", outline: "none" }}
-          />
-        }>
           <div class="flex items-center" style={{ gap: "10px" }}>
             {(() => {
               const FileIcon = getFileIcon(props.file.kind, props.file.name)
@@ -1126,8 +1053,7 @@ function FileRow(props: {
               </Show>
             </div>
           </div>
-        </Show>
-      </td>
+        </td>
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
         {language.t(kindToI18nKey(props.file.kind))}
       </td>
@@ -1192,17 +1118,6 @@ function FileRow(props: {
                   打开所在文件夹
                 </button>
               </Show>
-              <button
-                type="button"
-                onClick={() => {
-                  props.onRename()
-                  setShowMenu(false)
-                }}
-                class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] hover:bg-[#eee] transition-colors"
-                style={{ color: "rgba(0,0,0,0.9)" }}
-              >
-                重命名
-              </button>
               <Show when={props.onDownload}>
                 <button
                   type="button"

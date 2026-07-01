@@ -1,4 +1,4 @@
-import { createStore, reconcile } from "solid-js/store"
+import { createStore } from "solid-js/store"
 import { createMemo, createSignal, createEffect, on } from "solid-js"
 import type { ArtifactFile, ArtifactFileKind } from "./artifact-file-api"
 import { kindSortPriority } from "./artifact-file-api"
@@ -102,9 +102,11 @@ function createFileListComputed(
   sectionPrefix: string,
   dayBoundary: () => number,
 ) {
+  const filesMemo = createMemo(files)
+
   const kindCounts = createMemo(() => {
     const counts = new Map<ArtifactFileKind, number>()
-    for (const file of files()) {
+    for (const file of filesMemo()) {
       counts.set(file.kind, (counts.get(file.kind) ?? 0) + 1)
     }
     return counts
@@ -116,8 +118,9 @@ function createFileListComputed(
 
   const filteredFiles = createMemo(() => {
     const filter = kindFilter()
-    if (filter.size === 0) return files()
-    return files().filter((f) => filter.has(f.kind))
+    const allFiles = filesMemo()
+    if (filter.size === 0) return [...allFiles]
+    return allFiles.filter((f) => filter.has(f.kind))
   })
 
   const sortedFiles = createMemo(() => {
@@ -133,9 +136,10 @@ function createFileListComputed(
   })
 
   const kindGroups = createMemo(() => {
+    const sorted = sortedFiles()
     const groups = new Map<ArtifactFileKind, ArtifactFile[]>()
     if (groupMode() !== "kind") return groups
-    for (const file of sortedFiles()) {
+    for (const file of sorted) {
       const existing = groups.get(file.kind) ?? []
       groups.set(file.kind, [...existing, file])
     }
@@ -143,6 +147,7 @@ function createFileListComputed(
   })
 
   const modifiedGroups = createMemo(() => {
+    const sorted = sortedFiles()
     const groups: Record<ModifiedSection, ArtifactFile[]> = {
       today: [],
       yesterday: [],
@@ -152,7 +157,7 @@ function createFileListComputed(
     }
     if (groupMode() !== "modified") return groups
     const thresholds = modifiedSectionThresholds(dayBoundary())
-    for (const file of sortedFiles()) {
+    for (const file of sorted) {
       const section = modifiedSectionFor(file.mtime, thresholds)
       groups[section] = [...groups[section], file]
     }
@@ -323,11 +328,11 @@ export function createArtifactFileStore(sessionId: string) {
     },
 
     setGeneratedFiles(files: ArtifactFile[]) {
-      setStore("generatedFiles", reconcile(files))
+      setStore("generatedFiles", files)
     },
 
     setUploadedFiles(files: ArtifactFile[]) {
-      setStore("uploadedFiles", reconcile(files))
+      setStore("uploadedFiles", files)
     },
 
     toggleGeneratedSection() {
