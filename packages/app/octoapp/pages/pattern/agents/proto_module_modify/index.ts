@@ -31,6 +31,8 @@ type ModuleModifyContext = {
   rootSession: string
   // 用户输入
   userInput: string
+  // 透传到工具 ctx.extra 的数据
+  extra?: Record<string, unknown>
   // 修改输入
   input: ModuleModifyInput
   // 子 session 创建回调
@@ -58,7 +60,8 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
     client: sdk.client,
     prompt: humanMessage,
     directory: sdk.directory,
-    parentSessionID: rootSession
+    parentSessionID: rootSession,
+    extra: ctx.extra,
   })
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 json 数据

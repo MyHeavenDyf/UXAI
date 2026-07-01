@@ -65,6 +65,7 @@ const api: ElectronAPI = {
   getZoomFactor: () => ipcRenderer.invoke("get-zoom-factor"),
   setZoomFactor: (factor) => ipcRenderer.invoke("set-zoom-factor", factor),
   setTitlebar: (theme) => ipcRenderer.invoke("set-titlebar", theme),
+  setTitlebarOverlayHidden: (hidden) => ipcRenderer.invoke("set-titlebar-overlay-hidden", hidden),
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
@@ -72,10 +73,13 @@ const api: ElectronAPI = {
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
+  // jk-j60099994-replace-with-60062650-preload-index-1-start
+  // jk-j60099994-replace-with-60062650-preload-index-1-end
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
+  writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
@@ -88,6 +92,8 @@ const api: ElectronAPI = {
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
+  // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
+  pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
 }

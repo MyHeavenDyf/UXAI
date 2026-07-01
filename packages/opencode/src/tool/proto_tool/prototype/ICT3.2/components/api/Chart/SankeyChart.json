@@ -1,0 +1,119 @@
+{
+  "name": "BarChart",
+  "description": "Bar chart component for displaying data with rectangular bars.",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique component cross-reference ID."
+    },
+    "component": {
+      "type": "string",
+      "const": "BarChart"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "option": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "nodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["value", "name"]
+                      }
+                    },
+                    "links": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source": {
+                            "type": "string"
+                          },
+                          "target": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "number"
+                          }
+                        },
+                        "required": ["source", "target", "value"]
+                      }
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Core chart data source (required)"
+            },
+            "sortType": {
+              "type": "string",
+              "enum": ["unset", "ascend", "decline"],
+              "default": "unset",
+              "description": "Sorting method for each column of data"
+            },
+            "color":{
+              "oneOf": [{
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "description": "Item color in hex format (e.g., '#F0F0F0')."
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Stick to default color groups. Override only upon explicit user request."
+            }
+          },
+          "required": ["data"]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component. Mandatory: width (w-) and height (h-) classes must be explicitly defined."
+        }
+      },
+      "required": ["option", "className"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

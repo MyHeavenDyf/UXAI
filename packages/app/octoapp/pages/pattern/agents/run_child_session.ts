@@ -13,6 +13,7 @@ export type RunChildSessionInput = {
   parentSessionID: string
   modelKey: { providerID: string; modelID: string } | undefined
   onSessionCreated?: (childSessionID: string) => void
+  extra?: Record<string, unknown>
 }
 
 export async function runChildSession(input: RunChildSessionInput): Promise<{ text: string; childSessionId: string }> {
@@ -25,6 +26,7 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     directory, // 当前工程运行时指定的文件夹
     parentSessionID, // 根节点 Session ID
     prompt: promptText, // 用户输入提示词
+    extra, // 透传到后端的额外数据
     onSessionCreated, // 创建该 Session 时的回调
     aborted // 是否需要立即停止，暂未用，全部停止另外写了一个方法
   } = input
@@ -57,6 +59,7 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     model: modelKey,
     sessionID: childSession.id,
     parts: [{ type: "text", text: promptText }],
+    extra,
   })
   // 监听 reactive store，等待新 assistant 消息完成
   const result = await getResultFromMessages(sync, childSession.id, knownIds)

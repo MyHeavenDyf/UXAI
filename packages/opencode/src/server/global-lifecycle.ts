@@ -18,6 +18,7 @@ export const emitGlobalDisposed = Effect.sync(() =>
 
 export const disposeAllInstancesAndEmitGlobalDisposed = Effect.fn("Server.disposeAllInstancesAndEmitGlobalDisposed")(
   function* (options?: { swallowErrors?: boolean }) {
+    log.info("disposeAll:start", { t: Date.now() })
     const store = yield* InstanceStore.Service
     yield* Effect.gen(function* () {
       yield* options?.swallowErrors
@@ -29,7 +30,9 @@ export const disposeAllInstancesAndEmitGlobalDisposed = Effect.fn("Server.dispos
             ),
           )
         : store.disposeAll()
+      log.info("disposeAll:emit-disposed", { t: Date.now() })
       yield* emitGlobalDisposed
+      log.info("disposeAll:done", { t: Date.now() })
     }).pipe(Effect.uninterruptible)
   },
 )

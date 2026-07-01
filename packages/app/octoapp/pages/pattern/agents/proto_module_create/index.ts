@@ -15,6 +15,8 @@ type ProtoModuleCreateInput = {
   rootSession: string
   // 用户输入
   userInput: string
+  // 透传到工具 ctx.extra 的数据
+  extra?: Record<string, unknown>
   // 用户输入
   idPrefix: string
   // 本模块对应意图模块
@@ -35,7 +37,6 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     sync,
     modelKey,
     rootSession,
-    userInput,
     idPrefix,
     sectionId,
     elementId,
@@ -57,6 +58,7 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     prompt: humanMessage,
     sync,
     onSessionCreated,
+    extra: input.extra,
   })
   console.log("----- 模块渲染Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 a2ui json

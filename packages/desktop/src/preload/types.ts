@@ -19,8 +19,9 @@ export type TitlebarTheme = {
 export type WindowConfig = {
   updaterEnabled: boolean
 }
-
+// jk-j60099994-replace-with-60062650-preload-types-1-start
 export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+// jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
 export type ElectronAPI = {
@@ -78,6 +79,7 @@ export type ElectronAPI = {
   getZoomFactor: () => Promise<number>
   setZoomFactor: (factor: number) => Promise<void>
   setTitlebar: (theme: TitlebarTheme) => Promise<void>
+  setTitlebarOverlayHidden: (hidden: boolean) => Promise<void>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
@@ -89,8 +91,12 @@ export type ElectronAPI = {
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   openSkillFolder: () => Promise<void>
+  // jk-j60099994-replace-with-60062650-preload-types-2-start
+  // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
+  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/downloads 或临时目录下) */
+  writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
   deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
@@ -108,4 +114,6 @@ export type ElectronAPI = {
     comment?: string
   }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
+  // Pipeline API IPC bridge 类型定义
+  pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 }

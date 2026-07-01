@@ -22,8 +22,6 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment_bar"
 import { create_intent_confirm, create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create_json'
 import modify_json_ai from './workflow/modify_json_ai'
-
-import { classifyAIError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename-session"
 import { groupRounds } from "./utils/round-messages"
 import { exportZip } from "./utils/previewHandler/zip"
@@ -37,6 +35,7 @@ import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/PatternPreviewEmpty"
 import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
+import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
@@ -139,6 +138,13 @@ function PatternContent() {
             await discoverChildSessions(id)
             if (params.id !== id) return
             setSessionSynced(true)
+            // 加载持久化的 workflow 错误
+            const errDir = patternHistoryDir()
+            if (errDir) {
+              void loadProtoError(errDir, id).then((errTitle) => {
+                if (errTitle && params.id === id) setSessionErrors((prev) => ({ ...prev, [id]: errTitle }))
+              })
+            }
             // 滚动到底部
             requestAnimationFrame(() => autoScroll.forceScrollToBottom())
           })
@@ -220,15 +226,23 @@ function PatternContent() {
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
+  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>({})
+
   const roundMessages = createMemo(() => {
     const id = params.id
     if (!id) return []
-    return groupRounds(
+    const rounds = groupRounds(
       id,
       childSessionIDs(),
       (sid) => (sync.data.message[sid] ?? []) as Message[],
       (mid) => sync.data.part[mid] as Array<Record<string, unknown>> | undefined,
     )
+    // 运行时 workflow 错误
+    const error = sessionErrors()[id]
+    if (error && rounds.length > 0) {
+      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error }
+    }
+    return rounds
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -311,9 +325,14 @@ function PatternContent() {
     try {
       await runQuickModify(quickModifyCtx, data)
     } catch (err: unknown) {
+      if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleModifyElement failed", err)
       const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      if (error.title) {
+        const sid = params.id
+        if (sid) setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
+        showToast({ title: error.title, description: error.description })
+      }
     }
   }
 
@@ -402,14 +421,25 @@ function PatternContent() {
         sid = session.id
       }
       setSendingSids((prev) => new Set(prev).add(sid!))
+      // 清理该 session 的持久化错误
+      setSessionErrors((prev) => {
+        if (!prev[sid!]) return prev
+        const next = { ...prev }
+        delete next[sid!]
+        return next
+      })
+      const startDir = patternHistoryDir()
+      if (startDir) void clearProtoError(startDir, sid!)
 
       // 执行流程的基础上下文
+      const ds = selectedDesignSystem()
       let intentCtx = {
         sdk: sdk,
         sync: sync,
         modelKey: mk,
         rootSession: sid,
         userInput: text,
+        extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
         onSessionCreated: (childID: string) => {
           if (params.id !== sid) return
           setChildSessionIDs((prev) => [...prev, childID])
@@ -463,6 +493,7 @@ function PatternContent() {
         // AI 修改页面 — 先切到加载态
         setIsModifying(true)
         const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
+        if (params.id !== sid) return
         setIsModifying(false)
         if ((modifyResult as any)?.reply) {
           showToast({ title: (modifyResult as any).reply })
@@ -477,7 +508,7 @@ function PatternContent() {
           userText: text,
           modelKey: mk,
         }).then((title) => {
-          if (title && params.id === sid) mutateSession(prev => prev ? { ...prev, title } : prev)
+          if (title) mutateSession(prev => prev ? { ...prev, title } : prev)
         }).catch(() => {})
 
         // 首次创建页面 — 阶段 0：意图确认（暂停等用户选择）
@@ -512,6 +543,7 @@ function PatternContent() {
         }
 
         // 进入线框审查阶段，planner/intent 复用 lastPlanner/lastIntent
+        if (params.id !== sid) return
         setLastPlanner(new_planner.planner.layout_planner)
         setLastIntent(new_planner.intent.intent_description)
         setUserInput(text)
@@ -524,8 +556,19 @@ function PatternContent() {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
       setIsModifying(false)
+
+      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
+      for (const childID of childSessionIDs()) {
+        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+      }
+
       const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      if (error.title) {
+        setSessionErrors((prev) => ({ ...prev, [sid!]: error.title }))
+        showToast({ title: error.title, description: error.description })
+        const errDir = patternHistoryDir()
+        if (errDir) void saveProtoError(errDir, sid!, error.title)
+      }
     } finally {
       setSendingSids((prev) => {
         if (!prev.has(sid!)) return prev
@@ -557,25 +600,22 @@ function PatternContent() {
 
     setIsPlanReview(false)
 
+    const ds = selectedDesignSystem()
     const intentCtx: ProtoCreateJsonInput = {
       sdk,
       sync,
       modelKey: mk,
       rootSession: sid,
       userInput: text,
+      extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
       onSessionCreated: (childID: string) => {
+        if (params.id !== sid) return
         setChildSessionIDs((prev) => [...prev, childID])
       },
     }
 
     let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
-        // 触发页面渲染
-        if (pageJson) sendToPreview(pageJson)
-        // 内存数据更新
-        setLastIntent(pageIntent)
-        setLastPlanner(layoutPlanner)
-        setLastModules(modulesJson)
-        // 历史文件
+        // 历史保存始终执行（与当前查看的 session 无关）
         const dir = patternHistoryDir()
         if (dir) {
           const vid = await appendPatternVersion(dir, sid, {
@@ -584,8 +624,10 @@ function PatternContent() {
               lastModules: modulesJson,
               mergedA2UI: pageJson as unknown as Record<string, unknown>,
           }, text.slice(0, 80))
-          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
-          setCurrentVersionId(vid)
+          if (params.id === sid) {
+            setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+            setCurrentVersionId(vid)
+          }
           const debug = getDebugSnapshot()
           void saveDebugLog(dir, sid, {
             lastIntent: pageIntent,
@@ -596,14 +638,34 @@ function PatternContent() {
           }, text.slice(0, 80))
           clearDebugLog()
         }
+        // 视图状态仅在仍在该 session 时更新
+        if (params.id !== sid) return
+        // 触发页面渲染
+        if (pageJson) sendToPreview(pageJson)
+        // 内存数据更新
+        setLastIntent(pageIntent)
+        setLastPlanner(layoutPlanner)
+        setLastModules(modulesJson)
     }
     
     try {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
+      if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleConfirmReview failed", err)
+
+      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
+      for (const childID of childSessionIDs()) {
+        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+      }
+
       const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      if (error.title) {
+        setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
+        showToast({ title: error.title, description: error.description })
+        const errDir = patternHistoryDir()
+        if (errDir) void saveProtoError(errDir, sid, error.title)
+      }
       setIsPlanReview(true)
     } finally {
       setUserInput("")
@@ -683,6 +745,9 @@ function PatternContent() {
       next.delete(sid)
       return next
     })
+    setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
+    const haltDir = patternHistoryDir()
+    if (haltDir) void clearProtoError(haltDir, sid)
   }
 
   function handleKeyDown(e: KeyboardEvent) {

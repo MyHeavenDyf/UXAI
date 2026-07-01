@@ -1,7 +1,8 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
-import { useData } from "@opencode-ai/ui/context"
+import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -28,6 +29,7 @@ export type OutputCardType =
   | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
   | "deck" | "svg" | "markdown-document" | "code-snippet"
   | "react-component" | "diagram"
+  | "design-plan"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -56,6 +58,7 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "code-snippet": "code-snippet",
   "react-component": "react-component",
   diagram: "diagram",
+  "text/design-plan": "design-plan",
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -159,6 +162,17 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         fullContent = ev.fullContent
         if (!startEvent) return
         const mappedType = ARTIFACT_TYPE_MAP[startEvent.artifactType]
+        // design-plan 或 identifier 以 "plan-" 开头的 artifact 不在消息流中显示卡片。
+        // 它们是方案阶段产物,只通过输入框上方的 plan banner 入口进入 ResultViewer。
+        // 双重兜底:type 正确时 mappedType === "design-plan";agent 把 type 写错时
+        // (例如写成 markdown-document) identifier 前缀仍然能识别出来。
+        const isPlanArtifact =
+          mappedType === "design-plan" ||
+          (startEvent.identifier || "").startsWith("plan-")
+        if (isPlanArtifact) {
+          startEvent = null
+          return
+        }
         if (!mappedType) return
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
@@ -195,7 +209,10 @@ function scanArtifactHeaders(text: string): Array<{ identifier: string; title: s
     const artifactType = attrs.match(/type="([^"]*)"/)?.[1] ?? "text/html"
     const title = attrs.match(/title="([^"]*)"/)?.[1] ?? ""
     const mappedType = ARTIFACT_TYPE_MAP[artifactType]
-    if (mappedType) {
+    // design-plan 或 identifier 以 "plan-" 开头的 artifact 跳过,不显示消息流卡片
+    const isPlanArtifact =
+      mappedType === "design-plan" || identifier.startsWith("plan-")
+    if (mappedType && !isPlanArtifact) {
       results.push({ identifier, title: title || mappedType, type: mappedType })
     }
   }
@@ -501,6 +518,8 @@ export function InsightTurn(props: {
   blockTime?: number
   onAbort?: () => void
   onOpenResult: (card: OutputCard) => void
+  onOpenLocalFile?: (filePath: string) => void
+  projectDir?: string
   onContinue?: (card: OutputCard) => void
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
@@ -508,6 +527,7 @@ export function InsightTurn(props: {
   hasQuestionRequest?: boolean
 }): JSX.Element {
   const data = useData()
+  const i18n = useI18n()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
   const msgStore = data.store.message as Record<string, Message[]>
 
@@ -543,6 +563,14 @@ export function InsightTurn(props: {
       if (m.role === "user") break
     }
     return result
+  })
+
+  const isAborted = createMemo(() => {
+    for (const msg of assistantMsgs()) {
+      const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
+      if (err?.name === "MessageAbortedError") return true
+    }
+    return false
   })
 
   const assistantError = createMemo(() => {
@@ -1115,55 +1143,64 @@ const stateStatus = state.status as string | undefined
   return (
     <div class="flex flex-col" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
-      <div class="flex flex-col items-end gap-2 px-3 py-2.5">
-        <Show when={userText() || userAttachments().length === 0}>
-          <div
-            class="break-words"
-            style={{
-              background: "var(--octo-brand-a8)",
-              padding: "8px 12px",
-              "border-radius": "16px 16px 2px 16px",
-              color: "#191919",
-              "font-size": "14px",
-              "line-height": "22px",
-              "white-space": "pre-wrap",
-              display: "inline-block",
-              "max-width": "85%",
-            }}
-          >
-            {userText()}
-          </div>
-        </Show>
-        <Show when={userAttachments().length > 0}>
-          <div class="flex flex-col gap-2">
-            <For each={userAttachments()}>
-              {(att) => (
-                <div
-                  class="break-words flex items-center gap-2"
-                  style={{
-                    background: "var(--octo-brand-a8)",
-                    padding: "8px 12px",
-                    "border-radius": "12px",
-                    color: "#191919",
-                    "font-size": "13px",
-                    display: "inline-flex",
-                    "max-width": "200px",
-                  }}
-                >
-                  <Show when={att.mime?.startsWith("image/")}>
-                    <img
-                      src={att.url}
-                      alt={att.filename || "attachment"}
-                      style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
-                    />
-                  </Show>
-                  <span class="truncate">{att.filename || "attachment"}</span>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
+      <Show when={userText() || userAttachments().length > 0}>
+        <div class="flex flex-col items-end gap-2 px-3 py-2.5">
+          <Show when={userText()}>
+            <div
+              class="break-words"
+              style={{
+                background: "var(--octo-brand-a8)",
+                padding: "8px 12px",
+                "border-radius": "16px 16px 2px 16px",
+                color: "#191919",
+                "font-size": "14px",
+                "line-height": "22px",
+                "white-space": "pre-wrap",
+                display: "inline-block",
+                "max-width": "85%",
+              }}
+            >
+              {userText()}
+            </div>
+          </Show>
+          <Show when={userAttachments().length > 0}>
+            <div class="flex flex-col gap-2">
+              <For each={userAttachments()}>
+                {(att) => (
+                  <div
+                    class="break-words flex items-center gap-2"
+                    style={{
+                      background: "var(--octo-brand-a8)",
+                      padding: "8px 12px",
+                      "border-radius": "12px",
+                      color: "#191919",
+                      "font-size": "13px",
+                      display: "inline-flex",
+                      "max-width": "200px",
+                    }}
+                  >
+                    <Show when={att.mime?.startsWith("image/")}>
+                      <img
+                        src={att.url}
+                        alt={att.filename || "attachment"}
+                        style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
+                      />
+                    </Show>
+                    <span class="truncate">{att.filename || "attachment"}</span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      {/* 中断提示：与 SessionTurn 的 session-turn-compaction 一致 */}
+      <Show when={isAborted()}>
+        <div data-slot="session-turn-compaction">
+          <MessageDivider label={i18n.t("ui.message.interrupted")} />
+        </div>
+      </Show>
 
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
@@ -1210,7 +1247,13 @@ const stateStatus = state.status as string | undefined
             {(seg) => {
               if (seg.kind === "text") {
                 if (seg.text.trim().length === 0) return null
-                return <Markdown text={seg.text} />
+                return (
+                  <Markdown
+                    text={seg.text}
+                    onOpenLocalFile={props.onOpenLocalFile}
+                    projectDir={props.projectDir}
+                  />
+                )
               }
               if (seg.kind === "form") {
                 return (

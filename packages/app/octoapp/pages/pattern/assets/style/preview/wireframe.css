@@ -6,7 +6,6 @@
   overflow: hidden;
 }
 
-/* ── Header ─────────────────────────────────────────── */
 .wireframe-header {
   display: flex;
   align-items: center;
@@ -29,22 +28,22 @@
   margin-top: 2px;
 }
 
-/* ── Body: 布局面板 + 模块面板 ──────────────────────── */
 .wireframe-body {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
-/* ── 左侧：粗略布局示意 ─────────────────────────────── */
 .wireframe-layout-panel {
-  flex: 0 0 38%;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--octo-border-divider);
+  border-bottom: 1px solid var(--octo-border-divider);
   background: #f9fafb;
   overflow: hidden;
+  max-height: 45%;
 }
 
 .wireframe-layout-label {
@@ -60,53 +59,55 @@
 .wireframe-canvas {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 20px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  padding: 12px 20px 20px;
 }
 
-.wireframe-slot-box {
-  border: 2px dashed var(--octo-border-default, #e5e7eb);
-  border-radius: var(--octo-radius-lg, 8px);
+.wireframe-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wireframe-box {
+  border: 2px dashed var(--octo-border-default, #d0d5dd);
+  border-radius: var(--octo-radius-md, 6px);
   padding: 16px 20px;
   background: #fff;
-  min-height: 72px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: pointer;
 }
 
-.wireframe-slot-box:hover {
-  border-color: var(--octo-brand-a40);
-  background: var(--octo-brand-a3);
+.wireframe-box:hover {
+  border-color: var(--octo-brand-a40, #0a59f766);
+  background: var(--octo-brand-a3, #0a59f708);
 }
 
-.wireframe-slot-id {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--octo-brand, #0a59f7);
+.wireframe-box.active {
+  border-color: var(--octo-brand, #0a59f7);
+  border-style: solid;
+  box-shadow: 0 0 0 3px var(--octo-brand-a15, #0a59f726);
+  background: var(--octo-brand-a5, #0a59f70d);
 }
 
-.wireframe-slot-name {
+.wireframe-box-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--octo-text-strong, #101828);
 }
 
-.wireframe-slot-desc {
+.wireframe-box-desc {
   font-size: 12px;
   color: var(--octo-text-secondary, rgba(0,0,0,0.6));
   line-height: 1.4;
+  margin-top: 4px;
 }
 
-/* ── 右侧：模块意图编辑面板 ─────────────────────────── */
 .wireframe-modules-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 .wireframe-modules-label {
@@ -134,6 +135,15 @@
   padding: 14px 18px;
   background: #fff;
   box-shadow: var(--octo-shadow-xs, 0 1px 2px rgba(0,0,0,0.04));
+  transition: border-color 0.15s, box-shadow 0.15s;
+  scroll-margin-top: 12px;
+  display: none;
+}
+
+.wireframe-module-card.active {
+  display: block;
+  border-color: var(--octo-brand, #0a59f7);
+  box-shadow: 0 0 0 2px var(--octo-brand-a15, #0a59f726), var(--octo-shadow-xs, 0 1px 2px rgba(0,0,0,0.04));
 }
 
 .wireframe-module-card-header {
@@ -141,6 +151,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+  cursor: pointer;
 }
 
 .wireframe-module-card-id {
@@ -169,7 +180,6 @@
   gap: 10px;
 }
 
-/* ── 字段编辑器 ─────────────────────────────────────── */
 .wireframe-field {
   display: flex;
   flex-direction: column;
