@@ -15,6 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
 import { useLayout } from "@/context/layout"
+import { useLanguage } from "@/context/language"
 
 /**
  * ConversationHeader —— Insight 对话面板顶部的会话标题栏
@@ -43,6 +44,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
   const sdk = useSDK()
   const dialog = useDialog()
   const layout = useLayout()
+  const language = useLanguage()
 
   const sessionID = () => params.id
   const info = createMemo(() => {
@@ -127,25 +129,23 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
   }
 
   function DialogDeleteSession(props: { sessionID: string }) {
-    const name = createMemo(() => sessionTitle(sync.session.get(props.sessionID)?.title) || "新会话")
+    const name = createMemo(() => sessionTitle(sync.session.get(props.sessionID)?.title) || language.t("command.session.new"))
     const handleDelete = async () => {
       await deleteSession(props.sessionID)
       dialog.close()
     }
     return (
-      <Dialog title="删除会话" fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <span class="text-14-regular text-text-strong">
-            确定要删除「{name()}」吗？此操作不可撤销。
-          </span>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              取消
-            </Button>
-            <Button variant="primary" size="large" onClick={handleDelete}>
-              删除
-            </Button>
-          </div>
+      <Dialog title="删除会话" fit class="delete-dialog">
+        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+          确定删除「{name()}」？
+        </span>
+        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
+          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
+            {language.t("session.delete.button")}
+          </Button>
         </div>
       </Dialog>
     )

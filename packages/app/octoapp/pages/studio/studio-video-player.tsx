@@ -40,9 +40,12 @@ export function StudioVideoPlayer(props: {
       const style = getComputedStyle(parent)
       const availableWidth = Math.max(0, parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
       const availableHeight = Math.max(0, parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
-      const maxWidth = Math.min(520, availableWidth)
-      const maxHeight = Math.min(420, availableHeight)
-      const width = maxWidth / maxHeight > mediaRatio() ? maxHeight * mediaRatio() : maxWidth
+      // 父容器尺寸未就绪时跳过，等 ResizeObserver 下次触发
+      if (availableWidth <= 0 || availableHeight <= 0) return
+      // 容器比视频宽 → 高度撑满；容器比视频高 → 宽度撑满
+      const width = availableWidth / availableHeight > mediaRatio()
+        ? availableHeight * mediaRatio()
+        : availableWidth
       const height = width / mediaRatio()
       anchorRef.style.width = `${width}px`
       anchorRef.style.height = `${height}px`
