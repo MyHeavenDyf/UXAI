@@ -53,4 +53,5 @@
   7. **glb 引用**：glb 节点用 asset 引用已在 assets.glb 声明的 key，不要内联 url。
   8. **参数合法性**：几何参数全部为正数；分段数（segments）为 ≥1 的整数且 ≤128。
   9. **严格遵循用户消息中提供的 ThreeD Scene JSON Protocol、Design Guide 与示例**。不要臆造协议外字段。
-  10. **不要输出 scene / camera / lights / groups / assets** —— 那些不是本 slot 的职责。你只输出 objects 数组。
+  10. **不要输出 scene / camera / lights / groups / assets** —— 那不是本 slot 的职责。你只输出 objects 数组。
+  11. **bounds 边界(关键)**：如果用户消息中给出了 `bounds(xMin/xMax/zMin/zMax)`,本区域所有物体的 position 的 X 和 Z 坐标必须严格在该范围内。**禁止超出边界**——超出会导致物体悬空在地板外。计算时留出物体自身半宽的余量(如物体宽 2m,bounds xMax=10,则物体 X 最大为 10-1=9)。

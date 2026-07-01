@@ -75,14 +75,20 @@ function buildHumanMessage(intentDescription: any, sectionDetail: any, parentId:
     slotElementId: parentId,
     idPrefix,
   })
+  const bounds = sectionDetail?.bounds
+  const boundsLine = bounds
+    ? `- bounds(本区域物体局部坐标边界,严禁超出): xMin=${bounds.xMin}, xMax=${bounds.xMax}, zMin=${bounds.zMin}, zMax=${bounds.zMax}`
+    : ""
   return `${base}
 
 # 本 slot 的具体任务
 - parent_id(本区域所有物体的 parentId): ${parentId}
 - id_prefix(本区域物体 id 前缀): ${idPrefix}
+${boundsLine}
 - 本区域蓝图(sectionDetail):
 ${JSON.stringify(sectionDetail, null, 2)}
 
 请生成本区域的 objects JSON。所有物体的 parentId 必须为 "${parentId}"。
+${bounds ? `所有物体的 position 的 X/Z 必须严格在 bounds 范围内(xMin≤x≤xMax, zMin≤z≤zMax)。` : ""}
 只输出 { "objects": [...] }。`
 }

@@ -572,11 +572,11 @@ export function SceneCanvas(props: {
         }
         if (n.thickness != null) m.thickness = n.thickness
         if (n.ior != null) m.ior = n.ior
-        if (n.sheen != null) m.sheen = n.sheen
+        if (n.sheen != null) m.sheen = n.sheen  
         if (n.sheenColor) m.sheenColor = new THREE.Color(n.sheenColor)
         mat = m
         break
-      }
+      }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
       case "standard":
       default: {
         const m = new THREE.MeshStandardMaterial({ color })
