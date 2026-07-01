@@ -90,7 +90,7 @@
   min-width: 0;
   overflow: hidden;
   color: #191919;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 28px;
   text-overflow: ellipsis;
@@ -359,7 +359,7 @@
 }
 
 .studio-composer.video .studio-composer-input-row {
-  min-height: 60px;
+  min-height: 64px;
 }
 
 .studio-composer.video .studio-composer-toolbar {
@@ -454,13 +454,13 @@
   padding-top: 0;
   background: transparent;
   color: #191919;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 22px;
 }
 
 .studio-composer-input::placeholder {
   color: rgba(15, 23, 42, 0.45);
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .studio-composer-video-placeholder {
@@ -468,7 +468,7 @@
   inset: 0;
   color: rgba(15, 23, 42, 0.45);
   cursor: text;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 22px;
 }
 
@@ -511,7 +511,7 @@
   border-radius: 999px;
   background: #f3f3f3;
   color: #191919;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 22px;
   transition: background-color 0.15s ease;
 }

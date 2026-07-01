@@ -257,7 +257,7 @@
 }
 
 .studio-empty-stack .studio-composer.video .studio-composer-input-row {
-  min-height: 60px;
+  min-height: 64px;
 }
 
 .studio-empty-stack .studio-composer-input {
@@ -285,7 +285,6 @@
   max-width: 200px;
   height: 28px;
   padding: 4px 12px 4px 14px;
-  font-size: 13px;
 }
 
 .studio-empty-stack .studio-composer-icon-tool {
