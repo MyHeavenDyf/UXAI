@@ -523,8 +523,8 @@
 }
 
 .studio-video-player-anchor {
-  width: min(100%, 520px);
-  height: min(100%, 420px);
+  width: 100%;
+  height: 100%;
   flex: 0 0 auto;
 }
 

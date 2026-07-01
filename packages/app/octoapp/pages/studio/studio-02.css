@@ -723,7 +723,6 @@
 }
 
 .studio-assistant-editor-link:hover {
-  background: #dbe9ff;
   transform: translateY(-1px);
 }
 
@@ -782,6 +781,12 @@
 
 .studio-result-progress-status.invisible {
   visibility: hidden;
+}
+
+/* ── Dialog（设置等弹窗，需高于浮层侧边栏 z-index:101） ────────── */
+[data-component="dialog-overlay"],
+[data-component="dialog"] {
+  z-index: 150;
 }
 
 /* ── DropdownMenu（右键菜单，与 chat 页面一致） ────────── */
