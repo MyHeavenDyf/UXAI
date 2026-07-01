@@ -47,9 +47,8 @@ const params = useParams()
   const layout = useLayout()
 
   const [sessions, { refetch }] = createResource(
-    () => ({ dir: props.currentDir() ?? "", id: params.id }),
-    async (source) => {
-      const d = source.dir
+    () => props.currentDir() ?? "",
+    async (d) => {
       if (!d) return [] as Session[]
       const client = globalSDK.createClient({ directory: d })
       // scope=project 让后端跳过 directory 过滤，跨所有 directory 取当前 project 的 session
@@ -194,6 +193,18 @@ const params = useParams()
 
   const [collapsed, setCollapsed] = createSignal(false)
 
+  const sessionRefs = new Map<string, HTMLElement>()
+  createEffect(() => {
+    const id = params.id
+    if (!id) return
+    // 读取 sessionList.length 建立响应式依赖，确保列表加载完成后重新滚动
+    void sessionList.length
+    requestAnimationFrame(() => {
+      const el = sessionRefs.get(id)
+      if (el) el.scrollIntoView({ block: "nearest" })
+    })
+  })
+
   return (
     <div
       class="flex h-full w-full flex-col"
@@ -264,7 +275,7 @@ const params = useParams()
                       const isRenaming = () => renamingId() === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
                       return (
-                        <div class="group/item relative">
+                        <div ref={(el) => { if (el) sessionRefs.set(session.id, el) }} class="group/item relative">
                           <Show when={!isRenaming()} fallback={
                             <div
                               class="w-full rounded-[8px] flex items-center"
