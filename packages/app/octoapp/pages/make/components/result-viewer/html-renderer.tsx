@@ -1,6 +1,7 @@
 import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
+import { cleanBridgeContent } from "../../utils/bridge-cleaner"
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop } from "../../utils/artifact-file-api"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
@@ -103,6 +104,7 @@ export function HtmlRenderer(props: {
   sdkUrl?: string
   sdkDirectory?: string
   onSaveFile?: (content: string) => Promise<void>
+  onRefreshNeeded?: () => void
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
@@ -155,6 +157,7 @@ export function HtmlRenderer(props: {
       historyIndex--
       const state = historyStack[historyIndex]
       props.onContentChange?.(wrapHtmlContent(state.html, props.content))
+      props.onRefreshNeeded?.()
       return true
     }
     return false
@@ -166,6 +169,7 @@ export function HtmlRenderer(props: {
       historyIndex++
       const state = historyStack[historyIndex]
       props.onContentChange?.(wrapHtmlContent(state.html, props.content))
+      props.onRefreshNeeded?.()
       return true
     }
     return false
@@ -260,8 +264,7 @@ createEffect(() => {
     }
     
     if (result.ok) {
-      // ★ Remove data-od-id attributes before saving (clean output)
-      const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
+      const cleanSource = cleanBridgeContent(result.source)
       props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
       if (hasChanges) {
         pushHistory(cleanSource, description)
@@ -431,7 +434,8 @@ createEffect(() => {
 
   const localUrl = createMemo(() => {
     if (!shouldUseLocalUrl()) return undefined
-    return pathToLocalUrl(props.filePath!)
+    const key = props.refreshKey ?? 0
+    return `${pathToLocalUrl(props.filePath!)}?v=${key}`
   })
 
   const shouldUseServeUrl = createMemo(() => {
@@ -540,8 +544,7 @@ createEffect(() => {
           })
           
           if (result.ok) {
-            // Remove data-od-id and save
-            const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
+            const cleanSource = cleanBridgeContent(result.source)
             props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
             pushHistory(cleanSource, `Edit text in-place`)
             console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
@@ -822,8 +825,7 @@ return (
                             el.style.setProperty(prop, value, "important")
                           }
                         }
-                        // Step 4: Clean IDs and save
-                        const cleanHtml = doc.documentElement.outerHTML.replace(/ data-od-id="[^"]*"/g, '')
+                        const cleanHtml = cleanBridgeContent(doc.documentElement.outerHTML)
                         props.onContentChange?.(wrapHtmlContent(cleanHtml, props.content))
                         tracker.interaction({ module: "design", name: "save-inspect-changes" })
                         // Close inspect panel
@@ -880,7 +882,7 @@ onApplyPatch={async (patch: ManualEditPatch, label: string) => {
               const html = await getIframeSnapshot()
               const result = applyManualEditPatch(html, patch)
               if (result.ok) {
-                const cleanSource = result.source.replace(/ data-od-id="[^"]*"/g, '')
+                const cleanSource = cleanBridgeContent(result.source)
                 const updatedContent = wrapHtmlContent(cleanSource, props.content)
                 props.onContentChange?.(updatedContent)
                 pushHistory(cleanSource, label)

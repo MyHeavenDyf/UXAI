@@ -1474,34 +1474,8 @@ if (dsId) {
       }
     }
     
-    // Check if card is from Design Files (filePath exists and in artifacts directory)
-    const isFromDesignFiles = card.filePath && card.filePath.includes(".octo/artifacts/make")
-    
-    // ★ Step 1: Check localStorage snapshot (edited version - highest priority)
-    // Skip snapshot lookup for image/video/audio/pdf types (they don't have editable content)
-    const shouldLookupSnapshot = !["image", "video", "audio", "pdf", "svg"].includes(card.type)
-    const snapshots = snapshotStore.snapshots()
-    const latestSnapshot = shouldLookupSnapshot
-      ? (card.filePath
-          ? snapshots.find((s) => s.tab.filePath === card.filePath)
-          : snapshots.find((s) => s.tab.id === card.id))
-      : null
-    
-    if (latestSnapshot) {
-      const snapshotTab = latestSnapshot.tab
-      if (snapshotTab.type === "local-file") return
-      
-      card = {
-        id: snapshotTab.id,
-        title: snapshotTab.title,
-        type: snapshotTab.type as OutputCardType,
-        content: snapshotTab.content,
-        filePath: snapshotTab.filePath,
-        artifactIdentifier: snapshotTab.artifactIdentifier,
-        createdAt: new Date(latestSnapshot.timestamp),
-      }
-      console.log("[MakePage] Restored edited version from localStorage:", card.id)
-    } else if (card.filePath) {
+    // ★ Step 1: 从文件加载内容（编辑已保存到文件）
+    if (card.filePath) {
       const skipContentLoad = ["image", "video", "audio", "pdf", "svg"].includes(card.type)
       if (!skipContentLoad) {
         try {
