@@ -113,6 +113,7 @@ function ThreeDContent() {
         if (prevId !== undefined) {
           setSending(false)
           setPhase("idle")
+          setPrompt("")
         }
         setChildSessionIDs([])
         discoverVersion++

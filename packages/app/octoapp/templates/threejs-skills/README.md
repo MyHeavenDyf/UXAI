@@ -39,6 +39,7 @@ git submodule add https://github.com/pinkforest/threejs-playground.git
 | **threejs-shaders**        | GLSL basics, ShaderMaterial, uniforms, custom effects                   |
 | **threejs-postprocessing** | EffectComposer, bloom, DOF, screen effects, custom passes               |
 | **threejs-interaction**    | Raycasting, camera controls, mouse/touch input, object selection        |
+| **threejs-gui**            | CSS2D/3D overlays, transform gizmos, parameter panels, lil-gui, toolbar |
 
 ## How It Works
 

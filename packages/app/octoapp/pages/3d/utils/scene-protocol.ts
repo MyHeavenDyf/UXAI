@@ -49,6 +49,7 @@ export type GeometryType =
   | "icosahedron"
   | "octahedron"
   | "tetrahedron"
+  | "text"
 
 /** 材质封闭目录。默认 standard(PBR)。basic=无光照,toon=卡通,normal=法线调试 */
 export type MaterialType =
@@ -213,7 +214,7 @@ export interface SceneObject {
   parentId?: string | null // 扁平引用;子节点变换继承父节点 【skills】
   type: SceneObjectType
   // mesh:
-  geometry?: { type: GeometryType; params?: Record<string, number> } // params 键名见 GEOMETRY_PARAMS
+  geometry?: { type: GeometryType; params?: Record<string, number | string> } // params 键名见 GEOMETRY_PARAMS;text 类型含字符串参数
   material?: MaterialNode | string // string = 引用 assets.materials[key]
   // glb:
   asset?: string // 引用 assets.glb[key]
@@ -247,7 +248,7 @@ export interface SceneDocument {
 // ===========================================================================
 
 /** 几何构造参数表 —— params 键名与构造器参数一一对应 【skills/geometry】 */
-export const GEOMETRY_PARAMS: Record<GeometryType, { params: string[]; defaults: Record<string, number> }> = {
+export const GEOMETRY_PARAMS: Record<GeometryType, { params: string[]; defaults: Record<string, number | string> }> = {
   box: { params: ["width", "height", "depth"], defaults: { width: 1, height: 1, depth: 1 } },
   sphere: { params: ["radius", "widthSegments", "heightSegments"], defaults: { radius: 1, widthSegments: 32, heightSegments: 32 } },
   plane: { params: ["width", "height"], defaults: { width: 10, height: 10 } },
@@ -262,6 +263,7 @@ export const GEOMETRY_PARAMS: Record<GeometryType, { params: string[]; defaults:
   icosahedron: { params: ["radius", "detail"], defaults: { radius: 1, detail: 0 } },
   octahedron: { params: ["radius", "detail"], defaults: { radius: 1, detail: 0 } },
   tetrahedron: { params: ["radius", "detail"], defaults: { radius: 1, detail: 0 } },
+  text: { params: ["text", "size", "depth"], defaults: { text: "Text", size: 1, depth: 0.2 } },
 }
 
 export const GEOMETRY_DESCRIPTIONS: Record<GeometryType, string> = {
@@ -279,6 +281,7 @@ export const GEOMETRY_DESCRIPTIONS: Record<GeometryType, string> = {
   icosahedron: "二十面体(最接近球的多面体)。水晶、低多边形球",
   octahedron: "八面体。水晶、宝石",
   tetrahedron: "四面体。最简单多面体",
+  text: "3D 文字(挤出立体)。标题、标语、路牌、logo",
 }
 
 export const LIGHT_DESCRIPTIONS: Record<LightType, string> = {

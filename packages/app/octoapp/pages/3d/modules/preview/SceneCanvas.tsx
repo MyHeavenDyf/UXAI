@@ -22,12 +22,16 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js"
+import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js"
+import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js"
 import { createEffect, on, onCleanup, onMount, type JSX } from "solid-js"
 import type { SceneDocument, SceneObject, MaterialNode, LightNode, CameraNode } from "../../utils/scene-protocol"
 
 const DEG2RAD = Math.PI / 180
 /** Draco 解码器路径(默认 CDN;接入时可换本地 three/examples/jsm/libs/draco) */
 const DRACO_PATH = "https://www.gstatic.com/draco/v1/decoders/"
+/** 字体文件路径(text 几何用,CDN helvetiker regular) */
+const FONT_URL = "https://unpkg.com/three@0.177.0/examples/fonts/helvetiker_regular.typeface.json"
 
 export type SceneCanvasAPI = {
   resetView: () => void
@@ -50,6 +54,10 @@ export function SceneCanvas(props: {
   let pmrem: THREE.PMREMGenerator | undefined
   let gltfLoader: GLTFLoader | undefined
   let textureLoader: THREE.TextureLoader | undefined
+  let loadingManager: THREE.LoadingManager | undefined
+  // text 几何用的字体(懒加载,首次遇到 text 类型时从 CDN 拉)
+  let fontCache: any = null
+  let fontPromise: Promise<any | null> | undefined
   let raf = 0
 
   // 动画/资源追踪
@@ -107,8 +115,16 @@ export function SceneCanvas(props: {
 
     clock = new THREE.Clock()
 
-    textureLoader = new THREE.TextureLoader()
-    gltfLoader = new GLTFLoader()
+    loadingManager = new THREE.LoadingManager()
+    loadingManager.onStart = (url, loaded, total) =>
+      console.log(`[SceneCanvas] loading started: ${loaded}/${total} (${url})`)
+    loadingManager.onProgress = (url, loaded, total) =>
+      console.log(`[SceneCanvas] loading progress: ${loaded}/${total} (${url})`)
+    loadingManager.onLoad = () => console.log("[SceneCanvas] all assets loaded")
+    loadingManager.onError = (url) => console.error(`[SceneCanvas] loading error: ${url}`)
+
+    textureLoader = new THREE.TextureLoader(loadingManager)
+    gltfLoader = new GLTFLoader(loadingManager)
     const draco = new DRACOLoader()
     draco.setDecoderPath(DRACO_PATH)
     gltfLoader.setDRACOLoader(draco)
@@ -172,10 +188,24 @@ export function SceneCanvas(props: {
   // --------------------------------------------------------------------------
   // 场景构建(doc 变化时全量重建;保留 renderer/camera/controls)
   // --------------------------------------------------------------------------
+
+  /** 懒加载 text 几何用的字体(FontLoader 从 CDN 拉,缓存) */
+  function ensureFont(): Promise<any | null> {
+    if (fontCache) return Promise.resolve(fontCache)
+    if (!fontPromise) {
+      const loader = new FontLoader(loadingManager)
+      fontPromise = loader.loadAsync(FONT_URL).then((f) => { fontCache = f; return f }).catch(() => null)
+    }
+    return fontPromise
+  }
+
   async function buildScene(doc: SceneDocument | null | undefined) {
     if (!renderer || !scene || !camera || !controls) return // mount 前不构建
     clearSceneContents()
     if (!doc) return
+
+    // 如果场景含 text 几何,预加载字体(异步,只拉一次)
+    if (doc.objects?.some((o) => o.geometry?.type === "text")) await ensureFont()
 
     applySceneMeta(doc)
     applyCamera(doc.camera)
@@ -347,6 +377,46 @@ export function SceneCanvas(props: {
         o = new THREE.Group()
         break
       case "mesh": {
+        // text 几何特殊处理:ASCII 用 TextGeometry(3D 立体),非 ASCII(中文等)用 canvas 贴图
+        const geoType = obj.geometry?.type
+        if (geoType === "text") {
+          const tp = (obj.geometry?.params ?? {}) as Record<string, any>
+          const text = String(tp.text ?? "Text")
+          const size = Number(tp.size) > 0 ? Number(tp.size) : 1
+          const isAscii = /^[\x00-\x7F]*$/.test(text)
+          if (isAscii && fontCache) {
+            // A. TextGeometry(3D 挤出,仅 ASCII)
+            const geo = buildGeometry("text", tp)
+            const mat = buildMaterial(obj.material)
+            const mesh = new THREE.Mesh(geo, mat)
+            if (obj.castShadow) mesh.castShadow = true
+            if (obj.receiveShadow) mesh.receiveShadow = true
+            o = mesh
+          } else {
+            // B. canvas 贴图文字(支持中文/任意语言)
+            const cv = document.createElement("canvas")
+            const ctx = cv.getContext("2d")!
+            const fs = 128
+            ctx.font = `bold ${fs}px sans-serif`
+            const m = ctx.measureText(text)
+            cv.width = Math.ceil(m.width) + 32
+            cv.height = fs + 32
+            ctx.font = `bold ${fs}px sans-serif`
+            ctx.fillStyle = "#ffffff"
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+            ctx.fillText(text, cv.width / 2, cv.height / 2)
+            const tex = new THREE.CanvasTexture(cv)
+            tex.colorSpace = THREE.SRGBColorSpace
+            const planeW = size * (cv.width / cv.height)
+            const geo = new THREE.PlaneGeometry(planeW, size)
+            const matColor = typeof obj.material === "object" && (obj.material as any)?.color ? (obj.material as any).color : "#ffffff"
+            const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: new THREE.Color(matColor), side: THREE.DoubleSide })
+            const mesh = new THREE.Mesh(geo, mat)
+            o = mesh
+          }
+          break
+        }
         const geo = buildGeometry(obj.geometry?.type, (obj.geometry?.params ?? {}) as Record<string, number>)
         const mat = buildMaterial(obj.material)
         const mesh = new THREE.Mesh(geo, mat)
@@ -452,6 +522,16 @@ export function SceneCanvas(props: {
         return new THREE.OctahedronGeometry(r("radius", 1), ri("detail", 0))
       case "tetrahedron":
         return new THREE.TetrahedronGeometry(r("radius", 1), ri("detail", 0))
+      case "text": {
+        if (!fontCache) return new THREE.BoxGeometry(1, 0.5, 0.2) // 字体未就绪 → 占位
+        return new TextGeometry(String(p.text ?? "Text"), {
+          font: fontCache,
+          size: r("size", 1),
+          depth: r("depth", 0.2),
+          curveSegments: 6,
+          bevelEnabled: false,
+        })
+      }
       default:
         return new THREE.BoxGeometry(1, 1, 1)
     }
