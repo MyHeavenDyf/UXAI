@@ -188,26 +188,33 @@ export function PreviewPage(props: {
     closeCtxMenu()
   }
 
-  function handleQuickModify() {
+  function openQuickModify(data: {
+    domPickerId: string
+    domPickerComponent?: string
+    domPickerClass?: string
+    elementProps?: string
+    tagName?: string
+    rawRect?: RawRect | null
+  }) {
     const paneRect = previewPageRef?.getBoundingClientRect()
     const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
     const wrapperRect = wrapper?.getBoundingClientRect()
     const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
-    const rawRect = ctxMenu.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
+    const rawRect = data.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
 
     const cx = 46
     const cy = 57
 
     setPropertyEditor('show', false)
     queueMicrotask(() => {
-      const compType = ctxMenu.domPickerComponent || ctxMenu.tagName
-      console.log("[preview] open property editor:", { elementId: ctxMenu.domPickerId, componentType: compType, class: ctxMenu.domPickerClass, props: ctxMenu.elementProps })
+      const compType = data.domPickerComponent || data.tagName || ''
+      console.log("[preview] open property editor:", { elementId: data.domPickerId, componentType: compType, class: data.domPickerClass, props: data.elementProps })
       setPropertyEditor({
         show: true,
-        elementId: ctxMenu.domPickerId,
+        elementId: data.domPickerId,
         componentType: compType,
-        currentClass: ctxMenu.domPickerClass ?? '',
-        elementProps: ctxMenu.elementProps ?? '',
+        currentClass: data.domPickerClass ?? '',
+        elementProps: data.elementProps ?? '',
         clickPoint: { x: cx, y: cy },
         elementRect: {
           top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + rawRect.top * scale,
@@ -216,6 +223,10 @@ export function PreviewPage(props: {
         },
       })
     })
+  }
+
+  function handleQuickModify() {
+    openQuickModify(ctxMenu)
     hideCtxMenu()
   }
 
@@ -249,6 +260,20 @@ export function PreviewPage(props: {
       setPickerDialog({ domPickerId: domPickerId ?? '', tagName: tagName ?? '' })
       setPickerText('')
       setPickerVisible(true)
+      return
+    }
+
+    if (e.data?.type === "DOM_PICKER_QUICK_FIX") {
+      const { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName, rect } = e.data
+      console.log("[preview] DOM_PICKER_QUICK_FIX:", { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName })
+      openQuickModify({
+        domPickerId: domPickerId ?? '',
+        domPickerComponent: domPickerComponent ?? '',
+        domPickerClass: domPickerClass ?? '',
+        elementProps: elementProps ?? '',
+        tagName: tagName ?? '',
+        rawRect: rect ?? null,
+      })
       return
     }
 
@@ -357,7 +382,6 @@ export function PreviewPage(props: {
           <div class="ctx-menu-item" onClick={handleSelectParent}>选择父容器</div>
           <div class="ctx-menu-item" onClick={handleCopyName}>复制名称</div>
           <div class="ctx-menu-item" onClick={handleSelectArea}>AI修改</div>
-          <div class="ctx-menu-item" onClick={handleQuickModify}>快速修改</div>
         </div>
       </Show>
 

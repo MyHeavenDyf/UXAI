@@ -286,10 +286,26 @@ export function installDomPicker(options = {}) {
     const location = resolvedTarget.location
     activeElement = element
     activeLocation = location
+    frozen = true
     event.preventDefault()
     event.stopPropagation()
 
     updateBadge(badge, element, location)
+    const rect = element.getBoundingClientRect()
+    window.parent.postMessage(
+      {
+        type: 'DOM_PICKER_QUICK_FIX',
+        domPickerId: location,
+        domPickerComponent: element.getAttribute(PICKER_COMPONENT_ATTR) || '',
+        domPickerClass: element.getAttribute('class') || '',
+        elementProps: element.getAttribute('data-element-props') || '',
+        tagName: element.tagName.toLowerCase(),
+        rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+        clickX: event.clientX,
+        clickY: event.clientY,
+      },
+      '*',
+    )
     console.log(`[${logPrefix}] selected:`, location, element)
   }
 

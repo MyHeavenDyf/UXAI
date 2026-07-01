@@ -176,8 +176,33 @@ export async function listPatternVersions(
   sessionId: string,
 ): Promise<{ versions: VersionEntry[]; current: string | null }> {
   const index = await readIndex(dir, sessionId)
+  const api = getDesktopApi()
+  const valid: typeof index.versions = []
+  let needsRewrite = false
+
+  for (const v of index.versions) {
+    if (!api?.readFileBuffer) { valid.push(v); continue }
+    const filePath = versionFilePath(dir, sessionId, v.filename)
+    try {
+      const buf = await api.readFileBuffer(filePath)
+      if (!buf) { needsRewrite = true; continue }
+    } catch {
+      needsRewrite = true
+      continue
+    }
+    valid.push(v)
+  }
+
+  if (needsRewrite) {
+    index.versions = valid
+    if (index.current && !valid.find((v) => v.id === index.current)) {
+      index.current = valid.length > 0 ? valid[valid.length - 1].id : null
+    }
+    await writeIndex(dir, sessionId, index)
+  }
+
   return {
-    versions: index.versions.map((v) => ({ id: v.id, createdAt: v.createdAt, summary: v.summary })),
+    versions: valid.map((v) => ({ id: v.id, createdAt: v.createdAt, summary: v.summary })),
     current: index.current,
   }
 }

@@ -23,5 +23,14 @@ export default defineConfig(({ mode }) => {
     server: {
       port: parseInt(rootEnv.VUE_FRONTEND_PORT || '51856'),
     },
+    build: {
+      chunkSizeWarningLimit: 5000,
+      rollupOptions: {
+        onLog(level, log, handler) {
+          if (log.code === 'INVALID_ANNOTATION') return
+          handler(level, log)
+        },
+      },
+    },
   }
 })

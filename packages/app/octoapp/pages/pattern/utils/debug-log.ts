@@ -7,7 +7,7 @@ export type LogEntry = {
   ts: number
   agent: string
   sessionId: string
-  input: string
+  input: unknown
   output: unknown
   parsed: unknown
 }
@@ -24,6 +24,7 @@ let _entryIdx = 0
 const _sessionIdxMap = new Map<string, number>()
 
 export function logStartSession(sessionId: string, userInput: string) {
+  if (_current?.sessionId === sessionId) return
   _current = {
     sessionId,
     userInput,
@@ -34,7 +35,7 @@ export function logStartSession(sessionId: string, userInput: string) {
   _sessionIdxMap.clear()
 }
 
-export function logAgentCall(agent: string, sessionId: string, input: string, output: unknown) {
+export function logAgentCall(agent: string, sessionId: string, input: unknown, output: unknown) {
   if (!_current) return
   const idx = ++_entryIdx
   _current.entries.push({ idx, ts: Date.now(), agent, sessionId, input, output, parsed: null })
@@ -89,7 +90,8 @@ export async function saveDebugLog(
   const api = getDesktopApi()
   const now = Date.now()
   const filename = `${now}-${sanitizeFilename(summary)}.json`
-  const payload = JSON.stringify({ ...state, savedAt: now, summary }, null, 2)
+  const { debug, ...rest } = state
+  const payload = JSON.stringify({ debug, ...rest, savedAt: now, summary }, null, 2)
 
   const baseDir = historyDir.replace(/\/history$/, "")
   const path = `${baseDir}/debug-log/${sessionId}/${filename}`
