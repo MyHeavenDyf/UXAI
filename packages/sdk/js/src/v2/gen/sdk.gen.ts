@@ -4962,6 +4962,9 @@ export class Generations extends HeyApiClient {
         | "image.outpaint"
         | "image.fusion"
       prompt?: string
+      displayPrompt?: string
+      refinedPrompt?: string
+      effectivePrompt?: string
       styleModel?: string
       aspectRatio?: string
       count?: number
@@ -4984,6 +4987,9 @@ export class Generations extends HeyApiClient {
             { in: "body", key: "sessionID" },
             { in: "body", key: "capability" },
             { in: "body", key: "prompt" },
+            { in: "body", key: "displayPrompt" },
+            { in: "body", key: "refinedPrompt" },
+            { in: "body", key: "effectivePrompt" },
             { in: "body", key: "styleModel" },
             { in: "body", key: "aspectRatio" },
             { in: "body", key: "count" },

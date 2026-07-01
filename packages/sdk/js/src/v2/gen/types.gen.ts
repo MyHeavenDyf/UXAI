@@ -6951,6 +6951,9 @@ export type StudioGenerationsCreateData = {
       | "image.outpaint"
       | "image.fusion"
     prompt: string
+    displayPrompt?: string
+    refinedPrompt?: string
+    effectivePrompt?: string
     styleModel?: string
     aspectRatio?: string
     count?: number
@@ -6995,6 +6998,7 @@ export type StudioGenerationsCreateResponses = {
       | "image.outpaint"
       | "image.fusion"
     prompt: string
+    displayPrompt?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7105,6 +7109,7 @@ export type StudioGenerationsCancelResponses = {
       | "image.outpaint"
       | "image.fusion"
     prompt: string
+    displayPrompt?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7178,6 +7183,7 @@ export type StudioGenerationsGetResponses = {
       | "image.outpaint"
       | "image.fusion"
     prompt: string
+    displayPrompt?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string

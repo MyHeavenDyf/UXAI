@@ -617,7 +617,7 @@ export default function StudioPage() {
             sourceImage: pending.sourceImage,
           })
       const latest = next.at(-1)
-      const pendingVisible = next.some((turn) => turn.id === pending.id || turn.id === pendingTurnID || turn.result?.id === pending.id)
+      const pendingVisible = next.some((turn) => matchesPendingTurn(turn, pending))
       if (latest?.userText === pendingUserText && !latest.result?.images.length && latest.toolRunning) {
         if (isStudioGenerationFailure(pending.status)) {
           return mergeEditorEntries([
@@ -686,7 +686,14 @@ export default function StudioPage() {
   }
   function matchesPendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
     if (isSamePendingTurn(turn, pending)) return true
-    return !pending.displayPrompt && turn?.result?.prompt === pending.prompt
+    if (!pending.displayPrompt) return turn?.result?.prompt === pending.prompt
+    if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) return false
+    return Boolean(
+      turn?.result &&
+        (turn.userText === STUDIO_REGENERATE_DISPLAY_PROMPT || turn.result.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT) &&
+        turn.result.prompt === pending.prompt &&
+        turn.result.capability === pending.capability,
+    )
   }
   const selectedResult = createMemo(() => {
     const id = selectedResultId()
@@ -958,6 +965,12 @@ export default function StudioPage() {
   const selectedCapabilityNeedsImage = createMemo(() =>
     capability() === "image.upscale" || capability() === "image.cutout" || capability() === "image.inpaint" || capability() === "image.outpaint",
   )
+  function resultRequiresSeedreamPermission(item?: StudioGenerationResult) {
+    return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(item.styleModel ?? item.model))
+  }
+  function resultRegenerateDisabled(item?: StudioGenerationResult) {
+    return isBusy() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
+  }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
   createEffect(() => {
@@ -1761,11 +1774,17 @@ export default function StudioPage() {
     const nextAspectRatio = aspectRatioValue(recordValue(input, "aspectRatio")) ?? result.aspectRatio
     const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
     if (result.capability === "video.generate") {
+      const refinedPrompt = stringValue(input, "refinedPrompt")
+      const originalPrompt = stringValue(input, "prompt")
+      const effectivePrompt = stringValue(input, "effectivePrompt") ?? refinedPrompt ?? result.prompt
       return {
         capability: result.capability,
-        prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+        prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
+        displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        refinedPrompt,
+        effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
-        extra: extra ? { ...extra } : undefined,
+        extra: { ...(extra ?? {}), skipPromptRefine: true },
         videoFrames: restoredVideoFrames(result),
         aspectRatio: nextAspectRatio,
         count: nextCount,
@@ -1792,11 +1811,17 @@ export default function StudioPage() {
         useRestoredInputs: true,
       }
     }
+    const refinedPrompt = stringValue(input, "refinedPrompt")
+    const originalPrompt = stringValue(input, "prompt")
+    const effectivePrompt = stringValue(input, "effectivePrompt") ?? refinedPrompt ?? result.prompt
     return {
       capability: result.capability,
-      prompt: typeof input?.prompt === "string" ? input.prompt : result.prompt,
+      prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
+      displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+      refinedPrompt,
+      effectivePrompt,
       sourceImage: stringValue(input, "sourceImage"),
-      extra: extra ? { ...extra } : undefined,
+      extra: { ...(extra ?? {}), skipPromptRefine: true },
       aspectRatio: nextAspectRatio,
       count: nextCount,
       useRestoredInputs: true,
@@ -2487,7 +2512,7 @@ export default function StudioPage() {
   function regenerateCurrentResult() {
     const current = canvasResult() ?? result()
     if (!current) return
-    if (current.capability === "video.generate" && !canGenerateVideo()) return
+    if (resultRegenerateDisabled(current)) return
     tracker.interaction({
       module: "studio",
       name: "regenerate",
@@ -2840,7 +2865,8 @@ if (!headerTitle.pendingRename) return
               onRegenerate={regenerateCurrentResult}
               onGenerateVideo={generateVideoFromSelectedImage}
               showVideoGeneration={canGenerateVideo()}
-              regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+              regenerateDisabled={resultRegenerateDisabled(result())}
+              actionDisabled={isBusy()}
             >
               <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
@@ -2856,7 +2882,7 @@ if (!headerTitle.pendingRename) return
                         image={selectedImage()}
                         selectedImageId={selectedImageId()}
                         imageLabel={currentImageLabel()}
-                        regenerateDisabled={isBusy() || result()!.capability === "video.generate" && !canGenerateVideo()}
+                        regenerateDisabled={resultRegenerateDisabled(result())}
                         showVideoGeneration={canGenerateVideo()}
                         onSelectImage={(id) => {
                           const r = result()
