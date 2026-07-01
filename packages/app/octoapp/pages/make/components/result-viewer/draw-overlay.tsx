@@ -532,7 +532,7 @@ export function DrawOverlay(props: Props): JSX.Element {
 
         window.setTimeout(() => {
           finish({ ok: false, message: '标注超时' })
-        }, 600000)
+        }, 1200000)
 
         const detail: AnnotationEventDetail = {
           file,

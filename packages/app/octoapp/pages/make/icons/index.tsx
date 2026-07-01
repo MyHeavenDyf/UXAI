@@ -1,6 +1,6 @@
 import type { JSX } from "solid-js"
 
-type IconProps = { size?: number; class?: string }
+type IconProps = { size?: number; class?: string; style?: JSX.CSSProperties }
 type IllustrationProps = { width?: number; height?: number; class?: string }
 
 function mk(viewBox: string, inner: string, defaultSize: number) {
@@ -13,7 +13,7 @@ function mk(viewBox: string, inner: string, defaultSize: number) {
         fill="none"
         aria-hidden="true"
         class={props.class}
-        style={{ "flex-shrink": "0", display: "inline-block" }}
+        style={{ "flex-shrink": "0", display: "inline-block", ...(props.style ?? {}) }}
         innerHTML={inner}
       />
     )

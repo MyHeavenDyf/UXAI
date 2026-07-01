@@ -9,6 +9,13 @@ import type {
   AppLogResponses,
   AppSkillsRefreshResponses,
   AppSkillsResponses,
+  ArtifactArchiveResponses,
+  ArtifactDeleteBatchResponses,
+  ArtifactDeleteResponses,
+  ArtifactListResponses,
+  ArtifactReadErrors,
+  ArtifactReadResponses,
+  ArtifactRenameResponses,
   Auth as Auth3,
   AuthRemoveErrors,
   AuthRemoveResponses,
@@ -614,6 +621,217 @@ export class Event extends HeyApiClient {
       url: "/event",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Artifact extends HeyApiClient {
+  /**
+   * List artifacts
+   *
+   * List all artifact files in .octo/artifacts/make/<sessionId> directory.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactListResponses, unknown, ThrowOnError>({
+      url: "/artifact/list",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read artifact
+   *
+   * Read the content of an artifact file.
+   */
+  public read<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactReadResponses, ArtifactReadErrors, ThrowOnError>({
+      url: "/artifact/content",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete artifact
+   *
+   * Delete a single artifact file.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ArtifactDeleteResponses, unknown, ThrowOnError>({
+      url: "/artifact/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Rename artifact
+   *
+   * Rename an artifact file.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      from?: string
+      to?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "from" },
+            { in: "body", key: "to" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactRenameResponses, unknown, ThrowOnError>({
+      url: "/artifact/rename",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Archive artifacts
+   *
+   * Create a ZIP archive of selected artifact files.
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactArchiveResponses, unknown, ThrowOnError>({
+      url: "/artifact/archive",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Batch delete artifacts
+   *
+   * Delete multiple artifact files.
+   */
+  public deleteBatch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactDeleteBatchResponses, unknown, ThrowOnError>({
+      url: "/artifact/delete-batch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -5222,6 +5440,11 @@ export class OpencodeClient extends HeyApiClient {
   private _event?: Event
   get event(): Event {
     return (this._event ??= new Event({ client: this.client }))
+  }
+
+  private _artifact?: Artifact
+  get artifact(): Artifact {
+    return (this._artifact ??= new Artifact({ client: this.client }))
   }
 
   private _config?: Config2

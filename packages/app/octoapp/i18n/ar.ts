@@ -731,6 +731,12 @@ export const dict = {
   "session.delete.title": "حذف الجلسة",
   "session.delete.confirm": 'حذف الجلسة "{{name}}"؟',
   "session.delete.button": "حذف الجلسة",
+
+  "file.delete.title": "حذف الملف",
+  "file.delete.confirm": 'حذف الملف "{{name}}"؟',
+  "file.delete.plural.confirm": "حذف {{count}} ملفات محددة؟",
+  "file.delete.button": "حذف",
+
   "workspace.new": "مساحة عمل جديدة",
   "workspace.type.local": "محلي",
   "workspace.type.sandbox": "صندوق رمل",

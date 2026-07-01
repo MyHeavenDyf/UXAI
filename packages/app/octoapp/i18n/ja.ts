@@ -737,6 +737,12 @@ export const dict = {
   "session.delete.title": "セッションの削除",
   "session.delete.confirm": 'セッション "{{name}}" を削除しますか？',
   "session.delete.button": "セッションを削除",
+
+  "file.delete.title": "ファイルを削除",
+  "file.delete.confirm": 'ファイル "{{name}}" を削除しますか？',
+  "file.delete.plural.confirm": "{{count}}個の選択したファイルを削除しますか？",
+  "file.delete.button": "削除",
+
   "workspace.new": "新しいワークスペース",
   "workspace.type.local": "ローカル",
   "workspace.type.sandbox": "サンドボックス",

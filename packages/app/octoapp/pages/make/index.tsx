@@ -1,7 +1,15 @@
 import "./octo-tokens.css"
 import "./components/starter-cards.css"
 import "./components/slash-popover.css"
+import "./components/mention-popover.css"
 import { FEATURED_STARTERS } from "./utils/starter-prompts"
+import {
+  fetchArtifactList,
+  fetchArtifactContent,
+  formatFileSize,
+  type ArtifactFile,
+  type ArtifactFileKind,
+} from "./utils/artifact-file-api"
 import { StarterCards } from "./components/starter-cards"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
@@ -68,7 +76,8 @@ import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
-import { autoSaveArtifact } from "./utils/artifact-auto-save"
+import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
+import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
 import { useMakeCommands } from "./use-make-commands"
@@ -580,6 +589,62 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
 
+  // ── Mention (@) Popover State ──
+  const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
+  // ── Artifact Files Resource (for @ mention) ──
+  const [artifactFiles] = createResource(
+    () => ({ sessionId: params.id, url: globalSDK.url, directory: sdk.directory, refreshKey: filesRefreshKey() }),
+    async ({ sessionId, url, directory }) => {
+      if (!sessionId) return null
+      try {
+        const [gen, upl] = await Promise.all([
+          fetchArtifactList(url, directory ?? "", sessionId, "generated", undefined, true),
+          fetchArtifactList(url, directory ?? "", sessionId, "uploaded", undefined, true),
+        ])
+        return { generated: gen.files.filter(f => !f.isFolder), uploaded: upl.files.filter(f => !f.isFolder) }
+      } catch {
+        return null
+      }
+    },
+  )
+
+  const mentionFiles = createMemo(() => {
+    const state = mentionState()
+    if (!state) return null
+    const query = state.query.toLowerCase()
+    const data = artifactFiles()
+    if (!data) return null
+    
+    const generated = data.generated.filter(f => !f.isFolder && f.name.toLowerCase().includes(query))
+    const uploaded = data.uploaded.filter(f => !f.isFolder && f.name.toLowerCase().includes(query))
+    
+    if (generated.length === 0 && uploaded.length === 0) return null
+    return { generated, uploaded }
+  })
+
+  function getUploadFileDirectory(relativePath: string): string {
+    const withoutPrefix = relativePath.replace(/^upload-files\//, "")
+    const lastSlash = withoutPrefix.lastIndexOf("/")
+    if (lastSlash === -1) return ""
+    return withoutPrefix.slice(0, lastSlash + 1)
+  }
+
+  // ── Mention popover click-outside ──
+  createEffect(() => {
+    const state = mentionState()
+    if (!state) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest(".mention-popover")) {
+        setMentionState(null)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    onCleanup(() => document.removeEventListener("mousedown", handler))
+  })
+
   // ── Slash Command List ──
   interface SlashCommand {
     trigger: string
@@ -745,6 +810,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
+  const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -840,8 +906,13 @@ const sessionMessagesLoaded = createMemo(() => {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs
-  createEffect(on(() => params.id, () => { tabStore.reset() }, { defer: true }))
+  // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
+  createEffect(on(() => params.id, () => {
+    tabStore.reset()
+    setResultViewMode("files")
+    setMentionState(null)
+    setSlashState(null)
+  }, { defer: true }))
 
   // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
   // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
@@ -874,6 +945,7 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
+  /** 关闭 tab：关闭最后一个时切换到 files 视图 */
   function handleCloseTab(id: string) {
     const tab = tabStore.tabs().find((t) => t.id === id)
     if (tab) {
@@ -882,6 +954,7 @@ const sessionMessagesLoaded = createMemo(() => {
     tabStore.closeTab(id)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
+      setResultViewMode("files")
     }
   }
 
@@ -1095,6 +1168,17 @@ if (dsId) {
     if (e.isComposing || e.keyCode === 229) return
 
     const slash = slashState()
+    const mention = mentionState()
+
+    // Mention popover close on Escape
+    if (mention && mentionFiles()) {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        setMentionState(null)
+        return
+      }
+    }
 
     // Slash command navigation
     if (slash) {
@@ -1127,8 +1211,8 @@ if (dsId) {
       }
     }
 
-    // Enter to send (only when slash popover is closed)
-    if (e.key === "Enter" && !e.shiftKey && !slash) {
+    // Enter to send (only when both popovers are closed)
+    if (e.key === "Enter" && !e.shiftKey && !slash && !mention) {
       if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
       
@@ -1145,7 +1229,7 @@ if (dsId) {
     }
   }
 
-  /** Handle input changes and detect slash trigger */
+  /** Handle input changes and detect slash/@ mention trigger */
   function handleInput(e: InputEvent) {
     const ta = e.currentTarget as HTMLTextAreaElement
     const value = ta.value
@@ -1158,8 +1242,18 @@ if (dsId) {
     if (slashMatch && cursor === value.length) {
       setSlashState({ query: slashMatch[1] ?? "", cursor })
       setSlashIndex(0)
+      setMentionState(null)
+      return
+    }
+    setSlashState(null)
+
+    // Detect @ mention trigger: @ after word boundary
+    const before = value.slice(0, cursor)
+    const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(before)
+    if (mentionMatch) {
+      setMentionState({ query: mentionMatch[1] ?? "", cursor })
     } else {
-      setSlashState(null)
+      setMentionState(null)
     }
   }
 
@@ -1180,6 +1274,87 @@ if (dsId) {
       ta.focus()
       ta.setSelectionRange(replaced.length, replaced.length)
     })
+  }
+
+  /** Pick a Design Files file and add as attachment */
+  async function pickMention(file: ArtifactFile) {
+    const state = mentionState()
+    if (!state) return
+
+    const ta = textareaRef
+    const value = prompt()
+
+    // Remove @query text from prompt
+    const before = value.slice(0, state.cursor - state.query.length - 1)
+    const after = value.slice(ta.selectionStart)
+    const next = before + after
+    setPrompt(next)
+    setMentionState(null)
+
+    await addArtifactToSession(file)
+
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(before.length, before.length)
+    })
+  }
+
+  /** Add artifact file to session attachments (独立函数，不依赖 mentionState) */
+  async function addArtifactToSession(file: ArtifactFile) {
+    // Check if already added
+    if (attachments().some(a => a.path === file.path)) {
+      showToast({ title: "已添加", description: file.name })
+      return
+    }
+
+    // Check attachment limit
+    if (maxAttachments()) {
+      showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      return
+    }
+
+    // Load file content
+    try {
+      const content = await fetchArtifactContent(globalSDK.url, sdk.directory ?? "", file.path)
+      const mime = getMimeForKind(file.kind)
+      const dataUrl = file.kind === "image"
+        ? content.content
+        : `data:${mime};base64,${btoa(unescape(encodeURIComponent(content.content)))}`
+
+      setAttachments(prev => [...prev, {
+        id: crypto.randomUUID(),
+        filename: file.name,
+        mime,
+        dataUrl,
+        path: file.path,
+        kind: file.kind,
+      }])
+      showToast({ title: "已添加附件", description: file.name })
+    } catch (err) {
+      showToast({
+        title: "添加失败",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      })
+    }
+  }
+
+  function getMimeForKind(kind: ArtifactFileKind): string {
+    const map: Record<ArtifactFileKind, string> = {
+      folder: "",
+      image: "image/png",
+      html: "text/html",
+      svg: "image/svg+xml",
+      markdown: "text/markdown",
+      code: "text/plain",
+      text: "text/plain",
+      pdf: "application/pdf",
+      document: "application/octet-stream",
+      video: "video/mp4",
+      audio: "audio/mp3",
+      binary: "application/octet-stream",
+    }
+    return map[kind] ?? "application/octet-stream"
   }
 
   // ── 附件管理 ─────────────────────────────────────────────
@@ -1216,6 +1391,24 @@ if (dsId) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  /** 根据文件路径移除附件（用于删除文件时清理） */
+  function removeAttachmentsByPath(paths: string[]) {
+    const normalizedPaths = new Set(paths.map(p => p.replace(/\\/g, "/")))
+    setAttachments((prev) => prev.filter((a) => {
+      if (!a.path) return true
+      return !normalizedPaths.has(a.path.replace(/\\/g, "/"))
+    }))
+  }
+
+  /** 根据文件路径重命名附件（用于重命名文件时更新） */
+  function renameAttachmentPath(oldPath: string, newPath: string, newFilename: string) {
+    const normalizedOld = oldPath.replace(/\\/g, "/")
+    setAttachments((prev) => prev.map((a) => {
+      if (!a.path || a.path.replace(/\\/g, "/") !== normalizedOld) return a
+      return { ...a, path: newPath, filename: newFilename }
+    }))
+  }
+
   /** 文件选择回调 */
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
@@ -1247,41 +1440,60 @@ if (dsId) {
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
-    // ★ Step 1: Check localStorage snapshot (edited version - highest priority)
-    const snapshots = snapshotStore.snapshots()
-    const latestSnapshot = snapshots.find((s) => s.tab.id === card.id)
+    setResultViewMode("tabs")
     
-    if (latestSnapshot) {
-      const snapshotTab = latestSnapshot.tab
-      if (snapshotTab.type === "local-file") return
-      
-      card = {
-        id: snapshotTab.id,
-        title: snapshotTab.title,
-        type: snapshotTab.type as OutputCardType,
-        content: snapshotTab.content,
-        filePath: snapshotTab.filePath,
-        artifactIdentifier: snapshotTab.artifactIdentifier,
-        createdAt: new Date(latestSnapshot.timestamp),
-      }
-      console.log("[MakePage] Restored edited version from localStorage:", card.id)
-    } else if (card.filePath) {
-      // ★ Step 2: Load from file (original version - fallback)
-      try {
-        const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
-          headers: {
-            "x-opencode-directory": sdk.directory || "",
-          },
-        })
-        if (response.ok) {
-          const data = await response.json()
-          if (data.content && typeof data.content === "string") {
-            card = { ...card, content: data.content }
-            console.log("[MakePage] Loaded from file:", card.filePath)
+    // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
+    if (!card.filePath && projectDir() && params.id) {
+      const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
+      if (saveable.includes(card.type)) {
+        const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!)
+        if (inferred.filePath) {
+          card.filePath = inferred.filePath
+          console.log("[MakePage] Inferred filePath for artifact:", inferred.filePath, "exists:", inferred.exists)
+          
+          // 如果文件不存在，先 autoSave 创建文件
+          if (!inferred.exists) {
+            await autoSaveArtifact(params.id!, card, projectDir()!)
+            console.log("[MakePage] Created new file for artifact:", inferred.filePath)
           }
         }
-      } catch (err) {
-        console.error("[MakePage] Failed to load file content:", err)
+      }
+    }
+    
+    // ★ Step 0: 如果已有匹配的 tab（local-file 或 html），直接激活
+    if (card.filePath) {
+      const existingTab = tabStore.tabs().find(t => {
+        if (t.type === "local-file") return t.absoluteFilePath === card.filePath
+        if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
+        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
+        return false
+      })
+      if (existingTab) {
+        tabStore.activate(existingTab.id)
+        return
+      }
+    }
+    
+    // ★ Step 1: 从文件加载内容（编辑已保存到文件）
+    if (card.filePath) {
+      const skipContentLoad = ["image", "video", "audio", "pdf", "svg"].includes(card.type)
+      if (!skipContentLoad) {
+        try {
+          const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
+            headers: {
+              "x-opencode-directory": sdk.directory || "",
+            },
+          })
+          if (response.ok) {
+            const data = await response.json()
+            if (data.content && typeof data.content === "string") {
+              card = { ...card, content: data.content }
+              console.log("[MakePage] Loaded from file:", card.filePath)
+            }
+          }
+        } catch (err) {
+          console.error("[MakePage] Failed to load file content:", err)
+        }
       }
     }
     
@@ -1292,20 +1504,17 @@ if (dsId) {
     const tab = tabStore.tabs().find((t) => t.id === card.id)
     
     if (tab) {
-      await persistTabChanges(tab, {
-        sessionId: params.id!,
-        projectDir: projectDir(),
-        sdkUrl: sdk.url,
-        sdkDirectory: sdk.directory || "",
-        snapshotStore: snapshotStore,
-        refreshSnapshots: refreshSnapshots,
-      })
-    }
-
-    if (projectDir()) {
-      autoSaveArtifact(params.id!, card, projectDir()!).catch((err) => {
-        console.error("[MakePage] auto-save artifact failed:", err)
-      })
+      const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
+      if (shouldPersist) {
+        await persistTabChanges(tab, {
+          sessionId: params.id!,
+          projectDir: projectDir(),
+          sdkUrl: sdk.url,
+          sdkDirectory: sdk.directory || "",
+          snapshotStore: snapshotStore,
+          refreshSnapshots: refreshSnapshots,
+        })
+      }
     }
   }
 
@@ -1416,7 +1625,7 @@ if (dsId) {
         style={{
           "grid-template-columns": !focusMode()
             ? hasContent()
-              ? `${chatWidth()}px 8px minmax(0, 1fr)`
+              ? `${chatWidth()}px 0px minmax(0, 1fr)`
               : "1fr"
             : undefined,
         }}
@@ -1543,10 +1752,6 @@ if (dsId) {
                        setPrompt(starter.prompt)
                      }}
                    />
-                  <AttachmentBar
-                    attachments={attachments()}
-                    onRemove={removeAttachment}
-                  />
                   <div
                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
@@ -1562,7 +1767,6 @@ if (dsId) {
                           rgba(61, 93, 255, 0.7) 87%,
                           rgba(206, 7, 232, 0.7) 92%) border-box`,
                       "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                      "margin-top": attachments().length > 0 ? "6px" : "0",
                       height: "150px",
                     }}
                   >
@@ -1598,6 +1802,64 @@ if (dsId) {
                       </div>
                     </Show>
 
+                    {/* Mention Popover（新建对话） */}
+                    <Show when={mentionFiles()}>
+                      {(files) => (
+                        <div class="mention-popover">
+                          <div class="mention-popover-head">
+                            <span class="mention-popover-title">Design Files</span>
+                            <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
+                          </div>
+                          <ScrollView class="mention-scroll">
+                          <Show when={files().generated.length > 0}>
+                            <div class="mention-section">
+                              <div class="mention-section-title">生成文件</div>
+                              <For each={files().generated}>
+                                {(file) => (
+                                  <button
+                                    type="button"
+                                    class="mention-item"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => pickMention(file)}
+                                  >
+                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
+                                    <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
+                                  </button>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                          <Show when={files().uploaded.length > 0}>
+                            <div class="mention-section">
+                              <div class="mention-section-title">上传文件</div>
+                              <For each={files().uploaded}>
+                                {(file) => {
+                                  const dirPath = getUploadFileDirectory(file.relativePath)
+                                  return (
+                                    <button
+                                      type="button"
+                                      class="mention-item"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => pickMention(file)}
+                                    >
+                                      {getFileKindIcon(file.kind, file.name)({ size: 16 })}
+                                      <span class="mention-item-name mention-item-name--uploaded" title={file.name}>{file.name}</span>
+                                    </button>
+                                  )
+                                }}
+                              </For>
+                            </div>
+                          </Show>
+                          </ScrollView>
+                        </div>
+                      )}
+                    </Show>
+
+                    <AttachmentBar
+                      attachments={attachments()}
+                      onRemove={removeAttachment}
+                    />
+
                     <textarea
                       ref={textareaRef}
                       value={prompt()}
@@ -1607,7 +1869,7 @@ if (dsId) {
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}
-                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-3"
+                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4"
                       style={{
                         "font-family": "var(--octo-font)",
                         "overflow-y": "auto",
@@ -1711,6 +1973,7 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
+                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                       />
                     )}
                   </For>
@@ -1719,10 +1982,6 @@ if (dsId) {
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
-                <AttachmentBar
-                  attachments={attachments()}
-                  onRemove={removeAttachment}
-                />
 
                 {/* Plan entry banner - agent 想进规划阶段,请用户确认。先于 PlanBanner 显示。 */}
                 <Show when={planIntentPending() && !optimisticIntentResolved()}>
@@ -1782,7 +2041,6 @@ if (dsId) {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                    "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
                   {/* Slash Command Popover */}
@@ -1817,6 +2075,64 @@ if (dsId) {
                     </div>
                   </Show>
 
+                  {/* Mention Popover */}
+                  <Show when={mentionFiles()}>
+                    {(files) => (
+                      <div class="mention-popover">
+                        <div class="mention-popover-head">
+                          <span class="mention-popover-title">从文件管理选择内容添加到上下文</span>
+                        </div>
+                        <ScrollView class="mention-scroll">
+                        <Show when={files().generated.length > 0}>
+                          <div class="mention-section">
+                            <div class="mention-section-title">生成文件</div>
+                            <For each={files().generated}>
+                              {(file) => (
+                                <button
+                                  type="button"
+                                  class="mention-item"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => pickMention(file)}
+                                >
+                                  {getFileKindIcon(file.kind, file.name)({ size: 16 })}
+                                  <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                        <Show when={files().uploaded.length > 0}>
+                          <div class="mention-section">
+                            <div class="mention-section-title">上传文件</div>
+                            <For each={files().uploaded}>
+                              {(file) => {
+                                const dirPath = getUploadFileDirectory(file.relativePath)
+                                return (
+                                  <button
+                                    type="button"
+                                    class="mention-item"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => pickMention(file)}
+                                  >
+                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
+                                    <span class="mention-item-name" title={file.name}>{file.name}</span>
+                                    {dirPath && <span class="mention-item-dir" title={dirPath}>{dirPath}</span>}
+                                  </button>
+                                )
+                              }}
+                            </For>
+                          </div>
+                        </Show>
+                        </ScrollView>
+                      </div>
+                    )}
+                  </Show>
+
+                  <AttachmentBar
+                    attachments={attachments()}
+                    onRemove={removeAttachment}
+                  />
+
                   <textarea
                     ref={textareaRef}
                     value={prompt()}
@@ -1825,7 +2141,7 @@ if (dsId) {
                     placeholder="输入指令，按 Enter 发送…"
                     rows={3}
                     disabled={inputDisabled()}
-                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
+                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4 pb-4"
                     style={{
                       "font-family": "var(--octo-font)",
                       "max-height": "120px",
@@ -1961,11 +2277,22 @@ if (dsId) {
                 }}
                 onClose={handleCloseTab}
                 onContentChange={handleContentChange}
+                sessionId={params.id}
+                onOpenArtifact={handleOpenResult}
+                viewMode={resultViewMode()}
+                onViewModeChange={setResultViewMode}
+                onAddArtifactToSession={addArtifactToSession}
+                onRemoveAttachmentsByPath={removeAttachmentsByPath}
+                onRenameTabByPath={tabStore.renameTabByPath}
+                onRenameAttachmentPath={renameAttachmentPath}
+                sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
+                filesRefreshKey={filesRefreshKey()}
+                onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
               />
             </div>
             <Show when={showVersionPanel()}>
