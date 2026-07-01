@@ -1,0 +1,153 @@
+{
+    "state": {
+        "ghSelectedKeys": [
+            "topology"
+        ],
+        "ghNavItems": [
+            {
+                "title": "首页概览",
+                "key": "home"
+            },
+            {
+                "title": "拓扑管理",
+                "key": "topology"
+            },
+            {
+                "title": "告警管理",
+                "key": "alarm"
+            },
+            {
+                "title": "资产管理",
+                "key": "assets"
+            },
+            {
+                "title": "工单中心",
+                "key": "tickets"
+            }
+        ],
+
+        "snSidebarTitle": "Title",
+        "snSelectedKeys": [
+            "m1-2"
+        ],
+        "snOpenKeys": [
+            "m1"
+        ],
+        "snMenuItems": [
+            {
+                "key": "m1",
+                "title": "设备资源",
+                "children": [
+                    {
+                        "key": "m1-1",
+                        "title": "交换机列表"
+                    },
+                    {
+                        "key": "m1-2",
+                        "title": "路由器管理"
+                    },
+                    {
+                        "key": "m1-3",
+                        "title": "防火墙配置"
+                    }
+                ]
+            },
+            {
+                "key": "m2",
+                "title": "链路监控"
+            },
+            {
+                "key": "m3",
+                "title": "流量分析"
+            },
+            {
+                "key": "m4",
+                "title": "自动化脚本"
+            },
+            {
+                "key": "m5",
+                "title": "系统设置"
+            }
+        ]
+    },
+    "rootId": "shellSidebar",
+    "elements": [
+        {
+            "id": "shellSidebar",
+            "component": "aside",
+            "props": {
+                "className": "w-[17.5rem] h-full bg-surface-container-highest shrink-0 shadow-sm"
+            },
+            "children": [
+                "snSidebarHeader",
+                "snSidebarDividerContainer",
+                "snSidebarMenuContainer"
+            ]
+        },
+        {
+            "id": "snSidebarHeader",
+            "component": "div",
+            "props": {
+                "className": "px-6 py-6 flex items-center"
+            },
+            "children": [
+                "snSidebarTitleText"
+            ]
+        },
+        {
+            "id": "snSidebarTitleText",
+            "component": "span",
+            "props": {
+                "className": "text-2xl font-bold text-on-surface",
+                "value": {
+                    "path": "/snSidebarTitle"
+                }
+            }
+        },
+        {
+            "id": "snSidebarDividerContainer",
+            "component": "div",
+            "props": {
+                "className": "px-6"
+            },
+            "children": [
+                "snSidebarDivider"
+            ]
+        },
+        {
+            "id": "snSidebarDivider",
+            "component": "Divider",
+            "props": {
+                "className": "mt-0 mb-0"
+            }
+        },
+        {
+            "id": "snSidebarMenuContainer",
+            "component": "div",
+            "props": {
+                "className": "flex-1 overflow-y-auto px-2"
+            },
+            "children": [
+                "snSidebarMenu"
+            ]
+        },
+        {
+            "id": "snSidebarMenu",
+            "component": "Menu",
+            "props": {
+                "mode": "vertical",
+                "selectedKeys": {
+                    "path": "/snSelectedKeys"
+                },
+                "openKeys": {
+                    "path": "/snOpenKeys"
+                },
+                "items": {
+                    "path": "/snMenuItems"
+                },
+                "className": "border-none pt-0"
+            }
+        }
+       
+    ]
+}

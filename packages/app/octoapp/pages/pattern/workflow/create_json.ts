@@ -31,6 +31,7 @@ export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
 export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   // 页面级 Pattern 匹配
   const patternPageResult = await proto_pattern_page(inputCtx)
+  
   // 意图扩展
   const intentResult = await proto_intent(inputCtx)
 
@@ -40,6 +41,7 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   return {
     planner: planner,
     intent: intentResult,
+    patternPageResult: patternPageResult,
     current_step: "planner_create",
   }
 }
