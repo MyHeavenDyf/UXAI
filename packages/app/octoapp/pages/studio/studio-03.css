@@ -493,6 +493,7 @@
 }
 
 .studio-canvas-image-wrapper {
+  width: 100%;
   height: calc(100% - 116px);
   display: flex;
   align-items: center;

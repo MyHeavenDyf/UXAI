@@ -243,21 +243,36 @@ function displayInput(input: StudioGenerationRequest, task?: ImageGenerationTask
 }
 
 function shouldRefineWithLLM(input: StudioGenerationRequest) {
-  if (input.capability !== "image.generate") return false
+  if (input.capability !== "image.generate" && input.capability !== "video.generate") return false
   return input.extra?.skipPromptRefine !== true
 }
 
-function promptRefineFallback(input: StudioGenerationRequest): StudioPromptRefineResult {
+function previousEffectivePrompt(previous?: StudioGenerationRecord) {
+  const previousRequest = previous ? generationRequest(previous).input as StudioGenerationPromptInput : undefined
+  return previousRequest?.effectivePrompt?.trim() ||
+    previousRequest?.refinedPrompt?.trim() ||
+    previousRequest?.prompt?.trim()
+}
+
+function buildEffectivePromptFromPrevious(input: StudioGenerationRequest, previous?: StudioGenerationRecord) {
+  const previousPrompt = previousEffectivePrompt(previous)
+  if (!previousPrompt) return buildEffectivePrompt(input)
+  return `延续上一轮画面：${previousPrompt}。${input.prompt}`
+}
+
+function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioGenerationRecord): StudioPromptRefineResult {
   const restoredPrompt = input.effectivePrompt?.trim() || input.refinedPrompt?.trim()
-  const effectivePrompt = restoredPrompt || buildEffectivePrompt(input)
+  const effectivePrompt = restoredPrompt || buildEffectivePromptFromPrevious(input, previous)
   const regenerateText = input.displayPrompt?.trim() === "再次生成"
   return {
     assistantText: regenerateText
       ? "好的，我会按当前结果的配置重新生成。"
       : shouldRefineWithLLM(input)
-      ? input.sourceImage
-        ? "好的，我会基于当前画面继续创作。"
-        : "好的，我会根据你的描述创作画面。"
+      ? input.capability === "video.generate"
+        ? "好的，我会根据你的描述创作视频。"
+        : input.sourceImage
+          ? "好的，我会基于当前画面继续创作。"
+          : "好的，我会根据你的描述创作画面。"
       : buildAssistantText(input),
     refinedPrompt: effectivePrompt,
     effectivePrompt,
@@ -298,13 +313,27 @@ function lastSuccessfulGeneration(sessionID: SessionID) {
 
 function promptRefineInput(input: StudioGenerationRequest, previous?: StudioGenerationRecord) {
   const previousRequest = previous ? generationRequest(previous).input as StudioGenerationPromptInput : undefined
+  const previousPrompt = previousEffectivePrompt(previous)
   return {
+    capability: input.capability,
     userPrompt: input.prompt,
     hasReferenceImages: (input.referenceImages?.length ?? 0) > 0,
+    ...(input.capability === "video.generate"
+      ? {
+          video: {
+            mode: videoMode(input),
+            duration: videoDuration(input),
+            qualityMode: videoQualityMode(input),
+            hasFirstFrame: Boolean(input.extra?.firstFrame) || (input.referenceImages?.length ?? 0) > 0,
+            hasLastFrame: Boolean(input.extra?.lastFrame),
+          },
+        }
+      : {}),
     previousTurn: previous && previousRequest
       ? {
+          capability: previous.capability,
           userText: previousRequest.prompt,
-          refinedPrompt: previousRequest.refinedPrompt ?? previousRequest.effectivePrompt,
+          refinedPrompt: previousPrompt,
           imageUrls: imageUrls(previous.result),
         }
       : undefined,
@@ -349,8 +378,8 @@ const studioPromptPluginRuntime = makeRuntime(Plugin.Service, Plugin.defaultLaye
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
   mergeDeep(target, source ?? {}) as Record<string, any>
 
-const PROMPT_REFINE_SYSTEM = [
-  "你是 Octo Studio 的创意提示词润色助手。",
+const IMAGE_PROMPT_REFINE_SYSTEM = [
+  "你是 Octo Studio 的图片提示词润色助手。",
   "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
   "严格规则：",
   "- 只负责画面内容描述，不决定能力、模型、风格配置、工具、比例、数量。",
@@ -366,8 +395,34 @@ const PROMPT_REFINE_SYSTEM = [
   "- 只输出 JSON。",
 ].join("\n")
 
+const VIDEO_PROMPT_REFINE_SYSTEM = [
+  "你是 Octo Studio 的视频提示词润色助手。",
+  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
+  "严格规则：",
+  "- 只负责视频内容、动作、镜头、节奏、氛围描述。",
+  "- 不决定能力、模型、比例、数量、时长、质量模式、工具。",
+  "- 不要在 refinedPrompt 中写模型名称、画幅比例、生成数量、视频时长、质量模式或工具名称。",
+  "- 如果是文生视频，refinedPrompt 应描述主体、动作、镜头运动、场景、节奏和氛围。",
+  "- 如果是图生视频或有参考图/首帧/尾帧，请保留图中主体与画面关系，只补充合理运动和镜头变化。",
+  "- 如果用户当前输入是延续上一轮，请保留上一轮主体、动作、场景、风格中仍相关的部分。",
+  "- 如果用户当前输入明确是全新主题，请以当前输入为主。",
+  "- assistantText 使用中文，简短、自然、友好，不要暴露内部参数。",
+  "- assistantText 不超过 40 个中文字。",
+  "- refinedPrompt 只描述要生成的视频内容。",
+  "- refinedPrompt 不超过 300 个中文字。",
+  "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
+  "- 只输出 JSON。",
+].join("\n")
+
+function promptRefineSystem(input: StudioGenerationRequest) {
+  if (input.capability === "video.generate") return VIDEO_PROMPT_REFINE_SYSTEM
+  return IMAGE_PROMPT_REFINE_SYSTEM
+}
+
 async function refineStudioPrompt(input: StudioGenerationRequest, session: typeof SessionTable.$inferSelect): Promise<StudioPromptRefineResult> {
-  if (!shouldRefineWithLLM(input)) return promptRefineFallback(input)
+  const sessionID = SessionID.zod.parse(session.id)
+  const previous = lastSuccessfulGeneration(sessionID)
+  if (!shouldRefineWithLLM(input)) return promptRefineFallback(input, previous)
   try {
     const model = session.model
       ? { providerID: ProviderID.make(session.model.providerID), modelID: ModelID.make(session.model.id) }
@@ -391,8 +446,8 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
           studioPromptAuthRuntime.runPromise((auth) => auth.get(selected.providerID).pipe(Effect.orDie)),
         )
         const isOpenaiOauth = selected.providerID === ProviderID.openai && authInfo?.type === "oauth"
-        const system = [PROMPT_REFINE_SYSTEM]
-        const userContent = JSON.stringify(promptRefineInput(input, lastSuccessfulGeneration(SessionID.zod.parse(session.id))), null, 2)
+        const system = [promptRefineSystem(input)]
+        const userContent = JSON.stringify(promptRefineInput(input, previous), null, 2)
         const base = ProviderTransform.options({
           model: resolved,
           sessionID: session.id,
@@ -402,7 +457,7 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
         if (isOpenaiOauth) options.instructions = system.join("\n")
         const pluginMessage: MessageV2.User = {
           id: MessageID.ascending(),
-          sessionID: SessionID.zod.parse(session.id),
+          sessionID,
           role: "user",
           time: { created: Date.now() },
           agent: "octo_studio",
@@ -554,7 +609,7 @@ async function refineStudioPrompt(input: StudioGenerationRequest, session: typeo
       capability: input.capability,
       error,
     })
-    return promptRefineFallback(input)
+    return promptRefineFallback(input, previous)
   }
 }
 
