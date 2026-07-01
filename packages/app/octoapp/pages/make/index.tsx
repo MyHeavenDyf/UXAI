@@ -1327,6 +1327,7 @@ if (dsId) {
         mime,
         dataUrl,
         path: file.path,
+        kind: file.kind,
       }])
       showToast({ title: "已添加附件", description: file.name })
     } catch (err) {
@@ -1777,10 +1778,6 @@ if (dsId) {
                        setPrompt(starter.prompt)
                      }}
                    />
-                  <AttachmentBar
-                    attachments={attachments()}
-                    onRemove={removeAttachment}
-                  />
                   <div
                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
@@ -1796,7 +1793,6 @@ if (dsId) {
                           rgba(61, 93, 255, 0.7) 87%,
                           rgba(206, 7, 232, 0.7) 92%) border-box`,
                       "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                      "margin-top": attachments().length > 0 ? "6px" : "0",
                       height: "150px",
                     }}
                   >
@@ -1885,6 +1881,11 @@ if (dsId) {
                       )}
                     </Show>
 
+                    <AttachmentBar
+                      attachments={attachments()}
+                      onRemove={removeAttachment}
+                    />
+
                     <textarea
                       ref={textareaRef}
                       value={prompt()}
@@ -1894,7 +1895,7 @@ if (dsId) {
                       onKeyDown={handleKeyDown}
                       placeholder="输入指令，按 Enter 发送…"
                       disabled={inputDisabled()}
-                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-3"
+                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4"
                       style={{
                         "font-family": "var(--octo-font)",
                         "overflow-y": "auto",
@@ -2007,10 +2008,6 @@ if (dsId) {
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
-                <AttachmentBar
-                  attachments={attachments()}
-                  onRemove={removeAttachment}
-                />
 
                 {/* Plan entry banner - agent 想进规划阶段,请用户确认。先于 PlanBanner 显示。 */}
                 <Show when={planIntentPending() && !optimisticIntentResolved()}>
@@ -2070,7 +2067,6 @@ if (dsId) {
                         rgba(61, 93, 255, 0.7) 87%,
                         rgba(206, 7, 232, 0.7) 92%) border-box`,
                     "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                    "margin-top": attachments().length > 0 ? "6px" : "0",
                   }}
                 >
                   {/* Slash Command Popover */}
@@ -2158,6 +2154,11 @@ if (dsId) {
                     )}
                   </Show>
 
+                  <AttachmentBar
+                    attachments={attachments()}
+                    onRemove={removeAttachment}
+                  />
+
                   <textarea
                     ref={textareaRef}
                     value={prompt()}
@@ -2166,7 +2167,7 @@ if (dsId) {
                     placeholder="输入指令，按 Enter 发送…"
                     rows={3}
                     disabled={inputDisabled()}
-                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 p-4"
+                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4 pb-4"
                     style={{
                       "font-family": "var(--octo-font)",
                       "max-height": "120px",

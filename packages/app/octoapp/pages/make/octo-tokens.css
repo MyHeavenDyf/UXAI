@@ -302,6 +302,14 @@
 
 /* ── 输入区按钮状态 ─────────────────────────── */
 
+.attachment-close-btn:hover {
+  color: #0a57f7 !important;
+}
+
+.attachment-close-btn:hover path {
+  fill-opacity: 1;
+}
+
 .octo-split [data-action="prompt-submit"] {
   width: 32px;
   height: 32px;
