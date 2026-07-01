@@ -1,4 +1,4 @@
-import { createMemo, createSignal, Show, Switch, Match } from "solid-js"
+import { createMemo, createSignal, createEffect, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import type { ResultTab } from "./tab-store"
@@ -11,16 +11,26 @@ import { DeckRenderer } from "./deck-renderer"
 import { SvgRenderer } from "./svg-renderer"
 import { ReactComponentRenderer } from "./react-component-renderer"
 import { DiagramRenderer } from "./diagram-renderer"
+import { ImageRenderer } from "./image-renderer"
+import { VideoRenderer } from "./video-renderer"
+import { AudioRenderer } from "./audio-renderer"
+import { PdfRenderer } from "./pdf-renderer"
+import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
+import { DesignFilesPanel } from "../design-files"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } from "../../utils/artifact-file-api"
+import { saveArtifactContent } from "../../utils/artifact-auto-save"
+import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
 
 function extractCodeBlock(text: string, lang: string): string {
-    const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
-    const m = text.match(re)
-    return m ? m[1].trim() : text.trim()
-  }
+  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+  const m = text.match(re)
+  return m ? m[1].trim() : text.trim()
+}
 
 function JsonRenderer(props: { content: string }): JSX.Element {
   const code = createMemo(() => {
@@ -57,12 +67,24 @@ export function ResultViewer(props: {
   onActivate: (id: string) => void
   onClose: (id: string) => void
   onContentChange?: (id: string, content: string) => void
+  sessionId?: string
+  onOpenArtifact?: (card: OutputCard) => void
+  viewMode: "tabs" | "files"
+  onViewModeChange: (mode: "tabs" | "files") => void
+  onAddArtifactToSession?: (file: ArtifactFile) => void
+  onRemoveAttachmentsByPath?: (paths: string[]) => void
+  onRenameTabByPath?: (oldPath: string, newPath: string, newTitle: string) => void
+  onRenameAttachmentPath?: (oldPath: string, newPath: string, newFilename: string) => void
+  sdkDirectory?: string
   focusMode?: boolean
   onFocusModeToggle?: () => void
   onConfirmPlan?: (identifier?: string) => void
   onAdjustPlan?: () => void
   isPlanConfirmed?: () => boolean
+  filesRefreshKey?: number
+  onFilesRefresh?: () => void
 }): JSX.Element {
+  const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -91,6 +113,22 @@ export function ResultViewer(props: {
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
 
+  createEffect(() => {
+    const activeTabIds = new Set(props.tabs.map(t => t.id))
+    const currentModes = htmlModes()
+    const cleanedModes: Record<string, "preview" | "edit"> = {}
+    
+    for (const [id, mode] of Object.entries(currentModes)) {
+      if (activeTabIds.has(id)) {
+        cleanedModes[id] = mode
+      }
+    }
+    
+    if (Object.keys(currentModes).length !== Object.keys(cleanedModes).length) {
+      setHtmlModes(cleanedModes)
+    }
+  })
+
   const handleRefresh = () => {
     setRefreshKey((prev) => prev + 1)
   }
@@ -116,158 +154,232 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
     }
 
     const isFullDocument = htmlContent.includes("<html") || htmlContent.includes("<body")
-    const updatedHtml = isFullDocument 
-      ? doc.documentElement.outerHTML 
+    const updatedHtml = isFullDocument
+      ? doc.documentElement.outerHTML
       : doc.body.innerHTML
-    
-    // ★ Remove data-od-id attributes before saving (clean output)
+
     const cleanHtml = updatedHtml.replace(/ data-od-id="[^"]*"/g, '')
-    
+
     const finalContent = isMarkdown
       ? "```html\n" + cleanHtml + "\n```"
       : cleanHtml
-    
+
     props.onContentChange?.(tabId, finalContent)
-}
+  }
+
+  const handleOpenArtifactFile = (file: ArtifactFile) => {
+    const card = artifactFileToOutputCard(file)
+    props.onOpenArtifact?.(card)
+    props.onViewModeChange("tabs")
+  }
+
+  const handleCloseTabsByPath = (paths: string[]) => {
+    const normalizedPaths = paths.map(p => p.replace(/\\/g, "/"))
+    const pathSet = new Set(normalizedPaths)
+    
+    for (const tab of props.tabs) {
+      const normalizedAbsolute = tab.absoluteFilePath?.replace(/\\/g, "/")
+      if (normalizedAbsolute && pathSet.has(normalizedAbsolute)) {
+        props.onClose(tab.id)
+        continue
+      }
+      
+      const normalizedFile = tab.filePath?.replace(/\\/g, "/")
+      if (normalizedFile && pathSet.has(normalizedFile)) {
+        props.onClose(tab.id)
+      }
+    }
+  }
 
   return (
     <div
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0 || props.viewMode === "files"} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
           onActivate={props.onActivate}
           onClose={props.onClose}
+          viewMode={props.viewMode}
+          onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
         />
-        <Show when={activeTab()}>
-          {(tab) => (
-            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <Show when={tab().type !== "design-plan"}>
-              <ActionBar
-                tab={tab()}
-                mode={canToggleMode(tab()) ? getHtmlMode(tab().id) : undefined}
-                onModeChange={canToggleMode(tab()) ? () => toggleHtmlMode(tab().id) : undefined}
-                viewport={viewport()}
-                onViewportChange={setViewport}
-                palette={palette()}
-                onPaletteChange={setPalette}
-                inspecting={inspecting()}
-                onInspectToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
-                  const nextInspecting = !inspecting()
-                  setInspecting(nextInspecting)
-                  tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
-                  if (nextInspecting && editing()) {
-                    setEditing(false)
-                  }
-                  if (nextInspecting && drawing()) {
-                    setDrawing(false)
-                  }
-                }}
-                editing={editing()}
-                onEditToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
-                  const nextEditing = !editing()
-                  setEditing(nextEditing)
-                  tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                  if (nextEditing && inspecting()) {
-                    setInspecting(false)
-                  }
-                  if (nextEditing && drawing()) {
-                    setDrawing(false)
-                  }
-                }}
-                drawing={drawing()}
-                onDrawToggle={getHtmlMode(tab().id) === "edit" ? undefined : () => {
-                  const nextDrawing = !drawing()
-                  setDrawing(nextDrawing)
-                  tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                  if (nextDrawing && inspecting()) {
-                    setInspecting(false)
-                  }
-                  if (nextDrawing && editing()) {
-                    setEditing(false)
-                  }
-                }}
-                onRefresh={tab().type === "html" ? handleRefresh : undefined}
-                focusMode={props.focusMode}
-                onFocusModeToggle={tab().type === "local-file" || tab().type === "html" || tab().type === "svg" ? props.onFocusModeToggle : undefined}
-              />
-              </Show>
-              <div class="flex-1 min-h-0 overflow-hidden">
-                <Switch
-                  fallback={
-                    <div class="p-4 overflow-auto h-full">
-                      <pre class="text-sm text-[var(--octo-text-primary)] whitespace-pre-wrap font-mono">{tab().content}</pre>
-                    </div>
-                  }
-                >
-                  <Match when={tab().type === "table"}>
-                    <TableRenderer content={tab().content} />
-                  </Match>
-                  <Match when={tab().type === "markdown" || tab().type === "markdown-document"}>
-                    <MarkdownRenderer content={tab().content} />
-                  </Match>
-                  <Match when={tab().type === "mindmap" || tab().type === "diagram"}>
-                    <DiagramRenderer content={tab().content} />
-                  </Match>
-                  <Match when={tab().type === "json"}>
-                    <JsonRenderer content={tab().content} />
-                  </Match>
-                  <Match when={tab().type === "html"}>
-                    <HtmlRenderer
-                      content={tab().content}
-                      mode={getHtmlMode(tab().id)}
-                      viewport={viewport()}
-                      palette={palette()}
-                      inspecting={inspecting()}
-                      editing={editing()}
-                      drawing={drawing()}
-                      onDrawActiveChange={setDrawing}
-                      inspectPanel={true}
-                      onInspectTarget={setInspectTarget}
-                      onSaveOverrides={(overrides) => applyInspectOverrides(tab().id, overrides)}
-                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
-                      refreshKey={refreshKey()}
-                    />
-                  </Match>
-                  <Match when={tab().type === "deck"}>
-                    <DeckRenderer content={tab().content} />
-                  </Match>
-                  <Match when={tab().type === "svg"}>
-                    <SvgRenderer
-                      content={tab().content}
-                      mode={getHtmlMode(tab().id)}
-                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
-                    />
-                  </Match>
-                  <Match when={tab().type === "react-component"}>
-                    <ReactComponentRenderer content={tab().content} title={tab().title} />
-                  </Match>
-                  <Match when={tab().type === "design-plan"}>
-                    <DesignPlanRenderer
-                      content={tab().content}
-                      title={tab().title}
-                      artifactIdentifier={tab().artifactIdentifier}
-                      confirmed={props.isPlanConfirmed?.() ?? false}
-                      onConfirm={() => props.onConfirmPlan?.(tab().artifactIdentifier)}
-                      onAdjust={() => props.onAdjustPlan?.()}
-                      onContentChange={(content) => props.onContentChange?.(tab().id, content)}
-                    />
-                  </Match>
-                  <Match when={tab().type === "local-file"}>
-                    <iframe
-                      src={tab().absoluteFilePath?.match(/^https?:\/\//i)
-                        ? tab().absoluteFilePath
-                        : `local:///${tab().absoluteFilePath?.replace(/\\/g, '/')}`}
-                      style={{ width: "100%", height: "100%", border: "none" }}
-                    />
-                  </Match>
-                </Switch>
-              </div>
-            </div>
+
+        <Show when={props.viewMode === "files" && props.sessionId}>
+          {(sid) => (
+            <DesignFilesPanel
+              sessionId={sid()}
+              refreshKey={props.filesRefreshKey ?? 0}
+              onOpenFile={handleOpenArtifactFile}
+              onAddToSession={props.onAddArtifactToSession}
+              onCloseTabsByPath={handleCloseTabsByPath}
+              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+              onFilesRefresh={props.onFilesRefresh}
+            />
           )}
+        </Show>
+
+        <Show when={props.viewMode === "tabs" && activeTab()}>
+          {(getTab) => {
+            const tab = getTab()
+            const tabId = tab.id
+            const tabType = tab.type
+            const canToggle = canToggleMode(tab)
+            const htmlMode = createMemo(() => getHtmlMode(tabId))
+            const showRefresh = tabType === "html" || tabType === "image" || tabType === "video" || tabType === "audio" || tabType === "pdf" || tabType === "svg" || tabType === "text"
+            const showFocusToggle = tabType === "local-file" || tabType === "html" || tabType === "svg"
+
+            return (
+              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+                <Show when={tabType !== "design-plan"}>
+                <ActionBar
+                  tab={tab}
+                  mode={canToggle ? htmlMode() : undefined}
+                  onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
+                  viewport={viewport()}
+                  onViewportChange={setViewport}
+                  palette={palette()}
+                  onPaletteChange={setPalette}
+                  inspecting={inspecting()}
+                  onInspectToggle={htmlMode() === "edit" ? undefined : () => {
+                    const nextInspecting = !inspecting()
+                    setInspecting(nextInspecting)
+                    tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
+                    if (nextInspecting && editing()) {
+                      setEditing(false)
+                    }
+                    if (nextInspecting && drawing()) {
+                      setDrawing(false)
+                    }
+                  }}
+                  editing={editing()}
+                  onEditToggle={htmlMode() === "edit" ? undefined : () => {
+                    const nextEditing = !editing()
+                    setEditing(nextEditing)
+                    tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+                    if (nextEditing && inspecting()) {
+                      setInspecting(false)
+                    }
+                    if (nextEditing && drawing()) {
+                      setDrawing(false)
+                    }
+                  }}
+                  drawing={drawing()}
+                  onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                    const nextDrawing = !drawing()
+                    setDrawing(nextDrawing)
+                    tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                    if (nextDrawing && inspecting()) {
+                      setInspecting(false)
+                    }
+                    if (nextDrawing && editing()) {
+                      setEditing(false)
+                    }
+                  }}
+                  onRefresh={showRefresh ? handleRefresh : undefined}
+                  focusMode={props.focusMode}
+                  onFocusModeToggle={showFocusToggle ? props.onFocusModeToggle : undefined}
+                />
+                </Show>
+                <div class="flex-1 min-h-0 overflow-hidden">
+                  <Switch
+                    fallback={
+                      <div class="p-4 overflow-auto h-full">
+                        <pre class="text-sm text-[var(--octo-text-primary)] whitespace-pre-wrap font-mono">{tab.content}</pre>
+                      </div>
+                    }
+                  >
+                    <Match when={tabType === "table"}>
+                      <TableRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "markdown" || tabType === "markdown-document"}>
+                      <MarkdownRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "mindmap" || tabType === "diagram"}>
+                      <DiagramRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "json"}>
+                      <JsonRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "html"}>
+                      <HtmlRenderer
+                        content={tab.content}
+                        mode={htmlMode()}
+                        viewport={viewport()}
+                        palette={palette()}
+                        inspecting={inspecting()}
+                        editing={editing()}
+                        drawing={drawing()}
+                        onDrawActiveChange={setDrawing}
+                        inspectPanel={true}
+                        onInspectTarget={setInspectTarget}
+                        onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
+                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
+                        refreshKey={refreshKey()}
+                        filePath={tab.filePath}
+                        sessionId={tab.sessionId ?? props.sessionId}
+                        sdkUrl={globalSDK.url}
+                        sdkDirectory={props.sdkDirectory}
+                        onSaveFile={async (content) => {
+                          if (!tab.filePath) return
+                          const html = extractCodeBlock(content, "html")
+                          await saveArtifactContent(tab.filePath, html)
+                        }}
+                        onRefreshNeeded={handleRefresh}
+                      />
+                    </Match>
+                    <Match when={tabType === "deck"}>
+                      <DeckRenderer content={tab.content} />
+                    </Match>
+                    <Match when={tabType === "svg"}>
+                      <iframe
+                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${refreshKey()}`}
+                        style={{ width: "100%", height: "100%", border: "none" }}
+                      />
+                    </Match>
+                    <Match when={tabType === "react-component"}>
+                      <ReactComponentRenderer content={tab.content} title={tab.title} />
+                    </Match>
+                    <Match when={tabType === "design-plan"}>
+                      <DesignPlanRenderer
+                        content={tab.content}
+                        title={tab.title}
+                        artifactIdentifier={tab.artifactIdentifier}
+                        confirmed={props.isPlanConfirmed?.() ?? false}
+                        onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
+                        onAdjust={() => props.onAdjustPlan?.()}
+                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
+                      />
+                    </Match>
+                    <Match when={tabType === "local-file"}>
+                      <iframe
+                        src={tab.absoluteFilePath?.match(/^https?:\/\//i)
+                          ? tab.absoluteFilePath
+                          : `local:///${tab.absoluteFilePath?.replace(/\\/g, '/')}`}
+                        style={{ width: "100%", height: "100%", border: "none" }}
+                      />
+                    </Match>
+                    <Match when={tabType === "image"}>
+                      <ImageRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                    </Match>
+                    <Match when={tabType === "video"}>
+                      <VideoRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                    </Match>
+                    <Match when={tabType === "audio"}>
+                      <AudioRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                    </Match>
+                    <Match when={tabType === "pdf"}>
+                      <PdfRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                    </Match>
+                    <Match when={tabType === "text"}>
+                      <TextRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                    </Match>
+                  </Switch>
+                </div>
+              </div>
+            )
+          }}
         </Show>
       </Show>
     </div>

@@ -828,6 +828,11 @@ export const dict = {
   "session.delete.confirm": '"{{name}}" oturumu silinsin mi?',
   "session.delete.button": "Oturumu sil",
 
+  "file.delete.title": "Dosyayı sil",
+  "file.delete.confirm": '"{{name}}" dosyası silinsin mi?',
+  "file.delete.plural.confirm": "{{count}} seçili dosya silinsin mi?",
+  "file.delete.button": "Sil",
+
   "workspace.new": "Yeni çalışma alanı",
   "workspace.type.local": "yerel",
   "workspace.type.sandbox": "sandbox",

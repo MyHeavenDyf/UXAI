@@ -16,6 +16,7 @@ import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { diffs as list, message as clean } from "@/utils/diffs"
 import { INSIGHT_AGENT } from "@/constants/agent"
+import { clearSessionSnapshots } from "@/pages/make/utils/snapshot-store"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
@@ -109,6 +110,7 @@ export function cleanupDroppedSessionCaches(
   if (stale.length === 0) return
   for (const sessionID of stale) {
     setSessionTodo?.(sessionID, undefined)
+    clearSessionSnapshots(sessionID)
   }
   setStore(
     produce((draft) => {

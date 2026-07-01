@@ -314,8 +314,16 @@ export function ActionBar(props: {
     await downloadBlob(content, info.filename, info.mime)
   }
 
-  const canToggleMode = () => props.tab.type === "html" || props.tab.type === "svg"
+  const canToggleMode = () => props.tab.type === "html"
   const showViewport = () => props.tab.type === "html"
+  const showRefreshButton = () =>
+    props.tab.type === "html" ||
+    props.tab.type === "image" ||
+    props.tab.type === "video" ||
+    props.tab.type === "audio" ||
+    props.tab.type === "pdf" ||
+    props.tab.type === "svg" ||
+    props.tab.type === "text"
 
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
@@ -323,7 +331,7 @@ export function ActionBar(props: {
   return (
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
-        {showViewport() && props.onRefresh && (
+        {showRefreshButton() && props.onRefresh && (
           <button
             type="button"
             class="octo-action-btn"
@@ -347,7 +355,9 @@ export function ActionBar(props: {
             onChange={(v) => props.onViewportChange!(v as ViewportPreset)}
           />
         )}
-        <div class="octo-action-bar-divider" />
+        <Show when={(showRefreshButton() && props.onRefresh || canToggleMode() && props.onModeChange || showViewport() && props.onViewportChange) && showViewport() && (props.onPaletteChange || props.onInspectToggle || props.onDrawToggle || props.onEditToggle || props.onFocusModeToggle)}>
+          <div class="octo-action-bar-divider" />
+        </Show>
       </div>
       <div class="octo-action-bar-right">
         {showViewport() && props.onPaletteChange && (

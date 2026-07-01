@@ -4,9 +4,10 @@ import type { OutputCard, ArtifactExportKind } from "../insight-turn"
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "design-plan" | "local-file"
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" 
   content: string
   filePath?: string
+  sessionId?: string
   absoluteFilePath?: string
   exports?: ArtifactExportKind[]
   artifactIdentifier?: string
@@ -38,6 +39,7 @@ export function createTabStore() {
       type: card.type,
       content: card.content,
       filePath: card.filePath,
+      sessionId: card.sessionId,
       exports: card.exports,
       artifactIdentifier: card.artifactIdentifier,
       createdAt: card.createdAt,
@@ -93,12 +95,25 @@ export function createTabStore() {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, content } : t)))
   }
 
+function renameTabByPath(oldPath: string, newPath: string, newTitle: string) {
+    const normalizedOld = oldPath.replace(/\\/g, "/")
+    setTabs((prev) => prev.map((t) => {
+      if (t.filePath && t.filePath.replace(/\\/g, "/") === normalizedOld) {
+        return { ...t, filePath: newPath, title: newTitle }
+      }
+      if (t.absoluteFilePath && t.absoluteFilePath.replace(/\\/g, "/") === normalizedOld) {
+        return { ...t, absoluteFilePath: newPath, title: newTitle }
+      }
+      return t
+    }))
+  }
+
   function reset() {
     setTabs([])
     setActiveId(null)
   }
 
-  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, reset }
+  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, renameTabByPath, reset }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>

@@ -751,6 +751,12 @@ export const dict = {
   "session.delete.title": "Supprimer la session",
   "session.delete.confirm": 'Supprimer la session "{{name}}" ?',
   "session.delete.button": "Supprimer la session",
+
+  "file.delete.title": "Supprimer le fichier",
+  "file.delete.confirm": 'Supprimer le fichier "{{name}}" ?',
+  "file.delete.plural.confirm": "Supprimer {{count}} fichiers sélectionnés ?",
+  "file.delete.button": "Supprimer",
+
   "workspace.new": "Nouvel espace de travail",
   "workspace.type.local": "local",
   "workspace.type.sandbox": "bac à sable",

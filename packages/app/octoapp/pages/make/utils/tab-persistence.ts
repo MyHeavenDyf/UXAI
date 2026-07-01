@@ -24,6 +24,9 @@ export async function persistTabChanges(
   tab: ResultTab,
   options: PersistenceOptions
 ): Promise<void> {
+  const skipPersist = ["image", "video", "audio", "pdf", "svg", "text"].includes(tab.type)
+  if (skipPersist) return
+
   // 1. Save localStorage snapshot (always)
   options.snapshotStore.save(tab)
   options.refreshSnapshots()
@@ -45,7 +48,9 @@ export async function persistTabChanges(
   }
   
   // 3. Auto-save to project directory (Electron environment only)
-  if (options.projectDir && tab.type !== "local-file") {
+  // Skip if file is from Design Files panel (already exists on disk)
+  const isFromDesignFiles = tab.filePath && tab.filePath.includes(".octo/artifacts/make")
+  if (options.projectDir && !isFromDesignFiles && tab.type !== "local-file") {
     const card: OutputCard = {
       id: tab.id,
       title: tab.title,

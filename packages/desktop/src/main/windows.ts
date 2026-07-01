@@ -4,6 +4,14 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { readFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
+import {
+  injectSandboxShim,
+  injectEditBridgeStyle,
+  injectEditBridge,
+  injectInspectStyleBridge,
+  injectPickerBridge,
+} from "@opencode-ai/core/bridge-scripts"
+import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
@@ -310,11 +318,37 @@ export function registerLocalProtocol() {
       woff2: "font/woff2",
       ttf: "font/ttf",
       eot: "application/vnd.ms-fontobject",
+      pdf: "application/pdf",
+      mp4: "video/mp4",
+      webm: "video/webm",
+      mp3: "audio/mpeg",
+      wav: "audio/wav",
     }
     const mimeType = mimeTypes[ext || ""] || "application/octet-stream"
 
     try {
       const content = await readFile(absolutePath)
+      
+      // Inject bridge scripts for HTML files
+      if (mimeType === "text/html" || mimeType === "text/htm") {
+        let htmlStr = new TextDecoder().decode(content)
+        
+        // Inject bridge scripts in order (same as srcdoc-builder.ts)
+        htmlStr = injectSandboxShim(htmlStr)
+        htmlStr = annotateElementsWithIds(htmlStr)
+        htmlStr = injectEditBridgeStyle(htmlStr)
+        htmlStr = injectEditBridge(htmlStr)
+        htmlStr = injectInspectStyleBridge(htmlStr)
+        htmlStr = injectPickerBridge(htmlStr)
+        
+        return new Response(new TextEncoder().encode(htmlStr), {
+          headers: {
+            "Content-Type": mimeType,
+            "Access-Control-Allow-Origin": "*",
+          },
+        })
+      }
+      
       return new Response(content, {
         headers: {
           "Content-Type": mimeType,
