@@ -1,7 +1,7 @@
 import { For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
-import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto_intent_confirm"
+import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
 import "../../assets/style/preview/intent-confirm.css"
 
 export type IntentConfirmAnswers = Record<string, { selections: string[]; supplement: string }>

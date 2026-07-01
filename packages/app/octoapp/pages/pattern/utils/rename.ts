@@ -1,5 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { getResultFromMessages } from "./json_parser"
+import { getResultFromMessages } from "./json-parser"
 
 export async function autoRenameSession(input: {
   sync: any

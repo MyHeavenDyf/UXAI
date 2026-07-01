@@ -1,9 +1,9 @@
-import proto_intent from "../agents/proto_intent"
-import proto_triage from "../agents/proto_triage"
-import proto_planner_create from "../agents/proto_planner_create"
-import proto_planner_modify from "../agents/proto_planner_modify"
-import proto_module_create from "../agents/proto_module_create"
-import proto_module_modify from "../agents/proto_module_modify" 
+import proto_intent from "../agents/proto-intent"
+import proto_triage from "../agents/proto-triage"
+import proto_planner_create from "../agents/proto-planner-create"
+import proto_planner_modify from "../agents/proto-planner-modify"
+import proto_module_create from "../agents/proto-module-create"
+import proto_module_modify from "../agents/proto-module-modify" 
 import { mergeModules } from "../agents/merge"
 
 type ProtoModifyJsonInput = {
