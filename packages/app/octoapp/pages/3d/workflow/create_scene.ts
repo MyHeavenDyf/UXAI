@@ -29,7 +29,7 @@ export default async function create_scene(inputCtx: CreateSceneCtx, onFinished:
   const slots = (sp?.slots ?? []) as Array<{ section_id: string; parent_id: string; id_prefix: string }>
 
   const slotResults = await Promise.all(
-    slots.map((slot) => {
+    slots.map((slot: any) => {
       const detail =
         sectionDetailList.find((d: any) => d?.id === slot.section_id) ?? {
           id: slot.section_id,
@@ -39,6 +39,8 @@ export default async function create_scene(inputCtx: CreateSceneCtx, onFinished:
           elements: "",
           layout: "",
         }
+      // 把 planner 的 bounds 注入 sectionDetail,让 object agent 严格在边界内摆放
+      if (slot.bounds) detail.bounds = slot.bounds
       return proto_3d_object({
         ...inputCtx,
         idPrefix: slot.id_prefix,

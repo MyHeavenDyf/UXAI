@@ -1,6 +1,10 @@
 /**
- * SceneCanvas —— Three.js 渲染器,消费 SceneDocument(页内 canvas 方案,Part B 路径一)。
+ * SceneRenderer —— 框架无关的 Three.js 渲染器,消费 SceneDocument。
  * ============================================================================
+ * 从 SceneCanvas.tsx 抽离的渲染核心。纯 TS,零框架依赖(不 import solid-js),
+ * 既被页内 SceneCanvas(Solid 薄包装)使用,也被独立预览页(packages/preview3d)复用。
+ * 改这个文件时务必保持「不引任何前端框架」—— 这是独立预览页能打包复用的前提。
+ *
  * 职责:把 scene-protocol.ts 定义的 SceneDocument 渲染成可交互 3D 画布。
  *  - 构建 scene/camera/lights/objects(扁平 objects + parentId 关联)
  *  - 度→弧度转换(协议规定 angleUnit=degree)
@@ -22,74 +26,89 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js"
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js"
-import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js"
-import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js"
-import { createEffect, on, onCleanup, onMount, type JSX } from "solid-js"
 import type { SceneDocument, SceneObject, MaterialNode, LightNode, CameraNode } from "../../utils/scene-protocol"
 
 const DEG2RAD = Math.PI / 180
-/** Draco 解码器路径(默认 CDN;接入时可换本地 three/examples/jsm/libs/draco) */
-const DRACO_PATH = "https://www.gstatic.com/draco/v1/decoders/"
-/** 字体文件路径(text 几何用,CDN helvetiker regular) */
-const FONT_URL = "https://unpkg.com/three@0.177.0/examples/fonts/helvetiker_regular.typeface.json"
+/** Draco 解码器默认路径(CDN);离线/打包场景由 opts.dracoPath 注入本地路径 */
+const DEFAULT_DRACO_PATH = "https://www.gstatic.com/draco/v1/decoders/"
 
-export type SceneCanvasAPI = {
-  resetView: () => void
-  refresh: () => void
+export interface SceneRendererOptions {
+  /** Draco 解码器路径。页内默认走 CDN;独立预览页传本地相对路径(离线可用) */
+  dracoPath?: string
+  /** 点选物体回调(页内预览用;独立预览页可不传) */
+  onPickObject?: (id: string | null) => void
 }
 
-export function SceneCanvas(props: {
-  doc: SceneDocument | null | undefined
-  onPickObject?: (id: string | null) => void
-  ref?: (api: SceneCanvasAPI) => void
-}): JSX.Element {
-  let containerRef: HTMLDivElement | undefined
-
-  // Three 核心对象(onMount 后可用)
-  let renderer: THREE.WebGLRenderer | undefined
-  let scene: THREE.Scene | undefined
-  let camera: THREE.PerspectiveCamera | THREE.OrthographicCamera | undefined
-  let controls: OrbitControls | undefined
-  let clock: THREE.Clock | undefined
-  let pmrem: THREE.PMREMGenerator | undefined
-  let gltfLoader: GLTFLoader | undefined
-  let textureLoader: THREE.TextureLoader | undefined
-  let loadingManager: THREE.LoadingManager | undefined
-  // text 几何用的字体(懒加载,首次遇到 text 类型时从 CDN 拉)
-  let fontCache: any = null
-  let fontPromise: Promise<any | null> | undefined
-  let raf = 0
+export class SceneRenderer {
+  // Three 核心对象(constructor 内 initThree 后可用)
+  private renderer!: THREE.WebGLRenderer
+  private scene!: THREE.Scene
+  private camera!: THREE.PerspectiveCamera | THREE.OrthographicCamera
+  private controls!: OrbitControls
+  private clock!: THREE.Clock
+  private pmrem!: THREE.PMREMGenerator
+  private gltfLoader!: GLTFLoader
+  private textureLoader!: THREE.TextureLoader
+  private raf = 0
 
   // 动画/资源追踪
-  const spinners: Array<{ obj: THREE.Object3D; spin: [number, number, number] }> = []
-  const mixers: THREE.AnimationMixer[] = []
-  const gltfCache = new Map<string, { scene: THREE.Object3D; animations: THREE.AnimationClip[] }>()
-  let resizeObs: ResizeObserver | undefined
+  private spinners: Array<{ obj: THREE.Object3D; spin: [number, number, number] }> = []
+  private mixers: THREE.AnimationMixer[] = []
+  private gltfCache = new Map<string, { scene: THREE.Object3D; animations: THREE.AnimationClip[] }>()
+  private resizeObs: ResizeObserver | undefined
+
+  private container: HTMLElement
+  private doc: SceneDocument | null | undefined
+  private opts: SceneRendererOptions
+  private disposed = false
+
+  constructor(container: HTMLElement, opts: SceneRendererOptions = {}) {
+    this.container = container
+    this.opts = opts
+    this.initThree()
+  }
+
+  /** 设置/更新场景文档(doc 变化时全量重建,保留 renderer/camera/controls) */
+  setDoc(doc: SceneDocument | null | undefined): void {
+    this.doc = doc
+    void this.buildScene(doc)
+  }
+
+  /** 重置相机视角 */
+  resetView(): void {
+    this.controls?.reset()
+  }
+
+  /** 强制重建场景(消费当前 doc) */
+  refresh(): void {
+    void this.buildScene(this.doc)
+  }
+
+  /** 销毁:取消 raf、断开 resize、removeEventListener、dispose 全部 GPU 资源 */
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    cancelAnimationFrame(this.raf)
+    this.resizeObs?.disconnect()
+    if (this.renderer) this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown)
+    this.clearSceneContents()
+    this.controls?.dispose()
+    this.pmrem?.dispose()
+    this.gltfCache.forEach((c) => this.disposeObject(c.scene))
+    this.gltfCache.clear()
+    this.renderer?.dispose()
+    if (this.renderer?.domElement.parentElement) this.renderer.domElement.parentElement.removeChild(this.renderer.domElement)
+  }
 
   // --------------------------------------------------------------------------
   // 生命周期
   // --------------------------------------------------------------------------
-  onMount(() => {
-    initThree()
-    void buildScene(props.doc) // 首次构建
-  })
-
-  // 后续 doc 变化重建(跳过首次,首次由 onMount 负责)
-  createEffect(
-    on(
-      () => props.doc,
-      (doc, prev) => {
-        if (prev !== undefined) void buildScene(doc)
-      },
-    ),
-  )
-
-  function initThree() {
-    const el = containerRef!
+  private initThree() {
+    const el = this.container
     const w = el.clientWidth || 800
     const h = el.clientHeight || 600
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" })
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(w, h)
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -99,159 +118,140 @@ export function SceneCanvas(props: {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     el.appendChild(renderer.domElement)
     renderer.domElement.style.display = "block"
+    this.renderer = renderer
 
-    scene = new THREE.Scene()
+    this.scene = new THREE.Scene()
 
-    pmrem = new THREE.PMREMGenerator(renderer)
+    this.pmrem = new THREE.PMREMGenerator(renderer)
     // 默认环境贴图(IBL + 反射),保证 PBR 物体不发黑。preset 接入外部 HDR 前统一用 RoomEnvironment。
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    this.scene.environment = this.pmrem.fromScene(new RoomEnvironment(), 0.04).texture
 
-    camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 1000)
+    const camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 1000)
     camera.position.set(4, 3, 6)
+    this.camera = camera
 
-    controls = new OrbitControls(camera, renderer.domElement)
+    const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
+    this.controls = controls
 
-    clock = new THREE.Clock()
+    this.clock = new THREE.Clock()
 
-    loadingManager = new THREE.LoadingManager()
-    loadingManager.onStart = (url, loaded, total) =>
-      console.log(`[SceneCanvas] loading started: ${loaded}/${total} (${url})`)
-    loadingManager.onProgress = (url, loaded, total) =>
-      console.log(`[SceneCanvas] loading progress: ${loaded}/${total} (${url})`)
-    loadingManager.onLoad = () => console.log("[SceneCanvas] all assets loaded")
-    loadingManager.onError = (url) => console.error(`[SceneCanvas] loading error: ${url}`)
-
-    textureLoader = new THREE.TextureLoader(loadingManager)
-    gltfLoader = new GLTFLoader(loadingManager)
+    this.textureLoader = new THREE.TextureLoader()
+    const gltfLoader = new GLTFLoader()
     const draco = new DRACOLoader()
-    draco.setDecoderPath(DRACO_PATH)
+    draco.setDecoderPath(this.opts.dracoPath ?? DEFAULT_DRACO_PATH)
     gltfLoader.setDRACOLoader(draco)
+    this.gltfLoader = gltfLoader
 
-    renderer.domElement.addEventListener("pointerdown", onPointerDown)
+    renderer.domElement.addEventListener("pointerdown", this.onPointerDown)
 
-    resizeObs = new ResizeObserver(() => onResize())
-    resizeObs.observe(el)
+    this.resizeObs = new ResizeObserver(() => this.onResize())
+    this.resizeObs.observe(el)
 
-    animate()
-
-    if (props.ref) props.ref({ resetView: () => controls?.reset(), refresh: () => void buildScene(props.doc) })
+    this.animate()
   }
 
-  function onResize() {
-    if (!containerRef || !renderer || !camera) return
-    const w = containerRef.clientWidth
-    const h = containerRef.clientHeight
+  private onResize() {
+    if (!this.renderer || !this.camera) return
+    const w = this.container.clientWidth
+    const h = this.container.clientHeight
     if (!w || !h) return
-    renderer.setSize(w, h)
-    if (camera instanceof THREE.PerspectiveCamera) {
-      camera.aspect = w / h
-      camera.updateProjectionMatrix()
+    this.renderer.setSize(w, h)
+    if (this.camera instanceof THREE.PerspectiveCamera) {
+      this.camera.aspect = w / h
+      this.camera.updateProjectionMatrix()
     }
   }
 
-  function onPointerDown(e: PointerEvent) {
-    if (!props.onPickObject || !renderer || !camera || !scene) return
-    const rect = renderer.domElement.getBoundingClientRect()
+  // 箭头函数字段:addEventListener / rAF 需传同一引用,且方法内要用 this,故必须用箭头字段
+  private onPointerDown = (e: PointerEvent) => {
+    if (!this.opts.onPickObject || !this.renderer || !this.camera || !this.scene) return
+    const rect = this.renderer.domElement.getBoundingClientRect()
     const ndc = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
       -((e.clientY - rect.top) / rect.height) * 2 + 1,
     )
     const ray = new THREE.Raycaster()
-    ray.setFromCamera(ndc, camera)
-    const hits = ray.intersectObjects(scene.children, true)
+    ray.setFromCamera(ndc, this.camera)
+    const hits = ray.intersectObjects(this.scene.children, true)
     const hit = hits[0]
     if (!hit) {
-      props.onPickObject(null)
+      this.opts.onPickObject(null)
       return
     }
     // 击中的可能是 mesh 子节点,向上找带 userData.id 的祖先(group/glb 根带 id)
     let o: THREE.Object3D | null = hit.object
     while (o && !o.userData?.id) o = o.parent
-    props.onPickObject((o?.userData?.id as string) ?? null)
+    this.opts.onPickObject((o?.userData?.id as string) ?? null)
   }
 
-  function animate() {
-    raf = requestAnimationFrame(animate)
-    const dt = clock?.getDelta() ?? 0
-    for (const s of spinners) {
+  private animate = () => {
+    this.raf = requestAnimationFrame(this.animate)
+    const dt = this.clock?.getDelta() ?? 0
+    for (const s of this.spinners) {
       s.obj.rotation.x += s.spin[0] * dt * DEG2RAD
       s.obj.rotation.y += s.spin[1] * dt * DEG2RAD
       s.obj.rotation.z += s.spin[2] * dt * DEG2RAD
     }
-    for (const m of mixers) m.update(dt)
-    controls?.update()
-    if (renderer && scene && camera) renderer.render(scene, camera)
+    for (const m of this.mixers) m.update(dt)
+    this.controls?.update()
+    if (this.renderer && this.scene && this.camera) this.renderer.render(this.scene, this.camera)
   }
 
   // --------------------------------------------------------------------------
   // 场景构建(doc 变化时全量重建;保留 renderer/camera/controls)
   // --------------------------------------------------------------------------
-
-  /** 懒加载 text 几何用的字体(FontLoader 从 CDN 拉,缓存) */
-  function ensureFont(): Promise<any | null> {
-    if (fontCache) return Promise.resolve(fontCache)
-    if (!fontPromise) {
-      const loader = new FontLoader(loadingManager)
-      fontPromise = loader.loadAsync(FONT_URL).then((f) => { fontCache = f; return f }).catch(() => null)
-    }
-    return fontPromise
-  }
-
-  async function buildScene(doc: SceneDocument | null | undefined) {
-    if (!renderer || !scene || !camera || !controls) return // mount 前不构建
-    clearSceneContents()
+  private async buildScene(doc: SceneDocument | null | undefined) {
+    if (!this.renderer || !this.scene || !this.camera || !this.controls) return // 未初始化不构建
+    this.clearSceneContents()
     if (!doc) return
 
-    // 如果场景含 text 几何,预加载字体(异步,只拉一次)
-    if (doc.objects?.some((o) => o.geometry?.type === "text")) await ensureFont()
-
-    applySceneMeta(doc)
-    applyCamera(doc.camera)
+    this.applySceneMeta(doc)
+    this.applyCamera(doc.camera)
     for (const l of doc.lights ?? []) {
-      const light = buildLight(l)
-      if (light) scene.add(light)
+      const light = this.buildLight(l)
+      if (light) this.scene.add(light)
     }
 
     // objects 已 parent-first 排序(mergeScene.topoSortByParent 保证)
     const idMap = new Map<string, THREE.Object3D>()
     for (const obj of doc.objects ?? []) {
-      const o = buildObject(obj)
+      const o = this.buildObject(obj)
       if (!o) continue
       o.userData.id = obj.id
       o.name = obj.id
       const parent = obj.parentId ? idMap.get(obj.parentId) : undefined
-      ;(parent ?? scene).add(o)
+      ;(parent ?? this.scene).add(o)
       idMap.set(obj.id, o)
-      if (obj.spin && Array.isArray(obj.spin)) spinners.push({ obj: o, spin: obj.spin as [number, number, number] })
+      if (obj.spin && Array.isArray(obj.spin)) this.spinners.push({ obj: o, spin: obj.spin as [number, number, number] })
     }
   }
 
-  function clearSceneContents() {
-    spinners.length = 0
-    for (const m of mixers) m.stopAllAction()
-    mixers.length = 0
-    if (!scene) return
-    for (const child of [...scene.children]) {
-      scene.remove(child)
-      disposeObject(child)
+  private clearSceneContents() {
+    this.spinners.length = 0
+    for (const m of this.mixers) m.stopAllAction()
+    this.mixers.length = 0
+    if (!this.scene) return
+    for (const child of [...this.scene.children]) {
+      this.scene.remove(child)
+      this.disposeObject(child)
     }
   }
 
-  function disposeObject(obj: THREE.Object3D) {
+  private disposeObject(obj: THREE.Object3D) {
     obj.traverse((o) => {
       const mesh = o as THREE.Mesh
       mesh.geometry?.dispose?.()
       const mat = mesh.material
       if (mat) {
-        if (Array.isArray(mat)) mat.forEach(disposeMaterial)
-        else disposeMaterial(mat as THREE.Material)
+        if (Array.isArray(mat)) mat.forEach((mm) => this.disposeMaterial(mm))
+        else this.disposeMaterial(mat as THREE.Material)
       }
     })
   }
 
-  function disposeMaterial(m: THREE.Material) {
+  private disposeMaterial(m: THREE.Material) {
     const slots = ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap", "displacementMap"]
     for (const k of slots) {
       const t = (m as unknown as Record<string, THREE.Texture | undefined>)[k]
@@ -263,45 +263,45 @@ export function SceneCanvas(props: {
   // --------------------------------------------------------------------------
   // scene 元信息 / 相机 / 灯光
   // --------------------------------------------------------------------------
-  function applySceneMeta(doc: SceneDocument) {
-    if (!scene) return
+  private applySceneMeta(doc: SceneDocument) {
+    if (!this.scene) return
     const bg = doc.scene?.background
     if (typeof bg === "string") {
-      scene.background = new THREE.Color(bg)
-    } else if (bg && typeof bg === "object" && "texture" in bg && textureLoader) {
+      this.scene.background = new THREE.Color(bg)
+    } else if (bg && typeof bg === "object" && "texture" in bg && this.textureLoader) {
       // 纹理背景(v1:按 color 处理 url 纹理)
-      const tex = textureLoader.load(bg.texture as string)
+      const tex = this.textureLoader.load(bg.texture as string)
       tex.colorSpace = THREE.SRGBColorSpace
-      scene.background = tex
+      this.scene.background = tex
     }
     const fog = doc.scene?.fog
-    if (fog?.type === "linear") scene.fog = new THREE.Fog(new THREE.Color(fog.color), fog.near, fog.far)
-    else if (fog?.type === "exp2") scene.fog = new THREE.FogExp2(new THREE.Color(fog.color), fog.density)
+    if (fog?.type === "linear") this.scene.fog = new THREE.Fog(new THREE.Color(fog.color), fog.near, fog.far)
+    else if (fog?.type === "exp2") this.scene.fog = new THREE.FogExp2(new THREE.Color(fog.color), fog.density)
 
     // renderStyle 简易映射(v1:不接入后处理,仅调 exposure)
     const style = doc.scene?.renderStyle
-    if (renderer) {
-      if (style === "neon" || style === "cinematic-bloom") renderer.toneMappingExposure = 1.15
-      else if (style === "flat-shaded" || style === "wireframe-debug") renderer.toneMappingExposure = 1.0
-      else renderer.toneMappingExposure = 1.0
+    if (this.renderer) {
+      if (style === "neon" || style === "cinematic-bloom") this.renderer.toneMappingExposure = 1.15
+      else if (style === "flat-shaded" || style === "wireframe-debug") this.renderer.toneMappingExposure = 1.0
+      else this.renderer.toneMappingExposure = 1.0
     }
   }
 
-  function applyCamera(cam: CameraNode | undefined) {
-    if (!cam || !camera || !controls) return
+  private applyCamera(cam: CameraNode | undefined) {
+    if (!cam || !this.camera || !this.controls) return
     // v1:保持 perspective(orthographic 切换留扩展)
-    if (cam.perspective?.fov != null && camera instanceof THREE.PerspectiveCamera) {
-      camera.fov = cam.perspective.fov
-      camera.updateProjectionMatrix()
+    if (cam.perspective?.fov != null && this.camera instanceof THREE.PerspectiveCamera) {
+      this.camera.fov = cam.perspective.fov
+      this.camera.updateProjectionMatrix()
     }
-    if (cam.position) camera.position.set(cam.position[0], cam.position[1], cam.position[2])
+    if (cam.position) this.camera.position.set(cam.position[0], cam.position[1], cam.position[2])
     const lookAt = cam.lookAt ?? [0, 0, 0]
-    camera.lookAt(lookAt[0], lookAt[1], lookAt[2])
-    controls.target.set(lookAt[0], lookAt[1], lookAt[2])
-    controls.update()
+    this.camera.lookAt(lookAt[0], lookAt[1], lookAt[2])
+    this.controls.target.set(lookAt[0], lookAt[1], lookAt[2])
+    this.controls.update()
   }
 
-  function buildLight(l: LightNode): THREE.Object3D | null {
+  private buildLight(l: LightNode): THREE.Object3D | null {
     const color = l.color ? new THREE.Color(l.color) : new THREE.Color(0xffffff)
     const intensity = l.intensity ?? 1
     let light: THREE.Light | null = null
@@ -370,55 +370,15 @@ export function SceneCanvas(props: {
   // --------------------------------------------------------------------------
   // 物体构建
   // --------------------------------------------------------------------------
-  function buildObject(obj: SceneObject): THREE.Object3D | null {
+  private buildObject(obj: SceneObject): THREE.Object3D | null {
     let o: THREE.Object3D | null = null
     switch (obj.type) {
       case "group":
         o = new THREE.Group()
         break
       case "mesh": {
-        // text 几何特殊处理:ASCII 用 TextGeometry(3D 立体),非 ASCII(中文等)用 canvas 贴图
-        const geoType = obj.geometry?.type
-        if (geoType === "text") {
-          const tp = (obj.geometry?.params ?? {}) as Record<string, any>
-          const text = String(tp.text ?? "Text")
-          const size = Number(tp.size) > 0 ? Number(tp.size) : 1
-          const isAscii = /^[\x00-\x7F]*$/.test(text)
-          if (isAscii && fontCache) {
-            // A. TextGeometry(3D 挤出,仅 ASCII)
-            const geo = buildGeometry("text", tp)
-            const mat = buildMaterial(obj.material)
-            const mesh = new THREE.Mesh(geo, mat)
-            if (obj.castShadow) mesh.castShadow = true
-            if (obj.receiveShadow) mesh.receiveShadow = true
-            o = mesh
-          } else {
-            // B. canvas 贴图文字(支持中文/任意语言)
-            const cv = document.createElement("canvas")
-            const ctx = cv.getContext("2d")!
-            const fs = 128
-            ctx.font = `bold ${fs}px sans-serif`
-            const m = ctx.measureText(text)
-            cv.width = Math.ceil(m.width) + 32
-            cv.height = fs + 32
-            ctx.font = `bold ${fs}px sans-serif`
-            ctx.fillStyle = "#ffffff"
-            ctx.textAlign = "center"
-            ctx.textBaseline = "middle"
-            ctx.fillText(text, cv.width / 2, cv.height / 2)
-            const tex = new THREE.CanvasTexture(cv)
-            tex.colorSpace = THREE.SRGBColorSpace
-            const planeW = size * (cv.width / cv.height)
-            const geo = new THREE.PlaneGeometry(planeW, size)
-            const matColor = typeof obj.material === "object" && (obj.material as any)?.color ? (obj.material as any).color : "#ffffff"
-            const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: new THREE.Color(matColor), side: THREE.DoubleSide })
-            const mesh = new THREE.Mesh(geo, mat)
-            o = mesh
-          }
-          break
-        }
-        const geo = buildGeometry(obj.geometry?.type, (obj.geometry?.params ?? {}) as Record<string, number>)
-        const mat = buildMaterial(obj.material)
+        const geo = this.buildGeometry(obj.geometry?.type, (obj.geometry?.params ?? {}) as Record<string, number>)
+        const mat = this.buildMaterial(obj.material)
         const mesh = new THREE.Mesh(geo, mat)
         if (obj.castShadow) mesh.castShadow = true
         if (obj.receiveShadow) mesh.receiveShadow = true
@@ -426,7 +386,7 @@ export function SceneCanvas(props: {
         break
       }
       case "points": {
-        const geo = buildGeometry(obj.geometry?.type, (obj.geometry?.params ?? {}) as Record<string, number>)
+        const geo = this.buildGeometry(obj.geometry?.type, (obj.geometry?.params ?? {}) as Record<string, number>)
         const mat = new THREE.PointsMaterial({
           color: typeof obj.material === "object" && obj.material?.color ? new THREE.Color(obj.material.color) : 0xffffff,
           size: obj.size ?? 0.1,
@@ -439,10 +399,10 @@ export function SceneCanvas(props: {
         // 异步:先返回占位 group,加载完成后填充;spin/parent 作用在占位上
         const placeholder = new THREE.Group()
         const assetKey = obj.asset
-        const assetsGlb = (props.doc?.assets?.glb ?? {}) as Record<string, { url: string; draco?: boolean }>
+        const assetsGlb = (this.doc?.assets?.glb ?? {}) as Record<string, { url: string; draco?: boolean }>
         const asset = assetKey ? assetsGlb[assetKey] : undefined
         if (asset?.url) {
-          void loadGlb(assetKey!, asset).then((loaded) => {
+          void this.loadGlb(assetKey!, asset).then((loaded) => {
             if (!loaded) return
             const cloned = cloneSkeleton(loaded.scene)
             cloned.traverse((c) => {
@@ -464,7 +424,7 @@ export function SceneCanvas(props: {
                       .map((name) => THREE.AnimationClip.findByName(loaded.animations, name as string))
                       .filter(Boolean) as THREE.AnimationClip[]
               for (const clip of clips) mixer.clipAction(clip).play()
-              mixers.push(mixer)
+              this.mixers.push(mixer)
             }
           })
         }
@@ -476,12 +436,12 @@ export function SceneCanvas(props: {
     }
 
     // 公共变换(协议:角度用度)
-    applyTransform(o, obj)
+    this.applyTransform(o, obj)
     if (obj.visible === false) o.visible = false
     return o
   }
 
-  function applyTransform(o: THREE.Object3D, obj: SceneObject) {
+  private applyTransform(o: THREE.Object3D, obj: SceneObject) {
     if (obj.position) o.position.set(obj.position[0], obj.position[1], obj.position[2])
     if (obj.rotation) o.rotation.set(obj.rotation[0] * DEG2RAD, obj.rotation[1] * DEG2RAD, obj.rotation[2] * DEG2RAD)
     if (obj.scale != null) {
@@ -490,7 +450,7 @@ export function SceneCanvas(props: {
     }
   }
 
-  function buildGeometry(type: string | undefined, p: Record<string, number>): THREE.BufferGeometry {
+  private buildGeometry(type: string | undefined, p: Record<string, number>): THREE.BufferGeometry {
     const r = (k: string, d: number) => (typeof p[k] === "number" && p[k] > 0 ? p[k] : d)
     const ri = (k: string, d: number) => Math.max(1, Math.min(128, Math.floor(r(k, d))))
     switch (type) {
@@ -522,24 +482,14 @@ export function SceneCanvas(props: {
         return new THREE.OctahedronGeometry(r("radius", 1), ri("detail", 0))
       case "tetrahedron":
         return new THREE.TetrahedronGeometry(r("radius", 1), ri("detail", 0))
-      case "text": {
-        if (!fontCache) return new THREE.BoxGeometry(1, 0.5, 0.2) // 字体未就绪 → 占位
-        return new TextGeometry(String(p.text ?? "Text"), {
-          font: fontCache,
-          size: r("size", 1),
-          depth: r("depth", 0.2),
-          curveSegments: 6,
-          bevelEnabled: false,
-        })
-      }
       default:
         return new THREE.BoxGeometry(1, 1, 1)
     }
   }
 
-  function buildMaterial(node: MaterialNode | string | undefined): THREE.Material {
+  private buildMaterial(node: MaterialNode | string | undefined): THREE.Material {
     // 字符串 = 引用 assets.materials[key]
-    const assetsMats = (props.doc?.assets?.materials ?? {}) as Record<string, MaterialNode>
+    const assetsMats = (this.doc?.assets?.materials ?? {}) as Record<string, MaterialNode>
     const n: MaterialNode = typeof node === "string" ? assetsMats[node] ?? { type: "standard" } : node ?? { type: "standard" }
     const type = n.type ?? "standard"
     const color = n.color ? new THREE.Color(n.color) : new THREE.Color(0xffffff)
@@ -563,7 +513,7 @@ export function SceneCanvas(props: {
         break
       case "physical": {
         const m = new THREE.MeshPhysicalMaterial({ color })
-        applyStandard(m, n)
+        this.applyStandard(m, n)
         if (n.clearcoat != null) m.clearcoat = n.clearcoat
         if (n.clearcoatRoughness != null) m.clearcoatRoughness = n.clearcoatRoughness
         if (n.transmission != null) {
@@ -572,15 +522,15 @@ export function SceneCanvas(props: {
         }
         if (n.thickness != null) m.thickness = n.thickness
         if (n.ior != null) m.ior = n.ior
-        if (n.sheen != null) m.sheen = n.sheen  
+        if (n.sheen != null) m.sheen = n.sheen
         if (n.sheenColor) m.sheenColor = new THREE.Color(n.sheenColor)
         mat = m
         break
-      }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+      }
       case "standard":
       default: {
         const m = new THREE.MeshStandardMaterial({ color })
-        applyStandard(m, n)
+        this.applyStandard(m, n)
         mat = m
         break
       }
@@ -601,7 +551,7 @@ export function SceneCanvas(props: {
     return mat
   }
 
-  function applyStandard(m: THREE.MeshStandardMaterial, n: MaterialNode) {
+  private applyStandard(m: THREE.MeshStandardMaterial, n: MaterialNode) {
     if (n.roughness != null) m.roughness = n.roughness
     if (n.metalness != null) m.metalness = n.metalness
     if (n.envMapIntensity != null) m.envMapIntensity = n.envMapIntensity
@@ -612,39 +562,21 @@ export function SceneCanvas(props: {
   // --------------------------------------------------------------------------
   // glb 加载 + 缓存(clone 复用)
   // --------------------------------------------------------------------------
-  async function loadGlb(
+  private async loadGlb(
     key: string,
     asset: { url: string; draco?: boolean },
   ): Promise<{ scene: THREE.Object3D; animations: THREE.AnimationClip[] } | null> {
-    if (!gltfLoader) return null
-    const cached = gltfCache.get(key)
+    if (!this.gltfLoader) return null
+    const cached = this.gltfCache.get(key)
     if (cached) return cached
     try {
-      const gltf = await gltfLoader.loadAsync(asset.url)
+      const gltf = await this.gltfLoader.loadAsync(asset.url)
       const result = { scene: gltf.scene, animations: gltf.animations ?? [] }
-      gltfCache.set(key, result)
+      this.gltfCache.set(key, result)
       return result
     } catch (err) {
-      console.error(`[SceneCanvas] glb 加载失败(${key}):`, asset.url, err)
+      console.error(`[SceneRenderer] glb 加载失败(${key}):`, asset.url, err)
       return null
     }
   }
-
-  // --------------------------------------------------------------------------
-  // 清理
-  // --------------------------------------------------------------------------
-  onCleanup(() => {
-    cancelAnimationFrame(raf)
-    resizeObs?.disconnect()
-    if (renderer) renderer.domElement.removeEventListener("pointerdown", onPointerDown)
-    clearSceneContents()
-    controls?.dispose()
-    pmrem?.dispose()
-    gltfCache.forEach((c) => disposeObject(c.scene))
-    gltfCache.clear()
-    renderer?.dispose()
-    if (renderer?.domElement.parentElement) renderer.domElement.parentElement.removeChild(renderer.domElement)
-  })
-
-  return <div ref={containerRef} style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }} />
 }

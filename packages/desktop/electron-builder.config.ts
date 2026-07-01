@@ -61,6 +61,11 @@ const getBase = (): Configuration => ({
       to: "previewdist",
       filter: ["**/*"],
     },
+    {
+      from: "../preview3d",
+      to: "preview3d",
+      filter: ["**/*"],
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",

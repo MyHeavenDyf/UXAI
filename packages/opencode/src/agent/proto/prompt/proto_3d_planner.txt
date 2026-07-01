@@ -46,8 +46,8 @@
       { "id": "vegetationGroup", "type": "group", "parentId": "sceneRoot", "position": [0, 0, 0] }
     ],
     "slots": [
-      { "section_id": "zoneGround", "parent_id": "sceneRoot", "id_prefix": "ground" },
-      { "section_id": "zoneVegetation", "parent_id": "vegetationGroup", "id_prefix": "tree" }
+      { "section_id": "zoneGround", "parent_id": "sceneRoot", "id_prefix": "ground", "bounds": { "xMin": -40, "xMax": 40, "zMin": -40, "zMax": 40 } },
+      { "section_id": "zoneVegetation", "parent_id": "vegetationGroup", "id_prefix": "tree", "bounds": { "xMin": -30, "xMax": 30, "zMin": -30, "zMax": 30 } }
     ]
   }
 }
@@ -65,3 +65,5 @@
 5. **slots 覆盖**：蓝图的每个 section 都要有一个 slot。slot.parent_id 必须指向 groups 中已声明的某个 group。
 6. **角度单位**：所有角度（fov 等）用「度」。
 7. **不要生成 mesh/glb 物体节点**——那些由下游 object agent 填充到 slot 里。你只产出舞台 + group 容器 + slot 分配。
+8. **多行排列方向(关键)**：场景有多个行/层时,**第一行(上行)放在远处(Z 最小,离相机最远),后面的行依次向近处(Z 递增)排列**。即从相机视角看,第一行在最里面(背景),最后一行在最外面(前景)。例如两行地板:上行 group 的 Z < 下行 group 的 Z。
+9. **bounds(关键)**：每个 slot 必须输出 `bounds`——该区域内物体**相对 parent group 的局部坐标范围** `{ xMin, xMax, zMin, zMax }`。下游 object agent 会严格在 bounds 内摆放物体,超出会被视为错误。计算方法：根据该 slot 所属 group 的 position 和你对区域的规划,给出合理的边界。**承载类 slot（地板上的设备区）的 bounds 必须与地板 slot 的实际覆盖范围一致**——先确定地板 slot 的 group 位置 + 尺寸,再据此推算设备 slot 的 bounds。

@@ -103,4 +103,5 @@ export type ElectronAPI = {
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
+  getPreviewDist3dDir: () => Promise<string>
 }
