@@ -119,7 +119,6 @@
 
 .studio-hd-create:hover {
   filter: brightness(1.04);
-  box-shadow: 0 8px 18px rgba(116, 87, 255, 0.16);
   transform: translateY(-1px);
 }
 

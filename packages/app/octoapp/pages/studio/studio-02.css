@@ -127,22 +127,25 @@
 }
 
 .studio-canvas-download-action {
-  width: 36px;
   height: 36px;
-  display: grid;
-  place-items: center;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 18px;
   border: none;
   border-radius: 999px;
   background: transparent;
   color: #191919;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
-  transition: transform 140ms ease, background-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
 .studio-canvas-download-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   transform: translateY(0);
   box-shadow: none;
   filter: none;
@@ -186,8 +189,7 @@
 }
 
 .studio-canvas-regenerate-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   transform: translateY(0);
   box-shadow: none;
   filter: none;
@@ -222,17 +224,16 @@
 
 .studio-canvas-video-action::before {
   content: "";
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   background-color: currentColor;
   mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
   -webkit-mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
 }
 
 .studio-canvas-video-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   border-radius: 4px;
 }
 
@@ -259,15 +260,14 @@
 }
 
 .studio-canvas-icon-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   border-radius: 4px;
 }
 
 .studio-canvas-icon-action-icon {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   background: currentColor;
 }
 

@@ -251,19 +251,19 @@ export function StudioResultCanvas(props: {
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content>
                             <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.regenerateDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
                               <DropdownMenu.ItemLabel>变清晰</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onCutout} disabled={props.regenerateDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
                               <DropdownMenu.ItemLabel>抠图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.regenerateDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
                               <DropdownMenu.ItemLabel>智能重绘</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.regenerateDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
                               <DropdownMenu.ItemLabel>扩图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                           </DropdownMenu.Content>
@@ -295,13 +295,14 @@ export function StudioResultCanvas(props: {
                     </Show>
                     <span class="studio-canvas-action-divider" />
                   </Show>
-                  <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                </button>
+                  <button type="button" onClick={props.onDownload} class="studio-canvas-download-action">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>下载</span>
+                  </button>
                 </div>
               </div>
               {props.children}
