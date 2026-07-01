@@ -1,3 +1,4 @@
+import proto_intent_confirm from "../agents/proto_intent_confirm"
 import proto_pattern_page from "../agents/proto_pattern_page"
 import proto_intent from "../agents/proto_intent"
 import proto_planner_create from "../agents/proto_planner_create"
@@ -19,11 +20,15 @@ export type ProtoCreateJsonInput = {
   onSessionCreated?: (childSessionID: string) => void
 }
 
-// 阶段 1：页面级 Pattern 匹配 + 意图扩展 + 布局规划（生成到此为止，等待设计师审查）
+// 阶段 1：意图确认（返回缺失维度的选项清单，由前端渲染 UI 暂停等待用户）
+export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
+  return await proto_intent_confirm(inputCtx)
+}
+
+// 阶段 2：页面级 Pattern 匹配 + 意图扩展 + 布局规划（生成到此为止，等待设计师审查）
 export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   // 页面级 Pattern 匹配
   const patternPageResult = await proto_pattern_page(inputCtx)
-  debugger
   // 意图扩展
   const intentResult = await proto_intent(inputCtx)
 
@@ -37,7 +42,7 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   }
 }
 
-// 阶段 2：并行生成各模块 JSON + 合并（设计师确认后续跑）
+// 阶段 3：并行生成各模块 JSON + 合并（设计师确认后续跑）
 export async function create_modules_json(
   inputCtx: ProtoCreateJsonInput,
   planner: any,
