@@ -3,10 +3,10 @@ import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/version-history"
 
-import { TitleBar } from "./TitleBar"
-import { CanvasView } from "./CanvasView"
-import { PropertyEditorPopup } from "./PropertyEditorPopup"
-import type { ModifyElementData } from "./PropertyEditorPopup"
+import { TitleBar } from "./title-bar"
+import { CanvasView } from "./canvas-view"
+import { PropertyEditorPopup } from "./property-editor-popup"
+import type { ModifyElementData } from "./property-editor-popup"
 import "../../assets/style/preview/index.css"
 
 export type PreviewPageAPI = {

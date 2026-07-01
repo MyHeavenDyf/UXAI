@@ -1,8 +1,8 @@
-import proto_intent_confirm from "../agents/proto_intent_confirm"
-import proto_pattern_page from "../agents/proto_pattern_page"
-import proto_intent from "../agents/proto_intent"
-import proto_planner_create from "../agents/proto_planner_create"
-import proto_module_create from "../agents/proto_module_create"
+import proto_intent_confirm from "../agents/proto-intent-confirm"
+import proto_pattern_page from "../agents/proto-page-pattern"
+import proto_intent from "../agents/proto-intent"
+import proto_planner_create from "../agents/proto-planner-create"
+import proto_module_create from "../agents/proto-module-create"
 import { mergeModules } from "../agents/merge"
 
 export type ProtoCreateJsonInput = {

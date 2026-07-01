@@ -5,7 +5,7 @@
  */
 
 import { getDesktopApi } from "./desktop-api"
-import type { IntentConfirmResult } from "../agents/proto_intent_confirm"
+import type { IntentConfirmResult } from "../agents/proto-intent-confirm"
 
 export type IntentConfirmCheckpoint = {
   options: IntentConfirmResult["options"]
