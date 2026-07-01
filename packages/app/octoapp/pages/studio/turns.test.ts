@@ -184,6 +184,33 @@ const contentFileToolPart = (id: string, messageID: string, url: string, tool = 
     },
   }) as unknown as Part
 
+const completedGenerationToolPart = (
+  id: string,
+  messageID: string,
+  input: Record<string, unknown>,
+  output: Record<string, unknown> = {},
+  tool = "internel_image_generate",
+) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
+    type: "tool",
+    callID: `call_${id}`,
+    tool,
+    state: {
+      status: "completed",
+      title: "图片生成",
+      time: { start: 1, end: 2 },
+      input,
+      output: JSON.stringify({
+        ok: true,
+        images: ["https://example.com/regenerate.png"],
+        ...output,
+      }),
+    },
+  }) as Part
+
 const pendingResult = (status: StudioGenerationResult["status"] = "succeeded"): StudioGenerationResult =>
   ({
     id: "studio_pending_1",
@@ -423,6 +450,33 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.status).toBe("failed")
     expect(turns[0].result?.capability).toBe("image.generate")
     expect(turns[0].result?.error).toBe("生成失败")
+  })
+
+  test("uses display prompt for regenerated turns while keeping the effective generation prompt", () => {
+    const user = userMessage("msg_regenerate_user")
+    const assistant = assistantMessage("msg_regenerate_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_regenerate_text", user.id, "一只大黄狗，阳光草地，胶片质感")],
+        [assistant.id]: [
+          textPart("p_regenerate_assistant", assistant.id, "好的，我会按当前结果的配置重新生成。"),
+          completedGenerationToolPart("p_regenerate_tool", assistant.id, {
+            capability: "image.generate",
+            prompt: "一只大黄狗",
+            displayPrompt: "再次生成",
+            refinedPrompt: "一只大黄狗，阳光草地，胶片质感",
+            effectivePrompt: "一只大黄狗，阳光草地，胶片质感",
+            aspectRatio: "3:4",
+          }),
+        ],
+      },
+    })
+
+    expect(turns[0].userText).toBe("再次生成")
+    expect(turns[0].assistantText).toBe("好的，我会按当前结果的配置重新生成。")
+    expect(turns[0].result?.prompt).toBe("一只大黄狗，阳光草地，胶片质感")
+    expect(turns[0].result?.displayPrompt).toBe("再次生成")
   })
 
   test("restores create failure separately from generation failure", () => {
