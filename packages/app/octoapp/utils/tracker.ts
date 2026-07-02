@@ -26,6 +26,34 @@ function getUserInfo(): UserInfo {
   }
 }
 
+// 应用版本号:从 localStorage.appInfo.version 读取,不存在则返回 undefined(不传)。
+function getAppVersion(): string | undefined {
+  try {
+    const appInfo = JSON.parse(localStorage.getItem("appInfo") ?? "{}") as { version?: string }
+    return appInfo?.version || undefined
+  } catch {
+    return undefined
+  }
+}
+
+// 契约无 app 版本字段(browserVersion 是浏览器版本),故 version 合并进 datas[].extend。
+// - 无 version:原样透传调用方 extend
+// - 有 version:并入 extend JSON;调用方 extend 非 JSON 时保底塞进 value 不丢数据
+function buildExtend(callerExtend?: string): string | undefined {
+  const version = getAppVersion()
+  if (!version) return callerExtend
+  let base: Record<string, unknown> = {}
+  if (callerExtend) {
+    try {
+      const parsed = JSON.parse(callerExtend)
+      base = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : { value: callerExtend }
+    } catch {
+      base = { value: callerExtend }
+    }
+  }
+  return JSON.stringify({ ...base, version })
+}
+
 function parseBrowser(): { browserName: string; browserVersion: string } {
   const ua = navigator.userAgent
   const edgeMatch = ua.match(/Edg\/([\d.]+)/)
@@ -91,7 +119,7 @@ async function sendPage(params: PageParams) {
           from: params.from ?? "",
           screenWidth: window.screen.width,
           screenHeight: window.screen.height,
-          extend: params.extend,
+          extend: buildExtend(params.extend),
         }],
       }),
     })
@@ -114,7 +142,7 @@ async function sendInteraction(params: InteractionParams) {
           subType: params.subType ?? "click",
           name: params.name,
           path: window.location.href,
-          extend: params.extend,
+          extend: buildExtend(params.extend),
         }],
       }),
     })

@@ -75,6 +75,7 @@ tracker.interaction({ module: "insight", name: "send-message", subType: "click",
 | `project` | 固定 `"octo-agent"` |
 | `datas[].path` | `window.location.href` |
 | `datas[].screenWidth/Height` | `window.screen`（仅页面打点） |
+| `datas[].extend.version` | `localStorage.appInfo.version`，容错读取，不存在则不注入；自动并入调用方 extend |
 
 ## 验证
 
