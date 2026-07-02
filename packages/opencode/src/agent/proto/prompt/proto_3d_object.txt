@@ -23,6 +23,17 @@
     - **防共面闪烁(z-fighting)**：两个物体的表面**禁止**位于完全相同的坐标。接触地面的物体底部 Y 要比地面高 **0.02~0.05** 的小余量(如物体高 2m,放在 Y=1.02 而非 Y=1.0)。叠放的物体层与层之间也要留 ≥0.02 的间隙。
   4. **材质与外观：** 按设计规范取值（金属 metalness=1 需场景有环境光；玻璃用 physical+transmission；颜色用 "#rrggbb"）。
   5. **声 明式动效：** 风车/转盘/行星等旋转物体用 `"spin": [x, y, z]`（度/秒）。glb 模型的内置动画用 `"animation": "<clipName>"` 或 true。**禁止**输出关键帧数值数据。
+  6. **文字 mode 选择(关键)**：text 几何的 `mode` 参数按用途选择,优先级:
+     - **卡片/标签/标注/信息提示** → `"mode": "css2d"`(HTML 浮层,始终面向相机,清晰,支持中文)。**这是卡片类元素的首选**。
+     - **广告牌/屏幕面板/嵌入内容(需跟随 3D 旋转)** → `"mode": "css3d"`(HTML 参与 3D 变换,可旋转/遮挡)。
+     - **立体标题/logo/路牌(需要真实 3D 厚度)** → `"mode": "3d"`(TextGeometry 挤出,仅 ASCII)。
+     - 不填 mode 时:ASCII 自动用 3d,非 ASCII 自动用 canvas 贴图。
+     **凡是"卡片"类需求(区域名标签、设备名标注、信息卡),一律优先 `mode: "css2d"`。**
+     **css2d 卡片禁止额外生成背景板/边框 mesh**——CSS2D 文字自带卡片样式,不要再输出 cardBoard/cardBorder/cardBg 等独立 mesh。一张卡片 = 一个 css2d text 节点。
+     - 卡片样式:在 text params 加 `"card": true` 启用卡片外观(自带背景+圆角+内边距),可选 `"bg": "#rrggbb"` 或 `"bg": "rgba(0,0,0,0.7)"` 指定背景色。不加 card 则是纯文字。
+     - **卡片合并(关键)**:同一个卡片的所有信息(标题、容量、公司、路线、时间等)**合并到一个 css2d text 节点**。**禁止**把一张卡片拆成多个 text 节点。只有用户明确要求"多张卡片"时才生成多个。
+     - **HTML 格式(css2d/css3d 专属)**:`text` 字段在 css2d/css3d 模式下支持 HTML 标签。用 `<br>` 换行、`<b>` 加粗、`<span style='color:#xxx'>` 局部着色、`<div style='...'>` 分区排版、`<small>` 缩小。可构建富文本卡片。
+     - **CRITICAL:HTML 属性必须用单引号**(`style='color:red'`),**严禁用双引号**(`style="color:red"`)——因为 text 在 JSON 字符串里,双引号会破坏 JSON 结构导致解析失败。
 
 # 输出格式（CRITICAL）
   只输出如下结构的纯 JSON，无 markdown、无代码块、无解释：

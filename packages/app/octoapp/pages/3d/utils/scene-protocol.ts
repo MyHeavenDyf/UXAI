@@ -263,7 +263,7 @@ export const GEOMETRY_PARAMS: Record<GeometryType, { params: string[]; defaults:
   icosahedron: { params: ["radius", "detail"], defaults: { radius: 1, detail: 0 } },
   octahedron: { params: ["radius", "detail"], defaults: { radius: 1, detail: 0 } },
   tetrahedron: { params: ["radius", "detail"], defaults: { radius: 1, detail: 0 } },
-  text: { params: ["text", "size", "depth"], defaults: { text: "Text", size: 1, depth: 0.2 } },
+  text: { params: ["text", "size", "depth", "mode"], defaults: { text: "Text", size: 1, depth: 0.2, mode: "3d" } },
 }
 
 export const GEOMETRY_DESCRIPTIONS: Record<GeometryType, string> = {
@@ -281,7 +281,7 @@ export const GEOMETRY_DESCRIPTIONS: Record<GeometryType, string> = {
   icosahedron: "二十面体(最接近球的多面体)。水晶、低多边形球",
   octahedron: "八面体。水晶、宝石",
   tetrahedron: "四面体。最简单多面体",
-  text: "3D 文字(挤出立体)。标题、标语、路牌、logo",
+  text: "3D 文字。标题、标语、路牌、标签。mode 可选: 3d(立体挤出,仅 ASCII)/ css2d(HTML 浮层,始终面向相机,支持中文)/ css3d(HTML 参与 3D 变换,可旋转/遮挡)",
 }
 
 export const LIGHT_DESCRIPTIONS: Record<LightType, string> = {

@@ -24,6 +24,8 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js"
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js"
 import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js"
+import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js"
+import { CSS3DRenderer, CSS3DObject } from "three/examples/jsm/renderers/CSS3DRenderer.js"
 import { createEffect, on, onCleanup, onMount, type JSX } from "solid-js"
 import type { SceneDocument, SceneObject, MaterialNode, LightNode, CameraNode } from "../../utils/scene-protocol"
 
@@ -58,6 +60,9 @@ export function SceneCanvas(props: {
   // text 几何用的字体(懒加载,首次遇到 text 类型时从 CDN 拉)
   let fontCache: any = null
   let fontPromise: Promise<any | null> | undefined
+  // CSS2D/CSS3D 渲染器(text mode=css2d/css3d 时用)
+  let labelRenderer: CSS2DRenderer | undefined
+  let cssRenderer: CSS3DRenderer | undefined
   let raf = 0
 
   // 动画/资源追踪
@@ -131,6 +136,28 @@ export function SceneCanvas(props: {
 
     renderer.domElement.addEventListener("pointerdown", onPointerDown)
 
+    // CSS2D 渲染器(HTML 标签浮层,始终面向相机) — try-catch 保护,失败不影响 WebGL
+    try {
+      labelRenderer = new CSS2DRenderer()
+      labelRenderer.setSize(w, h)
+      labelRenderer.domElement.style.position = "absolute"
+      labelRenderer.domElement.style.top = "0"
+      labelRenderer.domElement.style.left = "0"
+      labelRenderer.domElement.style.pointerEvents = "none"
+      el.appendChild(labelRenderer.domElement)
+    } catch (e) { console.warn("[SceneCanvas] CSS2DRenderer init failed:", e) }
+
+    // CSS3D 渲染器(HTML 元素参与 3D 变换,可旋转/缩放/遮挡)
+    try {
+      cssRenderer = new CSS3DRenderer()
+      cssRenderer.setSize(w, h)
+      cssRenderer.domElement.style.position = "absolute"
+      cssRenderer.domElement.style.top = "0"
+      cssRenderer.domElement.style.left = "0"
+      cssRenderer.domElement.style.pointerEvents = "none"
+      el.appendChild(cssRenderer.domElement)
+    } catch (e) { console.warn("[SceneCanvas] CSS3DRenderer init failed:", e) }
+
     resizeObs = new ResizeObserver(() => onResize())
     resizeObs.observe(el)
 
@@ -145,6 +172,8 @@ export function SceneCanvas(props: {
     const h = containerRef.clientHeight
     if (!w || !h) return
     renderer.setSize(w, h)
+    labelRenderer?.setSize(w, h)
+    cssRenderer?.setSize(w, h)
     if (camera instanceof THREE.PerspectiveCamera) {
       camera.aspect = w / h
       camera.updateProjectionMatrix()
@@ -183,6 +212,8 @@ export function SceneCanvas(props: {
     for (const m of mixers) m.update(dt)
     controls?.update()
     if (renderer && scene && camera) renderer.render(scene, camera)
+    if (labelRenderer && scene && camera) labelRenderer.render(scene, camera)
+    if (cssRenderer && scene && camera) cssRenderer.render(scene, camera)
   }
 
   // --------------------------------------------------------------------------
@@ -236,6 +267,13 @@ export function SceneCanvas(props: {
     for (const child of [...scene.children]) {
       scene.remove(child)
       disposeObject(child)
+    }
+    // 清理 CSS2D/CSS3D 残留 DOM 元素(修改重建时防止旧 div 冲突导致卡死)
+    if (labelRenderer) {
+      while (labelRenderer.domElement.firstChild) labelRenderer.domElement.removeChild(labelRenderer.domElement.firstChild)
+    }
+    if (cssRenderer) {
+      while (cssRenderer.domElement.firstChild) cssRenderer.domElement.removeChild(cssRenderer.domElement.firstChild)
     }
   }
 
@@ -383,9 +421,53 @@ export function SceneCanvas(props: {
           const tp = (obj.geometry?.params ?? {}) as Record<string, any>
           const text = String(tp.text ?? "Text")
           const size = Number(tp.size) > 0 ? Number(tp.size) : 1
-          const isAscii = /^[\x00-\x7F]*$/.test(text)
-          if (isAscii && fontCache) {
-            // A. TextGeometry(3D 挤出,仅 ASCII)
+          const mode = tp.mode // "css2d" | "css3d" | "3d" | undefined
+          const matColor = typeof obj.material === "object" && (obj.material as any)?.color ? (obj.material as any).color : "#ffffff"
+
+          if (mode === "css2d" && labelRenderer) {
+            // C. CSS2D 文字/卡片(HTML 浮层,始终面向相机,支持 HTML 格式 + 多行布局)
+            const div = document.createElement("div")
+            div.innerHTML = text
+            div.style.color = matColor
+            div.style.fontSize = `${Math.round(size * 50)}px`
+            div.style.fontWeight = "bold"
+            div.style.pointerEvents = "none"
+            div.style.lineHeight = "1.5"
+            // 卡片样式:card=true 时自带背景+圆角+内边距,支持多行 2D 布局
+            if (tp.card) {
+              div.style.whiteSpace = "pre-line" // \n → 换行
+              div.style.background = tp.bg ?? "rgba(0,0,0,0.75)"
+              div.style.padding = "8px 16px"
+              div.style.borderRadius = "8px"
+              div.style.boxShadow = "0 2px 8px rgba(0,0,0,0.3)"
+              div.style.maxWidth = "300px"
+            } else {
+              div.style.whiteSpace = "nowrap"
+            }
+            o = new CSS2DObject(div)
+          } else if (mode === "css3d" && cssRenderer) {
+            // D. CSS3D 文字(HTML 参与 3D 变换,可旋转/遮挡,支持 HTML 格式)
+            const div = document.createElement("div")
+            div.innerHTML = text
+            div.style.color = matColor
+            div.style.fontSize = "100px"
+            div.style.fontWeight = "bold"
+            div.style.pointerEvents = "none"
+            div.style.whiteSpace = "nowrap"
+            if (tp.card) {
+              div.style.background = tp.bg ?? "rgba(0,0,0,0.7)"
+              div.style.padding = "8px 20px"
+              div.style.borderRadius = "8px"
+            }
+            div.style.fontSize = "100px"
+            div.style.fontWeight = "bold"
+            div.style.pointerEvents = "none"
+            div.style.whiteSpace = "nowrap"
+            const label = new CSS3DObject(div)
+            label.scale.set(size / 100, size / 100, 1) // 100px 映射到 size 世界单位
+            o = label
+          } else if (mode === "3d" || (!mode && /^[\x00-\x7F]*$/.test(text) && fontCache)) {
+            // A. TextGeometry(3D 挤出立体,仅 ASCII)
             const geo = buildGeometry("text", tp)
             const mat = buildMaterial(obj.material)
             const mesh = new THREE.Mesh(geo, mat)
@@ -393,7 +475,7 @@ export function SceneCanvas(props: {
             if (obj.receiveShadow) mesh.receiveShadow = true
             o = mesh
           } else {
-            // B. canvas 贴图文字(支持中文/任意语言)
+            // B. canvas 贴图文字(默认:非 ASCII 或字体未就绪时,支持中文)
             const cv = document.createElement("canvas")
             const ctx = cv.getContext("2d")!
             const fs = 128
@@ -410,10 +492,8 @@ export function SceneCanvas(props: {
             tex.colorSpace = THREE.SRGBColorSpace
             const planeW = size * (cv.width / cv.height)
             const geo = new THREE.PlaneGeometry(planeW, size)
-            const matColor = typeof obj.material === "object" && (obj.material as any)?.color ? (obj.material as any).color : "#ffffff"
             const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, color: new THREE.Color(matColor), side: THREE.DoubleSide })
-            const mesh = new THREE.Mesh(geo, mat)
-            o = mesh
+            o = new THREE.Mesh(geo, mat)
           }
           break
         }

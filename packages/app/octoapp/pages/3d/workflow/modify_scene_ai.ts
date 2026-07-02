@@ -83,6 +83,7 @@ export default async function modify_scene_ai(inputCtx: ModifySceneCtx, lastData
           layout: a.detail,
         },
         intentDescription,
+        camera: lastData.sceneJson?.camera ?? lastData.lastPlanner?.camera,
       }),
     ),
   )
