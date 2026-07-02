@@ -9,10 +9,10 @@ import {
   GRID_POSITIONS,
 } from "./constants"
 import { isTailwindToken, normalizeCssKeys, toHex } from "./utils"
-import { parseClass, type ParsedClassInfo } from "./classParser"
-import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./rawParsers"
-import { DragInput } from "./DragInput"
-import { CustomSelect } from "./CustomSelect"
+import { parseClass, type ParsedClassInfo } from "./class-parser"
+import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
+import { DragInput } from "./drag-input"
+import { CustomSelect } from "./custom-select"
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
