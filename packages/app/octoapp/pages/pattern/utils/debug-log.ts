@@ -64,41 +64,63 @@ export function clearDebugLog() {
 
 import { getDesktopApi } from "./desktop-api"
 
-export type DebugLogState = {
-  lastIntent: Record<string, unknown> | null
-  lastPlanner: Record<string, unknown> | null
-  lastModules: Array<Record<string, unknown>>
-  mergedA2UI?: Record<string, unknown>
-  debug: SessionDebugLog | null
-}
+export type DebugPhase = "intent_confirm" | "planner" | "modules" | "modify" | "modify_triage" | "modify_planner" | "create" | "error"
 
 const DEBUG_LOG_PREFIX = "octo:pattern:debug-log"
 
-function sanitizeFilename(summary: string): string {
-  return summary
-    .replace(/[\\/:*?"<>|]/g, "")
-    .replace(/\s+/g, "-")
-    .slice(0, 80)
-}
-
-export async function saveDebugLog(
+export async function saveDebugSnapshot(
   historyDir: string,
   sessionId: string,
-  state: DebugLogState,
-  summary: string,
+  phase: DebugPhase,
+  opts?: {
+    error?: string
+    lastIntent?: Record<string, unknown> | null
+    lastPlanner?: Record<string, unknown> | null
+    lastModules?: Array<Record<string, unknown>>
+    mergedA2UI?: Record<string, unknown>
+    summary?: string
+    extra?: Record<string, unknown>
+  },
 ): Promise<void> {
   const api = getDesktopApi()
-  const now = Date.now()
-  const filename = `${now}-${sanitizeFilename(summary)}.json`
-  const { debug, ...rest } = state
-  const payload = JSON.stringify({ debug, ...rest, savedAt: now, summary }, null, 2)
-
+  const snapshot = getDebugSnapshot()
   const baseDir = historyDir.replace(/\/history$/, "")
-  const path = `${baseDir}/debug-log/${sessionId}/${filename}`
+  const fid = _current?.startedAt ?? Date.now()
+  const path = `${baseDir}/debug-log/${sessionId}/${fid}.json`
+
+  let entries: Array<Record<string, unknown>> = []
+  if (api?.readFileBuffer) {
+    try {
+      const buf = await api.readFileBuffer(path)
+      if (buf) entries = JSON.parse(new TextDecoder().decode(buf))
+    } catch {}
+  } else {
+    const stored = localStorage.getItem(`${DEBUG_LOG_PREFIX}:${sessionId}:${fid}`)
+    if (stored) {
+      try { entries = JSON.parse(stored) } catch {}
+    }
+  }
+
+  const entry: Record<string, unknown> = {
+    phase,
+    savedAt: Date.now(),
+    debug: snapshot,
+  }
+  if (opts?.error !== undefined) entry.error = opts.error
+  if (opts?.extra !== undefined) entry.extra = opts.extra
+  if (opts?.summary !== undefined) entry.summary = opts.summary
+  if (opts?.lastIntent !== undefined) entry.lastIntent = opts.lastIntent
+  if (opts?.lastPlanner !== undefined) entry.lastPlanner = opts.lastPlanner
+  if (opts?.lastModules !== undefined) entry.lastModules = opts.lastModules
+  if (opts?.mergedA2UI !== undefined) entry.mergedA2UI = opts.mergedA2UI
+
+  entries.push(entry)
+  const payload = JSON.stringify(entries, null, 2)
+
   if (api?.writeFileBuffer) {
     const encoder = new TextEncoder()
     await api.writeFileBuffer(path, encoder.encode(payload).buffer)
     return
   }
-  localStorage.setItem(`${DEBUG_LOG_PREFIX}:${sessionId}:${filename}`, payload)
+  localStorage.setItem(`${DEBUG_LOG_PREFIX}:${sessionId}:${fid}`, payload)
 }

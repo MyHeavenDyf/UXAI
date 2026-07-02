@@ -6,7 +6,7 @@
  */
 import type { VersionEntry } from "../utils/version-history"
 import { appendPatternVersion } from "../utils/version-history"
-import { getDebugSnapshot, clearDebugLog, saveDebugLog } from "../utils/debug-log"
+import { clearDebugLog, saveDebugSnapshot } from "../utils/debug-log"
 import { mergeModules } from "../agents/merge"
 /** 一次快速修改操作的数据，由 PropertyEditorPopup 提交 */
 export type ModifyElementData = {
@@ -230,9 +230,6 @@ export async function handleModifyElement(
           "快速修改"
         ).slice(0, 80)
 
-        // 收集调试日志
-        const debug = getDebugSnapshot()
-
         // 写入本地历史文件
         const vid = await appendPatternVersion(
           dir,
@@ -248,13 +245,28 @@ export async function handleModifyElement(
 
         clearDebugLog()
 
-        void saveDebugLog(dir, sid, {
+        const baseElementId = data.elementId.replace(/:\d+$/, "")
+        const modifiedEl = (doc as any).elements.find((el: any) => el.id === baseElementId)
+        void saveDebugSnapshot(dir, sid, "modify", {
           lastIntent: ctx.getLastIntent(),
+          extra: {
+            modifyElementData: {
+              elementId: data.elementId,
+              className: data.className,
+              textContent: data.textContent,
+              componentProps: data.componentProps,
+              tag: data.tag,
+            },
+            beforeProps,
+            afterProps: modifiedEl?.props ?? null,
+            found,
+            totalElements: (doc as any).elements.length,
+          },
           lastPlanner: ctx.getLastPlanner(),
           lastModules: ctx.getLastModules(),
           mergedA2UI: doc as unknown as Record<string, unknown>,
-          debug,
-        }, summary)
+          summary,
+        })
 
         // 更新 UI 版本列表与当前选中
         ctx.setVersions((prev) => [

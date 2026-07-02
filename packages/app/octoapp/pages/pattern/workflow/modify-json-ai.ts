@@ -5,6 +5,7 @@ import proto_planner_modify from "../agents/proto-planner-modify"
 import proto_module_create from "../agents/proto-module-create"
 import proto_module_modify from "../agents/proto-module-modify" 
 import { mergeModules } from "../agents/merge"
+import { saveDebugSnapshot } from "../utils/debug-log"
 
 type ProtoModifyJsonInput = {
   // 公共sdk
@@ -39,12 +40,14 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
     let lastIntent = lastData.lastIntent;
     let lastPlanner = lastData.lastPlanner;
     let lastModules = lastData.lastModules;
+    const historyDir = `${inputCtx.sdk.directory}/.octo/design/history`
     
     // 分诊，判断是修改，还是重新生成，还是简单回答用户问题
     const triage = await proto_triage({ 
         ...inputCtx, 
         ...lastData
     })
+    void saveDebugSnapshot(historyDir, inputCtx.rootSession, "modify_triage")
     
     // 暂时屏蔽非修改场景
     if (triage.routing !== "modify"){
@@ -63,6 +66,10 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
                 intentPage: triage.updated_intent,
                 layoutPlanner: lastPlanner,
             },
+        })
+        void saveDebugSnapshot(historyDir, inputCtx.rootSession, "modify_planner", {
+          lastIntent: triage.updated_intent,
+          lastPlanner: modifyResult.output as unknown as Record<string, unknown>,
         })
 
         const updatedIntent = { ...triage.updated_intent }
