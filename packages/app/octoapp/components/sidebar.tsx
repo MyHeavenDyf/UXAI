@@ -274,8 +274,47 @@ const params = useParams()
                       const hasMessages = createMemo(() => !!(session.time.updated && session.time.created && session.time.updated > session.time.created))
                       const isRenaming = () => renamingId() === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
+                      const [isTruncated, setIsTruncated] = createSignal(false)
+                      let titleRef!: HTMLSpanElement
+                      let titleResizeObserver: ResizeObserver | undefined
+                      const checkTruncation = () => {
+                        if (titleRef) setIsTruncated(titleRef.scrollWidth > titleRef.clientWidth)
+                      }
+                      createEffect(() => {
+                        const _title = sessionTitle(session.title) ?? language.t("command.session.new")
+                        void _title
+                        queueMicrotask(() => checkTruncation())
+                      })
+                      onCleanup(() => titleResizeObserver?.disconnect())
+                      const [showTooltip, setShowTooltip] = createSignal(false)
+                      let tooltipTimeout: ReturnType<typeof setTimeout> | undefined
+                      let tooltipRef!: HTMLDivElement
+                      const [tooltipStyle, setTooltipStyle] = createSignal<JSX.CSSProperties>({})
+                      const updateTooltipPos = () => {
+                        if (!titleRef) return
+                        const rect = titleRef.getBoundingClientRect()
+                        const spaceBelow = window.innerHeight - rect.bottom
+                        const style: JSX.CSSProperties = { left: `${rect.left}px` }
+                        if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+                          style.top = `${rect.bottom + 4}px`
+                        } else {
+                          style.bottom = `${window.innerHeight - rect.top + 4}px`
+                        }
+                        setTooltipStyle(style)
+                      }
+                      const enterTrigger = () => {
+                        if (!isTruncated()) return
+                        clearTimeout(tooltipTimeout)
+                        updateTooltipPos()
+                        setShowTooltip(true)
+                      }
+                      const leaveTrigger = () => {
+                        tooltipTimeout = setTimeout(() => setShowTooltip(false), 150)
+                      }
+                      const enterTooltip = () => clearTimeout(tooltipTimeout)
+                      const leaveTooltip = () => setShowTooltip(false)
                       return (
-                        <div ref={(el) => { if (el) sessionRefs.set(session.id, el) }} class="group/item relative">
+                        <div ref={(el) => { if (el) sessionRefs.set(session.id, el) }} class="relative">
                           <Show when={!isRenaming()} fallback={
                             <div
                               class="w-full rounded-[8px] flex items-center"
@@ -310,6 +349,8 @@ const params = useParams()
                                 e.preventDefault()
                                 setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: hasMessages() })
                               }}
+                              onMouseEnter={enterTrigger}
+                              onMouseLeave={leaveTrigger}
                               class="flex items-center w-full rounded-[8px] transition-colors text-left"
                               style={{ height: "36px", padding: "0 24px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
                               classList={{
@@ -318,10 +359,24 @@ const params = useParams()
                                 "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
                               }}
                             >
-                              <span class="flex-1 min-w-0 truncate text-left">
+                              <span ref={(el) => { titleRef = el; titleResizeObserver?.disconnect(); titleResizeObserver = new ResizeObserver(() => checkTruncation()); titleResizeObserver.observe(el); queueMicrotask(() => checkTruncation()) }} class="flex-1 min-w-0 truncate text-left">
                                 {sessionTitle(session.title) ?? language.t("command.session.new")}
                               </span>
                             </button>
+                          </Show>
+                          {/* Custom tooltip — Portal to body, only when truncated */}
+                          <Show when={showTooltip()}>
+                            <Portal>
+                              <div
+                                ref={tooltipRef!}
+                                style={tooltipStyle()}
+                                onMouseEnter={enterTooltip}
+                                onMouseLeave={leaveTooltip}
+                                class="studio-custom-tooltip fixed z-[1000]"
+                              >
+                                {sessionTitle(session.title) ?? language.t("command.session.new")}
+                              </div>
+                            </Portal>
                           </Show>
                           {/* Active right indicator bar */}
                           <Show when={isActive()}>

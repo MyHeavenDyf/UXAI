@@ -2,7 +2,8 @@ import "./studio/studio.css"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
@@ -1002,6 +1003,45 @@ export default function StudioPage() {
     saving: false,
   })
   let headerTitleRef: HTMLInputElement | undefined
+  const [isHeaderTruncated, setIsHeaderTruncated] = createSignal(false)
+  let headerSpanRef!: HTMLSpanElement
+  let headerResizeObserver: ResizeObserver | undefined
+  const checkHeaderTruncation = () => {
+    if (headerSpanRef) setIsHeaderTruncated(headerSpanRef.scrollWidth > headerSpanRef.clientWidth)
+  }
+  onCleanup(() => headerResizeObserver?.disconnect())
+  createEffect(() => {
+    const _title = currentTitle()
+    void _title
+    queueMicrotask(() => checkHeaderTruncation())
+  })
+  const [showHeaderTooltip, setShowHeaderTooltip] = createSignal(false)
+  let headerTooltipTimeout: ReturnType<typeof setTimeout> | undefined
+  let headerTooltipRef!: HTMLDivElement
+  const [headerTooltipStyle, setHeaderTooltipStyle] = createSignal<JSX.CSSProperties>({})
+  const updateHeaderTooltipPos = () => {
+    if (!headerSpanRef) return
+    const rect = headerSpanRef.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const style: JSX.CSSProperties = { left: `${rect.left}px` }
+    if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+      style.top = `${rect.bottom + 4}px`
+    } else {
+      style.bottom = `${window.innerHeight - rect.top + 4}px`
+    }
+    setHeaderTooltipStyle(style)
+  }
+  const enterHeaderTrigger = () => {
+    if (!isHeaderTruncated()) return
+    clearTimeout(headerTooltipTimeout)
+    updateHeaderTooltipPos()
+    setShowHeaderTooltip(true)
+  }
+  const leaveHeaderTrigger = () => {
+    headerTooltipTimeout = setTimeout(() => setShowHeaderTooltip(false), 150)
+  }
+  const enterHeaderTooltip = () => clearTimeout(headerTooltipTimeout)
+  const leaveHeaderTooltip = () => setShowHeaderTooltip(false)
 
   // 菜单打开时关闭浮层侧边栏、清除 overflow 避免裁剪 Portal 内容
   createEffect(() => {
@@ -2684,9 +2724,32 @@ export default function StudioPage() {
         <Show when={showStudioCenter()}>
           <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
           <div class="studio-center-header">
+            <div class="flex-1 min-w-0">
             <Show
               when={headerTitle.editing}
-              fallback={<div class="studio-center-title">{currentTitle()}</div>}
+              fallback={
+                <>
+                  <div
+                    ref={(el) => { headerSpanRef = el; headerResizeObserver?.disconnect(); headerResizeObserver = new ResizeObserver(() => checkHeaderTruncation()); headerResizeObserver.observe(el); queueMicrotask(() => checkHeaderTruncation()) }}
+                    class="studio-center-title"
+                    onMouseEnter={enterHeaderTrigger}
+                    onMouseLeave={leaveHeaderTrigger}
+                  >{currentTitle()}</div>
+                  <Show when={showHeaderTooltip()}>
+                    <Portal>
+                      <div
+                        ref={headerTooltipRef!}
+                        style={headerTooltipStyle()}
+                        onMouseEnter={enterHeaderTooltip}
+                        onMouseLeave={leaveHeaderTooltip}
+                        class="studio-custom-tooltip fixed z-[1000]"
+                      >
+                        {currentTitle()}
+                      </div>
+                    </Portal>
+                  </Show>
+                </>
+              }
             >
               <InlineInput
                 ref={(el) => {
@@ -2711,6 +2774,7 @@ export default function StudioPage() {
                 onBlur={() => void saveHeaderTitleEditor()}
               />
             </Show>
+            </div>
             <Show when={params.id}>
                 <DropdownMenu
                   gutter={4}

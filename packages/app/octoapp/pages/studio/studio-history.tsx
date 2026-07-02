@@ -297,29 +297,85 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
+                      const [isTruncated, setIsTruncated] = createSignal(false)
+                      let titleSpanRef!: HTMLSpanElement
+                      let titleResizeObserver: ResizeObserver | undefined
+                      const checkTruncation = () => {
+                        if (titleSpanRef) setIsTruncated(titleSpanRef.scrollWidth > titleSpanRef.clientWidth)
+                      }
+                      createEffect(() => {
+                        const _title = sessionTitle(session.title) ?? language.t("command.session.new")
+                        void _title
+                        queueMicrotask(() => checkTruncation())
+                      })
+                      onCleanup(() => titleResizeObserver?.disconnect())
+                      const [showTooltip, setShowTooltip] = createSignal(false)
+                      let tooltipTimeout: ReturnType<typeof setTimeout> | undefined
+                      let tooltipRef!: HTMLDivElement
+                      const [tooltipStyle, setTooltipStyle] = createSignal<JSX.CSSProperties>({})
+                      const updateTooltipPos = () => {
+                        if (!titleSpanRef) return
+                        const rect = titleSpanRef.getBoundingClientRect()
+                        const spaceBelow = window.innerHeight - rect.bottom
+                        const style: JSX.CSSProperties = { left: `${rect.left}px` }
+                        if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+                          style.top = `${rect.bottom + 4}px`
+                        } else {
+                          style.bottom = `${window.innerHeight - rect.top + 4}px`
+                        }
+                        setTooltipStyle(style)
+                      }
+                      const enterTrigger = () => {
+                        if (!isTruncated()) return
+                        clearTimeout(tooltipTimeout)
+                        updateTooltipPos()
+                        setShowTooltip(true)
+                      }
+                      const leaveTrigger = () => {
+                        tooltipTimeout = setTimeout(() => setShowTooltip(false), 150)
+                      }
+                      const enterTooltip = () => clearTimeout(tooltipTimeout)
+                      const leaveTooltip = () => setShowTooltip(false)
                       return (
-                        <div class="group/item relative">
+                        <div class="relative">
                           <Show
                             when={title.editingID === session.id}
                             fallback={
-                              <a
-                                href={`/${props.routeSlug}/studio/${session.id}`}
-                                class="flex items-center w-full rounded-[8px] transition-colors"
-                                style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
-                                classList={{
-                                  "bg-[rgba(10,89,247,0.08)]": isActive(),
-                                  "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
-                                  "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
-                                }}
-                                onContextMenu={(e) => {
-                                  e.preventDefault()
-                                  setContextMenu({ show: true, x: e.clientX, y: e.clientY, session })
-                                }}
-                              >
-                                <span class="flex-1 min-w-0 truncate">
-                                  {sessionTitle(session.title) ?? language.t("command.session.new")}
-                                </span>
-                              </a>
+                              <>
+                                <a
+                                  href={`/${props.routeSlug}/studio/${session.id}`}
+                                  class="flex items-center w-full rounded-[8px] transition-colors"
+                                  style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
+                                  classList={{
+                                    "bg-[rgba(10,89,247,0.08)]": isActive(),
+                                    "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
+                                    "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
+                                  }}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault()
+                                    setContextMenu({ show: true, x: e.clientX, y: e.clientY, session })
+                                  }}
+                                  onMouseEnter={enterTrigger}
+                                  onMouseLeave={leaveTrigger}
+                                >
+                                  <span ref={(el) => { titleSpanRef = el; titleResizeObserver?.disconnect(); titleResizeObserver = new ResizeObserver(() => checkTruncation()); titleResizeObserver.observe(el); queueMicrotask(() => checkTruncation()) }} class="flex-1 min-w-0 truncate">
+                                    {sessionTitle(session.title) ?? language.t("command.session.new")}
+                                  </span>
+                                </a>
+                                <Show when={showTooltip()}>
+                                  <Portal>
+                                    <div
+                                      ref={tooltipRef!}
+                                      style={tooltipStyle()}
+                                      onMouseEnter={enterTooltip}
+                                      onMouseLeave={leaveTooltip}
+                                      class="studio-custom-tooltip fixed z-[1000]"
+                                    >
+                                      {sessionTitle(session.title) ?? language.t("command.session.new")}
+                                    </div>
+                                  </Portal>
+                                </Show>
+                              </>
                             }
                           >
                             <div
