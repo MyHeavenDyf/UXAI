@@ -39,6 +39,7 @@ import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
+import { saveTheme, loadTheme } from "./utils/theme"
 
 const AGENT_NAME = "proto_triage"
 
@@ -80,7 +81,6 @@ function PatternContent() {
       if (!id) return null as Session | null
       try {
         const result = await sdk.client.session.get({ sessionID: id })
-        setSelectedDesignSystem("ICT-3.1")
         return (result.data as Session | undefined) ?? null
       } catch {
         return null as Session | null
@@ -108,7 +108,7 @@ function PatternContent() {
       (id, prevId) => {
         // ── 1. 切换 session 时同步清理 ──
         if (prevId !== undefined) {
-          setSelectedDesignSystem("ICT-3.1")
+          setSelectedDesignSystem("ICT3.1")
           setUserInput("")
           setIntentConfirm(null)
         }
@@ -154,6 +154,10 @@ function PatternContent() {
           if (dir) {
             void async function() {
               if (params.id !== id) return
+              // 读取该会话持久化的设计系统主题
+              const savedTheme = await loadTheme(dir, id)
+              if (params.id !== id) return
+              setSelectedDesignSystem(savedTheme ?? "ICT3.1")
               // 意图确认数据读取
               const checkpoint = await loadIntentConfirmCheckpoint(dir, id)
               if (params.id !== id) return
@@ -276,7 +280,7 @@ function PatternContent() {
   const sending = () => !!params.id && sendingSids().has(params.id)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
-  const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string | null>(null)
+  const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string>("ICT3.1")
   const [lastIntent, setLastIntent] = createSignal<Record<string, unknown> | null>(null)
   const [lastPlanner, setLastPlanner] = createSignal<Record<string, unknown> | null>(null)
   const [lastModules, setLastModules] = createSignal<Array<Record<string, unknown>>>([])
@@ -416,7 +420,6 @@ function PatternContent() {
         const result = await sdk.client.session.create({ directory: dir, agent: AGENT_NAME })
         const session = result.data as Session | undefined
         if (!session) return
-        setSelectedDesignSystem("ICT-3.1")
         navigate(`/pattern/${session.id}`)
         sid = session.id
       }
@@ -429,7 +432,10 @@ function PatternContent() {
         return next
       })
       const startDir = patternHistoryDir()
-      if (startDir) void clearProtoError(startDir, sid!)
+      if (startDir) {
+        void clearProtoError(startDir, sid!)
+        void saveTheme(startDir, sid!, selectedDesignSystem())
+      }
 
       // 执行流程的基础上下文
       const ds = selectedDesignSystem()
@@ -439,7 +445,7 @@ function PatternContent() {
         modelKey: mk,
         rootSession: sid,
         userInput: text,
-        extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
+        extra: { designSystem: ds },
         onSessionCreated: (childID: string) => {
           if (params.id !== sid) return
           setChildSessionIDs((prev) => [...prev, childID])
@@ -691,6 +697,7 @@ function PatternContent() {
         modelKey: mk,
         rootSession: sid,
         userInput: enrichedText,
+        extra: { designSystem: selectedDesignSystem() },
         onSessionCreated: (childID: string) => {
           setChildSessionIDs((prev) => [...prev, childID])
         },
@@ -859,6 +866,7 @@ function PatternContent() {
     onFileChange: handleFileInputChange,
     selectedDesignSystem: selectedDesignSystem(),
     onSelectDesignSystem: setSelectedDesignSystem,
+    designSystemLocked: hasContent(),
     model: local.model,
     rows:undefined
   })

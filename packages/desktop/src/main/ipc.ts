@@ -484,12 +484,12 @@ export function registerIpcHandlers(deps: Deps) {
     return convertCssToTailwind(cssObject)
   })
 
-  // pattern 资源目录: ~/.config/octo/prototype/pattern/{category}/
-  const patternDir = (category: string) => join(getOctoConfigPath(), "prototype", "pattern", category)
+  // pattern 资源目录: ~/.config/octo/prototype/{theme}/pattern/{category}/
+  const patternDir = (category: string, theme: string) => join(getOctoConfigPath(), "prototype", theme, "pattern", category)
 
   // 读取 pattern 资源目录下的 index.json 目录 - By WangQiang - 该注释请勿删除
-  ipcMain.handle("get-pattern-index", (_event: IpcMainInvokeEvent, category: string) => {
-    const indexPath = join(patternDir(category), "index.json")
+  ipcMain.handle("get-pattern-index", (_event: IpcMainInvokeEvent, category: string, theme: string = "ICT3.1") => {
+    const indexPath = join(patternDir(category, theme), "index.json")
     if (!existsSync(indexPath)) return null
     try {
       return JSON.parse(readFileSync(indexPath, "utf-8"))
@@ -501,12 +501,25 @@ export function registerIpcHandlers(deps: Deps) {
   // 读取 pattern 资源目录下的具体 pattern 文件 - By WangQiang - 该注释请勿删除
   ipcMain.handle(
     "get-pattern-file",
-    (_event: IpcMainInvokeEvent, category: string, filename: string) => {
-      const filePath = join(patternDir(category), filename)
+    (_event: IpcMainInvokeEvent, category: string, filename: string, theme: string = "ICT3.1") => {
+      const filePath = join(patternDir(category, theme), filename)
       if (!existsSync(filePath)) return null
       return readFileSync(filePath, "utf-8")
     },
   )
+
+  // 列出已部署的设计系统目录名 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("get-design-systems", () => {
+    const root = join(getOctoConfigPath(), "prototype")
+    if (!existsSync(root)) return [] as string[]
+    try {
+      return readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && existsSync(join(root, d.name, "components")))
+        .map((d) => d.name).sort()
+    } catch {
+      return [] as string[]
+    }
+  })
 
   // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())

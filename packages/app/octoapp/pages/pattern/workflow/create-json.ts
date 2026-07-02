@@ -1,5 +1,5 @@
 import proto_intent_confirm from "../agents/proto-intent-confirm"
-import proto_pattern_page from "../agents/proto-page-pattern"
+import proto_pattern_page from "../agents/proto_pattern_page"
 import proto_intent from "../agents/proto-intent"
 import proto_planner_create from "../agents/proto-planner-create"
 import proto_module_create from "../agents/proto-module-create"
@@ -16,7 +16,7 @@ export type ProtoCreateJsonInput = {
   rootSession: string
   // 用户输入
   userInput: string
-  // 透传到工具 ctx.extra 的数据
+  // 额外补充信息，透传到工具 ctx.extra 的数据
   extra?: Record<string, unknown>
   // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
