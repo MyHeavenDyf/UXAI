@@ -19,6 +19,7 @@ import { IconSettings } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
 import { importPatternZip } from "../../utils/preview-handler/zip"
 import { getDesktopApi } from "../../utils/desktop-api"
+import { tracker } from "@/utils/tracker"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   return (
@@ -206,7 +207,10 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     void client.session.create({ directory: dir, agent: "proto_triage" }).then((result) => {
       setCreating(false)
       const session = result.data as Session | undefined
-      if (session) navigate(`/pattern/${session.id}`)
+      if (session) {
+        tracker.interaction({ module: "prototype", name: "new-session" })
+        navigate(`/pattern/${session.id}`)
+      }
     })
   }
 
@@ -259,6 +263,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     }
 
     await refetch()
+    tracker.interaction({ module: "prototype", name: "import-session" })
     navigate(`/pattern/${session.id}`)
   }
 

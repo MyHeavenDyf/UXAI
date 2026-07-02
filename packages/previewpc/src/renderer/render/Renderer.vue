@@ -15,7 +15,7 @@ const surface = useSurface(props.surfaceId)
 </script>
 
 <template>
-    <div v-if="surface?.componentTree" class="a2ui-surface">
+    <div v-if="surface?.componentTree" class="a2ui-surface flex flex-col flex-1 h-full">
         <ComponentNode :node="surface.componentTree" :surfaceId="props.surfaceId" :registry="props.registry" />
     </div>
 </template>

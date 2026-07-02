@@ -5,6 +5,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { getDesktopApi } from "../../utils/desktop-api"
 import "../../assets/style/chat/design_system_picker.css"
+import { tracker } from "@/utils/tracker"
 
 type DesignSystemEntry = {
   id: string
@@ -81,7 +82,7 @@ export function DesignSystemPicker(props: {
                       background: props.selected === entry.id ? "var(--octo-brand-a8)" : hoveredId() === entry.id ? "var(--octo-surface-hover)" : "transparent",
                       color: props.selected === entry.id ? "var(--octo-brand)" : "var(--octo-text-primary)",
                     }}
-                    onClick={() => { props.onSelect(entry.id); setOpen(false) }}
+                    onClick={() => { tracker.interaction({ module: "prototype", name: "select-design-system", extend: JSON.stringify({ designSystem: entry.id }) }); props.onSelect(entry.id); setOpen(false) }}
                     onMouseEnter={() => setHoveredId(entry.id)}
                   >
                     <span class="font-medium truncate block">{entry.title}</span>

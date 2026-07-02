@@ -7,6 +7,7 @@
 import type { VersionEntry } from "../utils/version-history"
 import { appendPatternVersion } from "../utils/version-history"
 import { getDebugSnapshot, clearDebugLog, saveDebugLog } from "../utils/debug-log"
+import { mergeModules } from "../agents/merge"
 /** 一次快速修改操作的数据，由 PropertyEditorPopup 提交 */
 export type ModifyElementData = {
   /** A2UI 元素 ID */
@@ -59,6 +60,47 @@ export type QuickModifyContext = {
 /** 版本保存默认节流间隔（毫秒） */
 const VERSION_THROTTLE_MS = 2000
 
+function parseInstanceId(elementId: string) {
+  const m = elementId.match(/^(.+?)((:\d+)+)$/)
+  if (!m) return null
+  return {
+    baseId: m[1],
+    indices: m[2].split(":").filter(Boolean).map(Number),
+  }
+}
+
+function buildParentMap(elements: { id: string; children?: unknown }[]) {
+  const map = new Map<string, string>()
+  for (const el of elements) {
+    if (Array.isArray(el.children)) {
+      for (const childId of el.children) map.set(childId, el.id)
+    } else if (el.children && typeof el.children === "object") {
+      const cid = (el.children as Record<string, unknown>).componentId
+      if (typeof cid === "string") map.set(cid, el.id)
+    }
+  }
+  return map
+}
+
+function findListDataPath(
+  elementId: string,
+  elements: { id: string; props?: Record<string, unknown>; children?: unknown }[],
+  parentMap: Map<string, string>,
+) {
+  let current = elementId
+  while (true) {
+    const parentId = parentMap.get(current)
+    if (!parentId) return null
+    const parent = elements.find((e) => e.id === parentId)
+    if (!parent) return null
+    if (parent.children && typeof parent.children === "object" && !Array.isArray(parent.children)) {
+      const path = (parent.children as Record<string, unknown>).path
+      if (typeof path === "string") return path
+    }
+    current = parentId
+  }
+}
+
 /**
  * 按元素 ID 记录最近一次版本保存的时间戳，用于节流。
  *
@@ -83,28 +125,77 @@ export async function handleModifyElement(
 ) {
   console.log("[Pattern] modifyElement data:", data)
 
-  // 获取当前预览中的 A2UI JSON
   const current = ctx.getPendingData()
   if (!current || typeof current !== "object") return
 
-  // 深拷贝以避免直接修改响应式数据
   const doc = JSON.parse(JSON.stringify(current))
   if (!(doc as any)?.elements || !Array.isArray((doc as any).elements)) return
 
-  // 在元素列表中查找目标元素并更新 props
-  // 剥离预览 iframe 分配的实例后缀（如 metrMetricCard:1 → metrMetricCard）
-  const baseElementId = data.elementId.replace(/:\d+$/, "")
   let found = false
   let beforeProps: unknown = null
-  for (const el of (doc as any).elements) {
-    if (el.id === baseElementId) {
-      found = true
-      beforeProps = JSON.parse(JSON.stringify(el.props ?? {}))
-      el.props = el.props || {}
-      if (data.className) el.props.className = data.className
-      if (data.textContent) el.props.value = data.textContent
-      if (data.componentProps) Object.assign(el.props, data.componentProps)
-      break
+
+  const instanceInfo = data.textContent ? parseInstanceId(data.elementId) : null
+
+  if (instanceInfo) {
+    const { baseId, indices } = instanceInfo
+    const elements = (doc as any).elements as { id: string; props?: Record<string, unknown>; children?: unknown }[]
+    const el = elements.find((e: { id: string }) => e.id === baseId)
+    if (el) {
+      const valueBinding = el.props?.value
+      if (valueBinding && typeof valueBinding === "object" && (valueBinding as Record<string, unknown>).path) {
+        const leafPath = (valueBinding as Record<string, unknown>).path as string
+        const parentMap = buildParentMap(elements)
+        const listDataPath = findListDataPath(baseId, elements, parentMap)
+        if (listDataPath) {
+          const modules = ctx.getLastModules()
+          const owningModule = modules.find((mod) =>
+            (mod as Record<string, unknown>).elements &&
+            Array.isArray((mod as Record<string, unknown>).elements) &&
+            ((mod as Record<string, unknown>).elements as { id: string }[]).some((e) => e.id === baseId)
+          ) as Record<string, unknown> | undefined
+          if (owningModule?.state) {
+            const state = owningModule.state as Record<string, unknown>
+            const dataPath = listDataPath.replace(/^\//, "")
+            const raw = state[dataPath]
+            if (raw && Array.isArray(raw) && indices[0] < raw.length) {
+              const arr = [...raw] as Record<string, unknown>[]
+              const item = { ...arr[indices[0]] }
+              const field = leafPath.replace(/^\//, "").split("/").pop() ?? ""
+              item[field] = data.textContent
+              arr[indices[0]] = item
+              state[dataPath] = arr
+
+              const planner = ctx.getLastPlanner()
+              const shell = {
+                rootId: (planner as Record<string, unknown>)?.rootId as string ?? "",
+                elements: ((planner as Record<string, unknown>)?.elements as never[]) ?? [],
+              }
+              const merged = mergeModules(
+                { ...shell, state: {} } as { rootId: string; elements: never[]; state?: Record<string, unknown> },
+                modules as { rootId: string; elements: never[]; state?: Record<string, unknown> }[],
+                ((planner as Record<string, unknown>)?.slots as never[]) ?? undefined,
+              )
+              Object.assign(doc, merged)
+              found = true
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!found) {
+    const baseElementId = data.elementId.replace(/:\d+$/, "")
+    for (const el of (doc as any).elements) {
+      if (el.id === baseElementId) {
+        found = true
+        beforeProps = JSON.parse(JSON.stringify(el.props ?? {}))
+        el.props = el.props || {}
+        if (data.className) el.props.className = data.className
+        if (data.textContent) el.props.value = data.textContent
+        if (data.componentProps) Object.assign(el.props, data.componentProps)
+        break
+      }
     }
   }
   console.log("[Pattern] element modify diff:", {
@@ -174,7 +265,6 @@ export async function handleModifyElement(
       }
     }
   }
-
-  // 强制刷新预览 iframe，确保渲染器拿到最新 JSON
-  ctx.refreshPreview()
+  // 修改组件 API 属性时需要强制刷新 iframe 才能生效
+  if (data.componentProps && Object.keys(data.componentProps).length > 0) ctx.refreshPreview()
 }

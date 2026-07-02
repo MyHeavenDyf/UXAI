@@ -1,6 +1,6 @@
 import { tailwindToCSS } from "tw-to-css"
 
-const tailwindConfig: any = {
+export const tailwindConfig: any = {
   theme: {
     extend: {
       colors: {

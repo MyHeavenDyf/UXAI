@@ -5,6 +5,7 @@ import { DesignSystemPicker } from "./design-system-picker"
 import { useLocal } from "@/context/local"
 import type { JSX } from "solid-js"
 import "../../assets/style/chat/chart_input.css"
+import { tracker } from "@/utils/tracker"
 
 export type Attachment = {
   id: string
@@ -46,6 +47,8 @@ export type ChartInputProps = {
   designSystemLocked?: boolean
   /** 模型选择器状态（来自 useLocal().model） */
   model: ModelState
+  /** 模型选择关闭回调 */
+  onModelClose?: (cause: string) => void
 }
 
 export function ChartInput(props: ChartInputProps): JSX.Element {
@@ -102,6 +105,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
               class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
               "data-action": "prompt-model",
             }}
+            onClose={props.onModelClose}
           >
             <span class="truncate">
               {props.model.current()?.name ?? "选择模型"}
