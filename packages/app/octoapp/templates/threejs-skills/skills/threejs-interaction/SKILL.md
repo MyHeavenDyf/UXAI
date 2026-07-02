@@ -1,6 +1,7 @@
 ---
 name: threejs-interaction
-description: Three.js interaction - raycasting, controls, mouse/touch input, object selection. Use when handling user input, implementing click detection, adding camera controls, or creating interactive 3D experiences.
+description: Three.js 交互 — 射线检测、控制器、鼠标/触摸输入、物体选中。用于处理用户输入、实现点击检测、添加相机控制器或创建交互式 3D 体验。
+
 ---
 
 # Three.js Interaction
@@ -302,7 +303,7 @@ controls.maxPolarAngle = Math.PI / 2;
 
 ## TransformControls
 
-Gizmo for moving/rotating/scaling objects.
+移动/旋转/缩放物体的 gizmo。
 
 ```javascript
 import { TransformControls } from "three/addons/controls/TransformControls.js";
@@ -353,7 +354,7 @@ window.addEventListener("keydown", (event) => {
 
 ## DragControls
 
-Drag objects directly.
+直接拖拽物体。
 
 ```javascript
 import { DragControls } from "three/addons/controls/DragControls.js";

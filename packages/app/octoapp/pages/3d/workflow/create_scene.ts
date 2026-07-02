@@ -48,6 +48,7 @@ export default async function create_scene(inputCtx: CreateSceneCtx, onFinished:
         parentId: slot.parent_id,
         sectionDetail: detail,
         intentDescription: intent.intent_description,
+        camera: sp?.camera,
       })
     }),
   )

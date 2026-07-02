@@ -1,6 +1,7 @@
 ---
 name: threejs-fundamentals
-description: Three.js scene setup, cameras, renderer, Object3D hierarchy, coordinate systems. Use when setting up 3D scenes, creating cameras, configuring renderers, managing object hierarchies, or working with transforms.
+description: Three.js 场景搭建 — 场景、相机、渲染器、Object3D 层级、坐标系。用于搭建 3D 场景、创建相机、配置渲染器、管理物体层级或处理变换。
+
 ---
 
 # Three.js Fundamentals
@@ -59,7 +60,7 @@ window.addEventListener("resize", () => {
 
 ### Scene
 
-Container for all 3D objects, lights, and cameras.
+所有 3D 物体、灯光和相机的容器。
 
 ```javascript
 const scene = new THREE.Scene();
@@ -71,7 +72,7 @@ scene.fog = new THREE.Fog(0xffffff, 1, 100); // Linear fog
 scene.fog = new THREE.FogExp2(0xffffff, 0.02); // Exponential fog
 ```
 
-### Cameras
+### 相机
 
 **PerspectiveCamera** - Most common, simulates human eye.
 
@@ -171,7 +172,7 @@ renderer.render(scene, camera);
 
 ### Object3D
 
-Base class for all 3D objects. Mesh, Group, Light, Camera all extend Object3D.
+所有 3D 物体的基类。Mesh、Group、Light、Camera 都继承自 Object3D。
 
 ```javascript
 const obj = new THREE.Object3D();
@@ -214,7 +215,7 @@ obj.updateMatrixWorld(true); // Update world matrix recursively
 
 ### Group
 
-Empty container for organizing objects.
+用于组织物体的空容器。
 
 ```javascript
 const group = new THREE.Group();
@@ -229,7 +230,7 @@ group.rotation.y = Math.PI / 4;
 
 ### Mesh
 
-Combines geometry and material.
+几何体与材质的组合。
 
 ```javascript
 const mesh = new THREE.Mesh(geometry, material);
@@ -252,7 +253,7 @@ mesh.renderOrder = 10; // Higher = rendered later
 
 ## Coordinate System
 
-Three.js uses a **right-handed coordinate system**:
+Three.js 使用**右手坐标系**:
 
 - **+X** points right
 - **+Y** points up
@@ -262,6 +263,30 @@ Three.js uses a **right-handed coordinate system**:
 // Axes helper
 const axesHelper = new THREE.AxesHelper(5);
 scene.add(axesHelper); // Red=X, Green=Y, Blue=Z
+```
+
+### Screen-Relative Directions (相机视角方向约定)
+
+当用户说"左/右/上/下/前/后"时,需要根据相机位置映射到世界坐标。**默认相机在 +X/+Y/+Z 方向看向原点(俯视)**,此时:
+
+| 用户说的方向 | 世界坐标含义 | 位置示例 |
+|---|---|---|
+| **左** (left) | **-X** 方向 | X 值更小 |
+| **右** (right) | **+X** 方向 | X 值更大 |
+| **远 / 上 / 背景** (far / back) | **-Z** 方向(离相机更远) | Z 值更小(更负) |
+| **近 / 下 / 前景** (near / front) | **+Z** 方向(离相机更近) | Z 值更大(更正) |
+| **高 / 顶部** (top / high) | **+Y** 方向 | Y 值更大 |
+
+**常用组合:**
+- **左上角** = 小 X + 小 Z(左边 + 远处背景)
+- **右下角** = 大 X + 大 Z(右边 + 近处前景)
+- **正前方** = 相机 lookAt 方向
+
+```javascript
+// 判断方法:根据相机 position 推导
+// 相机在 [25, 38, 40] 看向 [0, 0, 4]
+// → 相机大致在 +X/+Y/+Z,看向 -X/-Y/-Z
+// → "左" = -X, "右" = +X, "远" = -Z, "近" = +Z, "高" = +Y
 ```
 
 ## Math Utilities
@@ -446,7 +471,7 @@ function onWindowResize() {
 window.addEventListener("resize", onWindowResize);
 ```
 
-### Loading Manager
+### 加载管理器
 
 ```javascript
 const manager = new THREE.LoadingManager();

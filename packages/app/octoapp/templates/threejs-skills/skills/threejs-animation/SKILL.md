@@ -1,6 +1,7 @@
 ---
 name: threejs-animation
-description: Three.js animation - keyframe animation, skeletal animation, morph targets, animation mixing. Use when animating objects, playing GLTF animations, creating procedural motion, or blending animations.
+description: Three.js 动画 — 关键帧动画、骨骼动画、形变目标、动画混合。用于动画物体、播放 GLTF 动画、创建程序化运动或混合动画。
+
 ---
 
 # Three.js Animation
@@ -28,7 +29,7 @@ animate();
 
 ## Animation System Overview
 
-Three.js animation system has three main components:
+Three.js 动画系统有三个主要组件:
 
 1. **AnimationClip** - Container for keyframe data
 2. **AnimationMixer** - Plays animations on a root object
@@ -36,7 +37,7 @@ Three.js animation system has three main components:
 
 ## AnimationClip
 
-Stores keyframe animation data.
+存储关键帧动画数据。
 
 ```javascript
 // Create animation clip
@@ -118,7 +119,7 @@ track.setInterpolation(THREE.InterpolateDiscrete); // Step function
 
 ## AnimationMixer
 
-Plays animations on an object and its descendants.
+在物体及其子级上播放动画。
 
 ```javascript
 const mixer = new THREE.AnimationMixer(model);
@@ -151,7 +152,7 @@ mixer.addEventListener("loop", (e) => {
 
 ## AnimationAction
 
-Controls playback of an animation clip.
+控制动画片段的播放。
 
 ```javascript
 const action = mixer.clipAction(clip);
@@ -211,7 +212,7 @@ action2.play();
 
 ## Loading GLTF Animations
 
-Most common source of skeletal animations.
+骨骼动画最常见的数据来源。
 
 ```javascript
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -310,9 +311,9 @@ weapon.position.set(0, 0, 0.5);
 weapon.rotation.set(0, Math.PI / 2, 0);
 ```
 
-## Morph Targets
+## 形变目标
 
-Blend between different mesh shapes.
+在不同网格形状之间混合。
 
 ```javascript
 // Morph targets are stored in geometry
@@ -352,7 +353,7 @@ mixer.clipAction(clip).play();
 
 ## Animation Blending
 
-Mix multiple animations together.
+将多个动画混合在一起。
 
 ```javascript
 // Setup actions

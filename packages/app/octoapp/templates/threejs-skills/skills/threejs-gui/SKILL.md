@@ -1,6 +1,7 @@
 ---
 name: threejs-gui
-description: Three.js GUI overlays, transform controls, parameter panels, CSS renderers, lil-gui. Use when adding HTML/CSS overlays, transform gizmos, tweak panels, screenshot tools, or custom UI for 3D scenes.
+description: Three.js GUI 界面 — CSS 叠加层、变换控制器、参数面板、CSS 渲染器、lil-gui。用于添加 HTML/CSS 叠加层、变换 gizmo、调参面板、截图工具或 3D 场景自定义 UI。
+
 triggers:
   - "GUI"
   - "UI"
@@ -34,9 +35,9 @@ import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 ```
 
-## CSS2DRenderer — HTML Labels & Overlays
+## CSS2DRenderer — HTML 标签与叠加层
 
-Renders HTML elements positioned in 3D space. Always on top of WebGL canvas.
+在 3D 空间中渲染 HTML 元素。始终覆盖在 WebGL canvas 之上。
 
 ```javascript
 // Setup CSS2D renderer
@@ -90,9 +91,9 @@ const updateLabel = () => {
 };
 ```
 
-## CSS3DRenderer — 3D Transformed DOM Elements
+## CSS3DRenderer — 3D 变换 DOM 元素
 
-Elements participate in 3D scene (occlusion-aware, z-sorted).
+元素参与 3D 场景(支持遮挡感知、Z 排序)。
 
 ```javascript
 import { CSS3DRenderer, CSS3DObject } from "three/addons/renderers/CSS3DRenderer.js";
@@ -116,9 +117,9 @@ screen.rotation.y = Math.PI / 4;
 scene.add(screen);
 ```
 
-## TransformControls — Drag Gizmos
+## TransformControls — 拖拽 gizmo
 
-Object manipulation gizmos: translate, rotate, scale.
+物体操作 gizmo:平移、旋转、缩放。
 
 ```javascript
 import { TransformControls } from "three/addons/controls/TransformControls.js";
@@ -160,9 +161,9 @@ transformControls.setTranslationSnap(0.5); // Snap to 0.5m grid
 transformControls.setRotationSnap(THREE.MathUtils.degToRad(15)); // Snap to 15°
 ```
 
-## lil-gui — Parameter Tweaking Panel
+## lil-gui — 参数调节面板
 
-Lightweight GUI for real-time parameter adjustment.
+用于实时参数调节的轻量级 GUI。
 
 ```javascript
 import GUI from "lil-gui";

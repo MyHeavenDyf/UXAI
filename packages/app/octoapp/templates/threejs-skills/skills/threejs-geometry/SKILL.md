@@ -1,6 +1,7 @@
 ---
 name: threejs-geometry
-description: Three.js geometry creation - built-in shapes, BufferGeometry, custom geometry, instancing. Use when creating 3D shapes, working with vertices, building custom meshes, or optimizing with instanced rendering.
+description: Three.js 几何体 — 内置形状、BufferGeometry、自定义几何、实例化。用于创建 3D 形状、处理顶点、构建自定义网格或用实例化优化渲染。
+
 ---
 
 # Three.js Geometry
@@ -122,7 +123,7 @@ const curve = new THREE.CatmullRomCurve3([
 new THREE.TubeGeometry(curve, 64, 0.2, 8, false);
 ```
 
-### Text Geometry
+### 文字几何
 
 ```javascript
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
@@ -152,7 +153,7 @@ loader.load("fonts/helvetiker_regular.typeface.json", (font) => {
 
 ## BufferGeometry
 
-The base class for all geometries. Stores data as typed arrays for GPU efficiency.
+所有几何体的基类。以类型化数组存储数据,提升 GPU 效率。
 
 ### Custom BufferGeometry
 
@@ -280,7 +281,7 @@ geometry.setAttribute(
 ); // size 2, offset 3
 ```
 
-## EdgesGeometry & WireframeGeometry
+## 边线与线框几何
 
 ```javascript
 // Edge lines (only hard edges)
@@ -368,7 +369,7 @@ const segments = new THREE.LineSegments(segmentsGeometry, material);
 
 ## InstancedMesh
 
-Efficiently render many copies of the same geometry.
+高效渲染同一几何体的多个副本。
 
 ```javascript
 const geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -432,7 +433,7 @@ if (intersects.length > 0) {
 
 ## InstancedBufferGeometry (Advanced)
 
-For custom per-instance attributes beyond transform/color.
+除变换/颜色外,为每个实例添加自定义属性。
 
 ```javascript
 const geometry = new THREE.InstancedBufferGeometry();
@@ -452,7 +453,7 @@ geometry.setAttribute("offset", new THREE.InstancedBufferAttribute(offsets, 3));
 // vec3 transformed = position + offset;
 ```
 
-## Geometry Utilities
+## 几何体工具
 
 ```javascript
 import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUtils.js";

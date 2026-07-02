@@ -89,7 +89,7 @@ export function SceneCanvas(props: {
     const w = el.clientWidth || 800
     const h = el.clientHeight || 600
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" })
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance", logarithmicDepthBuffer: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(w, h)
     renderer.outputColorSpace = THREE.SRGBColorSpace

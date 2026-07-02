@@ -1,6 +1,7 @@
 ---
 name: threejs-postprocessing
-description: Three.js post-processing - EffectComposer, bloom, DOF, screen effects. Use when adding visual effects, color grading, blur, glow, or creating custom screen-space shaders.
+description: Three.js 后处理 — EffectComposer、bloom、景深、屏幕特效。用于添加视觉效果、色彩校正、模糊、辉光或创建自定义屏幕空间 shader。
+
 ---
 
 # Three.js Post-Processing
@@ -91,7 +92,7 @@ bloomPass.radius = 0.8;
 
 ### Selective Bloom
 
-Apply bloom only to specific objects.
+仅对特定物体应用泛光。
 
 ```javascript
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -331,7 +332,7 @@ composer.addPass(outlinePass);
 
 ## Custom ShaderPass
 
-Create your own post-processing effects.
+创建自定义后处理效果。
 
 ```javascript
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";

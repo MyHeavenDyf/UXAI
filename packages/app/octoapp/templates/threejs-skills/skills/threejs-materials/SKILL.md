@@ -1,6 +1,7 @@
 ---
 name: threejs-materials
-description: Three.js materials - PBR, basic, phong, shader materials, material properties. Use when styling meshes, working with textures, creating custom shaders, or optimizing material performance.
+description: Three.js 材质 — PBR、basic、phong、shader 材质、材质属性。用于给网格设置样式、处理纹理、创建自定义 shader 或优化材质性能。
+
 ---
 
 # Three.js Materials
@@ -37,7 +38,7 @@ const mesh = new THREE.Mesh(geometry, material);
 
 ## MeshBasicMaterial
 
-No lighting calculations. Fast, always visible.
+无光照计算。快速、始终可见。
 
 ```javascript
 const material = new THREE.MeshBasicMaterial({
@@ -56,7 +57,7 @@ const material = new THREE.MeshBasicMaterial({
 
 ## MeshLambertMaterial
 
-Diffuse-only lighting. Fast, no specular highlights.
+仅漫反射光照。快速、无高光。
 
 ```javascript
 const material = new THREE.MeshLambertMaterial({
@@ -72,7 +73,7 @@ const material = new THREE.MeshLambertMaterial({
 
 ## MeshPhongMaterial
 
-Specular highlights. Good for shiny, plastic-like surfaces.
+有高光。适合光滑、塑料质感表面。
 
 ```javascript
 const material = new THREE.MeshPhongMaterial({
@@ -94,7 +95,7 @@ const material = new THREE.MeshPhongMaterial({
 
 ## MeshStandardMaterial (PBR)
 
-Physically-based rendering. Recommended for realistic results.
+基于物理的渲染(PBR)。推荐用于真实效果。
 
 ```javascript
 const material = new THREE.MeshStandardMaterial({
@@ -133,9 +134,9 @@ const material = new THREE.MeshStandardMaterial({
 geometry.setAttribute("uv2", geometry.attributes.uv);
 ```
 
-## MeshPhysicalMaterial (Advanced PBR)
+## MeshPhysicalMaterial (高级 PBR)
 
-Extends MeshStandardMaterial with advanced features.
+在 MeshStandardMaterial 基础上扩展高级功能。
 
 ```javascript
 const material = new THREE.MeshPhysicalMaterial({
@@ -215,7 +216,7 @@ const carPaint = new THREE.MeshPhysicalMaterial({
 
 ## MeshToonMaterial
 
-Cel-shaded cartoon look.
+卡通着色风格。
 
 ```javascript
 const material = new THREE.MeshToonMaterial({
@@ -233,7 +234,7 @@ gradientMap.needsUpdate = true;
 
 ## MeshNormalMaterial
 
-Visualize surface normals. Useful for debugging.
+可视化表面法线。适合调试。
 
 ```javascript
 const material = new THREE.MeshNormalMaterial({
@@ -244,7 +245,7 @@ const material = new THREE.MeshNormalMaterial({
 
 ## MeshDepthMaterial
 
-Render depth values. Used for shadow maps, DOF effects.
+渲染深度值。用于阴影贴图、景深效果。
 
 ```javascript
 const material = new THREE.MeshDepthMaterial({
@@ -271,7 +272,7 @@ const material = new THREE.PointsMaterial({
 const points = new THREE.Points(geometry, material);
 ```
 
-## LineBasicMaterial & LineDashedMaterial
+## LineBasicMaterial 与 LineDashedMaterial
 
 ```javascript
 // Solid lines
@@ -297,7 +298,7 @@ line.computeLineDistances();
 
 ## ShaderMaterial
 
-Custom GLSL shaders with Three.js uniforms.
+使用 Three.js uniforms 的自定义 GLSL 着色器。
 
 ```javascript
 const material = new THREE.ShaderMaterial({
@@ -355,7 +356,7 @@ attribute vec2 uv;
 
 ## RawShaderMaterial
 
-Full control - no built-in uniforms/attributes.
+完全控制——无内置 uniforms/attributes。
 
 ```javascript
 const material = new THREE.RawShaderMaterial({
@@ -385,7 +386,7 @@ const material = new THREE.RawShaderMaterial({
 
 ## Common Material Properties
 
-All materials share these base properties:
+所有材质共享这些基础属性:
 
 ```javascript
 // Visibility

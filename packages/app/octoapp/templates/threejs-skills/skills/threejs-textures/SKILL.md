@@ -1,6 +1,7 @@
 ---
 name: threejs-textures
-description: Three.js textures - texture types, UV mapping, environment maps, texture settings. Use when working with images, UV coordinates, cubemaps, HDR environments, or texture optimization.
+description: Three.js 纹理 — 纹理类型、UV 映射、环境贴图、纹理设置。用于处理图片、UV 坐标、立方体贴图、HDR 环境或纹理优化。
+
 ---
 
 # Three.js Textures
@@ -61,7 +62,7 @@ const [colorMap, normalMap, roughnessMap] = await Promise.all([
 
 ### Color Space
 
-Critical for accurate color reproduction.
+对准确的颜色还原至关重要。
 
 ```javascript
 // Color/albedo textures - use sRGB
@@ -137,7 +138,7 @@ texture.needsUpdate = true;
 
 ### Data Texture
 
-Create texture from raw data.
+从原始数据创建纹理。
 
 ```javascript
 // Create gradient texture
@@ -210,7 +211,7 @@ ktx2Loader.load("texture.ktx2", (texture) => {
 
 ## Cube Textures
 
-For environment maps and skyboxes.
+用于环境贴图和天空盒。
 
 ### CubeTextureLoader
 
@@ -289,7 +290,7 @@ scene.backgroundRotation.y = Math.PI; // Rotate background
 
 ## Render Targets
 
-Render to texture for effects.
+渲染到纹理以实现特效。
 
 ```javascript
 // Create render target
@@ -332,7 +333,7 @@ const renderTarget = new THREE.WebGLRenderTarget(512, 512, {
 
 ## CubeCamera
 
-Dynamic environment maps for reflections.
+用于反射的动态环境贴图。
 
 ```javascript
 const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(256, {
@@ -416,7 +417,7 @@ const material = new THREE.ShaderMaterial({
 
 ## Texture Atlas
 
-Multiple images in one texture.
+一张纹理中包含多个图像。
 
 ```javascript
 // Atlas with 4 sprites (2x2 grid)

@@ -1,6 +1,7 @@
 ---
 name: threejs-loaders
-description: Three.js asset loading - GLTF, textures, images, models, async patterns. Use when loading 3D models, textures, HDR environments, or managing loading progress.
+description: Three.js 资源加载 — GLTF、纹理、图片、模型、异步模式。用于加载 3D 模型、纹理、HDR 环境或管理加载进度。
+
 ---
 
 # Three.js Loaders
@@ -24,7 +25,7 @@ const texture = textureLoader.load("texture.jpg");
 
 ## LoadingManager
 
-Coordinate multiple loaders and track progress.
+协调多个加载器并跟踪进度。
 
 ```javascript
 const manager = new THREE.LoadingManager();
@@ -125,7 +126,7 @@ const texture = loader.load("texture.jpg", (tex) => {
 
 ### CubeTextureLoader
 
-For environment maps and skyboxes.
+用于环境贴图和天空盒。
 
 ```javascript
 const loader = new THREE.CubeTextureLoader();
@@ -172,7 +173,7 @@ exrLoader.load("environment.exr", (texture) => {
 
 ### PMREMGenerator
 
-Generate prefiltered environment maps for PBR.
+为 PBR 生成预过滤环境贴图。
 
 ```javascript
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
@@ -193,7 +194,7 @@ new RGBELoader().load("environment.hdr", (texture) => {
 
 ## GLTF/GLB Loading
 
-The most common 3D format for web.
+Web 上最常见的 3D 格式。
 
 ```javascript
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";

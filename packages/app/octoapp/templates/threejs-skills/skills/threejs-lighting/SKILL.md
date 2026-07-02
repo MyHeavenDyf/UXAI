@@ -1,6 +1,7 @@
 ---
 name: threejs-lighting
-description: Three.js lighting - light types, shadows, environment lighting. Use when adding lights, configuring shadows, setting up IBL, or optimizing lighting performance.
+description: Three.js 灯光 — 灯光类型、阴影、环境光照。用于添加灯光、配置阴影、设置 IBL 或优化光照性能。
+
 ---
 
 # Three.js Lighting
@@ -34,7 +35,7 @@ scene.add(directionalLight);
 
 ## AmbientLight
 
-Illuminates all objects equally. No direction, no shadows.
+均匀照亮所有物体。无方向、无阴影。
 
 ```javascript
 // AmbientLight(color, intensity)
@@ -48,7 +49,7 @@ ambient.intensity = 0.3;
 
 ## HemisphereLight
 
-Gradient from sky to ground color. Good for outdoor scenes.
+从天空色到地面色的渐变。适合户外场景。
 
 ```javascript
 // HemisphereLight(skyColor, groundColor, intensity)
@@ -64,7 +65,7 @@ hemi.intensity;
 
 ## DirectionalLight
 
-Parallel light rays. Simulates distant light source (sun).
+平行光线。模拟远距离光源(太阳)。
 
 ```javascript
 // DirectionalLight(color, intensity)
@@ -78,7 +79,7 @@ scene.add(dirLight.target);
 scene.add(dirLight);
 ```
 
-### DirectionalLight Shadows
+### DirectionalLight 阴影
 
 ```javascript
 dirLight.castShadow = true;
@@ -109,7 +110,7 @@ scene.add(helper);
 
 ## PointLight
 
-Emits light in all directions from a point. Like a light bulb.
+从一点向所有方向发光。像灯泡。
 
 ```javascript
 // PointLight(color, intensity, distance, decay)
@@ -122,7 +123,7 @@ pointLight.distance; // Maximum range (0 = infinite)
 pointLight.decay; // Light falloff (physically correct = 2)
 ```
 
-### PointLight Shadows
+### PointLight 阴影
 
 ```javascript
 pointLight.castShadow = true;
@@ -138,7 +139,7 @@ pointLight.shadow.bias = -0.005;
 
 ## SpotLight
 
-Cone-shaped light. Like a flashlight or stage light.
+锥形光。像手电筒或舞台灯。
 
 ```javascript
 // SpotLight(color, intensity, distance, angle, penumbra, decay)
@@ -158,7 +159,7 @@ spotLight.distance; // Range
 spotLight.decay; // Falloff
 ```
 
-### SpotLight Shadows
+### SpotLight 阴影
 
 ```javascript
 spotLight.castShadow = true;
@@ -178,7 +179,7 @@ spotLight.shadow.focus = 1;
 
 ## RectAreaLight
 
-Rectangular area light. Great for soft, realistic lighting.
+矩形面光。适合柔和、真实的光照。
 
 ```javascript
 import { RectAreaLightHelper } from "three/examples/jsm/helpers/RectAreaLightHelper.js";
@@ -298,7 +299,7 @@ spotHelper.update();
 
 ## Environment Lighting (IBL)
 
-Image-Based Lighting using HDR environment maps.
+使用 HDR 环境贴图的基于图像的光照(IBL)。
 
 ```javascript
 import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
@@ -347,7 +348,7 @@ scene.background = envMap;
 
 ## Light Probes (Advanced)
 
-Capture lighting from a point in space for ambient lighting.
+从空间中某点采集光照,用于环境光照。
 
 ```javascript
 import { LightProbeGenerator } from "three/examples/jsm/lights/LightProbeGenerator.js";

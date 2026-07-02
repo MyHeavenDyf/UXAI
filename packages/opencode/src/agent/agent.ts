@@ -454,6 +454,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             temperature: 0.3,
+            skills: ["threejs-fundamentals"],
           },
           proto_3d_planner: {
             name: "proto_3d_planner",
@@ -464,6 +465,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             temperature: 0.1,
+            skills: ["threejs-fundamentals", "threejs-lighting"],
           },
           proto_3d_object: {
             name: "proto_3d_object",
@@ -474,6 +476,7 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             temperature: 0.0,
+            skills: ["threejs-geometry", "threejs-materials", "threejs-fundamentals"],
           },
           proto_3d_triage: {
             name: "proto_3d_triage",

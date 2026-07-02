@@ -1,6 +1,7 @@
 ---
 name: threejs-shaders
-description: Three.js shaders - GLSL, ShaderMaterial, uniforms, custom effects. Use when creating custom visual effects, modifying vertices, writing fragment shaders, or extending built-in materials.
+description: Three.js 着色器 — GLSL、ShaderMaterial、uniforms、自定义特效。用于创建自定义视觉效果、修改顶点、编写片元着色器或扩展内置材质。
+
 ---
 
 # Three.js Shaders
@@ -37,7 +38,7 @@ material.uniforms.time.value = clock.getElapsedTime();
 
 ### ShaderMaterial
 
-Three.js provides built-in uniforms and attributes.
+Three.js 提供内置 uniforms 和 attributes。
 
 ```javascript
 const material = new THREE.ShaderMaterial({
@@ -69,7 +70,7 @@ const material = new THREE.ShaderMaterial({
 
 ### RawShaderMaterial
 
-Full control - you define everything.
+完全控制——一切由你定义。
 
 ```javascript
 const material = new THREE.RawShaderMaterial({
@@ -168,7 +169,7 @@ material.uniforms.matrix.value.copy(mesh.matrixWorld);
 
 ## Varyings
 
-Pass data from vertex to fragment shader.
+将数据从顶点着色器传递到片元着色器。
 
 ```javascript
 const material = new THREE.ShaderMaterial({
@@ -390,7 +391,7 @@ void main() {
 
 ### onBeforeCompile
 
-Modify existing material shaders.
+修改现有材质的着色器。
 
 ```javascript
 const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });

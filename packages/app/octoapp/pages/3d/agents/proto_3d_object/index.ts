@@ -18,6 +18,8 @@ type Proto3DObjectInput = {
   sectionDetail: any
   // 整体意图蓝图
   intentDescription: any
+  // 相机信息(用于判断"左/右/上/下"方向)
+  camera?: any
   onSessionCreated?: (childSessionID: string) => void
 }
 
@@ -37,9 +39,10 @@ export default async function proto_3d_object(input: Proto3DObjectInput) {
     parentId,
     sectionDetail,
     intentDescription,
+    camera,
     onSessionCreated,
   } = input
-  const humanMessage = buildHumanMessage(intentDescription, sectionDetail, parentId, idPrefix)
+  const humanMessage = buildHumanMessage(intentDescription, sectionDetail, parentId, idPrefix, camera)
   console.log(`----- [3D] 物体生成Agent开始执行 (section=${sectionId}) -----`)
   const startTime = Date.now()
 
@@ -68,7 +71,7 @@ export default async function proto_3d_object(input: Proto3DObjectInput) {
   }
 }
 
-function buildHumanMessage(intentDescription: any, sectionDetail: any, parentId: string, idPrefix: string): string {
+function buildHumanMessage(intentDescription: any, sectionDetail: any, parentId: string, idPrefix: string, camera?: any): string {
   // buildObjectPrompt 携带完整协议 + 目录 + 设计规范 + 示例 + 输出规则
   const base = buildObjectPrompt({
     intentJson: intentDescription,
@@ -79,12 +82,17 @@ function buildHumanMessage(intentDescription: any, sectionDetail: any, parentId:
   const boundsLine = bounds
     ? `- bounds(本区域物体局部坐标边界,严禁超出): xMin=${bounds.xMin}, xMax=${bounds.xMax}, zMin=${bounds.zMin}, zMax=${bounds.zMax}`
     : ""
+  const camPos = camera?.position ?? [0, 0, 0]
+  const camLine = camera
+    ? `- 相机位置: ${JSON.stringify(camPos)}。方向约定(从相机视角): 左=-X方向, 右=+X方向, 远/上(背景)=-Z方向(离相机更远的Z), 近/下(前景)=+Z方向, 高=+Y方向。用户说"左上角"= 小X + 小Z(远); "右下角"= 大X + 大Z(近)。`
+    : ""
   return `${base}
 
 # 本 slot 的具体任务
 - parent_id(本区域所有物体的 parentId): ${parentId}
 - id_prefix(本区域物体 id 前缀): ${idPrefix}
 ${boundsLine}
+${camLine}
 - 本区域蓝图(sectionDetail):
 ${JSON.stringify(sectionDetail, null, 2)}
 
