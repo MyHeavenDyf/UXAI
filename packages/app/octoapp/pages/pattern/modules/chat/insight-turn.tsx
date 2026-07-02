@@ -6,7 +6,7 @@ import { createEffect, createMemo, createSignal, Show, For, type JSX } from "sol
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
 import { createArtifactParser } from "../../utils/artifact-parser"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
-import { FileOpsSummary } from "./file-ops-summary"
+import { FileOpsSummary, deriveFileOps } from "./file-ops-summary"
 import { UserInputCard } from "./user-input-card"
 import "../../assets/style/chat/insight-turn.css"
 
@@ -100,42 +100,6 @@ function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt
   }
 }
 
-function formatTime(d: Date): string {
-  return d.toLocaleString("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
-// ── Internal: WaitingPill ──────────────────────────────────
-
-function WaitingPill(props: { parts: Array<{ type: string; text?: string }> }): JSX.Element {
-  const statusLabel = createMemo(() => {
-    const parts = props.parts
-    const toolParts = parts.filter((p) => p.type === "tool")
-    const hasText = parts.some((p) => p.type === "text")
-    if (hasText) return "生成中"
-    if (toolParts.length === 0) return "思考中"
-    const lastTool = toolParts[toolParts.length - 1] as Record<string, unknown>
-    const state = lastTool.state as Record<string, unknown> | undefined
-    if (!state?.output) return "执行工具中"
-    return "生成中"
-  })
-
-  return (
-      <div       class="mx-3 mb-2 px-3 py-2 flex items-center gap-2 waiting-pill-content">
-      <div
-        class="w-1.5 h-1.5 rounded-full animate-pulse status-content"
-      />
-      <span class="text-xs status-label">
-        {statusLabel()}…
-      </span>
-    </div>
-  )
-}
-
 // ── Internal: ProducedFilesList ────────────────────────────
 
 function ProducedFilesList(props: { files: Array<{ path: string; name: string }> }): JSX.Element {
@@ -175,6 +139,9 @@ export function InsightTurn(props: {
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
   const msgStore = data.store.message as Record<string, Message[]>
 
+  // 思考过程/输出结果折叠状态，默认收起
+  const [contentCollapsed, setContentCollapsed] = createSignal(true)
+
   const userText = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
     const textPart = parts.find((p) => p.type === "text")
@@ -212,6 +179,22 @@ export function InsightTurn(props: {
     if (msgs.length === 0) return props.pipelineBusy
     return msgs.some((m) => typeof m.time.completed !== "number")
   })
+
+  const customCardLabel = createMemo(() => {
+    const text = userText()
+    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "分析用户需求"
+    if (text.endsWith("请开始意图扩展。")) return "意图扩展"
+    if (text.startsWith("请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：")) return "布局规划"
+    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "模块生成"
+    if (text.startsWith("请根据以下内容，修改外壳布局并指定下一步细化模块")) return "细化模块"
+    if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
+    return null
+  })
+
+  const showUserInput = createMemo(() =>
+    userText().endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")
+    || userText().startsWith("[用户修改请求]:")
+  )
 
   // 提取 reasoning 内容
   const reasoningTexts = createMemo(() => {
@@ -261,6 +244,9 @@ export function InsightTurn(props: {
         }
       })
   })
+
+  const hasError = createMemo(() => toolCalls().some((c) => c.status === "error"))
+  const fileOpsEntries = createMemo(() => deriveFileOps(toolCalls()))
 
   // ── NEW: prose text (stripped of artifacts) ──
   const proseText = createMemo(() => {
@@ -371,8 +357,6 @@ export function InsightTurn(props: {
     const parts = assistantParts()
     if (parts.length === 0 && !assistantGenerating()) return null
     if (assistantGenerating()) return null
-    // pipeline 仍在运行时不展示已完成卡片
-    if (props.pipelineBusy) return null
 
     // ── 优先级 1：带文件路径的 write tool（HTML 文件写入） ──
     for (const p of [...parts].reverse()) {
@@ -476,119 +460,141 @@ export function InsightTurn(props: {
 
   return (
     <div class="flex flex-col insight-turn-root">
-      <UserInputCard text={userText()} />
-
-      {/* 文件操作摘要（生成完成后） */}
-      <Show when={!assistantGenerating() && toolCalls().length > 0}>
-        <div class="mb-1">
-          <FileOpsSummary calls={toolCalls()} />
-        </div>
+      <Show when={showUserInput()}>
+        <UserInputCard text={userText()} />
       </Show>
 
-      {/* 思考过程（直接展示） */}
-      <Show when={reasoningTexts().length > 0}>
-        <div
-          ref={(el) => {
-            createEffect(() => {
-              reasoningTexts()
-              el.scrollTop = el.scrollHeight
-            })
-          }}
-          class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
-        >
-          <For each={reasoningTexts()}>
-            {(text, i) => (
-              <>
-                <Show when={i() > 0}>
-                  <div class="my-1.5 split-line" />
+      {/* 自定义标签卡片 */}
+      <Show when={customCardLabel()}>
+        {(label) => (
+              <div
+              class="mx-3 mb-1 captured-card-btn"
+              classList={{
+                generating: assistantGenerating(),
+                error: !assistantGenerating() && hasError(),
+              }}
+            >
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setContentCollapsed((p) => !p)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setContentCollapsed((p) => !p) } }}
+                class="flex items-center gap-3 cursor-pointer select-none"
+              >
+                <div class="flex flex-col min-w-0 flex-1">
+                  <span class="truncate title">{label()}</span>
+                </div>
+                <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    class="transition-transform"
+                    style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
+                  >
+                    <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
+                <Show when={!assistantGenerating() && hasError()} fallback={
+                  <Show when={assistantGenerating()} fallback={
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="#2E7D32" stroke-width="2" />
+                      <path d="M8 12L11 15L16 9" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  }>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
+                      <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
+                        <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563EB" stroke-width="3" stroke-linecap="round" />
+                    </svg>
+                  </Show>
+                }>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="#D32F2F" stroke-width="2" />
+                    <path d="M9 9L15 15M15 9L9 15" stroke="#D32F2F" stroke-width="2" stroke-linecap="round" />
+                  </svg>
                 </Show>
-                <div class="whitespace-pre-wrap">{text}</div>
-              </>
-            )}
-          </For>
+            </div>
+          </div>
+        )}
+      </Show>
+
+      {/* 卡片下方内容（收起时隐藏） */}
+      <Show when={!contentCollapsed()}>
+        {/* 思考过程 */}
+        <Show when={reasoningTexts().length > 0}>
+          <div
+            ref={(el) => {
+              createEffect(() => {
+                reasoningTexts()
+                el.scrollTop = el.scrollHeight
+              })
+            }}
+            class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
+          >
+            <Show when={assistantGenerating()}>
+              <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
+            </Show>
+            <For each={reasoningTexts()}>
+              {(text, i) => (
+                <>
+                  <Show when={i() > 0}>
+                    <div class="my-1.5 split-line" />
+                  </Show>
+                  <div class="whitespace-pre-wrap">{text}</div>
+                </>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        {/* AI 文字回复 */}
+        <Show when={proseText().length > 0}>
+          <Show when={proseIsJson()} fallback={
+            <div
+              ref={(el) => {
+                createEffect(() => {
+                  proseText()
+                  el.scrollTop = el.scrollHeight
+                })
+              }}
+              class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
+            >
+              <Show when={assistantGenerating()}>
+                <div class="text-[12px] text-[#999] reasoning-text-tip">输出中...</div>
+              </Show>
+              <Markdown text={proseText()} streaming={assistantGenerating()} />
+            </div>
+          }>
+            <pre
+              ref={(el) => {
+                createEffect(() => {
+                  proseText()
+                  el.scrollTop = el.scrollHeight
+                })
+              }}
+              class="prose-json-pre mx-3 mb-2"
+              classList={{ completed: !assistantGenerating() }}
+            >
+              <Show when={assistantGenerating()}>
+                <div class="text-[12px] text-[#999] prose-text-tip">输出中...</div>
+              </Show>
+              {proseText()}
+            </pre>
+          </Show>
+        </Show>
+      </Show>
+
+      {/* 文件操作摘要（生成完成后） */}
+      <Show when={!assistantGenerating() && fileOpsEntries().length > 0}>
+        <div class="mb-1">
+          <FileOpsSummary calls={toolCalls()} />
         </div>
       </Show>
 
       {/* 工具调用进度 */}
       <Show when={toolCalls().length > 0}>
         <ToolCallGroupCard calls={toolCalls()} />
-      </Show>
-
-      {/* AI 文字回复（剥离 artifact 标签） */}
-      <Show when={proseText().length > 0}>
-        <Show when={proseIsJson()} fallback={
-          <div
-            ref={(el) => {
-              createEffect(() => {
-                proseText()
-                el.scrollTop = el.scrollHeight
-              })
-            }}
-            class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
-          >
-            <Markdown text={proseText()} streaming={assistantGenerating()} />
-          </div>
-        }>
-          <pre
-            ref={(el) => {
-              createEffect(() => {
-                proseText()
-                el.scrollTop = el.scrollHeight
-              })
-            }}
-            class="prose-json-pre mx-3 mb-2"
-            classList={{ completed: !assistantGenerating() }}
-          >{proseText()}</pre>
-        </Show>
-      </Show>
-
-      {/* 生成中的 artifact 卡片（非点击，带进度指示） */}
-      <Show when={assistantGenerating() && stableStreamingCard()}>
-        {(card) => {
-          const genCard = card()
-          return (
-            <div class="mx-3 mb-3 gen-card-content">
-              <div class="flex items-center gap-3">
-                <span class="flex-shrink-0 flex items-center">
-                  <img src="/AI_doc_plaintext.svg" width={28} height={28} alt="" />
-                </span>
-                <div class="flex flex-col min-w-0 flex-1">
-                  <span class="truncate card-title">{genCard.title}</span>
-                  <span class="card-label">正在生成…</span>
-                </div>
-                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium card-rounded">
-                  <span class="w-1.5 h-1.5 rounded-full animate-pulse card-rounded-full"/>
-                  生成中
-                </span>
-              </div>
-            </div>
-          )
-        }}
-      </Show>
-
-       {/* 生成中状态指示 */}
-      <Show when={assistantGenerating()}>
-        <WaitingPill parts={assistantParts()} />
-      </Show>
-
-      {/* 输出卡片（生成完成后） */}
-      <Show when={outputCard()}>
-        {(card) => {
-          const capturedCard = card() as OutputCard
-          return (
-            <div
-              class="mx-3 mb-3 transition-all captured-card-btn"
-            >
-              <div class="flex items-center gap-3">
-                <span class="flex-shrink-0 flex items-center">
-                  <img src="/AI_doc_plaintext.svg" width={28} height={28} alt="" />
-                </span>
-                <span class="truncate title flex-1 min-w-0">{capturedCard.title}</span>
-                <span class="time flex-shrink-0 ml-auto">{formatTime(capturedCard.createdAt)}</span>
-              </div>
-            </div>
-          )
-        }}
       </Show>
 
       {/* 产出文件列表 */}

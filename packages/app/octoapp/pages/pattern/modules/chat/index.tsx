@@ -36,10 +36,12 @@ function RoundCard(props: {
   startTime: number
   endTime?: number
   error?: string
+  needsConfirm: boolean
+  confirmText?: { title: string; subtitle: string } | null
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
-  const generating = () => isLatest() && props.pipelineBusy
-  const done = () => !isLatest() || !props.pipelineBusy
+  const generating = () => isLatest() && props.pipelineBusy && !props.needsConfirm
+  const done = () => !isLatest() || (!props.pipelineBusy && !props.needsConfirm)
   const cancelled = () => !props.error && done() && (props.cancelled || (isLatest() && props.endTime === undefined))
   return (
     <>
@@ -48,6 +50,8 @@ function RoundCard(props: {
         canPreview={done() && !cancelled() && !props.error}
         cancelled={cancelled()}
         error={props.error}
+        needsConfirm={props.needsConfirm}
+        confirmText={props.confirmText}
       />
       <Show when={done() || generating()}>
         <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} />
@@ -89,6 +93,8 @@ export function ChatPanel(props: {
   pipelineBusy: boolean
   /** 按轮分组的消息 */
   roundMessages: Round[]
+  needsConfirm: boolean
+  confirmText: { title: string; subtitle: string } | null
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
   /** 标题修改后通知父组件更新 */
@@ -313,6 +319,8 @@ export function ChatPanel(props: {
                           startTime={round().startTime}
                           endTime={round().endTime}
                           error={round().error}
+                          needsConfirm={props.needsConfirm}
+                          confirmText={props.confirmText}
                         />
                       </>
                     )}
