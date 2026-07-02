@@ -137,6 +137,7 @@ function PatternContent() {
           setCurrentVersionId(null)
           setHasPreviewContent(false)
           setIsModifying(false)
+          setIsPlanReview(false)
 
           // 同步子 session 消息，全部加载完成后才标记 synced
           void sync.session.sync(id).then(async () => {
