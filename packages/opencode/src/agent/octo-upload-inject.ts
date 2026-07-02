@@ -169,6 +169,10 @@ async function uploadLocalFile(localPath: string, endpoint: string): Promise<str
 export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
   return {
     "tool.execute.before": async (input, output) => {
+      // extract_document 是我们自己的本地工具,收**本地路径**,绝不能被替换成 S3 url —— 显式跳过。
+      // (其它工具走下面按需上传;input.tool 对 MCP 是带 server 前缀的 uxr-tool_*,对本工具是 extract_document。)
+      if (input.tool === "extract_document" || input.tool.endsWith("_extract_document")) return
+
       // 早退:args 里没有任何"以文档扩展名结尾"的串,就别去拉消息(非文件工具一律零开销放行)。
       if (!hasFileRef(output.args)) return
 
@@ -179,9 +183,10 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
         throw new Error("上传服务未配置 (OCTO_UPLOAD_ENDPOINT)，无法处理文件参数")
       }
 
-      // 聚合**整个 session** 所有 user 消息里的 [附件] 区块,建 文件名→本地路径总表。
-      // 文件分多个 turn 添加也能在这张表里找到。
-      const nameToPath = new Map<string, string>()
+      // 聚合**整个 session** 所有 user 消息里的 [附件] 区块,建「引用 → 本地路径」总表。
+      // 引用同时收录**文件名与完整路径**两种键:提示词要模型填文件名,但内网弱模型可能照抄清单里的
+      // 完整路径 —— 两种都认,避免"填了路径却没上传、把本地路径丢给 MCP"。
+      const refToPath = new Map<string, string>()
       try {
         const res = await client.session.messages({ path: { id: input.sessionID } })
         const msgs =
@@ -191,7 +196,10 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
           if (m.info?.role !== "user") continue
           for (const p of m.parts ?? []) {
             if (p.type !== "text" || typeof p.text !== "string" || !p.text.includes(UPLOAD_BLOCK_HEADER)) continue
-            for (const f of parseManifest(p.text)) nameToPath.set(f.filename, f.path)
+            for (const f of parseManifest(p.text)) {
+              refToPath.set(f.filename, f.path)
+              refToPath.set(f.path, f.path)
+            }
           }
         }
       } catch (err) {
@@ -199,7 +207,7 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
         return // 读取失败不强改,交回模型原值
       }
 
-      if (nameToPath.size === 0) {
+      if (refToPath.size === 0) {
         console.warn(`${LOG} args 含文件名形态串但 session 无 [附件] 区块,保持原值`, {
           tool: input.tool,
           sessionID: input.sessionID,
@@ -207,28 +215,29 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
         return
       }
 
-      // 只对 args 里真正引用的文件名做按需上传(不预传"全部文件")。
+      // 只对 args 里真正引用到的(文件名或路径)做按需上传(不预传"全部文件")。
       const referenced = new Set<string>()
-      collectRefs(output.args, new Set(nameToPath.keys()), referenced)
+      collectRefs(output.args, new Set(refToPath.keys()), referenced)
       if (referenced.size === 0) return
 
-      // 逐个按需上传(缓存命中则不重复传),建 文件名→url 表。任一失败即上抛 → 工具调用失败。
-      const nameToUrl = new Map<string, string>()
-      for (const filename of referenced) {
-        const localPath = nameToPath.get(filename)!
+      // 逐个按需上传(缓存按本地路径命中,文件名/路径指向同一文件只传一次),建「引用 → url」表。
+      // 任一失败即上抛 → 工具调用失败、错误回灌模型。
+      const refToUrl = new Map<string, string>()
+      for (const ref of referenced) {
+        const localPath = refToPath.get(ref)!
         const url = await uploadLocalFile(localPath, endpoint)
-        nameToUrl.set(filename, url)
+        refToUrl.set(ref, url)
       }
 
       const before = JSON.stringify(output.args)
-      replaceRefs(output.args, nameToUrl)
+      replaceRefs(output.args, refToUrl)
       const after = JSON.stringify(output.args)
 
       console.log(`${LOG} args rewritten`, {
         tool: input.tool,
         sessionID: input.sessionID,
-        knownFiles: nameToPath.size, // 整个 session 已知文件数
-        uploaded: nameToUrl.size, // 本次按需上传/命中缓存的文件数
+        knownRefs: refToPath.size, // 已知引用键数(文件名 + 路径,约为文件数 ×2)
+        uploaded: refToUrl.size, // 本次按需上传/命中缓存的引用数
         changed: before !== after,
         before,
         after,
