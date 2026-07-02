@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
       port: parseInt(rootEnv.VUE_FRONTEND_PORT || '51856'),
     },
     build: {
+      outDir: '../previewdist',
       chunkSizeWarningLimit: 5000,
       rollupOptions: {
         onLog(level, log, handler) {
