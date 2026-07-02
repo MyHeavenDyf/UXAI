@@ -303,6 +303,14 @@ function PatternContent() {
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
   const [intentConfirm, setIntentConfirm] = createSignal<IntentConfirmResult | null>(null)
 
+  const needsConfirm = createMemo(() => intentConfirm() !== null || isPlanReview())
+
+  const confirmText = createMemo<{ title: string; subtitle: string } | null>(() => {
+    if (intentConfirm()) return { title: "意图分析完成", subtitle: "请在右侧进一步确认需求" }
+    if (isPlanReview()) return { title: "线框审查", subtitle: "请在右侧进一步确认需求" }
+    return null
+  })
+
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory;
@@ -933,6 +941,8 @@ function PatternContent() {
             onDrop={handleDrop}
             pipelineBusy={isBusy() || sending()}
             roundMessages={roundMessages()}
+            needsConfirm={needsConfirm()}
+            confirmText={confirmText()}
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
           />

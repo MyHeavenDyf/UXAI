@@ -21,6 +21,11 @@
   border: 1px solid rgba(107,114,128,0.2);
 }
 
+.generation-card.confirming {
+  background: linear-gradient(90deg, rgba(219,234,254,1) 0%, rgba(239,246,255,1) 100%);
+  border: 1px solid rgba(59,130,246,0.3);
+}
+
 .generation-card.error {
   background: linear-gradient(90deg, rgba(254,226,226,1) 0%, rgba(254,242,242,1) 100%);
   border: 1px solid rgba(239,68,68,0.25);
@@ -75,6 +80,17 @@
   font-weight: 500;
   background: rgba(107,114,128,0.1);
   color: #6b7280;
+}
+
+.gc-confirm-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(59,130,246,0.1);
+  color: #3b82f6;
 }
 
 .gc-error-badge {
