@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { basename } from "node:path"
+import { readFile } from "node:fs/promises"
 
 /**
  * octo-upload-inject —— 在 MCP 工具执行前,把模型填的**文件名**按需上传 S3 后换成精确 URL。
@@ -114,14 +115,23 @@ async function uploadLocalFile(localPath: string, endpoint: string): Promise<str
   const cached = uploadCache.get(localPath)
   if (cached) return cached
 
-  const file = Bun.file(localPath)
-  if (!(await file.exists())) {
-    throw new Error(`本地文件不存在,无法上传:${localPath}`)
+  // ⚠️ 用 node:fs 读文件、不用 Bun.file:opencode 在桌面端是 Electron utilityProcess.fork 起的
+  // **Node 子进程**(非 Bun),Bun.* 全局不存在,用了会抛 "Bun is not defined" 让整个工具调用崩。
+  let ab: ArrayBuffer
+  try {
+    const buf = await readFile(localPath)
+    // 拷进一块**明确的 ArrayBuffer**:Node Buffer 底层是 ArrayBufferLike(可能 SharedArrayBuffer),
+    // 直接塞 Blob 过不了 BlobPart 类型;这里显式复制成 ArrayBuffer,无需 as 断言。
+    ab = new ArrayBuffer(buf.byteLength)
+    new Uint8Array(ab).set(buf)
+  } catch (e) {
+    throw new Error(`本地文件读取失败,无法上传:${localPath}(${e instanceof Error ? e.message : String(e)})`)
   }
 
   const form = new FormData()
   // 只发 file 一个字段(路径策略是服务端的事);显式带 basename 作 multipart 文件名。
-  form.append("file", file, basename(localPath))
+  // Node/Bun 均有全局 Blob/FormData/fetch(Node 18+)。
+  form.append("file", new Blob([ab]), basename(localPath))
 
   const t0 = Date.now()
   let res: Response

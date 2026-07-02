@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect"
 import { basename } from "node:path"
+import { access } from "node:fs/promises"
 import * as Tool from "./tool"
 
 // extract_document —— 把本地 office 文档(docx/xlsx/pdf)抽取成文本,供 insight 本地模型直接读。
@@ -28,7 +29,11 @@ export const ExtractDocumentTool = Tool.define(
       execute: (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) =>
         Effect.gen(function* () {
           const path = params.path
-          const exists = yield* Effect.tryPromise(() => Bun.file(path).exists()).pipe(Effect.orElseSucceed(() => false))
+          // ⚠️ 用 node:fs 判存在、不用 Bun.file:桌面端 sidecar 是 Node 子进程,Bun.* 不存在。
+          const exists = yield* Effect.tryPromise(() => access(path)).pipe(
+            Effect.as(true),
+            Effect.orElseSucceed(() => false),
+          )
           console.log("[octo:extract] called (stub, 抽取待 Spec B)", { path, exists })
           // TODO(Spec B):此处接 office→文本抽取(docx/xlsx/pdf),返回正文(顺带字数)。
           const note = exists
