@@ -985,8 +985,7 @@ export function PropertyEditorPopup(props: {
   async function handleConfirm(skipChangeCheck?: boolean) {
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
     let className = props.currentClass || ''
-    const hasAnyTailwind = parsedClasses.some(c => isTailwindToken(c))
-    if (hasClassEditor() && hasAnyTailwind) {
+    if (hasClassEditor()) {
       const desktopApi = (window as unknown as {
         api?: {
           tailwindToCss?: (className: string) => Promise<Record<string, string>>
@@ -1182,6 +1181,7 @@ export function PropertyEditorPopup(props: {
 
           <Show when={hasClassEditor()}>
 
+            <Show when={isTextElement()}>
             <div class="grid gap-2 py-2 border-slate-100 border-t -mx-4 px-4 border-[#e5e7eb]">
               <span class="text-[12px] font-medium text-slate-500">
                 {editFlexDir() ? '弹性布局' : '布局'}
@@ -1272,8 +1272,10 @@ export function PropertyEditorPopup(props: {
                 </div>
               </Show>
             </div>
+            </Show>
 
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
+              <Show when={isTextElement()}>
               <div class="flex items-center justify-between">
                 <span class="text-[12px] font-medium text-slate-500">内边距</span>
                 <div class="relative padding-dropdown-area">
@@ -1328,6 +1330,7 @@ export function PropertyEditorPopup(props: {
                   { value: editPb, setValue: setEditPb, setFound: setFoundPb, found: foundPb, placeholder: "下", icon: "↓" },
                   { value: editPl, setValue: setEditPl, setFound: setFoundPl, found: foundPl, placeholder: "左", icon: "←" },
                 )}
+              </Show>
               </Show>
 
                             <div class="flex items-center justify-between">
@@ -1421,6 +1424,7 @@ export function PropertyEditorPopup(props: {
               </div>
             </div>
 
+            <Show when={isTextElement()}>
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <span class="text-[12px] font-medium text-slate-500">外观</span>
               <div class="flex items-center gap-1.5 w-full min-w-0">
@@ -1441,7 +1445,9 @@ export function PropertyEditorPopup(props: {
                 )}
               </Show>
             </div>
+            </Show>
 
+            <Show when={isTextElement()}>
             <div class="flex items-center gap-2  pt-2  border-t -mx-4 px-4 border-[#e5e7eb]">
               <label class="text-[12px] font-medium text-slate-500 w-14 shrink-0">背景色</label>
               <input type="color" value={editBgColor()} onInput={(e) => setEditBgColor(e.currentTarget.value)}
@@ -1698,6 +1704,7 @@ export function PropertyEditorPopup(props: {
                 }}
               </For>
             </div>
+            </Show>
           </Show>
 
         </div>
