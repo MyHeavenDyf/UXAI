@@ -7,15 +7,6 @@ type QueuedAction = {
   transfer: ArrayBuffer[]
 }
 
-const WINDOW_TO_POST: Record<string, (args: unknown[]) => { type: string; payload: unknown }> = {
-  startMdStream: () => ({ type: "MD_STREAM_START", payload: undefined }),
-  appendMdChunk: (args) => ({ type: "MD_STREAM_CHUNK", payload: { text: args[0] as string } }),
-  endMdStream: () => ({ type: "MD_STREAM_END", payload: undefined }),
-  setMdFullText: (args) => ({ type: "MD_FULL_TEXT", payload: { text: args[0] as string, lock: args[1] as boolean | undefined } }),
-  clearMd: () => ({ type: "MD_CLEAR", payload: undefined }),
-  confirmMd: () => ({ type: "MD_CONFIRM", payload: undefined }),
-}
-
 export class IframeBridge {
   private iframe: HTMLIFrameElement
   private handlers: Record<string, MessageHandler[]> = {}
@@ -47,8 +38,7 @@ export class IframeBridge {
   mount(container: HTMLElement): this {
     // 从 DOM 卸载会销毁 iframe 的浏览上下文，重新 append 会触发 reload。
     // 必须复位 ready，否则 reload 期间 post() 会把消息直接打到正在加载的
-    // contentWindow 上被丢弃（clearMd / 流式 chunk 全部丢失）。复位后消息入队，
-    // 等 load 事件 flushQueue 按序投递。
+    // contentWindow 上被丢弃。复位后消息入队，等 load 事件 flushQueue 按序投递。
     if (this.iframe.parentNode) {
       this.iframe.remove()
       this.ready = false
@@ -64,16 +54,7 @@ export class IframeBridge {
     this.queue = []
   }
 
-  navigate(step: number): this {
-    return this.post("STEP_CHANGE", { step })
-  }
-
   call(method: string, ...args: unknown[]): this {
-    const mapping = WINDOW_TO_POST[method]
-    if (mapping) {
-      const { type, payload } = mapping(args)
-      return this.post(type, payload)
-    }
     console.warn("[IframeBridge] unknown method:", method)
     return this
   }
@@ -94,7 +75,7 @@ export class IframeBridge {
   }
 
   off(type: string, fn: MessageHandler): this {
-    this.handlers[type] = this.handlers[type]?.filter(f => f !== fn) ?? []
+    (this.handlers[type] = this.handlers[type]?.filter(f => f !== fn) ?? [])
     return this
   }
 

@@ -8,12 +8,53 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
 
 import { createArtifactParser } from "../utils/artifact-parser"
+import { stripThinkTags } from "../lib/think-filter"
 import { splitOnQuestionForms, type FormSegment } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import "./quick-brief-form.css"
 
 function _debugLog(...args: unknown[]) {
   console.log("[InsightTurn]", ...args)
+}
+
+function tryParseJson(text: string): string | null {
+  let candidate = text.trim()
+  if (!candidate.startsWith("{") && !candidate.startsWith("[")) {
+    const startBrace = candidate.indexOf("{")
+    const startBracket = candidate.indexOf("[")
+    const start = startBrace === -1 ? startBracket : startBracket === -1 ? startBrace : Math.min(startBrace, startBracket)
+    if (start === -1) return null
+    const openChar = candidate[start]
+    const closeChar = openChar === "{" ? "}" : "]"
+    let depth = 0
+    let end = -1
+    for (let i = start; i < candidate.length; i++) {
+      if (candidate[i] === openChar) depth++
+      if (candidate[i] === closeChar) depth--
+      if (depth === 0) { end = i + 1; break }
+    }
+    if (end === -1) return null
+    candidate = candidate.slice(start, end)
+  }
+  try { JSON.parse(candidate); return candidate } catch { return null }
+}
+
+function extractPartialJson(text: string): string | null {
+  const startBrace = text.indexOf("{")
+  const startBracket = text.indexOf("[")
+  if (startBrace === -1 && startBracket === -1) return null
+  const start = startBrace === -1 ? startBracket : startBracket === -1 ? startBrace : Math.min(startBrace, startBracket)
+  const openChar = text[start]
+  const closeChar = openChar === "{" ? "}" : "]"
+  let depth = 0
+  let lastValidDepth1 = -1
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === openChar) depth++
+    if (text[i] === closeChar) depth--
+    if (depth === 1) lastValidDepth1 = i
+  }
+  if (lastValidDepth1 === -1) return text.slice(start)
+  return text.slice(start, lastValidDepth1 + 1) + closeChar
 }
 
 export type DeltaLogEntry = {
@@ -299,6 +340,8 @@ export function InsightTurn(props: {
   onChildSession?: (subSessionID: string) => void
   deltaLog?: DeltaLogEntry[]
   onFormSubmit?: (text: string) => void
+  hasQuestionRequest?: boolean
+  onConfirmGenerate?: () => void
 }): JSX.Element {
   const data = useData()
   const sync = useSync()
@@ -425,20 +468,41 @@ export function InsightTurn(props: {
   // 流式增长时只更新内容、不重建卡片节点。
   // 直接取最后一个 text part 原文（不经 proseText 剥 artifact）：
   // 既支持裸 JSON，也支持被 <artifact> 包裹的 JSON。
+  // 与 index.tsx 的 stepBDslJson 对齐：stripThinkTags + artifact 剥离 + markdown 代码块 +
+  // 嵌入 JSON 括号匹配。流式期间括号未闭合时按深度截取，渐进显示部分 JSON。
   const dslJson = createMemo(() => {
     const parts = assistantParts()
-    const textPart = [...parts].reverse().find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    const raw = textPart?.text?.trim() ?? ""
-    if (!raw) return ""
-    if (raw.includes("<artifact")) {
-      const parser = createArtifactParser()
-      let content = ""
-      for (const ev of parser.feed(raw)) if (ev.type === "artifact:chunk") content += ev.delta
-      for (const ev of parser.flush()) if (ev.type === "artifact:chunk") content += ev.delta
-      const c = content.trim()
-      return c && looksLikeJson(c) ? c : ""
+    for (const part of [...parts].reverse()) {
+      if (part.type !== "text" || !part.text) continue
+      let text = stripThinkTags(part.text.trim())
+      if (!text) continue
+      if (text.includes("<artifact")) {
+        const parser = createArtifactParser()
+        let content = ""
+        for (const ev of parser.feed(text)) if (ev.type === "artifact:chunk") content += ev.delta
+        for (const ev of parser.flush()) if (ev.type === "artifact:chunk") content += ev.delta
+        const c = content.trim()
+        if (!c) continue
+        const complete = tryParseJson(c)
+        if (complete) return complete
+        const partial = extractPartialJson(c)
+        if (partial) return partial
+        continue
+      }
+      const complete = tryParseJson(text)
+      if (complete) return complete
+      const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (mdMatch) {
+        const inner = mdMatch[1].trim()
+        const parsed = tryParseJson(inner)
+        if (parsed) return parsed
+        const partial = extractPartialJson(inner)
+        if (partial) return partial
+      }
+      const partial = extractPartialJson(text)
+      if (partial) return partial
     }
-    return looksLikeJson(raw) ? raw : ""
+    return ""
   })
 
   const formSubmitted = createMemo(() => {
@@ -587,7 +651,37 @@ export function InsightTurn(props: {
         </For>
       </Show>
 
-      {/* 步骤二 DSL 卡片：稳定节点，流式增长只更新内容不重建 DOM（保证可点击/可滚动） */}
+      {/* 确认并生成线框按钮：语义文本完成后、线框未生成时显示 */}
+      <Show when={!props.active && proseSegments().length > 0 && !dslJson() && props.onConfirmGenerate}>
+        <div class="px-3 mb-2">
+          <button
+            type="button"
+            onClick={props.onConfirmGenerate!}
+            class="w-full"
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "center",
+              gap: "6px",
+              padding: "10px 0",
+              "border-radius": "var(--octo-radius-md, 8px)",
+              background: "var(--octo-brand, #3b82f6)",
+              color: "#fff",
+              "font-size": "14px",
+              "font-weight": 500,
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            确认并生成线框
+          </button>
+        </div>
+      </Show>
+
+      {/* DSL 卡片：稳定节点，流式增长只更新内容不重建 DOM */}
       <Show when={dslJson()}>
         <div class="px-3">
           <DslCollapsed
@@ -633,8 +727,8 @@ export function InsightTurn(props: {
         />
       </Show>
 
-      {/* 阻塞提示 */}
-      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60}>
+      {/* 阻塞提示 — 渐进式显示（question 状态时不显示） */}
+      <Show when={showGenerating() && props.blockTime && props.blockTime >= 60 && !props.hasQuestionRequest}>
         {(() => {
           const bt = props.blockTime!
           const isWarning = bt >= 80

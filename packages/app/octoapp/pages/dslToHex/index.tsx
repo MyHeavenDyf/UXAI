@@ -4,7 +4,7 @@ import { STEP_A_PROMPT } from "./prompts/step-a"
 import { STEP_B_PROMPT } from "./prompts/step-b"
 import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest } from "./utils/artifact-persist"
 import { IframeBridge } from "./lib/iframe-bridge"
-import { createThinkFilter, stripThinkTags } from "./lib/think-filter"
+import { stripThinkTags } from "./lib/think-filter"
 
 type StepPhase = "a-generating" | "a-done" | "b-generating" | "b-done" | "c-generating" | "c-done"
 
@@ -294,28 +294,15 @@ const sessionMessagesLoaded = createMemo(() => {
         debugLog("sessionSwitch:", { id })
         setSending(false)
         setDeltaLog([])
-        thinkFilter.reset()
-        // 切换 session：先彻底结束上一个 session 的 md 流并复位状态，
-        // 否则上一个 session 正在生成的内容会残留/串到切换后的 session 视图里
-        if (mdStreamStarted) {
-          bridge.call("endMdStream")
-          mdStreamStarted = false
-        }
-        mdStreamAccum = ""
-        // ── 用产物缓存（而非可能仍属上一个 session 的 signal）推断初始 phase ──
-        // 切回已生成过的 session 直达目标步骤，避免先闪回步骤一；
-        // 同时让 phase 早于 SSE 恢复，防止 JSON delta 泄露到 md 流。
-        // 冷启动（无缓存）一律从 a-generating 起，由产物/消息异步驱动到正确步骤——
-        // 产物是唯一真相源，不引入 localStorage 提示这种会与产物 desync 的旁路。
+        // ── 用产物缓存推断初始 phase ──
+        // 冷启动（无缓存）一律从 a-generating 起，由产物/消息异步驱动到正确步骤。
         const inf = inferFromCache(id)
         setStepPhase(inf.phase)
         setStepBInitiated(inf.bInitiated)
         setStepCConfirmed(inf.cConfirmed)
         setStepAMessageId(null)
         setStepBStartIdx(0)
-        bridge.call("clearMd")
         bridge.post("NODE_DSL_CLEAR", undefined)
-        bridge.navigate(inf.target)
         if (sendingNavigation) {
           sendingNavigation = false
         } else {
@@ -443,27 +430,6 @@ const sessionMessagesLoaded = createMemo(() => {
       const step = (payload as { step: number }).step
       debugLog("STEP_CHANGED:", step)
     })
-    .on("MD_CONTENT_CONFIRMED", (payload) => {
-      const confirmedText = (payload as { text: string }).text
-      const desc = stepADescription()
-      debugLog("=== STEP A 确认数据对比 ===")
-      debugLog("[confirmedText] iframe 回传, length:", confirmedText?.length ?? 0)
-      debugLog("[confirmedText] 全文:\n", confirmedText)
-      debugLog("[desc] 本地 stepADescription, length:", desc?.length ?? 0)
-      debugLog("[desc] 全文:\n", desc)
-      debugLog("[一致?]", confirmedText === desc)
-      const id = params.id
-      if (!id) return
-      // 用户在步骤一编辑了语义化文本：采纳为新的步骤一产物并落盘。
-      // 否则 stepADescription 仍取旧的步骤一消息，restore effect 会用旧文本回灌覆盖，
-      // 重新打开 session 也是旧文本——表现为"步骤一显示旧的语义化"。
-      if (confirmedText && confirmedText !== desc) {
-        setStepAArtifact(confirmedText)
-        cacheArtifact(id, { a: confirmedText })
-        if (dslDir) saveArtifact(dslDir, id, "a", confirmedText).catch(() => {})
-      }
-      void sendStepB(confirmedText || desc)
-    })
     .on("DSL_NODE_UPDATED", (payload) => {
       const { nid, changes } = payload as { nid: number; changes: Record<string, string> }
       setDslNodeEdits(nid, (prev) => ({ ...prev, ...changes }))
@@ -505,98 +471,18 @@ const sessionMessagesLoaded = createMemo(() => {
   onCleanup(() => bridge.unmount())
 
   // ── session restore → bridge ────────────────────────────────
-  // 发送产物内容 + 导航到对应步骤
-  // 只在步骤一流式期间（a-generating）不回灌：那时 md 正在 appendMdChunk，
-  // 用 setMdFullText 会覆盖流。步骤二/三生成期间（b/c-generating）步骤一已静态完成，
-  // 必须把它回灌进 iframe，否则切回正在生成步骤二的 session 时步骤一会是空白。
+  // 回灌 b/c 产物到 iframe
   createEffect(() => {
     const id = params.id
     if (!id || !dslDir) return
-    const phase = stepPhase()
-    if (phase === "a-generating") return
-    const aArtifact = stepAArtifact()
     const bArtifact = stepBArtifact()
     const cArtifact = stepCArtifact()
-    const target: number = phase === "a-done" ? 1
-      : phase === "b-done" || phase === "b-generating" ? 2
-      : 3
-    if (aArtifact) {
-      const clean = stripThinkTags(aArtifact)
-      if (clean) bridge.call("setMdFullText", clean, false)
-    }
     if (bArtifact) {
       try { bridge.post("NODE_DSL_JSON", JSON.parse(bArtifact)) } catch {}
     }
     if (isZipBuffer(cArtifact)) {
-      // 不用 transfer：cArtifact 存在 signal 里会被反复 post，transfer 会 detach 原 buffer
       bridge.post("PIPELINE_ZIP_DATA", cArtifact)
     }
-    bridge.navigate(target)
-  })
-
-  // ── SSE → bridge 流式传输（Step A） ──────────────────────────
-  let mdStreamStarted = false
-  let mdStreamAccum = ""
-  const thinkFilter = createThinkFilter()
-  createEffect(() => {
-    const id = params.id
-    if (!id) return
-    const phase = stepPhase()
-    if (phase !== "a-generating") {
-      if (mdStreamStarted) {
-        const remaining = thinkFilter.flush()
-        if (remaining) { bridgeRef?.call("appendMdChunk", remaining); mdStreamAccum += remaining }
-        bridgeRef?.call("endMdStream")
-        debugLog("=== STEP A 流式发往 iframe 的完整内容 ===")
-        debugLog("[mdStreamAccum] length:", mdStreamAccum.length)
-        debugLog("[mdStreamAccum] 全文:\n", mdStreamAccum)
-        mdStreamStarted = false
-      }
-      return
-    }
-    const unsub = sdk.event.listen((evt) => {
-      const e = evt.details
-      const props = e.properties as Record<string, unknown> | undefined
-      const eventSessionID = props?.sessionID as string | undefined
-      if (eventSessionID && eventSessionID !== id) return
-      if (e.type === "message.part.delta") {
-        const field = props?.field as string
-        const delta = props?.delta as string
-        const msgID = props?.messageID as string
-        if (field === "text" && delta && msgID) {
-          // ── 防线：只接受 Step A 消息的 delta ──
-          // stepAMessageId 在 session 切换时先设为 null，但初始 phase 现由产物推断
-          // （而非一律 a-generating），大幅减少了 JSON 泄露窗口。
-          // 若 stepAMessageId 已确认，则非 Step A 消息的 delta 一律跳过。
-          const aMsgId = stepAMessageId()
-          if (aMsgId && msgID !== aMsgId) return
-          const allMsgs = (sync.data.message[id] ?? []) as Message[]
-          const msg = allMsgs.find(m => m.id === msgID)
-          if (msg?.role !== "assistant") return
-          // reasoning-delta 与 text-delta 在 opencode 底层都以 field:"text" 发送（见 processor.ts），
-          // 只能靠 partID 区分。思考内容是 type:"reasoning" 的 part，必须跳过，否则会被写进 md。
-          const partID = props?.partID as string | undefined
-          const parts = (sync.data.part as Record<string, { id: string; type: string; text?: string }[]>)?.[msgID] ?? []
-          const part = parts.find(p => p.id === partID)
-          if (part?.type === "reasoning") return
-          // 步骤一只把语义文本流式写入 md。步骤二的产物是 JSON（{ / [ / ```json 开头）：
-          // 切回正在生成 step B 的 session 时 phase 会被瞬时重置为 a-generating，
-          // 若不拦截，JSON 会被当成步骤一文本写进 md。
-          const accumulated = (part?.text ?? delta).trimStart()
-          if (accumulated.startsWith("{") || accumulated.startsWith("[") || accumulated.startsWith("```")) return
-          const clean = thinkFilter.feed(delta)
-          if (!clean) return
-          if (!mdStreamStarted) {
-            bridgeRef?.call("startMdStream")
-            mdStreamStarted = true
-            mdStreamAccum = ""
-          }
-          bridgeRef?.call("appendMdChunk", clean)
-          mdStreamAccum += clean
-        }
-      }
-    })
-    onCleanup(unsub)
   })
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
@@ -690,17 +576,15 @@ const sessionMessagesLoaded = createMemo(() => {
       .finally(() => { hintReady = true; if (hintDirty) { hintDirty = false; flushManifest() } })
   })
 
-  function inferFromCache(id: string | undefined): { phase: StepPhase; target: number; bInitiated: boolean; cConfirmed: boolean } {
+  function inferFromCache(id: string | undefined): { phase: StepPhase; bInitiated: boolean; cConfirmed: boolean } {
     const snap = id ? artifactCache.get(id) : undefined
-    if (snap?.c && isZipBuffer(snap.c)) return { phase: "c-done", target: 3, bInitiated: true, cConfirmed: true }
-    if (snap?.b) return { phase: "b-done", target: 2, bInitiated: true, cConfirmed: false }
-    if (snap?.a) return { phase: "a-done", target: 1, bInitiated: false, cConfirmed: false }
-    // 冷启动兜底：内存缓存为空时用 manifest 提示初始步骤（产物到达后仍会被异步校验纠正）
+    if (snap?.c && isZipBuffer(snap.c)) return { phase: "c-done", bInitiated: true, cConfirmed: true }
+    if (snap?.b) return { phase: "b-done", bInitiated: true, cConfirmed: false }
+    if (snap?.a) return { phase: "a-done", bInitiated: false, cConfirmed: false }
     const hint = id ? phaseHint.get(id) : undefined
-    if (hint === 3) return { phase: "c-done", target: 3, bInitiated: true, cConfirmed: true }
-    if (hint === 2) return { phase: "b-done", target: 2, bInitiated: true, cConfirmed: false }
-    if (hint === 1) return { phase: "a-done", target: 1, bInitiated: false, cConfirmed: false }
-    return { phase: "a-generating", target: 1, bInitiated: false, cConfirmed: false }
+    if (hint === 2) return { phase: "c-done", bInitiated: true, cConfirmed: true }
+    if (hint === 1) return { phase: "b-done", bInitiated: true, cConfirmed: false }
+    return { phase: "a-generating", bInitiated: false, cConfirmed: false }
   }
 
   // ── 切换 session 或 sync 数据到达时恢复 stepPhase ──────────
@@ -864,14 +748,6 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!dslJson) return
     try { bridgeRef?.post("NODE_DSL_JSON", JSON.parse(dslJson)) } catch {}
   })
-
-  // ── stepPhase → STEP_CHANGE 导航 ────────────────────────────
-  createEffect(on(stepPhase, (phase) => {
-    const target: number = phase === "a-generating" || phase === "a-done" ? 1
-      : phase === "b-generating" || phase === "b-done" ? 2
-      : 3
-    bridge.navigate(target)
-  }))
 
    const stepBDslJson = createMemo(() => {
       const id = params.id
@@ -1069,7 +945,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setStepCArtifact(null)
           setStepCConfirmed(false)
           cacheArtifact(targetId, { c: null })
-          persistHint(targetId, stepBArtifact() ? 2 : 1, { allowLower: true })
+          persistHint(targetId, stepBArtifact() ? 1 : 1, { allowLower: true })
           setStepPhase(stepBArtifact() ? "b-done" : "a-done")
         }
       }
@@ -1105,7 +981,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const id = params.id
     if (!id || isBusy()) return
     const phase = stepPhase()
-    const step = phase === "c-done" ? 3 : phase === "b-done" ? 2 : phase === "a-done" ? 1 : 0
+    const step = phase === "c-done" ? 2 : phase === "b-done" ? 1 : phase === "a-done" ? 1 : 0
     if (step > 0) persistHint(id, step)
   })
 
@@ -1168,7 +1044,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setStepCConfirmed(false)
     cacheArtifact(sessionId, { b: null, c: null })
     // 重新生成步骤二会清掉步骤三产物：若原本停在 c-done(hint=3)，显式把提示降到 2
-    persistHint(sessionId, 2, { allowLower: true })
+    persistHint(sessionId, 1, { allowLower: true })
     if (dslDir) clearArtifacts(dslDir, sessionId, "b", "c").catch(() => {})
     setStepBInitiated(true)
     setStepPhase("b-generating")
@@ -1949,6 +1825,8 @@ if (dsId) {
                         onFormSubmit={(text) => {
                           setPrompt(text)
                         }}
+                        hasQuestionRequest={!!questionRequest()}
+                        onConfirmGenerate={() => sendStepB(stepADescription())}
                       />
                     )}
                   </For>
