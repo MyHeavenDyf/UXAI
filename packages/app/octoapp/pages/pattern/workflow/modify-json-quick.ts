@@ -265,6 +265,5 @@ export async function handleModifyElement(
       }
     }
   }
-  // 修改组件 API 属性时需要强制刷新 iframe 才能生效
-  if (data.componentProps && Object.keys(data.componentProps).length > 0) ctx.refreshPreview()
+
 }

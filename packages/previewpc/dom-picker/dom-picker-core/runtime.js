@@ -410,5 +410,35 @@ export function installDomPicker(options = {}) {
       selectParent()
     }
   })
+
+  const observer = new MutationObserver(() => {
+    if (!frozen || !activeLocation) return
+    if (activeElement && document.body.contains(activeElement)) return
+
+    requestAnimationFrame(() => {
+      const allPickerElements = document.querySelectorAll(`[${PICKER_ID_ATTR}]`)
+      let newElement = null
+      for (const el of allPickerElements) {
+        if (el.getAttribute(PICKER_ID_ATTR) === activeLocation) {
+          newElement = el
+          break
+        }
+      }
+      if (newElement) {
+        activeElement = newElement
+        updateOverlay(overlay, activeElement)
+        updateBadge(badge, activeElement, activeLocation)
+      } else {
+        frozen = false
+        activeElement = null
+        activeLocation = ''
+        updateOverlay(overlay, null)
+        updateBadge(badge, null, '')
+      }
+    })
+  })
+
+  observer.observe(document.body, { childList: true, subtree: true })
+
   console.log(`[${logPrefix}] ready`)
 }

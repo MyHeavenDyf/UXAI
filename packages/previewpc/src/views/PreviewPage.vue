@@ -2,6 +2,7 @@
 import A2UIRenderer from "../renderer/render/Renderer.vue";
 import { provideA2UI } from "../renderer/render/Provider";
 import { ref, onMounted, onUnmounted } from "vue";
+import dataJson from "@/jsonStorage/data.json";
 
 const { createSurface, updateSurface } = provideA2UI();
 
@@ -19,6 +20,14 @@ function applyA2UIJson(data: any) {
   } else {
     updateSurface(surfaceId, data)
   }
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept("@/jsonStorage/data.json", (newMod) => {
+    if (newMod) {
+      applyA2UIJson(JSON.parse(JSON.stringify(newMod.default)));
+    }
+  });
 }
 
 function handleMessage(event: MessageEvent) {
@@ -46,8 +55,7 @@ onMounted(async () => {
         const data = await res.json()
         applyA2UIJson(data)
       } else {
-        const { default: testData } = await import("@/jsonStorage/data.json");
-        applyA2UIJson(JSON.parse(JSON.stringify(testData)));
+        applyA2UIJson(JSON.parse(JSON.stringify(dataJson)));
       }
     } catch (err) {
       console.warn("[PreviewPage] 加载 data.json 失败:", err);

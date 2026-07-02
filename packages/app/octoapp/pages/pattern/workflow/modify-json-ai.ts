@@ -188,7 +188,6 @@ export default async function modify_json_ai(inputCtx: ProtoModifyJsonInput, las
             // 完整页面的 JSON
             pageJson: merged
         })
-        inputCtx.refreshPreview?.()
 
     }
 }
