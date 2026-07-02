@@ -94,6 +94,12 @@ export default defineConfig(({ mode, command }) => {
         // Insight uxr-tool MCP server 地址:由 .env[.beta/.prod] 的 OCTO_UXR_MCP_URL 提供,
         // 经 createSidecarEnv 注入 sidecar 供 builtin-mcp 读;留空则 sidecar 回落代码内默认 beta IP。
         "import.meta.env.OCTO_UXR_MCP_URL": JSON.stringify(env.OCTO_UXR_MCP_URL ?? ""),
+        // Insight 文件上传服务地址(SPEC-INS-015 按需上传):同 .env 里前端用的 VITE_OCTO_UPLOAD_ENDPOINT
+        // 同一地址,经 createSidecarEnv 以 OCTO_UPLOAD_ENDPOINT 注入 sidecar,供 octo-upload-inject
+        // 插件在模型调 MCP 时按需上传 S3(VITE_* 只有渲染进程读得到,sidecar 读不到 .env)。
+        "import.meta.env.OCTO_UPLOAD_ENDPOINT": JSON.stringify(
+          env.OCTO_UPLOAD_ENDPOINT ?? env.VITE_OCTO_UPLOAD_ENDPOINT ?? "",
+        ),
       },
       build: {
         rollupOptions: {
