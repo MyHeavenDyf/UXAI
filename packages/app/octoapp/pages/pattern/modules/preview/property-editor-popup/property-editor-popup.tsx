@@ -422,7 +422,7 @@ export function PropertyEditorPopup(props: {
       if (v.flexDirection === 'column' || v.flexDirection === 'col') setEditFlexDir('col')
       else setEditFlexDir('row')
       if (!v.justifyContent) setEditJustify('start')
-      if (!v.alignItems) { setEditAlignItems('start'); setEditVAlign('start') }
+      if (!v.alignItems) { setEditAlignItems('stretch'); setEditVAlign('stretch') }
     }
     if (v.gap) { setEditFlexGap(px(v.gap)); setFoundFlexGap(true) }
     if (v.justifyContent) {
@@ -608,7 +608,7 @@ export function PropertyEditorPopup(props: {
     setEditFlexDir(clsInfo.flexDir)
     setEditFlexGap(clsInfo.flexGap); setFoundFlexGap(clsInfo.foundFlexGap)
     setEditJustify(clsInfo.flexJustify || (clsInfo.flexDir ? 'start' : ''))
-    setEditAlignItems(clsInfo.flexAlignItems || (clsInfo.flexDir ? 'start' : ''))
+    setEditAlignItems(clsInfo.flexAlignItems || (clsInfo.flexDir ? 'stretch' : ''))
     setEditBgImage(null)
     setEditTag('')
 

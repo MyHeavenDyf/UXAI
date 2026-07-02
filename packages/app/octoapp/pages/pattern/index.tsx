@@ -25,7 +25,7 @@ import { create_intent_confirm, create_planner_json, create_modules_json, type P
 import modify_json_ai from './workflow/modify-json-ai'
 import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
-import { logStartSession, getDebugSnapshot, clearDebugLog, saveDebugLog } from "./utils/debug-log"
+import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
@@ -468,7 +468,6 @@ function PatternContent() {
           // 历史保存始终执行（与当前查看的 session 无关）
           const dir = patternHistoryDir()
           if (dir) {
-            const debug = getDebugSnapshot()
             const vid = await appendPatternVersion(dir, sid!, {
                 lastIntent: pageIntent,
                 lastPlanner: layoutPlanner,
@@ -480,13 +479,13 @@ function PatternContent() {
               setCurrentVersionId(vid)
               clearDebugLog()
             }
-            void saveDebugLog(dir, sid!, {
+            void saveDebugSnapshot(dir, sid!, "modules", {
               lastIntent: pageIntent,
               lastPlanner: layoutPlanner,
               lastModules: modulesJson,
               mergedA2UI: pageJson as unknown as Record<string, unknown>,
-              debug,
-            }, text.slice(0, 80))
+              summary: text.slice(0, 80),
+            })
           }
           // 视图状态仅在仍在该 session 时更新
           if (params.id !== sid) return
@@ -530,6 +529,7 @@ function PatternContent() {
         tracker.interaction({ module: "prototype", name: "create-page" })
         // 首次创建页面 — 阶段 0：意图确认（暂停等用户选择）
         const confirmResult = await create_intent_confirm(intentCtx)
+        void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
         if (Object.keys(confirmResult.options).length > 0) {
           setUserInput(text)
           setIntentConfirm(confirmResult)
@@ -547,6 +547,7 @@ function PatternContent() {
 
 
         const new_planner = await create_planner_json(intentCtx)
+        void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
         // 持久化线框审查检查点
         const userDir = patternHistoryDir()
         if (userDir) {
@@ -572,6 +573,7 @@ function PatternContent() {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
+      if (sid) void saveDebugSnapshot(patternHistoryDir(), sid, isModifying() ? "modify" : "create", { error: String(err instanceof Error ? err.message : err) })
       setIsModifying(false)
 
       // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
@@ -634,28 +636,27 @@ function PatternContent() {
 
     let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
         // 历史保存始终执行（与当前查看的 session 无关）
-        const dir = patternHistoryDir()
-        if (dir) {
-          const vid = await appendPatternVersion(dir, sid, {
+          const dir = patternHistoryDir()
+          if (dir) {
+            const vid = await appendPatternVersion(dir, sid, {
+                lastIntent: pageIntent,
+                lastPlanner: layoutPlanner,
+                lastModules: modulesJson,
+                mergedA2UI: pageJson as unknown as Record<string, unknown>,
+            }, text.slice(0, 80))
+            if (params.id === sid) {
+              setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+              setCurrentVersionId(vid)
+            }
+            void saveDebugSnapshot(dir, sid, "modules", {
               lastIntent: pageIntent,
               lastPlanner: layoutPlanner,
               lastModules: modulesJson,
               mergedA2UI: pageJson as unknown as Record<string, unknown>,
-          }, text.slice(0, 80))
-          if (params.id === sid) {
-            setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
-            setCurrentVersionId(vid)
+              summary: text.slice(0, 80),
+            })
+            clearDebugLog()
           }
-          const debug = getDebugSnapshot()
-          void saveDebugLog(dir, sid, {
-            lastIntent: pageIntent,
-            lastPlanner: layoutPlanner,
-            lastModules: modulesJson,
-            mergedA2UI: pageJson as unknown as Record<string, unknown>,
-            debug,
-          }, text.slice(0, 80))
-          clearDebugLog()
-        }
         // 视图状态仅在仍在该 session 时更新
         if (params.id !== sid) return
         // 触发页面渲染
@@ -671,6 +672,7 @@ function PatternContent() {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleConfirmReview failed", err)
+      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
 
       // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
       for (const childID of childSessionIDs()) {
@@ -715,6 +717,7 @@ function PatternContent() {
         },
       }
       const new_planner = await create_planner_json(intentCtx)
+      void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
       if (params.id !== sid) return
       const userDir = patternHistoryDir()
       if (userDir) {
@@ -733,6 +736,7 @@ function PatternContent() {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleConfirmIntent failed", err)
+      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
       const error = classifyAIError(err)
       if (error.title) showToast({ title: error.title, description: error.description })
     } finally {
