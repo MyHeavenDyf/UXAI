@@ -12,6 +12,8 @@ export type DesktopApi = {
   deleteFile?: (path: string) => Promise<void>
   runPixsoBuild?: (input: string) => Promise<string>
   writeClipboardText?: (text: string) => Promise<void>
+  getPatternIndex?: (category: string) => Promise<Record<string, unknown> | null>
+  getPatternFile?: (category: string, filename: string) => Promise<string | null>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

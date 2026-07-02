@@ -1,7 +1,7 @@
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { DesignSystemPicker } from "./design_system_picker"
+import { DesignSystemPicker } from "./design-system-picker"
 import { useLocal } from "@/context/local"
 import type { JSX } from "solid-js"
 import "../../assets/style/chat/chart_input.css"

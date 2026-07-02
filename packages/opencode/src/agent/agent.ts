@@ -28,8 +28,8 @@ import {
   PROMPT_PROTO_PLANNER_CREATE,
   PROMPT_PROTO_PLANNER_MODIFY,
   PROMPT_PROTO_TRIAGE,
-  PROMPT_PROTO_PAGE_PATTERN,
-  PROMPT_PROTO_BLOCK_PATTERN,
+  PROMPT_PROTO_PATTERN_PAGE,
+  PROMPT_PROTO_PATTERN_BLOCK,
   PROMPT_PROTO_INTENT_CONFIRM,
 } from "./proto"
 import { Permission } from "@/permission"
@@ -444,20 +444,20 @@ export const layer = Layer.effect(
             native: false,
             temperature: 0.1,
           },
-          proto_page_pattern: {
-            name: "proto_page_pattern",
+          proto_pattern_page: {
+            name: "proto_pattern_page",
             description: "Proto page pattern agent.",
-            prompt: PROMPT_PROTO_PAGE_PATTERN,
+            prompt: PROMPT_PROTO_PATTERN_PAGE,
             permission: Permission.fromConfig({ "*": "deny"}),
             options: {},
             mode: "primary",
             native: false,
             temperature: 0.1,
           },
-          proto_block_pattern: {
-            name: "proto_block_pattern",
+          proto_pattern_block: {
+            name: "proto_pattern_block",
             description: "Proto block pattern agent.",
-            prompt: PROMPT_PROTO_BLOCK_PATTERN,
+            prompt: PROMPT_PROTO_PATTERN_BLOCK,
             permission: Permission.fromConfig({ "*": "deny"}),
             options: {},
             mode: "primary",

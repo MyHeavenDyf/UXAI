@@ -17,7 +17,7 @@ import { useNotification } from "@/context/notification"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconSettings } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
-import { importPatternZip } from "../../utils/previewHandler/zip"
+import { importPatternZip } from "../../utils/preview-handler/zip"
 import { getDesktopApi } from "../../utils/desktop-api"
 import { tracker } from "@/utils/tracker"
 
