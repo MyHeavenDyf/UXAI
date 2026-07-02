@@ -28,7 +28,6 @@ export default async function proto_pattern_page(input: ProtoPatternPageInput) {
 
   // 1. 通过 IPC 读取该主题下的页面级 pattern 目录
   const patterns = await readPatternIndex("page", theme)
-  debugger
   if (!patterns || patterns.length === 0) {
     return { matches: [], current_step: "pattern_page" }
   }

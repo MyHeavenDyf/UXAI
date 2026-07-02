@@ -4,22 +4,21 @@ import { getDesktopApi } from "../desktop-api"
 import { rollbackToVersion } from "../version-history"
 import type { PatternSessionState } from "../version-history"
 
-// 下载预览 JSON
-export function handleDownload(previewData: unknown, patternId: string): void {
-  if (!previewData) {
+// 导出 HUI 代码(经 IPC 调主进程 downloadHUICode,传入 planner + mergedA2UI)
+export async function handleDownload(input: {planner: Record<string, unknown> | null, mergedA2UI: unknown}): Promise<void> {
+  if (!input.planner || !input.mergedA2UI) {
     showToast({ title: "暂无可下载的内容" })
     return
   }
-  const jsonStr = typeof previewData === "string" ? previewData : JSON.stringify(previewData, null, 2)
-  const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = `pattern-${patternId}.json`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  const desktopApi = getDesktopApi()
+  if (!desktopApi?.downloadHuiCode) {
+    showToast({ title: "当前环境不支持代码导出" })
+    return
+  }
+  await desktopApi.downloadHuiCode([{
+    planner: input.planner,
+    mergedA2UI: input.mergedA2UI as Record<string, unknown>,
+  }])
 }
 
 // 实时预览

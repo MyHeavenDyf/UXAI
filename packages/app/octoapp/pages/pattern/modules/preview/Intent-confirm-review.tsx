@@ -38,7 +38,6 @@ export function IntentConfirmReview(props: {
       if (ans.supplement.trim()) parts.push(`${dimName}补充: ${ans.supplement.trim()}`)
     }
     const enrichedInput = parts.length > 0 ? `\n\n请额外遵循以下要求：\n${parts.join("\n")}` : ""
-    debugger
     props.onConfirm(answers, enrichedInput)
   }
 

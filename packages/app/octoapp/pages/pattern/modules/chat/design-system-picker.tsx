@@ -21,7 +21,6 @@ export function DesignSystemPicker(props: {
   const [entries, setEntries] = createSignal<DesignSystemEntry[]>([])
   onMount(() => {
     void getDesktopApi()?.getDesignSystems?.()?.then((ids) => {
-      debugger
       if (ids && ids.length > 0) setEntries(ids.map((id) => ({ id, title: id })))
     })
   })

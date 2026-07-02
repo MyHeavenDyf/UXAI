@@ -856,9 +856,9 @@ function PatternContent() {
     })
   }
 
-  function handleDownload() {
+  async function handleDownload() {
     tracker.interaction({ module: "prototype", name: "download-result" })
-    download(pendingPreviewData(), params.id ?? "export")
+    await download({ planner: lastPlanner(), mergedA2UI: pendingPreviewData() })
   }
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
