@@ -51,7 +51,13 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   )
   const [sessionList, setSessionList] = createStore<Session[]>([])
   createEffect(on(sessions, (data) => {
-    if (data) setSessionList(reconcile(data, { key: "id" }))
+    if (data) {
+      setSessionList(reconcile(data, { key: "id" }))
+      if (pendingScrollRestore > 0 && listScrollRef) {
+        listScrollRef.scrollTop = pendingScrollRestore
+        pendingScrollRestore = 0
+      }
+    }
   }, { defer: true }))
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
@@ -83,6 +89,8 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     setContextMenu("show", false)
   }
   let titleRef: HTMLInputElement | undefined
+  let listScrollRef: HTMLDivElement | undefined
+  let pendingScrollRestore = 0
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -168,12 +176,17 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
 
     if (!result) return false
 
+    pendingScrollRestore = listScrollRef?.scrollTop ?? 0
     setSessionList(
       produce((draft) => {
         const index = draft.findIndex((item) => item.id === session.id)
         if (index !== -1) draft.splice(index, 1)
       }),
     )
+    // 恢复滚动位置（produce 后同步尝试，reconcile 后也会恢复）
+    if (listScrollRef && pendingScrollRestore > 0) {
+      listScrollRef.scrollTop = pendingScrollRestore
+    }
     navigateAfterSessionRemoval(session.id, nextSession?.id)
     return true
   }
@@ -264,7 +277,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         {/* Session list */}
         <Show when={!collapsed()}>
         <div class="flex flex-col flex-1 min-h-0">
-          <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
+          <div data-slot="list-scroll" ref={listScrollRef!} class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
             <Show when={!isLoading()} fallback={
               <div class="text-12-regular text-text-weak py-4 text-center">
                 <Spinner class="size-4 mx-auto mb-1" />

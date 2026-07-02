@@ -106,6 +106,7 @@ export function StudioResultCanvas(props: {
   onGenerateVideo: () => void
   showVideoGeneration: boolean
   regenerateDisabled: boolean
+  actionDisabled: boolean
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
@@ -212,7 +213,6 @@ export function StudioResultCanvas(props: {
                   >
                     <StudioVideoPlayer
                       src={image().remoteUrl ?? image().url}
-                      poster={image().thumbnailUrl}
                       class={`studio-canvas-image ${getImageOrientation(image())}`}
                       mount={props.videoPlayerMount}
                     />
@@ -232,7 +232,7 @@ export function StudioResultCanvas(props: {
                     <button
                       type="button"
                       onClick={props.onGenerateVideo}
-                      disabled={props.regenerateDisabled || !props.image}
+                      disabled={props.actionDisabled || !props.image}
                       class="studio-canvas-video-action disabled:opacity-45 disabled:cursor-not-allowed"
                     >
                       视频生成
@@ -242,7 +242,7 @@ export function StudioResultCanvas(props: {
                     <span class="studio-canvas-action-divider" />
                     <Show when={!compactActions()} fallback={
                       <DropdownMenu gutter={4} placement="bottom" open={editToolsOpen()} onOpenChange={setEditToolsOpen}>
-                        <DropdownMenu.Trigger class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" disabled={props.regenerateDisabled}>
+                        <DropdownMenu.Trigger class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" disabled={props.actionDisabled}>
                           <span>AI修图</span>
                           <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{ "margin-left": "4px", transform: editToolsOpen() ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>
                             <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -250,19 +250,19 @@ export function StudioResultCanvas(props: {
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content>
-                            <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>变清晰</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onCutout} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onCutout} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>抠图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>智能重绘</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>扩图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
@@ -271,22 +271,22 @@ export function StudioResultCanvas(props: {
                       </DropdownMenu>
                     }>
                       <div class="studio-canvas-action-group">
-                        <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onUpscale} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
                           <span>变清晰</span>
                         </button>
-                        <button type="button" onClick={props.onCutout} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onCutout} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
                           <span>抠图</span>
                         </button>
-                        <button type="button" onClick={props.onInpaint} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onInpaint} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
                           <span>智能重绘</span>
                         </button>
-                        <button type="button" onClick={props.onOutpaint} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onOutpaint} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
                           <span>扩图</span>
@@ -295,13 +295,14 @@ export function StudioResultCanvas(props: {
                     </Show>
                     <span class="studio-canvas-action-divider" />
                   </Show>
-                  <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                </button>
+                  <button type="button" onClick={props.onDownload} class="studio-canvas-download-action">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>下载</span>
+                  </button>
                 </div>
               </div>
               {props.children}
