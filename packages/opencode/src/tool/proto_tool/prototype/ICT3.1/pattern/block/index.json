@@ -1,0 +1,20 @@
+{
+  "blocks": [
+    {
+      "name": "顶部导航栏",
+      "intent": "在登录页顶部建立品牌认知，同时提供多语言设置，满足全球化需求。",
+      "function": "展示Logo和应用名称；允许用户切换界面语言。",
+      "layout": "固定的顶部水平布局，Logo和名称靠左，语言切换靠右。",
+      "elements": "Logo图标（General.Icon，Lucide图标）和应用名称文字；语言下拉切换（Navigation.Dropdown + Navigation.Menu）。",
+      "path": "header.json"
+    },
+    {
+      "name": "侧边菜单栏",
+      "intent": "提供系统级侧边导航，实现各功能模块的快速定位与切换。",
+      "function": "渲染带标题的垂直导航，支持动态生成多级菜单、折叠/展开、选中高亮及区域独立滚动。",
+      "layout": "定宽(17.5rem)垂直布局。自上而下依次为：标题区、水平分割线、自适应高度(flex-1)的滚动菜单区。",
+      "elements": "侧边栏容器、标题文本和垂直菜单组件(Menu)。",
+      "path": "aside.json"
+    }
+  ]
+}

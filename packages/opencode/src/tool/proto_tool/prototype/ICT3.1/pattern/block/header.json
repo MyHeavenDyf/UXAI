@@ -1,0 +1,196 @@
+{
+    "state": {
+      "logoInfo": {
+        "brandText": "Product",
+        "logoIcon": "flower-2"
+      },
+      "navTabs": [
+        {
+          "title": "Dashboard",
+          "key": "dashboard",
+          "tabName": "Dashboard",
+          "isActive": true
+        },
+        {
+          "title": "Monitor",
+          "key": "monitor",
+          "tabName": "Monitor",
+          "isActive": false
+        },
+        {
+          "title": "Analysis",
+          "key": "analysis",
+          "tabName": "Analysis",
+          "isActive": false
+        },
+        {
+          "title": "Report",
+          "key": "report",
+          "tabName": "Report",
+          "isActive": false
+        },
+        {
+          "title": "Config",
+          "key": "config",
+          "tabName": "Config",
+          "isActive": false
+        }
+      ],
+      "toolIcons": [
+        {
+          "iconName": "search"
+        },
+        {
+          "iconName": "help-circle"
+        },
+        {
+          "iconName": "ellipsis"
+        }
+      ],
+      "userAvatarImage": "https://randomuser.me/api/portraits/men/32.jpg"
+      
+    },
+    "rootId": "headerNavigation",
+    "elements": [
+      {
+        "id": "headerNavigation",
+        "component": "header",
+        "props": {
+          "className": "w-full h-12 bg-surface-container-highest shadow-sm flex-shrink-0 z-10"
+        },
+        "children": [
+          "hdrInnerContainer"
+        ]
+      },
+      {
+        "id": "hdrInnerContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between h-full w-full px-8"
+        },
+        "children": [
+          "hdrLogoArea",
+          "hdrNavWrap",
+          "hdrToolArea"
+        ]
+      },
+      {
+        "id": "hdrLogoArea",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3 shrink-0"
+        },
+        "children": [
+          "hdrLogoIcon",
+          "hdrBrandWrap"
+        ]
+      },
+      {
+        "id": "hdrLogoIcon",
+        "component": "img",
+        "props": {
+          "src": "../src/assets/pattern/logo.png",
+          "className": "w-8 h-8"
+        }
+      },
+      {
+        "id": "hdrBrandWrap",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col leading-tight"
+        },
+        "children": [
+          "hdrBrandText"
+        ]
+      },
+      {
+        "id": "hdrBrandText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/logoInfo/brandText"
+          },
+          "className": "text-xl font-bold text-on-surface"
+        }
+      },
+      {
+        "id": "hdrNavWrap",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex justify-center min-w-0"
+        },
+        "children": [
+          "hdrNavMenu"
+        ]
+      },
+      {
+        "id": "hdrNavMenu",
+        "component": "Menu",
+        "props": {
+          "mode": "horizontal",
+          "selectedKeys": {
+            "path": "/selectedNavKey"
+          },
+          "items": {
+            "path": "/navTabs"
+          },
+          "className": "border-b-0 min-w-0"
+        }
+      },
+      {
+        "id": "hdrToolArea",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3 shrink-0"
+        },
+        "children": [
+          "hdrToolIconList",
+          "hdrUserAvatar"
+        ]
+      },
+      {
+        "id": "hdrToolIconList",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": {
+          "path": "/toolIcons",
+          "componentId": "hdrToolIconItem"
+        }
+      },
+      {
+        "id": "hdrToolIconItem",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "iconName"
+          },
+          "color": "default",
+          "shape": "outline",
+          "className": "w-5 h-5 cursor-pointer transition-colors hover:text-primary"
+        }
+      },
+      {
+        "id": "hdrUserAvatar",
+        "component": "div",
+        "props": {
+          "className": "w-8 h-8 rounded-full overflow-hidden border border-divider"
+        },
+        "children": [
+          "hdrUserAvatarImg"
+        ]
+      },
+      {
+        "id": "hdrUserAvatarImg",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/userAvatarImage"
+          },
+          "alt": "用户头像",
+          "className": "w-full h-full object-cover"
+        }
+      }
+    ]
+  }

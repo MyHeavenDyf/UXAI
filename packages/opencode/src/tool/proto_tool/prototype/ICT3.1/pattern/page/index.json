@@ -1,0 +1,44 @@
+{
+  "pages": [
+    {
+      "name": "ICT3.1通用典型页面-基础布局一级页面",
+      "elements": "标准的监控首页，包含顶部导航栏、统计图表（柱状图、趋势图、饼图、KPI图表等）、基础表格等组件",
+      "business_scenario": "可用于全局监控、特定条目的总览信息呈现场景",
+      "layout_mode": "标准流式布局，通常顶部区域为总结性图表，下面区域为类目的“专题”图表",
+      "path": "BasicLayoutLevelPage.json",
+      "preview": "BasicLayoutLevelPage.png"
+    },
+    {
+      "name": "通用典型页面-分栏列表页",
+      "elements": "标准的列表页，包括页面导航、面包屑、标题、列表组件。列表组件中包含搜索、高级搜索、常用操作、列表、分页组件组成",
+      "business_scenario": "可用于基础资源管理和监控、基础配置管理。方便对“对象”进行增、删、改、查等基础操作",
+      "layout_mode": "页面由顶部导航栏、左侧导航栏、内容区三块组成，内容区为分栏列表模块",
+      "path": "LeftSideBarRightContent.json",
+      "preview": "LeftSideBarRightContent.png"
+    },
+    {
+      "name": "资产监控可视-概览",
+      "elements": "借助数字孪生的3D视角监控业务资产，查看业务资产详情。包含面包屑、数字孪生视图、数字孪生中对象信息（基础信息+相关指标分析）",
+      "business_scenario": "日常监控、孪生监控、业务详情查看",
+      "layout_mode": "左侧区块为孪生视图，右侧区块为孪生视图中特定对象的详情",
+      "path": "ResourceMonitoringVisualizationPreview.json",
+      "preview": "ResourceMonitoringVisualizationPreview.png"
+    },
+    {
+      "name": "统计面板-单业务-左拓扑右统计",
+      "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
+      "business_scenario": "日常监控、故障处理、业务分析、业务优化",
+      "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
+      "path": "LeftTopologyRightStatistics.json",
+      "preview": "LeftTopologyRightStatistics.png"
+    },
+    {
+      "name": "统计面板-单业务-左统计右拓扑",
+      "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
+      "business_scenario": "日常监控、故障处理、业务分析、业务优化",
+      "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
+      "path": "RightStatisticsLeftTopology.json",
+      "preview": "RightStatisticsLeftTopology.png"
+    }
+  ]
+}

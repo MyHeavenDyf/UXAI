@@ -1,8 +1,9 @@
-import { createSignal, createMemo, For } from "solid-js"
+import { createSignal, createMemo, For, onMount } from "solid-js"
 import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { getDesktopApi } from "../../utils/desktop-api"
 import "../../assets/style/chat/design_system_picker.css"
 import { tracker } from "@/utils/tracker"
 
@@ -12,28 +13,33 @@ type DesignSystemEntry = {
 }
 
 export function DesignSystemPicker(props: {
-  selected: string | null
-  onSelect: (id: string | null) => void
+  selected: string
+  onSelect: (id: string) => void
+  disabled?: boolean
 }): JSX.Element {
-  const entries: DesignSystemEntry[] = [
-    { id: "ICT3.1", title: "ICT-3.1" },
-    { id: "ICT3.2", title: "ICT-3.2" },
-  ]
+  // 从 ~/.config/octo/prototype 读取已部署的设计系统目录名
+  const [entries, setEntries] = createSignal<DesignSystemEntry[]>([])
+  onMount(() => {
+    void getDesktopApi()?.getDesignSystems?.()?.then((ids) => {
+      debugger
+      if (ids && ids.length > 0) setEntries(ids.map((id) => ({ id, title: id })))
+    })
+  })
   const [open, setOpen] = createSignal(false)
   const [search, setSearch] = createSignal("")
   const [hoveredId, setHoveredId] = createSignal<string | null>(null)
 
   const filtered = createMemo(() => {
     const q = search().toLowerCase()
-    if (!q) return entries
-    return entries.filter((e) => e.id.includes(q) || e.title.toLowerCase().includes(q))
+    if (!q) return entries()
+    return entries().filter((e) => e.id.includes(q) || e.title.toLowerCase().includes(q))
   })
 
   return (
     <Kobalte
-      open={open()}
+      open={open() && !props.disabled}
       onOpenChange={(next) => {
-        setOpen(next)
+        if (!props.disabled) setOpen(next)
       }}
       placement="top-start"
       gutter={14}
@@ -41,7 +47,8 @@ export function DesignSystemPicker(props: {
       <Kobalte.Trigger
         as="button"
         type="button"
-        class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium overflow-hidden group focus-visible:outline-none"
+        disabled={props.disabled}
+        class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium overflow-hidden group focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#f3f3f3]"
         data-picked={props.selected ? "true" : undefined}
       >
         <span class="truncate">{props.selected ? props.selected : "Design System"}</span>
@@ -66,18 +73,6 @@ export function DesignSystemPicker(props: {
           </div>
           <div class="flex view-contain">
             <ScrollView class="w-48 flex-shrink-0 view-content">
-              <button
-                type="button"
-                class="w-full text-left px-3 py-1.5 text-xs transition-colors"
-                style={{
-                  background: !props.selected ? "var(--octo-brand-a8)" : "transparent",
-                  color: !props.selected ? "var(--octo-brand)" : "var(--octo-text-primary)",
-                }}
-                onClick={() => { tracker.interaction({ module: "prototype", name: "select-design-system", extend: JSON.stringify({ designSystem: null }) }); props.onSelect(null); setOpen(false) }}
-                onMouseEnter={() => setHoveredId(null)}
-              >
-                None
-              </button>
               <For each={filtered()}>
                 {(entry) => (
                   <button

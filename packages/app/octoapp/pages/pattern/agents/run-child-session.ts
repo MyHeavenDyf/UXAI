@@ -11,22 +11,22 @@ export type RunChildSessionInput = {
   aborted?: boolean
   directory: string
   parentSessionID: string
+  extra?: Record<string, unknown>
   modelKey: { providerID: string; modelID: string } | undefined
   onSessionCreated?: (childSessionID: string) => void
-  extra?: Record<string, unknown>
 }
 
 export async function runChildSession(input: RunChildSessionInput): Promise<{ text: string; childSessionId: string }> {
   const { 
     sync, // 前后端同步功能
     agent, // 当前正在执行的Agent名称
+    extra, // 透传到后端的额外数据
     isRoot, // 是否为根节点
     client, // OpenCode SDK Client
     modelKey, // 当前选择的模型
     directory, // 当前工程运行时指定的文件夹
     parentSessionID, // 根节点 Session ID
     prompt: promptText, // 用户输入提示词
-    extra, // 透传到后端的额外数据
     onSessionCreated, // 创建该 Session 时的回调
     aborted // 是否需要立即停止，暂未用，全部停止另外写了一个方法
   } = input
@@ -55,11 +55,11 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
   const knownIds = new Set(existingMessages.map((m) => m.id as string))
   // LLM 内容通过 SSE 流式推送，服务端 prompt 端点返回 streaming response
   await client.session.promptAsync({
+    extra,
     agent,
     model: modelKey,
     sessionID: childSession.id,
     parts: [{ type: "text", text: promptText }],
-    extra,
   })
   // 监听 reactive store，等待新 assistant 消息完成
   const result = await getResultFromMessages(sync, childSession.id, knownIds)

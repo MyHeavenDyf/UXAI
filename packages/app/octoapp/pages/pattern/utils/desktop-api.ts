@@ -12,8 +12,9 @@ export type DesktopApi = {
   deleteFile?: (path: string) => Promise<void>
   runPixsoBuild?: (input: string) => Promise<string>
   writeClipboardText?: (text: string) => Promise<void>
-  getPatternIndex?: (category: string) => Promise<Record<string, unknown> | null>
-  getPatternFile?: (category: string, filename: string) => Promise<string | null>
+  getPatternIndex?: (category: string, theme?: string) => Promise<Record<string, unknown> | null>
+  getPatternFile?: (category: string, filename: string, theme?: string) => Promise<string | null>
+  getDesignSystems?: () => Promise<string[]>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

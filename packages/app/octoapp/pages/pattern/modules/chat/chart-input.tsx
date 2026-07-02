@@ -40,9 +40,11 @@ export type ChartInputProps = {
   /** 文件选择回调 */
   onFileChange: (e: Event) => void
   /** 当前选中的设计系统 */
-  selectedDesignSystem: string | null
+  selectedDesignSystem: string
   /** 设计系统选择变化回调 */
-  onSelectDesignSystem: (v: string | null) => void
+  onSelectDesignSystem: (v: string) => void
+  /** 首次发送对话后锁定设计系统选择 */
+  designSystemLocked?: boolean
   /** 模型选择器状态（来自 useLocal().model） */
   model: ModelState
   /** 模型选择关闭回调 */
@@ -77,6 +79,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
           <DesignSystemPicker
             selected={props.selectedDesignSystem}
             onSelect={props.onSelectDesignSystem}
+            disabled={props.designSystemLocked}
           />
           <input
             ref={fileInputRef}
