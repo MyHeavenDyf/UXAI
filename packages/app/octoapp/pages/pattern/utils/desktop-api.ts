@@ -14,6 +14,7 @@ export type DesktopApi = {
   writeClipboardText?: (text: string) => Promise<void>
   getPatternIndex?: (category: string, theme?: string) => Promise<Record<string, unknown> | null>
   getPatternFile?: (category: string, filename: string, theme?: string) => Promise<string | null>
+  getPatternPreview?: (category: string, filename: string, theme?: string) => Promise<string | null>
   getDesignSystems?: () => Promise<string[]>
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<unknown>
 }

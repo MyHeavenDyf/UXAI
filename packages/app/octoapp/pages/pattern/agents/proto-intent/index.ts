@@ -80,7 +80,7 @@ function buildHumanMessage(userInput: string, auditFeedback: string | undefined,
 }
 
 // 将复杂的 intent_description 数据转换为精简版 intent_page
-function simplifyData(complexData: any) {
+export function simplifyData(complexData: any) {
     // 防御性处理：防止传入 null 或 undefined 导致报错
     const data = complexData ?? {};
 

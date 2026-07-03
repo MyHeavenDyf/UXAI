@@ -1,9 +1,11 @@
 import proto_intent_confirm from "../agents/proto-intent-confirm"
 import proto_pattern_page from "../agents/proto_pattern_page"
-import proto_intent from "../agents/proto-intent"
 import proto_planner_create from "../agents/proto-planner-create"
 import proto_module_create from "../agents/proto-module-create"
+import proto_intent from "../agents/proto-intent"
+import { simplifyData } from "../agents/proto-intent"
 import { mergeModules } from "../agents/merge"
+import { readPatternPreview } from "../utils/pattern-resource"
 
 export type ProtoCreateJsonInput = {
   // 公共sdk
@@ -31,7 +33,13 @@ export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
 export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   // 页面级 Pattern 匹配
   const patternPageResult = await proto_pattern_page(inputCtx)
-  
+
+  // 为每个匹配的 pattern 加载预览图片 base64
+  const theme = (inputCtx.extra?.designSystem as string) || "ICT3.1"
+  for (const match of patternPageResult.matches) {
+    if (!match.pattern.preview) continue
+    match.previewUrl = await readPatternPreview("page", match.pattern.preview, theme)
+  }
   // 意图扩展
   const intentResult = await proto_intent(inputCtx)
 
@@ -75,10 +83,9 @@ export async function create_modules_json(
     },
     modules as any,
   )
-  
   await onFinished({
     // 页面意图描述
-    pageIntent: intent.intent_page,
+    pageIntent: simplifyData(intent),
     // 布局规划
     layoutPlanner: planner,
     // 每个模块的 JSON

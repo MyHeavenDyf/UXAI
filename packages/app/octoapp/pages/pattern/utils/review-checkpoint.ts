@@ -7,6 +7,7 @@
 import { getDesktopApi } from "./desktop-api"
 
 export type ReviewCheckpoint = {
+  pattern: Record<string, unknown>[],
   planner: Record<string, unknown>
   intentDescription: Record<string, unknown>
   userInput: string

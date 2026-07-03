@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, unlink, rm } from "node:fs/promises"
-import { dirname, join, basename, resolve as resolvePath, sep } from "node:path"
+import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -506,6 +506,27 @@ export function registerIpcHandlers(deps: Deps) {
       const filePath = join(patternDir(category, theme), filename)
       if (!existsSync(filePath)) return null
       return readFileSync(filePath, "utf-8")
+    },
+  )
+
+  // 读取 pattern 预览图片，返回 base64 data URL - By WangQiang - 该注释请勿删除
+  const MIME_PREVIEW: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+  }
+  ipcMain.handle(
+    "get-pattern-preview",
+    (_event: IpcMainInvokeEvent, category: string, filename: string, theme: string = "ICT3.1") => {
+      const filePath = join(patternDir(category, theme), filename)
+      if (!existsSync(filePath)) return null
+      const buf = readFileSync(filePath)
+      const ext = extname(filename).toLowerCase()
+      const mime = MIME_PREVIEW[ext] ?? "image/png"
+      return `data:${mime};base64,${buf.toString("base64")}`
     },
   )
 

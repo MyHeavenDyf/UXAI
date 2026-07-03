@@ -6,12 +6,14 @@ export type PatternEntry = {
   business_scenario?: string
   layout_mode?: string
   path: string
+  preview?: string
 }
 
 export type PatternMatchItem = {
   pattern: PatternEntry
   score: number
   content: string | null
+  previewUrl?: string | null
 }
 
 // 读取指定主题、类别（"page" | "block"）的 pattern 目录索引
@@ -29,4 +31,11 @@ export async function readPatternFile(category: string, filename: string, theme 
   const api = getDesktopApi()
   if (!api?.getPatternFile) return null
   return api.getPatternFile(category, filename, theme)
+}
+
+// 读取指定主题、类别下的 pattern 预览图片，返回 base64 data URL
+export async function readPatternPreview(category: string, filename: string, theme = "ICT3.1"): Promise<string | null> {
+  const api = getDesktopApi()
+  if (!api?.getPatternPreview) return null
+  return api.getPatternPreview(category, filename, theme)
 }

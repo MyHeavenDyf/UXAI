@@ -89,6 +89,7 @@ const api: ElectronAPI = {
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
   getPatternIndex: (category, theme) => ipcRenderer.invoke("get-pattern-index", category, theme),
   getPatternFile: (category, filename, theme) => ipcRenderer.invoke("get-pattern-file", category, filename, theme),
+  getPatternPreview: (category, filename, theme) => ipcRenderer.invoke("get-pattern-preview", category, filename, theme),
   getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
   downloadHuiCode: (jsonData) => ipcRenderer.invoke("download-hui-code", jsonData),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
