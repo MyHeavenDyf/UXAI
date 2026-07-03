@@ -2,6 +2,7 @@ import { createResource, Show, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSDK } from "@/context/sdk"
+import { directoryHeader } from "@/utils/headers"
 
 interface Props {
   filePath: string
@@ -16,7 +17,7 @@ export function TextRenderer(props: Props): JSX.Element {
     () => ({ path: props.filePath, url: globalSDK.url, dir: sdk.directory, key: props.refreshKey }),
     async ({ path, url, dir }) => {
       const resp = await fetch(`${url}/artifact/content?path=${encodeURIComponent(path)}`, {
-        headers: { "x-opencode-directory": dir || "" },
+        headers: { ...directoryHeader(dir || "") },
       })
       if (!resp.ok) throw new Error("Failed to load")
       const data = await resp.json()
