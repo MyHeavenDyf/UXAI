@@ -261,9 +261,9 @@ function buildEffectivePromptFromPrevious(input: StudioGenerationRequest, previo
 }
 
 function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioGenerationRecord): StudioPromptRefineResult {
-  const restoredPrompt = input.effectivePrompt?.trim() || input.refinedPrompt?.trim()
-  const effectivePrompt = restoredPrompt || buildEffectivePromptFromPrevious(input, previous)
   const regenerateText = input.displayPrompt?.trim() === "再次生成"
+  const restoredPrompt = input.effectivePrompt?.trim() || input.refinedPrompt?.trim()
+  const effectivePrompt = restoredPrompt || (regenerateText ? input.prompt : buildEffectivePromptFromPrevious(input, previous))
   return {
     assistantText: regenerateText
       ? "好的，我会按当前结果的配置重新生成。"
