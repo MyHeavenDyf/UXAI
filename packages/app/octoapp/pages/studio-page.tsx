@@ -82,6 +82,7 @@ import {
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
+import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session-thumbnail"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
@@ -298,6 +299,23 @@ export default function StudioPage() {
     sessionID: () => params.id,
     globalSDK,
   })
+  const studioThumbnails = createSessionThumbnailStore({
+    dir: () => projectDir(),
+    globalSDK,
+  })
+
+  // Reactive effect: auto-update thumbnail whenever pendingResult transitions to succeeded.
+  createEffect(() => {
+    const result = pendingResult()
+    console.log("[Thumbnail] Effect tick, pendingResult:", result?.status, "sessionID:", result?.sessionID, "images:", result?.images?.length)
+    if (!result || result.status !== "succeeded") return
+    const sid = result.sessionID ?? params.id
+    const images = result.images
+    if (sid && images && images.length > 0) {
+      console.log("[Thumbnail] Effect setThumbnail for session", sid, "images:", images.length)
+      studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+    }
+  })
   let fileInputRef!: HTMLInputElement
   let videoFrameInputRef!: HTMLInputElement
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
@@ -323,6 +341,12 @@ export default function StudioPage() {
     const next = createBlobUrlFromDataUrl(url)
     blobUrlCache.set(url, next)
     return next
+  }
+
+  /** Pick the best thumbnail URL from a list of StudioImages. Prefers non-video images. */
+  function pickThumbnail(images: StudioImage[]): string | undefined {
+    const img = images.find((i) => !isVideoMedia(i)) ?? images[0]
+    return img ? (img.thumbnailUrl ?? img.url) : undefined
   }
 
   function normalizeImage(image: StudioImage): StudioImage {
@@ -875,6 +899,15 @@ export default function StudioPage() {
       return
     }
     if (!turn?.result && !turn?.toolError) return
+    // Save thumbnail before clearing pendingResult — check both pending and turn for images
+    const images = (pending.images?.length ? pending.images : turn?.result?.images) ?? []
+    if (images.length > 0) {
+      const sid = pending.sessionID ?? params.id
+      if (sid) {
+        console.log("[Thumbnail] Sync-effect setThumbnail for session", sid, "images:", images.length)
+        studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
+      }
+    }
     setPendingResult(undefined)
     setStatus(turn.result?.status ?? (turn.toolError ? "failed" : "succeeded"))
   })
@@ -886,6 +919,11 @@ export default function StudioPage() {
     const turn = studioTurn()
     if (!matchesPendingTurn(turn, pending)) return
     if (turn?.result?.images.length) {
+      const sid = pending.sessionID ?? params.id
+      if (sid) {
+        console.log("[Thumbnail] Sync-effect-2 setThumbnail for session", sid)
+        studioThumbnails.setThumbnail(sid, pickThumbnail(turn!.result!.images)!)
+      }
       setPendingResult(undefined)
       setStatus("succeeded")
       return
@@ -1135,6 +1173,8 @@ export default function StudioPage() {
       })
 
     if (!result) return false
+
+    studioThumbnails.removeThumbnail(session.id)
 
     setSyncStore(
       produce((draft) => {
@@ -2146,10 +2186,24 @@ export default function StudioPage() {
       if (currentToken !== generationToken) return
       setPendingResult((current) => ({
         ...generation,
+        // Preserve sessionID from current — generation response may not include it
+        sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
         displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
       }))
       setStatus(generation.status)
+      // Update thumbnail immediately if generation already succeeded (fast path,
+      // e.g. mock/cached results — polling loop won't fire for non-queued status)
+      if (generation.status === "succeeded" && sessionID) {
+        void loadSessionMessages(sessionID).catch((error) => {
+          console.error("[StudioPage] generated session load failed", error)
+        })
+        const images = generation.images
+        if (images && images.length > 0) {
+          console.log("[Thumbnail] Fast-path setThumbnail for session", sessionID, "images:", images.length)
+          studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+        }
+      }
     } catch (error) {
       if (currentToken !== generationToken) return
       console.error("[StudioPage] studio prompt failed", error)
@@ -2218,6 +2272,8 @@ export default function StudioPage() {
               ) return current
               return {
                 ...generation,
+                // Preserve sessionID from current when generation doesn't include it
+                sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
                 displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
                 sourceImage: current?.sourceImage,
               }
@@ -2229,11 +2285,19 @@ export default function StudioPage() {
               generation.status === "create_failed" ||
               generation.status === "failed"
             ) {
-              const sessionID = generation.sessionID ?? params.id
+              const sessionID = generation.sessionID ?? pendingResult()?.sessionID ?? params.id
               if (generation.status === "succeeded" && sessionID) {
                 void loadSessionMessages(sessionID).catch((error) => {
                   console.error("[StudioPage] generated session load failed", error)
                 })
+                // Update session thumbnail when generation succeeds
+                const images = generation.images
+                if (images && images.length > 0) {
+                  console.log("[Thumbnail] Polling setThumbnail for session", sessionID, "images:", images.length)
+                  studioThumbnails.setThumbnail(sessionID, pickThumbnail(images)!)
+                } else {
+                  console.log("[Thumbnail] Polling succeeded but no images for session", sessionID, "generation.images:", generation.images)
+                }
               }
               return
             }
@@ -2657,6 +2721,10 @@ export default function StudioPage() {
             activeSessionID={params.id}
             onNewConversation={startNewStudioConversation}
             toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
+            thumbnails={studioThumbnails.thumbnails}
+            thumbnailsLoading={studioThumbnails.loading()}
+            thumbnailVersion={studioThumbnails.version()}
+            onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
           />
         </Show>
       </aside>
@@ -3090,6 +3158,10 @@ if (!headerTitle.pendingRename) return
               setStudioLeftOverlayOpen(false)
               startNewStudioConversation()
             }}
+            thumbnails={studioThumbnails.thumbnails}
+            thumbnailsLoading={studioThumbnails.loading()}
+            thumbnailVersion={studioThumbnails.version()}
+            onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
           />
         </aside>
       </Show>

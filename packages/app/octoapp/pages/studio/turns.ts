@@ -125,7 +125,7 @@ function collectVideoUrls(value: unknown): string[] {
   return Array.from(new Set(Object.values(value as Record<string, unknown>).flatMap((item) => collectVideoUrls(item))))
 }
 
-function parseToolImages(output: string) {
+export function parseToolImages(output: string) {
   try {
     const parsed = JSON.parse(output) as Record<string, unknown>
     const direct = [
@@ -287,7 +287,7 @@ function editorEntry(tools: Extract<Part, { type: "tool" }>[]) {
     .find((item): item is { capability: StudioCapability; entryID: string } => Boolean(item))
 }
 
-function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
+export function parseToolAttachments(part: Extract<Part, { type: "tool" }>) {
   const state = part.state as Record<string, unknown>
   const attachments = Array.isArray(state.attachments) ? state.attachments : []
   const content = Array.isArray(state.content) ? state.content : []
