@@ -14,7 +14,7 @@ export class IframeBridge {
   private ready = false
   private onMessage: (e: MessageEvent) => void
 
-  constructor(baseUrl: string = "http://localhost:5173") {
+  constructor(baseUrl: string = import.meta.env.VITE_IFRAME_BASE_URL || "http://localhost:5175") {
     this.iframe = document.createElement("iframe")
     this.iframe.id = "octo-iframe"
     this.iframe.src = baseUrl + "/#/?step=1"

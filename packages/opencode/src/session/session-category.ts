@@ -15,6 +15,8 @@ export const AGENT_TO_CATEGORY: Record<string, SessionCategory> = {
   build: "dev",
   octo_design: "design",
   octo_make: "prototype",
+  octo_hex: "prototype",
+  octo_dsl: "prototype",
   octo_pattern: "prototype",
   octo_pattern_intent: "prototype",
   octo_pattern_module: "prototype",

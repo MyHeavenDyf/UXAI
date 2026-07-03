@@ -9,6 +9,7 @@ import { createEffect, createMemo, createSignal, Show, For, type JSX } from "sol
 
 import { createArtifactParser } from "../utils/artifact-parser"
 import { stripThinkTags } from "../lib/think-filter"
+import { stripFollowUpTags } from "../utils/strip-conversational"
 import { splitOnQuestionForms, type FormSegment } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import "./quick-brief-form.css"
@@ -455,7 +456,7 @@ export function InsightTurn(props: {
     for (const ev of parser.feed(textPart.text)) {
       if (ev.type === "text") prose += ev.delta
     }
-    return prose.trim()
+    return stripFollowUpTags(prose.trim())
   })
 
   const proseSegments = createMemo(() => {
@@ -491,9 +492,9 @@ export function InsightTurn(props: {
       }
       const complete = tryParseJson(text)
       if (complete) return complete
-      const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-      if (mdMatch) {
-        const inner = mdMatch[1].trim()
+      const mdMatches = [...text.matchAll(/```(?:json)?\s*([\s\S]*)```/g)]
+      if (mdMatches.length > 0) {
+        const inner = mdMatches[mdMatches.length - 1][1].trim()
         const parsed = tryParseJson(inner)
         if (parsed) return parsed
         const partial = extractPartialJson(inner)

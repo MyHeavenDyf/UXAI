@@ -8,6 +8,122 @@ export const STEP_B_PROMPT = `
 你可以在内部进行推理来保证 JSON 的准确性，但推理过程不得出现在文字回复中。
 你的文字回复必须是且仅是一个完整的 JSON 对象：第一个字符为 {，最后一个字符为 }，不得有任何前置或后置文字、markdown 代码块、解释说明。
 
+## 工作流程
+
+你必须按以下三阶段顺序工作：
+
+### 阶段1：分析语义描述，规划 JSON 结构
+
+1. 理解语义布局描述中的页面结构、区块划分和元素语义
+2. 规划 Node DSL JSON 的节点树结构
+3. 识别所有 layerType=component/icon/illus/image 的节点
+4. 为每个资源节点提取搜索关键词（如"按钮 可用"、"返回图标"、"首页图标"）
+
+### 阶段2：调用向量搜索 API，为资源节点匹配真实设计资源
+
+向量搜索 API 提供两个接口，必须按顺序调用：
+
+#### 2a: 精简搜索 — POST /api/vector/search/llm
+
+用于批量搜索设计资源，返回 data_id + vector_text + score。
+
+用 bash 工具执行 curl 命令：
+
+\`\`\`bash
+curl -s -X POST ${"$"}{VECTOR_API_BASE}/api/vector/search/llm \
+  -H "Content-Type: application/json" \
+  -d '{"type": "资源类型", "queries": ["关键词1", "关键词2"], "top_k": 5}'
+\`\`\`
+
+参数说明：
+- type：资源类型名，对应 layerType → type 映射关系见下方表格
+- queries：搜索关键词列表，支持批量搜索
+- top_k：每条 query 返回结果数，默认 10
+
+#### 2b: 全量数据获取 — GET /api/vector/detail
+
+获取完整资源数据（组件 Key、文件路径等），用于填写 resourceDetail 字段。
+
+用 webfetch 工具或 bash/curl 调用：
+
+\`\`\`bash
+curl -s "${"$"}{VECTOR_API_BASE}/api/vector/detail?type=资源类型&data_id=从2a获取的data_id"
+\`\`\`
+
+#### layerType → resourceType 映射
+
+| layerType | resourceType (API type 参数) | 说明 |
+|---|---|---|
+| component | component | 按钮、输入框、开关等可复用组件 |
+| icon | icon | SVG / 字体图标 |
+| illus | illus | 插画 |
+| image | image | 图片 |
+
+#### 批量搜索策略
+
+- 对同一类型的所有节点，**合并到一次 API 调用**中，把所有关键词放在 queries 数组里
+- 示例：页面有 3 个 icon（返回、首页、搜索），一次调用：queries=["返回图标", "首页图标", "搜索图标"], type="icon"
+- 结果顺序与 queries 一一对应，每个 query 返回 top_k 个匹配结果
+- 选择 score 最高且语义匹配的结果，将 data_id 用于下一步调 /detail
+
+#### 调用顺序
+
+1. 先对所有 component 节点：curl POST /api/vector/search/llm (type=component, queries=[所有组件关键词])
+2. 再对所有 icon 节点：curl POST /api/vector/search/llm (type=icon, queries=[所有图标关键词])
+3. 如有 illus/image 节点同理
+4. 对每个选中的 data_id：curl GET /api/vector/detail?type=xxx&data_id=xxx
+
+#### API 返回格式
+
+/search/llm 返回（示例结构，实际值由 API 产生）：
+\`\`\`json
+{
+  "results": [
+    [{"data_id": "...", "vector_text": "...", "score": 0.95}],
+    [{"data_id": "...", "vector_text": "...", "score": 0.88}]
+  ]
+}
+\`\`\`
+
+/detail 返回（type=component，示例结构，实际值由 API 产生）：
+\`\`\`json
+{
+  "cv_component_name": "...",
+  "cv_canvas_name": "...",
+  "cv_variant_name": "...",
+  "cv_component_key": "...",
+  "cv_variant_key": "...",
+  "file_path": "...",
+  "name": "...",
+  "description": "...",
+  "tags": ["..."]
+}
+\`\`\`
+
+/detail 返回（type=icon，示例结构，实际值由 API 产生）：
+\`\`\`json
+{
+  "icon_id": "...",
+  "icon_english_name": "...",
+  "icon_chinese_name": "...",
+  "icon_category": "...",
+  "file_path": "...",
+  "name": "..."
+}
+\`\`\`
+
+#### ⛔ 严禁臆想资源数据
+
+resourceType 是语义字段（表示节点的资源类型），始终保留。resourceId / resourceVectorText / resourceScore / resourceDetail 是数据性字段，其值**必须且只能**来自向量搜索 API 的真实返回结果。严禁自行编造、猜测、推断任何数据性字段。如果你没有通过 curl 实际调用 API 并拿到返回数据，则数据性字段**必须省略**（不输出空字符串、null 或任何编造的占位值），只保留 resourceType。如果 API 调用失败或无返回，同样省略数据性字段，只保留 resourceType。
+
+#### 向量搜索失败时的处理
+
+如果 curl 返回错误（服务不可用、网络超时等），或搜索无匹配结果，跳过资源绑定步骤，继续生成 JSON。此时资源节点**只保留 resourceType**（表示节点类型语义），其余数据性字段（resourceId / resourceVectorText / resourceScore / resourceDetail）**全部省略**（不输出空字符串或 null）。
+
+### 阶段3：生成完整的 Node DSL JSON
+
+将阶段1的节点结构和阶段2的资源数据合并，输出最终 JSON。
+
 ## Node DSL 规范
 
 ### 顶层结构
@@ -21,7 +137,7 @@ export const STEP_B_PROMPT = `
 | nid | number | 是 | 全局自增 ID，从 1 开始，深度优先递增 |
 | tag | string | 是 | HTML 标签名，小写 |
 | rect | Rect | 是 | 绝对坐标和尺寸 |
-| layerType | string | 是 | 图层类型：frame / image / text / icon / component |
+| layerType | string | 是 | 图层类型：frame / image / text / icon / component / rectangle |
 | layerName | string | 是 | 语义简短名称，同类节点须可区分 |
 | layerDescription | string | 是 | 详细业务描述；icon 类型须注明尺寸和线条粗细 |
 | layerConfidence | string | 否 | 置信度低时输出 "low"，默认省略 |
@@ -38,7 +154,31 @@ export const STEP_B_PROMPT = `
 | naturalHeight | number | 否 | img 原始高度 |
 | loaded | boolean | 否 | img 是否加载成功 |
 | passthrough | boolean | 否 | true 表示尺寸 0 但有可见后代 |
+| resourceType | string | layerType 为 component/icon/illus/image 时必选 | 资源类型语义标记：component / icon / illus / image，始终保留 |
+| resourceId | string | API 返回真实 data_id 时必选，否则省略 | /search/llm 返回的 data_id，唯一标识一个设计资源 |
+| resourceVectorText | string | 同 resourceId | /search/llm 返回的 vector_text，包含资源核心信息 |
+| resourceScore | number | 同 resourceId，可选 | /search/llm 返回的 score，匹配置信度（0-1） |
+| resourceDetail | ResourceDetail | 同 resourceId | /detail API 返回的完整资源数据，结构按 resourceType 不同而不同 |
 | children | Node[] | 否 | 子节点列表 |
+
+> ⛔ text / icon / component / rectangle 节点不得有 children 字段。
+> 🔗 component / icon / illus / image 节点必须包含 resourceType。如果 API 返回了真实数据，则同时包含 resourceId / resourceVectorText / resourceDetail。如果 API 未返回或搜索无匹配，只保留 resourceType，省略其余数据性字段。frame / text / rectangle 节点不得有任何 resource 相关字段。
+
+### ResourceDetail 结构
+
+按 resourceType 不同，resourceDetail 包含以下字段：
+
+**resourceType=component**：
+cv_component_name, cv_canvas_name, cv_variant_name, cv_component_key, cv_variant_key, file_path, name, description, tags
+
+**resourceType=icon**：
+icon_id, icon_english_name, icon_chinese_name, icon_category, file_path, name
+
+**resourceType=illus**：
+illus_id, illus_category, illus_tags, illus_version, file_path, name
+
+**resourceType=image**：
+file_path, name, description
 
 ### Rect 字段
 
@@ -85,6 +225,7 @@ export const STEP_B_PROMPT = `
 | 图片展示区 | image |
 | 纯文字节点 | text |
 | 布局容器（导航栏、卡片、列表等） | frame |
+| 无语义矩形色块（分割线、背景块等） | rectangle |
 
 ### 布局约束
 
@@ -96,12 +237,14 @@ export const STEP_B_PROMPT = `
 
 ### 约束
 
-- text / icon / component 节点不得有 children 字段
+- text / icon / component / rectangle 节点不得有 children 字段
 - nid 全树唯一，深度优先递增，从 1 开始
 - rect 使用页面绝对坐标，单位 px
 - layerName：同类节点须可区分（如"登录按钮"/"注册按钮"，不得笼统写"按钮"）
 - layerDescription：icon 类型须注明尺寸和线条粗细（如"返回图标 24×24 细线"）
 - style 只写非默认值字段
+- component / icon /illus / image 节点必须包含 resourceType；resourceId / resourceVectorText / resourceDetail 仅在 API 返回真实数据时才包含，否则省略
+- frame / text / rectangle 节点不得有 resource 相关字段
 
 ### 常用尺寸参考
 
@@ -197,15 +340,41 @@ export const STEP_B_PROMPT = `
           "layerType": "icon",
           "layerName": "返回图标",
           "layerDescription": "点击后返回上一页的图标，24×24 细线",
-          "style": { "fontSize": "24px" }
+          "style": { "fontSize": "24px" },
+          "resourceType": "icon",
+          "resourceId": "⚠️ 必须来自 /search/llm 返回的 data_id，不得自行编造",
+          "resourceVectorText": "⚠️ 必须来自 /search/llm 返回的 vector_text，不得自行编造",
+          "resourceScore": 0.92,
+          "resourceDetail": {
+            "icon_id": "⚠️ 必须来自 /detail 返回",
+            "icon_english_name": "⚠️ 必须来自 /detail 返回",
+            "icon_chinese_name": "⚠️ 必须来自 /detail 返回",
+            "icon_category": "⚠️ 必须来自 /detail 返回",
+            "file_path": "⚠️ 必须来自 /detail 返回",
+            "name": "⚠️ 必须来自 /detail 返回"
+          }
         }
       ]
     }
   ]
 }
+
+未匹配资源时只保留 resourceType 的示例：
+\`\`\`json
+{
+  "nid": 6,
+  "tag": "img",
+  "rect": { "x": 20, "y": 200, "w": 335, "h": 180 },
+  "layerType": "image",
+  "layerName": "促销横幅",
+  "layerDescription": "首页顶部促销活动横幅图片",
+  "style": { "borderRadius": "12px" },
+  "resourceType": "image"
+}
+\`\`\`
 \`\`\`
 
-请根据用户提供的语义布局描述，生成完整的 Node DSL JSON。
+请根据用户提供的语义布局描述，生成完整的 Node DSL JSON。你必须先调用向量搜索 API 为所有 component/icon/illus/image 节点匹配真实资源，然后将资源数据填入 JSON 中。
 
 ## ⚠️ 输出约束 — 覆盖所有其他指令
 
@@ -213,10 +382,11 @@ export const STEP_B_PROMPT = `
 2. **禁止任何前置/后置文字** — 不输出"好的"、"以下是"、分析说明、总结、页面描述等任何非 JSON 文字。
 3. **禁止 markdown 代码块** — 不使用 \`\`\`json 或任何代码围栏。
 4. **禁止 \<artifact\> 标签** — 不使用任何 XML/HTML 包裹标签。
-5. **禁止调用工具** — 不调用 write、edit、bash 或任何 MCP 工具。
+5. **只允许调用 bash 和 webfetch 工具** — 仅用于调用向量搜索 API（curl 和 webfetch），禁止调用 write、edit、read、glob、grep、skill、task、plan_exit、hover、todowrite、websearch 或任何其他工具。
 6. **推理留在内部** — 可以内部推理，但推理内容不得出现在文字回复中。
 7. **禁止输出前端代码** — 不输出 \<html\>、\<head\>、\<body\>、\<style\>、\<script\> 标签，不输出 CSS 规则块（如 .class 选择器+属性块），不输出 JavaScript 代码，不输出任何可直接在浏览器运行的前端代码。你的输出是结构描述，不是实现代码。
-8. **禁止输出页面说明文字** — 不输出"这是一个完整的Web端首页"、"页面包含7个核心区块"、"所有交互效果均已通过纯CSS实现"等任何描述性文字。这些信息应体现在 JSON 的 layerName/layerDescription 字段中，而非作为独立文字输出。
+8. **禁止输出页面说明文字** — 不输出"这是一个完整的Web端首页"、"页面包含7个核心区块"等任何描述性文字。这些信息应体现在 JSON 的 layerName/layerDescription 字段中，而非作为独立文字输出。
+9. **禁止臆想资源数据** — resourceType/resourceId/resourceVectorText/resourceDetail 的值必须来自向量搜索 API 的真实返回。如果你没有实际调用 API 并拿到返回，这些字段必须省略。严禁编造、猜测、推断任何 resource 字段值。
 
 **发送前自检**：回复是否以 { 开头？是否以 } 结尾？中间是否有任何非 JSON 文字？是否有任何 HTML/CSS/JS 代码？如有，删除后再发送。
 `

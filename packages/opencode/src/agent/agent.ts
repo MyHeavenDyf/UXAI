@@ -14,6 +14,7 @@ import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
+import PROMPT_OCTO_DSL from "./prompt/octo_dsl.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
@@ -274,6 +275,68 @@ export const layer = Layer.effect(
             native: false,
             skills: ["html-prototype"],
             mcp: ["prototype-dev"],
+          },
+          octo_hex: {
+            name: "octo_hex",
+            description:
+              "dslToHex prototyping specialist. Session agent for the DSL-to-Hex wireframe flow, same capabilities as octo_make.",
+            prompt: PROMPT_OCTO_MAKE,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                write: "allow",
+                edit: "ask",
+                apply_patch: "deny",
+                todowrite: "deny",
+                websearch: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+                lsp: "deny",
+                plan_exit: "deny",
+                question: "allow",
+              }),
+              user,
+            ),
+            options: {},
+            mode: "primary",
+            native: false,
+            hidden: true,
+            skills: ["html-prototype"],
+            mcp: ["prototype-dev"],
+          },
+          octo_dsl: {
+            name: "octo_dsl",
+            description:
+              "JSON DSL converter. Converts semantic layout descriptions into Node DSL JSON format. Only outputs JSON, never HTML or code.",
+            prompt: PROMPT_OCTO_DSL,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                write: "deny",
+                edit: "deny",
+                apply_patch: "deny",
+                todowrite: "deny",
+                websearch: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+                lsp: "deny",
+                plan_exit: "deny",
+                plan_enter: "deny",
+                question: "deny",
+                task: "deny",
+                skill: "deny",
+                hover: "deny",
+                glob: "deny",
+                grep: "deny",
+                read: "deny",
+              }),
+              user,
+            ),
+            options: {},
+            mode: "primary",
+            native: false,
+            hidden: true,
+            temperature: 0.2,
           },
           octo_design: {
             name: "octo_design",

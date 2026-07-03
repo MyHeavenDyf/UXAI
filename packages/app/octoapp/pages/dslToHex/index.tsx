@@ -3,6 +3,7 @@ import "./components/slash-popover.css"
 import { STEP_A_PROMPT } from "./prompts/step-a"
 import { STEP_B_PROMPT } from "./prompts/step-b"
 import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest } from "./utils/artifact-persist"
+import { stripFollowUpTags } from "./utils/strip-conversational"
 import { IframeBridge } from "./lib/iframe-bridge"
 import { stripThinkTags } from "./lib/think-filter"
 
@@ -252,7 +253,7 @@ function MakeContent() {
         const client = globalSDK.createClient({ directory: newDir })
         void client.session.list().then((result) => {
           const sessions = (result.data ?? []) as Session[]
-          const belongsToNewProject = sessions.some(s => s.id === currentId && s.agent === "octo_make")
+          const belongsToNewProject = sessions.some(s => s.id === currentId && (s.agent === "octo_hex" || s.agent === "octo_dsl"))
           
           if (!belongsToNewProject) {
             // 清理旧 session 数据
@@ -626,10 +627,12 @@ const sessionMessagesLoaded = createMemo(() => {
     setStepAMessageId(stepAMsg.id)
 
     // 找到 step B：step A 之后是否有 JSON/artifact 消息
-    const stepAIdx = assistantMsgs.findIndex((m) => m.id === stepAMsg!.id)
-    const msgsAfterA = assistantMsgs.slice(stepAIdx + 1)
+    const aMsgIdFinal = stepAMessageId()
+    const aMsgIdx = aMsgIdFinal ? allMsgs.findIndex((m) => m.id === aMsgIdFinal) : stepAMsg ? assistantMsgs.findIndex((m) => m.id === stepAMsg!.id) : -1
+    const msgsAfterA = aMsgIdx >= 0 ? allMsgs.slice(aMsgIdx + 1) : allMsgs
     let hasStepB = false
     for (const msg of msgsAfterA) {
+      if (msg.role !== "assistant") continue
       const text = extractText(msg.id)
       if (!text) continue
       if (looksLikeJson(text)) { hasStepB = true; break }
@@ -661,7 +664,11 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   })
 
-  const DISABLED_TOOLS = {
+  const VECTOR_API_BASE = import.meta.env.VITE_VECTOR_API_BASE
+    || localStorage.getItem("octo:vector-api-base")
+    || "http://localhost:8009"
+
+  const STEP_A_DISABLED_TOOLS = {
     write: false,
     edit: false,
     apply_patch: false,
@@ -681,12 +688,84 @@ const sessionMessagesLoaded = createMemo(() => {
     internel_image_generate: false,
   }
 
-  function looksLikeJson(text: string): boolean {
+  const STEP_B_TOOLS = {
+    write: false,
+    edit: false,
+    apply_patch: false,
+    bash: true,
+    read: false,
+    glob: false,
+    grep: false,
+    todowrite: false,
+    websearch: false,
+    webfetch: true,
+    shell: true,
+    skill: false,
+    task: false,
+    plan_exit: false,
+    hover: false,
+    jimeng_image_generate: false,
+    internel_image_generate: false,
+  }
+
+    function extractJsonFromText(text: string): string | null {
+       if (text.startsWith("{") || text.startsWith("[")) {
+         try { JSON.parse(text); return text } catch {}
+         const closeChar = text.startsWith("{") ? "}" : "]"
+         const lastClose = text.lastIndexOf(closeChar)
+         if (lastClose > 0) {
+           const candidate = text.slice(0, lastClose + 1)
+           try { JSON.parse(candidate); return candidate } catch {}
+         }
+       }
+       const startBrace = text.indexOf("{")
+       const startBracket = text.indexOf("[")
+       const start = startBrace === -1 ? startBracket : startBracket === -1 ? startBrace : Math.min(startBrace, startBracket)
+       if (start === -1) return null
+       const openChar = text[start]
+       const closeChar = openChar === "{" ? "}" : "]"
+       let depth = 0
+       let end = -1
+       for (let i = start; i < text.length; i++) {
+         if (text[i] === openChar) depth++
+         if (text[i] === closeChar) depth--
+         if (depth === 0) { end = i + 1; break }
+       }
+       if (end !== -1) {
+         const candidate = text.slice(start, end)
+         try { JSON.parse(candidate); return candidate } catch {}
+         const lastClose = text.lastIndexOf(closeChar)
+         if (lastClose > end) {
+           try { JSON.parse(text.slice(start, lastClose + 1)); return text.slice(start, lastClose + 1) } catch {}
+         }
+       }
+       let best: string | null = null
+       let bestLen = 0
+       for (let i = 0; i < text.length; i++) {
+         if (text[i] !== "{" && text[i] !== "[") continue
+         const oc = text[i]
+         const cc = oc === "{" ? "}" : "]"
+         let d = 0
+         for (let j = i; j < text.length; j++) {
+           if (text[j] === oc) d++
+           if (text[j] === cc) d--
+           if (d === 0) {
+             const slice = text.slice(i, j + 1)
+             try { JSON.parse(slice); if (slice.length > bestLen) { best = slice; bestLen = slice.length } } catch { break }
+           }
+         }
+       }
+       return best
+     }
+
+   function looksLikeJson(text: string): boolean {
     if (text.includes("<artifact")) return true
     let candidate = text.trim()
+    if (candidate.startsWith("{") || candidate.startsWith("[")) return true
     const mdMatch = candidate.match(/```(?:json)?\s*([\s\S]*?)```/)
     if (mdMatch) candidate = mdMatch[1].trim()
-    try { JSON.parse(candidate); return true } catch { return false }
+    try { JSON.parse(candidate); return true } catch {}
+    return extractJsonFromText(candidate) !== null
   }
 
   const stepADescription = createMemo(() => {
@@ -699,7 +778,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (allMsgs.some(m => m.id === aMsgId)) {
         const parts = partStore?.[aMsgId] ?? []
         const textPart = [...parts].find((p) => p.type === "text")
-        if (textPart?.text) return stripThinkTags(textPart.text.trim())
+        if (textPart?.text) return stripFollowUpTags(stripThinkTags(textPart.text.trim()))
       }
     }
     const allMsgs = (sync.data.message[id] ?? []) as Message[]
@@ -710,7 +789,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (hasToolCall) continue
       const textPart = [...parts].find((p) => p.type === "text")
       if (!textPart?.text) continue
-      const text = stripThinkTags(textPart.text.trim())
+      const text = stripFollowUpTags(stripThinkTags(textPart.text.trim()))
       if (text.includes("<artifact")) continue
       if (looksLikeJson(text)) continue
       return text
@@ -745,6 +824,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const phase = stepPhase()
     if (phase !== "b-done") return
     const dslJson = stepBDslJsonPatched()
+    debugLog("bridge-send:", { phase, dslJsonLen: dslJson?.length, bridgeRefExists: !!bridgeRef, dslJsonPreview: dslJson?.slice(0, 200) })
     if (!dslJson) return
     try { bridgeRef?.post("NODE_DSL_JSON", JSON.parse(dslJson)) } catch {}
   })
@@ -755,14 +835,18 @@ const sessionMessagesLoaded = createMemo(() => {
       const phase = stepPhase()
        if (phase !== "b-done" && phase !== "c-generating" && phase !== "c-done") return ""
       const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
-      const allMsgs = ((sync.data.message[id] ?? []) as Message[]).slice(stepBStartIdx())
-      const stepBMsg = [...allMsgs].reverse().find((m) => m.role === "assistant")
-     if (!stepBMsg) return ""
+       const allMsgs = (sync.data.message[id] ?? []) as Message[]
+       const aMsgId = stepAMessageId()
+       const aIdx = aMsgId ? allMsgs.findIndex(m => m.id === aMsgId) : -1
+       const msgsAfterA = aIdx >= 0 ? allMsgs.slice(aIdx + 1) : allMsgs.slice(stepBStartIdx())
+       const stepBMsg = [...msgsAfterA].reverse().find((m) => m.role === "assistant")
+     if (!stepBMsg) { debugLog("stepBDslJson: no stepBMsg, phase=", phase); return "" }
      const parts = partStore?.[stepBMsg.id] ?? []
      const textPart = [...parts].reverse().find((p) => p.type === "text")
-     if (!textPart?.text) return ""
-     let text = textPart.text.trim()
-     if (text.includes("<artifact")) {
+     if (!textPart?.text) { debugLog("stepBDslJson: no textPart, partTypes=", parts.map(p => p.type)); return "" }
+      let text = stripThinkTags(textPart.text.trim())
+      debugLog("stepBDslJson: raw text len=", text.length, "preview=", text.slice(0, 300))
+      if (text.includes("<artifact")) {
        const parser = createArtifactParser()
        let artifactContent = ""
        for (const ev of parser.feed(text)) {
@@ -775,35 +859,17 @@ const sessionMessagesLoaded = createMemo(() => {
        text = artifactContent.trim()
      }
 
-     // Strip markdown code blocks (greedy to handle nested)
-     const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-     if (mdMatch) text = mdMatch[1].trim()
+     // Strip markdown code blocks (greedy: take the LAST code block, not the first)
+      const mdMatches = [...text.matchAll(/```(?:json)?\s*([\s\S]*)```/g)]
+      if (mdMatches.length > 0) text = mdMatches[mdMatches.length - 1][1].trim()
 
-     // Extract JSON object/array from text
-     if (!text.startsWith("{") && !text.startsWith("[")) {
-       const startBrace = text.indexOf("{")
-       const startBracket = text.indexOf("[")
-       const start = startBrace === -1 ? startBracket : startBracket === -1 ? startBrace : Math.min(startBrace, startBracket)
-       if (start === -1) return ""
-       const openChar = text[start]
-       const closeChar = openChar === "{" ? "}" : "]"
-       let depth = 0
-       let end = -1
-       for (let i = start; i < text.length; i++) {
-         if (text[i] === openChar) depth++
-         if (text[i] === closeChar) depth--
-         if (depth === 0) { end = i + 1; break }
-       }
-       if (end === -1) return ""
-       text = text.slice(start, end)
-     }
+      const extracted = extractJsonFromText(text)
+      debugLog("stepBDslJson: extracted len=", extracted?.length ?? 0, "preview=", extracted?.slice(0, 200) ?? "null")
+      return extracted ?? ""
+     })
 
-     // Verify it's valid JSON
-     try { JSON.parse(text) } catch { return "" }
-     return text
-   })
 
-  // ── iframe 节点编辑（用户在编辑器中修改的属性） ──────────────
+   // ── iframe 节点编辑（用户在编辑器中修改的属性） ──────────────
   const [dslNodeEdits, setDslNodeEdits] = createStore<Record<number, Record<string, string>>>({})
 
 
@@ -833,7 +899,96 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
-  const stepBDslJsonPatched = createMemo(() => applyNodeEdits(stepBDslJson()))
+   const stepBDslJsonPatched = createMemo(() => stripFabricatedResources(applyNodeEdits(stepBDslJson())))
+
+   const RESOURCE_DATA_FIELDS = ["resourceId", "resourceVectorText", "resourceScore", "resourceDetail"] as const
+
+   function stripFabricatedResources(jsonStr: string): string {
+     if (!jsonStr) return jsonStr
+     const id = params.id
+     if (!id) return jsonStr
+
+      const partStore = sync.data.part as Record<string, { type: string; tool?: string; state?: { status: string; input?: { command?: string }; output?: string }; text?: string }[]>
+      const allMsgs = (sync.data.message[id] ?? []) as Message[]
+      const aMsgId = stepAMessageId()
+      const aIdx = aMsgId ? allMsgs.findIndex(m => m.id === aMsgId) : -1
+      const msgsSlice = aIdx >= 0 ? allMsgs.slice(aIdx + 1) : allMsgs.slice(stepBStartIdx())
+
+     const realDataIds = new Set<string>()
+     const realDetailMap = new Map<string, Record<string, unknown>>()
+
+     for (const msg of msgsSlice) {
+       if (msg.role !== "assistant") continue
+       const parts = partStore?.[msg.id] ?? []
+       for (const part of parts) {
+         if (part.type !== "tool") continue
+         if (part.tool !== "bash" && part.tool !== "shell" && part.tool !== "webfetch") continue
+         const state = part.state as Record<string, unknown> | undefined
+         if (state?.status !== "completed" || typeof state.output !== "string") continue
+         const input = state.input as Record<string, unknown> | undefined
+         const cmd = typeof input?.command === "string" ? input.command : ""
+         const url = typeof input?.url === "string" ? input.url : ""
+         const isVectorCall = cmd.includes("/api/vector/") || url.includes("/api/vector/")
+         if (!isVectorCall) continue
+         try {
+           const parsed = JSON.parse(state.output as string)
+           collectDataIds(parsed, realDataIds)
+           collectDetails(parsed, realDetailMap)
+         } catch { /* non-JSON output, ignore */ }
+       }
+     }
+
+     try {
+       const root = JSON.parse(jsonStr)
+       function cleanNode(node: Record<string, unknown>) {
+         const rid = node.resourceId as string | undefined
+         if (!rid || !realDataIds.has(rid)) {
+           for (const f of RESOURCE_DATA_FIELDS) delete node[f]
+         } else {
+           const cachedDetail = realDetailMap.get(rid)
+           if (cachedDetail && node.resourceDetail) {
+             const detail = node.resourceDetail as Record<string, unknown>
+             const mismatch = Object.keys(cachedDetail).some(
+               (k) => detail[k] !== undefined && detail[k] !== cachedDetail[k],
+             )
+             if (mismatch) {
+               for (const f of RESOURCE_DATA_FIELDS) delete node[f]
+             }
+           }
+         }
+         const children = node.children as Record<string, unknown>[] | undefined
+         if (children) for (const c of children) cleanNode(c)
+       }
+       if (Array.isArray(root)) for (const n of root) cleanNode(n)
+       else cleanNode(root)
+       return JSON.stringify(root)
+     } catch {
+       return jsonStr
+     }
+   }
+
+   function collectDataIds(obj: unknown, ids: Set<string>) {
+     if (Array.isArray(obj)) {
+       for (const item of obj) collectDataIds(item, ids)
+     } else if (obj && typeof obj === "object") {
+       const rec = obj as Record<string, unknown>
+       if (typeof rec.data_id === "string") ids.add(rec.data_id)
+       for (const val of Object.values(rec)) collectDataIds(val, ids)
+     }
+   }
+
+   function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>) {
+     if (Array.isArray(obj)) {
+       for (const item of obj) collectDetails(item, map)
+     } else if (obj && typeof obj === "object") {
+       const rec = obj as Record<string, unknown>
+       if (typeof rec.data_id === "string" && !map.has(rec.data_id)) {
+         const { results, ...detail } = rec
+         if (Object.keys(detail).length > 1) map.set(rec.data_id, detail)
+       }
+       for (const val of Object.values(rec)) collectDetails(val, map)
+     }
+   }
 
   // ── 产物持久化 ─────────────────────────────────────────────
   const dslDir = projectDir()
@@ -988,35 +1143,38 @@ const sessionMessagesLoaded = createMemo(() => {
   const hasStepBData = createMemo(() => {
     const id = params.id
     if (!id) return false
+    const aMsgId = stepAMessageId()
     const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
-    const allMsgs = ((sync.data.message[id] ?? []) as Message[]).slice(stepBStartIdx())
-    for (const msg of [...allMsgs].reverse()) {
+    const allMsgs = (sync.data.message[id] ?? []) as Message[]
+    const aIdx = aMsgId ? allMsgs.findIndex(m => m.id === aMsgId) : -1
+    const msgsAfterA = aIdx >= 0 ? allMsgs.slice(aIdx + 1) : allMsgs.slice(stepBStartIdx())
+    for (const msg of [...msgsAfterA].reverse()) {
       if (msg.role !== "assistant") continue
       const parts = partStore?.[msg.id] ?? []
       const textPart = [...parts].find((p) => p.type === "text")
       if (!textPart?.text) continue
-      return looksLikeJson(textPart.text.trim())
+      return looksLikeJson(stripThinkTags(textPart.text.trim()))
     }
     return false
   })
 
-  createEffect(() => {
+   createEffect(() => {
     const id = params.id
     if (!id) return
     const busy = isBusy()
-    if (busy) return
+    if (busy) { debugLog("phase-advance: busy, skip"); return }
     const phase = stepPhase()
     const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
     const allMsgs = (sync.data.message[id] ?? []) as Message[]
     const lastAssistant = [...allMsgs].reverse().find((m) => m.role === "assistant")
-    if (!lastAssistant) return
+    if (!lastAssistant) { debugLog("phase-advance: no lastAssistant, phase=", phase); return }
     const lastParts = partStore?.[lastAssistant.id] ?? []
     const hasToolCall = lastParts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
-    if (hasToolCall) return
+    const hasStepB = hasStepBData()
+    debugLog("phase-advance:", { phase, hasStepB, hasToolCall, partTypes: lastParts.map(p => p.type), lastMsgId: lastAssistant.id })
     if (phase === "a-generating") {
-      if (hasStepBData()) {
-        // 产物是唯一数据源：产物已删 → 不恢复到 b-done
-        // 主动生成（stepBInitiated）→ 允许推进，产物随后从消息写入
+      if (hasToolCall) { debugLog("phase-advance: a-generating hasToolCall, skip"); return }
+      if (hasStepB) {
         if (stepBInitiated() || stepBArtifact() !== null) {
           setStepBInitiated(true)
           setStepPhase("b-done")
@@ -1026,9 +1184,14 @@ const sessionMessagesLoaded = createMemo(() => {
       } else {
         setStepPhase("a-done")
       }
-    } else if (phase === "b-generating" && hasStepBData()) {
-      // 主动生成完成 → 允许推进；被动恢复无产物 → 不推进
-      if (stepBInitiated() || stepBArtifact() !== null) setStepPhase("b-done")
+    } else if (phase === "b-generating") {
+      if (hasStepB) {
+        debugLog("phase-advance: b-generating + hasStepB → advancing to b-done (hasToolCall=", hasToolCall, ")")
+        if (stepBInitiated() || stepBArtifact() !== null) setStepPhase("b-done")
+      } else {
+        if (hasToolCall) { debugLog("phase-advance: b-generating no stepB data + hasToolCall, skip"); return }
+        debugLog("phase-advance: b-generating no stepB data, staying")
+      }
     }
   })
 
@@ -1054,11 +1217,12 @@ const sessionMessagesLoaded = createMemo(() => {
       const textPart: TextPartInput = { type: "text", text }
       const modelKey = activeModelKey()
       if (!modelKey) return
+      const systemPrompt = STEP_B_PROMPT.replace(/\$\{VECTOR_API_BASE\}/g, VECTOR_API_BASE)
       await sdk.client.session.prompt({
         sessionID: sessionId,
-        agent: "octo_make",
-        system: STEP_B_PROMPT,
-        tools: DISABLED_TOOLS,
+        agent: "octo_dsl",
+        system: systemPrompt,
+        tools: STEP_B_TOOLS,
         ...(modelKey ? { model: modelKey } : {}),
         parts: [textPart],
       })
@@ -1314,7 +1478,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!dir) return
     setSending(true)
     try {
-      const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+      const result = await sdk.client.session.create({ directory: dir, agent: "octo_hex" })
       const session = result.data as Session | undefined
       console.log("[MakePage] session created:", { id: session?.id, agent: session?.agent, directory: session?.directory })
       if (session) {
@@ -1338,6 +1502,8 @@ const sessionMessagesLoaded = createMemo(() => {
     setStepCConfirmed(false)
     setStepBArtifact(null)
     setStepCArtifact(null)
+    setStepAMessageId(null)
+    setStepBStartIdx(0)
     cacheArtifact(sessionId, { b: null, c: null })
     if (dslDir) clearArtifacts(dslDir, sessionId, "b", "c").catch(() => {})
     bridgeRef?.post("NODE_DSL_CLEAR", undefined)
@@ -1351,12 +1517,12 @@ const sessionMessagesLoaded = createMemo(() => {
       const textPart: TextPartInput = { type: "text", text }
       const modelKey = activeModelKey()
       if (!modelKey) return
-      debugLog("sendMessage DISABLED_TOOLS:", DISABLED_TOOLS)
+      debugLog("sendMessage STEP_A_DISABLED_TOOLS:", STEP_A_DISABLED_TOOLS)
       await sdk.client.session.prompt({
         sessionID: sessionId,
-        agent: "octo_make",
+        agent: "octo_hex",
         system: STEP_A_PROMPT,
-        tools: DISABLED_TOOLS,
+        tools: STEP_A_DISABLED_TOOLS,
         ...(modelKey ? { model: modelKey } : {}),
         parts: [textPart, ...fileParts],
       })
@@ -1378,7 +1544,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
-const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+const result = await sdk.client.session.create({ directory: dir, agent: "octo_hex" })
       const session = result.data as Session | undefined
       if (!session) return
       const dsId = selectedDesignSystem()

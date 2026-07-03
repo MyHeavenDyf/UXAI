@@ -87,7 +87,7 @@ export function DslToHexSidebar(props: { width: number }): JSX.Element {
       const result = await client.session.list()
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       setMakeFetchedDir(d)
-      return data.filter(s => s.agent === "octo_make")
+      return data.filter(s => s.agent === "octo_hex" || s.agent === "octo_dsl")
     },
   )
 
@@ -225,7 +225,7 @@ export function DslToHexSidebar(props: { width: number }): JSX.Element {
     const dir = resolvedDir()
     if (!dir) return
     const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "octo_make" }).then((result) => {
+    void client.session.create({ directory: dir, agent: "octo_hex" }).then((result) => {
       const session = result.data as Session | undefined
       if (session) navigate(`/dslToHex/${session.id}`)
     })
