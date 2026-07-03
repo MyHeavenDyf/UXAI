@@ -46,7 +46,10 @@ export default async function proto_pattern_page(input: ProtoPatternPageInput) {
   })
   // 3. 解析 LLM 返回的匹配结果并加载 pattern 文件内容
   const matchJson = extractJson(result.text)
-  if (!matchJson) throw new Error("----- Pattern Page did not return valid JSON -----")
+  if (!matchJson) {
+    logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
+    throw new Error("----- Pattern Page did not return valid JSON -----")
+  }
   const returnValue = await resolveMatches(matchJson, patterns, theme)
   logAgentParsed(result.childSessionId, returnValue)
   return returnValue

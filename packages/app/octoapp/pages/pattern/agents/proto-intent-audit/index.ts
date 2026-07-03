@@ -41,7 +41,10 @@ export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
   console.log("----- 意图诊断Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 audit json
   const intentJson = extractJson(auditResult.text)
-  if (!intentJson) throw new Error("----- Intent Audit did not return valid JSON -----")
+  if (!intentJson) {
+    logAgentParsed(auditResult.childSessionId, { error: "Failed to parse JSON", raw: auditResult.text })
+    throw new Error("----- Intent Audit did not return valid JSON -----")
+  }
   const returnValue = {
     "intent_audit_pass": intentJson.is_pass,
     "intent_audit_feedback": intentJson.feedback,

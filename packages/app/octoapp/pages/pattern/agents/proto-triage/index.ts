@@ -71,7 +71,10 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
   console.log("----- 分诊Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 triage json
   const triageJson = extractJson(triageRes.text)
-  if (!triageJson) throw new Error("----- Triage JSON did not return valid JSON -----")
+  if (!triageJson) {
+    logAgentParsed(triageRes.childSessionId, { error: "Failed to parse JSON", raw: triageRes.text })
+    throw new Error("----- Triage JSON did not return valid JSON -----")
+  }
   const returnValue = {
     routing: (triageJson.routing as "regenerate" | "modify" | "chat") ?? "regenerate",
     delete: (triageJson.delete as string[]) ?? [],

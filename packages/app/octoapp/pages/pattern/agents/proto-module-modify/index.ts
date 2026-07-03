@@ -66,7 +66,10 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 json 数据
   const modifyJson = extractJson(modifyRes.text)
-  if (!modifyJson) throw new Error("module_modify did not return valid JSON")
+  if (!modifyJson) {
+    logAgentParsed(modifyRes.childSessionId, { error: "Failed to parse JSON", raw: modifyRes.text })
+    throw new Error("module_modify did not return valid JSON")
+  }
 
   const rootElementId = ctx.input.originModules.rootId as string
   if (modifyJson.rootId !== rootElementId) {
