@@ -8,6 +8,7 @@ import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../util
 import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { getDesktopApi } from "../../lib/electron-api"
+import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -60,6 +61,24 @@ function revealLocal(filePath: string) {
   }
   console.log("[octo:path] reveal-local", { filePath })
   api.showItemInFolder(filePath)
+}
+
+// uri md 卡「文件夹」:SPEC-INS-014 后 uri md 产物落在可见的 insight/outputs,
+// 先命中/落地本地工作副本(与预览、编辑同一份),再在文件管理器定位。
+async function revealUriLocal(tab: ResultTab, dir: string) {
+  const api = getDesktopApi()
+  if (typeof api?.showItemInFolder !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
+    return
+  }
+  try {
+    const { path } = await ensureLocalMarkdownFile(tab, dir)
+    console.log("[octo:office] reveal-show", { localPath: path })
+    api.showItemInFolder(path)
+  } catch (err) {
+    console.error("[octo:office] reveal-failed", { uri: tab.uri, err })
+    showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+  }
 }
 
 // uri 源「另存为」:始终从 url 重新拉 MCP 原始版本(不取本地工作副本/编辑后内容),
@@ -178,8 +197,12 @@ export function ActionBar(props: {
   /** 进入全屏 markdown 编辑器(仅 markdown 卡且有本地文件时给出) */
   onEdit?: () => void
 }): JSX.Element {
+  const projectDir = useProjectDir()
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
+  // uri md 卡「文件夹」:产物落在可见的 insight/outputs,给定位入口(与 path 源的「文件夹」对齐)。
+  const canRevealUri = () =>
+    props.tab.type === "markdown" && props.tab.source === "uri" && !!props.tab.uri && ready()
   // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
@@ -225,6 +248,17 @@ export function ActionBar(props: {
               onClick={() => {
                 tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
                 props.onEdit!()
+              }}
+            />
+          </Show>
+          {/* uri md 卡「文件夹」定位——落点在可见的 insight/outputs;path 源已在上方 path 块提供。 */}
+          <Show when={canRevealUri()}>
+            <ActionBtn
+              icon={<IconActionFolder size={14} />}
+              label="文件夹"
+              onClick={() => {
+                tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: "md" }) })
+                void revealUriLocal(props.tab, projectDir() || "")
               }}
             />
           </Show>

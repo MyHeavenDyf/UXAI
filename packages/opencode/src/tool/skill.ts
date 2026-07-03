@@ -5,6 +5,7 @@ import * as Stream from "effect/Stream"
 import { Ripgrep } from "../file/ripgrep"
 import { Skill } from "../skill"
 import * as Tool from "./tool"
+import { reportSkillUse } from "./skill-track"
 import DESCRIPTION from "./skill.txt"
 
 export const Parameters = Schema.Struct({
@@ -35,6 +36,8 @@ export const SkillTool = Tool.define(
             always: [params.name],
             metadata: {},
           })
+
+          reportSkillUse(info.name)
 
           const dir = path.dirname(info.location)
           const base = pathToFileURL(dir).href

@@ -9,20 +9,20 @@ import { fileTypeIconUrl } from "../icons/illustrations"
  * Dev-only 预览页 — 「文件名带空格」上传卡片解析验证
  *
  * 路由: /insight/__dev/attachment-parse
- * 复现的真实 bug:内网上传 10 个文件、发送后对话框上方文件列表少几个,丢的恰好都是
- * **文件名带空格**的。根因:服务端把未编码的原始文件名拼进返回 URL → URL 含空格 →
- * 旧正则 (https?:\/\/\S+) 的 \S+ 在空格处截断 → \s*$ 匹配失败 → 整行被丢弃。
+ * 复现的真实 bug:上传 10 个文件、发送后对话框上方文件列表少几个,丢的恰好都是
+ * **文件名带空格**的。根因:注入块每行末尾是文件地址(SPEC-INS-015 后是 insight/sources 本地路径,
+ * 文件名带空格 → 路径含空格),旧正则用 \S+ 匹配地址 → 在空格处截断 → \s*$ 匹配失败 → 整行被丢弃。
  *
- * 本页用真实的 formatUploadsForPrompt(拼 synthetic 块) → parseUploadedFiles(解析回卡片)
+ * 本页用真实的 formatUploadsForPrompt(拼 synthetic [本地文件] 块) → parseUploadedFiles(解析回卡片)
  * 全链路,对比旧正则 vs 新解析,直观看出"带空格的几个"是否还会丢。
  */
 
-// 旧实现(已被 upload.ts 替换):内联在此仅作对照,证明它会丢带空格的行。
-function parseUploadedFilesOld(block: string): Array<{ filename: string; url: string }> {
-  const out: Array<{ filename: string; url: string }> = []
+// 旧实现(已被 upload.ts 替换):内联在此仅作对照,证明它会丢带空格的行(\S+ 在空格处截断)。
+function parseUploadedFilesOld(block: string): Array<{ filename: string; path: string }> {
+  const out: Array<{ filename: string; path: string }> = []
   for (const line of block.split("\n")) {
-    const m = line.match(/^-\s+(.+?):\s+(https?:\/\/\S+)\s*$/)
-    if (m) out.push({ filename: m[1], url: m[2] })
+    const m = line.match(/^-\s+(.+?):\s+(\S+)\s*$/)
+    if (m) out.push({ filename: m[1], path: m[2] })
   }
   return out
 }
@@ -41,16 +41,16 @@ const MOCK_FILENAMES = [
   "原始问卷 v2.xlsx", // 带空格
 ]
 
-// 模拟内网服务端行为:把**未编码**的原始文件名直接拼进 URL 路径。
-// 文件名带空格 → URL 也带空格(这正是 bug 的源头)。
-function mockServerUrl(filename: string, i: number): string {
-  return `https://oss.internal/files/insight/2026-06-04/uuid-${i}/${filename}`
+// 模拟 SPEC-INS-014 拷贝落地:源文件拷进 <projectDir>/insight/sources/<文件名>。
+// 文件名带空格 → 本地路径也带空格(这正是 bug 的源头)。
+function mockLocalPath(filename: string): string {
+  return `/Users/me/projects/demo/insight/sources/${filename}`
 }
 
 export default function AttachmentParsePreviewPage(): JSX.Element {
-  const uploads = MOCK_FILENAMES.map((filename, i) => ({ filename, url: mockServerUrl(filename, i) }))
+  const uploads = MOCK_FILENAMES.map((filename) => ({ filename, path: mockLocalPath(filename) }))
 
-  // 真实链路第一步:拼 synthetic 上传块(发送时写进 message part)
+  // 真实链路第一步:拼 synthetic [本地文件] 块(发送时写进 message part)
   const uploadBlock = createMemo(() => formatUploadsForPrompt(uploads))
 
   // 第二步:两种解析对照
@@ -99,7 +99,7 @@ export default function AttachmentParsePreviewPage(): JSX.Element {
 
         {/* 旧正则 */}
         <ParseResult
-          label="② 旧正则解析 /^-\s+(.+?):\s+(https?:\/\/\S+)\s*$/"
+          label="② 旧正则解析 /^-\s+(.+?):\s+(\S+)\s*$/"
           tag="✗ 旧实现"
           color="red"
           parsed={parsedOld()}
@@ -135,7 +135,7 @@ function ParseResult(props: {
   label: string
   tag: string
   color: "red" | "green"
-  parsed: Array<{ filename: string; url: string }>
+  parsed: Array<{ filename: string; path: string }>
 }): JSX.Element {
   const ok = () => props.color === "green"
   const tagColor = () => (ok() ? "#15803d" : "#b91c1c")

@@ -1,5 +1,39 @@
 
 
+.studio-custom-tooltip {
+  padding: 4px 8px;
+  background: #161616;
+  color: #fcfcfc;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  white-space: normal !important;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  max-width: 360px;
+  max-height: 120px;
+  overflow-y: auto;
+  pointer-events: auto;
+  scrollbar-width: auto;
+  &::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.4);
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
 .studio-result-progress-icon {
   width: 20px;
   height: 20px;
@@ -601,7 +635,7 @@
   background: rgba(0, 0, 0, 0.72);
   color: rgba(255, 255, 255, 0.9);
   font-size: 13px;
-  line-height: 20px;
+  line-height: 22px;
   text-align: center;
   transform: translate(-50%, -50%);
 }
@@ -895,7 +929,7 @@
   gap: 6px;
   color: rgba(25, 25, 25, 1);
   font-size: 13px;
-  line-height: 20px;
+  line-height: 22px;
 }
 
 .studio-hd-hint-icon {

@@ -186,6 +186,44 @@ export function StudioResultCanvas(props: {
               <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
                   const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : [props.result!.images[0]]
+                  const [isTabTruncated, setIsTabTruncated] = createSignal(false)
+                  let tabLabelRef!: HTMLSpanElement
+                  let tabResizeObserver: ResizeObserver | undefined
+                  const checkTabTruncation = () => {
+                    if (tabLabelRef) setIsTabTruncated(tabLabelRef.scrollWidth > tabLabelRef.clientWidth)
+                  }
+                  createEffect(() => {
+                    void tabLabelFor(tabImage, index())
+                    queueMicrotask(() => checkTabTruncation())
+                  })
+                  onCleanup(() => tabResizeObserver?.disconnect())
+                  const [showTabTooltip, setShowTabTooltip] = createSignal(false)
+                  let tabTooltipTimeout: ReturnType<typeof setTimeout> | undefined
+                  let tabTooltipRef!: HTMLDivElement
+                  const [tabTooltipStyle, setTabTooltipStyle] = createSignal<JSX.CSSProperties>({})
+                  const updateTabTooltipPos = () => {
+                    if (!tabLabelRef) return
+                    const rect = tabLabelRef.getBoundingClientRect()
+                    const spaceBelow = window.innerHeight - rect.bottom
+                    const style: JSX.CSSProperties = { left: `${rect.left}px` }
+                    if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+                      style.top = `${rect.bottom + 4}px`
+                    } else {
+                      style.bottom = `${window.innerHeight - rect.top + 4}px`
+                    }
+                    setTabTooltipStyle(style)
+                  }
+                  const enterTabTrigger = () => {
+                    if (!isTabTruncated()) return
+                    clearTimeout(tabTooltipTimeout)
+                    updateTabTooltipPos()
+                    setShowTabTooltip(true)
+                  }
+                  const leaveTabTrigger = () => {
+                    tabTooltipTimeout = setTimeout(() => setShowTabTooltip(false), 150)
+                  }
+                  const enterTabTooltip = () => clearTimeout(tabTooltipTimeout)
+                  const leaveTabTooltip = () => setShowTabTooltip(false)
                   return (
                     <span
                       class="studio-canvas-tab"
@@ -195,9 +233,27 @@ export function StudioResultCanvas(props: {
                       }}
                       onClick={() => props.onSelectImage!(tabImage.id)}
                     >
-                      <span class="studio-canvas-label-text">{tabLabelFor(tabImage, index())}</span>
+                      <span
+                        ref={(el) => { tabLabelRef = el; tabResizeObserver?.disconnect(); tabResizeObserver = new ResizeObserver(() => checkTabTruncation()); tabResizeObserver.observe(el); queueMicrotask(() => checkTabTruncation()) }}
+                        class="studio-canvas-label-text"
+                        onMouseEnter={enterTabTrigger}
+                        onMouseLeave={leaveTabTrigger}
+                      >{tabLabelFor(tabImage, index())}</span>
                       <Show when={(props.tabImages && props.tabImages.length > 0) ? Boolean(props.onCloseTab) : Boolean(props.onDeleteImage)}>
                         <span class="studio-canvas-tab-close" onClick={(e) => { e.stopPropagation(); (props.tabImages && props.tabImages.length > 0 ? props.onCloseTab! : props.onDeleteImage!)(tabImage.id); }} />
+                      </Show>
+                      <Show when={showTabTooltip()}>
+                        <Portal>
+                          <div
+                            ref={tabTooltipRef!}
+                            style={{ ...tabTooltipStyle(), "max-width": "300px" }}
+                            onMouseEnter={enterTabTooltip}
+                            onMouseLeave={leaveTabTooltip}
+                            class="studio-custom-tooltip fixed z-[1000]"
+                          >
+                            {tabLabelFor(tabImage, index())}
+                          </div>
+                        </Portal>
                       </Show>
                     </span>
                   )
