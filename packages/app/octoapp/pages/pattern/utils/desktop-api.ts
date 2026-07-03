@@ -17,6 +17,7 @@ export type DesktopApi = {
   getPatternPreview?: (category: string, filename: string, theme?: string) => Promise<string | null>
   getDesignSystems?: () => Promise<string[]>
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<unknown>
+  tailwindToCss?: (className: string) => Promise<Record<string, string>>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

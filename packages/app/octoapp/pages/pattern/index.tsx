@@ -34,10 +34,14 @@ import { handleModifyElement as runQuickModify, type QuickModifyContext, type Mo
 import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
+import { PatternMatchPage } from "./modules/preview/pattern-match-page"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
+import test1Img from "./assets/images/test1.png?url"
+import test2Img from "./assets/images/test2.png?url"
+import test3Img from "./assets/images/test3.png?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
@@ -139,6 +143,7 @@ function PatternContent() {
           setHasPreviewContent(false)
           setIsModifying(false)
           setIsPlanReview(false)
+          setShowPatternMatch(false)
 
           // 同步子 session 消息，全部加载完成后才标记 synced
           void sync.session.sync(id).then(async () => {
@@ -302,6 +307,10 @@ function PatternContent() {
   const [userInput, setUserInput] = createSignal<string>("")
   // 是否处于线框审查阶段
   const [isPlanReview, setIsPlanReview] = createSignal(false)
+  // 页面级 Pattern 匹配结果
+  const [patternMatches, setPatternMatches] = createSignal<import("./utils/pattern-resource").PatternMatchItem[]>([])
+  // 是否展示 Pattern 匹配结果页
+  const [showPatternMatch, setShowPatternMatch] = createSignal(false)
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
   const [intentConfirm, setIntentConfirm] = createSignal<IntentConfirmResult | null>(null)
 
@@ -571,12 +580,17 @@ function PatternContent() {
           })
         }
 
-        // 进入线框审查阶段，planner/intent 复用 lastPlanner/lastIntent
+        // 展示 Pattern 匹配结果页
         if (params.id !== sid) return
         setLastPlanner(new_planner.planner.layout_planner)
         setLastIntent(new_planner.intent.intent_description)
         setUserInput(text)
-        setIsPlanReview(true)
+        setPatternMatches([
+          { pattern: { name: "企业官网", path: "", preview: "test1.png" }, score: 1, content: null, previewUrl: test1Img },
+          { pattern: { name: "电商平台", path: "", preview: "test2.png" }, score: 0.9, content: null, previewUrl: test2Img },
+          { pattern: { name: "个人博客", path: "", preview: "test3.png" }, score: 0.8, content: null, previewUrl: test3Img },
+        ])
+        setShowPatternMatch(true)
       }
 
       const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
@@ -607,6 +621,12 @@ function PatternContent() {
         return next
       })
     }
+  }
+
+  // 从 Pattern 匹配页进入线框审查
+  function handleEnterWireframe() {
+    setShowPatternMatch(false)
+    setIsPlanReview(true)
   }
 
   // 线框审查确认后，继续执行阶段 2：模块生成
@@ -745,7 +765,13 @@ function PatternContent() {
       setLastPlanner(new_planner.planner.layout_planner)
       setLastIntent(new_planner.intent.intent_description)
       setUserInput(enrichedText)
-      setIsPlanReview(true)
+      // setPatternMatches((new_planner as any).patternPageResult?.matches ?? [])
+      setPatternMatches([
+        { pattern: { name: "企业官网", path: "", preview: "test1.png" }, score: 1, content: null, previewUrl: test1Img },
+        { pattern: { name: "电商平台", path: "", preview: "test2.png" }, score: 0.9, content: null, previewUrl: test2Img },
+        { pattern: { name: "个人博客", path: "", preview: "test3.png" }, score: 0.8, content: null, previewUrl: test3Img },
+      ])
+      setShowPatternMatch(true)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleConfirmIntent failed", err)
@@ -965,31 +991,40 @@ function PatternContent() {
         <Show when={hasContent()}>
           <div style={{ position: "relative", overflow: "hidden" }}>
             <Show when={intentConfirm()} fallback={
-              <Show when={isPlanReview()} fallback={
-                <Show when={hasPreviewContent()} fallback={<PatternPreviewEmpty />}>
-                  <PreviewPage
-                    api={previewApi}
-                    pendingData={pendingPreviewData()}
-                    onModifyElement={handleModifyElement}
-                    onPickerSubmit={handlePickerSubmit}
-                    onDownload={handleDownload}
-                    onShare={handleShare}
-                    onLivePreview={handleLivePreview}
-                    onPixsoPreview={handlePixsoPreview}
-                    versions={versions()}
-                    currentVersionId={currentVersionId()}
-                    onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
-                  />
+              <Show when={showPatternMatch()} fallback={
+                <Show when={isPlanReview()} fallback={
+                  <Show when={hasPreviewContent()} fallback={<PatternPreviewEmpty />}>
+                    <PreviewPage
+                      api={previewApi}
+                      pendingData={pendingPreviewData()}
+                      onModifyElement={handleModifyElement}
+                      onPickerSubmit={handlePickerSubmit}
+                      onDownload={handleDownload}
+                      onShare={handleShare}
+                      onLivePreview={handleLivePreview}
+                      onPixsoPreview={handlePixsoPreview}
+                      versions={versions()}
+                      currentVersionId={currentVersionId()}
+                      onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+                    />
+                  </Show>
+                }>
+                  <Show when={lastPlanner() && lastIntent()} fallback={<PatternPreviewEmpty />}>
+                    <WireframeReview
+                      planner={lastPlanner()!}
+                      intentDescription={lastIntent()!}
+                      userInput={userInput()}
+                      onConfirm={handleConfirmReview}
+                    />
+                  </Show>
                 </Show>
               }>
-                <Show when={lastPlanner() && lastIntent()} fallback={<PatternPreviewEmpty />}>
-                  <WireframeReview
-                    planner={lastPlanner()!}
-                    intentDescription={lastIntent()!}
-                    userInput={userInput()}
-                    onConfirm={handleConfirmReview}
-                  />
-                </Show>
+                <PatternMatchPage
+                  planner={lastPlanner() ?? {}}
+                  intentDescription={lastIntent() ?? {}}
+                  patternMatches={patternMatches()}
+                  onEnterWireframe={handleEnterWireframe}
+                />
               </Show>
             }>
               <IntentConfirmReview

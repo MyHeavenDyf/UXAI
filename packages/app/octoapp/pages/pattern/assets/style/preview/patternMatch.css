@@ -1,0 +1,153 @@
+.pattern-match-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--octo-surface-page, #fff);
+  overflow: hidden;
+}
+
+.pattern-match-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--octo-border-divider);
+  flex-shrink: 0;
+  background: #fff;
+}
+
+.pattern-match-title-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--octo-brand, #3b82f6);
+  color: #fff;
+  border-radius: var(--octo-radius-md, 8px);
+  font-size: 16px;
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-right: 8px;
+  text-align: center;
+  line-height: 32px;
+}
+
+.pattern-match-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--octo-text-strong, #101828);
+}
+
+.pattern-match-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 24px;
+  padding: 24px;
+}
+
+.pattern-match-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pattern-match-col-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--octo-text-tertiary, #364153);
+  flex-shrink: 0;
+}
+
+.pattern-match-col .scaled-frame {
+  flex: none;
+  width: 100%;
+}
+
+.pattern-match-col .scaled-frame-viewport {
+  flex: none;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+.pattern-match-col:first-child .scaled-frame-viewport {
+  border: none;
+  box-shadow: none;
+}
+
+.pattern-match-btn-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.template-card-nav-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #ccc;
+  border: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.template-card-nav-btn:hover {
+  background: #c6c5c5;
+}
+
+.template-card-nav-btn:active {
+  transform: scale(0.95);
+}
+
+.template-card-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: var(--octo-brand);
+  color: var(--octo-surface-result);
+  border: 1px solid var(--octo-brand, #e5e7eb);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.template-card-confirm-btn:hover {
+  background: var(--octo-brand-hover);
+  border-color: var(--octo-brand);
+}
+
+.template-card-confirm-btn:active {
+  transform: scale(0.97);
+}
+
+.pattern-match-blank-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+
+.pattern-match-blank-placeholder {
+  font-size: 14px;
+  color: var(--octo-text-disabled, #bfbfbf);
+}
+
+.pattern-match-wireframe-scroll {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 24px;
+  box-sizing: border-box;
+  background: #fff;
+}

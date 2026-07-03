@@ -29,6 +29,7 @@
 }
 
 .wireframe-body {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -37,13 +38,11 @@
 }
 
 .wireframe-layout-panel {
-  flex: 0 0 auto;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--octo-border-divider);
-  background: #f9fafb;
   overflow: hidden;
-  max-height: 45%;
+  min-height: 0;
 }
 
 .wireframe-layout-label {
@@ -68,12 +67,65 @@
   gap: 8px;
 }
 
+.wireframe-drawer-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.wireframe-drawer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 420px;
+  background: #fff;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+  transform: translateX(100%);
+  /* transition: transform 0.3s ease; */
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wireframe-drawer.open {
+  transform: translateX(0);
+}
+
+.wireframe-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--octo-border-divider);
+  flex-shrink: 0;
+}
+
+.wireframe-drawer-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+}
+
+.wireframe-drawer-close:hover {
+  background: var(--octo-surface-variant, #f3f3f3);
+}
+
 .wireframe-box {
   border: 2px dashed var(--octo-border-default, #d0d5dd);
   border-radius: var(--octo-radius-md, 6px);
   padding: 16px 20px;
   background: #fff;
-  transition: border-color 0.15s, box-shadow 0.15s;
   cursor: pointer;
 }
 
@@ -103,21 +155,15 @@
 }
 
 .wireframe-modules-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-height: 0;
+  display: none;
 }
 
 .wireframe-modules-label {
-  padding: 10px 20px;
   font-size: 12px;
   font-weight: 600;
   color: var(--octo-text-tertiary, #364153);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  flex-shrink: 0;
 }
 
 .wireframe-modules-list {
@@ -135,7 +181,6 @@
   padding: 14px 18px;
   background: #fff;
   box-shadow: var(--octo-shadow-xs, 0 1px 2px rgba(0,0,0,0.04));
-  transition: border-color 0.15s, box-shadow 0.15s;
   scroll-margin-top: 12px;
   display: none;
 }
@@ -204,7 +249,6 @@
   background: #fff;
   outline: none;
   font-family: inherit;
-  transition: border-color 0.15s;
 }
 
 .wireframe-field-input:focus {
