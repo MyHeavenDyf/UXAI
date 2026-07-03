@@ -280,6 +280,7 @@ export default function StudioPage() {
   const [mode, setMode] = createSignal<StudioMode>("preview")
   const [sending, setSending] = createSignal(false)
   let generationToken = 0
+  let createGenerationController: AbortController | undefined
   const terminatedGenerationIDs = new Set<string>()
   const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(false)
   const [studioLeftStore, setStudioLeftStore] = persisted(
@@ -584,7 +585,6 @@ export default function StudioPage() {
         const assistantText = pending.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT
           ? STUDIO_REGENERATE_ASSISTANT_TEXT
           : buildStudioThinkingText({
-              text: pending.prompt,
               capability: pending.capability,
               sourceImage: pending.sourceImage,
             })
@@ -612,7 +612,6 @@ export default function StudioPage() {
       const pendingAssistantText = pending.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT
         ? STUDIO_REGENERATE_ASSISTANT_TEXT
         : buildStudioThinkingText({
-            text: pending.prompt,
             capability: pending.capability,
             sourceImage: pending.sourceImage,
           })
@@ -673,13 +672,20 @@ export default function StudioPage() {
   const studioTurn = createMemo(() => turns().at(-1))
   const latestCompletedTurn = createMemo(() => [...turns()].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0))
   const defaultResult = createMemo(() => {
+    const pending = pendingResult()
+    if (
+      pending &&
+      !selectedResultId() &&
+      (sending() || pending.status === "queued" || pending.status === "running")
+    ) return pending
+
     const turn = studioTurn()
     // 跳过无图片的失败结果（包括用户取消生成），canvas 不应显示红色报错
     if (turn?.result && turn.result.images.length === 0 &&
         (turn.result.status === "failed" || turn.result.status === "create_failed")) {
-      return latestCompletedTurn()?.result ?? pendingResult()
+      return latestCompletedTurn()?.result ?? pending
     }
-    return turn?.result ?? latestCompletedTurn()?.result ?? pendingResult()
+    return turn?.result ?? latestCompletedTurn()?.result ?? pending
   })
   function isSamePendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
     return Boolean(turn && (turn.id === pending.id || turn.id === `studio_${pending.id}` || turn.result?.id === pending.id))
@@ -1675,34 +1681,13 @@ export default function StudioPage() {
     return session.id
   }
 
-  function buildStudioThinkingText(input: { text: string; capability: StudioCapability; sourceImage?: string }) {
-    const isEditorCapability =
-      input.capability === "image.upscale" ||
-      input.capability === "image.cutout" ||
-      input.capability === "image.inpaint" ||
-      input.capability === "image.outpaint"
-    const opening =
-      input.capability === "image.upscale"
-        ? "好的，我将提升当前图片的清晰度和细节。"
-        : input.capability === "image.inpaint"
-          ? "好的，我将根据涂抹区域局部重绘当前图片。"
-        : input.capability === "image.outpaint"
-          ? `好的，我将扩展当前图片为${aspectRatio()}比例。`
-          : input.capability === "video.generate"
-            ? `好的，我将为您生成一段${aspectRatio()}比例的视频。`
-          : `好的，我将为您生成一张${aspectRatio()}比例的${capabilityLabel(input.capability)}。`
-    return [
-      opening,
-      input.capability === "video.generate" || isEditorCapability ? undefined : `风格模型：${styleModelLabel(styleModel())}`,
-      isEditorCapability ? undefined : `画幅比例：${aspectRatio()}`,
-      isEditorCapability ? undefined : `生成数量：${count()}`,
-      input.sourceImage
-        ? "将基于当前画面设定重新生成。"
-        : undefined,
-      `用户需求：${input.text}`,
-    ]
-      .filter((item): item is string => Boolean(item))
-      .join("\n")
+  function buildStudioThinkingText(input: { capability: StudioCapability; sourceImage?: string }) {
+    if (input.capability === "image.upscale") return "好的，我将提升当前图片的清晰度和细节。"
+    if (input.capability === "image.inpaint") return "好的，我将根据涂抹区域局部重绘当前图片。"
+    if (input.capability === "image.outpaint") return "好的，我将扩展当前图片。"
+    if (input.capability === "video.generate") return "好的，我将为您生成一段视频。"
+    if (input.sourceImage) return "好的，我会基于当前画面继续创作。"
+    return `好的，我将为您生成${capabilityLabel(input.capability)}。`
   }
 
   function stringArrayValue(value: unknown) {
@@ -1841,7 +1826,7 @@ export default function StudioPage() {
     refinedPrompt?: string
     effectivePrompt?: string
     extra?: Record<string, unknown>
-  }) {
+  }, signal?: AbortSignal) {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
@@ -1855,11 +1840,12 @@ export default function StudioPage() {
       })}`
     }
     const controller = new AbortController()
+    const abortSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
     const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_CREATE_TIMEOUT_MS)
     const response = await fetch(new URL("/studio/generations", current.http.url), {
       method: "POST",
       headers,
-      signal: controller.signal,
+      signal: abortSignal,
       body: JSON.stringify({
         sessionID: input.sessionID,
         capability: input.capability,
@@ -2076,6 +2062,9 @@ export default function StudioPage() {
         pendingGenerationSessionID = sessionID
         navigate(`/${routeSlug()}/studio/${sessionID}`)
       }
+      createGenerationController?.abort()
+      const controller = new AbortController()
+      createGenerationController = controller
       const generation = await createStudioGeneration({
         sessionID,
         text,
@@ -2101,7 +2090,7 @@ export default function StudioPage() {
             }
             : {}),
         },
-      })
+      }, controller.signal)
       if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
       setPendingResult((current) => ({
@@ -2125,6 +2114,7 @@ export default function StudioPage() {
         error: error instanceof Error ? error.message : String(error),
       } : item)
     } finally {
+      if (createGenerationController?.signal.aborted || currentToken === generationToken) createGenerationController = undefined
       if (currentToken === generationToken) setSending(false)
     }
   }
@@ -2236,6 +2226,8 @@ export default function StudioPage() {
       return
     }
     // Still in submitting phase — abort via token
+    createGenerationController?.abort()
+    createGenerationController = undefined
     generationToken++
     setPendingResult(undefined)
     setStatus("idle")
