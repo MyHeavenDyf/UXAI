@@ -1,4 +1,5 @@
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
+import { directoryHeader } from "@/utils/headers"
 
 export type ArtifactFileKind =
   | "folder"
@@ -56,7 +57,7 @@ export async function fetchArtifactList(
   }
   const url = `${sdkUrl}/artifact/list?${params.toString()}`
   const response = await fetch(url, {
-    headers: { "x-opencode-directory": sdkDirectory },
+    headers: { ...directoryHeader(sdkDirectory) },
   })
   if (!response.ok) {
     throw new Error(`Failed to list artifacts: ${response.statusText}`)
@@ -70,7 +71,7 @@ export async function fetchArtifactContent(
   filePath: string,
 ): Promise<ArtifactContentResponse> {
   const response = await fetch(`${sdkUrl}/artifact/content?path=${encodeURIComponent(filePath)}`, {
-    headers: { "x-opencode-directory": sdkDirectory },
+    headers: { ...directoryHeader(sdkDirectory) },
   })
   if (!response.ok) {
     throw new Error(`Failed to read artifact: ${response.statusText}`)
@@ -85,7 +86,7 @@ export async function deleteArtifactFile(
 ): Promise<void> {
   const response = await fetch(`${sdkUrl}/artifact/file?path=${encodeURIComponent(filePath)}`, {
     method: "DELETE",
-    headers: { "x-opencode-directory": sdkDirectory },
+    headers: { ...directoryHeader(sdkDirectory) },
   })
   if (!response.ok) {
     throw new Error(`Failed to delete artifact: ${response.statusText}`)
@@ -100,7 +101,7 @@ export async function renameArtifactFile(
 ): Promise<ArtifactFile> {
   const response = await fetch(`${sdkUrl}/artifact/rename`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
     body: JSON.stringify({ from, to }),
   })
   if (!response.ok) {
@@ -116,7 +117,7 @@ export async function archiveArtifacts(
 ): Promise<Blob> {
   const response = await fetch(`${sdkUrl}/artifact/archive`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
     body: JSON.stringify({ files }),
   })
   if (!response.ok) {
@@ -132,7 +133,7 @@ export async function deleteArtifactBatch(
 ): Promise<{ deleted: number }> {
   const response = await fetch(`${sdkUrl}/artifact/delete-batch`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
     body: JSON.stringify({ files }),
   })
   if (!response.ok) {
@@ -152,7 +153,7 @@ export async function uploadArtifactFile(
 ): Promise<ArtifactFile> {
   const response = await fetch(`${sdkUrl}/artifact/upload`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
     body: JSON.stringify({ sessionId, filename, content, path: targetPath }),
   })
   if (!response.ok) {
@@ -187,7 +188,7 @@ export async function uploadArtifactFolder(
 ): Promise<FolderUploadResponse> {
   const response = await fetch(`${sdkUrl}/artifact/upload-folder`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-opencode-directory": sdkDirectory },
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
     body: JSON.stringify({ sessionId, folderName, files, path: currentPath }),
   })
   if (!response.ok) {

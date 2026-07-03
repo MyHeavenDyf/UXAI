@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, copyFile } from "node:fs/promises"
 import { dirname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir } from "node:os"
+import { pathToFileURL } from "node:url"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -421,6 +422,39 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
+    try {
+      const skillDir = join(getOctoConfigPath(), "skill", skillName)
+      const skillMdPath = join(skillDir, "SKILL.md")
+
+      if (!existsSync(skillMdPath)) {
+        return { success: false, error: "SKILL.md not found" }
+      }
+
+      const content = readFileSync(skillMdPath, "utf-8")
+
+      const allFiles = globSync("**/*", { cwd: skillDir })
+      const files = allFiles
+        .filter(f => {
+          const fullPath = join(skillDir, f)
+          return existsSync(fullPath) && statSync(fullPath).isFile() && f !== "SKILL.md"
+        })
+        .slice(0, 10)
+        .map(f => `<file>${join(skillDir, f)}</file>`)
+        .join("\n")
+
+      return {
+        success: true,
+        name: skillName,
+        content: content.trim(),
+        baseDir: pathToFileURL(skillDir).href,
+        files,
+      }
+    } catch (err) {
+      console.error("get-skill-content failed", err)
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
 
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {

@@ -532,6 +532,7 @@ export function InsightTurn(props: {
   onFormSubmit?: (text: string) => void
   hasQuestionRequest?: boolean
   onFilesRefresh?: () => void
+  skillToolCalls?: ToolCallInfo[]
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1301,8 +1302,8 @@ const stateStatus = state.status as string | undefined
       </Show>
 
       {/* 工具调用进度（排除 Task 工具，由子任务卡片单独展示） */}
-      <Show when={nonTaskToolCalls().length > 0}>
-        <ToolCallGroupCard calls={nonTaskToolCalls()} />
+      <Show when={(props.skillToolCalls?.length ?? 0) > 0 || nonTaskToolCalls().length > 0}>
+        <ToolCallGroupCard calls={[...(props.skillToolCalls ?? []), ...nonTaskToolCalls()]} />
       </Show>
 
       {/* 子任务进度（Task tool 调用的子 agent 会话） */}

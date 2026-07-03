@@ -220,11 +220,11 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
           )}
         </Show>
 
-        <Show when={props.viewMode === "tabs" && activeTab()}>
-          {(getTab) => {
-            const tab = getTab()
-            const tabId = tab.id
-            const tabType = tab.type
+        <Show when={props.viewMode === "tabs"}>
+          <Show when={activeTab()} keyed>
+            {(tab) => {
+              const tabId = tab.id
+              const tabType = tab.type
             const canToggle = canToggleMode(tab)
             const htmlMode = createMemo(() => getHtmlMode(tabId))
             const showRefresh = tabType === "html" || tabType === "image" || tabType === "video" || tabType === "audio" || tabType === "pdf" || tabType === "svg" || tabType === "text"
@@ -382,8 +382,9 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
           }}
         </Show>
       </Show>
-    </div>
-  )
+    </Show>
+  </div>
+)
 }
 
 function ResultViewerEmpty(): JSX.Element {

@@ -25,6 +25,7 @@ import { DialogSettings } from "@/components/dialog-settings"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
+import { directoryHeader } from "@/utils/headers"
 import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -215,7 +216,7 @@ export default function StudioPage() {
     async (current: any) => {
       const headers: Record<string, string> = {
         accept: "application/json",
-        "x-opencode-directory": projectDir(),
+        ...directoryHeader(projectDir()),
       }
       if (current.http.password) {
         headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -243,7 +244,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       accept: "application/json",
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1542,7 +1543,7 @@ export default function StudioPage() {
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1886,7 +1887,7 @@ export default function StudioPage() {
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1930,7 +1931,7 @@ export default function StudioPage() {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1967,7 +1968,7 @@ export default function StudioPage() {
     try {
       const headers: Record<string, string> = {
         "content-type": "application/json",
-        "x-opencode-directory": projectDir(),
+        ...directoryHeader(projectDir()),
       }
       if (current.http.password) {
         headers.Authorization = `Basic ${authTokenFromCredentials({
