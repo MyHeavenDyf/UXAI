@@ -14,7 +14,7 @@ export function GenerationCard(props: {
     if (props.needsConfirm && props.confirmText) return { title: props.confirmText.title, subtitle: props.confirmText.subtitle, badge: "gc-confirm-badge", badgeText: "待确认" } as const
     if (props.generating) return { title: "正在执行中", subtitle: "请稍候…", badge: "gc-gen-badge", badgeText: "生成中" } as const
     if (props.cancelled) return { title: "已取消", subtitle: "生成已中断", badge: "gc-cancel-badge", badgeText: "取消" } as const
-    return { title: "生成完成", subtitle: "查看预览", badge: "gc-done-badge", badgeText: "完成" } as const
+    return { title: "生成完成", subtitle: "请在右侧查看", badge: "gc-done-badge", badgeText: "完成" } as const
   }
 
   return (

@@ -134,16 +134,27 @@ export async function handleModifyElement(
   let found = false
   let beforeProps: unknown = null
 
-  const instanceInfo = data.textContent ? parseInstanceId(data.elementId) : null
+  const parsed = parseInstanceId(data.elementId)
 
-  if (instanceInfo) {
-    const { baseId, indices } = instanceInfo
+  if (parsed) {
+    const { baseId, indices } = parsed
     const elements = (doc as any).elements as { id: string; props?: Record<string, unknown>; children?: unknown }[]
     const el = elements.find((e: { id: string }) => e.id === baseId)
     if (el) {
+      const bindings: { path: string; newValue: string }[] = []
       const valueBinding = el.props?.value
-      if (valueBinding && typeof valueBinding === "object" && (valueBinding as Record<string, unknown>).path) {
-        const leafPath = (valueBinding as Record<string, unknown>).path as string
+      if (data.textContent && valueBinding && typeof valueBinding === "object" && !Array.isArray(valueBinding) && (valueBinding as Record<string, unknown>).path) {
+        bindings.push({ path: (valueBinding as Record<string, unknown>).path as string, newValue: String(data.componentProps?.value ?? data.textContent) })
+      }
+      if (data.componentProps) {
+        for (const key of Object.keys(data.componentProps)) {
+          const pv = (el.props as Record<string, unknown>)?.[key]
+          if (pv && typeof pv === "object" && !Array.isArray(pv) && (pv as Record<string, unknown>).path) {
+            bindings.push({ path: (pv as Record<string, unknown>).path as string, newValue: data.componentProps[key] })
+          }
+        }
+      }
+      if (bindings.length > 0) {
         const parentMap = buildParentMap(elements)
         const listDataPath = findListDataPath(baseId, elements, parentMap)
         if (listDataPath) {
@@ -160,10 +171,30 @@ export async function handleModifyElement(
             if (raw && Array.isArray(raw) && indices[0] < raw.length) {
               const arr = [...raw] as Record<string, unknown>[]
               const item = { ...arr[indices[0]] }
-              const field = leafPath.replace(/^\//, "").split("/").pop() ?? ""
-              item[field] = data.textContent
+              for (const b of bindings) {
+                const pathParts = b.path.replace(/^\//, "").split("/")
+                let target: Record<string, unknown> = item
+                for (let i = 0; i < pathParts.length - 1; i++) {
+                  const k = pathParts[i]
+                  if (!target[k] || typeof target[k] !== "object") target[k] = {}
+                  target = target[k] as Record<string, unknown>
+                }
+                if (target[pathParts[pathParts.length - 1]] !== b.newValue) {
+                  target[pathParts[pathParts.length - 1]] = b.newValue
+                }
+              }
               arr[indices[0]] = item
               state[dataPath] = arr
+
+              if (owningModule?.elements) {
+                const modEl = (owningModule.elements as { id: string; props?: Record<string, unknown> }[]).find((e) => e.id === baseId)
+                if (modEl) {
+                  const modBefore = JSON.parse(JSON.stringify(modEl.props ?? {}))
+                  modEl.props = modEl.props || {}
+                  if (data.className) modEl.props.className = data.className
+                  if (data.componentProps) mergePropsSafe(modEl.props, data.componentProps, modBefore)
+                }
+              }
 
               const planner = ctx.getLastPlanner()
               const shell = {
@@ -184,6 +215,15 @@ export async function handleModifyElement(
     }
   }
 
+
+  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string>, before: Record<string, unknown>) {
+    for (const key of Object.keys(source)) {
+      const prev = before[key]
+      if (prev && typeof prev === "object" && !Array.isArray(prev) && (prev as Record<string, unknown>).path) continue
+      target[key] = source[key]
+    }
+  }
+
   if (!found) {
     const baseElementId = data.elementId.replace(/:\d+$/, "")
     for (const el of (doc as any).elements) {
@@ -193,7 +233,19 @@ export async function handleModifyElement(
         el.props = el.props || {}
         if (data.className) el.props.className = data.className
         if (data.textContent) el.props.value = data.textContent
-        if (data.componentProps) Object.assign(el.props, data.componentProps)
+        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, beforeProps as Record<string, unknown>)
+        break
+      }
+    }
+  }
+
+  if (found && (data.className || Object.keys(data.componentProps ?? {}).length > 0)) {
+    const baseElementId = data.elementId.replace(/:\d+$/, "")
+    for (const el of (doc as any).elements) {
+      if (el.id === baseElementId) {
+        el.props = el.props || {}
+        if (data.className) el.props.className = data.className
+        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, (beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>))
         break
       }
     }
@@ -243,8 +295,6 @@ export async function handleModifyElement(
           summary,
         )
 
-        clearDebugLog()
-
         const baseElementId = data.elementId.replace(/:\d+$/, "")
         const modifiedEl = (doc as any).elements.find((el: any) => el.id === baseElementId)
         void saveDebugSnapshot(dir, sid, "modify", {
@@ -267,6 +317,8 @@ export async function handleModifyElement(
           mergedA2UI: doc as unknown as Record<string, unknown>,
           summary,
         })
+
+        clearDebugLog()
 
         // 更新 UI 版本列表与当前选中
         ctx.setVersions((prev) => [

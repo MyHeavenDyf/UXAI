@@ -1131,7 +1131,7 @@ export function PropertyEditorPopup(props: {
 
           <Show when={isTextElement()}>
             <div class="flex gap-2 mt-2 flex-col">
-              <label class="text-[12px] font-medium text-slate-500 w-14 shrink-0">文本内容</label>
+              <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">文本内容</label>
               <div class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] w-full min-w-0">
                 <input value={editText()}
                   onInput={(e) => setEditText(e.currentTarget.value)}
@@ -1143,7 +1143,7 @@ export function PropertyEditorPopup(props: {
 
           <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
             <div class="grid gap-2 py-2 min-w-0">
-              <span class="text-[12px] font-medium text-slate-500">组件属性</span>
+              <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
               <For each={propKeys().filter(k => k !== 'className' || !hasClassEditor())}>
                 {(key) => (
                   <div class="flex items-center gap-2">
@@ -1183,7 +1183,7 @@ export function PropertyEditorPopup(props: {
 
             <Show when={isTextElement()}>
             <div class="grid gap-2 py-2 border-slate-100 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <span class="text-[12px] font-medium text-slate-500">
+              <span class="text-[12px] font-semibold text-slate-500">
                 {editFlexDir() ? '弹性布局' : '布局'}
               </span>
               <div class="flex gap-1 rounded-[6px] p-[1px] bg-[#E4E4E7] ">
@@ -1204,7 +1204,7 @@ export function PropertyEditorPopup(props: {
               <Show when={!!editFlexDir()}>
                 <div class="flex gap-2">
                   <div class="flex-1">
-                    <div class="text-[12px] font-medium text-slate-500 mb-1">对齐</div>
+                    <div class="text-[12px] font-semibold text-slate-500 mb-1">对齐</div>
                     <div class="grid grid-cols-3 gap-1 grid-rows-3  rounded-[6px] bg-[#F4F4F5]">
                       <For each={GRID_POSITIONS}>
                         {(p) => {
@@ -1277,7 +1277,7 @@ export function PropertyEditorPopup(props: {
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <Show when={isTextElement()}>
               <div class="flex items-center justify-between">
-                <span class="text-[12px] font-medium text-slate-500">内边距</span>
+                <span class="text-[12px] font-semibold text-slate-500">内边距</span>
                 <div class="relative padding-dropdown-area">
                   <button onClick={() => setPaddingOpen(!paddingOpen())}
                     class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
@@ -1334,7 +1334,7 @@ export function PropertyEditorPopup(props: {
               </Show>
 
                             <div class="flex items-center justify-between">
-                <span class="text-[12px] font-medium text-slate-500">外边距</span>
+                <span class="text-[12px] font-semibold text-slate-500">外边距</span>
                 <div class="relative margin-dropdown-area">
                   <button onClick={() => setMarginOpen(!marginOpen())}
                     class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
@@ -1395,7 +1395,7 @@ export function PropertyEditorPopup(props: {
             </div> */}
 
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <span class="text-[12px] font-medium text-slate-500">宽高</span>
+              <span class="text-[12px] font-semibold text-slate-500">宽高</span>
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <DragInput value={editWidthPx} setValue={setEditWidthPx} setFound={setFoundWidthPx} found={foundWidthPx} placeholder="宽" icon="W" />
                 <DragInput value={editHeightPx} setValue={setEditHeightPx} setFound={setFoundHeightPx} found={foundHeightPx} placeholder="高" icon="H" />
@@ -1426,7 +1426,7 @@ export function PropertyEditorPopup(props: {
 
             <Show when={isTextElement()}>
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <span class="text-[12px] font-medium text-slate-500">外观</span>
+              <span class="text-[12px] font-semibold text-slate-500">外观</span>
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <DragInput value={editOpacity} setValue={setEditOpacity} setFound={setFoundOpacity} found={foundOpacity} placeholder="透明度" max={100} suffix="%"  icon="%"/>
                 <DragInput value={editRadius} setValue={setEditRadius} setFound={setFoundRadius} found={foundRadius} placeholder="圆角" display={cornerOpen() && (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) ? 'mixed' : undefined} icon={BorderRadiusIcon()} />
@@ -1449,7 +1449,7 @@ export function PropertyEditorPopup(props: {
 
             <Show when={isTextElement()}>
             <div class="flex items-center gap-2  pt-2  border-t -mx-4 px-4 border-[#e5e7eb]">
-              <label class="text-[12px] font-medium text-slate-500 w-14 shrink-0">背景色</label>
+              <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">背景色</label>
               <input type="color" value={editBgColor()} onInput={(e) => setEditBgColor(e.currentTarget.value)}
                 class="w-5 h-5 rounded cursor-pointer p-0" />
               <button onClick={openBgPicker} class="hidden text-xs px-1.5 py-0.5 rounded-sm border border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50 whitespace-nowrap">{/* ImageUploadIcon hidden */}</button>
@@ -1462,7 +1462,7 @@ export function PropertyEditorPopup(props: {
             </div>
 
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <span class="text-[12px] font-medium text-slate-500">文字</span>
+              <span class="text-[12px] font-semibold text-slate-500">文字</span>
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <span class="text-[10px] text-slate-400 w-8 shrink-0">字体</span>
                 <CustomSelect
@@ -1544,7 +1544,7 @@ export function PropertyEditorPopup(props: {
 
             <div class="grid gap-2 pt-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <div class="flex items-center justify-between">
-                <span class="text-[12px] font-medium text-slate-500">描边</span>
+                <span class="text-[12px] font-semibold text-slate-500">描边</span>
                 <button onClick={() => { setStrokes([...strokes, { id: ++strokeIdCounter, color: '#000000', visible: true, position: 'center', width: 1, widthTop: 0, widthRight: 0, widthBottom: 0, widthLeft: 0, foundWidth: false, foundWidthTop: false, foundWidthRight: false, foundWidthBottom: false, foundWidthLeft: false, individualOpen: false }]) }}
                   class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
@@ -1606,7 +1606,7 @@ export function PropertyEditorPopup(props: {
 
             <div class="grid gap-2 pt-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <div class="flex items-center justify-between">
-                <span class="text-[12px] font-medium text-slate-500">效果</span>
+                <span class="text-[12px] font-semibold text-slate-500">效果</span>
                 <button onClick={() => { setEffects([...effects, { id: ++effectIdCounter, type: 'drop-shadow', visible: true, expanded: false, color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0, foundBlur: false, foundOffsetX: false, foundOffsetY: false, layerBlur: 0, foundLayerBlur: false, bgBlur: 0, foundBgBlur: false }]) }}
                   class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
                   <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
@@ -1666,18 +1666,18 @@ export function PropertyEditorPopup(props: {
                             <Show when={e.type === 'drop-shadow'} fallback={
                               <Show when={e.type === 'layer-blur'} fallback={
                                 <div class="flex flex-col gap-1.5">
-                                  <span class="text-[12px] font-medium text-slate-500">背景模糊</span>
+                                  <span class="text-[12px] font-semibold text-slate-500">背景模糊</span>
                                   <DragInput value={() => e.bgBlur} setValue={(v) => { const i = effects.findIndex(x => x.id === e.id); if (i >= 0) { setEffects(i, 'bgBlur', v); setEffects(i, 'foundBgBlur', true) } }} setFound={() => { }} found={() => e.foundBgBlur} placeholder="模糊值" />
                                 </div>
                               }>
                                 <div class="flex flex-col gap-1.5">
-                                  <span class="text-[12px] font-medium text-slate-500">模糊</span>
+                                  <span class="text-[12px] font-semibold text-slate-500">模糊</span>
                                   <DragInput value={() => e.layerBlur} setValue={(v) => { const i = effects.findIndex(x => x.id === e.id); if (i >= 0) { setEffects(i, 'layerBlur', v); setEffects(i, 'foundLayerBlur', true) } }} setFound={() => { }} found={() => e.foundLayerBlur} placeholder="模糊值" />
                                 </div>
                               </Show>
                             }>
                               <div class="flex flex-col gap-1.5">
-                                <span class="text-[12px] font-medium text-slate-500">阴影</span>
+                                <span class="text-[12px] font-semibold text-slate-500">阴影</span>
                                 <div class="flex items-center gap-1.5">
                                   <div class="relative shrink-0 w-5 h-5 rounded-sm border border-slate-200 overflow-hidden" style={{ background: e.color }}>
                                     <input type="color" value={e.color}
