@@ -13,5 +13,11 @@ export const EdmUtil = {
   },
   edit: (deliverableId: number) => {
     return FileService.edit(deliverableId)
+  },
+  cancelUpload: (taskId: string, index: number) => {
+    console.log("Cancelling task with ID:", taskId, index);
+  },
+  cancelDownload: (taskId: string) => {
+    console.log("Cancelling download task with ID:", taskId);
   }
 }
