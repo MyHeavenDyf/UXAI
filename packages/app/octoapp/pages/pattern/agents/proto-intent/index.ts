@@ -45,7 +45,10 @@ export default async function proto_intent(input: ProtoIntentInput) {
   console.log("----- 意图扩展Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 json 数据
   const intentJson = extractJson(intentResult.text)
-  if (!intentJson) throw new Error("----- Intent Audit did not return valid JSON -----")
+  if (!intentJson) {
+    logAgentParsed(intentResult.childSessionId, { error: "Failed to parse JSON", raw: intentResult.text })
+    throw new Error("----- Intent Audit did not return valid JSON -----")
+  }
   const returnValue = {
     "intent_description": intentJson,
     "intent_page": simplifyData(intentJson),

@@ -132,6 +132,28 @@ export function PropertyEditorPopup(props: {
     layerBlur: number; foundLayerBlur: boolean; bgBlur: number; foundBgBlur: boolean
   }[]>([])
   let effectIdCounter = 0
+  let initialEffectsJson = ''
+
+  const SHADOW_TOKEN_MAP: [string, string][] = [
+    ["1px 1px 6px 0px rgba(0,0,0,0.08)", "card"],
+    ["0px 4px 12px 0px rgba(0,0,0,0.16)", "md"],
+    ["0px 8px 24px 0px rgba(0,0,0,0.16)", "popover"],
+    ["0px 16px 48px 0px rgba(0,0,0,0.16)", "modal"],
+  ]
+
+  function matchShadowToken(effect: typeof effects[number]): string | null {
+    if (effect.type !== 'drop-shadow') return null
+    const hex = effect.color.replace('#', '')
+    const r = parseInt(hex.slice(0, 2), 16)
+    const g = parseInt(hex.slice(2, 4), 16)
+    const b = parseInt(hex.slice(4, 6), 16)
+    const alpha = effect.opacity / 100
+    const cssVal = `${effect.offsetX}px ${effect.offsetY}px ${effect.blur}px 0px rgba(${r},${g},${b},${alpha})`
+    for (const [val, token] of SHADOW_TOKEN_MAP) {
+      if (val === cssVal) return token
+    }
+    return null
+  }
 
   const [editProps, setEditProps] = createStore<Record<string, string>>({})
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
@@ -296,13 +318,18 @@ export function PropertyEditorPopup(props: {
     for (const e of effects) {
       if (!e.visible) continue
       if (e.type === 'drop-shadow') {
-        const r = Math.round(e.opacity * 2.55)
-        const a = r.toString(16).padStart(2, '0')
-        const c = e.color + a
-        const b = e.foundBlur && e.blur ? `${e.blur}px` : '0'
-        const x = e.foundOffsetX && e.offsetX ? `${e.offsetX}px` : '0'
-        const y = e.foundOffsetY && e.offsetY ? `${e.offsetY}px` : '0'
-        parts.push(`shadow-[${x}_${y}_${b}_${c}]`)
+        const token = matchShadowToken(e)
+        if (token) {
+          parts.push(`shadow-${token}`)
+        } else {
+          const r = Math.round(e.opacity * 2.55)
+          const a = r.toString(16).padStart(2, '0')
+          const c = e.color + a
+          const b = e.foundBlur && e.blur ? `${e.blur}px` : '0'
+          const x = e.foundOffsetX ? `${e.offsetX}px` : '0'
+          const y = e.foundOffsetY ? `${e.offsetY}px` : '0'
+          parts.push(`shadow-[${x}_${y}_${b}_${c}]`)
+        }
       } else if (e.type === 'layer-blur') {
         if (e.foundLayerBlur && e.layerBlur) parts.push(`blur-[${e.layerBlur}px]`)
       } else if (e.type === 'background-blur') {
@@ -698,8 +725,9 @@ export function PropertyEditorPopup(props: {
       const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
       const api = desktopApi?.tailwindToCss
       if (api) {
+        const baseCls = rawCls.split(/\s+/).filter((c: string) => c.includes('[') || !c.includes(':')).join(' ')
         logAgentCall('tailwindToCss', props.elementId, rawCls, null)
-        api(rawCls).then(cssVars => {
+        api(baseCls).then(cssVars => {
           logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
           console.log("[PropertyEditor] tailwind css vars:", cssVars)
           logAgentCall('tailwindToCss', props.elementId, rawCls, cssVars)
@@ -716,6 +744,7 @@ export function PropertyEditorPopup(props: {
             if (f) setEditBgColor(toHex(f.color))
           }
           setDragOffset({ x: 0, y: 0 })
+          initialEffectsJson = JSON.stringify(effects)
           ready = true
         })
       } else {
@@ -727,6 +756,7 @@ export function PropertyEditorPopup(props: {
           if (f) setEditBgColor(f.color)
         }
         setDragOffset({ x: 0, y: 0 })
+        initialEffectsJson = JSON.stringify(effects)
         ready = true
       }
     }
@@ -969,9 +999,12 @@ export function PropertyEditorPopup(props: {
     for (const e of effects) {
       if (!e.visible) continue
       if (e.type === 'drop-shadow') {
-        const r = Math.round(e.opacity * 2.55)
-        const a = r.toString(16).padStart(2, '0')
-        css['box-shadow'] = `${e.offsetX}px ${e.offsetY}px ${e.blur}px ${e.color}${a}`
+        const hex = e.color.replace('#', '')
+        const r = parseInt(hex.slice(0, 2), 16)
+        const g = parseInt(hex.slice(2, 4), 16)
+        const b = parseInt(hex.slice(4, 6), 16)
+        const alpha = e.opacity / 100
+        css['box-shadow'] = `${e.offsetX}px ${e.offsetY}px ${e.blur}px rgba(${r},${g},${b},${alpha})`
       } else if (e.type === 'layer-blur') {
         if (e.foundLayerBlur && e.layerBlur) css['filter'] = `blur(${e.layerBlur}px)`
       } else if (e.type === 'background-blur') {
@@ -1003,8 +1036,29 @@ export function PropertyEditorPopup(props: {
         console.log("[PropertyEditor] full cssToTailwind:", newTailwind)
         logAgentCall('cssToTailwind', props.elementId, currentCss, newTailwind)
         className = ((keepParts.join(' ') + ' ' + newTailwind).trim() + ' ' + flexExtra).trim()
+        const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
+        const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
+          c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
+        )
+        if (effectsUnchanged && originalShadowTokens.length > 0) {
+          className = className.replace(/\bshadow-\S+/g, '').trim()
+          className = (className + ' ' + originalShadowTokens.join(' ')).trim()
+        } else {
+          for (const e of effects) {
+            const token = matchShadowToken(e)
+            if (token) className = className.replace(/shadow-\[[^\]]+\]/, `shadow-${token}`)
+          }
+        }
       } else {
         className = buildClassName()
+        const effectsUnchanged2 = JSON.stringify(effects) === initialEffectsJson
+        const origShadows = (props.currentClass || '').split(/\s+/).filter(c =>
+          c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
+        )
+        if (effectsUnchanged2 && origShadows.length > 0) {
+          className = className.replace(/\bshadow-\S+/g, '').trim()
+          className = (className + ' ' + origShadows.join(' ')).trim()
+        }
         console.log("[PropertyEditor] buildClassName output (no api):", className)
         logAgentCall('buildClassName', props.elementId, props.currentClass || '', className)
         if (editTextColor()) {
@@ -1545,7 +1599,7 @@ export function PropertyEditorPopup(props: {
             <div class="grid gap-2 pt-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <div class="flex items-center justify-between">
                 <span class="text-[12px] font-semibold text-slate-500">描边</span>
-                <button onClick={() => { setStrokes([...strokes, { id: ++strokeIdCounter, color: '#000000', visible: true, position: 'center', width: 1, widthTop: 0, widthRight: 0, widthBottom: 0, widthLeft: 0, foundWidth: false, foundWidthTop: false, foundWidthRight: false, foundWidthBottom: false, foundWidthLeft: false, individualOpen: false }]) }}
+                <button onClick={() => { setStrokes([...strokes, { id: ++strokeIdCounter, color: '#000000', visible: true, position: 'center', width: 1, widthTop: 0, widthRight: 0, widthBottom: 0, widthLeft: 0, foundWidth: true, foundWidthTop: false, foundWidthRight: false, foundWidthBottom: false, foundWidthLeft: false, individualOpen: false }]) }}
                   class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
                 </button>
@@ -1607,7 +1661,7 @@ export function PropertyEditorPopup(props: {
             <div class="grid gap-2 pt-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <div class="flex items-center justify-between">
                 <span class="text-[12px] font-semibold text-slate-500">效果</span>
-                <button onClick={() => { setEffects([...effects, { id: ++effectIdCounter, type: 'drop-shadow', visible: true, expanded: false, color: '#000000', opacity: 100, blur: 0, offsetX: 0, offsetY: 0, foundBlur: false, foundOffsetX: false, foundOffsetY: false, layerBlur: 0, foundLayerBlur: false, bgBlur: 0, foundBgBlur: false }]) }}
+                <button onClick={() => { setEffects([...effects, { id: ++effectIdCounter, type: 'drop-shadow', visible: true, expanded: false, color: '#000000', opacity: 100, blur: 0, offsetX: 2, offsetY: 2, foundBlur: false, foundOffsetX: true, foundOffsetY: true, layerBlur: 0, foundLayerBlur: false, bgBlur: 0, foundBgBlur: false }]) }}
                   class="prop-chip h-5 w-5 p-0 flex items-center justify-center">
                   <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
                 </button>
@@ -1627,7 +1681,20 @@ export function PropertyEditorPopup(props: {
                     }
                     if (triggerRef) {
                       const rect = triggerRef.getBoundingClientRect()
-                      setPanelPos({ x: rect.left - 208, y: rect.top - 4 })
+                      const estW = 200, estH = 200
+                      const fitsLeft = rect.left - estW - 8 >= 0
+                      const x = Math.min(fitsLeft ? rect.left - estW - 8 : rect.right + 8, window.innerWidth - estW - 4)
+                      const fitsDown = rect.bottom + estH <= window.innerHeight
+                      const y = Math.max(4, fitsDown ? rect.top : rect.bottom - estH)
+                      setPanelPos({ x, y })
+                      requestAnimationFrame(() => {
+                        if (!popupRef) return
+                        const pr = popupRef.getBoundingClientRect()
+                        if (!pr.height) return
+                        const reFitsDown = rect.bottom + pr.height <= window.innerHeight
+                        const ay = Math.max(4, reFitsDown ? rect.top : rect.bottom - pr.height)
+                        setPanelPos({ x, y: ay })
+                      })
                     }
                     document.addEventListener('mousedown', handler)
                     onCleanup(() => document.removeEventListener('mousedown', handler))

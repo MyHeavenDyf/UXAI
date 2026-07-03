@@ -63,7 +63,10 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
   console.log("----- 模块渲染Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 a2ui json
   const moduleJson = extractJson(moduleResult.text)
-  if (!moduleJson) throw new Error("----- Module JSON did not return valid JSON -----")
+  if (!moduleJson) {
+    logAgentParsed(moduleResult.childSessionId, { error: "Failed to parse JSON", raw: moduleResult.text })
+    throw new Error("----- Module JSON did not return valid JSON -----")
+  }
   const returnValue = {
     "ui_json": moduleJson,
     "section_id": sectionId,

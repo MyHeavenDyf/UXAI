@@ -78,7 +78,10 @@ export default async function proto_planner_modify(ctx: PlannerModifyContext): P
   console.log("----- 布局修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 modify json
   const modifyJson = extractJson(modifyRes.text)
-  if (!modifyJson) throw new Error("----- Planner Modify JSON did not return valid JSON -----")
+  if (!modifyJson) {
+    logAgentParsed(modifyRes.childSessionId, { error: "Failed to parse JSON", raw: modifyRes.text })
+    throw new Error("----- Planner Modify JSON did not return valid JSON -----")
+  }
   const output: PlannerModifyOutput = {
     rootId: (modifyJson.rootId as string) ?? "",
     elements: (modifyJson.elements as PlannerModifyElement[]) ?? [],

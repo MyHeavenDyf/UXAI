@@ -57,13 +57,13 @@ export const tailwindConfig: any = {
         'page': '2rem'    
       },
       boxShadow: {
-        sm: "1px 1px 6px 0 rgba(0, 0, 0, 0.08)",
-        md: "0 4px 12px 0px rgba(0, 0, 0, 0.16)",
-        lg: "0 8px 24px 0px rgba(0, 0, 0, 0.16)",
-        xl: "0 16px 48px 0px rgba(0, 0, 0, 0.16)",
-        card: "1px 1px 6px 0 rgba(0, 0, 0, 0.08)",
-        popover: "0 8px 24px 0px rgba(0, 0, 0, 0.16)",
-        modal: "0 16px 48px 0px rgba(0, 0, 0, 0.16)",
+        sm: "1px 1px 6px 0px rgba(0, 0, 0, 0.08)",
+        md: "0px 4px 12px 0px rgba(0, 0, 0, 0.16)",
+        lg: "0px 8px 24px 0px rgba(0, 0, 0, 0.16)",
+        xl: "0px 16px 48px 0px rgba(0, 0, 0, 0.16)",
+        card: "1px 1px 6px 0px rgba(0, 0, 0, 0.08)",
+        popover: "0px 8px 24px 0px rgba(0, 0, 0, 0.16)",
+        modal: "0px 16px 48px 0px rgba(0, 0, 0, 0.16)",
       },
       borderColor: {
         base: "#C9C9C9",
