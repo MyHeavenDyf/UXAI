@@ -2632,21 +2632,6 @@ export default function StudioPage() {
     Boolean(params.id),
   )
 
-  const sessionDataLoaded = createMemo(() => {
-    if (!params.id) return false
-    return dataStore.message[params.id] !== undefined
-  })
-
-  createEffect(() => {
-    if (!params.id) return
-    if (!sessionDataLoaded()) return
-    if (displayTurns().length > 0 || pendingResult() || sending()) return
-    // 清除 last session 记录，防止恢复 effect 重定向回来造成死循环
-    const decoded = decode64(params.dir)
-    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
-    navigate(`/${routeSlug()}/studio`, { replace: true })
-  })
-
   const [hintVisible, setHintVisible] = createSignal(false)
 
   createEffect(() => {
@@ -2907,7 +2892,7 @@ if (!headerTitle.pendingRename) return
             }}
             class="studio-center-scroll"
           >
-            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={params.id && !sessionDataLoaded() ? null : <StudioIntro />}>
+            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={params.id ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
@@ -2969,7 +2954,7 @@ if (!headerTitle.pendingRename) return
 
       <main class="studio-workspace">
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
-          params.id && !sessionDataLoaded() ? null : (
+          params.id ? null : (
             <div class="studio-empty-workspace">
               <StudioIntro />
             </div>
