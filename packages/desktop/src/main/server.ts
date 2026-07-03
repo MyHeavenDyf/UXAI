@@ -259,6 +259,11 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_UXR_MCP_URL && import.meta.env.OCTO_UXR_MCP_URL) {
     env.OCTO_UXR_MCP_URL = import.meta.env.OCTO_UXR_MCP_URL
   }
+  // 把 Insight 文件上传服务地址注入 sidecar 供 octo-upload-inject 插件按需上传 S3(SPEC-INS-015)。
+  // 同 OCTO_UXR_MCP_URL:sidecar 读不到 .env / VITE_,从 main 编译期常量透传;显式设置时不覆盖。
+  if (!env.OCTO_UPLOAD_ENDPOINT && import.meta.env.OCTO_UPLOAD_ENDPOINT) {
+    env.OCTO_UPLOAD_ENDPOINT = import.meta.env.OCTO_UPLOAD_ENDPOINT
+  }
   return env
 }
 

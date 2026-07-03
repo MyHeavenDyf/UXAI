@@ -51,7 +51,13 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   )
   const [sessionList, setSessionList] = createStore<Session[]>([])
   createEffect(on(sessions, (data) => {
-    if (data) setSessionList(reconcile(data, { key: "id" }))
+    if (data) {
+      setSessionList(reconcile(data, { key: "id" }))
+      if (pendingScrollRestore > 0 && listScrollRef) {
+        listScrollRef.scrollTop = pendingScrollRestore
+        pendingScrollRestore = 0
+      }
+    }
   }, { defer: true }))
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
@@ -83,6 +89,8 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     setContextMenu("show", false)
   }
   let titleRef: HTMLInputElement | undefined
+  let listScrollRef: HTMLDivElement | undefined
+  let pendingScrollRestore = 0
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -168,12 +176,17 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
 
     if (!result) return false
 
+    pendingScrollRestore = listScrollRef?.scrollTop ?? 0
     setSessionList(
       produce((draft) => {
         const index = draft.findIndex((item) => item.id === session.id)
         if (index !== -1) draft.splice(index, 1)
       }),
     )
+    // 恢复滚动位置（produce 后同步尝试，reconcile 后也会恢复）
+    if (listScrollRef && pendingScrollRestore > 0) {
+      listScrollRef.scrollTop = pendingScrollRestore
+    }
     navigateAfterSessionRemoval(session.id, nextSession?.id)
     return true
   }
@@ -264,7 +277,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
         {/* Session list */}
         <Show when={!collapsed()}>
         <div class="flex flex-col flex-1 min-h-0">
-          <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
+          <div data-slot="list-scroll" ref={listScrollRef!} class="flex-1 min-h-0 overflow-y-auto" style={{ "margin-right": "-12px", "padding-right": "12px"}}>
             <Show when={!isLoading()} fallback={
               <div class="text-12-regular text-text-weak py-4 text-center">
                 <Spinner class="size-4 mx-auto mb-1" />
@@ -284,29 +297,85 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
+                      const [isTruncated, setIsTruncated] = createSignal(false)
+                      let titleSpanRef!: HTMLSpanElement
+                      let titleResizeObserver: ResizeObserver | undefined
+                      const checkTruncation = () => {
+                        if (titleSpanRef) setIsTruncated(titleSpanRef.scrollWidth > titleSpanRef.clientWidth)
+                      }
+                      createEffect(() => {
+                        const _title = sessionTitle(session.title) ?? language.t("command.session.new")
+                        void _title
+                        queueMicrotask(() => checkTruncation())
+                      })
+                      onCleanup(() => titleResizeObserver?.disconnect())
+                      const [showTooltip, setShowTooltip] = createSignal(false)
+                      let tooltipTimeout: ReturnType<typeof setTimeout> | undefined
+                      let tooltipRef!: HTMLDivElement
+                      const [tooltipStyle, setTooltipStyle] = createSignal<JSX.CSSProperties>({})
+                      const updateTooltipPos = () => {
+                        if (!titleSpanRef) return
+                        const rect = titleSpanRef.getBoundingClientRect()
+                        const spaceBelow = window.innerHeight - rect.bottom
+                        const style: JSX.CSSProperties = { left: `${rect.left}px` }
+                        if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+                          style.top = `${rect.bottom + 4}px`
+                        } else {
+                          style.bottom = `${window.innerHeight - rect.top + 4}px`
+                        }
+                        setTooltipStyle(style)
+                      }
+                      const enterTrigger = () => {
+                        if (!isTruncated()) return
+                        clearTimeout(tooltipTimeout)
+                        updateTooltipPos()
+                        setShowTooltip(true)
+                      }
+                      const leaveTrigger = () => {
+                        tooltipTimeout = setTimeout(() => setShowTooltip(false), 150)
+                      }
+                      const enterTooltip = () => clearTimeout(tooltipTimeout)
+                      const leaveTooltip = () => setShowTooltip(false)
                       return (
-                        <div class="group/item relative">
+                        <div class="relative">
                           <Show
                             when={title.editingID === session.id}
                             fallback={
-                              <a
-                                href={`/${props.routeSlug}/studio/${session.id}`}
-                                class="flex items-center w-full rounded-[8px] transition-colors"
-                                style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
-                                classList={{
-                                  "bg-[rgba(10,89,247,0.08)]": isActive(),
-                                  "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
-                                  "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
-                                }}
-                                onContextMenu={(e) => {
-                                  e.preventDefault()
-                                  setContextMenu({ show: true, x: e.clientX, y: e.clientY, session })
-                                }}
-                              >
-                                <span class="flex-1 min-w-0 truncate">
-                                  {sessionTitle(session.title) ?? language.t("command.session.new")}
-                                </span>
-                              </a>
+                              <>
+                                <a
+                                  href={`/${props.routeSlug}/studio/${session.id}`}
+                                  class="flex items-center w-full rounded-[8px] transition-colors"
+                                  style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
+                                  classList={{
+                                    "bg-[rgba(10,89,247,0.08)]": isActive(),
+                                    "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
+                                    "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
+                                  }}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault()
+                                    setContextMenu({ show: true, x: e.clientX, y: e.clientY, session })
+                                  }}
+                                  onMouseEnter={enterTrigger}
+                                  onMouseLeave={leaveTrigger}
+                                >
+                                  <span ref={(el) => { titleSpanRef = el; titleResizeObserver?.disconnect(); titleResizeObserver = new ResizeObserver(() => checkTruncation()); titleResizeObserver.observe(el); queueMicrotask(() => checkTruncation()) }} class="flex-1 min-w-0 truncate">
+                                    {sessionTitle(session.title) ?? language.t("command.session.new")}
+                                  </span>
+                                </a>
+                                <Show when={showTooltip()}>
+                                  <Portal>
+                                    <div
+                                      ref={tooltipRef!}
+                                      style={tooltipStyle()}
+                                      onMouseEnter={enterTooltip}
+                                      onMouseLeave={leaveTooltip}
+                                      class="studio-custom-tooltip fixed z-[1000]"
+                                    >
+                                      {sessionTitle(session.title) ?? language.t("command.session.new")}
+                                    </div>
+                                  </Portal>
+                                </Show>
+                              </>
                             }
                           >
                             <div
