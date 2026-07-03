@@ -32,7 +32,7 @@ const LOG = "[octo:inject]"
 // 非图片可喂 MCP 的文件扩展名(图片走 vision、不入此路)。仅作**早退预筛**:args 里没有任何
 // 以这些扩展名结尾的字符串,就别去拉 session 消息(非文件工具一律零开销放行)。
 // 实际是否替换以「该字符串精确等于清单里某文件名」为准。
-const DOC_EXT_RE = /\.(docx|xlsx|pdf|txt|md)$/i
+const DOC_EXT_RE = /\.(docx|xlsx|pdf|pptx|txt|md)$/i
 
 type ManifestFile = { filename: string; path: string }
 
