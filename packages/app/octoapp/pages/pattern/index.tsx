@@ -116,7 +116,6 @@ function PatternContent() {
         if (prevId !== undefined) {
           setSelectedDesignSystem("ICT3.1")
           setUserInput("")
-          setIntentConfirm(null)
         }
 
         // ── 2. 无条件同步重置 ──
@@ -126,6 +125,8 @@ function PatternContent() {
         setPendingPreviewData(null)
         previewApi.sendToPreview(null)
         lastSentPreviewJson = ""
+        setIsPlanReview(false)
+        setIntentConfirm(null)
 
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {

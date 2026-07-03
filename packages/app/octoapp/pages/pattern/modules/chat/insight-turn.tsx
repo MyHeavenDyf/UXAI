@@ -479,23 +479,25 @@ export function InsightTurn(props: {
                 tabIndex={0}
                 onClick={() => setContentCollapsed((p) => !p)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setContentCollapsed((p) => !p) } }}
-                class="flex items-center gap-3 cursor-pointer select-none"
+                class="flex items-center gap-3 cursor-pointer select-none justify-between"
               >
-                <div class="flex flex-col min-w-0 flex-1">
-                  <span class="truncate title">{label()}</span>
+                <div class="flex items-center gap-1 min-w-0">
+                  <div class="flex flex-col min-w-0">
+                    <span class="truncate title">{label()}</span>
+                  </div>
+                  <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      class="transition-transform"
+                      style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
+                    >
+                      <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
                 </div>
-                <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    class="transition-transform"
-                    style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
-                  >
-                    <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </span>
                 <Show when={!assistantGenerating() && hasError()} fallback={
                   <Show when={assistantGenerating()} fallback={
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
