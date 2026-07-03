@@ -1507,8 +1507,8 @@ if (dsId) {
     try {
       const content = await fetchArtifactContent(globalSDK.url, sdk.directory ?? "", file.path)
       const mime = getMimeForKind(file.kind)
-      const dataUrl = file.kind === "image"
-        ? content.content
+      const dataUrl = (file.kind === "image" || file.kind === "svg")
+        ? `data:${mime};base64,${content.content}`
         : `data:${mime};base64,${btoa(unescape(encodeURIComponent(content.content)))}`
 
       setAttachments(prev => [...prev, {
