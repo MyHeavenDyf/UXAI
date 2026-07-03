@@ -330,8 +330,11 @@ export function SceneCanvas(props: {
     // v1:保持 perspective(orthographic 切换留扩展)
     if (cam.perspective?.fov != null && camera instanceof THREE.PerspectiveCamera) {
       camera.fov = cam.perspective.fov
-      camera.updateProjectionMatrix()
     }
+    // 应用 near/far（compute_camera 计算的远裁剪面根据场景尺寸动态调整）
+    if (cam.perspective?.near != null) camera.near = cam.perspective.near
+    if (cam.perspective?.far != null) camera.far = cam.perspective.far
+    camera.updateProjectionMatrix()
     if (cam.position) camera.position.set(cam.position[0], cam.position[1], cam.position[2])
     const lookAt = cam.lookAt ?? [0, 0, 0]
     camera.lookAt(lookAt[0], lookAt[1], lookAt[2])

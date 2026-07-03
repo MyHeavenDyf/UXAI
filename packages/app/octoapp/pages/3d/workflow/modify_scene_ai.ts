@@ -2,6 +2,7 @@ import proto_3d_triage from "../agents/proto_3d_triage"
 import proto_3d_object from "../agents/proto_3d_object"
 import { topoSortByParent } from "../agents/merge_scene"
 import create_scene from "./create_scene"
+import { computeSceneCamera, computeExpectedBounds } from "../utils/compute_camera"
 
 type ModifySceneCtx = {
   sdk: any
@@ -90,7 +91,32 @@ export default async function modify_scene_ai(inputCtx: ModifySceneCtx, lastData
 
   // 合并 + parent-first 重排
   const mergedObjects = topoSortByParent([...remaining, ...newSlotResults.flatMap((r) => r.objects)])
-  const sceneJson = { ...(lastData.sceneJson ?? {}), version: "1", objects: mergedObjects }
+
+  // 重算相机 + 检视: 修改后场景包围盒可能变了
+  const cameraPlan = (intentDescription as any)?.cameraPlan as string | undefined
+  const expectedBounds = computeExpectedBounds(
+    lastData.lastPlanner?.slots ?? [],
+    lastData.lastPlanner?.groups ?? [],
+  )
+  const { camera: updatedCamera, validation } = computeSceneCamera({
+    cameraPlan,
+    objects: mergedObjects,
+    expectedBounds,
+  })
+
+  if (validation?.needsCorrection) {
+    console.warn(
+      `[viewpoint] 修改后场景包围盒与规划偏差: ${validation.reason}`,
+      `(预期宽 ${validation.sceneWidthExpected}m, 实际宽 ${validation.sceneWidthActual}m)`,
+    )
+  }
+
+  const sceneJson = {
+    ...(lastData.sceneJson ?? {}),
+    version: "1",
+    camera: updatedCamera,
+    objects: mergedObjects,
+  }
 
   await onFinished({
     sceneIntent: lastData.lastIntent,

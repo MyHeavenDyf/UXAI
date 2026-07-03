@@ -457,7 +457,7 @@ export const layer = Layer.effect(
           },
           proto_3d_planner: {
             name: "proto_3d_planner",
-            description: "3D scene stage planner agent. Builds the scene stage (environment/camera/lights) and the group skeleton with slots.",
+            description: "3D scene stage planner agent. Builds the scene stage (environment/lights) and the group skeleton with viewpoint-aware slots.",
             prompt: PROMPT_PROTO_3D_PLANNER,
             permission: Permission.fromConfig({ "*": "deny" }),
             options: {},

@@ -292,8 +292,11 @@ export class SceneRenderer {
     // v1:保持 perspective(orthographic 切换留扩展)
     if (cam.perspective?.fov != null && this.camera instanceof THREE.PerspectiveCamera) {
       this.camera.fov = cam.perspective.fov
-      this.camera.updateProjectionMatrix()
     }
+    // 应用 near/far（compute_camera 计算的远裁剪面根据场景尺寸动态调整）
+    if (cam.perspective?.near != null) this.camera.near = cam.perspective.near
+    if (cam.perspective?.far != null) this.camera.far = cam.perspective.far
+    this.camera.updateProjectionMatrix()
     if (cam.position) this.camera.position.set(cam.position[0], cam.position[1], cam.position[2])
     const lookAt = cam.lookAt ?? [0, 0, 0]
     this.camera.lookAt(lookAt[0], lookAt[1], lookAt[2])
