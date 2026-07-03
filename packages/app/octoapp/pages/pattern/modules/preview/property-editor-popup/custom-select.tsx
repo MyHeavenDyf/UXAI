@@ -20,6 +20,14 @@ export function CustomSelect(props: {
     if (btnRef) {
       const r = btnRef.getBoundingClientRect()
       setPos({ x: r.left, y: r.bottom + 4, w: r.width })
+      requestAnimationFrame(() => {
+        if (!listRef) return
+        const lr = listRef.getBoundingClientRect()
+        if (!lr.height) return
+        const fitsDown = r.bottom + 4 + lr.height <= window.innerHeight
+        const ay = fitsDown ? r.bottom + 4 : Math.max(4, r.top - 4 - lr.height)
+        setPos({ x: r.left, y: ay, w: r.width })
+      })
     }
     document.addEventListener('mousedown', handler)
     window.addEventListener('scroll', onScroll, true)
