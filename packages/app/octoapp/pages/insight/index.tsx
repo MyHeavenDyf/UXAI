@@ -42,7 +42,7 @@ import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, sanitizeFileName, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { encodeFilePath } from "../../context/file/path"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
@@ -1071,13 +1071,9 @@ function InsightContent() {
     if (slots <= 0) return
     const toAdd = files.slice(0, slots)
     for (const rawFile of toAdd) {
-      // 文件名清洗：去掉允许集之外的特殊字符，否则内网上传服务把原始名拼进 URL 后 MCP 取文件会失败。
-      // 名字有变化才重建 File（File.name 只读）；清洗后名贯穿校验 / chip 展示 / 上传，保持一致。
-      const cleanName = sanitizeFileName(rawFile.name)
-      const file =
-        cleanName === rawFile.name
-          ? rawFile
-          : new File([rawFile], cleanName, { type: rawFile.type, lastModified: rawFile.lastModified })
+      // 不再做客户端文件名清洗（原为防内网上传服务把原始名拼进 URL）：字符集安全改由服务端
+      // 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部提案）。
+      const file = rawFile
       const id = crypto.randomUUID()
       const mime = file.type || "application/octet-stream"
       const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : ""
@@ -1102,7 +1098,7 @@ function InsightContent() {
       //   图片(③)→ change 即传 S3 + 本地 objectURL 缩略图;非图片 → 导入 worktree(本地路径,供 ②/④)。
       const image = isImageFile(file.name)
       if (image) {
-        // filesById 存清洗后的 file(重传用,文件名清洗过 → S3 url 干净);objectURL 本地秒显缩略图。
+        // filesById 存原 file(重传用);objectURL 本地秒显缩略图。
         filesById.set(id, file)
         const previewUrl = URL.createObjectURL(file)
         setAttachments((prev) => [
@@ -1111,7 +1107,7 @@ function InsightContent() {
         ])
         void doImageUpload(id, file)
       } else {
-        // filesById 存**原始 rawFile**(非清洗后重建对象):导入靠它取真实本地路径,重试复用。展示名走 filename。
+        // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
         filesById.set(id, rawFile)
         setAttachments((prev) => [
           ...prev,
@@ -1166,8 +1162,16 @@ function InsightContent() {
           id, filename,
         })
       }
+      // 展示名/清单名对齐磁盘落地名(sanitize + 撞名后缀以磁盘为准)。三名不一致时,模型可能从
+      // extract_document 的路径里抄到磁盘 basename,而插件键表里只有清单名 → 不替换、裸文件名直通 MCP。
+      // split 兼容 Windows 反斜杠路径(渲染进程无 node:path)。
+      const landedName = dest?.split(/[\\/]/).pop()
       setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "done", path: dest ?? undefined, error: undefined } : a)),
+        prev.map((a) =>
+          a.id === id
+            ? { ...a, status: "done", path: dest ?? undefined, filename: landedName || a.filename, error: undefined }
+            : a,
+        ),
       )
     } catch (err) {
       console.error("[octo:upload] import to worktree failed", { id, filename, err })
