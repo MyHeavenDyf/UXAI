@@ -2636,7 +2636,8 @@ export default function StudioPage() {
     Boolean(pendingResult()) ||
     sending() ||
     isEditingWorkspaceMode() ||
-    Boolean(workspaceModeForCapability(capability())),
+    Boolean(workspaceModeForCapability(capability())) ||
+    Boolean(params.id),
   )
 
   const [hintVisible, setHintVisible] = createSignal(false)
@@ -2899,7 +2900,7 @@ if (!headerTitle.pendingRename) return
             }}
             class="studio-center-scroll"
           >
-            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
+            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={params.id ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
@@ -2961,9 +2962,11 @@ if (!headerTitle.pendingRename) return
 
       <main class="studio-workspace">
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
-          <div class="studio-empty-workspace">
-            <StudioIntro />
-          </div>
+          params.id ? null : (
+            <div class="studio-empty-workspace">
+              <StudioIntro />
+            </div>
+          )
         }>
         <section class="studio-canvas">
           <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
