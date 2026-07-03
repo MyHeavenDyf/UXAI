@@ -46,3 +46,34 @@ Make agent 从通用英文提示演进为中文 `<artifact>` 标签格式，支�
 - `src/agent/prompt/octo_make.txt`：新增「强制规则：HTML 必须用 artifact 包裹」章节（第 9-42 行）
 - 原因：弱模型有时生成 HTML 不用 artifact 标签（直接裸输出或用 markdown 代码块），导致前端无法渲染预览卡片
 - 内容：加粗声明无例外 + 3 个反面示例（❌ markdown 代码块 / 裸 HTML / write 工具）+ 1 个正面示例（✅ artifact 包裹）+ 自检规则（最后一行必须是 `</artifact>`）
+
+### 设计方案支持自然语言确认（2026-06-24）
+
+- `src/agent/prompt/octo_make.txt`：重写「行为规则」第 2-4 条（约第 211 行起）
+- 原因：之前规则只识别前端 `[confirm-plan plan-xxx]` 指令作为确认信号。用户不点按钮、直接在输入框说"开始生成 / 按方案做"时，agent 行为不可预测（可能重新输出方案、反问或调用 question 工具）
+- 改动：确认信号扩展为两种 — 前端指令 OR 自然语言生成意图；新增第 3 条明确"调整"意图的关键词；新增第 4 条要求模糊消息（询问/讨论）用文字回答，不直接生成 HTML、不重新输出方案、不再走 question 工具
+
+### 设计方案改为两阶段：先 sentinel 引导再生成（2026-06-30）
+
+- `src/agent/prompt/octo_make.txt`：重写「设计方案工作流」章节（约第 176 行起），从「直接输出 plan artifact」改为「先输出 sentinel 引导用户确认，再生成 plan」
+- 原因：之前 agent 判断需求复杂时直接输出完整方案 artifact，用户被"先斩后奏"，没决定是否走方案就已经消耗了 token，违背用户预期
+- 新协议（三步走）：
+  1. **第一步**：复杂需求时（3+ 模块 / 多页面流程 / 描述模糊 / 大型布局），agent 输出 `[design-plan-intent]` sentinel + 一句中文引导，**立即停止**当前回复，不输出任何 artifact；简单需求仍直接生成 HTML
+  2. **第二步**：等用户响应 — 收到 `[enter-plan]` → 输出设计方案 artifact；收到 `[skip-plan]` → 直接生成 HTML
+  3. **第三步**：后续行为（确认 / 调整 / identifier 复用）沿用现有规则
+- 新增「防循环」规则：用户已选 `[skip-plan]` 后，本会话内 agent 不再发 sentinel，直接生成 HTML（除非用户明确要求"先规划"）
+- 配套前端改动（在 packages/app，非本目录）：新建 `plan-entry-banner.tsx` 引导横条，scanner 加 `isPlanIntentResolved` 函数推断 sentinel 是否已被响应
+
+### 允许 write 工具但约束到 artifact 目录（2026-06-30）
+
+- `src/agent/prompt/octo_make.txt`：放宽三处对 write 工具的硬性禁止（第 6、29、173 行），改为条件允许——默认仍用 `<artifact>` 标签；仅当用户明确要求用 write 工具时才允许，且写入路径必须限定在 `.octo/artifacts/make/<sessionId>/` 目录内。
+- 新增「文件写入规则（write 工具路径约束）」章节（插入在「产物交接」之后、「生成策略」之前），说明路径前缀固定、文件名规范、禁止路径、默认仍优先 artifact。
+- 配套前端改动（在 packages/app，非本目录）：`pages/make/index.tsx` 的 `sendMessage()` 在 prompt 最前面无条件注入 `[Artifact Folder]: <绝对路径>` 前缀，让 agent 知道当前会话的 artifact 目录绝对路径（含 sessionId）。
+- 原因：write 工具的 agent 权限已是 `allow`，但旧提示词明确禁止使用 write。用户希望保留 `<artifact>` 为默认输出方式的同时，允许 agent 在用户明确要求时用 write 工具——但严格约束到 artifact 目录，避免散落项目各处。前端注入绝对路径是因为 write 工具 schema 要求绝对路径，且 sessionId 只有前端知道。
+
+### 同会话修改产物用 edit 工具（2026-06-30）
+
+- `src/agent/prompt/octo_make.txt`：在「文件写入规则」之后新增「文件编辑规则（edit 工具路径约束）」章节——仅当用户在同会话中明确引用之前的产物要修改时，才用 edit 工具直接改文件；路径必须来自前端注入的 `[Existing artifacts in this session]` 列表；跨会话或全新生成都不能用 edit。edit 权限保持 `ask`，触发弹窗由用户授权。
+- 配套前端改动（在 packages/app，非本目录）：`pages/make/index.tsx` 的 `sendMessage()` 在原有 `[Artifact Folder]` 注入基础上，调 `sdk.client.file.list` 扫描 `.octo/artifacts/make/<sessionId>/` 目录下已存在的文件，注入 `[Existing artifacts in this session]` 列表（每轮 sendMessage 重新扫盘，保证列表新鲜）。
+- 原因：用户希望同会话里改之前的产物时，agent 直接 edit 文件而非重新输出完整 `<artifact>`，省 token 也更符合"修改"语义。文件列表由前端注入而非 agent 自行 ls，是为了减少 tool call 轮次，并确保 agent 拿到准确的绝对路径。
+

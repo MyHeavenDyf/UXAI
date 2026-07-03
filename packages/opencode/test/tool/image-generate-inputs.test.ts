@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { resolveReferenceImages as resolveJimengReferenceImages } from "@/tool/jimeng_image_generate"
 import {
+  createTaskFailureMessage,
   extractInternalImages,
   getInternalStyleConfig,
   getInternalTargetSize,
@@ -9,6 +10,28 @@ import {
   isCancelTaskSuccess,
   resolveReferenceImages as resolveInternelReferenceImages,
 } from "@/tool/internel_image_generate"
+
+describe("internal image create task failures", () => {
+  test("maps concurrent task limit to a fixed message", () => {
+    expect(createTaskFailureMessage({ resp_code: 5004, resp_msg: "ignored" })).toBe(
+      "最多支持同时进行3个生成任务",
+    )
+  })
+
+  test("uses resp_msg for 5009", () => {
+    expect(createTaskFailureMessage({ resp_code: 5009, resp_msg: "当前账号不可用" })).toBe("当前账号不可用")
+  })
+
+  test("uses the generic message for empty 5009 and other failures", () => {
+    expect(createTaskFailureMessage({ resp_code: 5009, resp_msg: " " })).toBe(
+      "任务创建失败，请检查网络或稍后再试",
+    )
+    expect(createTaskFailureMessage({ resp_code: 5010, resp_msg: "内部详情" })).toBe(
+      "任务创建失败，请检查网络或稍后再试",
+    )
+    expect(createTaskFailureMessage()).toBe("任务创建失败，请检查网络或稍后再试")
+  })
+})
 
 describe("image generate input filtering", () => {
   test("drops filename-only references for jimeng", () => {

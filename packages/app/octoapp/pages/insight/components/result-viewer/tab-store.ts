@@ -6,8 +6,10 @@ export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" |
 /** 视图模式:preview=渲染态(markmap/表格/iframe/markdown),source=原始代码态。仅 toggle 类型有意义 */
 export type TabViewMode = "preview" | "source"
 
-// 支持「预览/代码」切换的类型:预览=渲染态,代码=原始源(shiki 高亮)。
-// json 本身即源、file 无源,不在其列(单视图)。见 output-renderers.md §1 视图切换。
+// 静态支持「预览/代码」切换的类型:预览=渲染态,代码=原始源(shiki 高亮)。file 无源,不在其列。
+// 注:json 卡是「按内容条件切换」——内容为思维导图 shape(树)时才出切换并默认 markmap 预览,
+//     普通 JSON 单显源;该判定需读到内容,故放在 action-bar.showToggle(用 isMindmapJSON),不在本静态集合。
+// 见 output-renderers.md §1 视图切换。
 const TOGGLE_TYPES = new Set<ResultTabType>(["mindmap", "html", "table", "markdown"])
 export function isToggleType(type: ResultTabType): boolean {
   return TOGGLE_TYPES.has(type)
@@ -24,7 +26,7 @@ export type ResultTab = {
   fileName?: string         // uri 模式来自 resource_link.name,供下载默认文件名
   filePath?: string         // path 模式必填(write 工具目标路径,见 output-renderers.md §2.6)
   description?: string      // uri 模式来自 resource_link.description,可在 ActionBar 副标题展示
-  viewMode?: TabViewMode    // 预览/代码 切换态(缺省视作 "preview");仅 mindmap/html/table/markdown 用
+  viewMode?: TabViewMode    // 预览/代码 切换态(缺省视作 "preview");mindmap/html/table/markdown + 思维导图 shape 的 json 用
   createdAt: Date
 }
 

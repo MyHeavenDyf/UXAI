@@ -39,6 +39,7 @@ export interface FormQuestion {
   help?: string
   defaultValue?: string | string[]
   maxSelections?: number
+  allowCustom?: boolean
 }
 
 export interface QuestionForm {

@@ -39,6 +39,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     return index <= 0 ? "studio-capability-icon" : `studio-capability-icon studio-capability-icon-${index + 1}`
   }
   const status = (): StudioGenerationStatus => {
+    if (props.turn.result?.status === "create_failed") return "create_failed"
     if (props.turn.toolError || props.turn.result?.error) return "failed"
     if (props.turn.result?.images.length) return "succeeded"
     if (props.turn.result?.status) return props.turn.result.status
@@ -82,6 +83,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
     }
     if (status() === "running") return "生成中"
     if (status() === "succeeded") return "生成完成"
+    if (status() === "create_failed") return "创建失败"
     return "生成失败"
   }
 
@@ -91,7 +93,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
       classList={{
         generating: generating(),
         complete: status() === "succeeded",
-        failed: status() === "failed",
+        failed: status() === "failed" || status() === "create_failed",
       }}
     >
       <div class="studio-result-progress-header">
@@ -130,9 +132,11 @@ export function StudioResultCard(props: StudioResultCardProps) {
         <div class="studio-result-meta">创建时间：{createdAt()}</div>
       </Show>
       <div class="studio-result-progress-preview">
-        <Show when={status() === "failed"}>
+        <Show when={status() === "failed" || status() === "create_failed"}>
           <div class="studio-result-error">
-            {props.turn.toolError ?? props.turn.result?.error ?? "生成失败"}
+            {props.turn.toolError ??
+              props.turn.result?.error ??
+              (status() === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")}
           </div>
         </Show>
         <Show when={status() === "succeeded" && props.turn.result?.images.length}>

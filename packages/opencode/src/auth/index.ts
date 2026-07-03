@@ -59,11 +59,14 @@ export const layer = Layer.effect(
     const all = Effect.fn("Auth.all")(function* () {
       if (process.env.OPENCODE_AUTH_CONTENT) {
         try {
-          return JSON.parse(process.env.OPENCODE_AUTH_CONTENT)
+          const parsed = JSON.parse(process.env.OPENCODE_AUTH_CONTENT)
+          console.log("[auth.all] from OPENCODE_AUTH_CONTENT", { keys: Object.keys(parsed), t: Date.now() })
+          return parsed
         } catch (err) {}
       }
 
       const data = (yield* fsys.readJson(file).pipe(Effect.orElseSucceed(() => ({})))) as Record<string, unknown>
+      console.log("[auth.all] from file", { file, raw_keys: Object.keys(data), t: Date.now() })
       return Record.filterMap(data, (value) => Result.fromOption(decode(value), () => undefined))
     })
 
@@ -76,6 +79,7 @@ export const layer = Layer.effect(
       const data = yield* all()
       if (norm !== key) delete data[key]
       delete data[norm + "/"]
+      console.log("[auth.set] writing", { file, key: norm, type: info.type, t: Date.now() })
       yield* fsys
         .writeJson(file, { ...data, [norm]: info }, 0o600)
         .pipe(Effect.mapError(fail("Failed to write auth data")))

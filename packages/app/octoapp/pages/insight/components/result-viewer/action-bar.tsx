@@ -6,9 +6,12 @@ import { isToggleType } from "./tab-store"
 import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder } from "../../icons"
 import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
+import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { getDesktopApi } from "../../lib/electron-api"
+import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
+import { useProjectDir } from "@/hooks/use-project-dir"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -58,6 +61,48 @@ function revealLocal(filePath: string) {
   }
   console.log("[octo:path] reveal-local", { filePath })
   api.showItemInFolder(filePath)
+}
+
+// uri md 卡「文件夹」:SPEC-INS-014 后 uri md 产物落在可见的 insight/outputs,
+// 先命中/落地本地工作副本(与预览、编辑同一份),再在文件管理器定位。
+async function revealUriLocal(tab: ResultTab, dir: string) {
+  const api = getDesktopApi()
+  if (typeof api?.showItemInFolder !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
+    return
+  }
+  try {
+    const { path } = await ensureLocalMarkdownFile(tab, dir)
+    console.log("[octo:office] reveal-show", { localPath: path })
+    api.showItemInFolder(path)
+  } catch (err) {
+    console.error("[octo:office] reveal-failed", { uri: tab.uri, err })
+    showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+  }
+}
+
+// uri 源「另存为」:始终从 url 重新拉 MCP 原始版本(不取本地工作副本/编辑后内容),
+// 让用户另存到任意目录 —— 对应「要原件就重新下载」的常规心智(与 file 类型「另存为」同义)。见 §3。
+async function downloadOriginal(tab: ResultTab, projectBase: string) {
+  if (!tab.uri) return
+  const api = getDesktopApi()
+  if (typeof api?.saveFilePicker !== "function" || typeof api?.downloadResource !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 saveFilePicker / downloadResource", variant: "error" })
+    return
+  }
+  const fname = sanitizeFilename(tab.fileName || tab.title || "download")
+  const defaultPath = projectBase ? `${projectBase}/${fname}` : fname
+  try {
+    const chosen = await api.saveFilePicker({ defaultPath })
+    if (!chosen) return
+    console.log("[octo:resource] download-original-start", { uri: tab.uri, destPath: chosen })
+    await api.downloadResource(tab.uri, chosen)
+    console.log("[octo:resource] download-original-ok", { destPath: chosen })
+    showToast({ description: "已另存", variant: "success", duration: 2000 })
+  } catch (err) {
+    console.error("[octo:resource] download-original-failed", { uri: tab.uri, err })
+    showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+  }
 }
 
 async function tableToXlsx(md: string, filename: string) {
@@ -152,13 +197,22 @@ export function ActionBar(props: {
   /** 进入全屏 markdown 编辑器(仅 markdown 卡且有本地文件时给出) */
   onEdit?: () => void
 }): JSX.Element {
+  const projectDir = useProjectDir()
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
+  // uri md 卡「文件夹」:产物落在可见的 insight/outputs,给定位入口(与 path 源的「文件夹」对齐)。
+  const canRevealUri = () =>
+    props.tab.type === "markdown" && props.tab.source === "uri" && !!props.tab.uri && ready()
   // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
-  const showToggle = () => isToggleType(props.tab.type)
-  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 .octo/downloads / path write 产物);
+  // 切换可见性:静态 toggle 类型(mindmap/html/table/markdown)恒显;json 卡按内容判定——
+  // 内容是思维导图 shape(顶层带 children 的树)时才出「预览(markmap)/代码(json)」切换,
+  // 普通配置 JSON 无切换单显源。内容随 path/uri 读取后回填,本函数响应式重算。见 output-renderers.md §1。
+  const showToggle = () =>
+    isToggleType(props.tab.type) ||
+    (props.tab.type === "json" && isMindmapJSON(props.tab.content ?? ""))
+  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 insight/outputs / path write 产物);
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
@@ -194,6 +248,17 @@ export function ActionBar(props: {
               onClick={() => {
                 tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
                 props.onEdit!()
+              }}
+            />
+          </Show>
+          {/* uri md 卡「文件夹」定位——落点在可见的 insight/outputs;path 源已在上方 path 块提供。 */}
+          <Show when={canRevealUri()}>
+            <ActionBtn
+              icon={<IconActionFolder size={14} />}
+              label="文件夹"
+              onClick={() => {
+                tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: "md" }) })
+                void revealUriLocal(props.tab, projectDir() || "")
               }}
             />
           </Show>
@@ -254,6 +319,7 @@ function ViewModeToggle(props: { mode: TabViewMode; onSet: (mode: TabViewMode) =
 
 function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Element {
   const [open, setOpen] = createSignal(false)
+  const projectDir = useProjectDir()
   let containerRef: HTMLDivElement | undefined
 
   const onDocClick = (e: MouseEvent) => {
@@ -262,6 +328,13 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
   }
   document.addEventListener("click", onDocClick)
   onCleanup(() => document.removeEventListener("click", onDocClick))
+
+  // uri markdown 卡:预览/编辑用的是本地工作副本(可能已改),「另存为」给的是 MCP 原件(§3);
+  // 其余类型沿用按当前内容导出/转格式。
+  const options = (): DownloadOption[] =>
+    props.tab.source === "uri" && props.tab.type === "markdown"
+      ? [{ label: "另存为", format: "original", onClick: () => void downloadOriginal(props.tab, projectDir() || "") }]
+      : downloadOptions(props.tab)
 
   return (
     <div class="relative" ref={(el) => (containerRef = el)}>
@@ -280,7 +353,7 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
             top: "100%",
           }}
         >
-          <For each={downloadOptions(props.tab)}>
+          <For each={options()}>
             {(opt) => (
               <button
                 type="button"

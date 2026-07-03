@@ -56,3 +56,10 @@
 ### `b179aea4e` 修复 octo-file-write 类型错误
 
 - `src/server/routes/instance/octo-file-write.ts`：通过 Effect Service 注入调用 `writeWithDirs` 替代直接静态调用
+
+### 非 image 文件上传转 text 兜底（2026-06-27）
+
+- `src/provider/transform.ts`：新增 `tryDecodeFileAsText` helper；`unsupportedParts` 在 `mimeToModality` 返回 undefined 时（如 `application/json`、`text/*` 等非 image/audio/video/pdf mime），尝试把 file 内容解码成 UTF-8 文本，包成 text part 注入消息流
+- 原因：`convert-to-openai-compatible-chat-messages.ts` 只支持 image/*，非 image file part 直接抛 `UnsupportedFunctionalityError: file part media type application/json functionality not supported`。/make 上传 JSON 文件触发此错误
+- 兜底覆盖：Uint8Array / ArrayBuffer / data URL（base64）/ 纯 base64 string / 普通 string；URL（外部资源）不同步 fetch，返回 undefined 走原流程
+- 解码后的文本带 `--- file: <filename> (mime) ---` header 和 footer，方便模型识别是文件内容

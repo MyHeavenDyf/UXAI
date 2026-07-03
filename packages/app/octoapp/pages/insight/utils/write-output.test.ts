@@ -10,8 +10,8 @@ describe("extToOutputType", () => {
     expect(extToOutputType("page.html")).toBe("html")
     expect(extToOutputType("page.htm")).toBe("html")
   })
-  test(".json 走 mindmap 卡(内容是思维导图→markmap,否则降级 json 代码)", () => {
-    expect(extToOutputType("data.json")).toBe("mindmap")
+  test(".json 走 json 卡(扩展名不携带语义,普通 JSON 与导图同扩展名无法区分;导图走路径 A 声明)", () => {
+    expect(extToOutputType("data.json")).toBe("json")
   })
   test("代码/纯文本(任何语言)→ code(应用内 shiki 预览)", () => {
     for (const f of ["script.py", "mod.ts", "main.cpp", "lib.rs", "App.java", "a.go", "q.sql", "x.lua", "s.swift", "n.kt", "notes.txt", "data.log", "conf.yaml", "app.toml", "q.graphql"]) {
@@ -120,6 +120,6 @@ describe("findWriteCards", () => {
   })
   test("防御读 path / file_path 兜底字段", () => {
     const byPath = { type: "tool", tool: "write", state: { status: "completed", input: { path: "/p/a.json" } } }
-    expect(findWriteCards([byPath])).toEqual([{ filePath: "/p/a.json", type: "mindmap" }])
+    expect(findWriteCards([byPath])).toEqual([{ filePath: "/p/a.json", type: "json" }])
   })
 })

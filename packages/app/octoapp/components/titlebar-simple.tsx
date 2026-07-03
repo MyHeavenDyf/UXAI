@@ -2,6 +2,7 @@ import { createEffect, createMemo, Show } from "solid-js"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
+import { useServer } from "@/context/server"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocation, useNavigate } from "@solidjs/router"
@@ -56,6 +57,7 @@ export function TitlebarSimple() {
   const navigate = useNavigate()
   const command = useCommand()
   const layout = useLayout()
+  const server = useServer()
   const projectDir = useProjectDir({ mode: "project" })
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
@@ -112,9 +114,9 @@ export function TitlebarSimple() {
     }
 
     if (tab === "make") {
-      const dir = projectDir()
-      if (dir) {
-        const sessionId = layout.lastSessionPerTab.make(dir)
+      const lastDir = server.projects.last()
+      if (lastDir) {
+        const sessionId = layout.lastSessionPerTab.make(lastDir)
         if (sessionId) {
           navigate(`/make/${sessionId}`)
         } else {
@@ -135,7 +137,7 @@ export function TitlebarSimple() {
       }
       return
     }
-
+    
     const dirSlug = getConfigDirSlug()
     if (!dirSlug) return
 
@@ -146,14 +148,24 @@ export function TitlebarSimple() {
     }
 
     if (tab === "chat") {
-      const sessionId = layout.lastSessionPerTab.chat(decodedDir)
-      if (sessionId) {
-        navigate(`/${dirSlug}/chat/${sessionId}`)
+      const lastDir = layout.lastSessionPerTab.lastChatDir() || server.projects.last()
+      if (lastDir) {
+        const sessionId = layout.lastSessionPerTab.chat(lastDir)
+        const slug = base64Encode(lastDir)
+        if (sessionId) {
+          navigate(`/${slug}/chat/${sessionId}`)
+        } else {
+          navigate(`/${slug}/chat`)
+        }
       } else {
-        navigate(`/${dirSlug}/chat`)
+        const fallbackSlug = getConfigDirSlug()
+        if (fallbackSlug) navigate(`/${fallbackSlug}/chat`)
       }
-    } else if (tab === "studio") {
-      const sessionId = layout.lastSessionPerTab.studio(decodedDir)
+      return
+    }
+
+    if (tab === "studio") {
+       const sessionId = layout.lastSessionPerTab.studio(decodedDir)
       if (sessionId) {
         navigate(`/${dirSlug}/studio/${sessionId}`)
       } else {

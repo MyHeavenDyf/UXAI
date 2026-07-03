@@ -4,6 +4,14 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { readFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
+import {
+  injectSandboxShim,
+  injectEditBridgeStyle,
+  injectEditBridge,
+  injectInspectStyleBridge,
+  injectPickerBridge,
+} from "@opencode-ai/core/bridge-scripts"
+import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
@@ -37,6 +45,7 @@ protocol.registerSchemesAsPrivileged([
 let backgroundColor: string | undefined
 const titlebarThemes = new WeakMap<BrowserWindow, Partial<TitlebarTheme>>()
 const titlebarHeight = 40
+const titlebarOverlayHidden = new WeakSet<BrowserWindow>()
 
 export function setBackgroundColor(color: string) {
   backgroundColor = color
@@ -75,7 +84,17 @@ export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = 
 
 export function updateTitlebar(win: BrowserWindow) {
   if (process.platform !== "win32") return
-  win.setTitleBarOverlay(overlay(titlebarThemes.get(win), win.webContents.getZoomFactor()))
+  const o = overlay(titlebarThemes.get(win), win.webContents.getZoomFactor())
+  win.setTitleBarOverlay(titlebarOverlayHidden.has(win) ? { ...o, height: 0 } : o)
+}
+
+export function setTitlebarOverlayHidden(win: BrowserWindow, hidden: boolean) {
+  if (hidden) {
+    titlebarOverlayHidden.add(win)
+  } else {
+    titlebarOverlayHidden.delete(win)
+  }
+  updateTitlebar(win)
 }
 
 export function setDockIcon() {
@@ -230,7 +249,9 @@ export function registerRendererProtocol() {
         const mockResponse = handleMockApi(url.pathname, url.search)
         if (mockResponse) return mockResponse
       }
-      const realUrl = `https://octo.hdesign.huawei.com${url.pathname}${url.search}`
+      // baseUrl 从 VITE_OCTO_BASE_URL 读取, 支持内网 beta/prod 不同域名; 原硬编码只指向公网默认域名
+      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
+      const realUrl = `${baseUrl}${url.pathname}${url.search}`
       return net.fetch(realUrl, {
         method: request.method,
         headers: Object.fromEntries(request.headers.entries()),
@@ -297,11 +318,37 @@ export function registerLocalProtocol() {
       woff2: "font/woff2",
       ttf: "font/ttf",
       eot: "application/vnd.ms-fontobject",
+      pdf: "application/pdf",
+      mp4: "video/mp4",
+      webm: "video/webm",
+      mp3: "audio/mpeg",
+      wav: "audio/wav",
     }
     const mimeType = mimeTypes[ext || ""] || "application/octet-stream"
 
     try {
       const content = await readFile(absolutePath)
+      
+      // Inject bridge scripts for HTML files
+      if (mimeType === "text/html" || mimeType === "text/htm") {
+        let htmlStr = new TextDecoder().decode(content)
+        
+        // Inject bridge scripts in order (same as srcdoc-builder.ts)
+        htmlStr = injectSandboxShim(htmlStr)
+        htmlStr = annotateElementsWithIds(htmlStr)
+        htmlStr = injectEditBridgeStyle(htmlStr)
+        htmlStr = injectEditBridge(htmlStr)
+        htmlStr = injectInspectStyleBridge(htmlStr)
+        htmlStr = injectPickerBridge(htmlStr)
+        
+        return new Response(new TextEncoder().encode(htmlStr), {
+          headers: {
+            "Content-Type": mimeType,
+            "Access-Control-Allow-Origin": "*",
+          },
+        })
+      }
+      
       return new Response(content, {
         headers: {
           "Content-Type": mimeType,

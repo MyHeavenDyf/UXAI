@@ -15,6 +15,7 @@ import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
+import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
@@ -141,7 +142,13 @@ function TabBody(props: {
       <Match when={props.tab.source === "path" && props.tab.type !== "file"}>
         <PathTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
-      {/* uri 模式未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
+      {/* uri markdown 卡:不直接 fetch(url),而是先把产物落成本地「工作副本」(download-resource-to-temp
+          已幂等:首次下原件、之后复用用户改过的那份),再读这份本地文件。于是卡片预览 / 编辑 / 重开卡
+          看到的都是同一份;要原件走「下载原件」(ActionBar)。见 spec insight-markdown-editor.md §3。 */}
+      <Match when={props.tab.source === "uri" && props.tab.type === "markdown" && !props.tab.content}>
+        <UriMarkdownTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      </Match>
+      {/* 其余 uri 模式(json/html/table/mindmap/file)未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
       <Match when={props.tab.source === "uri" && !props.tab.content}>
         <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
@@ -228,6 +235,58 @@ function UriTabBody(props: {
   )
 }
 
+// uri markdown 模式:先把产物落成本地工作副本(download-resource-to-temp 幂等),再读这份本地文件,
+// 使「卡片预览 / 编辑 / 本地打开 / 重开卡」回显的都是同一份(含用户改动)。要原件走「下载原件」。
+// 落点 <projectDir>/insight/outputs/<file>(SPEC-INS-014,扁平、撞名加后缀);无项目目录时落 OS 临时目录(非持久,重启可能丢)。
+// 桌面端能力缺失(浏览器 __dev / 测试)时退回直接 fetch(url) 只读预览。见 insight-markdown-editor.md §3。
+function UriMarkdownTabBody(props: {
+  tab: ResultTab
+  onCacheContent?: (id: string, content: string) => void
+}): JSX.Element {
+  const projectDir = useProjectDir()
+  const [resource, { refetch }] = createResource(
+    () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri, dir: projectDir() || "" } : null),
+    async (src) => {
+      const api = getDesktopApi()
+      if (typeof api?.downloadResourceToTemp !== "function" || typeof api?.readFileBuffer !== "function") {
+        // 非桌面端:无本地落地能力,退回直接 fetch url(只读,不持久)
+        const text = await fetchResourceText(src.uri)
+        props.onCacheContent?.(src.id, text)
+        return text
+      }
+      // 与编辑器共用 ensureLocalMarkdownFile → 命中同一份本地工作副本(幂等:已落地复用,不重复下载)
+      const { path: localPath } = await ensureLocalMarkdownFile(props.tab, src.dir)
+      const buf = await api.readFileBuffer!(localPath)
+      const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
+      console.log("[octo:resource] md-local", { localPath, bytes: text.length })
+      props.onCacheContent?.(src.id, text)
+      return text
+    },
+  )
+
+  return (
+    <Show
+      when={!resource.error}
+      fallback={
+        <ResourceErrorFallback
+          tab={props.tab}
+          error={resource.error}
+          onRetry={() => {
+            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+            void refetch()
+          }}
+        />
+      }
+    >
+      <Show when={!resource.loading} fallback={<ResourceLoading />}>
+        <Show when={!props.onCacheContent}>
+          <TabContent tab={{ ...props.tab, content: resource() }} />
+        </Show>
+      </Show>
+    </Show>
+  )
+}
+
 // 实际内容渲染(content 已就位,inline 或缓存后均走这里)
 // toggle 类型(mindmap/html/table/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
 // json 单视图(源),file 单视图(本地打开/下载)。见 output-renderers.md §1 视图切换。
@@ -255,10 +314,13 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
           <MarkdownRenderer content={content()} />
         </Show>
       </Match>
-      <Match when={props.tab.type === "mindmap"}>
-        {/* 预览态仅在内容真能渲染成思维导图时走 MindmapRenderer;否则(源码态 / 内容非 mindmap shape)
-            直接降级为代码视图看原始 JSON —— 服务端 business_type:"mindmap" 但内容违约时,
-            不出空的错误占位、也不另起新卡(原始 JSON 就在这张卡里)。详见 output-renderers.md §6.A。 */}
+      <Match when={props.tab.type === "mindmap" || props.tab.type === "json"}>
+        {/* mindmap 卡(路径 A business_type:"mindmap")与 json 卡(路径 C .json / 路径 A application/json /
+            路径 B 嗅探)共用渲染:内容是思维导图 shape 且处于预览态 → markmap;否则(源码态 / 非 shape)→ 原始 JSON(shiki)。
+            - json 卡内容恰为树形(顶层带 children)→ `isMindmapJSON` 真 → 默认打开即 markmap 预览,并出「预览/代码」切换
+              (切换可见性见 action-bar.showToggle:json 卡按内容判定);普通配置 JSON(无 children)单显源。
+            - mindmap 卡内容违约(非 shape)→ 降级源视图,不空白/不另起卡。详见 output-renderers.md §1 + §6.A。
+            判定与渲染共用同一条 isMindmapJSON,杜绝"判中但渲空"漂移。 */}
         <Show
           when={!isSource() && isMindmapJSON(content())}
           fallback={<SourceCodeView content={content()} lang="json" />}
@@ -270,9 +332,6 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="html" />}>
           <HtmlRenderer content={content()} />
         </Show>
-      </Match>
-      <Match when={props.tab.type === "json"}>
-        <SourceCodeView content={content()} lang="json" />
       </Match>
       <Match when={props.tab.type === "code"}>
         {/* 路径 C 通用代码/纯文本(.py/.ts/.csv/.txt/…):shiki 按扩展名高亮,单视图。
@@ -383,7 +442,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   const [openBusy, setOpenBusy] = createSignal(false)
   const [downloadBusy, setDownloadBusy] = createSignal(false)
   const [revealBusy, setRevealBusy] = createSignal(false)
-  // 选了项目目录就把 MCP 文件落进 <projectDir>/.octo/downloads/ 持久保留;否则走 OS 临时目录。
+  // 选了项目目录就把 MCP 文件落进 <projectDir>/insight/outputs/ 持久保留;否则走 OS 临时目录。
   const projectDir = useProjectDir()
 
   // 文件类型维度:优先取文件名扩展名,兜底 mimeType,供打点区分用户在不同类型文件上的操作偏好

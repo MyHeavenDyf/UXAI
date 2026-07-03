@@ -148,6 +148,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const mirror = { input: false }
   const inset = 20
   const space = `${inset}px`
+  const [editorEmpty, setEditorEmpty] = createSignal(true)
 
   const scrollCursorIntoView = () => {
     const container = scrollRef
@@ -581,6 +582,18 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     })
   }
 
+  createEffect(() => {
+    if (props.disabled) return
+    const editor = editorRef
+    if (!editor || document.activeElement === editor) return
+    requestAnimationFrame(() => {
+      if (props.disabled || !editorRef || document.activeElement === editorRef) return
+      editorRef.focus()
+      const cursor = prompt.cursor()
+      setCursorPosition(editorRef, cursor ?? promptLength(prompt.current()))
+    })
+  })
+
   const agentList = createMemo(() =>
     sync.data.agent
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
@@ -715,6 +728,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
         const prev = node.previousSibling
         const next = node.nextSibling
+        if (!prev && !next) return true
         const prevIsBr = prev?.nodeType === Node.ELEMENT_NODE && (prev as HTMLElement).tagName === "BR"
         return !!prevIsBr && !next
       }
@@ -739,6 +753,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
     const last = editorRef.lastChild
     if (last?.nodeType === Node.ELEMENT_NODE && (last as HTMLElement).tagName === "BR") {
+      editorRef.appendChild(document.createTextNode("\u200B"))
+    }
+    if (!editorRef.firstChild) {
       editorRef.appendChild(document.createTextNode("\u200B"))
     }
   }
@@ -793,6 +810,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       (parts) => {
         if (composing()) return
         reconcile(parts.filter((part) => part.type !== "image"))
+        const text = editorRef?.textContent ?? ""
+        setEditorEmpty(!NON_EMPTY_TEXT.test(text))
       },
     ),
   )
@@ -888,7 +907,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         ? rawParts[0].content
         : rawParts.map((p) => ("content" in p ? p.content : "")).join("")
     const hasNonText = rawParts.some((part) => part.type !== "text")
-    const shouldReset = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
+    const isEmpty = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
+    setEditorEmpty(isEmpty)
+    const shouldReset = isEmpty
 
     if (shouldReset) {
       closePopover()
@@ -1411,7 +1432,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             <div
               class="absolute top-0 inset-x-0 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
               classList={{ "font-mono!": store.mode === "shell" }}
-              style={{ "padding-bottom": space, display: prompt.dirty() ? "none" : undefined }}
+              style={{ "padding-bottom": space, display: !editorEmpty() ? "none" : undefined }}
             >
               {placeholder()}
             </div>

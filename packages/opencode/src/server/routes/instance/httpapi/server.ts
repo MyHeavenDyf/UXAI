@@ -51,6 +51,7 @@ import { ServerAuth } from "@/server/auth"
 import { InstanceHttpApi, RootHttpApi } from "./api"
 import { authorizationLayer, authorizationRouterMiddleware } from "./middleware/authorization"
 import { EventApi, eventHandlers } from "./event"
+import { artifactHandlers } from "./handlers/artifact"
 import { configHandlers } from "./handlers/config"
 import { controlHandlers } from "./handlers/control"
 import { experimentalHandlers } from "./handlers/experimental"
@@ -69,6 +70,7 @@ import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
 import { workspaceHandlers } from "./handlers/workspace"
 import { studioHandlers } from "./handlers/studio"
+import { insightHandlers } from "./handlers/insight"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
@@ -92,6 +94,10 @@ const cors = (corsOptions?: CorsOptions) =>
   HttpRouter.middleware(
     HttpMiddleware.cors({
       allowedOrigins: (origin) => isAllowedCorsOrigin(origin, corsOptions),
+      allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+      allowedHeaders: ["Content-Type", "Authorization", "x-opencode-directory", "Accept", "Origin"],
+      exposedHeaders: ["Content-Length", "X-Request-Id"],
+      credentials: true,
       maxAge: 86_400,
     }),
     { global: true },
@@ -108,6 +114,7 @@ const eventApiRoutes = HttpApiBuilder.layer(EventApi).pipe(
 )
 const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
   Layer.provide([
+    artifactHandlers,
     configHandlers,
     experimentalHandlers,
     fileHandlers,
@@ -124,6 +131,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     tuiHandlers,
     workspaceHandlers,
     studioHandlers,
+    insightHandlers,
   ]),
 )
 

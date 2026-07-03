@@ -1,6 +1,6 @@
 import type { JSX } from "solid-js"
 
-type IconProps = { size?: number; class?: string }
+type IconProps = { size?: number; class?: string; style?: JSX.CSSProperties }
 type IllustrationProps = { width?: number; height?: number; class?: string }
 
 function mk(viewBox: string, inner: string, defaultSize: number) {
@@ -13,7 +13,7 @@ function mk(viewBox: string, inner: string, defaultSize: number) {
         fill="none"
         aria-hidden="true"
         class={props.class}
-        style={{ "flex-shrink": "0", display: "inline-block" }}
+        style={{ "flex-shrink": "0", display: "inline-block", ...(props.style ?? {}) }}
         innerHTML={inner}
       />
     )
@@ -170,6 +170,15 @@ export const IconCardDiagram = mk("0 0 14 14", `
   <rect x="10" y="3.5" width="3" height="2" rx="0.5" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
   <path d="M4 2h3l3 3.5" fill="none" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
   <path d="M4 7h3l3 -1.5" fill="none" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+`, 14)
+
+export const IconCardPlan = mk("0 0 14 14", `
+  <rect x="2.5" y="1.2" width="9" height="11.6" rx="1" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
+  <rect x="5" y="0.6" width="4" height="1.4" rx="0.4" fill="rgb(119,119,119)"/>
+  <path d="M4.3 5.2h5.4" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M4.3 7.4h5.4" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M4.3 9.6h3.4" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M3.4 5.2l0.5 0.5 1 -1" stroke="rgb(119,119,119)" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 `, 14)
 
 export const IconTabClose = mk("0 0 16 16", `

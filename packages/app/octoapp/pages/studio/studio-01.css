@@ -90,7 +90,7 @@
   min-width: 0;
   overflow: hidden;
   color: #191919;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 28px;
   text-overflow: ellipsis;
@@ -119,6 +119,7 @@
   min-width: 0;
   min-height: 0;
   display: flex;
+  position: relative;
   background: #fff;
 }
 
@@ -143,12 +144,12 @@
   margin: 0 24px;
   min-height: 150px;
   padding: 16px 14px 18px;
-  border: 1.5px solid transparent;
+  border: 1px solid transparent;
   border-radius: 24px;
   background:
-    linear-gradient(#fff, #fff) padding-box,
-    linear-gradient(135deg, rgb(246, 97, 23) 1%, rgb(95, 45, 255) 8%, rgb(61, 93, 255) 22%, rgb(104, 138, 255) 43%, rgb(28, 171, 111) 54%, rgb(61, 93, 255) 87%, rgb(206, 7, 232) 92%) border-box;
-  box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
+    linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+    linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%) border-box;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12);
 }
 
 .studio-composer-compliance {
@@ -358,7 +359,7 @@
 }
 
 .studio-composer.video .studio-composer-input-row {
-  min-height: 60px;
+  min-height: 64px;
 }
 
 .studio-composer.video .studio-composer-toolbar {
@@ -404,7 +405,7 @@
   height: 64px;
   overflow: hidden;
   border-radius: 4px;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+  border: 1px solid #f2f2f2;
 }
 
 .studio-composer-ref-image {
@@ -453,13 +454,13 @@
   padding-top: 0;
   background: transparent;
   color: #191919;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 22px;
 }
 
 .studio-composer-input::placeholder {
   color: rgba(15, 23, 42, 0.45);
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .studio-composer-video-placeholder {
@@ -467,7 +468,7 @@
   inset: 0;
   color: rgba(15, 23, 42, 0.45);
   cursor: text;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 22px;
 }
 
@@ -484,10 +485,19 @@
 }
 
 .studio-composer-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 18px;
+}
+
+.studio-composer-toolbar-items {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .studio-composer-tool-btn,
@@ -501,7 +511,7 @@
   border-radius: 999px;
   background: #f3f3f3;
   color: #191919;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 22px;
   transition: background-color 0.15s ease;
 }
@@ -509,7 +519,7 @@
 .studio-composer-tool-btn {
   max-width: 98px;
   min-width: 70px;
-  padding: 4px 10px 4px 12px;
+  padding: 4px 12px;
   gap: 2px;
 }
 

@@ -10,7 +10,7 @@ import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
-import type { Domain, ProductLine, Product, Version } from "./project-product-select-api"
+import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
 interface DialogProjectOnboardingProps {
   onSelect: (data: { directory: string; domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void

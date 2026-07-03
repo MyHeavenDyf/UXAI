@@ -12,7 +12,7 @@ import type { OutputCardType } from "../components/insight-turn"
 // ── 扩展名分类(SOT:与 docs/specs/ui/output-renderers.md §2.6.1 扩展名清单同源)──
 //
 // 分流总原则(write 写的都是文本,内容不在对话流里 → 全部出卡):
-//   1. RENDER_EXT —— 我们渲染得好的,应用内专用 renderer(md/html/json思维导图)
+//   1. RENDER_EXT —— 我们渲染得好的,应用内专用 renderer(md→markdown / html→iframe / json→shiki)
 //   2. FILE_EXT   —— office / 表格 / 图片 / 媒体 / 压缩 / 字体 / 二进制:拉本地应用打开
 //   3. 兜底 code  —— 其余一律当"能读到文本内容的代码/纯文本",应用内 shiki 预览
 //      (无需穷举代码扩展名——不在 RENDER/FILE 的都走 code,新语言零维护)
@@ -20,7 +20,10 @@ import type { OutputCardType } from "../components/insight-turn"
 const RENDER_EXT: Record<string, OutputCardType> = {
   md: "markdown", markdown: "markdown", mdown: "markdown", mkd: "markdown",
   html: "html", htm: "html", xhtml: "html",
-  json: "mindmap",
+  // .json 扩展名不携带语义 —— 普通配置 JSON 与思维导图 JSON 同扩展名,无法靠扩展名区分。
+  // 故一律出 json 卡(shiki 高亮 + 复制);真正要 markmap 预览的思维导图产物走路径 A
+  // (MCP resource_link + business_type:"mindmap" 显式声明),不靠路径 C 嗅探。见 output-renderers.md §2.6.1。
+  json: "json",
 }
 
 // 走 file 卡(本地应用打开)的扩展名。判据:**office/系统能打开但我们应用内渲染无价值或无法渲染**。

@@ -9,6 +9,13 @@ import type {
   AppLogResponses,
   AppSkillsRefreshResponses,
   AppSkillsResponses,
+  ArtifactArchiveResponses,
+  ArtifactDeleteBatchResponses,
+  ArtifactDeleteResponses,
+  ArtifactListResponses,
+  ArtifactReadErrors,
+  ArtifactReadResponses,
+  ArtifactRenameResponses,
   Auth as Auth3,
   AuthRemoveErrors,
   AuthRemoveResponses,
@@ -58,6 +65,8 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  InsightSessionsListErrors,
+  InsightSessionsListResponses,
   InstanceDisposeResponses,
   LspStatusResponses,
   McpAddErrors,
@@ -612,6 +621,217 @@ export class Event extends HeyApiClient {
       url: "/event",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Artifact extends HeyApiClient {
+  /**
+   * List artifacts
+   *
+   * List all artifact files in .octo/artifacts/make/<sessionId> directory.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactListResponses, unknown, ThrowOnError>({
+      url: "/artifact/list",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read artifact
+   *
+   * Read the content of an artifact file.
+   */
+  public read<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactReadResponses, ArtifactReadErrors, ThrowOnError>({
+      url: "/artifact/content",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete artifact
+   *
+   * Delete a single artifact file.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<ArtifactDeleteResponses, unknown, ThrowOnError>({
+      url: "/artifact/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Rename artifact
+   *
+   * Rename an artifact file.
+   */
+  public rename<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      from?: string
+      to?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "from" },
+            { in: "body", key: "to" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactRenameResponses, unknown, ThrowOnError>({
+      url: "/artifact/rename",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Archive artifacts
+   *
+   * Create a ZIP archive of selected artifact files.
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactArchiveResponses, unknown, ThrowOnError>({
+      url: "/artifact/archive",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Batch delete artifacts
+   *
+   * Delete multiple artifact files.
+   */
+  public deleteBatch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      files?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactDeleteBatchResponses, unknown, ThrowOnError>({
+      url: "/artifact/delete-batch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -4960,6 +5180,9 @@ export class Generations extends HeyApiClient {
         | "image.outpaint"
         | "image.fusion"
       prompt?: string
+      displayPrompt?: string
+      refinedPrompt?: string
+      effectivePrompt?: string
       styleModel?: string
       aspectRatio?: string
       count?: number
@@ -4982,6 +5205,9 @@ export class Generations extends HeyApiClient {
             { in: "body", key: "sessionID" },
             { in: "body", key: "capability" },
             { in: "body", key: "prompt" },
+            { in: "body", key: "displayPrompt" },
+            { in: "body", key: "refinedPrompt" },
+            { in: "body", key: "effectivePrompt" },
             { in: "body", key: "styleModel" },
             { in: "body", key: "aspectRatio" },
             { in: "body", key: "count" },
@@ -5151,6 +5377,49 @@ export class Studio extends HeyApiClient {
   }
 }
 
+export class Sessions extends HeyApiClient {
+  /**
+   * List insight sessions (paged)
+   *
+   * List octo_insight sessions for a directory, agent-filtered server-side, with total count for pagination.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      limit?: number
+      offset?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "limit" },
+            { in: "query", key: "offset" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<InsightSessionsListResponses, InsightSessionsListErrors, ThrowOnError>({
+      url: "/insight/sessions",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Insight extends HeyApiClient {
+  private _sessions?: Sessions
+  get sessions(): Sessions {
+    return (this._sessions ??= new Sessions({ client: this.client }))
+  }
+}
+
 export class OpencodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<OpencodeClient>()
 
@@ -5177,6 +5446,11 @@ export class OpencodeClient extends HeyApiClient {
   private _event?: Event
   get event(): Event {
     return (this._event ??= new Event({ client: this.client }))
+  }
+
+  private _artifact?: Artifact
+  get artifact(): Artifact {
+    return (this._artifact ??= new Artifact({ client: this.client }))
   }
 
   private _config?: Config2
@@ -5297,5 +5571,10 @@ export class OpencodeClient extends HeyApiClient {
   private _studio?: Studio
   get studio(): Studio {
     return (this._studio ??= new Studio({ client: this.client }))
+  }
+
+  private _insight?: Insight
+  get insight(): Insight {
+    return (this._insight ??= new Insight({ client: this.client }))
   }
 }

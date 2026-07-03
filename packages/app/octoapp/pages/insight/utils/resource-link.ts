@@ -156,9 +156,10 @@ function readPart(part: unknown, branchHits?: { A: number; B: number; C1: number
 export function mimeToOutputType(mimeType: string): OutputCardType {
   if (mimeType === "text/html") return "html"
   if (mimeType === "text/markdown") return "markdown"
-  // application/json 统一走 mindmap 卡:是思维导图 shape→markmap,否则渲染时降级 json 源
-  // (与路径 C 的 .json 一套规则;business_type:"mindmap" 也汇到这里。见 output-renderers.md §2.5.2)
-  if (mimeType === "application/json") return "mindmap"
+  // application/json(泛型,无 business_type 声明)走 json 卡(shiki + 复制)——mimeType 不携带"这是导图"的语义。
+  // 思维导图由 MCP 强契约 business_type:"mindmap" 显式声明(在 linkToOutputType 中先于本函数拦截),
+  // 不靠 application/json 这个泛型 mimeType 嗅探,避免普通 JSON 误进 markmap。见 output-renderers.md §2.5.2。
+  if (mimeType === "application/json") return "json"
   if (mimeType === "text/csv") return "table"
   // pdf / office / image / 其他二进制走 file fallback(下载按钮 / openPath)
   return "file"

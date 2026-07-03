@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Effect } from "effect"
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -379,6 +380,19 @@ function OnboardingLayer() {
   )
 }
 
+function FocusModeResetHandler() {
+  const location = useLocation()
+  const layout = useLayout()
+
+  createEffect(() => {
+    if (!location.pathname.startsWith("/make")) {
+      layout.focusMode.set(false)
+    }
+  })
+
+  return null
+}
+
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
 
@@ -405,6 +419,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     <SettingsProvider>
       <PermissionProvider>
         <LayoutProvider>
+          <FocusModeResetHandler />
           <NotificationProvider>
             <ModelsProvider>
               <CommandProvider>

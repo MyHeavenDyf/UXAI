@@ -349,11 +349,14 @@ export function DialogConnectProvider(props: { provider: string }) {
     if (props.provider === "opencode") {
       // opencode: updateConfig 后端已自动 dispose + SSE 重加载
       // 只需刷新前端缓存，不需要再次 dispose
+      console.log("[octo:connect] opencode branch: skip dispose (backend auto)", { t: Date.now() })
       globalSync.invalidateProviders()
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     } else {
       // 其他 provider: auth.set 后需后端重初始化才能读取新 key
+      console.log("[octo:connect] non-opencode: calling global.dispose", { t: Date.now() })
       await globalSDK.client.global.dispose()
+      console.log("[octo:connect] global.dispose done", { t: Date.now() })
       globalSync.invalidateProviders()
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     }
@@ -433,6 +436,7 @@ export function DialogConnectProvider(props: { provider: string }) {
       }
 
       setFormStore("error", undefined)
+      console.log("[octo:connect] start", { provider: props.provider, t: Date.now() })
       if (props.provider === "opencode") {
         await globalSync.updateConfig({
           provider: {
@@ -443,6 +447,7 @@ export function DialogConnectProvider(props: { provider: string }) {
             },
           },
         })
+        console.log("[octo:connect] updateConfig done", { provider: props.provider, t: Date.now() })
       } else {
         await globalSDK.client.auth.set({
           providerID: props.provider,
@@ -451,6 +456,7 @@ export function DialogConnectProvider(props: { provider: string }) {
             key: apiKey,
           },
         })
+        console.log("[octo:connect] auth.set done", { provider: props.provider, t: Date.now() })
       }
       await complete()
     }

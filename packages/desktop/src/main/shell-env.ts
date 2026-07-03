@@ -63,20 +63,38 @@ export function loadShellEnv(shell: string) {
   const interactive = probe(shell, "-il")
   if (interactive.type === "Loaded") {
     console.log(`[server] Loaded shell environment with -il (${Object.keys(interactive.value).length} vars)`)
+    // 诊断日志: 关键 XDG / API key 变量是否在用户 shell 启动脚本里被设置
+    console.log("[server:shell-env] -il vars", {
+      XDG_CONFIG_HOME: interactive.value.XDG_CONFIG_HOME,
+      XDG_DATA_HOME: interactive.value.XDG_DATA_HOME,
+      XDG_STATE_HOME: interactive.value.XDG_STATE_HOME,
+      OPENCODE_API_KEY_set: Boolean(interactive.value.OPENCODE_API_KEY),
+      BPIT_API_KEY_set: Boolean(interactive.value.BPIT_API_KEY),
+      BPIT_BETA_API_KEY_set: Boolean(interactive.value.BPIT_BETA_API_KEY),
+    })
     return interactive.value
   }
   if (interactive.type === "Timeout") {
     console.warn(`[server] Interactive shell env probe timed out: ${shell}`)
+    console.warn("[server:shell-env] -il timed out — sidecar will use fallback env, may cause path divergence on Mac")
     return null
   }
 
   const login = probe(shell, "-l")
   if (login.type === "Loaded") {
     console.log(`[server] Loaded shell environment with -l (${Object.keys(login.value).length} vars)`)
+    console.log("[server:shell-env] -l vars", {
+      XDG_CONFIG_HOME: login.value.XDG_CONFIG_HOME,
+      XDG_DATA_HOME: login.value.XDG_DATA_HOME,
+      XDG_STATE_HOME: login.value.XDG_STATE_HOME,
+      OPENCODE_API_KEY_set: Boolean(login.value.OPENCODE_API_KEY),
+      BPIT_API_KEY_set: Boolean(login.value.BPIT_API_KEY),
+    })
     return login.value
   }
 
   console.warn(`[server] Falling back to app environment: ${shell}`)
+  console.warn("[server:shell-env] both -il and -l failed — sidecar path may diverge from main process")
   return null
 }
 

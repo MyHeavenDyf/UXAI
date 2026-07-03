@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron"
+import { contextBridge, ipcRenderer, webUtils } from "electron"
 import type { ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
 
 const api: ElectronAPI = {
@@ -56,6 +56,12 @@ const api: ElectronAPI = {
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
   downloadResourceToTemp: (url, namespace, filename, baseDir) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir),
+  // SPEC-INS-014:把源文件拷贝进 <baseDir>/insight/sources/(主进程 fs.copyFile);返回落地路径。
+  copyFileToWorktree: (srcPath, baseDir, filename) =>
+    ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
+  // Electron 32+ 已移除 File.path —— 用 webUtils.getPathForFile 拿拖拽/选取文件的真实本地路径。
+  // 这是 Electron 官方推荐的 preload 暴露法(File 对象在此同步解析)。
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   readClipboardImage: () => ipcRenderer.invoke("read-clipboard-image"),
   showNotification: (title, body) => ipcRenderer.send("show-notification", title, body),
   getWindowFocused: () => ipcRenderer.invoke("get-window-focused"),
@@ -65,6 +71,7 @@ const api: ElectronAPI = {
   getZoomFactor: () => ipcRenderer.invoke("get-zoom-factor"),
   setZoomFactor: (factor) => ipcRenderer.invoke("set-zoom-factor", factor),
   setTitlebar: (theme) => ipcRenderer.invoke("set-titlebar", theme),
+  setTitlebarOverlayHidden: (hidden) => ipcRenderer.invoke("set-titlebar-overlay-hidden", hidden),
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
@@ -85,6 +92,8 @@ const api: ElectronAPI = {
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),
   cssToTailwind: (cssObject) => ipcRenderer.invoke("css-to-tailwind", cssObject),
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
+  // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
+  pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
 }

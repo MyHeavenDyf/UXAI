@@ -1,0 +1,119 @@
+/* Mention (@) Popover Styles - octoAI Design System */
+
+.mention-popover {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-width: 400px;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  padding: 12px 0;
+  z-index: 100;
+  margin-bottom: 12px;
+}
+
+.mention-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 24px;
+  margin-bottom: 4px;
+}
+
+.mention-scroll {
+  padding: 0 12px;
+}
+
+.mention-scroll .scroll-view__viewport {
+  max-height: 252px;
+}
+
+.mention-scroll .scroll-view__thumb {
+  width: 4px;
+}
+
+.mention-popover-title {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.mention-popover-hint {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 40px;
+  padding: 0 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+}
+
+.mention-item:hover {
+  background-color: rgba(10, 89, 247, 0.08);
+}
+
+.mention-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.mention-section:first-of-type {
+  margin-top: 0;
+}
+
+.mention-section-title {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
+  height: 40px;
+  padding: 0 12px;
+}
+
+.mention-item-dir {
+  font-size: 14px;
+  line-height: 22px;
+  color: #808080;
+  margin-left: auto;
+  max-width: 30%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-item-name {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+  max-width: 50%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-item-name--full {
+  max-width: 100%;
+}
+
+.mention-item-name--uploaded {
+  max-width: 70%;
+}

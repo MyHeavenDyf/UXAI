@@ -808,6 +808,11 @@ export const dict = {
   "session.delete.confirm": 'ลบเซสชัน "{{name}}" หรือไม่?',
   "session.delete.button": "ลบเซสชัน",
 
+  "file.delete.title": "ลบไฟล์",
+  "file.delete.confirm": 'ลบไฟล์ "{{name}}" หรือไม่?',
+  "file.delete.plural.confirm": "ลบ {{count}} ไฟล์ที่เลือกหรือไม่?",
+  "file.delete.button": "ลบ",
+
   "workspace.new": "พื้นที่ทำงานใหม่",
   "workspace.type.local": "ในเครื่อง",
   "workspace.type.sandbox": "แซนด์บ็อกซ์",

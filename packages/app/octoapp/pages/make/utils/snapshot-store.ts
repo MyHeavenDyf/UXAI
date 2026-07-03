@@ -9,6 +9,7 @@ export interface ArtifactSnapshot {
 }
 
 const STORAGE_PREFIX = "octo:make:snapshots:"
+const MAX_SNAPSHOTS_PER_FILE = 10
 
 function getKey(sessionId: string): string {
   return STORAGE_PREFIX + sessionId
@@ -25,6 +26,10 @@ function readAll(sessionId: string): ArtifactSnapshot[] {
 
 function writeAll(sessionId: string, snapshots: ArtifactSnapshot[]) {
   localStorage.setItem(getKey(sessionId), JSON.stringify(snapshots))
+}
+
+export function clearSessionSnapshots(sessionId: string) {
+  localStorage.removeItem(getKey(sessionId))
 }
 
 export function createSnapshotStore(sessionId: () => string | undefined) {
@@ -45,10 +50,27 @@ export function createSnapshotStore(sessionId: () => string | undefined) {
       timestamp: Date.now(),
       label: tab.title,
     }
-    list.unshift(snapshot)
-    // Keep at most 50 snapshots per session
-    if (list.length > 50) list.length = 50
-    writeAll(id, list)
+    
+    const fileKey = tab.filePath || tab.id
+    const fileGroup: ArtifactSnapshot[] = []
+    const otherSnapshots: ArtifactSnapshot[] = []
+    
+    for (const s of list) {
+      const sKey = s.tab.filePath || s.tab.id
+      if (sKey === fileKey) {
+        fileGroup.push(s)
+      } else {
+        otherSnapshots.push(s)
+      }
+    }
+    
+    fileGroup.unshift(snapshot)
+    if (fileGroup.length > MAX_SNAPSHOTS_PER_FILE) {
+      fileGroup.length = MAX_SNAPSHOTS_PER_FILE
+    }
+    
+    const newList = [...fileGroup, ...otherSnapshots]
+    writeAll(id, newList)
   }
 
   function load(id: string): ArtifactSnapshot | undefined {
@@ -69,5 +91,11 @@ export function createSnapshotStore(sessionId: () => string | undefined) {
     return snapshot?.tab
   }
 
-  return { snapshots, save, load, remove, restore }
+  function restoreLatestByTabId(tabId: string): ResultTab | undefined {
+    const sid = sessionId()
+    if (!sid) return undefined
+    return readAll(sid).find((s) => s.tab.id === tabId)?.tab
+  }
+
+  return { snapshots, save, load, remove, restore, restoreLatestByTabId }
 }
