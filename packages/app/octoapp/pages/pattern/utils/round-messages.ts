@@ -59,6 +59,7 @@ export function groupRounds(
     let startTime = roundStart === 0 ? Infinity : roundStart
     let endTime: number | undefined
     let cancelled = false
+    let error: string | undefined
 
     const checkCancelled = (m: Message) => {
       if (cancelled || m.role !== "assistant") return
@@ -66,6 +67,9 @@ export function groupRounds(
       if (msgError?.name === "MessageAbortedError") {
         cancelled = true
         return
+      }
+      if (msgError?.message) {
+        error = msgError.message as string
       }
       const parts = getParts(m.id)
       if (!parts) return
@@ -75,6 +79,9 @@ export function groupRounds(
         if (st?.status === "error" && (st.error === "Cancelled" || st.error === "Tool execution aborted")) {
           cancelled = true
           return
+        }
+        if (st?.status === "error" && st.error) {
+          error = error || st.error as string
         }
       }
     }
@@ -108,6 +115,6 @@ export function groupRounds(
 
     items.sort((a, b) => a.time - b.time)
     if (startTime === Infinity) startTime = items.length > 0 ? items[0].time : Date.now()
-    return { startTime, endTime, items, cancelled }
+    return { startTime, endTime, items, cancelled, error }
   })
 }

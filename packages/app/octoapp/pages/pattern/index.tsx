@@ -766,6 +766,14 @@ function PatternContent() {
       setShowPatternMatch(true)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
+       const msg = err instanceof Error ? err.message : String(err)
+      console.error("[PatternPage] handleConfirmIntent failed", err)
+      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: msg })
+      if (sid) {
+        setSessionErrors((prev) => ({ ...prev, [sid]: msg }))
+        const errDir = patternHistoryDir()
+        if (errDir) void saveProtoError(errDir, sid, msg)
+      }
       console.error("[PatternPage] handleConfirmIntent failed", err)
       void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
       const error = classifyAIError(err)

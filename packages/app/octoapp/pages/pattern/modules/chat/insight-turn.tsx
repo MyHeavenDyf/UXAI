@@ -563,7 +563,7 @@ export function InsightTurn(props: {
               class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
             >
               <Show when={assistantGenerating()}>
-                <div class="text-[12px] text-[#999] reasoning-text-tip">输出中...</div>
+                <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
               </Show>
               <Markdown text={proseText()} streaming={assistantGenerating()} />
             </div>
