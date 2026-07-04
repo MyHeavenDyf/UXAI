@@ -55,7 +55,7 @@
 }
 
 .pattern-match-col-title {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--octo-text-tertiary, #364153);
   flex-shrink: 0;
@@ -70,6 +70,13 @@
   flex: none;
   width: 100%;
   aspect-ratio: 16 / 9;
+  overflow: visible;
+  border: none;
+  box-shadow: none;
+}
+
+.pattern-match-col .scaled-frame-inner {
+  overflow: visible;
 }
 
 .pattern-match-col:first-child .scaled-frame-viewport {
@@ -86,11 +93,11 @@
 }
 
 .template-card-nav-btn {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  color: #ccc;
-  border: 1px solid #eee;
+  color: #191919;
+  border: 1px solid #cccccc;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -99,7 +106,7 @@
 }
 
 .template-card-nav-btn:hover {
-  background: #c6c5c5;
+  background: #eeeeee;
 }
 
 .template-card-nav-btn:active {

@@ -19,7 +19,7 @@ export function PatternMatchPage(props: {
     <div class="pattern-match-container">
       <div class="pattern-match-header">
         <span class="pattern-match-title-icon">?</span>
-        <div class="pattern-match-title">请选择您的方案</div>
+        <div class="pattern-match-title">请选择下一步方案</div>
       </div>
 
       <div class="pattern-match-body">
@@ -41,7 +41,7 @@ export function PatternMatchPage(props: {
         </div>
 
         <div class="pattern-match-col">
-          <div class="pattern-match-col-title">线框预览</div>
+          <div class="pattern-match-col-title">线框编辑</div>
           <ScaledFrame width={1920} height={1080}>
             <Show
               when={props.planner && props.intentDescription}

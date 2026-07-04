@@ -46,6 +46,7 @@ import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
+import { truncateSync } from "fs"
 
 const AGENT_NAME = "proto_triage"
 
@@ -138,6 +139,7 @@ function PatternContent() {
           setLastIntent(null)
           setLastPlanner(null)
           setLastModules([])
+          setPatternMatches([])
           setVersions([])
           setCurrentVersionId(null)
           setHasPreviewContent(false)
@@ -183,10 +185,12 @@ function PatternContent() {
               const reviewCkpt = await loadReviewCheckpoint(dir, id)
               if (params.id !== id) return
               if (reviewCkpt) {
+                debugger
                 setLastPlanner(reviewCkpt.planner)
                 setLastIntent(reviewCkpt.intentDescription)
+                setPatternMatches(reviewCkpt.pattern)
                 setUserInput(reviewCkpt.userInput)
-                setIsPlanReview(true)
+                setShowPatternMatch(true)
                 return
               }
               // 已完成状态数据读取
@@ -584,12 +588,8 @@ function PatternContent() {
         if (params.id !== sid) return
         setLastPlanner(new_planner.planner.layout_planner)
         setLastIntent(new_planner.intent.intent_description)
+        setPatternMatches(new_planner.patternPageResult.matches)
         setUserInput(text)
-        setPatternMatches([
-          { pattern: { name: "企业官网", path: "", preview: "test1.png" }, score: 1, content: null, previewUrl: test1Img },
-          { pattern: { name: "电商平台", path: "", preview: "test2.png" }, score: 0.9, content: null, previewUrl: test2Img },
-          { pattern: { name: "个人博客", path: "", preview: "test3.png" }, score: 0.8, content: null, previewUrl: test3Img },
-        ])
         setShowPatternMatch(true)
       }
 
@@ -764,13 +764,8 @@ function PatternContent() {
       }
       setLastPlanner(new_planner.planner.layout_planner)
       setLastIntent(new_planner.intent.intent_description)
+      setPatternMatches(new_planner.patternPageResult.matches)
       setUserInput(enrichedText)
-      // setPatternMatches((new_planner as any).patternPageResult?.matches ?? [])
-      setPatternMatches([
-        { pattern: { name: "企业官网", path: "", preview: "test1.png" }, score: 1, content: null, previewUrl: test1Img },
-        { pattern: { name: "电商平台", path: "", preview: "test2.png" }, score: 0.9, content: null, previewUrl: test2Img },
-        { pattern: { name: "个人博客", path: "", preview: "test3.png" }, score: 0.8, content: null, previewUrl: test3Img },
-      ])
       setShowPatternMatch(true)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return

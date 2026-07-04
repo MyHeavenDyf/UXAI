@@ -80,8 +80,8 @@ async function resolveMatches(
       console.warn(`----- Pattern Page: LLM 返回的 name "${item.name}" 在目录中未找到 -----`)
       continue
     }
-    const content = await readPatternFile("page", pattern.path, theme)
-    matches.push({ pattern, score: item.score, content })
+    // const content = await readPatternFile("page", pattern.path, theme)
+    matches.push({ pattern, score: item.score })
   }
   return { matches, current_step: "pattern_page" }
 }

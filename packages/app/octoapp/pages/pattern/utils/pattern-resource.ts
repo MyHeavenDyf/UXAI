@@ -12,7 +12,7 @@ export type PatternEntry = {
 export type PatternMatchItem = {
   pattern: PatternEntry
   score: number
-  content: string | null
+  content?: string | null
   previewUrl?: string | null
 }
 
