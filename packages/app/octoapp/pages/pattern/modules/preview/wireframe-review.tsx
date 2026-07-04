@@ -10,6 +10,7 @@ type SectionDetail = {
   intent: string
   function: string
   elements: string
+  layout: string
   data?: Record<string, unknown>
 }
 
@@ -69,7 +70,7 @@ export function WireframeReview(props: {
       ?? sectionId
   }
 
-  function handleField(sectionId: string, field: "intent" | "function" | "elements", value: string) {
+  function handleField(sectionId: string, field: "intent" | "function" | "elements" | "layout", value: string) {
     const idx = editing.details.findIndex((d) => d.id === sectionId)
     if (idx === -1) return
     setEditing("details", idx, field, value)
@@ -150,6 +151,11 @@ export function WireframeReview(props: {
                             label="元素"
                             value={detail!.elements}
                             onInput={(v) => handleField(slot.section_id, "elements", v)}
+                          />
+                          <WireframeField
+                            label="布局"
+                            value={detail!.layout}
+                            onInput={(v) => handleField(slot.section_id, "layout", v)}
                           />
                         </div>
                       </Show>
