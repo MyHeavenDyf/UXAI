@@ -1,21 +1,39 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue"
+import { ref, watch, computed, onMounted, useAttrs } from "vue"
 import { ElInput } from "element-plus"
 import type { InputNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getLucideIconComponentRef } from "../Icon/IconBase"
 import "./Input.less"
+
+defineOptions({ inheritAttrs: false })
+
 const sizeEnum = {
   large: "large",
   medium: "default",
   small: "small",
 }
 
+const attrs = useAttrs()
 const props = defineProps<A2UIComponentProps<InputNode>>()
 const { node, surfaceId } = props
 const { properties } = props.node
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+const elInputRef = ref<InstanceType<typeof ElInput>>()
+
+onMounted(() => {
+  const wrapper = (elInputRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['dom-picker-id'] != null)
+      wrapper.setAttribute('dom-picker-id', String(attrs['dom-picker-id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
@@ -49,6 +67,7 @@ function change(val: string) {
 
 <template>
   <ElInput
+    ref="elInputRef"
     :id="id"
     :class="className"
     v-model="value"

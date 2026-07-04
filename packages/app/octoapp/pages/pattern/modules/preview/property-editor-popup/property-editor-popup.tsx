@@ -162,6 +162,7 @@ export function PropertyEditorPopup(props: {
   let initialBgUrl = ''
   let parsedClasses: string[] = []
   let baseCssVars: Record<string, string> = {}
+  let preservedCssVars: Record<string, string> = {}
 
   function getEnumOptions(key: string) {
     return COMPONENT_ENUMS[`${props.componentType}.${key}`] || []
@@ -448,8 +449,6 @@ export function PropertyEditorPopup(props: {
     if (v.display === 'flex') {
       if (v.flexDirection === 'column' || v.flexDirection === 'col') setEditFlexDir('col')
       else setEditFlexDir('row')
-      if (!v.justifyContent) setEditJustify('start')
-      if (!v.alignItems) { setEditAlignItems('stretch'); setEditVAlign('stretch') }
     }
     if (v.gap) { setEditFlexGap(px(v.gap)); setFoundFlexGap(true) }
     if (v.justifyContent) {
@@ -578,6 +577,22 @@ export function PropertyEditorPopup(props: {
     }
 
     syncComponentProps(parsed)
+
+    const recognizedKeys = new Set([
+      'font-size', 'font-weight', 'font-family', 'text-align', 'line-height', 'letter-spacing',
+      'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+      'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+      'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius',
+      'width', 'height', 'overflow', 'opacity',
+      'display', 'flex-direction', 'gap', 'justify-content', 'align-items',
+      'color', 'background-color', 'background-image',
+      'border-color', 'border-width', 'border-style', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+      'box-shadow', 'filter', 'backdrop-filter',
+    ])
+    preservedCssVars = {}
+    for (const [key, value] of Object.entries(baseCssVars)) {
+      if (!recognizedKeys.has(key)) preservedCssVars[key] = value
+    }
   }
 
   function applyParseClassFallback(rawCls: string, parsed: Record<string, unknown>) {
@@ -634,8 +649,8 @@ export function PropertyEditorPopup(props: {
     setEditRadiusBl(clsInfo.radiusBl); setFoundRadiusBl(clsInfo.foundRadiusBl)
     setEditFlexDir(clsInfo.flexDir)
     setEditFlexGap(clsInfo.flexGap); setFoundFlexGap(clsInfo.foundFlexGap)
-    setEditJustify(clsInfo.flexJustify || (clsInfo.flexDir ? 'start' : ''))
-    setEditAlignItems(clsInfo.flexAlignItems || (clsInfo.flexDir ? 'stretch' : ''))
+    setEditJustify(clsInfo.flexJustify || '')
+    setEditAlignItems(clsInfo.flexAlignItems || '')
     setEditBgImage(null)
     setEditTag('')
 
@@ -695,6 +710,7 @@ export function PropertyEditorPopup(props: {
     setFills([])
     setStrokes([])
     setEffects([])
+    preservedCssVars = {}
   }
 
   createEffect(() => {
@@ -704,12 +720,13 @@ export function PropertyEditorPopup(props: {
       clearTimeout(autoUpdateTimer)
       return
     }
-    const rawCls = props.currentClass || ''
-    parsedClasses = rawCls.split(/\s+/).filter(Boolean)
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
+    const rawCls = (parsed.className as string) || props.currentClass || ''
+    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    const cleanCls = parsedClasses.join(' ')
 
-    console.log("[PropertyEditor] open, original className:", rawCls)
+    console.log("[PropertyEditor] open, original className:", rawCls, "domPickerClass:", props.currentClass)
 
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
 
@@ -725,7 +742,7 @@ export function PropertyEditorPopup(props: {
       const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
       const api = desktopApi?.tailwindToCss
       if (api) {
-        const baseCls = rawCls.split(/\s+/).filter((c: string) => c.includes('[') || !c.includes(':')).join(' ')
+        const baseCls = cleanCls.split(/\s+/).filter((c: string) => c.includes('[') || !c.includes(':')).join(' ')
         logAgentCall('tailwindToCss', props.elementId, rawCls, null)
         api(baseCls).then(cssVars => {
           logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
@@ -896,8 +913,18 @@ export function PropertyEditorPopup(props: {
     inp.addEventListener('blur', () => { document.body.removeChild(inp) })
   }
 
+  function normalizeArbitraryValues(className: string): string {
+    return className.split(/\s+/).map(c => {
+      const m = c.match(/^(w|min-w|max-w|h|min-h|max-h|p[trbl]?|m[trbl]?|gap)-\[(\d+)px\]$/)
+      if (!m) return c
+      const px = Number(m[2])
+      if (px % 4 !== 0) return c
+      return `${m[1]}-${px / 4}`
+    }).join(' ')
+  }
+
   function buildCssObject(): Record<string, string> {
-    const css: Record<string, string> = {}
+    const css: Record<string, string> = { ...preservedCssVars }
 
     if (foundFontSize()) css['font-size'] = editFontSize() + 'px'
     if (foundFontWeight()) css['font-weight'] = String(editFontWeight())
@@ -1029,13 +1056,15 @@ export function PropertyEditorPopup(props: {
       if (api) {
         const currentCss = buildCssObject()
         const keepParts = parsedClasses.filter(c => !isTailwindToken(c))
-        const flexExtra = parsedClasses.filter(c =>
-          c.startsWith('flex-') && !['flex-col', 'flex-row'].includes(c)
-        ).join(' ')
         const newTailwind = await api(currentCss)
         console.log("[PropertyEditor] full cssToTailwind:", newTailwind)
         logAgentCall('cssToTailwind', props.elementId, currentCss, newTailwind)
-        className = ((keepParts.join(' ') + ' ' + newTailwind).trim() + ' ' + flexExtra).trim()
+        const normalizedTailwind = normalizeArbitraryValues(newTailwind)
+        const newTailwindSet = new Set(normalizedTailwind.split(/\s+/))
+        const extraFlex = parsedClasses.filter(c =>
+          c.startsWith('flex-') && !['flex-col', 'flex-row'].includes(c) && !newTailwindSet.has(c)
+        ).join(' ')
+        className = ((keepParts.join(' ') + ' ' + normalizedTailwind).trim() + ' ' + extraFlex).trim()
         const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
         const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
@@ -1074,6 +1103,10 @@ export function PropertyEditorPopup(props: {
         }
       }
     }
+
+    className = className.split(/\s+/).filter(c => !c.startsWith('el-')).map(c =>
+      c.match(/^(w|min-w|max-w|h|min-h|max-h)-/) && !c.startsWith('!') ? '!' + c : c
+    ).join(' ')
 
     const componentProps: Record<string, string> = {}
     if (!isTextElement()) {
@@ -1182,18 +1215,6 @@ export function PropertyEditorPopup(props: {
         </div>
 
         <div class="popup-body px-4 pb-2 flex flex-col gap-2">
-
-          <Show when={isTextElement()}>
-            <div class="flex gap-2 mt-2 flex-col">
-              <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">文本内容</label>
-              <div class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] w-full min-w-0">
-                <input value={editText()}
-                  onInput={(e) => setEditText(e.currentTarget.value)}
-                  type="text" placeholder="输入文本..."
-                  class="flex-1 min-w-0 bg-transparent outline-none text-[11px] px-2 h-full border-0 shadow-none" />
-              </div>
-            </div>
-          </Show>
 
           <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
             <div class="grid gap-2 py-2 min-w-0">

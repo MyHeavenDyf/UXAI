@@ -220,7 +220,29 @@ export async function handleModifyElement(
     for (const key of Object.keys(source)) {
       const prev = before[key]
       if (prev && typeof prev === "object" && !Array.isArray(prev) && (prev as Record<string, unknown>).path) continue
-      target[key] = source[key]
+      if (typeof prev === "boolean") {
+        target[key] = source[key] === "true"
+      } else if (typeof prev === "number") {
+        const n = Number(source[key])
+        target[key] = isNaN(n) ? source[key] : n
+      } else {
+        target[key] = source[key]
+      }
+    }
+  }
+
+  function applyStateBindings(beforeProps: Record<string, unknown>, componentProps: Record<string, string>) {
+    const state = (doc as any).state
+    if (!state || typeof state !== "object") return
+    for (const key of Object.keys(componentProps)) {
+      const prev = beforeProps[key]
+      if (!prev || typeof prev !== "object" || Array.isArray(prev)) continue
+      const path = (prev as Record<string, unknown>).path
+      if (typeof path !== "string" || !path) continue
+      const cleanPath = path.replace(/^\//, "")
+      if (cleanPath in state) {
+        state[cleanPath] = componentProps[key]
+      }
     }
   }
 
@@ -234,6 +256,7 @@ export async function handleModifyElement(
         if (data.className) el.props.className = data.className
         if (data.textContent) el.props.value = data.textContent
         if (data.componentProps) mergePropsSafe(el.props, data.componentProps, beforeProps as Record<string, unknown>)
+        if (data.componentProps) applyStateBindings(beforeProps as Record<string, unknown>, data.componentProps)
         break
       }
     }
@@ -246,6 +269,7 @@ export async function handleModifyElement(
         el.props = el.props || {}
         if (data.className) el.props.className = data.className
         if (data.componentProps) mergePropsSafe(el.props, data.componentProps, (beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>))
+        if (data.componentProps) applyStateBindings((beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>), data.componentProps)
         break
       }
     }

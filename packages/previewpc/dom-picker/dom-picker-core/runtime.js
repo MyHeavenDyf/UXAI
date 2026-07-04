@@ -219,6 +219,24 @@ export function installDomPicker(options = {}) {
   let disabled = true
   let lastContextMenuX = 0
   let lastContextMenuY = 0
+  let resizeObserver = null
+
+  const ensureResizeObserver = () => {
+    if (resizeObserver) return
+    resizeObserver = new ResizeObserver(() => {
+      if (!frozen || !activeElement) return
+      updateOverlay(overlay, activeElement)
+      updateBadge(badge, activeElement, activeLocation)
+    })
+  }
+
+  const observeActiveElement = (element) => {
+    if (!resizeObserver) return
+    resizeObserver.disconnect()
+    if (element && frozen) {
+      resizeObserver.observe(element)
+    }
+  }
 
   const resolveMarkedTarget = (target) => {
     if (!(target instanceof Element)) {
@@ -287,6 +305,8 @@ export function installDomPicker(options = {}) {
     activeElement = element
     activeLocation = location
     frozen = true
+    ensureResizeObserver()
+    observeActiveElement(element)
     event.preventDefault()
     event.stopPropagation()
 
@@ -329,6 +349,8 @@ export function installDomPicker(options = {}) {
     activeElement = resolvedTarget.element
     activeLocation = resolvedTarget.location
     frozen = true
+    ensureResizeObserver()
+    observeActiveElement(resolvedTarget.element)
     lastContextMenuX = event.clientX
     lastContextMenuY = event.clientY
 
@@ -395,6 +417,7 @@ export function installDomPicker(options = {}) {
   window.addEventListener('message', (event) => {
     if (event.data.type === 'DOM_PICKER_UNFREEZE') {
       frozen = false
+      if (resizeObserver) resizeObserver.disconnect()
     }
     if (event.data.type === 'DOM_PICKER_TOGGLE') {
       disabled = !event.data.active
@@ -426,6 +449,7 @@ export function installDomPicker(options = {}) {
       }
       if (newElement) {
         activeElement = newElement
+        observeActiveElement(newElement)
         updateOverlay(overlay, activeElement)
         updateBadge(badge, activeElement, activeLocation)
       } else {
