@@ -42,7 +42,13 @@ export function WireframeReview(props: {
     if (id) {
       setShowDrawer(true)
       const el = moduleCardRefs.get(id)
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+      if (el) {
+        const list = el.closest(".wireframe-modules-list")
+        if (list) {
+          const card = el as HTMLElement
+          list.scrollTo({ top: card.offsetTop - (list as HTMLElement).offsetTop - 12, behavior: "smooth" })
+        }
+      }
     } else {
       setShowDrawer(false)
     }
