@@ -20,7 +20,7 @@ import _PROMPT_PROTO_TRIAGE from "./prompt/proto_triage.txt"
 import _PROMPT_PROTO_PATTERN_PAGE from "./prompt/proto_pattern_page.txt"
 import _PROMPT_PROTO_PATTERN_BLOCK from "./prompt/proto_pattern_block.txt"
 import _PROMPT_PROTO_INTENT_CONFIRM from "./prompt/proto_intent_confirm.txt"
-
+import _PROMPT_PROTO_WFRAMES from "./prompt/proto_wireframes.txt"
 const data = {
   COMPONENTS_CATALOG,
   COMPONENTS_USAGE,
@@ -52,3 +52,4 @@ export const PROMPT_PROTO_TRIAGE = formatPrompt(_PROMPT_PROTO_TRIAGE)
 export const PROMPT_PROTO_PATTERN_PAGE = formatPrompt(_PROMPT_PROTO_PATTERN_PAGE)
 export const PROMPT_PROTO_PATTERN_BLOCK = formatPrompt(_PROMPT_PROTO_PATTERN_BLOCK)
 export const PROMPT_PROTO_INTENT_CONFIRM = formatPrompt(_PROMPT_PROTO_INTENT_CONFIRM)
+export const PROMPT_PROTO_WFRAMES = formatPrompt(_PROMPT_PROTO_WFRAMES)

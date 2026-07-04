@@ -31,6 +31,7 @@ import {
   PROMPT_PROTO_PATTERN_PAGE,
   PROMPT_PROTO_PATTERN_BLOCK,
   PROMPT_PROTO_INTENT_CONFIRM,
+  PROMPT_PROTO_WFRAMES,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -468,6 +469,16 @@ export const layer = Layer.effect(
             name: "proto_intent_confirm",
             description: "Proto intent confirm agent.",
             prompt: PROMPT_PROTO_INTENT_CONFIRM,
+            permission: Permission.fromConfig({ "*": "deny"}),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_wireframes: {
+            name: "proto_wireframes",
+            description: "Proto wireframes agent.",
+            prompt: PROMPT_PROTO_WFRAMES,
             permission: Permission.fromConfig({ "*": "deny"}),
             options: {},
             mode: "primary",
