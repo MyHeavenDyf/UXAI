@@ -95,6 +95,7 @@ export function WireframeTree(props: {
   sectionDetails?: SectionDetailLite[]
   showSectionInfo?: boolean
   boxBorderWidth?: number
+  enableHover?: boolean
 }): JSX.Element {
   const slots = createMemo(() => (props.planner.slots ?? []) as SlotInfo[])
   const elements = createMemo(() => (props.planner.elements ?? []) as PlannerElement[])
@@ -189,14 +190,15 @@ export function WireframeTree(props: {
       <div
         class="wireframe-box"
         style={{ ...baseStyle, "border-width": `${props.boxBorderWidth ?? 2}px` }}
-        classList={{ active: sectionId === props.selectedSectionId }}
+        classList={{ active: sectionId === props.selectedSectionId,"no-hover": props.enableHover === false }}
         onClick={() => { if (sectionId) props.onSelectSection?.(sectionId) }}
       >
         <Show when={props.showSectionInfo !== false}>
-          <div class="wireframe-box-name">{name}</div>
-          <Show when={desc}>
+          {name}
+          {/* <div class="wireframe-box-name">{name}</div> */}
+          {/* <Show when={desc}>
             <div class="wireframe-box-desc">{desc}</div>
-          </Show>
+          </Show> */}
         </Show>
         <Show when={children.length > 0}>
           <For each={children}>{(childId) => renderElement(childId)}</For>

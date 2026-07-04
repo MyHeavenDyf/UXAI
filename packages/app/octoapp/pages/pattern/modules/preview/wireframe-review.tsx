@@ -80,21 +80,23 @@ export function WireframeReview(props: {
     <div class="wireframe-review-container">
       <div class="wireframe-header">
         <div class="wireframe-header-left">
-          <div class="wireframe-header-title">线框审查</div>
+          <div class="wireframe-header-content">
+            <div class="wireframe-header-icon">?</div>
+            <div class="wireframe-header-title">线框审查</div>
+          </div>
           <div class="wireframe-header-subtitle">
             请确认或修改每个模块的意图，确认后将据此生成最终页面
           </div>
         </div>
         <div class="wireframe-header-right">
-          <Button variant="primary" size="large" onClick={handleConfirm} style={{ "background-color": "var(--octo-brand)", color: "white" }}>
+          <button class="wireframe-header-confirm-btn"  onClick={handleConfirm}>
             确认并继续生成
-          </Button>
+          </button>
         </div>
       </div>
 
       <div class="wireframe-body">
         <div class="wireframe-layout-panel">
-          <div class="wireframe-layout-label">布局预览</div>
           <div class="wireframe-canvas">
             <WireframeTree
               planner={props.planner}

@@ -53,6 +53,7 @@ export function PatternMatchPage(props: {
                   intentDescription={props.intentDescription}
                   showSectionInfo={false}
                   boxBorderWidth={10}
+                  enableHover={false}
                 />
               </div>
             </Show>

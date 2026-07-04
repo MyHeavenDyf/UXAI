@@ -15,7 +15,8 @@ export function TemplateCardStack(props: {
 
   let isAnimating = false
   const [order, setOrder] = createSignal<number[]>(props.matches.map((_, i) => i))
-  const [animClass, setAnimClass] = createSignal<Record<number, string>>({})
+  const cardRefs: HTMLDivElement[] = []
+  let cardAreaRef: HTMLDivElement | undefined
 
   createEffect(() => {
     if (props.matches.length === 0) return
@@ -33,23 +34,33 @@ export function TemplateCardStack(props: {
     isAnimating = true
 
     const curOrder = order()
-    const nextClasses: Record<number, string> = {}
     const front = curOrder[0]
-    nextClasses[front] = "tswipe-out"
 
-    for (let i = 1; i < count(); i++) {
-      nextClasses[curOrder[i]] = positionClass(i - 1)
+    // Step 1: front card swipes out, others move up one position
+    const frontEl = cardRefs[front]
+    if (frontEl) {
+      frontEl.classList.remove("tpos-0")
+      frontEl.classList.add("tswipe-out")
     }
-    setAnimClass(nextClasses)
+    for (let i = 1; i < curOrder.length; i++) {
+      const el = cardRefs[curOrder[i]]
+      if (el) {
+        const oldCls = i === 1 ? "tpos-1" : "tpos-2"
+        const newCls = positionClass(i - 1)
+        el.classList.remove(oldCls)
+        el.classList.add(newCls)
+      }
+    }
 
+    // Step 2: after swipe-out animation, move front to back
     setTimeout(() => {
-      const newOrder = [...curOrder.slice(1), curOrder[0]]
-      const resetClasses: Record<number, string> = {}
-      newOrder.forEach((id, i) => { resetClasses[id] = positionClass(i) })
-      setOrder(newOrder)
-      setAnimClass(resetClasses)
+      if (frontEl) {
+        frontEl.classList.remove("tswipe-out")
+        frontEl.classList.add("tpos-2")
+      }
+      setOrder([...curOrder.slice(1), curOrder[0]])
       setTimeout(() => { isAnimating = false }, 50)
-    }, 450)
+    }, 400)
   }
 
   function cyclePrev() {
@@ -58,48 +69,71 @@ export function TemplateCardStack(props: {
 
     const curOrder = order()
     const back = curOrder[curOrder.length - 1]
+    const backEl = cardRefs[back]
 
-    const prepClasses: Record<number, string> = { ...Object.fromEntries(curOrder.map((id, i) => [id, positionClass(i)])) }
-    prepClasses[back] = "tswipe-in-prep"
-    setAnimClass(prepClasses)
+    // Step 1: instantly move back card to above (transition: none)
+    if (backEl) {
+      backEl.classList.add("tswipe-in-prep")
+    }
 
-    requestAnimationFrame(() => {
-      const newOrder = [curOrder[curOrder.length - 1], ...curOrder.slice(0, -1)]
-      const nextClasses: Record<number, string> = {}
-      newOrder.forEach((id, i) => { nextClasses[id] = positionClass(i) })
-      setAnimClass(nextClasses)
-      setOrder(newOrder)
-      setTimeout(() => { isAnimating = false }, 500)
-    })
+    // Step 2: force synchronous reflow on the CARD itself so transition: none takes effect
+    void backEl?.offsetWidth
+
+    // Step 3: remove prep + add tpos-0 (drops in with animation), others step back
+    if (backEl) {
+      backEl.classList.remove("tswipe-in-prep", "tpos-2")
+      backEl.classList.add("tpos-0")
+    }
+    const front = curOrder[0]
+    const mid = curOrder[1]
+    const frontEl = cardRefs[front]
+    const midEl = cardRefs[mid]
+    if (frontEl) {
+      frontEl.classList.remove("tpos-0")
+      frontEl.classList.add("tpos-1")
+    }
+    if (midEl && count() > 2) {
+      midEl.classList.remove("tpos-1")
+      midEl.classList.add("tpos-2")
+    }
+
+    // Delay setOrder until animation completes — SolidJS class binding would otherwise
+    // overwrite the manual classList changes mid-transition
+    setTimeout(() => {
+      setOrder([curOrder[curOrder.length - 1], ...curOrder.slice(0, -1)])
+      isAnimating = false
+    }, 500)
   }
 
   function handleCardClick(index: number) {
-    if (animClass()[index] === "tpos-0") cycleNext()
+    const pos = order().indexOf(index)
+    if (pos === 0) cycleNext()
   }
 
-  document.addEventListener("keydown", (e) => {
+  const keydownHandler = (e: KeyboardEvent) => {
     if (e.key === "ArrowRight") { e.preventDefault(); cycleNext() }
     if (e.key === "ArrowLeft") { e.preventDefault(); cyclePrev() }
-  })
+  }
+  document.addEventListener("keydown", keydownHandler)
   onCleanup(() => {
-    document.removeEventListener("keydown", () => {})
+    document.removeEventListener("keydown", keydownHandler)
   })
 
   props.ref?.({ cycleNext, cyclePrev })
 
   return (
     <div class="template-card-stack">
-      <div class="template-card-area">
+      <div class="template-card-area" ref={cardAreaRef}>
         {props.matches.map((match, idx) => {
           const pos = order().indexOf(idx)
-          const cls = animClass()[idx] || positionClass(pos)
           return (
             <div
-              class={`template-card ${cls}`}
+              ref={(el) => { cardRefs[idx] = el }}
+              class={`template-card ${positionClass(pos)}`}
               onClick={() => handleCardClick(idx)}
             >
               <Show when={match.previewUrl}>
-                <img class="template-card-preview" src={match.previewUrl ?? undefined} alt={match.pattern.name} />
+                <img class="template-card-preview" src={match.previewUrl ?? undefined} alt={match.pattern.name} draggable={false} />
               </Show>
             </div>
           )
