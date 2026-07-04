@@ -21,61 +21,259 @@ export const LABEL_MAP: Record<string, string> = {
   prefix: '前缀图标', suffix: '后缀图标', placement: '位置',
 }
 
-export const COMPONENT_ENUMS: Record<string, string[]> = {
-  'Button.color': ['default', 'primary', 'danger', 'success', 'warning', 'info'],
-  'Button.types': ['default', 'link'],
-  'Button.size': ['large', 'medium', 'small'],
-  'Button.iconPlacement': ['start', 'end'],
-  'Button.shape': ['default', 'circle', 'round'],
-  'Icon.shape': ['outline', 'fill', 'square', 'circle'],
-  'Icon.color': ['default', 'primary', 'success', 'warning', 'error', 'inverse'],
-  'Tabs.types': ['line', 'card', 'editable-card'],
-  'Tabs.tabPlacement': ['top', 'end', 'bottom', 'start'],
-  'Tabs.size': ['large', 'medium', 'small'],
-  'Badge.status': ['success', 'processing', 'default', 'error', 'warning'],
-  'Carousel.dotPlacement': ['top', 'bottom', 'start', 'end'],
-  'Collapse.expandIconPlacement': ['start', 'end'],
-  'Collapse.size': ['large', 'medium', 'small'],
-  'Divider.size': ['large', 'medium', 'small'],
-  'Divider.titlePlacement': ['start', 'end', 'center'],
-  'Divider.variant': ['dashed', 'dotted', 'solid'],
-  'Segmented.orientation': ['horizontal', 'vertical'],
-  'Segmented.size': ['large', 'medium', 'small'],
-  'Tag.size': ['large', 'medium', 'small'],
-  'Tag.variant': ['filled', 'solid', 'outlined'],
-  'Timeline.mode': ['start', 'alternate', 'end'],
-  'Timeline.orientation': ['vertical', 'horizontal'],
-  'Timeline.variant': ['filled', 'outlined'],
-  'TimelineItem.placement': ['start', 'end'],
-  'DatePicker.picker': ['date', 'week', 'month', 'quarter', 'year'],
-  'DatePicker.size': ['large', 'medium', 'small'],
-  'Input.size': ['large', 'medium', 'small'],
-  'InputNumber.size': ['large', 'medium', 'small'],
-  'RadioGroup.orientation': ['horizontal', 'vertical'],
-  'RadioGroup.optionType': ['default', 'button'],
-  'RadioGroup.size': ['large', 'medium', 'small'],
-  'Rate.size': ['small', 'medium', 'large'],
-  'Select.size': ['large', 'medium', 'small'],
-  'Select.mode': ['multiple'],
-  'Slider.orientation': ['horizontal', 'vertical'],
-  'Switch.size': ['medium', 'small'],
-  'TextArea.size': ['large', 'medium', 'small'],
-  'TimePicker.size': ['large', 'medium', 'small'],
-  'Dropdown.placement': ['bottom', 'bottomLeft', 'bottomRight', 'top', 'topLeft', 'topRight'],
-  'Menu.mode': ['vertical', 'horizontal'],
-  'Steps.types': ['default', 'dot', 'inline', 'navigation', 'panel'],
-  'Steps.variant': ['filled', 'outlined'],
-  'Steps.orientation': ['horizontal', 'vertical'],
-  'Steps.status': ['wait', 'process', 'finish', 'error'],
-  'Steps.size': ['large', 'medium', 'small'],
-  'Progress.status': ['success', 'exception', 'normal', 'active'],
-  'Progress.size': ['medium', 'small'],
+type EnumOption = { label: string; value: string }
+
+export const COMPONENT_ENUMS: Record<string, EnumOption[]> = {
+  'Button.color': [
+    { label: '默认', value: 'default' },
+    { label: '主要', value: 'primary' },
+    { label: '危险', value: 'danger' },
+    { label: '成功', value: 'success' },
+    { label: '警告', value: 'warning' },
+    { label: '信息', value: 'info' },
+  ],
+  'Button.types': [
+    { label: '默认', value: 'default' },
+    { label: '链接', value: 'link' },
+  ],
+  'Button.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Button.iconPlacement': [
+    { label: '左侧', value: 'start' },
+    { label: '右侧', value: 'end' },
+  ],
+  'Button.shape': [
+    { label: '默认', value: 'default' },
+    { label: '圆形', value: 'circle' },
+    { label: '圆角', value: 'round' },
+  ],
+  'Icon.shape': [
+    { label: '线框', value: 'outline' },
+    { label: '填充', value: 'fill' },
+    { label: '方形', value: 'square' },
+    { label: '圆形', value: 'circle' },
+  ],
+  'Icon.color': [
+    { label: '默认', value: 'default' },
+    { label: '主要', value: 'primary' },
+    { label: '成功', value: 'success' },
+    { label: '警告', value: 'warning' },
+    { label: '错误', value: 'error' },
+    { label: '反色', value: 'inverse' },
+  ],
+  'Tabs.types': [
+    { label: '线型', value: 'line' },
+    { label: '卡片', value: 'card' },
+    { label: '可编辑卡片', value: 'editable-card' },
+  ],
+  'Tabs.tabPlacement': [
+    { label: '顶部', value: 'top' },
+    { label: '右侧', value: 'end' },
+    { label: '底部', value: 'bottom' },
+    { label: '左侧', value: 'start' },
+  ],
+  'Tabs.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Badge.status': [
+    { label: '成功', value: 'success' },
+    { label: '处理中', value: 'processing' },
+    { label: '默认', value: 'default' },
+    { label: '错误', value: 'error' },
+    { label: '警告', value: 'warning' },
+  ],
+  'Carousel.dotPlacement': [
+    { label: '顶部', value: 'top' },
+    { label: '底部', value: 'bottom' },
+    { label: '左侧', value: 'start' },
+    { label: '右侧', value: 'end' },
+  ],
+  'Collapse.expandIconPlacement': [
+    { label: '左侧', value: 'start' },
+    { label: '右侧', value: 'end' },
+  ],
+  'Collapse.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Divider.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Divider.titlePlacement': [
+    { label: '左侧', value: 'start' },
+    { label: '右侧', value: 'end' },
+    { label: '居中', value: 'center' },
+  ],
+  'Divider.variant': [
+    { label: '虚线', value: 'dashed' },
+    { label: '点线', value: 'dotted' },
+    { label: '实线', value: 'solid' },
+  ],
+  'Segmented.orientation': [
+    { label: '水平', value: 'horizontal' },
+    { label: '竖直', value: 'vertical' },
+  ],
+  'Segmented.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Tag.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Tag.variant': [
+    { label: '填充', value: 'filled' },
+    { label: '实色', value: 'solid' },
+    { label: '线框', value: 'outlined' },
+  ],
+  'Timeline.mode': [
+    { label: '左侧', value: 'start' },
+    { label: '交替', value: 'alternate' },
+    { label: '右侧', value: 'end' },
+  ],
+  'Timeline.orientation': [
+    { label: '竖直', value: 'vertical' },
+    { label: '水平', value: 'horizontal' },
+  ],
+  'Timeline.variant': [
+    { label: '填充', value: 'filled' },
+    { label: '线框', value: 'outlined' },
+  ],
+  'TimelineItem.placement': [
+    { label: '左侧', value: 'start' },
+    { label: '右侧', value: 'end' },
+  ],
+  'DatePicker.picker': [
+    { label: '日', value: 'date' },
+    { label: '周', value: 'week' },
+    { label: '月', value: 'month' },
+    { label: '季', value: 'quarter' },
+    { label: '年', value: 'year' },
+  ],
+  'DatePicker.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Input.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'InputNumber.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'RadioGroup.orientation': [
+    { label: '水平', value: 'horizontal' },
+    { label: '竖直', value: 'vertical' },
+  ],
+  'RadioGroup.optionType': [
+    { label: '默认', value: 'default' },
+    { label: '按钮', value: 'button' },
+  ],
+  'RadioGroup.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Rate.size': [
+    { label: '小', value: 'small' },
+    { label: '中', value: 'medium' },
+    { label: '大', value: 'large' },
+  ],
+  'Select.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Select.mode': [
+    { label: '多选', value: 'multiple' },
+  ],
+  'Slider.orientation': [
+    { label: '水平', value: 'horizontal' },
+    { label: '竖直', value: 'vertical' },
+  ],
+  'Switch.size': [
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'TextArea.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'TimePicker.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Dropdown.placement': [
+    { label: '下方', value: 'bottom' },
+    { label: '左下', value: 'bottomLeft' },
+    { label: '右下', value: 'bottomRight' },
+    { label: '上方', value: 'top' },
+    { label: '左上', value: 'topLeft' },
+    { label: '右上', value: 'topRight' },
+  ],
+  'Menu.mode': [
+    { label: '竖直', value: 'vertical' },
+    { label: '水平', value: 'horizontal' },
+  ],
+  'Steps.types': [
+    { label: '默认', value: 'default' },
+    { label: '圆点', value: 'dot' },
+    { label: '内联', value: 'inline' },
+    { label: '导航', value: 'navigation' },
+    { label: '面板', value: 'panel' },
+  ],
+  'Steps.variant': [
+    { label: '填充', value: 'filled' },
+    { label: '线框', value: 'outlined' },
+  ],
+  'Steps.orientation': [
+    { label: '水平', value: 'horizontal' },
+    { label: '竖直', value: 'vertical' },
+  ],
+  'Steps.status': [
+    { label: '等待', value: 'wait' },
+    { label: '进行中', value: 'process' },
+    { label: '完成', value: 'finish' },
+    { label: '错误', value: 'error' },
+  ],
+  'Steps.size': [
+    { label: '大', value: 'large' },
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
+  'Progress.status': [
+    { label: '成功', value: 'success' },
+    { label: '异常', value: 'exception' },
+    { label: '正常', value: 'normal' },
+    { label: '激活', value: 'active' },
+  ],
+  'Progress.size': [
+    { label: '中', value: 'medium' },
+    { label: '小', value: 'small' },
+  ],
 }
 
 export const ENUM_DEFAULTS: Record<string, string> = {
   'Button.size': 'medium',
   'Button.iconPlacement': 'start',
   'Tabs.types': 'line',
+  'Icon.shape': 'outline',
 }
 
 export const COMPONENT_PROPS: Record<string, string[]> = {

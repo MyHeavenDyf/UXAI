@@ -164,7 +164,7 @@ export function PropertyEditorPopup(props: {
   let baseCssVars: Record<string, string> = {}
   let preservedCssVars: Record<string, string> = {}
 
-  function getEnumOptions(key: string) {
+  function getEnumOptions(key: string): { label: string; value: string }[] {
     return COMPONENT_ENUMS[`${props.componentType}.${key}`] || []
   }
 
@@ -673,12 +673,12 @@ export function PropertyEditorPopup(props: {
   function syncComponentProps(parsed: Record<string, unknown>) {
     setRawProps(reconcile(parsed as Record<string, string>))
     const defKeys = COMPONENT_PROPS[props.componentType] || []
-    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_'))
+    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_') && k !== 'inlineCollapsed')
     setPropKeys(allKeys)
     for (const k of allKeys) {
       const raw = (parsed[k] ?? '').toString()
       const opts = getEnumOptions(k)
-      const def = ENUM_DEFAULTS[`${props.componentType}.${k}`] ?? (opts.includes('default') ? 'default' : '')
+      const def = ENUM_DEFAULTS[`${props.componentType}.${k}`] ?? (opts.some(o => o.value === 'default') ? 'default' : '')
       setEditProps(k, raw || def)
     }
   }
@@ -1239,7 +1239,7 @@ export function PropertyEditorPopup(props: {
                     >
                       <CustomSelect
                         value={(editProps as Record<string, string>)[key] ?? ''}
-                        options={getEnumOptions(key).map(o => ({ label: o, value: o }))}
+                        options={getEnumOptions(key)}
                         onChange={(v) => setEditProps(key, v)}
                         class="flex-1 min-w-0"
                       />
