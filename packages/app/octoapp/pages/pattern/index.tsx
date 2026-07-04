@@ -185,7 +185,6 @@ function PatternContent() {
               const reviewCkpt = await loadReviewCheckpoint(dir, id)
               if (params.id !== id) return
               if (reviewCkpt) {
-                debugger
                 setLastPlanner(reviewCkpt.planner)
                 setLastIntent(reviewCkpt.intentDescription)
                 setPatternMatches(reviewCkpt.pattern)
@@ -640,7 +639,6 @@ function PatternContent() {
     if (!planner) return
 
     const text = userInput()
-    debugger
     // 把设计师编辑后的意图合并回 lastIntent
     setLastIntent(result.intentDescription)
 
@@ -751,7 +749,6 @@ function PatternContent() {
       void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
       if (params.id !== sid) return
       const userDir = patternHistoryDir()
-      debugger
       if (userDir) {
         await saveReviewCheckpoint(userDir, sid, {
           pattern: new_planner.patternPageResult.matches,

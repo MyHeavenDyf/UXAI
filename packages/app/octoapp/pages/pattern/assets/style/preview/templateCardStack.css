@@ -24,7 +24,7 @@
   transform-origin: center center;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
   background: #fff;
-  border: 3px solid #777777;
+  border: 3px solid #cccccc;
   overflow: hidden;
   cursor: pointer;
 }

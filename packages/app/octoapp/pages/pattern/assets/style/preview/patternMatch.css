@@ -71,8 +71,10 @@
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: visible;
-  border: none;
-  box-shadow: none;
+}
+
+.pattern-match-col:last-child .scaled-frame-viewport{
+  overflow: hidden;
 }
 
 .pattern-match-col .scaled-frame-inner {

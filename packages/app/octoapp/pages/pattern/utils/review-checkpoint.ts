@@ -5,9 +5,10 @@
  */
 
 import { getDesktopApi } from "./desktop-api"
+import type { PatternMatchItem } from "./pattern-resource"
 
 export type ReviewCheckpoint = {
-  pattern: Record<string, unknown>[],
+  pattern: PatternMatchItem[]
   planner: Record<string, unknown>
   intentDescription: Record<string, unknown>
   userInput: string
