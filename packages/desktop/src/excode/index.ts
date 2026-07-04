@@ -3,7 +3,7 @@ export type HuiCodeInput = {
   mergedA2UI: Record<string, unknown>
 }
 
-export async function downloadHUICode(input: HuiCodeInput[]) {
+export async function downloadHuiCode(input: HuiCodeInput[]) {
   console.log("KKK！！！[download-hui-code] arrived", JSON.stringify(input).slice(0, 200))
   const code = "hello liukai and liliang"
 }

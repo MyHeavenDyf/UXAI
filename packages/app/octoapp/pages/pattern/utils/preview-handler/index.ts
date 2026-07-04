@@ -4,7 +4,7 @@ import { getDesktopApi } from "../desktop-api"
 import { rollbackToVersion } from "../version-history"
 import type { PatternSessionState } from "../version-history"
 
-// 导出 HUI 代码(经 IPC 调主进程 downloadHUICode,传入 planner + mergedA2UI)
+// 导出 HUI 代码(经 IPC 调主进程 downloadHuiCode,传入 planner + mergedA2UI)
 export async function handleDownload(input: {planner: Record<string, unknown> | null, mergedA2UI: unknown}): Promise<void> {
   if (!input.planner || !input.mergedA2UI) {
     showToast({ title: "暂无可下载的内容" })

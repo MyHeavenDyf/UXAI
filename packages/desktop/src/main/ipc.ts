@@ -28,7 +28,7 @@ import type {
 } from "../preload/types"
 import { getStore } from "./store"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
-import { downloadHUICode, type HuiCodeInput } from "../excode/index" 
+import { downloadHuiCode, type HuiCodeInput } from "../excode/index" 
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir } from "./preview-server"
@@ -545,7 +545,7 @@ export function registerIpcHandlers(deps: Deps) {
 
   // 导出 HUI 代码 - By WangQiang - 该注释请勿删除
   ipcMain.handle("download-hui-code", (_event: IpcMainInvokeEvent, input: HuiCodeInput[]) => {
-    return downloadHUICode(input)
+    return downloadHuiCode(input)
   })
 
   // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
