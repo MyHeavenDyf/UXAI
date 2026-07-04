@@ -19,7 +19,10 @@ export function PatternMatchPage(props: {
     <div class="pattern-match-container">
       <div class="pattern-match-header">
         <span class="pattern-match-title-icon">?</span>
-        <div class="pattern-match-title">请选择下一步方案</div>
+        <div class="pattern-match-title-content">
+          <div class="pattern-match-title">请选择下一步方案</div>
+          <div class="pattern-match-info">请选择页面模板或者线框编辑</div>
+        </div>
       </div>
 
       <div class="pattern-match-body">

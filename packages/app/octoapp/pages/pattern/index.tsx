@@ -131,6 +131,7 @@ function PatternContent() {
         previewApi.sendToPreview(null)
         lastSentPreviewJson = ""
         setIsPlanReview(false)
+        setShowPatternMatch(false)
         setIntentConfirm(null)
 
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
@@ -317,11 +318,11 @@ function PatternContent() {
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
   const [intentConfirm, setIntentConfirm] = createSignal<IntentConfirmResult | null>(null)
 
-  const needsConfirm = createMemo(() => intentConfirm() !== null || isPlanReview())
+  const needsConfirm = createMemo(() => intentConfirm() !== null || isPlanReview() || showPatternMatch())
 
   const confirmText = createMemo<{ title: string; subtitle: string } | null>(() => {
     if (intentConfirm()) return { title: "意图分析完成", subtitle: "请在右侧进一步确认需求" }
-    if (isPlanReview()) return { title: "线框审查", subtitle: "请在右侧进一步确认需求" }
+    if (isPlanReview() || showPatternMatch()) return { title: "线框审查", subtitle: "请在右侧进一步确认需求" }
     return null
   })
 
@@ -329,6 +330,16 @@ function PatternContent() {
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory;
     return `${home}/.octo/design/history`;
+  })
+
+  // pipeline 忙状态（用于生成卡片状态）
+  const pipelineBusy = createMemo(() => isBusy() || sending())
+
+  // 线框审查确认后，等 pipeline 真正变忙时再清除审查状态，避免卡片闪绿
+  createEffect(() => {
+    if (pipelineBusy() && isPlanReview()) {
+      setIsPlanReview(false)
+    }
   })
 
   const hasContent = () => !!(params.id && userMessages().length > 0)
@@ -660,7 +671,6 @@ function PatternContent() {
     if (ckptDir) await clearReviewCheckpoint(ckptDir, sid)
 
     tracker.interaction({ module: "prototype", name: "confirm-review" })
-    setIsPlanReview(false)
 
     const ds = selectedDesignSystem()
     const intentCtx: ProtoCreateJsonInput = {
@@ -935,7 +945,7 @@ function PatternContent() {
     await pixsoPreview(pendingPreviewData())
   }
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || isPlanReview() || intentConfirm() !== null
+  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || isPlanReview() || showPatternMatch() || intentConfirm() !== null
 
   const chartInputProps = () => ({
     value: prompt(),
@@ -994,7 +1004,7 @@ function PatternContent() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            pipelineBusy={isBusy() || sending()}
+            pipelineBusy={pipelineBusy()}
             roundMessages={roundMessages()}
             needsConfirm={needsConfirm()}
             confirmText={confirmText()}
