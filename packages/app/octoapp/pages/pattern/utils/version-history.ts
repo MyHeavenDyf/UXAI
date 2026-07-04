@@ -154,6 +154,24 @@ export async function appendPatternVersion(
 }
 
 /**
+ * 增量更新当前版本的字段（合并写入，不覆盖已有字段的其余部分）。
+ * 若不存在当前版本则不做任何操作。
+ */
+export async function updatePatternVersion(
+  dir: string,
+  sessionId: string,
+  partial: Partial<PatternSessionState>,
+): Promise<void> {
+  const index = await readIndex(dir, sessionId)
+  if (!index.current) return
+  const entry = index.versions.find((v) => v.id === index.current)
+  if (!entry) return
+  const state = await readVersionFile(dir, sessionId, entry.filename)
+  if (!state) return
+  await writeVersionFile(dir, sessionId, entry.filename, { ...state, ...partial })
+}
+
+/**
  * 读取当前指向版本的完整页面状态。
  * @returns 当前版本的 state，无记录时返回 null
  */
