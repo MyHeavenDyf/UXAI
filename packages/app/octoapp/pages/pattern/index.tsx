@@ -23,7 +23,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment-bar"
 import { create_intent_confirm, create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create-json'
 import modify_json_ai from './workflow/modify-json-ai'
-import { appendPatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
+import { appendPatternVersion, updatePatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
@@ -570,6 +570,19 @@ function PatternContent() {
 
         const new_planner = await create_planner_json(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
+        // 保存部分版本（intent + planner），模块生成完成后追加补全
+        const partialDir = patternHistoryDir()
+        if (partialDir) {
+          const vid = await appendPatternVersion(partialDir, sid!, {
+            lastIntent: new_planner.intent.intent_description,
+            lastPlanner: new_planner.planner.layout_planner,
+            lastModules: [],
+          }, text.slice(0, 80))
+          if (params.id === sid) {
+            setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+            setCurrentVersionId(vid)
+          }
+        }
         // 持久化线框审查检查点
         const userDir = patternHistoryDir()
         if (userDir) {
@@ -667,16 +680,10 @@ function PatternContent() {
         // 历史保存始终执行（与当前查看的 session 无关）
           const dir = patternHistoryDir()
           if (dir) {
-            const vid = await appendPatternVersion(dir, sid, {
-                lastIntent: pageIntent,
-                lastPlanner: layoutPlanner,
+            await updatePatternVersion(dir, sid, {
                 lastModules: modulesJson,
                 mergedA2UI: pageJson as unknown as Record<string, unknown>,
-            }, text.slice(0, 80))
-            if (params.id === sid) {
-              setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
-              setCurrentVersionId(vid)
-            }
+            })
             void saveDebugSnapshot(dir, sid, "modules", {
               lastIntent: pageIntent,
               lastPlanner: layoutPlanner,
@@ -748,6 +755,19 @@ function PatternContent() {
       const new_planner = await create_planner_json(intentCtx)
       void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
       if (params.id !== sid) return
+      // 保存部分版本（intent + planner），模块生成完成后追加补全
+      const partialDir = patternHistoryDir()
+      if (partialDir) {
+        const vid = await appendPatternVersion(partialDir, sid!, {
+          lastIntent: new_planner.intent.intent_description,
+          lastPlanner: new_planner.planner.layout_planner,
+          lastModules: [],
+        }, enrichedText.slice(0, 80))
+        if (params.id === sid) {
+          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: enrichedText.slice(0, 80) }])
+          setCurrentVersionId(vid)
+        }
+      }
       const userDir = patternHistoryDir()
       if (userDir) {
         await saveReviewCheckpoint(userDir, sid, {
