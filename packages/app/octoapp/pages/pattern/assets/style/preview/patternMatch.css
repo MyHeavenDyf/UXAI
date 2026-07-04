@@ -34,6 +34,11 @@
   font-weight: 600;
   color: var(--octo-text-strong, #101828);
 }
+.pattern-match-info {
+  font-size: 12px;
+  color: var(--octo-text-secondary, rgba(0, 0, 0, 0.6));
+  margin-top: 2px;
+}
 
 .pattern-match-body {
   display: flex;

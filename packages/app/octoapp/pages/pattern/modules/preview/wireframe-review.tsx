@@ -88,10 +88,12 @@ export function WireframeReview(props: {
         <div class="wireframe-header-left">
           <div class="wireframe-header-content">
             <div class="wireframe-header-icon">?</div>
-            <div class="wireframe-header-title">线框审查</div>
-          </div>
-          <div class="wireframe-header-subtitle">
-            请确认或修改每个模块的意图，确认后将据此生成最终页面
+            <div class="wireframe-header-title-content">
+              <div class="wireframe-header-title">线框审查</div>
+              <div class="wireframe-header-subtitle">
+                请确认或修改每个模块的意图，确认后将据此生成最终页面
+              </div>
+            </div>
           </div>
         </div>
         <div class="wireframe-header-right">
@@ -116,7 +118,6 @@ export function WireframeReview(props: {
 
         <div class="wireframe-drawer" classList={{ open: showDrawer() }}>
           <div class="wireframe-drawer-header">
-            <div class="wireframe-modules-label">模块意图（可编辑）</div>
             <button class="wireframe-drawer-close" onClick={closeDrawer}>✕</button>
           </div>
           <div class="wireframe-modules-list">
@@ -129,8 +130,7 @@ export function WireframeReview(props: {
                     class="wireframe-module-card"
                     classList={{ active: selectedSectionId() === slot.section_id }}
                   >
-                    <div class="wireframe-module-card-header" onClick={() => setSelectedSectionId(slot.section_id)}>
-                      <span class="wireframe-module-card-id">{slot.section_id}</span>
+                    <div class="wireframe-module-card-header">
                       <span class="wireframe-module-card-name">{sectionName(slot.section_id)}</span>
                     </div>
                     <Show when={selectedSectionId() === slot.section_id}>
@@ -173,7 +173,7 @@ function WireframeField(props: { label: string; value: string; onInput: (v: stri
         class="wireframe-field-input"
         value={props.value}
         onInput={(e) => props.onInput(e.currentTarget.value)}
-        rows={2}
+        rows={3}
       />
     </div>
   )
