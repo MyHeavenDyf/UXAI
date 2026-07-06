@@ -39,7 +39,6 @@
   z-index: 3;
   opacity: 1;
   filter: brightness(1);
-  cursor: pointer;
 }
 
 .template-card.tpos-1 {
@@ -91,56 +90,4 @@
   font-size: 16px;
   font-weight: 600;
   text-align: center;
-}
-
-.template-card-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 32px;
-  padding-top: 32px;
-  flex-shrink: 0;
-}
-
-.template-card-nav-btn {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: 1px solid #ddd;
-  color: #eee;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.15s;
-}
-
-.template-card-nav-btn:hover {
-  background: #ccc;
-}
-
-.template-card-nav-btn:active {
-  transform: scale(0.95);
-}
-
-.template-card-confirm-btn {
-  padding: 16px 48px;
-  border-radius: 999px;
-  background: #c6c5c5;
-  color: #fff;
-  font-size: 24px;
-  font-weight: 700;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.3);
-  transition: background 0.3s, transform 0.15s;
-}
-
-.template-card-confirm-btn:hover {
-  background: #a79e9e;
-}
-
-.template-card-confirm-btn:active {
-  transform: scale(0.97);
 }

@@ -1,0 +1,5 @@
+node_modules/
+output/
+api/
+*.log
+package-lock.json

@@ -26,6 +26,7 @@ export function PropertyEditorPopup(props: {
   componentType: string
   currentClass?: string
   elementProps?: string
+  sessionId?: string
   elementRect: ElementRect
   clickPoint?: { x: number; y: number }
   containerSize: ContainerSize
@@ -434,12 +435,14 @@ export function PropertyEditorPopup(props: {
       const w = v.width
       if (w === '100%') { setFillWidth(true); setEditWidthPx(0); setFoundWidthPx(false) }
       else if (w === 'auto' || w === 'fit-content' || w === 'max-content') { setHugWidth(true); setEditWidthPx(0); setFoundWidthPx(false) }
+      else if (w.endsWith('%')) { setEditWidth(w); setEditWidthPx(0); setFoundWidthPx(false) }
       else { setEditWidthPx(px(w)); setFoundWidthPx(true); setEditWidth(w) }
     }
     if (v.height) {
       const h = v.height
       if (h === '100%') setFillHeight(true)
       else if (h === 'auto' || h === 'fit-content') setHugHeight(true)
+      else if (h.endsWith('%')) { setEditHeightPx(0); setFoundHeightPx(false) }
       else { setEditHeightPx(px(h)); setFoundHeightPx(true) }
     }
     if (v.overflow === 'hidden') setClipContent(true)
@@ -612,8 +615,8 @@ export function PropertyEditorPopup(props: {
     const bgcMatch = rawCls.match(/\bbg-\[#([a-fA-F0-9]{3,8})\]/)
     setEditBgColor(bgcMatch ? '#' + bgcMatch[1] : toHex((parsed.backgroundColor || parsed.background || '').toString()))
 
-    const bgUrlMatch = rawCls.match(/\bbg-\[url\(\/uploads\/([^)]+)\)\]/)
-    const bgUrl = bgUrlMatch ? '/uploads/' + bgUrlMatch[1] : (parsed.backgroundImage || '').toString()
+    const bgUrlMatch = rawCls.match(/\bbg-\[url\(\/history\/([^)]+)\)\]/)
+    const bgUrl = bgUrlMatch ? '/history/' + bgUrlMatch[1] : (parsed.backgroundImage || '').toString()
     setEditBgUrl(bgUrl === 'none' ? '' : bgUrl)
     initialBgUrl = editBgUrl()
 
@@ -814,14 +817,6 @@ export function PropertyEditorPopup(props: {
   onCleanup(() => window.removeEventListener('click', onWindowClick))
   onCleanup(() => clearTimeout(autoUpdateTimer))
 
-  createEffect(() => {
-    const file = editBgImage()
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => setEditBgUrl(reader.result as string)
-    reader.readAsDataURL(file)
-  })
-
   onCleanup(() => clearTimeout(autoUpdateTimer))
 
   const autoSnapshot = createMemo(() => {
@@ -904,13 +899,30 @@ export function PropertyEditorPopup(props: {
     window.addEventListener('mouseup', onUp)
   }
 
-  function openBgPicker() {
+  function pickAndUploadImage(onUrl: (url: string) => void) {
     const inp = document.createElement('input')
     inp.type = 'file'; inp.accept = 'image/*'; inp.style.display = 'none'
-    inp.addEventListener('change', () => { const f = inp.files?.[0]; if (f) setEditBgImage(f) })
+    inp.addEventListener('change', async () => {
+      const f = inp.files?.[0]
+      if (!f) return
+      const desktopApi = (window as unknown as { api?: { saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string> } }).api
+      if (desktopApi?.saveUploadImage && props.sessionId) {
+        const buf = await f.arrayBuffer()
+        const url = await desktopApi.saveUploadImage(buf, props.sessionId)
+        onUrl(url)
+      } else {
+        const reader = new FileReader()
+        reader.onload = () => onUrl(reader.result as string)
+        reader.readAsDataURL(f)
+      }
+    })
     document.body.appendChild(inp)
     inp.click()
     inp.addEventListener('blur', () => { document.body.removeChild(inp) })
+  }
+
+  function openBgPicker() {
+    pickAndUploadImage((url) => setEditBgUrl(url))
   }
 
   function normalizeArbitraryValues(className: string): string {
@@ -1231,10 +1243,18 @@ export function PropertyEditorPopup(props: {
                     <Show
                       when={getEnumOptions(key).length > 0}
                       fallback={
-                        <input value={(editProps as Record<string, string>)[key] ?? ''}
-                          onInput={(e) => setEditProps(key, e.currentTarget.value)}
-                          type="text" placeholder={key}
-                class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none" />
+                        <div class="flex items-center gap-1 flex-1 min-w-0">
+                          <input value={(editProps as Record<string, string>)[key] ?? ''}
+                            onInput={(e) => setEditProps(key, e.currentTarget.value)}
+                            type="text" placeholder={key}
+                  class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
+                          <Show when={key === 'src'}>
+                            <button onClick={() => pickAndUploadImage((url) => setEditProps('src', url))}
+                              class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
+                              <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
+                            </button>
+                          </Show>
+                        </div>
                       }
                     >
                       <CustomSelect
@@ -1523,16 +1543,23 @@ export function PropertyEditorPopup(props: {
             </Show>
 
             <Show when={isTextElement()}>
-            <div class="flex items-center gap-2  pt-2  border-t -mx-4 px-4 border-[#e5e7eb]">
+            <div class="flex items-center gap-2 pt-2 border-t -mx-4 px-4 border-[#e5e7eb]">
               <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">背景色</label>
               <input type="color" value={editBgColor()} onInput={(e) => setEditBgColor(e.currentTarget.value)}
                 class="w-5 h-5 rounded cursor-pointer p-0" />
-              <button onClick={openBgPicker} class="hidden text-xs px-1.5 py-0.5 rounded-sm border border-slate-200 text-slate-500 hover:border-slate-400 hover:bg-slate-50 whitespace-nowrap">{/* ImageUploadIcon hidden */}</button>
-              <Show when={(editBgUrl() && editBgUrl() !== 'none') || editBgImage()?.name}>
-                <span class="text-[10px] text-slate-500 truncate flex-1">{editBgImage()?.name || editBgUrl()}</span>
+            </div>
+
+            <div class="flex items-center gap-2 pb-2 -mx-4 px-4">
+              <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">背景图</label>
+              <button onClick={openBgPicker} class="text-xs px-2 py-0.5 rounded-sm border border-[#cbd5e1] text-slate-400 hover:text-slate-600 hover:border-[#94a3b8] hover:bg-[#f1f5f9] whitespace-nowrap flex items-center gap-1 transition-colors">
+                <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
+                上传
+              </button>
+              <Show when={editBgUrl() && editBgUrl() !== 'none'}>
+                <span class="text-[10px] text-slate-500 truncate flex-1">{editBgUrl()}</span>
               </Show>
-              <Show when={editBgImage() || (editBgUrl() && editBgUrl() !== 'none')}>
-                <button onClick={() => { setEditBgImage(null); setEditBgUrl('') }} class="text-xs text-slate-400 hover:text-slate-600">✕</button>
+              <Show when={editBgUrl() && editBgUrl() !== 'none'}>
+                <button onClick={() => setEditBgUrl('')} class="text-xs text-slate-400 hover:text-slate-600 ml-auto">✕</button>
               </Show>
             </div>
 

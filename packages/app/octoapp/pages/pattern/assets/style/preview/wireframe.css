@@ -163,12 +163,15 @@
 .wireframe-box {
   border: 2px dashed var(--octo-border-default, #d0d5dd);
   border-radius: var(--octo-radius-md, 6px);
-  padding: 16px 20px;
   background: #fff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.wireframe-box.large-title {
+  font-size: 26px;
 }
 
 .wireframe-box:hover {

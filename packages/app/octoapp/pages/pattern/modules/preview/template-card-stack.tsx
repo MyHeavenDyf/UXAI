@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onCleanup, Show, type JSX } from "solid-js"
 import type { PatternMatchItem } from "../../utils/pattern-resource"
-import "../../assets/style/preview/templateCardStack.css"
+import "../../assets/style/preview/template-card-stack.css"
 
 export type TemplateCardStackApi = {
   cycleNext: () => void
@@ -46,10 +46,8 @@ export function TemplateCardStack(props: {
     for (let i = 1; i < curOrder.length; i++) {
       const el = cardRefs[curOrder[i]]
       if (el) {
-        const oldCls = i === 1 ? "tpos-1" : "tpos-2"
-        const newCls = positionClass(i - 1)
-        el.classList.remove(oldCls)
-        el.classList.add(newCls)
+        el.classList.remove(positionClass(i))
+        el.classList.add(positionClass(i - 1))
       }
     }
 
@@ -86,16 +84,18 @@ export function TemplateCardStack(props: {
       backEl.classList.add("tpos-0")
     }
     const front = curOrder[0]
-    const mid = curOrder[1]
     const frontEl = cardRefs[front]
-    const midEl = cardRefs[mid]
     if (frontEl) {
       frontEl.classList.remove("tpos-0")
-      frontEl.classList.add("tpos-1")
+      frontEl.classList.add(count() > 2 ? "tpos-1" : "tpos-2")
     }
-    if (midEl && count() > 2) {
-      midEl.classList.remove("tpos-1")
-      midEl.classList.add("tpos-2")
+    if (count() > 2) {
+      const mid = curOrder[1]
+      const midEl = cardRefs[mid]
+      if (midEl) {
+        midEl.classList.remove("tpos-1")
+        midEl.classList.add("tpos-2")
+      }
     }
 
     // Delay setOrder until animation completes — SolidJS class binding would otherwise
@@ -104,11 +104,6 @@ export function TemplateCardStack(props: {
       setOrder([curOrder[curOrder.length - 1], ...curOrder.slice(0, -1)])
       isAnimating = false
     }, 500)
-  }
-
-  function handleCardClick(index: number) {
-    const pos = order().indexOf(index)
-    if (pos === 0) cycleNext()
   }
 
   const keydownHandler = (e: KeyboardEvent) => {
@@ -131,7 +126,6 @@ export function TemplateCardStack(props: {
             <div
               ref={(el) => { cardRefs[idx] = el }}
               class={`template-card ${positionClass(pos)}`}
-              onClick={() => handleCardClick(idx)}
             >
               <Show when={match.previewUrl}>
                 <img class="template-card-preview" src={match.previewUrl ?? undefined} alt={match.pattern.name} draggable={false} />

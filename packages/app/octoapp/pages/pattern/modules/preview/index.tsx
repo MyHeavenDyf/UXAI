@@ -7,6 +7,7 @@ import { TitleBar } from "./title-bar"
 import { CanvasView } from "./canvas-view"
 import { PropertyEditorPopup } from "./property-editor-popup"
 import type { ModifyElementData } from "./property-editor-popup"
+import type { A2UIDocument } from "../../utils/a2ui-protocol"
 import "../../assets/style/preview/index.css"
 
 export type PreviewPageAPI = {
@@ -26,6 +27,7 @@ interface RawRect {
 export function PreviewPage(props: {
   api?: PreviewPageAPI
   pendingData?: unknown
+  sessionId?: string
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
@@ -35,6 +37,7 @@ export function PreviewPage(props: {
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
+  onReorder?: (elementId: string, targetSiblingId: string, position: "before" | "after") => void
 }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
@@ -42,6 +45,7 @@ export function PreviewPage(props: {
   let canvasRef: { reset: () => void; setScale: (scale: number) => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
+  const [dragging, setDragging] = createSignal(false)
 
   const DEVICE_DIMENSIONS: Record<string, [number, number]> = {
     desktop: [1920, 1080],
@@ -53,6 +57,10 @@ export function PreviewPage(props: {
 
   createEffect(() => {
     if (!editing()) setPropertyEditor('show', false)
+  })
+
+  createEffect(() => {
+    if (dragging()) sendDragMode(true, props.pendingData)
   })
 
   
@@ -99,6 +107,29 @@ export function PreviewPage(props: {
     }
     console.log("[preview] sendToPreview posting A2UI_UPDATE")
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
+    if (dragging()) sendDragMode(true, data)
+  }
+
+  function buildSiblingMap(data: unknown = props.pendingData): Record<string, string[]> | undefined {
+    const doc = data as A2UIDocument | null
+    if (!doc?.elements) return undefined
+    const map: Record<string, string[]> = {}
+    for (const el of doc.elements) {
+      if (!Array.isArray(el.children)) continue
+      const kids = el.children.filter((kid): kid is string => typeof kid === "string")
+      if (kids.length < 2) continue
+      for (const kid of kids) {
+        map[kid] = kids
+      }
+    }
+    return Object.keys(map).length > 0 ? map : undefined
+  }
+
+  function sendDragMode(enabled: boolean, data: unknown = props.pendingData) {
+    previewIframeRef?.contentWindow?.postMessage(
+      { type: "DRAG_MODE", enabled, siblingMap: enabled ? buildSiblingMap(data) : undefined },
+      "*",
+    )
   }
 
   if (props.api) {
@@ -302,6 +333,10 @@ export function PreviewPage(props: {
       if (editing()) {
         previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
       }
+      if (dragging()) sendDragMode(true, props.pendingData)
+    }
+    if (e.data?.type === "DRAG_REORDER" && props.onReorder) {
+      props.onReorder(e.data.elementId, e.data.targetSiblingId, e.data.position)
     }
   }
 
@@ -337,6 +372,8 @@ export function PreviewPage(props: {
           setCanvasMode(next)
           if (next) {
             setEditing(false)
+            setDragging(false)
+            sendDragMode(false)
             previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
           }
         }}
@@ -351,11 +388,26 @@ export function PreviewPage(props: {
         currentVersionId={props.currentVersionId}
         onSelectVersion={props.onSelectVersion}
         editing={editing()}
+        dragging={dragging()}
         onToggleEditing={() => {
           const next = !editing()
           setEditing(next)
           previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
-          if (next) setCanvasMode(false)
+          if (next) {
+            setCanvasMode(false)
+            setDragging(false)
+            sendDragMode(false)
+          }
+        }}
+        onToggleDragging={() => {
+          const next = !dragging()
+          setDragging(next)
+          sendDragMode(next)
+          if (next) {
+            setCanvasMode(false)
+            setEditing(false)
+            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+          }
         }}
         onOptionChange={handleTitleBarOptionChange}
       />
@@ -391,6 +443,7 @@ export function PreviewPage(props: {
         componentType={propertyEditor.componentType}
         currentClass={propertyEditor.currentClass}
         elementProps={propertyEditor.elementProps}
+        sessionId={props.sessionId}
         elementRect={propertyEditor.elementRect}
         clickPoint={propertyEditor.clickPoint}
         containerSize={{ width: previewPageRef?.clientWidth ?? 0, height: previewPageRef?.clientHeight ?? 0 }}

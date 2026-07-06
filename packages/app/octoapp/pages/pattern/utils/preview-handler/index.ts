@@ -4,21 +4,45 @@ import { getDesktopApi } from "../desktop-api"
 import { rollbackToVersion } from "../version-history"
 import type { PatternSessionState } from "../version-history"
 
-// 导出 HUI 代码(经 IPC 调主进程 downloadHUICode,传入 planner + mergedA2UI)
+// 导出 HUI 代码(经 IPC 调主进程 downloadHuiCode,传入 planner + mergedA2UI)
 export async function handleDownload(input: {planner: Record<string, unknown> | null, mergedA2UI: unknown}): Promise<void> {
-  if (!input.planner || !input.mergedA2UI) {
+   if (!input.planner || !input.mergedA2UI) {
     showToast({ title: "暂无可下载的内容" })
     return
   }
   const desktopApi = getDesktopApi()
-  if (!desktopApi?.downloadHuiCode) {
+  if (!desktopApi?.downloadHuiCode || !desktopApi?.exportZip) {
     showToast({ title: "当前环境不支持代码导出" })
     return
   }
-  await desktopApi.downloadHuiCode([{
-    planner: input.planner,
-    mergedA2UI: input.mergedA2UI as Record<string, unknown>,
-  }])
+  const jsonInput: {
+    planner: Record<string, unknown>
+    mergedA2UI: Record<string, unknown>
+  }[] = [
+    {
+      planner: input.planner,
+      mergedA2UI: input.mergedA2UI as Record<string, unknown>,
+    },
+  ]
+  const result = await desktopApi.downloadHuiCode(jsonInput)
+  const files = result?.files
+
+  if (!files || files.length === 0) {
+    showToast({ title: "暂无可导出的代码" })
+    return
+  }
+
+  const zipPath = await desktopApi.exportZip({
+    defaultName: `code-export-${Date.now()}`,
+    files,
+    comment: "a2ui-code",
+  })
+
+  if (zipPath) {
+    showToast({ title: "已导出压缩包" })
+  } else {
+    showToast({ title: "导出已取消" })
+  }
 }
 
 // 实时预览

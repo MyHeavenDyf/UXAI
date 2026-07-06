@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup, Show, type JSX } from "solid-js"
-import "../../assets/style/preview/scaledFrame.css"
+import "../../assets/style/preview/scaled-frame.css"
 
 export function ScaledFrame(props: {
   width: number
