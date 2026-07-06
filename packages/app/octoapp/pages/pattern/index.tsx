@@ -187,9 +187,14 @@ function PatternContent() {
               if (reviewCkpt) {
                 setLastPlanner(reviewCkpt.planner)
                 setLastIntent(reviewCkpt.intentDescription)
-                setPatternMatches(reviewCkpt.pattern)
+                const matches= reviewCkpt.pattern
+                setPatternMatches(matches)
                 setUserInput(reviewCkpt.userInput)
-                setShowPatternMatch(true)
+                if (matches?.length > 0) {
+                  setShowPatternMatch(true)
+                } else {
+                  setIsPlanReview(true)
+                }
                 return
               }
               // 已完成状态数据读取
@@ -658,9 +663,14 @@ function PatternContent() {
         if (params.id !== sid) return
         setLastPlanner(new_planner.planner.layout_planner)
         setLastIntent(new_planner.intent.intent_description)
-        setPatternMatches(new_planner.patternPageResult.matches)
+        const matches = new_planner.patternPageResult.matches
+        setPatternMatches(matches)
         setUserInput(text)
-        setShowPatternMatch(true)
+        if (matches?.length > 0) {
+          setShowPatternMatch(true)
+        } else {
+          setIsPlanReview(true)
+        }
       }
 
       const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
@@ -818,9 +828,14 @@ function PatternContent() {
       setIntentConfirm(null)
       setLastPlanner(new_planner.planner.layout_planner)
       setLastIntent(new_planner.intent.intent_description)
-      setPatternMatches(new_planner.patternPageResult.matches)
+      const matches = new_planner.patternPageResult.matches
+      setPatternMatches(matches)
       setUserInput(enrichedText)
-      setShowPatternMatch(true)
+      if (matches?.length > 0) {
+        setShowPatternMatch(true)
+      } else {
+        setIsPlanReview(true)
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleConfirmIntent")
