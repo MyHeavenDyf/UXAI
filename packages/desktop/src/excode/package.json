@@ -1,0 +1,33 @@
+{
+  "name": "a2ui-transformer",
+  "private": true,
+  "version": "1.1.0",
+  "description": "A2UI JSON → React 代码编译管线（library / CLI 双入口）",
+  "type": "module",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./transform": "./index.ts"
+  },
+  "scripts": {
+    "start": "node --loader ts-node/esm cli.ts",
+    "dev": "node --loader ts-node/esm cli.ts",
+    "generate": "node --loader ts-node/esm cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "a2ui",
+    "code-generator",
+    "react"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "tw-to-css": "^0.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0"
+  }
+}

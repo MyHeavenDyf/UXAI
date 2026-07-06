@@ -108,11 +108,11 @@ export type ElectronAPI = {
   getPatternFile: (category: string, filename: string, theme?: string) => Promise<string | null>
   getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
   getDesignSystems: () => Promise<string[]>
-  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<unknown>
+  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
   exportZip: (opts: {
     defaultName: string
-    files?: { name: string; content: string }[]
+    files?: { path: string; content: string }[]
     sourceDir?: string
     comment?: string
   }) => Promise<string | null>

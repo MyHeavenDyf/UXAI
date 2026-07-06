@@ -1,0 +1,15 @@
+{
+  "pagesDir": "./pages-source",
+  "outputDir": "./output",
+  "templateDir": "./templates",
+  "preserveOutput": false,
+  "steps": [
+    "RegisterComponents",
+    "ReadPages",
+    "BuildTrees",
+    "GenerateComponents",
+    "GenerateRoutes",
+    "WriteOutput",
+    "GenerateReport"
+  ]
+}
