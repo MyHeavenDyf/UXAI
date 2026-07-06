@@ -28,7 +28,7 @@ import type {
 } from "../preload/types"
 import { getStore } from "./store"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
-import { downloadHUICode, type HuiCodeInput } from "../excode/index" 
+import { downloadHuiCode, type HuiCodeInput } from "../excode/index"
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir } from "./preview-server"
@@ -301,7 +301,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
-    try { 
+    try {
       await unlink(path)
     } catch {
       // 文件不存在时忽略，不执行任何代码
@@ -545,7 +545,7 @@ export function registerIpcHandlers(deps: Deps) {
 
   // 导出 HUI 代码 - By WangQiang - 该注释请勿删除
   ipcMain.handle("download-hui-code", (_event: IpcMainInvokeEvent, input: HuiCodeInput[]) => {
-    return downloadHUICode(input)
+    return downloadHuiCode(input)
   })
 
   // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
@@ -581,7 +581,7 @@ export function registerIpcHandlers(deps: Deps) {
       event: IpcMainInvokeEvent,
       opts: {
         defaultName: string
-        files?: { name: string; content: string }[]
+        files?: { path: string; content: string }[]
         sourceDir?: string
         comment?: string
       },
@@ -606,7 +606,9 @@ export function registerIpcHandlers(deps: Deps) {
       if (!isDirect) {
         await mkdir(workDir, { recursive: true })
         for (const file of opts.files ?? []) {
-          await writeFile(join(workDir, file.name), file.content, "utf-8")
+          const filePath = join(workDir, file.path)
+          await mkdir(dirname(filePath), { recursive: true })
+          await writeFile(filePath, file.content, "utf-8")
         }
       }
 
@@ -618,13 +620,12 @@ export function registerIpcHandlers(deps: Deps) {
               [
                 "-NoProfile",
                 "-Command",
-                `Compress-Archive -Path '${join(workDir, "*")}' -DestinationPath '${destZip}' -Force`,
+                `Compress-Archive -Path '${workDir}\\*' -DestinationPath '${destZip}' -Force`,
               ],
               (err) => (err ? reject(err) : resolve()),
             )
           } else {
-            const filePaths = readdirSync(workDir).map((f) => join(workDir, f))
-            execFile("zip", ["-j", destZip].concat(filePaths), (err) =>
+            execFile("zip", ["-r", destZip, "."], { cwd: workDir }, (err) =>
               err ? reject(err) : resolve(),
             )
           }
@@ -633,8 +634,8 @@ export function registerIpcHandlers(deps: Deps) {
         if (opts.comment) addZipComment(destZip, opts.comment)
 
         return destZip
-      }       finally {
-        if (!isDirect) await rm(workDir, { recursive: true, force: true }).catch(() => {})
+      } finally {
+        if (!isDirect) await rm(workDir, { recursive: true, force: true }).catch(() => { })
       }
     },
   )
@@ -672,7 +673,7 @@ export function registerIpcHandlers(deps: Deps) {
         .filter((f) => f.endsWith(".json"))
         .map((name) => ({ name, content: readFileSync(join(extractDir, name), "utf-8") }))
     } finally {
-      await rm(extractDir, { recursive: true, force: true }).catch(() => {})
+      await rm(extractDir, { recursive: true, force: true }).catch(() => { })
     }
   })
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
