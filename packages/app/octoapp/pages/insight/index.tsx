@@ -37,12 +37,19 @@ import { InsightSidebar } from "./sidebar"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
-import { PresetPrompts } from "./components/preset-prompts"
+import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
-import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
+import { PRESET_PROMPTS } from "./store/preset-prompts"
+import {
+  buildChipDeclaration,
+  buildChipTemplate,
+  buildToolGate,
+  mcpToolKey,
+  type McpSelection,
+} from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { encodeFilePath } from "../../context/file/path"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
@@ -457,16 +464,58 @@ function InsightContent() {
         outputParsed: parsedOutput,
       })
     }
+
+    // SPEC-INS-017 §5:本地解析失败埋点(extract_document 按失败原因分布,本地线缺口输入)
+    for (const p of toolParts) {
+      if (!p.tool || !(p.tool === "extract_document" || p.tool.endsWith("_extract_document"))) continue
+      const meta = (p.state?.metadata ?? {}) as { error?: string; chars?: number }
+      const reason = meta.error ?? (meta.chars === 0 ? "empty-text" : undefined)
+      if (reason) {
+        tracker.interaction({ module: "insight", name: "extract-failure", extend: JSON.stringify({ reason }) })
+      }
+    }
+
+    // SPEC-INS-017 §5:chip turn 工具调用结果对账(是否调用/成败;「args 是否被插件矫正」在
+    // server 端 [octo:inject] chip-declaration 日志,前端拿不到,两处合看)
+    if (pendingChipResult) {
+      const pending = pendingChipResult
+      pendingChipResult = null
+      const uIdx = messages.findIndex((m) => m.id === pending.messageID)
+      if (uIdx >= 0) {
+        const states: string[] = []
+        for (let i = uIdx + 1; i < messages.length; i++) {
+          const m = messages[i]
+          if (m.role === "user") break
+          if (m.role !== "assistant") continue
+          const mParts = (sync.data.part[m.id] ?? []) as Array<Part & { tool?: string; state?: { status?: string } }>
+          for (const p of mParts) {
+            if (p.type === "tool" && p.tool === pending.toolKey) states.push(p.state?.status ?? "unknown")
+          }
+        }
+        const called = states.length > 0
+        // not-called 不一定是失败:调用与否归模型判断(可能在向用户要材料/确认分桶/回应别的意图),
+        // 埋点原样上报,命中率结论交给内网评测(结合用户是否复述"你调一下"看)。激活态不做任何自动清除。
+        const status = states.includes("error") ? "error" : called ? "completed" : "not-called"
+        console.log("[octo:chip] chip-result", { functionId: pending.functionId, toolKey: pending.toolKey, called, status })
+        tracker.interaction({
+          module: "insight",
+          name: "mcp-chip-result",
+          extend: JSON.stringify({ functionId: pending.functionId, called, status }),
+        })
+      }
+    }
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
   // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
   // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
   const [composing, setComposing] = createSignal(false)
-  // 记录当前输入框文本「来自哪个预置胶囊」,用于把 preset 点击 → 实际发送的漏斗打通。
-  // 点胶囊时 set;输入框被清空(发送后 / 用户手动清空)时由下方 effect 解除关联,避免误把后续新文本算到该预置头上。
-  const [activePreset, setActivePreset] = createSignal<{ id: string; text: string } | null>(null)
-  createEffect(() => { if (prompt() === "") setActivePreset(null) })
+  // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
+  // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
+  // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。
+  const [mcpSelection, setMcpSelection] = createSignal<McpSelection | null>(null)
+  // chip turn 结果对账记录:chip 发送后记 user messageID,busy→idle 时对账工具调用结果(spec §5 埋点)。
+  let pendingChipResult: { messageID: string; functionId: string; toolKey: string } | null = null
   // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
   // 多容量:入队 push 追加(不再覆盖);abort 时清空当前 session 队列。
   // 存储提到模块级(utils/send-queue):按 sessionID 分桶,跨 session 且跨顶层 tab
@@ -609,6 +658,7 @@ function InsightContent() {
       filesById.clear()
       setAttachments([])
       setPrompt("")
+      setMcpSelection(null)
     }
     console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
   }, { defer: true }))
@@ -738,7 +788,17 @@ function InsightContent() {
    *   - consumeAttachments=false(刷新/终止/follow-up 按钮 inject):不消费附件,保留用户正在选的附件状态
    * spec: docs/specs/ui/task-card.md §6.1 + docs/specs/ui/insight-prompt-redesign.md §3.2
    */
-  async function doSendPrompt(sessionId: string, text: string, opts: { consumeAttachments: boolean; source: string }) {
+  async function doSendPrompt(
+    sessionId: string,
+    text: string,
+    opts: {
+      consumeAttachments: boolean
+      source: string
+      /** SPEC-INS-017 chip turn:注入 [MCP触发指令] 模板 + [MCP声明],tools gate 只放行所选工具。
+       *  typedText = 用户实际键入的文字(user_prompt 原文;text 参数是气泡可见文案,空输入时回落预置文案) */
+      chip?: { selection: McpSelection; typedText: string }
+    },
+  ) {
     // SPEC-INS-015 文件传参路由:发送时按「文件类 × 用途」分流(spec docs/specs/infra/insight-file-passing.md)。
     const done = opts.consumeAttachments ? attachments().filter((a) => a.status === "done") : []
     // 非图片(已导入 worktree、有本地 path):进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
@@ -755,6 +815,15 @@ function InsightContent() {
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
+    // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
+    // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
+    // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
+    const chipTemplate = opts.chip ? buildChipTemplate(opts.chip.selection, opts.chip.typedText) : undefined
+    const chipDeclaration = opts.chip ? buildChipDeclaration(opts.chip.selection, opts.chip.typedText) : undefined
+    if (chipTemplate && chipDeclaration) {
+      parts.push({ type: "text", text: chipTemplate, synthetic: true })
+      parts.push({ type: "text", text: chipDeclaration, synthetic: true })
+    }
     // ① txt/md → FilePart(file://, text/plain):opencode 组 prompt 时自动 Read 内联正文给本地模型读。
     //   (office 不走此路 —— FilePart 二进制会被 base64,② 由模型调 extract_document 读。)
     for (const a of localFiles) {
@@ -809,6 +878,18 @@ function InsightContent() {
         synthetic: true,
       } as Part)
     }
+    // chip 模板/声明镜像进 optimistic:与 server 回传同构,替换无闪烁(气泡本就不渲染 synthetic)
+    for (const t of [chipTemplate, chipDeclaration]) {
+      if (!t) continue
+      optimisticParts.push({
+        id: Identifier.ascending("part"),
+        sessionID: sessionId,
+        messageID,
+        type: "text",
+        text: t,
+        synthetic: true,
+      } as Part)
+    }
     // 图片 FilePart 也写入 optimistic → 缩略图乐观即显(InsightTurn 从图片 part 渲染);
     // server 回传同构,替换后无闪烁。txt/md FilePart 不入(InsightTurn 不从 part 渲染它们,由 [附件] 卡片覆盖)。
     for (const p of imageParts) {
@@ -843,7 +924,22 @@ function InsightContent() {
       messageID,
       cleanText: text,         // 用户可见文本
       uploadBlock,             // synthetic 上传块(喂给 LLM,气泡不显示)
+      chipTemplate,            // SPEC-INS-017 chip 注入模板(非 chip turn 为 undefined)
+      chipDeclaration,         // SPEC-INS-017 机器可读声明段
     })
+
+    // turn 级工具 gate(SPEC-INS-017 §3 方案 A):每次发送都带,非 chip turn 隐藏全部 MCP 业务工具,
+    // chip turn 只放行所选那一个。服务端会把它转成 session.permission,逐 turn 覆盖。
+    const toolGate = buildToolGate(opts.chip?.selection.preset.expectedTool)
+    if (opts.chip) {
+      console.log("[octo:chip] chip-send", {
+        sessionID: sessionId,
+        messageID,
+        functionId: opts.chip.selection.preset.id,
+        typedTextLen: opts.chip.typedText.length,
+        toolGate,
+      })
+    }
 
     // 回灌 send 记录到 debug-observer 环形缓冲（§SPEC-INS-011）
     insightDebug.recordSend({
@@ -880,7 +976,16 @@ function InsightContent() {
         model,
         parts,
         messageID,
+        tools: toolGate,
       })
+      // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
+      if (opts.chip) {
+        pendingChipResult = {
+          messageID,
+          functionId: opts.chip.selection.preset.id,
+          toolKey: mcpToolKey(opts.chip.selection.preset.expectedTool),
+        }
+      }
       console.log("[octo:prompt] sent (async)", {
         messageID,
         sessionID: sessionId,
@@ -899,8 +1004,8 @@ function InsightContent() {
     }
   }
 
-  function sendMessage(sessionId: string, text: string) {
-    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: "user" })
+  function sendMessage(sessionId: string, text: string, chip?: { selection: McpSelection; typedText: string }) {
+    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: chip ? "mcp-chip" : "user", chip })
   }
 
   /** 任务卡片"刷新 / 终止 / follow-up"按钮通过本函数 inject prompt;不消费附件状态 */
@@ -908,9 +1013,68 @@ function InsightContent() {
     return doSendPrompt(sessionId, text, { consumeAttachments: false, source })
   }
 
+  // ── MCP chip(SPEC-INS-017)─────────────────────────────────
+  // 可引用文件 = 会话历史所有 [附件] 清单聚合 + 本次待发送的非图片附件(按文件名去重)。
+  // 名集与 server 端 octo-upload-inject 的引用键表同源(清单文件名),声明只写这些名 → 插件必精确命中。
+  const mcpCandidateFiles = createMemo((): string[] => {
+    const seen = new Set<string>()
+    const names: string[] = []
+    const add = (name: string) => {
+      if (name && !seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+    for (const m of userMessages()) {
+      const parts = (sync.data.part[m.id] ?? []) as Array<{ type?: string; synthetic?: boolean; text?: string }>
+      for (const p of parts) {
+        if (p.type !== "text" || !p.synthetic || typeof p.text !== "string" || !p.text.startsWith("[附件]")) continue
+        for (const f of parseUploadedFiles(p.text)) add(f.filename)
+      }
+    }
+    for (const a of attachments()) {
+      if (a.status === "done" && !isImageFile(a.filename) && a.path) add(a.filename)
+    }
+    return names
+  })
+
+  function handleMcpSelect(sel: McpSelection) {
+    setMcpSelection(sel)
+    console.log("[octo:chip] chip-select", {
+      functionId: sel.preset.id,
+      candidateCount: mcpCandidateFiles().length,
+    })
+    // spec §5 chip 点击:功能 + 所选文件 token 估算。客户端估算只覆盖本次待发送附件(有字节数);
+    // 历史轮文件客户端拿不到大小,不计入 —— 精确值以 server 端 [octo:extract] 为准。
+    const pendingBytes = attachments()
+      .filter((a) => a.status === "done" && !isImageFile(a.filename) && a.path)
+      .reduce((sum, a) => sum + a.size, 0)
+    tracker.interaction({
+      module: "insight",
+      name: "mcp-chip-select",
+      extend: JSON.stringify({
+        functionId: sel.preset.id,
+        fileCount: mcpCandidateFiles().length,
+        pendingBytes,
+        tokenEstimate: Math.round(pendingBytes / 4),
+      }),
+    })
+    requestAnimationFrame(() => textareaRef?.focus())
+  }
+
+  function handleMcpClear() {
+    const sel = mcpSelection()
+    if (!sel) return
+    setMcpSelection(null)
+    console.log("[octo:chip] chip-clear", { functionId: sel.preset.id })
+    tracker.interaction({ module: "insight", name: "mcp-chip-clear", extend: JSON.stringify({ functionId: sel.preset.id }) })
+  }
+
   async function handleSubmit(trigger: "button" | "enter" = "button") {
-    const text = prompt().trim()
-    if (!text || hasUploadingAttachments()) return
+    const typed = prompt().trim()
+    const chipSel = mcpSelection()
+    // chip 选中时允许空文本发送(纯 chip 触发;可见文案回落预置文案)
+    if ((!typed && !chipSel) || hasUploadingAttachments()) return
 
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
     if (!local.model.current()) {
@@ -926,11 +1090,16 @@ function InsightContent() {
       return
     }
 
+    // ── chip turn(SPEC-INS-017):不设文件门槛——缺材料由模型在对话里向用户索取(我们做的是
+    // Agent 不是表单);多角色分桶归模型(拿不准时先向用户确认)。chip 是常驻模式,busy 时照常
+    // 入队,flush 时按当时的 chip 状态携带(见 flushQueueHead),无需特殊拦截。──
+    const chipPayload = chipSel ? { selection: chipSel, typedText: typed } : undefined
+
+    // 气泡可见文案:用户键入优先;纯 chip 触发回落该功能的预置文案(SPEC-INS-007 设计师文案)
+    const text = typed || (chipSel?.preset.text ?? "")
+
     // welcome 入口(无会话或会话尚无用户消息)vs 对话内继续追问,用 source 区分
     const source = params.id && userMessages().length > 0 ? "conversation" : "welcome"
-    // 若本条文本源自某预置胶囊,带上 presetId(打通「点胶囊→实际发送」漏斗);presetEdited 标记用户是否改过预置文案。
-    // 非预置来源时 presetId/presetEdited 为 undefined,JSON.stringify 自动剔除。
-    const ap = activePreset()
     tracker.interaction({
       module: "insight",
       name: "message-send",
@@ -939,12 +1108,12 @@ function InsightContent() {
         source,
         attachmentCount: attachments().length,
         textLength: text.length,
-        presetId: ap?.id,
-        presetEdited: ap ? text !== ap.text.trim() : undefined,
+        mcpFunction: chipPayload?.selection.preset.id,
       }),
     })
 
     setPrompt("")
+    // chip 不随发送复位(纯常驻,对齐 GPT/Gemini 工具模式,只手动 × 取消)
 
     // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
     if (isWorking()) {
@@ -961,7 +1130,7 @@ function InsightContent() {
       if (!sid) { sendingNavigation = false; return }
     }
     autoScroll.forceScrollToBottom()
-    await sendMessage(sid, text)
+    await sendMessage(sid, text, chipPayload)
   }
 
   // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
@@ -974,7 +1143,9 @@ function InsightContent() {
     const [next, ...rest] = q
     setQueueFor(sid, () => rest)
     console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
-    void sendMessage(sid, next)
+    // chip 是常驻模式:按 flush 那一刻的选择态携带(队列只存文本;发出那一刻输入框是什么模式就是什么模式)
+    const chipSel = mcpSelection()
+    void sendMessage(sid, next, chipSel ? { selection: chipSel, typedText: next } : undefined)
   }
 
   // busy → idle 那一刻自动 flush 队首
@@ -1014,23 +1185,10 @@ function InsightContent() {
   // 输入框空 + AI 忙(含 retry)→ 发送键变为停止键;retry 期间同样可点终止
   const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
-  function handlePresetClick(preset: PresetPrompt, from: "welcome" | "conversation") {
-    setPrompt(preset.text)
-    setActivePreset({ id: preset.id, text: preset.text })
-    console.log("[octo:preset] click", { id: preset.id, expectedTool: preset.expectedTool })
-    // 按 presetId 分开打点,支持后续对每个胶囊功能单独统计点击量;source 区分 welcome/conversation
-    tracker.interaction({
-      module: "insight",
-      name: "preset-click",
-      extend: JSON.stringify({ presetId: preset.id, source: from }),
-    })
-    requestAnimationFrame(() => {
-      textareaRef?.focus()
-      // 光标移到文末,便于用户继续编辑
-      const len = preset.text.length
-      try { textareaRef?.setSelectionRange(len, len) } catch { /* noop */ }
-    })
-  }
+  // 发送键禁用:无内容(文本 / MCP chip 二者皆无)或附件上传中;chip 选中时允许空文本发送(SPEC-INS-017)
+  const sendDisabled = createMemo(
+    () => !stopping() && ((!prompt().trim() && !mcpSelection()) || hasUploadingAttachments()),
+  )
 
   // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
   // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
@@ -1568,11 +1726,6 @@ function InsightContent() {
                   </div>
 
                   <div style={{ "margin-top": "80px", width: "100%", "max-width": "800px" }}>
-                    <PresetPrompts
-                      prompts={PRESET_PROMPTS}
-                      onClick={(preset) => handlePresetClick(preset, "welcome")}
-                    />
-
                     <div
                       class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
@@ -1605,7 +1758,7 @@ function InsightContent() {
                         onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        placeholder="请描述您的需求..."
+                        placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
                         class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
                         style={{
                           color: "var(--octo-text-primary)",
@@ -1659,15 +1812,24 @@ function InsightContent() {
                           <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                         </ModelSelectorPopover>
 
+                        {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
+                        <McpChip
+                          functions={PRESET_PROMPTS}
+                          selection={mcpSelection()}
+                          onSelect={handleMcpSelect}
+                          onClear={handleMcpClear}
+                          onOpenMenu={() => tracker.interaction({ module: "insight", name: "mcp-chip-open" })}
+                        />
+
                         <button
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit("button")}
-                          disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                          disabled={sendDisabled()}
                           title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                           class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                           style={{
-                            opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
-                            filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
+                            opacity: sendDisabled() ? 0.4 : 1,
+                            filter: sendDisabled() ? "grayscale(0.5)" : "none",
                           }}
                         >
                           <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
@@ -1769,13 +1931,6 @@ function InsightContent() {
                   </div>
                 </Show>
 
-                {/* 预置提示词按钮 (SPEC-INS-007 §3.1.3):放在输入框白卡片之外,
-                    视觉层级:辅助操作浮在输入框上方,与卡片解耦 */}
-                <PresetPrompts
-                  prompts={PRESET_PROMPTS}
-                  onClick={(preset) => handlePresetClick(preset, "conversation")}
-                />
-
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
@@ -1809,7 +1964,7 @@ function InsightContent() {
                     onCompositionEnd={() => setComposing(false)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder="请描述您的需求..."
+                    placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
                     class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
@@ -1863,15 +2018,24 @@ function InsightContent() {
                       <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                     </ModelSelectorPopover>
 
+                    {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
+                    <McpChip
+                      functions={PRESET_PROMPTS}
+                      selection={mcpSelection()}
+                      onSelect={handleMcpSelect}
+                      onClear={handleMcpClear}
+                      onOpenMenu={() => tracker.interaction({ module: "insight", name: "mcp-chip-open" })}
+                    />
+
                     <button
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
-                      disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                      disabled={sendDisabled()}
                       title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
                       class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
                       style={{
-                        opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
-                        filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
+                        opacity: sendDisabled() ? 0.4 : 1,
+                        filter: sendDisabled() ? "grayscale(0.5)" : "none",
                       }}
                     >
                       <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>

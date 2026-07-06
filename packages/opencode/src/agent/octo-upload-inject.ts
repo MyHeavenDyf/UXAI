@@ -22,11 +22,58 @@ import { readFile } from "node:fs/promises"
  *   URL 全程由本插件生成注入),ADR-014 当初怕的"弱模型抄坏 URL"根因已消失;文件名人类可读、不漏 id 进对话。
  * 为什么是"纯解析器":不按工具名分支(不依赖 uxr-tool_ 前缀)、不依赖字段名;只替换模型明确引用的文件名。
  *
+ * SPEC-INS-017 §2.1 追加(chip 声明路径,通用路径之上的确定性层;2026-07-06 修订):chip turn 的
+ *   user 消息带 `[MCP声明]`(目标工具 + 是否需要大纲字段 + 用户原文)。声明命中时对该调用做
+ *   **字段级校验与确定性注入**——download_links / outline_file_path 里的文件名必须精确命中清单
+ *   (miss / 缺字段 / 为空 → 抛错响亮失败,错误信息带可用文件清单让模型重试),命中后替换成 URL 并
+ *   注入 download_file_names / outline_file_name / user_prompt(该路径按字段名写入,mcp-contract
+ *   契约字段,改名需同步)。**不覆盖文件集**:哪些文件、谁是大纲由模型决定(拿不准由它向用户确认),
+ *   客户端只钉「触发」与「URL 传递」两件事。非 chip turn 无声明 → 下方通用路径行为不变。
+ *
  * 约束:必须「就地改写」output.args(prompt.ts 的 execute 用的是同一对象引用),不能整体重新赋值。
  */
 
 const UPLOAD_BLOCK_HEADER = "[附件]"
 const LOG = "[octo:inject]"
+
+// ── SPEC-INS-017 §2.1:chip 声明校验与注入(2026-07-06 修订) ────────
+// chip turn 的客户端在 user 消息里注入 `[MCP声明]` synthetic part(与 [附件] 清单同机制),
+// 声明目标工具 + 是否需要大纲字段 + 用户原文。本插件读到声明且 input.tool 匹配时,对文件字段做
+// **精确校验**(文件名必须命中清单,否则响亮失败并回灌可用文件列表)、URL 替换与确定性注入
+// (download_file_names / outline_file_name / user_prompt)。文件集与角色分桶归模型,不覆盖。
+// 格式契约与客户端 pages/insight/store/mcp-trigger.ts buildChipDeclaration 同源
+// (两处独立实现,改格式需同步)。
+//
+// MCP server 前缀:octo_insight 绑定内置 server "uxr-tool"(config/builtin-mcp.ts 固定键,
+// 用户覆盖配置沿用同键),工具注册键 = `uxr-tool_<tool>`。仅对该前缀的调用做声明查找,
+// 非 MCP 工具保持 hasFileRef 零开销早退。
+const MCP_TOOL_PREFIX = "uxr-tool_"
+const MCP_DECLARATION_HEADER = "[MCP声明]"
+
+type ChipDeclaration = {
+  tool: string
+  // 该工具是否要求 outline_file_path(多角色工具);按声明校验必填,免于按工具名硬编码
+  outline_required: boolean
+  // 用户当轮提示词原文(mcp-contract:原样透传不改写),有值时强制覆盖
+  user_prompt?: string
+}
+
+// 「user_prompt 矫正命中」进程内计数(spec §2.1 度量):模型改写用户原文、被声明矫正的次数。
+let chipCorrectionHits = 0
+
+// 解析一段 [MCP声明] 区块文本 → ChipDeclaration。格式坏 = 客户端 bug,返回 Error 由调用方响亮失败。
+function parseChipDeclaration(text: string): ChipDeclaration | Error {
+  const jsonStart = text.indexOf(MCP_DECLARATION_HEADER) + MCP_DECLARATION_HEADER.length
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart).trim()) as ChipDeclaration
+    if (typeof parsed?.tool !== "string" || typeof parsed?.outline_required !== "boolean") {
+      return new Error("[MCP声明] 缺少 tool / outline_required 字段")
+    }
+    return parsed
+  } catch (e) {
+    return new Error(`[MCP声明] JSON 解析失败:${e instanceof Error ? e.message : String(e)}`)
+  }
+}
 
 // 非图片可喂 MCP 的文件扩展名(图片走 vision、不入此路)。仅作**早退预筛**:args 里没有任何
 // 以这些扩展名结尾的字符串,就别去拉 session 消息(非文件工具一律零开销放行)。
@@ -178,6 +225,82 @@ async function uploadLocalFile(localPath: string, endpoint: string): Promise<str
   return url
 }
 
+// chip 声明校验与注入(SPEC-INS-017 §2.1,2026-07-06 修订):
+//   - 文件集与角色分桶归模型(声明不再携带文件映射),本函数只保证「URL 传递固定」:
+//     download_links / outline_file_path 里模型填的每个引用必须**精确命中**清单(三键之一),
+//     命中后按需上传、就地替换成 URL;任何 miss / 缺字段 / 空列表 → 抛错响亮失败,
+//     错误信息附可用文件清单,回灌模型让其重填或向用户索取材料。
+//   - 确定性注入:download_file_names / outline_file_name(= 命中文件的磁盘落地名,与 URL 下标对齐)、
+//     user_prompt(声明携带的用户原文,模型转述一律矫正)。
+async function enforceChipDeclaration(
+  decl: ChipDeclaration,
+  input: { tool: string; sessionID: string },
+  output: { args: unknown },
+  refToPath: Map<string, string>,
+  manifestNames: string[],
+): Promise<void> {
+  const available = manifestNames.length > 0 ? `当前可用文件:${manifestNames.join("、")}` : "当前会话没有任何可用附件"
+  // 必须「就地改写」:prompt.ts 的 execute 持有的是同一 args 对象引用,整体重赋值不生效
+  if (!output.args || typeof output.args !== "object" || Array.isArray(output.args)) {
+    throw new Error(`工具参数不是有效对象,请按参数说明重新调用(args=${JSON.stringify(output.args)})`)
+  }
+  const args = output.args as Record<string, unknown>
+
+  const dl = args["download_links"]
+  if (!Array.isArray(dl) || dl.length === 0 || dl.some((v) => typeof v !== "string")) {
+    throw new Error(
+      `download_links 必须是非空的文件名字符串数组。${available}。没有可用附件时不要调用本工具,请先让用户上传材料。`,
+    )
+  }
+  const outline = args["outline_file_path"]
+  if (decl.outline_required && typeof outline !== "string") {
+    throw new Error(`本工具要求 outline_file_path 填一个大纲/任务书的文件名。${available}。无法判断哪个是大纲时请先向用户确认。`)
+  }
+
+  // 每个引用必须精确命中清单(文件名/完整路径/磁盘 basename 三键;不做任何模糊匹配)
+  const resolvePath = (ref: string): string => {
+    const p = refToPath.get(ref)
+    if (!p) {
+      throw new Error(`文件引用「${ref}」不在 [附件] 清单中(需一字不差照抄清单里的文件名)。${available}`)
+    }
+    return p
+  }
+  const dlPaths = (dl as string[]).map(resolvePath)
+  const outlinePath = typeof outline === "string" ? resolvePath(outline) : undefined
+
+  const endpoint = process.env.OCTO_UPLOAD_ENDPOINT
+  if (!endpoint) {
+    console.error(`${LOG} OCTO_UPLOAD_ENDPOINT 未配置,无法按需上传`, { tool: input.tool })
+    throw new Error("上传服务未配置 (OCTO_UPLOAD_ENDPOINT)，无法处理文件参数")
+  }
+
+  const before = JSON.stringify(args)
+  // 替换成 URL;file_names = 磁盘落地名(basename,与展示名/清单名一致),与 URL 数组下标对齐
+  const dlUrls: string[] = []
+  for (const p of dlPaths) dlUrls.push(await uploadLocalFile(p, endpoint))
+  args["download_links"] = dlUrls
+  args["download_file_names"] = dlPaths.map(baseNameOf)
+  if (outlinePath) {
+    args["outline_file_path"] = await uploadLocalFile(outlinePath, endpoint)
+    args["outline_file_name"] = baseNameOf(outlinePath)
+  }
+
+  // user_prompt 原文透传(mcp-contract):模型转述/裁剪一律矫正回原文;声明无该字段时不动模型的值
+  const userPromptCorrected = typeof decl.user_prompt === "string" && args["user_prompt"] !== decl.user_prompt
+  if (typeof decl.user_prompt === "string") args["user_prompt"] = decl.user_prompt
+  if (userPromptCorrected) chipCorrectionHits += 1
+
+  console.log(`${LOG} chip-declaration enforced`, {
+    tool: input.tool,
+    sessionID: input.sessionID,
+    files: dlUrls.length + (outlinePath ? 1 : 0),
+    userPromptCorrected, // true = 模型改写了用户原文、被矫正(spec §2.1 度量)
+    correctionHits: chipCorrectionHits, // 进程内累计
+    before,
+    after: JSON.stringify(args),
+  })
+}
+
 export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
   return {
     "tool.execute.before": async (input, output) => {
@@ -186,6 +309,70 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       if (input.tool === "extract_document" || input.tool.endsWith("_extract_document")) return
 
       // 早退:args 里没有任何"以文档扩展名结尾"的串,就别去拉消息(非文件工具一律零开销放行)。
+      // 例外:MCP 工具(uxr-tool_*)不能靠 args 早退——chip 声明路径(SPEC-INS-017 §2.1)要接管的
+      // 正是"模型漏填/写坏文件参数"的情况,此时 args 里可能根本没有文件名形态串。
+      const isMcpTool = input.tool.startsWith(MCP_TOOL_PREFIX)
+      if (!isMcpTool && !hasFileRef(output.args)) return
+
+      // 聚合**整个 session** 所有 user 消息里的 [附件] 区块,建「引用 → 本地路径」总表。
+      // 引用收录**文件名 / 完整路径 / 路径 basename** 三种键:提示词要模型填文件名,但内网弱模型
+      // 可能照抄清单里的完整路径、或从 extract_document 的路径参数里抄磁盘 basename(撞名后缀名,
+      // 与清单文件名可能不同)—— 三种都认,避免"引用了文件却没上传、把裸文件名/本地路径丢给 MCP"。
+      // 同一次拉取顺带取**当前 turn(最后一条 user 消息)**的 [MCP声明](仅 chip turn 存在)。
+      const refToPath = new Map<string, string>()
+      const manifestNames: string[] = [] // 清单文件名(去重),用于 chip 校验失败时回灌"可用文件"提示
+      let declarationText: string | undefined
+      try {
+        const res = await client.session.messages({ path: { id: input.sessionID } })
+        const msgs =
+          (res as { data?: Array<{ info?: { role?: string }; parts?: Array<{ type?: string; text?: string }> }> })
+            .data ?? []
+        let lastUser: (typeof msgs)[number] | undefined
+        for (const m of msgs) {
+          if (m.info?.role !== "user") continue
+          lastUser = m
+          for (const p of m.parts ?? []) {
+            if (p.type !== "text" || typeof p.text !== "string" || !p.text.includes(UPLOAD_BLOCK_HEADER)) continue
+            for (const f of parseManifest(p.text)) {
+              if (!refToPath.has(f.filename)) manifestNames.push(f.filename)
+              refToPath.set(f.filename, f.path)
+              refToPath.set(f.path, f.path)
+              refToPath.set(baseNameOf(f.path), f.path)
+            }
+          }
+        }
+        // 声明只认**当前 turn**:chip 是单 turn 语义,历史 turn 的声明不得影响本次调用
+        if (isMcpTool && lastUser) {
+          declarationText = (lastUser.parts ?? []).find(
+            (p) => p.type === "text" && typeof p.text === "string" && p.text.includes(MCP_DECLARATION_HEADER),
+          )?.text
+        }
+      } catch (err) {
+        console.error(`${LOG} failed to read session messages`, { tool: input.tool, sessionID: input.sessionID, err })
+        return // 读取失败不强改,交回模型原值
+      }
+
+      // ── chip 声明强制对齐(SPEC-INS-017 §2.1)──────────────────
+      if (declarationText) {
+        const decl = parseChipDeclaration(declarationText)
+        if (decl instanceof Error) {
+          // 声明格式坏 = 客户端 bug:响亮失败,不静默降级到"信模型抄写"的旧路径
+          console.error(`${LOG} chip-declaration parse failed`, { tool: input.tool, sessionID: input.sessionID, err: decl.message })
+          throw decl
+        }
+        if (decl.tool === input.tool) {
+          await enforceChipDeclaration(decl, input, output, refToPath, manifestNames)
+          return // 声明路径已完成校验/替换/注入,不再走下方通用替换
+        }
+        // 声明存在但目标工具不同(如 chip turn 里模型违规调了 get_task_result):按无声明处理
+        console.warn(`${LOG} chip-declaration tool mismatch, fallthrough`, {
+          tool: input.tool,
+          declaredTool: decl.tool,
+          sessionID: input.sessionID,
+        })
+      }
+
+      // ── 以下为原按需上传路径(非 chip turn / 声明工具不匹配),机制不变 ──
       if (!hasFileRef(output.args)) return
 
       const endpoint = process.env.OCTO_UPLOAD_ENDPOINT
@@ -193,32 +380,6 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
         // 没配端点 → 无法按需上传。抛错让工具失败、错误回灌模型,而非把本地路径喂给 MCP(必 404)。
         console.error(`${LOG} OCTO_UPLOAD_ENDPOINT 未配置,无法按需上传`, { tool: input.tool })
         throw new Error("上传服务未配置 (OCTO_UPLOAD_ENDPOINT)，无法处理文件参数")
-      }
-
-      // 聚合**整个 session** 所有 user 消息里的 [附件] 区块,建「引用 → 本地路径」总表。
-      // 引用收录**文件名 / 完整路径 / 路径 basename** 三种键:提示词要模型填文件名,但内网弱模型
-      // 可能照抄清单里的完整路径、或从 extract_document 的路径参数里抄磁盘 basename(撞名后缀名,
-      // 与清单文件名可能不同)—— 三种都认,避免"引用了文件却没上传、把裸文件名/本地路径丢给 MCP"。
-      const refToPath = new Map<string, string>()
-      try {
-        const res = await client.session.messages({ path: { id: input.sessionID } })
-        const msgs =
-          (res as { data?: Array<{ info?: { role?: string }; parts?: Array<{ type?: string; text?: string }> }> })
-            .data ?? []
-        for (const m of msgs) {
-          if (m.info?.role !== "user") continue
-          for (const p of m.parts ?? []) {
-            if (p.type !== "text" || typeof p.text !== "string" || !p.text.includes(UPLOAD_BLOCK_HEADER)) continue
-            for (const f of parseManifest(p.text)) {
-              refToPath.set(f.filename, f.path)
-              refToPath.set(f.path, f.path)
-              refToPath.set(baseNameOf(f.path), f.path)
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`${LOG} failed to read session messages`, { tool: input.tool, sessionID: input.sessionID, err })
-        return // 读取失败不强改,交回模型原值
       }
 
       if (refToPath.size === 0) {
