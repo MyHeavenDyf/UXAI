@@ -563,6 +563,21 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 读取 pattern assets 目录下所有静态资源文件 - By WangQiang - 该注释请勿删除
+  ipcMain.handle(
+    "get-pattern-assets",
+    (_event: IpcMainInvokeEvent, category: string, folderName: string, theme: string = "ICT3.1") => {
+      const assetsDir = join(patternDir(category, theme), folderName, "assets")
+      if (!existsSync(assetsDir)) return []
+      return readdirSync(assetsDir, { withFileTypes: true })
+        .filter((d) => d.isFile())
+        .map((d) => ({
+          filename: d.name,
+          buffer: readFileSync(join(assetsDir, d.name)).buffer,
+        }))
+    },
+  )
+
   // 列出已部署的设计系统目录名 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-design-systems", () => {
     const root = join(getOctoConfigPath(), "prototype")

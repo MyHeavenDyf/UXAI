@@ -36,7 +36,7 @@ import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
 import { PatternMatchPage } from "./modules/preview/pattern-match-page"
 import type { PatternMatchItem } from "./utils/pattern-resource"
-import { readPatternFile } from "./utils/pattern-resource"
+import { readPatternFile, readPatternAssets, saveUploadImage, replacePatternAssetPaths } from "./utils/pattern-resource"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
@@ -46,7 +46,6 @@ import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
-import { truncateSync } from "fs"
 import type { A2UIDocument } from "./utils/a2ui-protocol"
 
 const AGENT_NAME = "proto_triage"
@@ -716,7 +715,7 @@ function PatternContent() {
     }
   }
 
-  // 用户点击「选择当前模板」时，加载 pattern 文件内容并触发渲染
+  // 用户点击「选择当前模板」时，加载 pattern 文件内容、拷贝静态资源并触发渲染
   async function handleSelectTemplate(match: PatternMatchItem) {
     const sid = params.id
     if (!sid) return
@@ -724,6 +723,18 @@ function PatternContent() {
     const content = await readPatternFile("page", match.pattern.path, ds)
     if (!content) return
     const { lastIntent, lastPlanner, lastModules, mergedA2UI } = JSON.parse(content)
+    // 从 path 提取文件夹名: "./ChainThoughtPage/data.json" → "ChainThoughtPage"
+    const folderName = match.pattern.path.split("/").slice(0, -1).pop() || ""
+    const assets = await readPatternAssets("page", folderName, ds)
+    const replacements: Record<string, string> = {}
+    for (const a of assets) {
+      const url = await saveUploadImage(a.buffer, sid)
+      if (url) replacements[a.filename] = url
+    }
+
+    // 替换 lastModules 和 mergedA2UI 中的资源路径
+    const patchedModules = replacePatternAssetPaths(lastModules, replacements)
+    const patchedA2UI = replacePatternAssetPaths(mergedA2UI, replacements)
 
     setShowPatternMatch(false)
 
@@ -731,24 +742,24 @@ function PatternContent() {
     if (dir) {
       await clearReviewCheckpoint(dir, sid)
       await updatePatternVersion(dir, sid, {
-        lastModules,
-        mergedA2UI,
+        lastModules: patchedModules,
+        mergedA2UI: patchedA2UI,
       })
       void saveDebugSnapshot(dir, sid, "template", {
         lastIntent,
         lastPlanner,
-        lastModules,
-        mergedA2UI,
+        lastModules: patchedModules,
+        mergedA2UI: patchedA2UI,
         summary: userInput().slice(0, 80),
       })
       clearDebugLog()
     }
 
     if (params.id !== sid) return
-    sendToPreview(mergedA2UI)
+    sendToPreview(patchedA2UI)
     setLastIntent(lastIntent)
     setLastPlanner(lastPlanner)
-    setLastModules(lastModules)
+    setLastModules(patchedModules)
   }
 
   // 线框审查确认后，继续执行阶段 2：模块生成
