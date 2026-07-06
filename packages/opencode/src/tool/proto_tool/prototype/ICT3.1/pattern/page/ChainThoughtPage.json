@@ -1,0 +1,2060 @@
+{
+  "lastIntent": {
+    "pageDescription": "该界面是网络运维管理平台中的策略中心模块，旨在集中管理不同区域（FI-Region）的思维链策略。用户通过顶部导航和侧边栏进入该模块后，可切换思维链类型、筛选区域、搜索策略，并对列表中的策略执行删除、禁用、创建等操作。界面强调信息分层与批量操作效率，面向运维工程师。",
+    "layoutDescription": "顶部固定导航栏（48px高度）包含品牌标识与用户入口；内容区左右分割：左侧折叠侧边栏（74px宽度）放置Logo与导航菜单；右侧主区域为圆角卡片，卡片内自上而下依次为标题、一级Tabs、二级Tabs、工具栏和策略列表。",
+    "sections": [
+      {
+        "id": "headerNavigation",
+        "name": "Header Navigation",
+        "intent": "提供全局系统标识与用户核心操作入口，帮助用户快速识别当前平台并访问帮助、语言、主题及个人中心。",
+        "function": "显示品牌Logo与应用名称；提供汉堡菜单图标用于侧边栏展开/收起；展示帮助、语言切换、日间/夜间主题切换、用户头像及用户名入口。"
+      },
+      {
+        "id": "sidebar",
+        "name": "Sidebar",
+        "intent": "提供主要功能模块的导航入口以及常用操作的快捷按钮，帮助用户在不同页面间切换。",
+        "function": "展示系统Logo（小尺寸）；展开/折叠菜单显示五个导航项；底部固定两个图标按钮用于帮助或退出等辅助操作。"
+      },
+      {
+        "id": "mainCard",
+        "name": "Main Card",
+        "intent": "集中展示策略中心的核心内容，支持思维链类型切换、区域过滤、策略搜索与管理操作，并为用户提供清晰的策略列表视图。",
+        "function": "显示标题「策略中心」；提供一级Tabs切换（故障思维链、XXX思维链、自定义思维链）；提供二级Tabs筛选（FI-Region01~05）；提供搜索框、删除、禁用、创建按钮；渲染策略列表（6行，每行10个字段列）。"
+      }
+    ]
+  },
+  "lastPlanner": {
+    "rootId": "pageShellRoot",
+    "elements": [
+      {
+        "id": "pageShellRoot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "headerShellContainer",
+          "contentShellArea"
+        ]
+      },
+      {
+        "id": "headerShellContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between h-12 px-8 bg-surface-container-highest shadow-sm"
+        },
+        "children": []
+      },
+      {
+        "id": "contentShellArea",
+        "component": "div",
+        "props": {
+          "className": "flex flex-1 overflow-hidden"
+        },
+        "children": [
+          "sideShellContainer",
+          "mainShellContainer"
+        ]
+      },
+      {
+        "id": "sideShellContainer",
+        "component": "div",
+        "props": {
+          "className": "w-[74px] flex-shrink-0 bg-surface-container-highest shadow-sm flex flex-col items-center pb-4 pt-4"
+        },
+        "children": []
+      },
+      {
+        "id": "mainShellContainer",
+        "component": "div",
+        "props": {
+          "className": "flex-1 m-6 rounded-xl bg-surface-container-highest shadow-sm"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "headerNavigation",
+        "element_id": "headerShellContainer",
+        "id_prefix": "header"
+      },
+      {
+        "section_id": "sidebar",
+        "element_id": "sideShellContainer",
+        "id_prefix": "sidebar"
+      },
+      {
+        "section_id": "mainCard",
+        "element_id": "mainShellContainer",
+        "id_prefix": "mainCard"
+      }
+    ]
+  },
+  "lastModules": [
+    {
+      "state": {
+        "logoImage": "./pattern/logo-master.svg",
+        "systemName": "IMaster NCE",
+        "userName": "Admin"
+      },
+      "rootId": "headerShellContainer",
+      "elements": [
+        {
+          "id": "headerShellContainer",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between h-12 px-8 bg-surface-container-highest shadow-sm"
+          },
+          "children": [
+            "hdrLeftSection",
+            "hdrRightSection"
+          ]
+        },
+        {
+          "id": "hdrLeftSection",
+          "component": "div",
+          "props": {
+            "className": "flex items-center"
+          },
+          "children": [
+            "hdrHamburgerIcon",
+            "hdrLogoImg",
+            "hdrSystemName"
+          ]
+        },
+        {
+          "id": "hdrHamburgerIcon",
+          "component": "Icon",
+          "props": {
+            "name": "menu",
+            "shape": "outline",
+            "className": "w-5 h-5 text-on-surface cursor-pointer"
+          }
+        },
+        {
+          "id": "hdrLogoImg",
+          "component": "img",
+          "props": {
+            "src": {
+              "path": "/logoImage"
+            },
+            "className": "w-[19px] h-[19px] object-contain ml-6 mr-[6px]",
+            "alt": "Logo"
+          }
+        },
+        {
+          "id": "hdrSystemName",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "/systemName"
+            },
+            "className": "text-lg text-on-surface"
+          }
+        },
+        {
+          "id": "hdrRightSection",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-7"
+          },
+          "children": [
+            "hdrHelpIcon",
+            "hdrLangIcon",
+            "hdrSunIcon",
+            "hdrUserSection"
+          ]
+        },
+        {
+          "id": "hdrHelpIcon",
+          "component": "Icon",
+          "props": {
+            "name": "help-circle",
+            "shape": "outline",
+            "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+          }
+        },
+        {
+          "id": "hdrLangIcon",
+          "component": "Icon",
+          "props": {
+            "name": "languages",
+            "shape": "outline",
+            "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+          }
+        },
+        {
+          "id": "hdrSunIcon",
+          "component": "Icon",
+          "props": {
+            "name": "sun",
+            "shape": "outline",
+            "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+          }
+        },
+        {
+          "id": "hdrUserSection",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-2"
+          },
+          "children": [
+            "hdrUserIcon",
+            "hdrUserName"
+          ]
+        },
+        {
+          "id": "hdrUserIcon",
+          "component": "Icon",
+          "props": {
+            "name": "user",
+            "shape": "outline",
+            "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+          }
+        },
+        {
+          "id": "hdrUserName",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "/userName"
+            },
+            "className": "text-md text-on-surface"
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "menuItems": [
+          {
+            "icon": "home",
+            "title": "首页",
+            "key": "home"
+          },
+          {
+            "icon": "settings",
+            "title": "配置",
+            "key": "settings"
+          },
+          {
+            "icon": "bar-chart-3",
+            "title": "监控",
+            "key": "monitor"
+          },
+          {
+            "icon": "file-text",
+            "title": "日志",
+            "key": "logs"
+          },
+          {
+            "icon": "package",
+            "title": "管理",
+            "key": "product"
+          }
+        ]
+      },
+      "rootId": "sideShellContainer",
+      "elements": [
+        {
+          "id": "sideShellContainer",
+          "component": "div",
+          "props": {
+            "className": "w-[74px] flex-shrink-0 bg-surface-container-highest shadow-sm flex flex-col items-center pb-4 pt-4"
+          },
+          "children": [
+            "sdbLogoContainer",
+            "sdbMenuContainer",
+            "sdbBottomContainer"
+          ]
+        },
+        {
+          "id": "sdbLogoContainer",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-center w-12 h-12"
+          },
+          "children": [
+            "sdbLogoImg"
+          ]
+        },
+        {
+          "id": "sdbLogoImg",
+          "component": "img",
+          "props": {
+            "src": "./pattern/icon-arouse.svg",
+            "className": "w-6 h-6",
+            "alt": "Logo"
+          }
+        },
+        {
+          "id": "sdbMenuContainer",
+          "component": "div",
+          "props": {
+            "className": "flex-1 w-full flex flex-col items-center"
+          },
+          "children": [
+            "sdbMainMenu"
+          ]
+        },
+        {
+          "id": "sdbMainMenu",
+          "component": "Menu",
+          "props": {
+            "mode": "vertical",
+            "inlineCollapsed": true,
+            "selectedKeys": [],
+            "items": {
+              "path": "/menuItems"
+            },
+            "className": "w-full bg-transparent"
+          }
+        },
+        {
+          "id": "sdbBottomContainer",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col items-center gap-3 mt-auto pt-4"
+          },
+          "children": [
+            "sdbHelpBtn",
+            "sdbLogoutBtn"
+          ]
+        },
+        {
+          "id": "sdbHelpBtn",
+          "component": "Button",
+          "props": {
+            "icon": "help-circle",
+            "shape": "circle",
+            "className": "w-12 h-12 flex items-center justify-center"
+          }
+        },
+        {
+          "id": "sdbLogoutBtn",
+          "component": "Button",
+          "props": {
+            "icon": "log-out",
+            "shape": "circle",
+            "className": "w-12 h-12 flex items-center justify-center"
+          }
+        }
+      ]
+    },
+    {
+      "state": {
+        "searchVal": "",
+        "activeTabKey": "fault",
+        "activeSecondaryTab": "FI-Region01",
+        "secondaryTabs": [
+          {
+            "key": "FI-Region01",
+            "label": "FI-Region01"
+          },
+          {
+            "key": "FI-Region02",
+            "label": "FI-Region02"
+          },
+          {
+            "key": "FI-Region03",
+            "label": "FI-Region03"
+          },
+          {
+            "key": "FI-Region04",
+            "label": "FI-Region04"
+          },
+          {
+            "key": "FI-Region05",
+            "label": "FI-Region05"
+          }
+        ],
+        "listItems": [
+          {
+            "col1Img": "./pattern/icon-thought.svg",
+            "col1Top": "思维链名称",
+            "col1Bottom": "验证Telemetry场景级思维链",
+            "col2Top": "故障级别",
+            "col2Bottom": "紧急",
+            "col3Top": "描述",
+            "col3Bottom": "验证Telemetry场景级思维链",
+            "col4Status": true,
+            "col4Text": "成功",
+            "col5Value": true,
+            "col6Top": "创建时间",
+            "col6Bottom": "2025-05-11 10:11:24",
+            "col7Top": "更新时间",
+            "col7Bottom": "2025-05-11 10:11:24",
+            "col8Top": "更新用户",
+            "col8Bottom": "admin",
+            "col9Top": "最新版本",
+            "col9Bottom": "V3 历史版本"
+          },
+          {
+            "col1Img": "./pattern/icon-thought.svg",
+            "col1Top": "思维链名称",
+            "col1Bottom": "验证Telemetry场景级思维链",
+            "col2Top": "故障级别",
+            "col2Bottom": "紧急",
+            "col3Top": "描述",
+            "col3Bottom": "验证Telemetry场景级思维链",
+            "col4Status": true,
+            "col4Text": "成功",
+            "col5Value": true,
+            "col6Top": "创建时间",
+            "col6Bottom": "2025-05-11 10:11:24",
+            "col7Top": "更新时间",
+            "col7Bottom": "2025-05-11 10:11:24",
+            "col8Top": "更新用户",
+            "col8Bottom": "admin",
+            "col9Top": "最新版本",
+            "col9Bottom": "V3 历史版本"
+          },
+          {
+            "col1Img": "./pattern/icon-thought.svg",
+            "col1Top": "思维链名称",
+            "col1Bottom": "IP地址冲突验证",
+            "col2Top": "故障级别",
+            "col2Bottom": "紧急",
+            "col3Top": "描述",
+            "col3Bottom": "ARP冲突告罄处置",
+            "col4Status": true,
+            "col4Text": "成功",
+            "col5Value": true,
+            "col6Top": "创建时间",
+            "col6Bottom": "2025-05-11 10:11:24",
+            "col7Top": "更新时间",
+            "col7Bottom": "2025-05-11 10:11:24",
+            "col8Top": "更新用户",
+            "col8Bottom": "admin",
+            "col9Top": "最新版本",
+            "col9Bottom": "V3 历史版本"
+          },
+          {
+            "col1Img": "./pattern/icon-thought.svg",
+            "col1Top": "思维链名称",
+            "col1Bottom": "IP地址冲突验证",
+            "col2Top": "故障级别",
+            "col2Bottom": "紧急",
+            "col3Top": "描述",
+            "col3Bottom": "ARP冲突告罄处置",
+            "col4Status": true,
+            "col4Text": "成功",
+            "col5Value": true,
+            "col6Top": "创建时间",
+            "col6Bottom": "2025-05-11 10:11:24",
+            "col7Top": "更新时间",
+            "col7Bottom": "2025-05-11 10:11:24",
+            "col8Top": "更新用户",
+            "col8Bottom": "admin",
+            "col9Top": "最新版本",
+            "col9Bottom": "V3 历史版本"
+          },
+          {
+            "col1Img": "./pattern/icon-thought.svg",
+            "col1Top": "思维链名称",
+            "col1Bottom": "IP地址冲突验证",
+            "col2Top": "故障级别",
+            "col2Bottom": "紧急",
+            "col3Top": "描述",
+            "col3Bottom": "ARP冲突告罄处置",
+            "col4Status": true,
+            "col4Text": "成功",
+            "col5Value": true,
+            "col6Top": "创建时间",
+            "col6Bottom": "2025-05-11 10:11:24",
+            "col7Top": "更新时间",
+            "col7Bottom": "2025-05-11 10:11:24",
+            "col8Top": "更新用户",
+            "col8Bottom": "admin",
+            "col9Top": "最新版本",
+            "col9Bottom": "V3 历史版本"
+          },
+          {
+            "col1Img": "./pattern/icon-thought.svg",
+            "col1Top": "思维链名称",
+            "col1Bottom": "IP地址冲突验证",
+            "col2Top": "故障级别",
+            "col2Bottom": "紧急",
+            "col3Top": "描述",
+            "col3Bottom": "ARP冲突告罄处置",
+            "col4Status": true,
+            "col4Text": "成功",
+            "col5Value": true,
+            "col6Top": "创建时间",
+            "col6Bottom": "2025-05-11 10:11:24",
+            "col7Top": "更新时间",
+            "col7Bottom": "2025-05-11 10:11:24",
+            "col8Top": "更新用户",
+            "col8Bottom": "admin",
+            "col9Top": "最新版本",
+            "col9Bottom": "V3 历史版本"
+          }
+        ]
+      },
+      "rootId": "mainShellContainer",
+      "elements": [
+        {
+          "id": "mainShellContainer",
+          "component": "div",
+          "props": {
+            "className": "flex-1 m-6 rounded-xl bg-surface-container-highest shadow-sm"
+          },
+          "children": [
+            "mCnCardContent"
+          ]
+        },
+        {
+          "id": "mCnCardContent",
+          "component": "div",
+          "props": {
+            "className": "p-6 flex flex-col gap-section"
+          },
+          "children": [
+            "mCnTitle",
+            "mCnPrimaryNav",
+            "mCnSecondaryNav",
+            "mCnToolbar",
+            "mCnList"
+          ]
+        },
+        {
+          "id": "mCnTitle",
+          "component": "span",
+          "props": {
+            "className": "text-2xl font-bold text-on-surface",
+            "value": "策略中心"
+          }
+        },
+        {
+          "id": "mCnPrimaryNav",
+          "component": "Tabs",
+          "props": {
+            "activeKey": {
+              "path": "/activeTabKey"
+            },
+            "types": "line",
+            "size": "medium",
+            "className": ""
+          },
+          "children": [
+            "mnC_primaryTab1",
+            "mnC_primaryTab2",
+            "mnC_primaryTab3"
+          ]
+        },
+        {
+          "id": "mnC_primaryTab1",
+          "component": "TabItem",
+          "props": {
+            "key": "fault",
+            "label": "故障思维链",
+            "content": ""
+          }
+        },
+        {
+          "id": "mnC_primaryTab2",
+          "component": "TabItem",
+          "props": {
+            "key": "xxx",
+            "label": "XXX思维链",
+            "content": ""
+          }
+        },
+        {
+          "id": "mnC_primaryTab3",
+          "component": "TabItem",
+          "props": {
+            "key": "custom",
+            "label": "自定义思维链",
+            "content": ""
+          }
+        },
+        {
+          "id": "mCnSecondaryNav",
+          "component": "Tabs",
+          "props": {
+            "activeKey": {
+              "path": "/activeSecondaryTab"
+            },
+            "types": "card",
+            "size": "small",
+            "className": "w-full"
+          },
+          "children": {
+            "path": "/secondaryTabs",
+            "componentId": "mCnSecondaryTabItem"
+          }
+        },
+        {
+          "id": "mCnSecondaryTabItem",
+          "component": "TabItem",
+          "props": {
+            "key": {
+              "path": "key"
+            },
+            "label": {
+              "path": "label"
+            },
+            "content": ""
+          }
+        },
+        {
+          "id": "mCnToolbar",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between"
+          },
+          "children": [
+            "mCnToolbarLeft",
+            "mCnToolbarRight"
+          ]
+        },
+        {
+          "id": "mCnToolbarLeft",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-3"
+          },
+          "children": [
+            "mCnSearchInput"
+          ]
+        },
+        {
+          "id": "mCnSearchInput",
+          "component": "Input",
+          "props": {
+            "value": {
+              "path": "/searchVal"
+            },
+            "placeholder": "Search",
+            "prefix": "search",
+            "size": "medium",
+            "className": "w-74"
+          }
+        },
+        {
+          "id": "mCnToolbarRight",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-2"
+          },
+          "children": [
+            "mCnDeleteBtn",
+            "mCnDisableBtn",
+            "mCnCreateBtn"
+          ]
+        },
+        {
+          "id": "mCnDeleteBtn",
+          "component": "Button",
+          "props": {
+            "value": "删除"
+          }
+        },
+        {
+          "id": "mCnDisableBtn",
+          "component": "Button",
+          "props": {
+            "value": "禁用"
+          }
+        },
+        {
+          "id": "mCnCreateBtn",
+          "component": "Button",
+          "props": {
+            "value": "创建",
+            "color": "primary"
+          }
+        },
+        {
+          "id": "mCnList",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col gap-3"
+          },
+          "children": {
+            "path": "/listItems",
+            "componentId": "mCnListItem"
+          }
+        },
+        {
+          "id": "mCnListItem",
+          "component": "div",
+          "props": {
+            "className": "flex items-start px-8 bg-surface-container-lowest rounded-lg border border-divider h-24"
+          },
+          "children": [
+            "mCnListItemCol1",
+            "mCnListItemCol2",
+            "mCnListItemCol3",
+            "mCnListItemCol4",
+            "mCnListItemCol5",
+            "mCnListItemCol6",
+            "mCnListItemCol7",
+            "mCnListItemCol8",
+            "mCnListItemCol9",
+            "mCnListItemCol10"
+          ]
+        },
+        {
+          "id": "mCnListItemCol1",
+          "component": "div",
+          "props": {
+            "className": "flex items-center w-[18%] shrink-0 h-full gap-3"
+          },
+          "children": [
+            "mCnListItemCol1ImgCon",
+            "mCnListItemCol1Text"
+          ]
+        },
+        {
+          "id": "mCnListItemCol1ImgCon",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-center bg-surface-variant w-12 h-12 rounded-xl"
+          },
+          "children": [
+            "mCnListItemCol1Img"
+          ]
+        },
+        {
+          "id": "mCnListItemCol1Img",
+          "component": "img",
+          "props": {
+            "src": {
+              "path": "col1Img"
+            },
+            "className": "w-6 h-6 rounded-lg object-cover shrink-0"
+          }
+        },
+        {
+          "id": "mCnListItemCol1Text",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col min-w-0"
+          },
+          "children": [
+            "mCnListItemCol1Top",
+            "mCnListItemCol1Bottom"
+          ]
+        },
+        {
+          "id": "mCnListItemCol1Top",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface truncate",
+            "value": {
+              "path": "col1Top"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol1Bottom",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface-variant truncate",
+            "value": {
+              "path": "col1Bottom"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol2",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[10%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol2Top",
+            "mCnListItemCol2Bottom"
+          ]
+        },
+        {
+          "id": "mCnListItemCol2Top",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": {
+              "path": "col2Top"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol2Bottom",
+          "component": "Tag",
+          "props": {
+            "value": {
+              "path": "col2Bottom"
+            },
+            "color": "error",
+            "size": "small",
+            "className": "w-fit mt-1"
+          }
+        },
+        {
+          "id": "mCnListItemCol3",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[14%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol3Top",
+            "mCnListItemCol3Bottom"
+          ]
+        },
+        {
+          "id": "mCnListItemCol3Top",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": {
+              "path": "col3Top"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol3Bottom",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface-variant",
+            "value": {
+              "path": "col3Bottom"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol4",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[6%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol4Label",
+            "mCnListItemCol4StatusRow"
+          ]
+        },
+        {
+          "id": "mCnListItemCol4Label",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": "状态"
+          }
+        },
+        {
+          "id": "mCnListItemCol4StatusRow",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-1"
+          },
+          "children": [
+            "mCnListItemCol4Dot",
+            "mCnListItemCol4Text"
+          ]
+        },
+        {
+          "id": "mCnListItemCol4Dot",
+          "component": "div",
+          "props": {
+            "className": "w-2 h-2 rounded-full bg-success shrink-0"
+          }
+        },
+        {
+          "id": "mCnListItemCol4Text",
+          "component": "span",
+          "props": {
+            "className": "text-xs text-success",
+            "value": {
+              "path": "col4Text"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol5",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[7%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol5Label",
+            "mCnListItemCol5Switch"
+          ]
+        },
+        {
+          "id": "mCnListItemCol5Label",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": "是否启用"
+          }
+        },
+        {
+          "id": "mCnListItemCol5Switch",
+          "component": "Switch",
+          "props": {
+            "value": {
+              "path": "col5Value"
+            },
+            "size": "small"
+          }
+        },
+        {
+          "id": "mCnListItemCol6",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[12%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol6Top",
+            "mCnListItemCol6Bottom"
+          ]
+        },
+        {
+          "id": "mCnListItemCol6Top",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": {
+              "path": "col6Top"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol6Bottom",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface-variant",
+            "value": {
+              "path": "col6Bottom"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol7",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[12%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol7Top",
+            "mCnListItemCol7Bottom"
+          ]
+        },
+        {
+          "id": "mCnListItemCol7Top",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": {
+              "path": "col7Top"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol7Bottom",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface-variant",
+            "value": {
+              "path": "col7Bottom"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol8",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[7%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol8Top",
+            "mCnListItemCol8Bottom"
+          ]
+        },
+        {
+          "id": "mCnListItemCol8Top",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": {
+              "path": "col8Top"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol8Bottom",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface-variant",
+            "value": {
+              "path": "col8Bottom"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol9",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col w-[8%] shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol9Top",
+            "mCnListItemCol9Bottom"
+          ]
+        },
+        {
+          "id": "mCnListItemCol9Top",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface",
+            "value": {
+              "path": "col9Top"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol9Bottom",
+          "component": "span",
+          "props": {
+            "className": "text-md text-on-surface-variant",
+            "value": {
+              "path": "col9Bottom"
+            }
+          }
+        },
+        {
+          "id": "mCnListItemCol10",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-4 flex-1 shrink-0 h-full justify-center"
+          },
+          "children": [
+            "mCnListItemCol10IconEdit",
+            "mCnListItemCol10IconCopy",
+            "mCnListItemCol10IconTrash",
+            "mCnListItemCol10IconMore"
+          ]
+        },
+        {
+          "id": "mCnListItemCol10IconEdit",
+          "component": "Icon",
+          "props": {
+            "name": "edit",
+            "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary"
+          }
+        },
+        {
+          "id": "mCnListItemCol10IconCopy",
+          "component": "Icon",
+          "props": {
+            "name": "copy",
+            "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary"
+          }
+        },
+        {
+          "id": "mCnListItemCol10IconTrash",
+          "component": "Icon",
+          "props": {
+            "name": "trash-2",
+            "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-error"
+          }
+        },
+        {
+          "id": "mCnListItemCol10IconMore",
+          "component": "Icon",
+          "props": {
+            "name": "more-horizontal",
+            "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary"
+          }
+        }
+      ]
+    }
+  ],
+  "mergedA2UI": {
+    "rootId": "pageShellRoot",
+    "elements": [
+      {
+        "id": "pageShellRoot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "headerShellContainer",
+          "contentShellArea"
+        ]
+      },
+      {
+        "id": "headerShellContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between h-12 px-8 bg-surface-container-highest shadow-sm"
+        },
+        "children": [
+          "hdrLeftSection",
+          "hdrRightSection"
+        ]
+      },
+      {
+        "id": "contentShellArea",
+        "component": "div",
+        "props": {
+          "className": "flex flex-1 overflow-hidden"
+        },
+        "children": [
+          "sideShellContainer",
+          "mainShellContainer"
+        ]
+      },
+      {
+        "id": "sideShellContainer",
+        "component": "div",
+        "props": {
+          "className": "w-[74px] flex-shrink-0 bg-surface-container-highest shadow-sm flex flex-col items-center pb-4 pt-4"
+        },
+        "children": [
+          "sdbLogoContainer",
+          "sdbMenuContainer",
+          "sdbBottomContainer"
+        ]
+      },
+      {
+        "id": "mainShellContainer",
+        "component": "div",
+        "props": {
+          "className": "flex-1 m-6 rounded-xl bg-surface-container-highest shadow-sm"
+        },
+        "children": [
+          "mCnCardContent"
+        ]
+      },
+      {
+        "id": "hdrLeftSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center"
+        },
+        "children": [
+          "hdrHamburgerIcon",
+          "hdrLogoImg",
+          "hdrSystemName"
+        ]
+      },
+      {
+        "id": "hdrHamburgerIcon",
+        "component": "Icon",
+        "props": {
+          "name": "menu",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface cursor-pointer"
+        }
+      },
+      {
+        "id": "hdrLogoImg",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/logoImage"
+          },
+          "className": "w-[19px] h-[19px] object-contain ml-6 mr-[6px]",
+          "alt": "Logo"
+        }
+      },
+      {
+        "id": "hdrSystemName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/systemName"
+          },
+          "className": "text-lg text-on-surface"
+        }
+      },
+      {
+        "id": "hdrRightSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-7"
+        },
+        "children": [
+          "hdrHelpIcon",
+          "hdrLangIcon",
+          "hdrSunIcon",
+          "hdrUserSection"
+        ]
+      },
+      {
+        "id": "hdrHelpIcon",
+        "component": "Icon",
+        "props": {
+          "name": "help-circle",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "hdrLangIcon",
+        "component": "Icon",
+        "props": {
+          "name": "languages",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "hdrSunIcon",
+        "component": "Icon",
+        "props": {
+          "name": "sun",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "hdrUserSection",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "hdrUserIcon",
+          "hdrUserName"
+        ]
+      },
+      {
+        "id": "hdrUserIcon",
+        "component": "Icon",
+        "props": {
+          "name": "user",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "hdrUserName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/userName"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sdbLogoContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center w-12 h-12"
+        },
+        "children": [
+          "sdbLogoImg"
+        ]
+      },
+      {
+        "id": "sdbLogoImg",
+        "component": "img",
+        "props": {
+          "src": "./pattern/icon-arouse.svg",
+          "className": "w-6 h-6",
+          "alt": "Logo"
+        }
+      },
+      {
+        "id": "sdbMenuContainer",
+        "component": "div",
+        "props": {
+          "className": "flex-1 w-full flex flex-col items-center"
+        },
+        "children": [
+          "sdbMainMenu"
+        ]
+      },
+      {
+        "id": "sdbMainMenu",
+        "component": "Menu",
+        "props": {
+          "mode": "vertical",
+          "inlineCollapsed": true,
+          "selectedKeys": [],
+          "items": {
+            "path": "/menuItems"
+          },
+          "className": "w-full bg-transparent"
+        }
+      },
+      {
+        "id": "sdbBottomContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col items-center gap-3 mt-auto pt-4"
+        },
+        "children": [
+          "sdbHelpBtn",
+          "sdbLogoutBtn"
+        ]
+      },
+      {
+        "id": "sdbHelpBtn",
+        "component": "Button",
+        "props": {
+          "icon": "help-circle",
+          "shape": "circle",
+          "className": "w-12 h-12 flex items-center justify-center"
+        }
+      },
+      {
+        "id": "sdbLogoutBtn",
+        "component": "Button",
+        "props": {
+          "icon": "log-out",
+          "shape": "circle",
+          "className": "w-12 h-12 flex items-center justify-center"
+        }
+      },
+      {
+        "id": "mCnCardContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex flex-col gap-section"
+        },
+        "children": [
+          "mCnTitle",
+          "mCnPrimaryNav",
+          "mCnSecondaryNav",
+          "mCnToolbar",
+          "mCnList"
+        ]
+      },
+      {
+        "id": "mCnTitle",
+        "component": "span",
+        "props": {
+          "className": "text-2xl font-bold text-on-surface",
+          "value": "策略中心"
+        }
+      },
+      {
+        "id": "mCnPrimaryNav",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/activeTabKey"
+          },
+          "types": "line",
+          "size": "medium",
+          "className": ""
+        },
+        "children": [
+          "mnC_primaryTab1",
+          "mnC_primaryTab2",
+          "mnC_primaryTab3"
+        ]
+      },
+      {
+        "id": "mnC_primaryTab1",
+        "component": "TabItem",
+        "props": {
+          "key": "fault",
+          "label": "故障思维链",
+          "content": ""
+        }
+      },
+      {
+        "id": "mnC_primaryTab2",
+        "component": "TabItem",
+        "props": {
+          "key": "xxx",
+          "label": "XXX思维链",
+          "content": ""
+        }
+      },
+      {
+        "id": "mnC_primaryTab3",
+        "component": "TabItem",
+        "props": {
+          "key": "custom",
+          "label": "自定义思维链",
+          "content": ""
+        }
+      },
+      {
+        "id": "mCnSecondaryNav",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/activeSecondaryTab"
+          },
+          "types": "card",
+          "size": "small",
+          "className": "w-full"
+        },
+        "children": {
+          "path": "/secondaryTabs",
+          "componentId": "mCnSecondaryTabItem"
+        }
+      },
+      {
+        "id": "mCnSecondaryTabItem",
+        "component": "TabItem",
+        "props": {
+          "key": {
+            "path": "key"
+          },
+          "label": {
+            "path": "label"
+          },
+          "content": ""
+        }
+      },
+      {
+        "id": "mCnToolbar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mCnToolbarLeft",
+          "mCnToolbarRight"
+        ]
+      },
+      {
+        "id": "mCnToolbarLeft",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "mCnSearchInput"
+        ]
+      },
+      {
+        "id": "mCnSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/searchVal"
+          },
+          "placeholder": "Search",
+          "prefix": "search",
+          "size": "medium",
+          "className": "w-74"
+        }
+      },
+      {
+        "id": "mCnToolbarRight",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mCnDeleteBtn",
+          "mCnDisableBtn",
+          "mCnCreateBtn"
+        ]
+      },
+      {
+        "id": "mCnDeleteBtn",
+        "component": "Button",
+        "props": {
+          "value": "删除"
+        }
+      },
+      {
+        "id": "mCnDisableBtn",
+        "component": "Button",
+        "props": {
+          "value": "禁用"
+        }
+      },
+      {
+        "id": "mCnCreateBtn",
+        "component": "Button",
+        "props": {
+          "value": "创建",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "mCnList",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-3"
+        },
+        "children": {
+          "path": "/listItems",
+          "componentId": "mCnListItem"
+        }
+      },
+      {
+        "id": "mCnListItem",
+        "component": "div",
+        "props": {
+          "className": "flex items-start px-8 bg-surface-container-lowest rounded-lg border border-divider h-24"
+        },
+        "children": [
+          "mCnListItemCol1",
+          "mCnListItemCol2",
+          "mCnListItemCol3",
+          "mCnListItemCol4",
+          "mCnListItemCol5",
+          "mCnListItemCol6",
+          "mCnListItemCol7",
+          "mCnListItemCol8",
+          "mCnListItemCol9",
+          "mCnListItemCol10"
+        ]
+      },
+      {
+        "id": "mCnListItemCol1",
+        "component": "div",
+        "props": {
+          "className": "flex items-center w-[18%] shrink-0 h-full gap-3"
+        },
+        "children": [
+          "mCnListItemCol1ImgCon",
+          "mCnListItemCol1Text"
+        ]
+      },
+      {
+        "id": "mCnListItemCol1ImgCon",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center bg-surface-variant w-12 h-12 rounded-xl"
+        },
+        "children": [
+          "mCnListItemCol1Img"
+        ]
+      },
+      {
+        "id": "mCnListItemCol1Img",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "col1Img"
+          },
+          "className": "w-6 h-6 rounded-lg object-cover shrink-0"
+        }
+      },
+      {
+        "id": "mCnListItemCol1Text",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-w-0"
+        },
+        "children": [
+          "mCnListItemCol1Top",
+          "mCnListItemCol1Bottom"
+        ]
+      },
+      {
+        "id": "mCnListItemCol1Top",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface truncate",
+          "value": {
+            "path": "col1Top"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol1Bottom",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant truncate",
+          "value": {
+            "path": "col1Bottom"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol2",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[10%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol2Top",
+          "mCnListItemCol2Bottom"
+        ]
+      },
+      {
+        "id": "mCnListItemCol2Top",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": {
+            "path": "col2Top"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol2Bottom",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "col2Bottom"
+          },
+          "color": "error",
+          "size": "small",
+          "className": "w-fit mt-1"
+        }
+      },
+      {
+        "id": "mCnListItemCol3",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[14%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol3Top",
+          "mCnListItemCol3Bottom"
+        ]
+      },
+      {
+        "id": "mCnListItemCol3Top",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": {
+            "path": "col3Top"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol3Bottom",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "col3Bottom"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol4",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[6%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol4Label",
+          "mCnListItemCol4StatusRow"
+        ]
+      },
+      {
+        "id": "mCnListItemCol4Label",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": "状态"
+        }
+      },
+      {
+        "id": "mCnListItemCol4StatusRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "mCnListItemCol4Dot",
+          "mCnListItemCol4Text"
+        ]
+      },
+      {
+        "id": "mCnListItemCol4Dot",
+        "component": "div",
+        "props": {
+          "className": "w-2 h-2 rounded-full bg-success shrink-0"
+        }
+      },
+      {
+        "id": "mCnListItemCol4Text",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-success",
+          "value": {
+            "path": "col4Text"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol5",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[7%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol5Label",
+          "mCnListItemCol5Switch"
+        ]
+      },
+      {
+        "id": "mCnListItemCol5Label",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": "是否启用"
+        }
+      },
+      {
+        "id": "mCnListItemCol5Switch",
+        "component": "Switch",
+        "props": {
+          "value": {
+            "path": "col5Value"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "mCnListItemCol6",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[12%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol6Top",
+          "mCnListItemCol6Bottom"
+        ]
+      },
+      {
+        "id": "mCnListItemCol6Top",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": {
+            "path": "col6Top"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol6Bottom",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "col6Bottom"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol7",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[12%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol7Top",
+          "mCnListItemCol7Bottom"
+        ]
+      },
+      {
+        "id": "mCnListItemCol7Top",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": {
+            "path": "col7Top"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol7Bottom",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "col7Bottom"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol8",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[7%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol8Top",
+          "mCnListItemCol8Bottom"
+        ]
+      },
+      {
+        "id": "mCnListItemCol8Top",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": {
+            "path": "col8Top"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol8Bottom",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "col8Bottom"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol9",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col w-[8%] shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol9Top",
+          "mCnListItemCol9Bottom"
+        ]
+      },
+      {
+        "id": "mCnListItemCol9Top",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface",
+          "value": {
+            "path": "col9Top"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol9Bottom",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": {
+            "path": "col9Bottom"
+          }
+        }
+      },
+      {
+        "id": "mCnListItemCol10",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4 flex-1 shrink-0 h-full justify-center"
+        },
+        "children": [
+          "mCnListItemCol10IconEdit",
+          "mCnListItemCol10IconCopy",
+          "mCnListItemCol10IconTrash",
+          "mCnListItemCol10IconMore"
+        ]
+      },
+      {
+        "id": "mCnListItemCol10IconEdit",
+        "component": "Icon",
+        "props": {
+          "name": "edit",
+          "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary"
+        }
+      },
+      {
+        "id": "mCnListItemCol10IconCopy",
+        "component": "Icon",
+        "props": {
+          "name": "copy",
+          "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary"
+        }
+      },
+      {
+        "id": "mCnListItemCol10IconTrash",
+        "component": "Icon",
+        "props": {
+          "name": "trash-2",
+          "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-error"
+        }
+      },
+      {
+        "id": "mCnListItemCol10IconMore",
+        "component": "Icon",
+        "props": {
+          "name": "more-horizontal",
+          "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary"
+        }
+      }
+    ],
+    "state": {
+      "logoImage": "./pattern/logo-master.svg",
+      "systemName": "IMaster NCE",
+      "userName": "Admin",
+      "menuItems": [
+        {
+          "icon": "home",
+          "title": "首页",
+          "key": "home"
+        },
+        {
+          "icon": "settings",
+          "title": "配置",
+          "key": "settings"
+        },
+        {
+          "icon": "bar-chart-3",
+          "title": "监控",
+          "key": "monitor"
+        },
+        {
+          "icon": "file-text",
+          "title": "日志",
+          "key": "logs"
+        },
+        {
+          "icon": "package",
+          "title": "管理",
+          "key": "product"
+        }
+      ],
+      "searchVal": "",
+      "activeTabKey": "fault",
+      "activeSecondaryTab": "FI-Region01",
+      "secondaryTabs": [
+        {
+          "key": "FI-Region01",
+          "label": "FI-Region01"
+        },
+        {
+          "key": "FI-Region02",
+          "label": "FI-Region02"
+        },
+        {
+          "key": "FI-Region03",
+          "label": "FI-Region03"
+        },
+        {
+          "key": "FI-Region04",
+          "label": "FI-Region04"
+        },
+        {
+          "key": "FI-Region05",
+          "label": "FI-Region05"
+        }
+      ],
+      "listItems": [
+        {
+          "col1Img": "./pattern/icon-thought.svg",
+          "col1Top": "思维链名称",
+          "col1Bottom": "验证Telemetry场景级思维链",
+          "col2Top": "故障级别",
+          "col2Bottom": "紧急",
+          "col3Top": "描述",
+          "col3Bottom": "验证Telemetry场景级思维链",
+          "col4Status": true,
+          "col4Text": "成功",
+          "col5Value": true,
+          "col6Top": "创建时间",
+          "col6Bottom": "2025-05-11 10:11:24",
+          "col7Top": "更新时间",
+          "col7Bottom": "2025-05-11 10:11:24",
+          "col8Top": "更新用户",
+          "col8Bottom": "admin",
+          "col9Top": "最新版本",
+          "col9Bottom": "V3 历史版本"
+        },
+        {
+          "col1Img": "./pattern/icon-thought.svg",
+          "col1Top": "思维链名称",
+          "col1Bottom": "验证Telemetry场景级思维链",
+          "col2Top": "故障级别",
+          "col2Bottom": "紧急",
+          "col3Top": "描述",
+          "col3Bottom": "验证Telemetry场景级思维链",
+          "col4Status": true,
+          "col4Text": "成功",
+          "col5Value": true,
+          "col6Top": "创建时间",
+          "col6Bottom": "2025-05-11 10:11:24",
+          "col7Top": "更新时间",
+          "col7Bottom": "2025-05-11 10:11:24",
+          "col8Top": "更新用户",
+          "col8Bottom": "admin",
+          "col9Top": "最新版本",
+          "col9Bottom": "V3 历史版本"
+        },
+        {
+          "col1Img": "./pattern/icon-thought.svg",
+          "col1Top": "思维链名称",
+          "col1Bottom": "IP地址冲突验证",
+          "col2Top": "故障级别",
+          "col2Bottom": "紧急",
+          "col3Top": "描述",
+          "col3Bottom": "ARP冲突告罄处置",
+          "col4Status": true,
+          "col4Text": "成功",
+          "col5Value": true,
+          "col6Top": "创建时间",
+          "col6Bottom": "2025-05-11 10:11:24",
+          "col7Top": "更新时间",
+          "col7Bottom": "2025-05-11 10:11:24",
+          "col8Top": "更新用户",
+          "col8Bottom": "admin",
+          "col9Top": "最新版本",
+          "col9Bottom": "V3 历史版本"
+        },
+        {
+          "col1Img": "./pattern/icon-thought.svg",
+          "col1Top": "思维链名称",
+          "col1Bottom": "IP地址冲突验证",
+          "col2Top": "故障级别",
+          "col2Bottom": "紧急",
+          "col3Top": "描述",
+          "col3Bottom": "ARP冲突告罄处置",
+          "col4Status": true,
+          "col4Text": "成功",
+          "col5Value": true,
+          "col6Top": "创建时间",
+          "col6Bottom": "2025-05-11 10:11:24",
+          "col7Top": "更新时间",
+          "col7Bottom": "2025-05-11 10:11:24",
+          "col8Top": "更新用户",
+          "col8Bottom": "admin",
+          "col9Top": "最新版本",
+          "col9Bottom": "V3 历史版本"
+        },
+        {
+          "col1Img": "./pattern/icon-thought.svg",
+          "col1Top": "思维链名称",
+          "col1Bottom": "IP地址冲突验证",
+          "col2Top": "故障级别",
+          "col2Bottom": "紧急",
+          "col3Top": "描述",
+          "col3Bottom": "ARP冲突告罄处置",
+          "col4Status": true,
+          "col4Text": "成功",
+          "col5Value": true,
+          "col6Top": "创建时间",
+          "col6Bottom": "2025-05-11 10:11:24",
+          "col7Top": "更新时间",
+          "col7Bottom": "2025-05-11 10:11:24",
+          "col8Top": "更新用户",
+          "col8Bottom": "admin",
+          "col9Top": "最新版本",
+          "col9Bottom": "V3 历史版本"
+        },
+        {
+          "col1Img": "./pattern/icon-thought.svg",
+          "col1Top": "思维链名称",
+          "col1Bottom": "IP地址冲突验证",
+          "col2Top": "故障级别",
+          "col2Bottom": "紧急",
+          "col3Top": "描述",
+          "col3Bottom": "ARP冲突告罄处置",
+          "col4Status": true,
+          "col4Text": "成功",
+          "col5Value": true,
+          "col6Top": "创建时间",
+          "col6Bottom": "2025-05-11 10:11:24",
+          "col7Top": "更新时间",
+          "col7Bottom": "2025-05-11 10:11:24",
+          "col8Top": "更新用户",
+          "col8Bottom": "admin",
+          "col9Top": "最新版本",
+          "col9Bottom": "V3 历史版本"
+        }
+      ]
+    }
+  }
+}

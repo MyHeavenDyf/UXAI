@@ -185,6 +185,7 @@ function PatternContent() {
               const reviewCkpt = await loadReviewCheckpoint(dir, id)
               if (params.id !== id) return
               if (reviewCkpt) {
+                debugger
                 setLastPlanner(reviewCkpt.planner)
                 setLastIntent(reviewCkpt.intentDescription)
                 setPatternMatches(reviewCkpt.pattern)
@@ -443,6 +444,12 @@ function PatternContent() {
     setHasPreviewContent(true)
   }
 
+  // 从 Pattern 匹配页进入线框审查
+  function handleEnterWireframe() {
+    setShowPatternMatch(false)
+    setIsPlanReview(true)
+  }
+
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
@@ -614,9 +621,6 @@ function PatternContent() {
         setUserInput(text)
         setShowPatternMatch(true)
       }
-
-      const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
-      console.log(`[Pattern] 第一次生成页面耗时: ${genDuration}s`)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       console.error("[PatternPage] handleSubmit failed", err)
@@ -645,20 +649,40 @@ function PatternContent() {
     }
   }
 
-  // 从 Pattern 匹配页进入线框审查
-  function handleEnterWireframe() {
-    setShowPatternMatch(false)
-    setIsPlanReview(true)
-  }
-
-  // 用户点击「选择当前模板」时，加载对应 pattern 文件内容
+  // 用户点击「选择当前模板」时，加载 pattern 文件内容并触发渲染
   async function handleSelectTemplate(match: PatternMatchItem) {
+    const sid = params.id
+    if (!sid) return
+
     const ds = selectedDesignSystem()
     const content = await readPatternFile("page", match.pattern.path, ds)
-    debugger
-    setPatternMatches(prev => prev.map(m =>
-      m.pattern.name === match.pattern.name ? { ...m, content } : m
-    ))
+    if (!content) return
+
+    const { lastIntent, lastPlanner, lastModules, mergedA2UI } = JSON.parse(content)
+
+    setShowPatternMatch(false)
+
+    const dir = patternHistoryDir()
+    if (dir) {
+      await updatePatternVersion(dir, sid, {
+        lastModules,
+        mergedA2UI,
+      })
+      void saveDebugSnapshot(dir, sid, "template", {
+        lastIntent,
+        lastPlanner,
+        lastModules,
+        mergedA2UI,
+        summary: userInput().slice(0, 80),
+      })
+      clearDebugLog()
+    }
+
+    if (params.id !== sid) return
+    sendToPreview(mergedA2UI)
+    setLastIntent(lastIntent)
+    setLastPlanner(lastPlanner)
+    setLastModules(lastModules)
   }
 
   // 线框审查确认后，继续执行阶段 2：模块生成
@@ -747,7 +771,7 @@ function PatternContent() {
     }
   }
 
-  // 意图确认后，带着用户的补充继续执行 pipeline
+  // 意图确认后，带着用户的补充继续执行pattern匹配和线框生成
   async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string) {
     const sid = params.id
     if (!sid) return
@@ -827,6 +851,7 @@ function PatternContent() {
     }
   }
 
+  // 终止所有正在执行的Session
   async function halt() {
     const sid = params.id
     if (!sid) return
@@ -852,6 +877,7 @@ function PatternContent() {
     if (haltDir) void clearProtoError(haltDir, sid)
   }
 
+  // 监听对话框回车键
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -859,6 +885,7 @@ function PatternContent() {
     }
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
@@ -883,10 +910,12 @@ function PatternContent() {
     }
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function removeAttachment(id: string) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
@@ -895,16 +924,19 @@ function PatternContent() {
     }
   }
 
+  // 对话框UI拖拽
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
+  // 对话框UI拖拽
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
+  // 对话框UI拖拽
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
@@ -930,25 +962,25 @@ function PatternContent() {
     })
   }
 
+  // 下载页面代码
   async function handleDownload() {
     tracker.interaction({ module: "prototype", name: "download-result" })
     await download({ planner: lastPlanner(), mergedA2UI: pendingPreviewData() })
   }
+
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
     tracker.interaction({ module: "prototype", name: "share-result" })
-    await exportZip({
-      historyDir: patternHistoryDir(),
-      sessionId: params.id ?? "",
-      title: sessionInfo()?.title ?? params.id ?? "export",
-    })
+    await exportZip({historyDir: patternHistoryDir(), sessionId: params.id ?? "", title: sessionInfo()?.title ?? params.id ?? "export" })
   }
 
+  // 实时预览
   async function handleLivePreview() {
     tracker.interaction({ module: "prototype", name: "live-preview" })
     await livePreview(pendingPreviewData())
   }
 
+  // Pixso预览
   async function handlePixsoPreview() {
     tracker.interaction({ module: "prototype", name: "pixso-preview" })
     await pixsoPreview(pendingPreviewData())

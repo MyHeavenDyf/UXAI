@@ -39,6 +39,15 @@
       "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
       "path": "RightStatisticsLeftTopology.json",
       "preview": "RightStatisticsLeftTopology.png"
+    },
+    {
+      "name": "策略中心-思维链管理页面",
+      "elements": "策略管理页面，包含顶部标签页导航、二级区域签页、搜索框、创建按钮、数据列表、分页组件",
+      "business_scenario": "用于故障思维链策略的集中管理场景，支持按区域筛选、搜索定位、创建新策略、开关故障检测功能、查看策略详情等操作",
+      "layout_mode": "标准流式布局，顶部为多级标签导航，中部为操作区，主体区域为数据列表展示，底部为分页导航",
+      "path": "ChainThoughtPage.json",
+      "preview": "ChainThoughtPage.png"
     }
   ]
 }
+
