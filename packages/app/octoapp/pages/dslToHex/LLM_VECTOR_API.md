@@ -9,12 +9,12 @@
 **设计目标**：为 LLM 提供高效的资源检索能力，通过两步调用获取完整信息。
 
 **两个 API 关系**：
-1. `POST /api/vector/search/llm` → 精简搜索（返回 data_id + vector_text）
-2. `GET /api/vector/detail` → 获取完整数据（返回所有字段）
+1. `POST /lib-resource-service/api/vertor/search/llm` → 精简搜索（返回 data_id + vector_text）
+2. `GET /lib-resource-service/api/vertor/detail` → 获取完整数据（返回所有字段）
 
 ---
 
-## 二、精简版搜索：POST /api/vector/search/llm
+## 二、精简版搜索：POST /lib-resource-service/api/vertor/search/llm
 
 ### 请求参数
 
@@ -65,7 +65,7 @@
 
 **请求**：
 ```bash
-curl -X POST http://localhost:8009/api/vector/search/llm \
+curl -X POST https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vertor/search/llm \
   -H "Content-Type: application/json" \
   -d '{
     "type": "component",
@@ -103,7 +103,7 @@ curl -X POST http://localhost:8009/api/vector/search/llm \
 
 ---
 
-## 三、全量数据获取：GET /api/vector/detail
+## 三、全量数据获取：GET /lib-resource-service/api/vertor/detail
 
 ### 请求参数（Query 参数）
 
@@ -161,7 +161,7 @@ curl -X POST http://localhost:8009/api/vector/search/llm \
 
 **请求**：
 ```bash
-curl -X GET "http://localhost:8009/api/vector/detail?type=component&data_id=abc123def456"
+curl -X GET "https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vertor/detail?type=component&data_id=abc123def456"
 ```
 
 **返回**：
@@ -190,9 +190,9 @@ curl -X GET "http://localhost:8009/api/vector/detail?type=component&data_id=abc1
 
 ```
 步骤1: 用户提出需求 → LLM 提取关键词
-步骤2: LLM 调用 POST /api/vector/search/llm
+步骤2: LLM 调用 POST /lib-resource-service/api/vertor/search/llm
 步骤3: LLM 解析 vector_text，识别相关资源
-步骤4: （可选）LLM 调用 GET /api/vector/detail 获取完整信息
+步骤4: （可选）LLM 调用 GET /lib-resource-service/api/vertor/detail 获取完整信息
 步骤5: LLM 返回结果给用户
 ```
 
@@ -207,7 +207,7 @@ LLM 分析用户需求，提取关键词：`["按钮", "可用", "正常"]`
 
 #### 步骤2：调用精简搜索
 ```bash
-POST /api/vector/search/llm
+POST /lib-resource-service/api/vertor/search/llm
 {
   "type": "component",
   "queries": ["按钮 可用 正常"],
@@ -243,7 +243,7 @@ LLM 解析：
 #### 步骤4：（可选）获取完整信息
 LLM 如需文件路径等信息，调用：
 ```bash
-GET /api/vector/detail?type=component&data_id=abc123
+GET /lib-resource-service/api/vertor/detail?type=component&data_id=abc123
 ```
 
 #### 步骤5：返回结果
@@ -315,8 +315,8 @@ LLM 告知用户：
 ## 九、API 地址
 
 **开发环境**：
-- `http://localhost:8009/api/vector/search/llm`
-- `http://localhost:8009/api/vector/detail`
+- `https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vertor/search/llm`
+- `https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vertor/detail`
 
 **生产环境**：
 - 替换 `localhost:8009` 为实际服务地址
@@ -325,7 +325,7 @@ LLM 告知用户：
 
 ## 十、组件搜索结果 → 设计 DSL instance 节点
 
-搜索到组件后，调用 `/api/vector/detail` 获取完整数据，再将字段映射到设计 DSL 的 `instance` 节点。
+搜索到组件后，调用 `/lib-resource-service/api/vertor/detail` 获取完整数据，再将字段映射到设计 DSL 的 `instance` 节点。
 
 ### 字段映射表
 
@@ -343,7 +343,7 @@ LLM 告知用户：
 
 **Step 1：搜索组件**
 ```bash
-POST /api/vector/search/llm
+POST /lib-resource-service/api/vertor/search/llm
 {
   "type": "component",
   "queries": ["按钮 正常 可用"],
@@ -362,7 +362,7 @@ POST /api/vector/search/llm
 
 **Step 2：获取完整数据**
 ```bash
-GET /api/vector/detail?type=component&data_id=f884abc...
+GET /lib-resource-service/api/vertor/detail?type=component&data_id=f884abc...
 ```
 
 返回：

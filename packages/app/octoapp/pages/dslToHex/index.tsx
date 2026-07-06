@@ -916,8 +916,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
       const realDataIds = new Set<string>()
       const realIconIds = new Set<string>()
+      const realIllusIds = new Set<string>()
       const realDetailMap = new Map<string, Record<string, unknown>>()
       const realIconDetailMap = new Map<string, Record<string, unknown>>()
+      const realIllusDetailMap = new Map<string, Record<string, unknown>>()
 
       for (const msg of msgsSlice) {
         if (msg.role !== "assistant") continue
@@ -930,17 +932,17 @@ const sessionMessagesLoaded = createMemo(() => {
           const input = state.input as Record<string, unknown> | undefined
           const cmd = typeof input?.command === "string" ? input.command : ""
           const url = typeof input?.url === "string" ? input.url : ""
-          const isResourceCall = cmd.includes("/api/vector/") || url.includes("/api/vector/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/")
+          const isResourceCall = cmd.includes("/lib-resource-service/api/vertor/") || url.includes("/lib-resource-service/api/vertor/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/") || cmd.includes("/illusPlus/") || url.includes("/illusPlus/")
           if (!isResourceCall) continue
           try {
             const parsed = JSON.parse(state.output as string)
-            collectDataIds(parsed, realDataIds, realIconIds)
-            collectDetails(parsed, realDetailMap, realIconDetailMap)
+            collectDataIds(parsed, realDataIds, realIconIds, realIllusIds)
+            collectDetails(parsed, realDetailMap, realIconDetailMap, realIllusDetailMap)
           } catch { /* non-JSON output, ignore */ }
         }
       }
 
-      const allValidIds = new Set([...realDataIds, ...realIconIds])
+      const allValidIds = new Set([...realDataIds, ...realIconIds, ...realIllusIds])
 
        try {
          const root = JSON.parse(jsonStr)
@@ -949,7 +951,7 @@ const sessionMessagesLoaded = createMemo(() => {
            if (!rid || !allValidIds.has(rid)) {
              for (const f of RESOURCE_DATA_FIELDS) delete node[f]
            } else {
-             const cachedDetail = realDetailMap.get(rid) ?? realIconDetailMap.get(rid)
+              const cachedDetail = realDetailMap.get(rid) ?? realIconDetailMap.get(rid) ?? realIllusDetailMap.get(rid)
              if (cachedDetail && node.resourceDetail) {
               const detail = node.resourceDetail as Record<string, unknown>
               const mismatch = Object.keys(cachedDetail).some(
@@ -971,20 +973,21 @@ const sessionMessagesLoaded = createMemo(() => {
       }
    }
 
-    function collectDataIds(obj: unknown, ids: Set<string>, iconIds?: Set<string>) {
+    function collectDataIds(obj: unknown, ids: Set<string>, iconIds?: Set<string>, illusIds?: Set<string>) {
       if (Array.isArray(obj)) {
-        for (const item of obj) collectDataIds(item, ids, iconIds)
+        for (const item of obj) collectDataIds(item, ids, iconIds, illusIds)
       } else if (obj && typeof obj === "object") {
         const rec = obj as Record<string, unknown>
         if (typeof rec.data_id === "string") ids.add(rec.data_id)
         if (iconIds && typeof rec.icon_id === "string") iconIds.add(rec.icon_id)
-        for (const val of Object.values(rec)) collectDataIds(val, ids, iconIds)
+        if (illusIds && typeof rec.illus_id === "string") illusIds.add(rec.illus_id)
+        for (const val of Object.values(rec)) collectDataIds(val, ids, iconIds, illusIds)
       }
     }
 
-    function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>, iconDetailMap?: Map<string, Record<string, unknown>>) {
+    function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>, iconDetailMap?: Map<string, Record<string, unknown>>, illusDetailMap?: Map<string, Record<string, unknown>>) {
       if (Array.isArray(obj)) {
-        for (const item of obj) collectDetails(item, map, iconDetailMap)
+        for (const item of obj) collectDetails(item, map, iconDetailMap, illusDetailMap)
       } else if (obj && typeof obj === "object") {
         const rec = obj as Record<string, unknown>
         if (typeof rec.data_id === "string" && !map.has(rec.data_id)) {
@@ -995,7 +998,11 @@ const sessionMessagesLoaded = createMemo(() => {
           const { results, ...detail } = rec
           if (Object.keys(detail).length > 1) iconDetailMap.set(rec.icon_id, detail)
         }
-        for (const val of Object.values(rec)) collectDetails(val, map, iconDetailMap)
+        if (illusDetailMap && typeof rec.illus_id === "string" && !illusDetailMap.has(rec.illus_id)) {
+          const { results, ...detail } = rec
+          if (Object.keys(detail).length > 1) illusDetailMap.set(rec.illus_id, detail)
+        }
+        for (const val of Object.values(rec)) collectDetails(val, map, iconDetailMap, illusDetailMap)
       }
     }
 
