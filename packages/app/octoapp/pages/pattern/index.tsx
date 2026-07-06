@@ -664,6 +664,7 @@ function PatternContent() {
 
     const dir = patternHistoryDir()
     if (dir) {
+      await clearReviewCheckpoint(dir, sid)
       await updatePatternVersion(dir, sid, {
         lastModules,
         mergedA2UI,
