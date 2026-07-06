@@ -27,6 +27,7 @@ interface RawRect {
 export function PreviewPage(props: {
   api?: PreviewPageAPI
   pendingData?: unknown
+  sessionId?: string
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
@@ -442,6 +443,7 @@ export function PreviewPage(props: {
         componentType={propertyEditor.componentType}
         currentClass={propertyEditor.currentClass}
         elementProps={propertyEditor.elementProps}
+        sessionId={props.sessionId}
         elementRect={propertyEditor.elementRect}
         clickPoint={propertyEditor.clickPoint}
         containerSize={{ width: previewPageRef?.clientWidth ?? 0, height: previewPageRef?.clientHeight ?? 0 }}

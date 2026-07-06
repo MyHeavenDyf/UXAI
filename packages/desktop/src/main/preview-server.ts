@@ -52,8 +52,8 @@ export function startPreviewServer() {
 
     const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname)
 
-    if (uploadsDir && pathname.startsWith("/uploads/")) {
-      const filename = pathname.slice("/uploads/".length)
+    if (uploadsDir && pathname.startsWith("/history/")) {
+      const filename = pathname.slice("/history/".length)
       if (!filename || filename.includes("..")) {
         res.writeHead(403)
         res.end("Forbidden")

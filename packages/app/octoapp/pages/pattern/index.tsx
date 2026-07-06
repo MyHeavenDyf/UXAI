@@ -339,7 +339,7 @@ function PatternContent() {
     const home = sdk.directory
     if (!home) return
     const api = (window as unknown as { api?: { setUploadsDir?: (dir: string) => Promise<void> } }).api
-    api?.setUploadsDir?.(`${home}/.octo/design/uploads`)
+    api?.setUploadsDir?.(`${home}/.octo/design/history`)
   })
 
   // pipeline 忙状态（用于生成卡片状态）
@@ -1046,6 +1046,7 @@ function PatternContent() {
                     <PreviewPage
                       api={previewApi}
                       pendingData={pendingPreviewData()}
+                      sessionId={params.id}
                       onModifyElement={handleModifyElement}
                       onPickerSubmit={handlePickerSubmit}
                       onDownload={handleDownload}

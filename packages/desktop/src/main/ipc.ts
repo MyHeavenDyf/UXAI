@@ -285,17 +285,18 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-uploads-dir", async () => getUploadsDir())
 
-  ipcMain.handle("save-upload-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer) => {
-    const dir = getUploadsDir()
-    if (!dir) throw new Error("uploads dir not set")
-    await mkdir(dir, { recursive: true })
+  ipcMain.handle("save-upload-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, sessionId: string) => {
+    const baseDir = getUploadsDir()
+    if (!baseDir || !sessionId) throw new Error("base dir or session not set")
+    const uploadsDir = join(baseDir, sessionId, "uploads")
+    await mkdir(uploadsDir, { recursive: true })
     const buf = Buffer.from(buffer)
     const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
     const ext = detectImageExt(buf)
     const filename = `${hash}.${ext}`
-    const filePath = join(dir, filename)
+    const filePath = join(uploadsDir, filename)
     if (!existsSync(filePath)) await writeFile(filePath, buf)
-    return `/uploads/${filename}`
+    return `/history/${sessionId}/uploads/${filename}`
   })
 
   // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。

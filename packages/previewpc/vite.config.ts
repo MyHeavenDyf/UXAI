@@ -18,14 +18,14 @@ const MIME: Record<string, string> = {
 }
 
 function uploadsPlugin() {
-  const uploadsDir = process.env.OCTO_UPLOADS_DIR || join(resolve(__dirname, ".."), ".octo", "design", "uploads")
+  const uploadsDir = process.env.OCTO_UPLOADS_DIR || join(resolve(__dirname, ".."), ".octo", "design", "history")
   mkdirSync(uploadsDir, { recursive: true })
   return {
     name: "serve-uploads",
     configureServer(server: any) {
       server.middlewares.use(async (req: any, res: any, next: any) => {
-        if (!req.url?.startsWith("/uploads/")) return next()
-        const filename = req.url.slice("/uploads/".length).split("?")[0]
+        if (!req.url?.startsWith("/history/")) return next()
+        const filename = req.url.slice("/history/".length).split("?")[0]
         if (!filename || filename.includes("..")) {
           res.statusCode = 403
           res.end("Forbidden")

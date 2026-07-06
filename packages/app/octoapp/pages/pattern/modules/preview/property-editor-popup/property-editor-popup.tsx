@@ -26,6 +26,7 @@ export function PropertyEditorPopup(props: {
   componentType: string
   currentClass?: string
   elementProps?: string
+  sessionId?: string
   elementRect: ElementRect
   clickPoint?: { x: number; y: number }
   containerSize: ContainerSize
@@ -614,8 +615,8 @@ export function PropertyEditorPopup(props: {
     const bgcMatch = rawCls.match(/\bbg-\[#([a-fA-F0-9]{3,8})\]/)
     setEditBgColor(bgcMatch ? '#' + bgcMatch[1] : toHex((parsed.backgroundColor || parsed.background || '').toString()))
 
-    const bgUrlMatch = rawCls.match(/\bbg-\[url\(\/uploads\/([^)]+)\)\]/)
-    const bgUrl = bgUrlMatch ? '/uploads/' + bgUrlMatch[1] : (parsed.backgroundImage || '').toString()
+    const bgUrlMatch = rawCls.match(/\bbg-\[url\(\/history\/([^)]+)\)\]/)
+    const bgUrl = bgUrlMatch ? '/history/' + bgUrlMatch[1] : (parsed.backgroundImage || '').toString()
     setEditBgUrl(bgUrl === 'none' ? '' : bgUrl)
     initialBgUrl = editBgUrl()
 
@@ -904,10 +905,10 @@ export function PropertyEditorPopup(props: {
     inp.addEventListener('change', async () => {
       const f = inp.files?.[0]
       if (!f) return
-      const desktopApi = (window as unknown as { api?: { saveUploadImage?: (buf: ArrayBuffer) => Promise<string> } }).api
-      if (desktopApi?.saveUploadImage) {
+      const desktopApi = (window as unknown as { api?: { saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string> } }).api
+      if (desktopApi?.saveUploadImage && props.sessionId) {
         const buf = await f.arrayBuffer()
-        const url = await desktopApi.saveUploadImage(buf)
+        const url = await desktopApi.saveUploadImage(buf, props.sessionId)
         onUrl(url)
       } else {
         const reader = new FileReader()
