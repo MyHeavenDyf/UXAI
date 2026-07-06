@@ -747,11 +747,9 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       kindGroupEntries={() => fileStore.generated.kindGroupEntries()}
                       modifiedGroups={() => fileStore.generated.modifiedGroups()}
                       visibleModifiedSections={() => fileStore.generated.visibleModifiedSections()}
-                      collapsedSections={fileStore.store.collapsedSections}
                       groupMode={fileStore.store.groupMode}
                       sectionKey="generated"
                       selected={fileStore.store.selected}
-                      onToggleSection={(key) => fileStore.toggleSection(key)}
                       onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                       onPreview={handlePreview}
                       onOpen={handleOpenFile}
@@ -773,11 +771,9 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       kindGroupEntries={() => fileStore.uploaded.kindGroupEntries()}
                       modifiedGroups={() => fileStore.uploaded.modifiedGroups()}
                       visibleModifiedSections={() => fileStore.uploaded.visibleModifiedSections()}
-                      collapsedSections={fileStore.store.collapsedSections}
                       groupMode={fileStore.store.groupMode}
                       sectionKey="uploaded"
                       selected={fileStore.store.selected}
-                      onToggleSection={(key) => fileStore.toggleSection(key)}
                       onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                       onPreview={handlePreview}
                       onOpen={handleOpenFile}
@@ -796,11 +792,9 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     kindGroupEntries={() => fileStore.uploaded.kindGroupEntries()}
                     modifiedGroups={() => fileStore.uploaded.modifiedGroups()}
                     visibleModifiedSections={() => fileStore.uploaded.visibleModifiedSections()}
-                    collapsedSections={fileStore.store.collapsedSections}
                     groupMode={fileStore.store.groupMode}
                     sectionKey=""
                     selected={fileStore.store.selected}
-                    onToggleSection={(key) => fileStore.toggleSection(key)}
                     onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                     onPreview={handlePreview}
                     onOpen={handleOpenFile}
@@ -865,11 +859,9 @@ function KindGroupRows(props: {
   kindGroupEntries: () => Array<[ArtifactFileKind, ArtifactFile[]]>
   modifiedGroups: () => Record<ModifiedSection, ArtifactFile[]>
   visibleModifiedSections: () => ModifiedSection[]
-  collapsedSections: Set<string>
   groupMode: GroupMode
   sectionKey: string
   selected: Set<string>
-  onToggleSection: (key: string) => void
   onToggleSelection: (file: ArtifactFile) => void
   onPreview: (file: ArtifactFile) => void
   onOpen: (file: ArtifactFile) => void
@@ -885,7 +877,6 @@ function KindGroupRows(props: {
       <Match when={props.groupMode === "kind"}>
         <For each={props.kindGroupEntries()}>
           {([kind, _files]) => {
-            const sectionKey = props.sectionKey ? `${props.sectionKey}-${kind}` : kind
             const files = createMemo(() => {
               const entries = props.kindGroupEntries()
               const entry = entries.find(([k]) => k === kind)
@@ -894,39 +885,31 @@ function KindGroupRows(props: {
             return (
               <>
                 <tr class="df-section-row" style={{ background: "var(--octo-surface-page)", height: "54px" }}>
-                  <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": props.collapsedSections.has(sectionKey) ? "1px solid rgba(0, 0, 0, 0.1)" : "none" }}>
-                    <button
-                      type="button"
-                      onClick={() => props.onToggleSection(sectionKey)}
+                  <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
+                    <div
                       class="flex items-center gap-2 w-full"
                       style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "14px", "line-height": "22px" }}
                     >
-                      <IconChevronDown
-                        size={16}
-                        style={{ transform: props.collapsedSections.has(sectionKey) ? "rotate(-90deg)" : "none" }}
-                      />
                       <span class="font-medium">{props.language.t(kindToI18nKey(kind))}</span>
-                    </button>
+                    </div>
                   </td>
                 </tr>
-<Show when={!props.collapsedSections.has(sectionKey)}>
-                  <For each={files()}>
-                    {(file) => (
-                      <FileRow
-                        file={file}
-                        selected={props.selected.has(file.path)}
-                        onToggleSelection={() => props.onToggleSelection(file)}
-                        onPreview={() => props.onPreview(file)}
-                        onOpen={() => props.onOpen(file)}
-                        onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
-                        onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
-                        onOpenInExplorer={() => props.onOpenInExplorer(file)}
-                        onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
-                        onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
-                      />
-                    )}
-                  </For>
-                </Show>
+                <For each={files()}>
+                  {(file) => (
+                    <FileRow
+                      file={file}
+                      selected={props.selected.has(file.path)}
+                      onToggleSelection={() => props.onToggleSelection(file)}
+                      onPreview={() => props.onPreview(file)}
+                      onOpen={() => props.onOpen(file)}
+                      onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
+                      onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                      onOpenInExplorer={() => props.onOpenInExplorer(file)}
+                      onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
+                      onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                    />
+                  )}
+                </For>
               </>
             )
           }}
@@ -935,44 +918,35 @@ function KindGroupRows(props: {
       <Match when={props.groupMode === "modified"}>
         <For each={props.visibleModifiedSections()}>
           {(section) => {
-            const sectionKey = props.sectionKey ? `${props.sectionKey}-${section}` : section
             const files = createMemo(() => props.modifiedGroups()[section])
             return (
               <>
                 <tr class="df-section-row" style={{ background: "var(--octo-surface-page)", height: "54px" }}>
-                  <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": props.collapsedSections.has(sectionKey) ? "1px solid rgba(0, 0, 0, 0.1)" : "none" }}>
-                    <button
-                      type="button"
-                      onClick={() => props.onToggleSection(sectionKey)}
+                  <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
+                    <div
                       class="flex items-center gap-2 w-full"
                       style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "14px", "line-height": "22px" }}
                     >
-                      <IconChevronDown
-                        size={16}
-                        style={{ transform: props.collapsedSections.has(sectionKey) ? "rotate(-90deg)" : "none" }}
-                      />
                       <span class="font-medium">{props.language.t(modifiedSectionToI18nKey(section))}</span>
-                    </button>
+                    </div>
                   </td>
                 </tr>
-                <Show when={!props.collapsedSections.has(sectionKey)}>
-                  <For each={files()}>
-                    {(file) => (
-                      <FileRow
-                        file={file}
-                        selected={props.selected.has(file.path)}
-                        onToggleSelection={() => props.onToggleSelection(file)}
-                        onPreview={() => props.onPreview(file)}
-                        onOpen={() => props.onOpen(file)}
-                        onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
-                        onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
-                        onOpenInExplorer={() => props.onOpenInExplorer(file)}
-                        onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
-                        onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
-                      />
-                    )}
-                  </For>
-                </Show>
+                <For each={files()}>
+                  {(file) => (
+                    <FileRow
+                      file={file}
+                      selected={props.selected.has(file.path)}
+                      onToggleSelection={() => props.onToggleSelection(file)}
+                      onPreview={() => props.onPreview(file)}
+                      onOpen={() => props.onOpen(file)}
+                      onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
+                      onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                      onOpenInExplorer={() => props.onOpenInExplorer(file)}
+                      onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
+                      onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
+                    />
+                  )}
+                </For>
               </>
             )
           }}
