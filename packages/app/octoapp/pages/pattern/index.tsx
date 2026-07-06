@@ -185,7 +185,6 @@ function PatternContent() {
               const reviewCkpt = await loadReviewCheckpoint(dir, id)
               if (params.id !== id) return
               if (reviewCkpt) {
-                debugger
                 setLastPlanner(reviewCkpt.planner)
                 setLastIntent(reviewCkpt.intentDescription)
                 setPatternMatches(reviewCkpt.pattern)
@@ -653,11 +652,9 @@ function PatternContent() {
   async function handleSelectTemplate(match: PatternMatchItem) {
     const sid = params.id
     if (!sid) return
-
     const ds = selectedDesignSystem()
     const content = await readPatternFile("page", match.pattern.path, ds)
     if (!content) return
-
     const { lastIntent, lastPlanner, lastModules, mergedA2UI } = JSON.parse(content)
 
     setShowPatternMatch(false)
