@@ -35,6 +35,8 @@ import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, h
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
 import { PatternMatchPage } from "./modules/preview/pattern-match-page"
+import type { PatternMatchItem } from "./utils/pattern-resource"
+import { readPatternFile } from "./utils/pattern-resource"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
@@ -374,8 +376,30 @@ function PatternContent() {
       const baseId = id.replace(/(:\d+)+$/, "")
       return children.includes(baseId) ? baseId : null
     }
+    const reorderLoopChildren = (children: { path: string; componentId: string }) => {
+      const sourceMatch = elementId.match(new RegExp(`^${children.componentId}:(\\d+)$`))
+      const targetMatch = targetSiblingId.match(new RegExp(`^${children.componentId}:(\\d+)$`))
+      const list = children.path.replace(/^\//, "").split("/").reduce<unknown>((value, key) => {
+        if (!value || typeof value !== "object") return undefined
+        return (value as Record<string, unknown>)[key]
+      }, clone.state)
+      if (!sourceMatch || !targetMatch || !Array.isArray(list)) return false
+      const sourceIndex = Number(sourceMatch[1])
+      const targetIndex = Number(targetMatch[1])
+      if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= list.length || targetIndex >= list.length) return false
+      const reordered = list.filter((_, index) => index !== sourceIndex)
+      const targetOffset = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+      reordered.splice(position === "before" ? targetOffset : targetOffset + 1, 0, list[sourceIndex])
+      list.splice(0, list.length, ...reordered)
+      return true
+    }
     const clone = JSON.parse(JSON.stringify(doc)) as A2UIDocument
     for (const el of clone.elements) {
+      if (el.children && !Array.isArray(el.children) && reorderLoopChildren(el.children)) {
+        console.log("[reorder] loop success:", elementId, position, targetSiblingId, "in parent", el.id)
+        sendToPreview(clone)
+        return
+      }
       if (!Array.isArray(el.children)) continue
       const kids = el.children as string[]
       const sourceId = matchChildId(kids, elementId)
@@ -531,6 +555,12 @@ function PatternContent() {
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
     setHasPreviewContent(true)
+  }
+
+  // 从 Pattern 匹配页进入线框审查
+  function handleEnterWireframe() {
+    setShowPatternMatch(false)
+    setIsPlanReview(true)
   }
 
   async function handleSubmit() {
@@ -709,9 +739,6 @@ function PatternContent() {
           setIsPlanReview(true)
         }
       }
-
-      const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
-      console.log(`[Pattern] 第一次生成页面耗时: ${genDuration}s`)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleSubmit")
@@ -726,10 +753,39 @@ function PatternContent() {
     }
   }
 
-  // 从 Pattern 匹配页进入线框审查
-  function handleEnterWireframe() {
+  // 用户点击「选择当前模板」时，加载 pattern 文件内容并触发渲染
+  async function handleSelectTemplate(match: PatternMatchItem) {
+    const sid = params.id
+    if (!sid) return
+    const ds = selectedDesignSystem()
+    const content = await readPatternFile("page", match.pattern.path, ds)
+    if (!content) return
+    const { lastIntent, lastPlanner, lastModules, mergedA2UI } = JSON.parse(content)
+
     setShowPatternMatch(false)
-    setIsPlanReview(true)
+
+    const dir = patternHistoryDir()
+    if (dir) {
+      await clearReviewCheckpoint(dir, sid)
+      await updatePatternVersion(dir, sid, {
+        lastModules,
+        mergedA2UI,
+      })
+      void saveDebugSnapshot(dir, sid, "template", {
+        lastIntent,
+        lastPlanner,
+        lastModules,
+        mergedA2UI,
+        summary: userInput().slice(0, 80),
+      })
+      clearDebugLog()
+    }
+
+    if (params.id !== sid) return
+    sendToPreview(mergedA2UI)
+    setLastIntent(lastIntent)
+    setLastPlanner(lastPlanner)
+    setLastModules(lastModules)
   }
 
   // 线框审查确认后，继续执行阶段 2：模块生成
@@ -811,7 +867,7 @@ function PatternContent() {
     }
   }
 
-  // 意图确认后，带着用户的补充继续执行 pipeline
+  // 意图确认后，带着用户的补充继续执行pattern匹配和线框生成
   async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string) {
     const sid = params.id
     if (!sid) return
@@ -914,6 +970,7 @@ function PatternContent() {
     if (haltDir) void clearProtoError(haltDir, sid)
   }
 
+  // 监听对话框回车键
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -921,6 +978,7 @@ function PatternContent() {
     }
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
@@ -945,10 +1003,12 @@ function PatternContent() {
     }
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function removeAttachment(id: string) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
@@ -957,16 +1017,19 @@ function PatternContent() {
     }
   }
 
+  // 对话框UI拖拽
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
+  // 对话框UI拖拽
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
+  // 对话框UI拖拽
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
@@ -992,25 +1055,25 @@ function PatternContent() {
     })
   }
 
+  // 下载页面代码
   async function handleDownload() {
     tracker.interaction({ module: "prototype", name: "download-result" })
     await download({ planner: lastPlanner(), mergedA2UI: pendingPreviewData() })
   }
+
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
     tracker.interaction({ module: "prototype", name: "share-result" })
-    await exportZip({
-      historyDir: patternHistoryDir(),
-      sessionId: params.id ?? "",
-      title: sessionInfo()?.title ?? params.id ?? "export",
-    })
+    await exportZip({historyDir: patternHistoryDir(), sessionId: params.id ?? "", title: sessionInfo()?.title ?? params.id ?? "export" })
   }
 
+  // 实时预览
   async function handleLivePreview() {
     tracker.interaction({ module: "prototype", name: "live-preview" })
     await livePreview(pendingPreviewData())
   }
 
+  // Pixso预览
   async function handlePixsoPreview() {
     tracker.interaction({ module: "prototype", name: "pixso-preview" })
     await pixsoPreview(pendingPreviewData())
@@ -1132,6 +1195,7 @@ function PatternContent() {
                   intentDescription={lastIntent() ?? {}}
                   patternMatches={patternMatches()}
                   onEnterWireframe={handleEnterWireframe}
+                  onSelectTemplate={handleSelectTemplate}
                 />
               </Show>
             }>

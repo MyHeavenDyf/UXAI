@@ -120,7 +120,8 @@
 
   function makeGhost(el) {
     var r = el.getBoundingClientRect()
-    var g = el.cloneNode(true)
+    var g = document.createElement("div")
+    var c = el.cloneNode(true)
     g.style.cssText =
       "position:fixed;z-index:99999;pointer-events:none;opacity:0.85;" +
       "left:" + r.left + "px;top:" + r.top + "px;" +
@@ -130,6 +131,12 @@
     g.style.setProperty("height", r.height + "px", "important")
     g.style.setProperty("min-width", r.width + "px", "important")
     g.style.setProperty("max-width", r.width + "px", "important")
+    c.style.setProperty("width", "100%", "important")
+    c.style.setProperty("height", "100%", "important")
+    c.style.setProperty("min-width", "0", "important")
+    c.style.setProperty("max-width", "100%", "important")
+    c.style.setProperty("margin", "0", "important")
+    g.appendChild(c)
     document.body.appendChild(g)
     return g
   }
