@@ -59,6 +59,8 @@ export type UploadCallbacks = {
 }
 
 export type DownloadItem = {
+  name: string
+  size: number
   docId: string
   docVersion?: string
 }
