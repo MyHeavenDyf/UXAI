@@ -354,6 +354,9 @@ function PatternContent() {
     void handleSubmit()
   }
 
+  let lastReorderSave = 0
+  const REORDER_THROTTLE_MS = 2000
+
   // 拖拽重排序：在 A2UI JSON 中重新排列同级 children
   function handleReorder(elementId: string, targetSiblingId: string, position: "before" | "after") {
     const doc = pendingPreviewData() as A2UIDocument | null
@@ -373,12 +376,46 @@ function PatternContent() {
       const sourceId = matchChildId(kids, elementId)
       const targetId = matchChildId(kids, targetSiblingId)
       if (!sourceId || !targetId || sourceId === targetId) continue
+      const beforeChildren = [...kids]
       const filtered = kids.filter(id => id !== sourceId)
       const idx = filtered.indexOf(targetId)
       filtered.splice(position === "before" ? idx : idx + 1, 0, sourceId)
       el.children = filtered
       console.log("[reorder] success:", sourceId, position, targetId, "in parent", el.id)
       sendToPreview(clone)
+
+      const now = Date.now()
+      const sid = params.id
+      const dir = patternHistoryDir()
+      if (sid && dir && now - lastReorderSave >= REORDER_THROTTLE_MS) {
+        lastReorderSave = now
+        const summary = `重新排序: ${sourceId}`
+        void appendPatternVersion(dir, sid, {
+          lastIntent: lastIntent(),
+          lastPlanner: lastPlanner(),
+          lastModules: lastModules(),
+          mergedA2UI: clone as unknown as Record<string, unknown>,
+        }, summary).then((vid) => {
+          if (params.id !== sid) return
+          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary }])
+          setCurrentVersionId(vid)
+        })
+        void saveDebugSnapshot(dir, sid, "modify", {
+          lastIntent: lastIntent(),
+          lastPlanner: lastPlanner(),
+          lastModules: lastModules(),
+          mergedA2UI: clone as unknown as Record<string, unknown>,
+          summary,
+          extra: {
+            reorderData: { elementId, targetSiblingId, position, sourceId, targetId },
+            beforeChildren,
+            afterChildren: filtered,
+            parentId: el.id,
+          },
+        })
+        clearDebugLog()
+      }
+
       return
     }
     console.warn("[reorder] no matching parent found for", elementId, "->", targetSiblingId, "(may be loop-bound children)")
