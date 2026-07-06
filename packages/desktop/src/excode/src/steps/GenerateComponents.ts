@@ -131,7 +131,13 @@ export class GenerateComponents extends Step {
 
         // 6c. 模块级 const 声明
         //     来源：moduleRefs（state 引用） + modComponentVars（含 JSX）
+        //     - readonly / loop binding → 模块级 const（在组件函数外）
+        //     - two-way binding → 组件函数内 useState（见 6g2 hookDecls）
         const decls = StateStrategy.generateModuleDecls(moduleRefs, []);
+
+        // 6c2. 模块内 hook 声明（two-way binding → useState）
+        //     在组件函数体内、return 之前输出
+        const hookDecls = StateStrategy.generateHookDecls(moduleRefs);
 
         // 6d. 渲染模块 JSX
         const jsxCtx: any = {
@@ -163,16 +169,17 @@ export class GenerateComponents extends Step {
 
         // 6g. 组装模块文件
         const hasCompVars = compVarDecls.trim().length > 0;
-        const fileBody = hasCompVars
-          ? `  // 数据转换（编译期生成）\n${compVarDecls.split('\n').map((l: string) => `  ${l}`).join('\n')}\n`
+        // componentVars 的 const 声明放在组件函数体顶部、return 之前
+        const compVarBody = hasCompVars
+          ? `  // 数据转换（编译期生成）\n${compVarDecls.split('\n').map((l: string) => `  ${l}`).join('\n')}\n\n`
           : '';
 
         const indentedJsx = jsxParts
-          .map((p: string) => p.split('\n').map((line: string) => `      ${line}`).join('\n'))
+          .map((p: string) => p.split('\n').map((line: string) => `    ${line}`).join('\n'))
           .join('\n');
 
         const fileContent = ([
-          "import React from 'react';",
+          "import React, { useState } from 'react';",
           "import { initialState } from '../state';",
           ...(styleImports.length > 0 ? ['', ...styleImports] : []),
           '',
@@ -180,10 +187,11 @@ export class GenerateComponents extends Step {
           decls,
           '',
           `export const ${moduleName} = () => {`,
-          fileBody ? `  return (\n${'      '.trim()}<>` : '  return (',
-          ...(fileBody
-            ? [indentedJsx, '    </>', '  );']
-            : [indentedJsx, '  );']),
+          hookDecls,
+          compVarBody,
+          '  return (',
+          indentedJsx,
+          '  );',
           '};',
           '',
           `export default ${moduleName};`,
@@ -287,6 +295,21 @@ export class GenerateComponents extends Step {
     if (!node || typeof node !== 'object') return;
 
     if (node.stateData && typeof node.stateData === 'object') {
+      // 支持 __deleteFields：从 mergedState 中删除指定字段（支持嵌套路径）
+      if (node.stateData.__deleteFields && Array.isArray(node.stateData.__deleteFields)) {
+        for (const fieldPath of node.stateData.__deleteFields) {
+          const segments = fieldPath.split('.');
+          if (segments.length === 1) {
+            delete mergedState[fieldPath];
+          } else {
+            const parent = segments.slice(0, -1).reduce((obj: any, key: string) => obj?.[key], mergedState);
+            if (parent) delete parent[segments[segments.length - 1]];
+          }
+        }
+        // 删除标记本身，不进入 mergedState
+        delete node.stateData.__deleteFields;
+      }
+      // 普通字段覆盖
       for (const [key, value] of Object.entries(node.stateData)) {
         mergedState[key] = value;
       }

@@ -9,9 +9,11 @@
  *   或直接合并到 default 对象中。
  */
 import { default as Table } from './Table';
+import { default as Menu } from './Menu';
 
 export default {
     Table,
+    Menu,
     // ── 后续组件按字母顺序添加 ──
     // Badge,
     // Button,
