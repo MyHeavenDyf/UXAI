@@ -35,13 +35,12 @@ import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, h
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
 import { PatternMatchPage } from "./modules/preview/pattern-match-page"
+import type { PatternMatchItem } from "./utils/pattern-resource"
+import { readPatternFile } from "./utils/pattern-resource"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
-import test1Img from "./assets/images/test1.png?url"
-import test2Img from "./assets/images/test2.png?url"
-import test3Img from "./assets/images/test3.png?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
@@ -652,6 +651,16 @@ function PatternContent() {
     setIsPlanReview(true)
   }
 
+  // 用户点击「选择当前模板」时，加载对应 pattern 文件内容
+  async function handleSelectTemplate(match: PatternMatchItem) {
+    const ds = selectedDesignSystem()
+    const content = await readPatternFile("page", match.pattern.path, ds)
+    debugger
+    setPatternMatches(prev => prev.map(m =>
+      m.pattern.name === match.pattern.name ? { ...m, content } : m
+    ))
+  }
+
   // 线框审查确认后，继续执行阶段 2：模块生成
   async function handleConfirmReview(result: WireframeReviewResult) {
     const sid = params.id
@@ -1054,6 +1063,7 @@ function PatternContent() {
                   intentDescription={lastIntent() ?? {}}
                   patternMatches={patternMatches()}
                   onEnterWireframe={handleEnterWireframe}
+                  onSelectTemplate={handleSelectTemplate}
                 />
               </Show>
             }>

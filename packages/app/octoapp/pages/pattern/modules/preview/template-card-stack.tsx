@@ -5,6 +5,7 @@ import "../../assets/style/preview/templateCardStack.css"
 export type TemplateCardStackApi = {
   cycleNext: () => void
   cyclePrev: () => void
+  getActiveMatch: () => PatternMatchItem | null
 }
 
 export function TemplateCardStack(props: {
@@ -119,7 +120,7 @@ export function TemplateCardStack(props: {
     document.removeEventListener("keydown", keydownHandler)
   })
 
-  props.ref?.({ cycleNext, cyclePrev })
+  props.ref?.({ cycleNext, cyclePrev, getActiveMatch: () => props.matches[order()[0]] ?? null })
 
   return (
     <div class="template-card-stack">
