@@ -95,6 +95,10 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
+  /** save image to uploads dir, returns URL path like /uploads/hash.ext */
+  saveUploadImage: (buffer: ArrayBuffer) => Promise<string>
+  getUploadsDir: () => Promise<string | null>
+  setUploadsDir: (dir: string) => Promise<void>
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>

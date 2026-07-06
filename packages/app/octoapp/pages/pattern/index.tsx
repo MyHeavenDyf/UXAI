@@ -328,8 +328,15 @@ function PatternContent() {
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
-    const home = sdk.directory;
-    return `${home}/.octo/design/history`;
+    const home = sdk.directory
+    return `${home}/.octo/design/history`
+  })
+
+  createEffect(() => {
+    const home = sdk.directory
+    if (!home) return
+    const api = (window as unknown as { api?: { setUploadsDir?: (dir: string) => Promise<void> } }).api
+    api?.setUploadsDir?.(`${home}/.octo/design/uploads`)
   })
 
   // pipeline 忙状态（用于生成卡片状态）
@@ -792,6 +799,8 @@ function PatternContent() {
       })
     }
   }
+
+  
 
   async function halt() {
     const sid = params.id

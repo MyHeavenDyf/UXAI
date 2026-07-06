@@ -56,7 +56,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
-import { startPreviewServer } from "./preview-server"
+import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
   getDefaultServerUrl,
   getWslConfig,
@@ -171,6 +171,9 @@ function setupApp() {
     registerRendererProtocol()
     registerLocalProtocol()
     setDockIcon()
+    const uploadsDir = join(app.getPath("userData"), "uploads")
+    mkdirSync(uploadsDir, { recursive: true })
+    setUploadsDir(uploadsDir)
     startPreviewServer()
     setupAutoUpdater()
     await initialize()

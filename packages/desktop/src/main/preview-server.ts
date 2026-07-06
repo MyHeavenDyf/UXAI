@@ -33,6 +33,16 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
 }
 
+let uploadsDir: string | null = null
+
+export function setUploadsDir(dir: string) {
+  uploadsDir = dir
+}
+
+export function getUploadsDir() {
+  return uploadsDir
+}
+
 export function startPreviewServer() {
   const dir = previewDistDir()
 
@@ -41,6 +51,26 @@ export function startPreviewServer() {
     res.setHeader("Access-Control-Allow-Headers", "*")
 
     const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname)
+
+    if (uploadsDir && pathname.startsWith("/uploads/")) {
+      const filename = pathname.slice("/uploads/".length)
+      if (!filename || filename.includes("..")) {
+        res.writeHead(403)
+        res.end("Forbidden")
+        return
+      }
+      const filePath = join(uploadsDir, filename)
+      const found = await stat(filePath).then(() => true).catch(() => false)
+      if (!found) {
+        res.writeHead(404)
+        res.end("Not found")
+        return
+      }
+      res.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream" })
+      createReadStream(filePath).pipe(res)
+      return
+    }
+
     const candidate = join(dir, pathname === "/" ? "index.html" : pathname)
 
     if (relative(dir, candidate).startsWith("..")) {

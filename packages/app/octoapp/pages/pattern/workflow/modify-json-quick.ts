@@ -192,7 +192,7 @@ export async function handleModifyElement(
                   const modBefore = JSON.parse(JSON.stringify(modEl.props ?? {}))
                   modEl.props = modEl.props || {}
                   if (data.className) modEl.props.className = data.className
-                  if (data.componentProps) mergePropsSafe(modEl.props, data.componentProps, modBefore)
+                  if (data.componentProps) mergePropsSafe(modEl.props, data.componentProps, modBefore, true)
                 }
               }
 
@@ -216,10 +216,10 @@ export async function handleModifyElement(
   }
 
 
-  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string>, before: Record<string, unknown>) {
+  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string>, before: Record<string, unknown>, skipBindings: boolean) {
     for (const key of Object.keys(source)) {
       const prev = before[key]
-      if (prev && typeof prev === "object" && !Array.isArray(prev) && (prev as Record<string, unknown>).path) continue
+      if (skipBindings && prev && typeof prev === "object" && !Array.isArray(prev) && (prev as Record<string, unknown>).path) continue
       if (typeof prev === "boolean") {
         target[key] = source[key] === "true"
       } else if (typeof prev === "number") {
@@ -239,9 +239,16 @@ export async function handleModifyElement(
       if (!prev || typeof prev !== "object" || Array.isArray(prev)) continue
       const path = (prev as Record<string, unknown>).path
       if (typeof path !== "string" || !path) continue
-      const cleanPath = path.replace(/^\//, "")
-      if (cleanPath in state) {
-        state[cleanPath] = componentProps[key]
+      const parts = path.replace(/^\//, "").split("/")
+      let target: Record<string, unknown> = state as Record<string, unknown>
+      for (let i = 0; i < parts.length - 1; i++) {
+        const k = parts[i]
+        if (!target[k] || typeof target[k] !== "object" || Array.isArray(target[k])) return
+        target = target[k] as Record<string, unknown>
+      }
+      const lastKey = parts[parts.length - 1]
+      if (lastKey in target) {
+        target[lastKey] = componentProps[key]
       }
     }
   }
@@ -255,7 +262,7 @@ export async function handleModifyElement(
         el.props = el.props || {}
         if (data.className) el.props.className = data.className
         if (data.textContent) el.props.value = data.textContent
-        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, beforeProps as Record<string, unknown>)
+        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, beforeProps as Record<string, unknown>, false)
         if (data.componentProps) applyStateBindings(beforeProps as Record<string, unknown>, data.componentProps)
         break
       }
@@ -268,7 +275,7 @@ export async function handleModifyElement(
       if (el.id === baseElementId) {
         el.props = el.props || {}
         if (data.className) el.props.className = data.className
-        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, (beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>))
+        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, (beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>), false)
         if (data.componentProps) applyStateBindings((beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>), data.componentProps)
         break
       }
