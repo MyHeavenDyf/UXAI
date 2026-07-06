@@ -1,8 +1,12 @@
 /**
  * Drag-to-reorder bridge injected into the preview iframe.
  *
+ * Behavior when drag mode is enabled:
+ *   Short click  → property editor opens (via DOM_PICKER_QUICK_FIX from runtime.js)
+ *   Long press + drag  → reorder (via DRAG_REORDER)
+ *
  * Messages:
- *   parent -> iframe:  { type: "DRAG_MODE", enabled: true|false }
+ *   parent -> iframe:  { type: "DRAG_MODE", enabled: true|false, siblingMap?: Record<string,string[]> }
  *   iframe -> parent:  { type: "DRAG_REORDER", elementId, targetSiblingId, position: "before"|"after" }
  *
  * Uses the A2UI renderer's `dom-picker-id` attribute (= A2UI element id)
@@ -10,6 +14,7 @@
  */
 ;(function () {
   var ATTR = "dom-picker-id"
+  var LONG_PRESS_MS = 300
   var dragMode = false
   var siblingMap = {}
   var dragEl = null
@@ -20,7 +25,10 @@
   var moved = false
   var offX = 0
   var offY = 0
-  var hoverEl = null
+  var pointerStartX = 0
+  var pointerStartY = 0
+  var longPressTimer = null
+  var shouldPreventClick = false
 
   function attrSelector(id) {
     return "[" + ATTR + '="' + String(id).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]'
@@ -113,9 +121,18 @@
     return Math.abs(a.left - b.left) > Math.abs(a.top - b.top) ? "h" : "v"
   }
 
-  function hideBadges() {
-    var e = document.querySelectorAll("[dom-picker-overlay],[dom-picker-badge]")
-    for (var i = 0; i < e.length; i++) e[i].style.display = "none"
+  function hidePicker() {
+    var o = document.getElementById("dom-picker-overlay")
+    var b = document.getElementById("dom-picker-badge")
+    if (o) o.style.display = "none"
+    if (b) b.style.display = "none"
+  }
+
+  function showPicker() {
+    var o = document.getElementById("dom-picker-overlay")
+    var b = document.getElementById("dom-picker-badge")
+    if (o) o.style.display = ""
+    if (b) b.style.display = ""
   }
 
   function makeGhost(el) {
@@ -123,10 +140,11 @@
     var g = document.createElement("div")
     var c = el.cloneNode(true)
     g.style.cssText =
-      "position:fixed;z-index:99999;pointer-events:none;opacity:0.85;" +
+      "position:fixed;z-index:99999;pointer-events:none;opacity:0.92;" +
       "left:" + r.left + "px;top:" + r.top + "px;" +
-      "box-shadow:0 8px 24px rgba(0,123,255,.35);border:2px solid #007bff;" +
-      "border-radius:6px;background:rgba(255,255,255,.95);overflow:hidden;"
+      "border:2px solid #007bff;" +
+      "background:rgba(0,123,255,0.05);overflow:hidden;" +
+      "box-shadow:0 4px 16px rgba(0,123,255,0.2);"
     g.style.setProperty("width", r.width + "px", "important")
     g.style.setProperty("height", r.height + "px", "important")
     g.style.setProperty("min-width", r.width + "px", "important")
@@ -145,7 +163,7 @@
     var d = document.createElement("div")
     d.style.cssText =
       "position:fixed;z-index:99998;pointer-events:none;background:#007bff;" +
-      "box-shadow:0 0 6px rgba(0,123,255,.8);border-radius:2px;display:none;"
+      "box-shadow:0 0 4px rgba(0,123,255,0.5);border-radius:2px;display:none;"
     document.body.appendChild(d)
     return d
   }
@@ -194,14 +212,14 @@
     if (dir === "h") {
       indicator.style.cssText =
         "position:fixed;z-index:99998;pointer-events:none;background:#007bff;" +
-        "box-shadow:0 0 6px rgba(0,123,255,.8);border-radius:2px;display:block;" +
+        "box-shadow:0 0 4px rgba(0,123,255,0.5);border-radius:2px;display:block;" +
         "height:" + r.height + "px;width:3px;top:" + r.top + "px;left:" +
         (t.before ? r.left - 2 : r.right - 1) + "px;"
       return
     }
     indicator.style.cssText =
       "position:fixed;z-index:99998;pointer-events:none;background:#007bff;" +
-      "box-shadow:0 0 6px rgba(0,123,255,.8);border-radius:2px;display:block;" +
+      "box-shadow:0 0 4px rgba(0,123,255,0.5);border-radius:2px;display:block;" +
       "width:" + r.width + "px;height:3px;left:" + r.left + "px;top:" +
       (t.before ? r.top - 2 : r.bottom - 1) + "px;"
   }
@@ -219,7 +237,15 @@
     var r = el.getBoundingClientRect()
     offX = e.clientX - r.left
     offY = e.clientY - r.top
+    pointerStartX = e.clientX
+    pointerStartY = e.clientY
     el.setAttribute("data-drag-sel", "1")
+
+    // 长按 300ms 后才允许拖拽，短点击则穿透给 DOM Picker
+    longPressTimer = setTimeout(function () {
+      longPressTimer = null
+    }, LONG_PRESS_MS)
+
     window.addEventListener("pointermove", onMove, true)
     window.addEventListener("pointerup", onUp, true)
   }
@@ -228,11 +254,17 @@
     if (!dragEl) return
     e.preventDefault()
     e.stopPropagation()
+
+    // 移动距离不足 3px，不触发拖拽
+    if (Math.abs(e.clientX - pointerStartX) < 3 && Math.abs(e.clientY - pointerStartY) < 3) return
+
+    // 长按计时器未到，暂不激活拖拽
+    if (longPressTimer) return
+
     if (!moved) {
-      var sr = dragEl.getBoundingClientRect()
-      if (Math.abs(e.clientX - (sr.left + offX)) < 3 && Math.abs(e.clientY - (sr.top + offY)) < 3) return
       moved = true
-      hideBadges()
+      shouldPreventClick = true
+      hidePicker()
       ghost = makeGhost(dragEl)
       indicator = makeIndicator()
       dragEl.style.opacity = "0.25"
@@ -250,6 +282,9 @@
   function onUp(e) {
     window.removeEventListener("pointermove", onMove, true)
     window.removeEventListener("pointerup", onUp, true)
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+
     if (!dragEl) return
     if (moved) {
       var dir = direction(siblings)
@@ -268,7 +303,9 @@
       if (ghost) { ghost.remove(); ghost = null }
       if (indicator) { indicator.remove(); indicator = null }
       document.body.style.cursor = ""
+      showPicker()
     }
+
     dragEl.style.opacity = ""
     dragEl.removeAttribute("data-drag-sel")
     dragEl = null
@@ -276,46 +313,33 @@
     moved = false
   }
 
-  function onHover(e) {
-    if (!dragMode || dragEl) return
-    var el = draggable(e.target)
-    if (el === hoverEl) return
-    if (hoverEl) hoverEl.removeAttribute("data-drag-hov")
-    hoverEl = el
-    if (el) el.setAttribute("data-drag-hov", "1")
-  }
-
-  function kill(e) {
-    if (!dragMode) return
-    e.preventDefault()
-    e.stopPropagation()
-  }
-
   function enable() {
     dragMode = true
     document.documentElement.setAttribute("data-drag-mode", "1")
     window.addEventListener("pointerdown", onDown, true)
-    window.addEventListener("pointermove", onHover, true)
-    window.addEventListener("click", kill, true)
-    window.addEventListener("contextmenu", kill, true)
-    document.body.style.cursor = "grab"
   }
 
   function disable() {
     dragMode = false
     document.documentElement.removeAttribute("data-drag-mode")
     window.removeEventListener("pointerdown", onDown, true)
-    window.removeEventListener("pointermove", onHover, true)
-    window.removeEventListener("click", kill, true)
-    window.removeEventListener("contextmenu", kill, true)
     window.removeEventListener("pointermove", onMove, true)
     window.removeEventListener("pointerup", onUp, true)
+    clearTimeout(longPressTimer)
+    longPressTimer = null
     document.body.style.cursor = ""
-    if (hoverEl) { hoverEl.removeAttribute("data-drag-hov"); hoverEl = null }
     if (dragEl) { dragEl.style.opacity = ""; dragEl.removeAttribute("data-drag-sel"); dragEl = null }
     if (ghost) { ghost.remove(); ghost = null }
     if (indicator) { indicator.remove(); indicator = null }
   }
+
+  // IIFE 阶段注册 click 拦截器，早于 runtime.js，确保 stopImmediatePropagation 能拦截
+  window.addEventListener("click", function (e) {
+    if (!shouldPreventClick) return
+    shouldPreventClick = false
+    e.stopImmediatePropagation()
+    e.preventDefault()
+  }, true)
 
   window.addEventListener("message", function (ev) {
     var d = ev && ev.data
@@ -327,11 +351,6 @@
 
   var s = document.createElement("style")
   s.textContent =
-    "[data-drag-mode] body{cursor:grab!important}" +
-    "[data-drag-mode] [dom-picker-id]{cursor:grab!important}" +
-    "[data-drag-mode] [data-drag-hov]{outline:2px solid #007bff!important;outline-offset:2px}" +
-    "[data-drag-mode] [data-drag-sel]{outline:2px solid #007bff!important;outline-offset:2px}" +
-    "[data-drag-mode] #dom-picker-overlay{display:none!important}" +
-    "[data-drag-mode] #dom-picker-badge{display:none!important}"
+    "[data-drag-mode] [data-drag-sel]{outline:2px solid #007bff!important;background:rgba(0,123,255,0.1)!important}"
   ;(document.head || document.documentElement).appendChild(s)
 })()

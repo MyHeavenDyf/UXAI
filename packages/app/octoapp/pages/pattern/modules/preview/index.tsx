@@ -45,7 +45,6 @@ export function PreviewPage(props: {
   let canvasRef: { reset: () => void; setScale: (scale: number) => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
-  const [dragging, setDragging] = createSignal(false)
 
   const DEVICE_DIMENSIONS: Record<string, [number, number]> = {
     desktop: [1920, 1080],
@@ -57,10 +56,6 @@ export function PreviewPage(props: {
 
   createEffect(() => {
     if (!editing()) setPropertyEditor('show', false)
-  })
-
-  createEffect(() => {
-    if (dragging()) sendDragMode(true, props.pendingData)
   })
 
   
@@ -107,7 +102,7 @@ export function PreviewPage(props: {
     }
     console.log("[preview] sendToPreview posting A2UI_UPDATE")
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
-    if (dragging()) sendDragMode(true, data)
+    if (editing()) sendDragMode(true, data)
   }
 
   function buildSiblingMap(data: unknown = props.pendingData): Record<string, string[]> | undefined {
@@ -332,8 +327,8 @@ export function PreviewPage(props: {
       }
       if (editing()) {
         previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+        sendDragMode(true, props.pendingData)
       }
-      if (dragging()) sendDragMode(true, props.pendingData)
     }
     if (e.data?.type === "DRAG_REORDER" && props.onReorder) {
       props.onReorder(e.data.elementId, e.data.targetSiblingId, e.data.position)
@@ -372,7 +367,6 @@ export function PreviewPage(props: {
           setCanvasMode(next)
           if (next) {
             setEditing(false)
-            setDragging(false)
             sendDragMode(false)
             previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
           }
@@ -388,25 +382,15 @@ export function PreviewPage(props: {
         currentVersionId={props.currentVersionId}
         onSelectVersion={props.onSelectVersion}
         editing={editing()}
-        dragging={dragging()}
         onToggleEditing={() => {
           const next = !editing()
           setEditing(next)
           previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
           if (next) {
             setCanvasMode(false)
-            setDragging(false)
+            sendDragMode(true)
+          } else {
             sendDragMode(false)
-          }
-        }}
-        onToggleDragging={() => {
-          const next = !dragging()
-          setDragging(next)
-          sendDragMode(next)
-          if (next) {
-            setCanvasMode(false)
-            setEditing(false)
-            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
           }
         }}
         onOptionChange={handleTitleBarOptionChange}
