@@ -246,6 +246,8 @@ function ThreeDContent() {
   })
 
   const isBusy = createMemo(() => {
+    // 用户已点中止,立即返回 false,不等 sync 轮询更新 sessionStatus
+    if (aborted()) return false
     if (sessionStatus().type !== "idle") return true
     const id = params.id
     if (!id) return false
