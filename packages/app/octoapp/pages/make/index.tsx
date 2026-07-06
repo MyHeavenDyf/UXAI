@@ -186,6 +186,24 @@ function MakeContent() {
     ),
   )
 
+  // 追踪会话页面上的最新模型选择，在切换到空态（新建对话）时回填
+  let lastSessionModel: { providerID: string; modelID: string } | null = null
+  createEffect(() => {
+    if (!params.id) return
+    const m = currentModel()
+    if (m) lastSessionModel = { providerID: m.provider.id, modelID: m.id }
+  })
+  createEffect(
+    on(
+      () => params.id,
+      (id, prevId) => {
+        if (!id && prevId && lastSessionModel) {
+          local.model.set(lastSessionModel, { recent: true })
+        }
+      },
+    ),
+  )
+
   const activeModelKey = createMemo(() => {
     const m = currentModel()
     if (!m) return null
