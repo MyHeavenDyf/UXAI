@@ -31,6 +31,7 @@ import {
   uploadArtifactFolder,
   fetchArtifactContent,
   formatTimestamp,
+  pathToLocalUrl,
   type FolderUploadFile,
 } from "../../utils/artifact-file-api"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -888,7 +889,7 @@ function KindGroupRows(props: {
                   <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
                     <div
                       class="flex items-center gap-2 w-full"
-                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "14px", "line-height": "22px" }}
+                      style={{ color: "rgba(0, 0, 0, 0.6)", "font-size": "14px", "line-height": "22px" }}
                     >
                       <span class="font-medium">{props.language.t(kindToI18nKey(kind))}</span>
                     </div>
@@ -925,7 +926,7 @@ function KindGroupRows(props: {
                   <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
                     <div
                       class="flex items-center gap-2 w-full"
-                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "14px", "line-height": "22px" }}
+                      style={{ color: "rgba(0, 0, 0, 0.6)", "font-size": "14px", "line-height": "22px" }}
                     >
                       <span class="font-medium">{props.language.t(modifiedSectionToI18nKey(section))}</span>
                     </div>
@@ -970,6 +971,7 @@ function FileRow(props: {
 }): JSX.Element {
   const language = useLanguage()
   const [showMenu, setShowMenu] = createSignal(false)
+  const [imageError, setImageError] = createSignal(false)
 
   return (
     <tr
@@ -1015,6 +1017,19 @@ function FileRow(props: {
       <td class="px-4 truncate max-w-[200px]" title={props.file.name} style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
           <div class="flex items-center" style={{ gap: "10px" }}>
             {(() => {
+              if ((props.file.kind === "image" || props.file.kind === "svg") && !imageError()) {
+                const imgSrc = pathToLocalUrl(props.file.path)
+                return (
+                  <img
+                    src={imgSrc}
+                    width={32}
+                    height={32}
+                    style={{ "object-fit": "cover", "border-radius": "4px", "flex-shrink": "0" }}
+                    alt={props.file.name}
+                    onError={() => setImageError(true)}
+                  />
+                )
+              }
               const FileIcon = getFileIcon(props.file.kind, props.file.name)
               return <FileIcon size={32} />
             })()}
