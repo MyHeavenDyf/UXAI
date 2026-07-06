@@ -676,7 +676,7 @@ export function PropertyEditorPopup(props: {
   function syncComponentProps(parsed: Record<string, unknown>) {
     setRawProps(reconcile(parsed as Record<string, string>))
     const defKeys = COMPONENT_PROPS[props.componentType] || []
-    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_') && k !== 'inlineCollapsed')
+    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_') && k !== 'inlineCollapsed' && k !== 'preview' && k !== 'url')
     setPropKeys(allKeys)
     for (const k of allKeys) {
       const raw = (parsed[k] ?? '').toString()

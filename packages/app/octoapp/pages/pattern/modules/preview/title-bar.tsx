@@ -33,11 +33,9 @@ interface TitleBarProps {
   onSelectVersion?: (versionId: string) => void
   onOptionChange: (type: "preview" | "device" | "zoom" | "theme", value: string) => void
 
-  // 容错升级：将这两个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
+  // 容错升级：将这个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
   editing?: boolean
-  dragging?: boolean
   onToggleEditing?: () => void
-  onToggleDragging?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -244,27 +242,6 @@ export function TitleBar(props: TitleBarProps) {
             }}
           >
             <IconEditPencil size={16} />
-          </button>
-
-          {/* 按钮 3.5：拖拽重排序切换 */}
-          <button
-            class="preview-action-icon-btn"
-            classList={{ 'edit-active': !!props.dragging }}
-            title="拖拽重排序"
-            onClick={() => props.onToggleDragging?.()}
-            style={{
-              "color": (props.dragging ?? false) ? "#007bff !important" : "#666"
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
-              <path d="M9 5h6M9 12h6M9 19h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              <circle cx="5" cy="5" r="1.5" fill="currentColor" />
-              <circle cx="5" cy="12" r="1.5" fill="currentColor" />
-              <circle cx="5" cy="19" r="1.5" fill="currentColor" />
-              <circle cx="19" cy="5" r="1.5" fill="currentColor" />
-              <circle cx="19" cy="12" r="1.5" fill="currentColor" />
-              <circle cx="19" cy="19" r="1.5" fill="currentColor" />
-            </svg>
           </button>
 
           {/* 按钮 4：历史版本 */}
