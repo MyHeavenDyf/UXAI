@@ -42,3 +42,4 @@ bun.lock
 .bunfig.toml
 
 analysis/
+packages/app/octoapp/pages/3d/assets/model/

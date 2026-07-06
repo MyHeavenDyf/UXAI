@@ -361,6 +361,37 @@ function ThreeDContent() {
     else if (doc && typeof doc === "object") setSceneDoc(doc as SceneDocument)
   }
 
+  /** 风车关键词匹配:直接构建引用 2592c9a1ec7fea63.glb 的场景,跳过 AI 生成 */
+  const WINDMILL_KEYWORDS = ["风车", "windmill"]
+  function isWindmillRequest(text: string): boolean {
+    return WINDMILL_KEYWORDS.some((kw) => text.toLowerCase().includes(kw))
+  }
+  function buildWindmillScene(): SceneDocument {
+    return {
+      version: "1",
+      angleUnit: "degree",
+      scene: { background: "#87CEEB", environment: { preset: "park" }, renderStyle: "soft-glow" },
+      camera: { type: "perspective", position: [8, 5, 10], lookAt: [0, 3, 0], perspective: { fov: 45, near: 0.1, far: 200 } },
+      lights: [
+        { type: "hemisphere", color: "#87CEEB", groundColor: "#3a5f0b", intensity: 0.6 },
+        { type: "directional", color: "#ffffff", intensity: 2.5, position: [10, 15, 8], target: [0, 3, 0], castShadow: true,
+          shadow: { mapSize: 2048, camera: { near: 0.5, far: 50, left: -15, right: 15, top: 15, bottom: -15 } } },
+      ],
+      assets: {
+        glb: {
+          windmill: { type: "glb", url: "assets/model/2592c9a1ec7fea63.glb", draco: true },
+        },
+      },
+      objects: [
+        { id: "groundPlane", type: "mesh", geometry: { type: "plane", params: { width: 40, height: 40 } },
+          material: { type: "standard", color: "#4a7c3a", roughness: 0.95 },
+          rotation: [-90, 0, 0], receiveShadow: true },
+        { id: "windmillModel", type: "glb", asset: "windmill",
+          position: [0, 0, 0], castShadow: true, receiveShadow: true },
+      ],
+    }
+  }
+
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
@@ -387,6 +418,29 @@ function ThreeDContent() {
       const existing = sessionInfo()?.title
       if (!existing || existing.startsWith("New session")) {
         await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => { })
+      }
+
+      // 风车快捷路径:直接构建场景,跳过 AI 生成流水线
+      if (isWindmillRequest(text)) {
+        const sceneJson = buildWindmillScene()
+        setSceneDoc(sceneJson)
+        setLastIntent({ theme: "windmill", source: "preset" })
+        setLastPlanner(null)
+        const dir = sceneHistoryDir()
+        if (dir) {
+          const vid = await appendSceneVersion(dir, sid, {
+            sceneIntent: { theme: "windmill", source: "preset" },
+            scenePlanner: null,
+            sceneJson,
+          }, text.slice(0, 80))
+          setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
+          setCurrentVersionId(vid)
+        }
+        if (!aborted()) {
+          const genDuration = ((performance.now() - genStartTime()) / 1000).toFixed(0)
+          console.log(`[3D] 风车场景加载耗时: ${genDuration}s`)
+        }
+        return
       }
 
       const intentCtx = {
