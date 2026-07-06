@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onCleanup, Show, type JSX } from "solid-js"
 import type { PatternMatchItem } from "../../utils/pattern-resource"
-import "../../assets/style/preview/templateCardStack.css"
+import "../../assets/style/preview/template-card-stack.css"
 
 export type TemplateCardStackApi = {
   cycleNext: () => void
@@ -105,11 +105,6 @@ export function TemplateCardStack(props: {
     }, 500)
   }
 
-  function handleCardClick(index: number) {
-    const pos = order().indexOf(index)
-    if (pos === 0) cycleNext()
-  }
-
   const keydownHandler = (e: KeyboardEvent) => {
     if (e.key === "ArrowRight") { e.preventDefault(); cycleNext() }
     if (e.key === "ArrowLeft") { e.preventDefault(); cyclePrev() }
@@ -130,7 +125,6 @@ export function TemplateCardStack(props: {
             <div
               ref={(el) => { cardRefs[idx] = el }}
               class={`template-card ${positionClass(pos)}`}
-              onClick={() => handleCardClick(idx)}
             >
               <Show when={match.previewUrl}>
                 <img class="template-card-preview" src={match.previewUrl ?? undefined} alt={match.pattern.name} draggable={false} />

@@ -5,8 +5,7 @@ import { TemplateCardStack, type TemplateCardStackApi } from "./template-card-st
 import { WireframeTree } from "./wireframe-tree"
 import type { PatternMatchItem } from "../../utils/pattern-resource"
 import "../../assets/style/preview/wireframe.css"
-import "../../assets/style/preview/patternMatch.css"
-import "../../assets/style/preview/templateCardStack.css"
+import "../../assets/style/preview/pattern-match.css"
 
 export function PatternMatchPage(props: {
   planner: Record<string, unknown>
