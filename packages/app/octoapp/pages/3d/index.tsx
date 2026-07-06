@@ -245,6 +245,10 @@ function ThreeDContent() {
     return sync.data.session_status[id] ?? { type: "idle" }
   })
 
+  // 中止标志:halt 设为 true,handleSubmit 检测后提前退出
+  const [aborted, setAborted] = createSignal(false)
+  const [genStartTime, setGenStartTime] = createSignal(0)
+
   const isBusy = createMemo(() => {
     // 用户已点中止,立即返回 false,不等 sync 轮询更新 sessionStatus
     if (aborted()) return false
@@ -505,10 +509,6 @@ function ThreeDContent() {
       }
     }
   }
-
-  // 中止标志:halt 设为 true,handleSubmit 检测后提前退出
-  const [aborted, setAborted] = createSignal(false)
-  const [genStartTime, setGenStartTime] = createSignal(0)
 
   async function halt() {
     setAborted(true)
