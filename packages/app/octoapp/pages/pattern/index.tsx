@@ -36,12 +36,10 @@ import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
 import { PatternMatchPage } from "./modules/preview/pattern-match-page"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
+import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
-import test1Img from "./assets/images/test1.png?url"
-import test2Img from "./assets/images/test2.png?url"
-import test3Img from "./assets/images/test3.png?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
@@ -312,6 +310,10 @@ function PatternContent() {
   const [userInput, setUserInput] = createSignal<string>("")
   // 是否处于线框审查阶段
   const [isPlanReview, setIsPlanReview] = createSignal(false)
+  // 是否正在生成（意图确认后 → pattern匹配之间）
+  const [isGenerating, setIsGenerating] = createSignal(false)
+  // 是否正在生成模块（线框审查确认后 → 预览之间）
+  const [isGeneratingReview, setIsGeneratingReview] = createSignal(false)
   // 页面级 Pattern 匹配结果
   const [patternMatches, setPatternMatches] = createSignal<import("./utils/pattern-resource").PatternMatchItem[]>([])
   // 是否展示 Pattern 匹配结果页
@@ -335,13 +337,6 @@ function PatternContent() {
 
   // pipeline 忙状态（用于生成卡片状态）
   const pipelineBusy = createMemo(() => isBusy() || sending())
-
-  // 线框审查确认后，等 pipeline 真正变忙时再清除审查状态，避免卡片闪绿
-  createEffect(() => {
-    if (pipelineBusy() && isPlanReview()) {
-      setIsPlanReview(false)
-    }
-  })
 
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const sessionMessagesLoaded = () => !params.id || sessionSynced()
@@ -703,6 +698,8 @@ function PatternContent() {
 
     tracker.interaction({ module: "prototype", name: "confirm-review" })
 
+    setIsGeneratingReview(true)
+
     const ds = selectedDesignSystem()
     const intentCtx: ProtoCreateJsonInput = {
       sdk,
@@ -742,12 +739,16 @@ function PatternContent() {
         setLastIntent(pageIntent)
         setLastPlanner(layoutPlanner)
         setLastModules(modulesJson)
+        // 切换到预览页
+        setIsGeneratingReview(false)
+        setIsPlanReview(false)
     }
     
     try {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
+      setIsGeneratingReview(false)
       console.error("[PatternPage] handleConfirmReview failed", err)
       void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
 
@@ -765,6 +766,7 @@ function PatternContent() {
       }
       setIsPlanReview(true)
     } finally {
+      setIsGeneratingReview(false)
       setUserInput("")
     }
   }
@@ -777,10 +779,10 @@ function PatternContent() {
     if (!mk) return
     const text = userInput()
     const enrichedText = text + enrichedInput
-    setIntentConfirm(null)
     const ckptDir = patternHistoryDir()
     if (ckptDir) await clearIntentConfirmCheckpoint(ckptDir, sid)
     setSendingSids((prev) => new Set(prev).add(sid))
+    setIsGenerating(true)
     try {
       const intentCtx: ProtoCreateJsonInput = {
         sdk,
@@ -795,7 +797,6 @@ function PatternContent() {
       }
       const new_planner = await create_planner_json(intentCtx)
       void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
-      if (params.id !== sid) return
       // 保存部分版本（intent + planner），模块生成完成后追加补全
       const partialDir = patternHistoryDir()
       if (partialDir) {
@@ -820,6 +821,8 @@ function PatternContent() {
           createdAt: Date.now(),
         })
       }
+      if (params.id !== sid) return
+      setIntentConfirm(null)
       setLastPlanner(new_planner.planner.layout_planner)
       setLastIntent(new_planner.intent.intent_description)
       setPatternMatches(new_planner.patternPageResult.matches)
@@ -840,6 +843,7 @@ function PatternContent() {
       const error = classifyAIError(err)
       if (error.title) showToast({ title: error.title, description: error.description })
     } finally {
+      setIsGenerating(false)
       setSendingSids((prev) => {
         if (!prev.has(sid)) return prev
         const next = new Set(prev)
@@ -1071,12 +1075,17 @@ function PatternContent() {
                   </Show>
                 }>
                   <Show when={lastPlanner() && lastIntent()} fallback={<PatternPreviewEmpty />}>
-                    <WireframeReview
-                      planner={lastPlanner()!}
-                      intentDescription={lastIntent()!}
-                      userInput={userInput()}
-                      onConfirm={handleConfirmReview}
-                    />
+                    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                      <WireframeReview
+                        planner={lastPlanner()!}
+                        intentDescription={lastIntent()!}
+                        userInput={userInput()}
+                        onConfirm={handleConfirmReview}
+                      />
+                      <Show when={isGeneratingReview()}>
+                        <PatternGenerating />
+                      </Show>
+                    </div>
                   </Show>
                 </Show>
               }>
@@ -1088,10 +1097,15 @@ function PatternContent() {
                 />
               </Show>
             }>
-              <IntentConfirmReview
-                result={intentConfirm()!}
-                onConfirm={handleConfirmIntent}
-              />
+              <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                <IntentConfirmReview
+                  result={intentConfirm()!}
+                  onConfirm={handleConfirmIntent}
+                />
+                <Show when={isGenerating()}>
+                  <PatternGenerating />
+                </Show>
+              </div>
             </Show>
             <Show when={isModifying()}>
               <div class="change-content">
