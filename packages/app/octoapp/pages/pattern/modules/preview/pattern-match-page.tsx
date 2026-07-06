@@ -12,6 +12,7 @@ export function PatternMatchPage(props: {
   intentDescription: Record<string, unknown>
   patternMatches: PatternMatchItem[]
   onEnterWireframe: () => void
+  onSelectTemplate: (match: PatternMatchItem) => void
 }): JSX.Element {
   const [cardStack, setCardStack] = createSignal<TemplateCardStackApi | undefined>()
   return (
@@ -31,14 +32,25 @@ export function PatternMatchPage(props: {
             <TemplateCardStack ref={setCardStack} matches={props.patternMatches} />
           </ScaledFrame>
           <div class="pattern-match-btn-wrap">
-            <button class="template-card-nav-btn" onClick={() => cardStack()?.cyclePrev()} aria-label="上一张">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
+            <Show when={props.patternMatches.length > 1}>
+              <button class="template-card-nav-btn" onClick={() => cardStack()?.cyclePrev()} aria-label="上一张">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
+              </button>
+            </Show>
+            <button
+              class="template-card-confirm-btn"
+              onClick={() => {
+                const match = cardStack()?.getActiveMatch()
+                if (match) props.onSelectTemplate(match)
+              }}
+            >
+              选择当前模板
             </button>
-            <button class="template-card-confirm-btn">选择当前模板</button>
-
-            <button class="template-card-nav-btn" onClick={() => cardStack()?.cycleNext()} aria-label="下一张">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
-            </button>
+            <Show when={props.patternMatches.length > 1}>
+              <button class="template-card-nav-btn" onClick={() => cardStack()?.cycleNext()} aria-label="下一张">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+              </button>
+            </Show>
           </div>
         </div>
 

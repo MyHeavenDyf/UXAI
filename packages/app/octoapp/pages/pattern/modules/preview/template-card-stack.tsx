@@ -5,6 +5,7 @@ import "../../assets/style/preview/template-card-stack.css"
 export type TemplateCardStackApi = {
   cycleNext: () => void
   cyclePrev: () => void
+  getActiveMatch: () => PatternMatchItem | null
 }
 
 export function TemplateCardStack(props: {
@@ -45,10 +46,8 @@ export function TemplateCardStack(props: {
     for (let i = 1; i < curOrder.length; i++) {
       const el = cardRefs[curOrder[i]]
       if (el) {
-        const oldCls = i === 1 ? "tpos-1" : "tpos-2"
-        const newCls = positionClass(i - 1)
-        el.classList.remove(oldCls)
-        el.classList.add(newCls)
+        el.classList.remove(positionClass(i))
+        el.classList.add(positionClass(i - 1))
       }
     }
 
@@ -85,16 +84,18 @@ export function TemplateCardStack(props: {
       backEl.classList.add("tpos-0")
     }
     const front = curOrder[0]
-    const mid = curOrder[1]
     const frontEl = cardRefs[front]
-    const midEl = cardRefs[mid]
     if (frontEl) {
       frontEl.classList.remove("tpos-0")
-      frontEl.classList.add("tpos-1")
+      frontEl.classList.add(count() > 2 ? "tpos-1" : "tpos-2")
     }
-    if (midEl && count() > 2) {
-      midEl.classList.remove("tpos-1")
-      midEl.classList.add("tpos-2")
+    if (count() > 2) {
+      const mid = curOrder[1]
+      const midEl = cardRefs[mid]
+      if (midEl) {
+        midEl.classList.remove("tpos-1")
+        midEl.classList.add("tpos-2")
+      }
     }
 
     // Delay setOrder until animation completes — SolidJS class binding would otherwise
@@ -114,7 +115,7 @@ export function TemplateCardStack(props: {
     document.removeEventListener("keydown", keydownHandler)
   })
 
-  props.ref?.({ cycleNext, cyclePrev })
+  props.ref?.({ cycleNext, cyclePrev, getActiveMatch: () => props.matches[order()[0]] ?? null })
 
   return (
     <div class="template-card-stack">

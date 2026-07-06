@@ -33,44 +33,44 @@ export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
 export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   // 页面级 Pattern 匹配
   let patternPageResult = await proto_pattern_page(inputCtx)
-  patternPageResult = {
-    "matches": [
-        {
-            "pattern": {
-                "name": "统计面板-单业务-左拓扑右统计",
-                "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
-                "business_scenario": "日常监控、故障处理、业务分析、业务优化",
-                "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
-                "path": "LeftTopologyRightStatistics.json",
-                "preview": "LeftTopologyRightStatistics.png"
-            },
-            "score": 100
-        },
-        {
-            "pattern": {
-                "name": "统计面板-单业务-左拓扑右统计",
-                "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
-                "business_scenario": "日常监控、故障处理、业务分析、业务优化",
-                "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
-                "path": "LeftTopologyRightStatistics.json",
-                "preview": "LeftTopologyRightStatistics.png"
-            },
-            "score": 100
-        },
-        {
-            "pattern": {
-                "name": "统计面板-单业务-左统计右拓扑",
-                "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
-                "business_scenario": "日常监控、故障处理、业务分析、业务优化",
-                "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
-                "path": "RightStatisticsLeftTopology.json",
-                "preview": "RightStatisticsLeftTopology.png"
-            },
-            "score": 87
-        }
-    ],
-    "current_step": "pattern_page"
-  }
+  // patternPageResult = {
+  //   "matches": [
+  //       {
+  //           "pattern": {
+  //               "name": "统计面板-单业务-左拓扑右统计",
+  //               "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
+  //               "business_scenario": "日常监控、故障处理、业务分析、业务优化",
+  //               "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
+  //               "path": "LeftTopologyRightStatistics.json",
+  //               "preview": "LeftTopologyRightStatistics.png"
+  //           },
+  //           "score": 100
+  //       },
+  //       {
+  //           "pattern": {
+  //               "name": "统计面板-单业务-左拓扑右统计",
+  //               "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
+  //               "business_scenario": "日常监控、故障处理、业务分析、业务优化",
+  //               "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
+  //               "path": "LeftTopologyRightStatistics.json",
+  //               "preview": "LeftTopologyRightStatistics.png"
+  //           },
+  //           "score": 100
+  //       },
+  //       {
+  //           "pattern": {
+  //               "name": "统计面板-单业务-左统计右拓扑",
+  //               "elements": "适用于单业务监控，借助数字地图获取单业务信息。页面中包含业务拓扑、业务基础信息、业务相关信息统计",
+  //               "business_scenario": "日常监控、故障处理、业务分析、业务优化",
+  //               "layout_mode": "上面部分是业务相关拓扑/数字地图，下半部分是业务质量概览，右侧区域是业务相关指标统计",
+  //               "path": "RightStatisticsLeftTopology.json",
+  //               "preview": "RightStatisticsLeftTopology.png"
+  //           },
+  //           "score": 87
+  //       }
+  //   ],
+  //   "current_step": "pattern_page"
+  // }
 
   // 为每个匹配的 pattern 加载预览图片 base64
   const theme = (inputCtx.extra?.designSystem as string) || "ICT3.1"

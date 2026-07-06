@@ -279,6 +279,8 @@ export const ENUM_DEFAULTS: Record<string, string> = {
 export const COMPONENT_PROPS: Record<string, string[]> = {
   Button: ['value', 'color', 'types', 'size', 'icon', 'iconPlacement', 'shape', 'className'],
   Icon: ['name', 'shape', 'color', 'className'],
+  Image: ['url', 'alt', 'preview', 'className'],
+  img: ['url', 'alt', 'preview', 'className'],
   Tabs: ['activeKey', 'types', 'tabPlacement', 'size', 'className'],
   Table: ['rowKey', 'rowClassName', 'className'],
   Badge: ['color', 'status', 'className'],

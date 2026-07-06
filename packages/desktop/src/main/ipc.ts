@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
@@ -31,12 +32,23 @@ import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows
 import { downloadHuiCode, type HuiCodeInput } from "../excode/index"
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
-import { previewDistDir } from "./preview-server"
+import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
+}
+
+function detectImageExt(buf: Buffer): string {
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return "png"
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return "jpg"
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "gif"
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return "webp"
+  if (buf[0] === 0x42 && buf[1] === 0x4D) return "bmp"
+  const head = buf.slice(0, 5).toString("utf-8").toLowerCase()
+  if (head.startsWith("<svg") || head.startsWith("<?xml")) return "svg"
+  return "png"
 }
 
 type Deps = {
@@ -264,6 +276,27 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("write-file-buffer", async (_event: IpcMainInvokeEvent, path: string, buffer: ArrayBuffer) => {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, Buffer.from(buffer))
+  })
+
+  ipcMain.handle("set-uploads-dir", async (_event: IpcMainInvokeEvent, dir: string) => {
+    await mkdir(dir, { recursive: true })
+    setUploadsDir(dir)
+  })
+
+  ipcMain.handle("get-uploads-dir", async () => getUploadsDir())
+
+  ipcMain.handle("save-upload-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, sessionId: string) => {
+    const baseDir = getUploadsDir()
+    if (!baseDir || !sessionId) throw new Error("base dir or session not set")
+    const uploadsDir = join(baseDir, sessionId, "uploads")
+    await mkdir(uploadsDir, { recursive: true })
+    const buf = Buffer.from(buffer)
+    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
+    const ext = detectImageExt(buf)
+    const filename = `${hash}.${ext}`
+    const filePath = join(uploadsDir, filename)
+    if (!existsSync(filePath)) await writeFile(filePath, buf)
+    return `/history/${sessionId}/uploads/${filename}`
   })
 
   // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。

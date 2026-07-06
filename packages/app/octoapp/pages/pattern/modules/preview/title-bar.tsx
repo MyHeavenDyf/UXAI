@@ -33,7 +33,7 @@ interface TitleBarProps {
   onSelectVersion?: (versionId: string) => void
   onOptionChange: (type: "preview" | "device" | "zoom" | "theme", value: string) => void
 
-  // 容错升级：将这两个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
+  // 容错升级：将这个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
   editing?: boolean
   onToggleEditing?: () => void
 }
@@ -219,35 +219,36 @@ export function TitleBar(props: TitleBarProps) {
         <div class="toolbar-flex-right">
           {/* 按钮 1：画布模式切换 */}
           <button 
-            class={`preview-action-icon-btn ${props.canvasMode ? 'mode-active' : ''}`} 
+            class={`pattern-action-btn ${props.canvasMode ? 'mode-active' : ''}`} 
             title={props.canvasMode ? "当前：画布模式（可自由拖拽缩放）" : "当前：页面操作模式（可触发内层交互）"}
             onClick={() => props.onToggleCanvasMode()}
           >
             {props.canvasMode ? <IconCanvasHand size={16} /> : <IconPageCursor size={16} />}
+            <span>{props.canvasMode ? "画布" : "操作"}</span>
           </button>
 
           {/* 按钮 2：居中复位 */}
-          <button class="preview-action-icon-btn" title="居中复位" onClick={() => props.onReset()}>
+          <button class="pattern-action-btn" title="居中复位" onClick={() => props.onReset()}>
             <IconCenterReset size={16} />
+            <span>复位</span>
           </button>
           
           {/* 🛠️ 终极彻底修复：使用 SolidJS 原生 classList 来进行高权重的状态映射校验 */}
           <button 
-            class="preview-action-icon-btn" 
+            class="pattern-action-btn" 
             classList={{ 'edit-active': !!props.editing }}
             title="编辑"
             onClick={() => props.onToggleEditing?.()}
-            style={{
-              "color": (props.editing ?? false) ? "#3b82f6 !important" : "#666"
-            }}
           >
             <IconEditPencil size={16} />
+            <span>编辑</span>
           </button>
 
           {/* 按钮 4：历史版本 */}
           <div class="dropdown-trigger-container">
-            <button class="preview-action-icon-btn" title="历史版本" onClick={() => { setShowHistory(!showHistory()); setOpenPreview(false); setOpenDesktop(false); setOpenZoom(false) }}>
+            <button class="pattern-action-btn" title="历史版本" onClick={() => { setShowHistory(!showHistory()); setOpenPreview(false); setOpenDesktop(false); setOpenZoom(false) }}>
               <IconHistoryClock size={16} />
+              <span>版本</span>
             </button>
             <Show when={showHistory()}>
               <div class="history-dropdown-panel">
@@ -283,24 +284,27 @@ export function TitleBar(props: TitleBarProps) {
 
           {/* 按钮 5：主题切换 */}
           <button 
-            class="preview-action-icon-btn" 
+            class="pattern-action-btn" 
             title={isDarkMode() ? "切换为白天模式" : "切换为暗黑模式"} 
             onClick={toggleThemeMode}
           >
             {isDarkMode() ? <IconSun size={16} /> : <IconMoon size={16} />}
+            <span>{isDarkMode() ? "白天" : "暗黑"}</span>
           </button>
 
           {/* 下载前的垂直分割线 */}
           <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
 
           {/* 按钮：分享 */}
-          <button class="preview-action-icon-btn" title="分享" onClick={() => props.onShare?.()}>
+          <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
             <IconActionShare size={16} />
+            <span>分享</span>
           </button>
 
           {/* 按钮 6：下载 */}
-          <button class="preview-action-icon-btn" title="下载" onClick={() => props.onDownload?.()}>
+          <button class="pattern-action-btn" title="下载" onClick={() => props.onDownload?.()}>
             <IconActionDownload size={16} />
+            <span>下载</span>
           </button>
         </div>
       </div>

@@ -9,7 +9,6 @@ import {
   createResource,
   createSignal,
   on,
-  onCleanup,
   onMount,
   Show,
   type JSX,
@@ -29,24 +28,26 @@ import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
+import { createSplitDrag } from "./utils/drag-split"
 import { exportZip } from "./utils/preview-handler/zip"
 import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify-json-quick'
 import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
 import { PatternMatchPage } from "./modules/preview/pattern-match-page"
+import type { PatternMatchItem } from "./utils/pattern-resource"
+import { readPatternFile } from "./utils/pattern-resource"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
+import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
-import test1Img from "./assets/images/test1.png?url"
-import test2Img from "./assets/images/test2.png?url"
-import test3Img from "./assets/images/test3.png?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { truncateSync } from "fs"
+import { createReorderHandler } from "./utils/reorder"
 
 const AGENT_NAME = "proto_triage"
 
@@ -188,9 +189,14 @@ function PatternContent() {
               if (reviewCkpt) {
                 setLastPlanner(reviewCkpt.planner)
                 setLastIntent(reviewCkpt.intentDescription)
-                setPatternMatches(reviewCkpt.pattern)
+                const matches= reviewCkpt.pattern
+                setPatternMatches(matches)
                 setUserInput(reviewCkpt.userInput)
-                setShowPatternMatch(true)
+                if (matches?.length > 0) {
+                  setShowPatternMatch(true)
+                } else {
+                  setIsPlanReview(true)
+                }
                 return
               }
               // 已完成状态数据读取
@@ -311,6 +317,10 @@ function PatternContent() {
   const [userInput, setUserInput] = createSignal<string>("")
   // 是否处于线框审查阶段
   const [isPlanReview, setIsPlanReview] = createSignal(false)
+  // 是否正在生成（意图确认后 → pattern匹配之间）
+  const [isGenerating, setIsGenerating] = createSignal(false)
+  // 是否正在生成模块（线框审查确认后 → 预览之间）
+  const [isGeneratingReview, setIsGeneratingReview] = createSignal(false)
   // 页面级 Pattern 匹配结果
   const [patternMatches, setPatternMatches] = createSignal<import("./utils/pattern-resource").PatternMatchItem[]>([])
   // 是否展示 Pattern 匹配结果页
@@ -328,19 +338,19 @@ function PatternContent() {
 
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
-    const home = sdk.directory;
-    return `${home}/.octo/design/history`;
+    const home = sdk.directory
+    return `${home}/.octo/design/history`
+  })
+
+  createEffect(() => {
+    const home = sdk.directory
+    if (!home) return
+    const api = (window as unknown as { api?: { setUploadsDir?: (dir: string) => Promise<void> } }).api
+    api?.setUploadsDir?.(`${home}/.octo/design/history`)
   })
 
   // pipeline 忙状态（用于生成卡片状态）
   const pipelineBusy = createMemo(() => isBusy() || sending())
-
-  // 线框审查确认后，等 pipeline 真正变忙时再清除审查状态，避免卡片闪绿
-  createEffect(() => {
-    if (pipelineBusy() && isPlanReview()) {
-      setIsPlanReview(false)
-    }
-  })
 
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const sessionMessagesLoaded = () => !params.id || sessionSynced()
@@ -350,6 +360,18 @@ function PatternContent() {
     setPrompt(`[选中元素: ${domPickerId}] ${text}`)
     void handleSubmit()
   }
+
+  const handleReorder = createReorderHandler({
+    getPendingData: pendingPreviewData,
+    sendToPreview,
+    getSessionId: () => params.id,
+    getHistoryDir: () => patternHistoryDir(),
+    getLastIntent: lastIntent,
+    getLastPlanner: lastPlanner,
+    getLastModules: lastModules,
+    setVersions,
+    setCurrentVersionId,
+  })
 
   const quickModifyCtx: QuickModifyContext = {
     getPendingData: pendingPreviewData,
@@ -380,55 +402,22 @@ function PatternContent() {
     }
   }
 
-
-  const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
-  function getInitialChatWidth(): number {
-    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
-    if (stored) {
-      const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 345 && n <= 720) return n
+  async function handleWorkflowError(err: unknown, sessionId: string, label: string) {
+    console.error(`[PatternPage] ${label} failed`, err)
+    void saveDebugSnapshot(patternHistoryDir(), sessionId, "error", { error: String(err instanceof Error ? err.message : err) })
+    for (const childID of childSessionIDs()) {
+      await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
     }
-    return 460
-  }
-  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
-  const [focusMode, setFocusMode] = createSignal(false)
-  const MIN_CHAT = 345
-  const MAX_CHAT = 720
-
-  let dragCleanup: (() => void) | null = null
-
-  function handleDividerMouseDown(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = chatWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    document.body.style.overflow = "hidden"
-    const resetBody = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
-      dragCleanup = null
-    }
-    const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
-    }
-    const onUp = () => {
-      resetBody()
-      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-    dragCleanup = () => {
-      resetBody()
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+    const error = classifyAIError(err)
+    if (error.title) {
+      setSessionErrors((prev) => ({ ...prev, [sessionId]: error.title }))
+      showToast({ title: error.title, description: error.description })
+      const errDir = patternHistoryDir()
+      if (errDir) void saveProtoError(errDir, sessionId, error.title)
     }
   }
 
-  onCleanup(() => { dragCleanup?.() })
+  const { chatWidth, focusMode, setFocusMode, onDividerMouseDown } = createSplitDrag()
 
   const autoScroll = createAutoScroll({ working: isBusy })
 
@@ -442,6 +431,12 @@ function PatternContent() {
     setPendingPreviewData(data)
     previewApi.sendToPreview(data)
     setHasPreviewContent(true)
+  }
+
+  // 从 Pattern 匹配页进入线框审查
+  function handleEnterWireframe() {
+    setShowPatternMatch(false)
+    setIsPlanReview(true)
   }
 
   async function handleSubmit() {
@@ -611,31 +606,19 @@ function PatternContent() {
         if (params.id !== sid) return
         setLastPlanner(new_planner.planner.layout_planner)
         setLastIntent(new_planner.intent.intent_description)
-        setPatternMatches(new_planner.patternPageResult.matches)
+        const matches = new_planner.patternPageResult.matches
+        setPatternMatches(matches)
         setUserInput(text)
-        setShowPatternMatch(true)
+        if (matches?.length > 0) {
+          setShowPatternMatch(true)
+        } else {
+          setIsPlanReview(true)
+        }
       }
-
-      const genDuration = ((performance.now() - genStartTime)/1000).toFixed(0)
-      console.log(`[Pattern] 第一次生成页面耗时: ${genDuration}s`)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
-      console.error("[PatternPage] handleSubmit failed", err)
-      if (sid) void saveDebugSnapshot(patternHistoryDir(), sid, isModifying() ? "modify" : "create", { error: String(err instanceof Error ? err.message : err) })
+      await handleWorkflowError(err, sid!, "handleSubmit")
       setIsModifying(false)
-
-      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
-      for (const childID of childSessionIDs()) {
-        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
-      }
-
-      const error = classifyAIError(err)
-      if (error.title) {
-        setSessionErrors((prev) => ({ ...prev, [sid!]: error.title }))
-        showToast({ title: error.title, description: error.description })
-        const errDir = patternHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid!, error.title)
-      }
     } finally {
       setSendingSids((prev) => {
         if (!prev.has(sid!)) return prev
@@ -646,10 +629,39 @@ function PatternContent() {
     }
   }
 
-  // 从 Pattern 匹配页进入线框审查
-  function handleEnterWireframe() {
+  // 用户点击「选择当前模板」时，加载 pattern 文件内容并触发渲染
+  async function handleSelectTemplate(match: PatternMatchItem) {
+    const sid = params.id
+    if (!sid) return
+    const ds = selectedDesignSystem()
+    const content = await readPatternFile("page", match.pattern.path, ds)
+    if (!content) return
+    const { lastIntent, lastPlanner, lastModules, mergedA2UI } = JSON.parse(content)
+
     setShowPatternMatch(false)
-    setIsPlanReview(true)
+
+    const dir = patternHistoryDir()
+    if (dir) {
+      await clearReviewCheckpoint(dir, sid)
+      await updatePatternVersion(dir, sid, {
+        lastModules,
+        mergedA2UI,
+      })
+      void saveDebugSnapshot(dir, sid, "template", {
+        lastIntent,
+        lastPlanner,
+        lastModules,
+        mergedA2UI,
+        summary: userInput().slice(0, 80),
+      })
+      clearDebugLog()
+    }
+
+    if (params.id !== sid) return
+    sendToPreview(mergedA2UI)
+    setLastIntent(lastIntent)
+    setLastPlanner(lastPlanner)
+    setLastModules(lastModules)
   }
 
   // 线框审查确认后，继续执行阶段 2：模块生成
@@ -671,6 +683,8 @@ function PatternContent() {
     if (ckptDir) await clearReviewCheckpoint(ckptDir, sid)
 
     tracker.interaction({ module: "prototype", name: "confirm-review" })
+
+    setIsGeneratingReview(true)
 
     const ds = selectedDesignSystem()
     const intentCtx: ProtoCreateJsonInput = {
@@ -711,34 +725,25 @@ function PatternContent() {
         setLastIntent(pageIntent)
         setLastPlanner(layoutPlanner)
         setLastModules(modulesJson)
+        // 切换到预览页
+        setIsGeneratingReview(false)
+        setIsPlanReview(false)
     }
     
     try {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
-      console.error("[PatternPage] handleConfirmReview failed", err)
-      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
-
-      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
-      for (const childID of childSessionIDs()) {
-        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
-      }
-
-      const error = classifyAIError(err)
-      if (error.title) {
-        setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
-        showToast({ title: error.title, description: error.description })
-        const errDir = patternHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid, error.title)
-      }
+      setIsGeneratingReview(false)
+      await handleWorkflowError(err, sid, "handleConfirmReview")
       setIsPlanReview(true)
     } finally {
+      setIsGeneratingReview(false)
       setUserInput("")
     }
   }
 
-  // 意图确认后，带着用户的补充继续执行 pipeline
+  // 意图确认后，带着用户的补充继续执行pattern匹配和线框生成
   async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string) {
     const sid = params.id
     if (!sid) return
@@ -746,10 +751,10 @@ function PatternContent() {
     if (!mk) return
     const text = userInput()
     const enrichedText = text + enrichedInput
-    setIntentConfirm(null)
     const ckptDir = patternHistoryDir()
     if (ckptDir) await clearIntentConfirmCheckpoint(ckptDir, sid)
     setSendingSids((prev) => new Set(prev).add(sid))
+    setIsGenerating(true)
     try {
       const intentCtx: ProtoCreateJsonInput = {
         sdk,
@@ -764,7 +769,6 @@ function PatternContent() {
       }
       const new_planner = await create_planner_json(intentCtx)
       void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
-      if (params.id !== sid) return
       // 保存部分版本（intent + planner），模块生成完成后追加补全
       const partialDir = patternHistoryDir()
       if (partialDir) {
@@ -789,26 +793,23 @@ function PatternContent() {
           createdAt: Date.now(),
         })
       }
+      if (params.id !== sid) return
+      setIntentConfirm(null)
       setLastPlanner(new_planner.planner.layout_planner)
       setLastIntent(new_planner.intent.intent_description)
-      setPatternMatches(new_planner.patternPageResult.matches)
+      const matches = new_planner.patternPageResult.matches
+      setPatternMatches(matches)
       setUserInput(enrichedText)
-      setShowPatternMatch(true)
+      if (matches?.length > 0) {
+        setShowPatternMatch(true)
+      } else {
+        setIsPlanReview(true)
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
-       const msg = err instanceof Error ? err.message : String(err)
-      console.error("[PatternPage] handleConfirmIntent failed", err)
-      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: msg })
-      if (sid) {
-        setSessionErrors((prev) => ({ ...prev, [sid]: msg }))
-        const errDir = patternHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid, msg)
-      }
-      console.error("[PatternPage] handleConfirmIntent failed", err)
-      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
-      const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      await handleWorkflowError(err, sid!, "handleConfirmIntent")
     } finally {
+      setIsGenerating(false)
       setSendingSids((prev) => {
         if (!prev.has(sid)) return prev
         const next = new Set(prev)
@@ -817,6 +818,8 @@ function PatternContent() {
       })
     }
   }
+
+  
 
   async function halt() {
     const sid = params.id
@@ -843,6 +846,7 @@ function PatternContent() {
     if (haltDir) void clearProtoError(haltDir, sid)
   }
 
+  // 监听对话框回车键
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -850,6 +854,7 @@ function PatternContent() {
     }
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function addAttachments(files: File[]) {
     const slots = 5 - attachments().length
     const toAdd = files.slice(0, slots)
@@ -874,10 +879,12 @@ function PatternContent() {
     }
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function removeAttachment(id: string) {
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
+  // 对话框文件上传 - 暂未支持文件上传
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
@@ -886,16 +893,19 @@ function PatternContent() {
     }
   }
 
+  // 对话框UI拖拽
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
+  // 对话框UI拖拽
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
+  // 对话框UI拖拽
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
@@ -921,25 +931,25 @@ function PatternContent() {
     })
   }
 
+  // 下载页面代码
   async function handleDownload() {
     tracker.interaction({ module: "prototype", name: "download-result" })
     await download({ planner: lastPlanner(), mergedA2UI: pendingPreviewData() })
   }
+
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
     tracker.interaction({ module: "prototype", name: "share-result" })
-    await exportZip({
-      historyDir: patternHistoryDir(),
-      sessionId: params.id ?? "",
-      title: sessionInfo()?.title ?? params.id ?? "export",
-    })
+    await exportZip({historyDir: patternHistoryDir(), sessionId: params.id ?? "", title: sessionInfo()?.title ?? params.id ?? "export" })
   }
 
+  // 实时预览
   async function handleLivePreview() {
     tracker.interaction({ module: "prototype", name: "live-preview" })
     await livePreview(pendingPreviewData())
   }
 
+  // Pixso预览
   async function handlePixsoPreview() {
     tracker.interaction({ module: "prototype", name: "pixso-preview" })
     await pixsoPreview(pendingPreviewData())
@@ -1014,7 +1024,7 @@ function PatternContent() {
         </Show>
 
         <Show when={hasContent() && !focusMode()}>
-          <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
+          <div class="octo-split-handle" onMouseDown={onDividerMouseDown} />
         </Show>
 
         {/* 预览页 */}
@@ -1027,10 +1037,12 @@ function PatternContent() {
                     <PreviewPage
                       api={previewApi}
                       pendingData={pendingPreviewData()}
+                      sessionId={params.id}
                       onModifyElement={handleModifyElement}
                       onPickerSubmit={handlePickerSubmit}
                       onDownload={handleDownload}
                       onShare={handleShare}
+                      onReorder={handleReorder}
                       onLivePreview={handleLivePreview}
                       onPixsoPreview={handlePixsoPreview}
                       versions={versions()}
@@ -1040,12 +1052,17 @@ function PatternContent() {
                   </Show>
                 }>
                   <Show when={lastPlanner() && lastIntent()} fallback={<PatternPreviewEmpty />}>
-                    <WireframeReview
-                      planner={lastPlanner()!}
-                      intentDescription={lastIntent()!}
-                      userInput={userInput()}
-                      onConfirm={handleConfirmReview}
-                    />
+                    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                      <WireframeReview
+                        planner={lastPlanner()!}
+                        intentDescription={lastIntent()!}
+                        userInput={userInput()}
+                        onConfirm={handleConfirmReview}
+                      />
+                      <Show when={isGeneratingReview()}>
+                        <PatternGenerating />
+                      </Show>
+                    </div>
                   </Show>
                 </Show>
               }>
@@ -1054,13 +1071,19 @@ function PatternContent() {
                   intentDescription={lastIntent() ?? {}}
                   patternMatches={patternMatches()}
                   onEnterWireframe={handleEnterWireframe}
+                  onSelectTemplate={handleSelectTemplate}
                 />
               </Show>
             }>
-              <IntentConfirmReview
-                result={intentConfirm()!}
-                onConfirm={handleConfirmIntent}
-              />
+              <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                <IntentConfirmReview
+                  result={intentConfirm()!}
+                  onConfirm={handleConfirmIntent}
+                />
+                <Show when={isGenerating()}>
+                  <PatternGenerating />
+                </Show>
+              </div>
             </Show>
             <Show when={isModifying()}>
               <div class="change-content">

@@ -3,7 +3,6 @@ import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
 import {
   readPatternIndex,
-  readPatternFile,
   type PatternEntry,
   type PatternMatchItem,
 } from '../../utils/pattern-resource'
@@ -65,13 +64,13 @@ ${userInput}
 ${JSON.stringify(patterns, null, 2)}`
 }
 
-// LLM 返回 [{ name, score }] 数组，按 name 回查目录拿到完整 entry，再读取 path 对应的 pattern 文件
+// LLM 返回 { matches: [{ name, score }] } 对象，按 name 回查目录拿到完整 entry
 async function resolveMatches(
   matchJson: any,
   patterns: PatternEntry[],
   theme: string,
 ): Promise<{ matches: PatternMatchItem[]; current_step: string }> {
-  const items = (Array.isArray(matchJson) ? matchJson : []) as Array<{ name: string; score: number }>
+  const items = (matchJson?.matches ?? []) as Array<{ name: string; score: number }>
   const matches: PatternMatchItem[] = []
   for (const item of items) {
     const pattern = patterns.find(p => p.name === item.name)

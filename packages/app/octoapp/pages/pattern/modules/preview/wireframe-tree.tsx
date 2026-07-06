@@ -166,7 +166,7 @@ export function WireframeTree(props: {
     const children = el.children ?? []
 
     const baseStyle: Record<string, string | number | undefined> = {
-      ...!hasExplicitHeight && !hasExplicitMinHeight ? { "min-height": "40px" } : {},
+      ...!hasExplicitHeight && !hasExplicitMinHeight ? { "min-height": "200px" } : {},
       ...isFlex ? {
         display: "flex",
         "flex-direction": isRow ? "row" : "column",
@@ -190,16 +190,10 @@ export function WireframeTree(props: {
       <div
         class="wireframe-box"
         style={{ ...baseStyle, "border-width": `${props.boxBorderWidth ?? 2}px` }}
-        classList={{ active: sectionId === props.selectedSectionId,"no-hover": props.enableHover === false }}
+        classList={{ active: sectionId === props.selectedSectionId,"no-hover": props.enableHover === false, "large-title": props.showSectionInfo === false }}
         onClick={() => { if (sectionId) props.onSelectSection?.(sectionId) }}
       >
-        <Show when={props.showSectionInfo !== false}>
           {name}
-          {/* <div class="wireframe-box-name">{name}</div> */}
-          {/* <Show when={desc}>
-            <div class="wireframe-box-desc">{desc}</div>
-          </Show> */}
-        </Show>
         <Show when={children.length > 0}>
           <For each={children}>{(childId) => renderElement(childId)}</For>
         </Show>

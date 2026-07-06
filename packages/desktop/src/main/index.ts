@@ -56,7 +56,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
-import { startPreviewServer } from "./preview-server"
+import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
   getDefaultServerUrl,
   getWslConfig,

@@ -276,6 +276,39 @@
   transition: background-color 0.2s, color 0.2s;
 }
 
+/* icon + 文字按钮（类似 make 的 octo-action-btn） */
+.pattern-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+.pattern-action-btn:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.05);
+}
+.pattern-action-btn > svg {
+  flex-shrink: 0;
+}
+.pattern-action-btn.mode-active {
+  color: #3b82f6;
+}
+.pattern-action-btn.mode-active:hover {
+  background: rgba(59, 130, 246, 0.08);
+  color: #2563eb;
+}
+.pattern-action-btn.edit-active {
+  color: #3b82f6;
+}
+
 /* 🛠️ 新增：鼠标悬停（hover）时的浅灰色半透明背景与反馈 */
 .preview-action-icon-btn:hover {
   background-color: rgba(0, 0, 0, 0.05); /* 柔和的浅灰悬浮背景 */
