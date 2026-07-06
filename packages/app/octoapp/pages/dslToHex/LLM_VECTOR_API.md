@@ -320,3 +320,106 @@ LLM 告知用户：
 
 **生产环境**：
 - 替换 `localhost:8009` 为实际服务地址
+
+---
+
+## 十、组件搜索结果 → 设计 DSL instance 节点
+
+搜索到组件后，调用 `/api/vector/detail` 获取完整数据，再将字段映射到设计 DSL 的 `instance` 节点。
+
+### 字段映射表
+
+| DSL 字段 | `/detail` 返回字段 | 说明 |
+|---------|------------------|------|
+| `instance.variant_key` | `cv_variant_key` | 变体唯一 key |
+| `instance.component_set_key` | `cv_component_key` | 组件集 key（即 parentKey）|
+| `instance.symbol_id` | `cv_variant_guid` | 变体 GUID，格式 `"sessionID:localID"` |
+| `instance.path` | `cv_domain` + `"/"` + `file_path` | 拼接得到 hex 文件路径，如 `"ICT_UI/component/be1d....txt"` |
+| `instance.variant_props` | `cv_variant_name` 解析 | 将 `"size=normal, disabled=false"` 解析为 `{"size":"normal","disabled":"false"}` |
+| `instance.component_set_resolved` | 固定 `true` | 本地库已成功解析 |
+| `instance.overrides` | 固定 `[]` | 无覆写 |
+
+### 完整转换示例
+
+**Step 1：搜索组件**
+```bash
+POST /api/vector/search/llm
+{
+  "type": "component",
+  "queries": ["按钮 正常 可用"],
+  "top_k": 1
+}
+```
+
+返回：
+```json
+{
+  "results": [[
+    { "data_id": "f884abc...", "vector_text": "按钮 基础类 normal 可用 正常", "score": 0.95 }
+  ]]
+}
+```
+
+**Step 2：获取完整数据**
+```bash
+GET /api/vector/detail?type=component&data_id=f884abc...
+```
+
+返回：
+```json
+{
+  "cv_variant_key":    "f884abc...",
+  "cv_component_key":  "be1dabc...",
+  "cv_variant_guid":   "8229:277395",
+  "cv_domain":         "ICT_UI",
+  "cv_variant_name":   "size=normal, disabled=false",
+  "file_path":         "component/be1dabc....txt",
+  ...
+}
+```
+
+**Step 3：构造 DSL instance 节点**
+
+```python
+detail = response_from_detail_api
+
+# 解析 variant_props
+variant_props = {}
+for pair in detail["cv_variant_name"].split(","):
+    pair = pair.strip()
+    if "=" in pair:
+        k, v = pair.split("=", 1)
+        variant_props[k.strip()] = v.strip()
+
+dsl_layer = {
+    "type": "instance",
+    "name": detail["cv_component_name"],
+    "box":  { "x": 0, "y": 0, "width": 0, "height": 0 },  # 由调用方按实际位置填写
+    "instance": {
+        "symbol_id":              detail["cv_variant_guid"],
+        "variant_key":            detail["cv_variant_key"],
+        "component_set_key":      detail["cv_component_key"],
+        "component_set_resolved": True,
+        "path":                   f"{detail['cv_domain']}/{detail['file_path']}",
+        "variant_props":          variant_props,
+        "overrides":              []
+    }
+}
+```
+
+**最终输出的 DSL 片段**：
+```json
+{
+  "type": "instance",
+  "name": "按钮",
+  "box": { "x": 0, "y": 0, "width": 120, "height": 36 },
+  "instance": {
+    "symbol_id":              "8229:277395",
+    "variant_key":            "f884abc...",
+    "component_set_key":      "be1dabc...",
+    "component_set_resolved": true,
+    "path":                   "ICT_UI/component/be1dabc....txt",
+    "variant_props":          { "size": "normal", "disabled": "false" },
+    "overrides":              []
+  }
+}

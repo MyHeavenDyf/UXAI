@@ -666,7 +666,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const VECTOR_API_BASE = import.meta.env.VITE_VECTOR_API_BASE
     || localStorage.getItem("octo:vector-api-base")
-    || "http://localhost:8009"
+    || "https://octo-beta.hdesign.huawei.com"
 
   const STEP_A_DISABLED_TOOLS = {
     write: false,
@@ -914,81 +914,90 @@ const sessionMessagesLoaded = createMemo(() => {
       const aIdx = aMsgId ? allMsgs.findIndex(m => m.id === aMsgId) : -1
       const msgsSlice = aIdx >= 0 ? allMsgs.slice(aIdx + 1) : allMsgs.slice(stepBStartIdx())
 
-     const realDataIds = new Set<string>()
-     const realDetailMap = new Map<string, Record<string, unknown>>()
+      const realDataIds = new Set<string>()
+      const realIconIds = new Set<string>()
+      const realDetailMap = new Map<string, Record<string, unknown>>()
+      const realIconDetailMap = new Map<string, Record<string, unknown>>()
 
-     for (const msg of msgsSlice) {
-       if (msg.role !== "assistant") continue
-       const parts = partStore?.[msg.id] ?? []
-       for (const part of parts) {
-         if (part.type !== "tool") continue
-         if (part.tool !== "bash" && part.tool !== "shell" && part.tool !== "webfetch") continue
-         const state = part.state as Record<string, unknown> | undefined
-         if (state?.status !== "completed" || typeof state.output !== "string") continue
-         const input = state.input as Record<string, unknown> | undefined
-         const cmd = typeof input?.command === "string" ? input.command : ""
-         const url = typeof input?.url === "string" ? input.url : ""
-         const isVectorCall = cmd.includes("/api/vector/") || url.includes("/api/vector/")
-         if (!isVectorCall) continue
-         try {
-           const parsed = JSON.parse(state.output as string)
-           collectDataIds(parsed, realDataIds)
-           collectDetails(parsed, realDetailMap)
-         } catch { /* non-JSON output, ignore */ }
-       }
-     }
+      for (const msg of msgsSlice) {
+        if (msg.role !== "assistant") continue
+        const parts = partStore?.[msg.id] ?? []
+        for (const part of parts) {
+          if (part.type !== "tool") continue
+          if (part.tool !== "bash" && part.tool !== "shell" && part.tool !== "webfetch") continue
+          const state = part.state as Record<string, unknown> | undefined
+          if (state?.status !== "completed" || typeof state.output !== "string") continue
+          const input = state.input as Record<string, unknown> | undefined
+          const cmd = typeof input?.command === "string" ? input.command : ""
+          const url = typeof input?.url === "string" ? input.url : ""
+          const isResourceCall = cmd.includes("/api/vector/") || url.includes("/api/vector/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/")
+          if (!isResourceCall) continue
+          try {
+            const parsed = JSON.parse(state.output as string)
+            collectDataIds(parsed, realDataIds, realIconIds)
+            collectDetails(parsed, realDetailMap, realIconDetailMap)
+          } catch { /* non-JSON output, ignore */ }
+        }
+      }
 
-     try {
-       const root = JSON.parse(jsonStr)
-       function cleanNode(node: Record<string, unknown>) {
-         const rid = node.resourceId as string | undefined
-         if (!rid || !realDataIds.has(rid)) {
-           for (const f of RESOURCE_DATA_FIELDS) delete node[f]
-         } else {
-           const cachedDetail = realDetailMap.get(rid)
-           if (cachedDetail && node.resourceDetail) {
-             const detail = node.resourceDetail as Record<string, unknown>
-             const mismatch = Object.keys(cachedDetail).some(
-               (k) => detail[k] !== undefined && detail[k] !== cachedDetail[k],
-             )
-             if (mismatch) {
-               for (const f of RESOURCE_DATA_FIELDS) delete node[f]
-             }
-           }
-         }
-         const children = node.children as Record<string, unknown>[] | undefined
-         if (children) for (const c of children) cleanNode(c)
-       }
-       if (Array.isArray(root)) for (const n of root) cleanNode(n)
-       else cleanNode(root)
-       return JSON.stringify(root)
-     } catch {
-       return jsonStr
-     }
+      const allValidIds = new Set([...realDataIds, ...realIconIds])
+
+       try {
+         const root = JSON.parse(jsonStr)
+         function cleanNode(node: Record<string, unknown>) {
+           const rid = node.resourceId as string | undefined
+           if (!rid || !allValidIds.has(rid)) {
+             for (const f of RESOURCE_DATA_FIELDS) delete node[f]
+           } else {
+             const cachedDetail = realDetailMap.get(rid) ?? realIconDetailMap.get(rid)
+             if (cachedDetail && node.resourceDetail) {
+              const detail = node.resourceDetail as Record<string, unknown>
+              const mismatch = Object.keys(cachedDetail).some(
+                (k) => detail[k] !== undefined && detail[k] !== cachedDetail[k],
+              )
+              if (mismatch) {
+                for (const f of RESOURCE_DATA_FIELDS) delete node[f]
+              }
+            }
+          }
+          const children = node.children as Record<string, unknown>[] | undefined
+          if (children) for (const c of children) cleanNode(c)
+        }
+        if (Array.isArray(root)) for (const n of root) cleanNode(n)
+        else cleanNode(root)
+        return JSON.stringify(root)
+      } catch {
+        return jsonStr
+      }
    }
 
-   function collectDataIds(obj: unknown, ids: Set<string>) {
-     if (Array.isArray(obj)) {
-       for (const item of obj) collectDataIds(item, ids)
-     } else if (obj && typeof obj === "object") {
-       const rec = obj as Record<string, unknown>
-       if (typeof rec.data_id === "string") ids.add(rec.data_id)
-       for (const val of Object.values(rec)) collectDataIds(val, ids)
-     }
-   }
+    function collectDataIds(obj: unknown, ids: Set<string>, iconIds?: Set<string>) {
+      if (Array.isArray(obj)) {
+        for (const item of obj) collectDataIds(item, ids, iconIds)
+      } else if (obj && typeof obj === "object") {
+        const rec = obj as Record<string, unknown>
+        if (typeof rec.data_id === "string") ids.add(rec.data_id)
+        if (iconIds && typeof rec.icon_id === "string") iconIds.add(rec.icon_id)
+        for (const val of Object.values(rec)) collectDataIds(val, ids, iconIds)
+      }
+    }
 
-   function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>) {
-     if (Array.isArray(obj)) {
-       for (const item of obj) collectDetails(item, map)
-     } else if (obj && typeof obj === "object") {
-       const rec = obj as Record<string, unknown>
-       if (typeof rec.data_id === "string" && !map.has(rec.data_id)) {
-         const { results, ...detail } = rec
-         if (Object.keys(detail).length > 1) map.set(rec.data_id, detail)
-       }
-       for (const val of Object.values(rec)) collectDetails(val, map)
-     }
-   }
+    function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>, iconDetailMap?: Map<string, Record<string, unknown>>) {
+      if (Array.isArray(obj)) {
+        for (const item of obj) collectDetails(item, map, iconDetailMap)
+      } else if (obj && typeof obj === "object") {
+        const rec = obj as Record<string, unknown>
+        if (typeof rec.data_id === "string" && !map.has(rec.data_id)) {
+          const { results, ...detail } = rec
+          if (Object.keys(detail).length > 1) map.set(rec.data_id, detail)
+        }
+        if (iconDetailMap && typeof rec.icon_id === "string" && !iconDetailMap.has(rec.icon_id)) {
+          const { results, ...detail } = rec
+          if (Object.keys(detail).length > 1) iconDetailMap.set(rec.icon_id, detail)
+        }
+        for (const val of Object.values(rec)) collectDetails(val, map, iconDetailMap)
+      }
+    }
 
   // ── 产物持久化 ─────────────────────────────────────────────
   const dslDir = projectDir()
