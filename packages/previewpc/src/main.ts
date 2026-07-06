@@ -10,7 +10,7 @@ import { initTheme, useTheme } from './composables/useTheme'
 import { installVueDomPicker } from '@dom-picker/vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import router from './router'
-
+import './utils/drag-bridge.js'
 
 initDefaultCatlog()
 initTheme()

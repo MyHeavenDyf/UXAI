@@ -47,6 +47,7 @@ import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentCo
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { truncateSync } from "fs"
+import type { A2UIDocument } from "./utils/a2ui-protocol"
 
 const AGENT_NAME = "proto_triage"
 
@@ -349,6 +350,36 @@ function PatternContent() {
   function handlePickerSubmit(text: string, domPickerId: string) {
     setPrompt(`[选中元素: ${domPickerId}] ${text}`)
     void handleSubmit()
+  }
+
+  // 拖拽重排序：在 A2UI JSON 中重新排列同级 children
+  function handleReorder(elementId: string, targetSiblingId: string, position: "before" | "after") {
+    const doc = pendingPreviewData() as A2UIDocument | null
+    if (!doc?.elements) {
+      console.warn("[reorder] no pending data or elements")
+      return
+    }
+    const matchChildId = (children: string[], id: string) => {
+      if (children.includes(id)) return id
+      const baseId = id.replace(/(:\d+)+$/, "")
+      return children.includes(baseId) ? baseId : null
+    }
+    const clone = JSON.parse(JSON.stringify(doc)) as A2UIDocument
+    for (const el of clone.elements) {
+      if (!Array.isArray(el.children)) continue
+      const kids = el.children as string[]
+      const sourceId = matchChildId(kids, elementId)
+      const targetId = matchChildId(kids, targetSiblingId)
+      if (!sourceId || !targetId || sourceId === targetId) continue
+      const filtered = kids.filter(id => id !== sourceId)
+      const idx = filtered.indexOf(targetId)
+      filtered.splice(position === "before" ? idx : idx + 1, 0, sourceId)
+      el.children = filtered
+      console.log("[reorder] success:", sourceId, position, targetId, "in parent", el.id)
+      sendToPreview(clone)
+      return
+    }
+    console.warn("[reorder] no matching parent found for", elementId, "->", targetSiblingId, "(may be loop-bound children)")
   }
 
   const quickModifyCtx: QuickModifyContext = {
