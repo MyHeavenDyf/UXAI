@@ -371,8 +371,30 @@ function PatternContent() {
       const baseId = id.replace(/(:\d+)+$/, "")
       return children.includes(baseId) ? baseId : null
     }
+    const reorderLoopChildren = (children: { path: string; componentId: string }) => {
+      const sourceMatch = elementId.match(new RegExp(`^${children.componentId}:(\\d+)$`))
+      const targetMatch = targetSiblingId.match(new RegExp(`^${children.componentId}:(\\d+)$`))
+      const list = children.path.replace(/^\//, "").split("/").reduce<unknown>((value, key) => {
+        if (!value || typeof value !== "object") return undefined
+        return (value as Record<string, unknown>)[key]
+      }, clone.state)
+      if (!sourceMatch || !targetMatch || !Array.isArray(list)) return false
+      const sourceIndex = Number(sourceMatch[1])
+      const targetIndex = Number(targetMatch[1])
+      if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= list.length || targetIndex >= list.length) return false
+      const reordered = list.filter((_, index) => index !== sourceIndex)
+      const targetOffset = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+      reordered.splice(position === "before" ? targetOffset : targetOffset + 1, 0, list[sourceIndex])
+      list.splice(0, list.length, ...reordered)
+      return true
+    }
     const clone = JSON.parse(JSON.stringify(doc)) as A2UIDocument
     for (const el of clone.elements) {
+      if (el.children && !Array.isArray(el.children) && reorderLoopChildren(el.children)) {
+        console.log("[reorder] loop success:", elementId, position, targetSiblingId, "in parent", el.id)
+        sendToPreview(clone)
+        return
+      }
       if (!Array.isArray(el.children)) continue
       const kids = el.children as string[]
       const sourceId = matchChildId(kids, elementId)
