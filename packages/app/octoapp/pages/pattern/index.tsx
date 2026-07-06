@@ -1066,6 +1066,7 @@ function PatternContent() {
                       onPickerSubmit={handlePickerSubmit}
                       onDownload={handleDownload}
                       onShare={handleShare}
+                      onReorder={handleReorder}
                       onLivePreview={handleLivePreview}
                       onPixsoPreview={handlePixsoPreview}
                       versions={versions()}
