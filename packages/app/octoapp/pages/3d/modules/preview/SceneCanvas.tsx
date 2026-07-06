@@ -28,6 +28,7 @@ import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRe
 import { CSS3DRenderer, CSS3DObject } from "three/examples/jsm/renderers/CSS3DRenderer.js"
 import { createEffect, on, onCleanup, onMount, type JSX } from "solid-js"
 import type { SceneDocument, SceneObject, MaterialNode, LightNode, CameraNode } from "../../utils/scene-protocol"
+import { AssetPool, ComponentRegistry, registerAllComponents } from "./components"
 
 const DEG2RAD = Math.PI / 180
 /** Draco 解码器路径(默认 CDN;接入时可换本地 three/examples/jsm/libs/draco) */
@@ -70,6 +71,11 @@ export function SceneCanvas(props: {
   const mixers: THREE.AnimationMixer[] = []
   const gltfCache = new Map<string, { scene: THREE.Object3D; animations: THREE.AnimationClip[] }>()
   let resizeObs: ResizeObserver | undefined
+
+  // 组件注册表 + 资源缓存池(组件复用 Geometry/Material，相同参数只创建一次)
+  const assetPool = new AssetPool()
+  const componentRegistry = new ComponentRegistry()
+  registerAllComponents(componentRegistry)
 
   // --------------------------------------------------------------------------
   // 生命周期
@@ -255,6 +261,14 @@ export function SceneCanvas(props: {
       const parent = obj.parentId ? idMap.get(obj.parentId) : undefined
       ;(parent ?? scene).add(o)
       idMap.set(obj.id, o)
+      // 组件节点:把展开的子节点也注册进 idMap,供其他物体的 parentId 引用
+      if (obj.type === "component") {
+        o.traverse((child) => {
+          if (child.userData?.id && child !== o) {
+            idMap.set(child.userData.id, child)
+          }
+        })
+      }
       if (obj.spin && Array.isArray(obj.spin)) spinners.push({ obj: o, spin: obj.spin as [number, number, number] })
     }
   }
@@ -554,6 +568,23 @@ export function SceneCanvas(props: {
         o = placeholder
         break
       }
+      case "component": {
+        const compType = obj.component?.type
+        const compParams = (obj.component?.params ?? {}) as Record<string, number | string>
+        const mat = buildMaterial(obj.material)
+        const group = compType
+          ? componentRegistry.create(compType, compParams, mat, assetPool)
+          : null
+        if (group) {
+          // 给子节点设置 userData.id，供 parentId 引用 + raycaster 识别
+          const prefix = obj.id
+          for (const child of group.children) {
+            child.userData.id = `${prefix}_${child.name}`
+          }
+        }
+        o = group ?? new THREE.Group()
+        break
+      }
       default:
         return null
     }
@@ -624,6 +655,30 @@ export function SceneCanvas(props: {
     // 字符串 = 引用 assets.materials[key]
     const assetsMats = (props.doc?.assets?.materials ?? {}) as Record<string, MaterialNode>
     const n: MaterialNode = typeof node === "string" ? assetsMats[node] ?? { type: "standard" } : node ?? { type: "standard" }
+
+    // 生成材质缓存 key（相同参数共享同一个 Material 实例）
+    const matKey = materialKey(n)
+    return assetPool.getMaterial(matKey, () => createMaterial(n))
+  }
+
+  /** 根据材质参数生成缓存 key */
+  function materialKey(n: MaterialNode): string {
+    const parts = [n.type ?? "standard", n.color ?? "#fff", String(n.roughness ?? ""), String(n.metalness ?? "")]
+    if (n.emissive) parts.push(`e:${n.emissive}:${n.emissiveIntensity ?? 1}`)
+    if (n.opacity != null && n.opacity < 1) parts.push(`op:${n.opacity}`)
+    if (n.transparent) parts.push("tr")
+    if (n.wireframe) parts.push("wf")
+    if (n.flatShading) parts.push("fs")
+    if (n.side) parts.push(`s:${n.side}`)
+    // physical 专属
+    if (n.transmission != null) parts.push(`tm:${n.transmission}`)
+    if (n.clearcoat != null) parts.push(`cc:${n.clearcoat}`)
+    if (n.ior != null) parts.push(`ior:${n.ior}`)
+    return parts.join("|")
+  }
+
+  /** 实际创建材质（仅缓存未命中时调用） */
+  function createMaterial(n: MaterialNode): THREE.Material {
     const type = n.type ?? "standard"
     const color = n.color ? new THREE.Color(n.color) : new THREE.Color(0xffffff)
     let mat: THREE.Material
@@ -723,6 +778,7 @@ export function SceneCanvas(props: {
     clearSceneContents()
     controls?.dispose()
     pmrem?.dispose()
+    assetPool.dispose()
     gltfCache.forEach((c) => disposeObject(c.scene))
     gltfCache.clear()
     renderer?.dispose()

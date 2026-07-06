@@ -3,35 +3,41 @@ import "../../assets/style/chat/generation-card.css"
 
 export function GenerationCard(props: {
   generating: boolean
+  aborted?: boolean
   canPreview: boolean
   onOpenPreview: () => void
 }): JSX.Element {
+  const title = () => props.generating ? "场景生成中" : props.aborted ? "已中止" : "生成完成"
+  const subtitle = () => props.generating ? "请稍候…" : props.aborted ? "生成被中断" : "点击查看预览"
+
   return (
-    <Show when={props.generating || props.canPreview}>
+    <Show when={props.generating || props.canPreview || props.aborted}>
       <button
         type="button"
         disabled={props.generating}
-        onClick={() => !props.generating && props.onOpenPreview()}
+        onClick={() => !props.generating && !props.aborted && props.canPreview && props.onOpenPreview()}
         class="generation-card mx-3 mb-3 text-left transition-all"
-        classList={{ generating: props.generating }}
+        classList={{ generating: props.generating, aborted: !!props.aborted }}
       >
         <div class="flex items-center gap-3">
           <span class="flex-shrink-0 flex items-center">
             <img src="/AI_doc_plaintext.svg" width={28} height={28} alt="" />
           </span>
           <div class="flex flex-col min-w-0 flex-1">
-            <span class="gc-title truncate">{props.generating ? "场景生成中" : "生成完成"}</span>
-            <span class="gc-subtitle">{props.generating ? "请稍候…" : "点击查看预览"}</span>
+            <span class="gc-title truncate">{title()}</span>
+            <span class="gc-subtitle">{subtitle()}</span>
           </div>
-          <Show when={props.generating} fallback={
-            <Show when={props.canPreview}>
-              <span class="gc-done-badge">完成</span>
-            </Show>
-          }>
+          <Show when={props.generating}>
             <span class="gc-gen-badge">
               <span class="w-1.5 h-1.5 rounded-full animate-pulse gc-pulse-dot" />
               生成中
             </span>
+          </Show>
+          <Show when={!props.generating && props.aborted}>
+            <span class="gc-abort-badge">中止</span>
+          </Show>
+          <Show when={!props.generating && !props.aborted && props.canPreview}>
+            <span class="gc-done-badge">完成</span>
           </Show>
         </div>
       </button>

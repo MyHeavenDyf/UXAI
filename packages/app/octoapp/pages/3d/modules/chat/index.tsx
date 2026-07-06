@@ -29,6 +29,8 @@ function RoundCard(props: {
   roundIndex: number
   totalRounds: number
   pipelineBusy: boolean
+  aborted: boolean
+  genStartTime: number
   hasPreview: boolean
   startTime: number
   endTime?: number
@@ -41,11 +43,12 @@ function RoundCard(props: {
     <>
       <GenerationCard
         generating={generating()}
-        canPreview={done()}
+        aborted={isLatest() && props.aborted}
+        canPreview={done() && !(isLatest() && props.aborted)}
         onOpenPreview={props.onOpenPreview}
       />
       <Show when={done() || generating()}>
-        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} />
+        <TurnDuration startTime={isLatest() && props.genStartTime > 0 ? props.genStartTime : props.startTime} endTime={props.endTime} active={generating()} />
       </Show>
     </>
   )
@@ -82,6 +85,10 @@ export function ChatPanel(props: {
   onOpenResult: (card: OutputCard) => void
   /** 主流程是否正在生成 */
   pipelineBusy: boolean
+  /** 是否被中止 */
+  aborted: boolean
+  /** 当前生成开始时间(用于最新轮次的计时器,避免 sync 延迟导致叠加) */
+  genStartTime: number
   /** 按轮分组的消息 */
   roundMessages: { startTime: number; endTime?: number; items: { sessionID: string; messageID: string }[] }[]
   /** 是否有可预览内容 */
@@ -265,6 +272,8 @@ export function ChatPanel(props: {
                           roundIndex={ri}
                           totalRounds={props.roundMessages.length}
                           pipelineBusy={props.pipelineBusy}
+                          aborted={props.aborted}
+                          genStartTime={props.genStartTime}
                           hasPreview={props.hasPreview}
                           startTime={round().startTime}
                           endTime={round().endTime}

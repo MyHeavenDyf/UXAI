@@ -233,6 +233,8 @@ function ThreeDContent() {
       }
       items.sort((a, b) => a.time - b.time)
       if (startTime === Infinity) startTime = items.length > 0 ? items[0].time : Date.now()
+      // 非当前轮次(已中止/无 endTime)用下一轮开始时间作为 endTime,防止计时器无限增长
+      if (!endTime && ri < roundStarts.length - 1) endTime = roundEnd !== Infinity ? roundEnd : undefined
       return { startTime, endTime, items }
     })
   })
@@ -247,15 +249,21 @@ function ThreeDContent() {
     if (sessionStatus().type !== "idle") return true
     const id = params.id
     if (!id) return false
+    // 僵尸消息检测:超过 30 分钟未完成的 assistant 消息视为已死(杀进程后残留)
+    const STALE_MS = 30 * 60 * 1000
+    const isPending = (m: Message) =>
+      m.role === "assistant" &&
+      typeof m.time?.completed !== "number" &&
+      (!m.time?.created || Date.now() - m.time.created < STALE_MS)
+
     const rootMsgs = (sync.data.message[id] ?? []) as Message[]
-    const lastRootAssistant = rootMsgs.findLast((m) => m.role === "assistant")
-    if (!!lastRootAssistant && typeof lastRootAssistant.time.completed !== "number") return true
+    if (rootMsgs.some(isPending)) return true
     for (const childID of childSessionIDs()) {
       const childMsgs = (sync.data.message[childID] ?? []) as Message[]
-      const lastChildAssistant = childMsgs.findLast((m) => m.role === "assistant")
-      if (!!lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") return true
+      if (childMsgs.some(isPending)) return true
       const hasUser = childMsgs.some((m) => m.role === "user")
-      if (hasUser && !lastChildAssistant) return true
+      const hasAssistant = childMsgs.some((m) => m.role === "assistant")
+      if (hasUser && !hasAssistant) return true
     }
     return false
   })
@@ -356,7 +364,8 @@ function ThreeDContent() {
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
-    const genStartTime = performance.now()
+    setAborted(false)
+    setGenStartTime(Date.now())
     console.log("[3D] 开始生成场景:", text)
     setSending(true)
     setPrompt("")
@@ -391,6 +400,8 @@ function ThreeDContent() {
 
       // 生成完成回调:推送预览 + 落盘历史
       const onFinished = async ({ sceneIntent, scenePlanner, sceneJson }: any) => {
+        // 中断后不处理结果(避免显示半成品场景 + 误报成功)
+        if (aborted()) return
         if (sceneJson) {
           sendToPreview(sceneJson)
           // 直接设 sceneDoc,绕过 detectSceneJson(serialize→parse)的静默失效风险
@@ -424,10 +435,13 @@ function ThreeDContent() {
         await create_scene(intentCtx, onFinished)
       }
 
-      const genDuration = ((performance.now() - genStartTime) / 1000).toFixed(0)
+      // 中止检查:pipeline 返回后如果用户已点停止,跳过后续处理
+      if (aborted()) return
+
+      const genDuration = ((performance.now() - genStartTime()) / 1000).toFixed(0)
       console.log(`[3D] 生成场景耗时: ${genDuration}s`)
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "aborted") return
+      if (aborted() || (err instanceof Error && err.message === "aborted")) return
       console.error("[ThreeDPage] handleSubmit failed", err)
     } finally {
       if (!submitSessionId || params.id === submitSessionId) {
@@ -436,18 +450,21 @@ function ThreeDContent() {
     }
   }
 
+  // 中止标志:halt 设为 true,handleSubmit 检测后提前退出
+  const [aborted, setAborted] = createSignal(false)
+  const [genStartTime, setGenStartTime] = createSignal(0)
+
   async function halt() {
+    setAborted(true)
     const sid = params.id
     if (!sid) return
+    // 无条件 abort 根会话 + 所有子会话(不检查 pending,避免 sync 延迟漏掉正在跑的 agent)
     await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
     for (const childID of childSessionIDs()) {
-      const msgs = (sync.data.message[childID] ?? []) as Message[]
-      const pending = msgs.findLast((m) => m.role === "assistant" && typeof m.time.completed !== "number")
-      if (pending) {
-        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
-      }
+      await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
     }
     setSending(false)
+    setPhase("idle")
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -515,6 +532,7 @@ function ThreeDContent() {
   async function handleLivePreview() {
     const data = sceneDoc()
     if (!data) return showToast({ title: "暂无可预览的内容" })
+    console.log("[3D] live-data.json:", JSON.stringify(data, null, 2))
     const api = (window as any).api
     const dir = await api?.getPreviewDist3dDir?.()
     if (!dir || !api?.writeFileBuffer) return showToast({ title: "当前环境不支持实时预览" })
@@ -613,6 +631,8 @@ function ThreeDContent() {
             onDrop={handleDrop}
             onOpenResult={handleOpenResult}
             pipelineBusy={isBusy() || sending()}
+            aborted={aborted()}
+            genStartTime={genStartTime()}
             roundMessages={roundMessages()}
             hasPreview={!!sceneDoc() && !isBusy()}
             onOpenPreview={handleOpenPreview}

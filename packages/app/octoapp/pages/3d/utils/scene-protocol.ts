@@ -207,7 +207,23 @@ export interface SceneMeta {
   postprocessing?: PostprocessingNode
 }
 
-export type SceneObjectType = "group" | "mesh" | "glb" | "points"
+export type SceneObjectType = "group" | "mesh" | "glb" | "points" | "component"
+
+/** 组件类型封闭目录 —— 复合结构体，渲染器自动展开为 group + 子节点 */
+export type ComponentType =
+  // 仓储/零售
+  | "rack" | "bookshelf" | "showcase" | "pallet" | "bin"
+  // 工业/制造
+  | "conveyor" | "robot-arm" | "cnc-machine" | "press"
+  // 港口
+  | "container" | "crane" | "forklift" | "dock"
+  // 通用
+  | "desk" | "cabinet" | "partition" | "signage"
+
+export interface ComponentNode {
+  type: ComponentType
+  params?: Record<string, number | string>
+}
 
 export interface SceneObject {
   id: string // 稳定 pick id → mesh.userData.id + mesh.name 【skills】
@@ -220,6 +236,8 @@ export interface SceneObject {
   asset?: string // 引用 assets.glb[key]
   animation?: boolean | string | string[] // true=播首个 clip;string=clip 名(findByName)【skills】
   spin?: Vec3 // 各轴 度/秒 的声明式旋转(风车/行星/转盘)【skills】
+  // component:
+  component?: ComponentNode // 组件声明，渲染器自动展开为 group + 子节点
   // 公共变换(度,受 angleUnit 生效):
   position?: Vec3 // 默认 [0,0,0]
   rotation?: Vec3 // 度,默认 [0,0,0]
@@ -266,6 +284,30 @@ export const GEOMETRY_PARAMS: Record<GeometryType, { params: string[]; defaults:
   text: { params: ["text", "size", "depth", "mode"], defaults: { text: "Text", size: 1, depth: 0.2, mode: "3d" } },
 }
 
+export const COMPONENT_PARAMS: Record<ComponentType, { params: string[]; defaults: Record<string, number | string> }> = {
+  // 仓储/零售
+  rack: { params: ["levels", "width", "height", "depth"], defaults: { levels: 4, width: 2, height: 2, depth: 0.6 } },
+  bookshelf: { params: ["width", "height", "depth"], defaults: { width: 1.2, height: 1.8, depth: 0.3 } },
+  showcase: { params: ["width", "height", "depth"], defaults: { width: 1.5, height: 1.8, depth: 0.5 } },
+  pallet: { params: ["width", "depth"], defaults: { width: 1.2, depth: 0.8 } },
+  bin: { params: ["width", "height", "depth"], defaults: { width: 0.6, height: 0.4, depth: 0.4 } },
+  // 工业/制造
+  conveyor: { params: ["length", "width", "height"], defaults: { length: 4, width: 0.8, height: 1 } },
+  "robot-arm": { params: ["reach", "height"], defaults: { reach: 1.5, height: 2 } },
+  "cnc-machine": { params: ["width", "height", "depth"], defaults: { width: 2, height: 1.5, depth: 1.5 } },
+  press: { params: ["width", "height", "depth"], defaults: { width: 1.5, height: 2.5, depth: 1 } },
+  // 港口
+  container: { params: ["length", "width", "height"], defaults: { length: 6, width: 2.4, height: 2.6 } },
+  crane: { params: ["height", "reach"], defaults: { height: 15, reach: 10 } },
+  forklift: { params: ["width", "height", "length"], defaults: { width: 1.2, height: 2, length: 2.5 } },
+  dock: { params: ["length", "width"], defaults: { length: 20, width: 5 } },
+  // 通用
+  desk: { params: ["width", "height", "depth"], defaults: { width: 1.4, height: 0.75, depth: 0.7 } },
+  cabinet: { params: ["width", "height", "depth"], defaults: { width: 0.8, height: 1.8, depth: 0.4 } },
+  partition: { params: ["width", "height"], defaults: { width: 1.5, height: 1.6 } },
+  signage: { params: ["width", "height"], defaults: { width: 0.6, height: 0.3 } },
+}
+
 export const GEOMETRY_DESCRIPTIONS: Record<GeometryType, string> = {
   box: "长方体/方块。家具、建筑、箱子",
   sphere: "球体。球、行星、果实",
@@ -282,6 +324,30 @@ export const GEOMETRY_DESCRIPTIONS: Record<GeometryType, string> = {
   octahedron: "八面体。水晶、宝石",
   tetrahedron: "四面体。最简单多面体",
   text: "3D 文字。标题、标语、路牌、标签。mode 可选: 3d(立体挤出,仅 ASCII)/ css2d(HTML 浮层,始终面向相机,支持中文)/ css3d(HTML 参与 3D 变换,可旋转/遮挡)",
+}
+
+export const COMPONENT_DESCRIPTIONS: Record<ComponentType, string> = {
+  // 仓储/零售
+  rack: "货架(多层置物架)。仓储货架、机房机柜、商店展示架。自动展开为4根角柱+N层隔板;隔板子节点 id 为 {objectId}_shelf0~N,其他物体可用 parentId 引用在指定层放物品",
+  bookshelf: "书架。图书馆、书房、书店。多层搁板+侧板+背板",
+  showcase: "展示柜。珠宝、电子产品、博物馆展品。带玻璃面板的展示空间",
+  pallet: "托盘。仓储码放基底。平面板+垫脚",
+  bin: "料箱/存储箱。零件、小件物品存储。开口箱体",
+  // 工业/制造
+  conveyor: "传送带。物流分拣、生产线。滚筒/皮带+支架;可指定长度",
+  "robot-arm": "机械臂。装配线、焊接、搬运。多关节臂+底座",
+  "cnc-machine": "CNC 机床。加工中心、铣削。箱体机身+工作台",
+  press: "冲压机/液压机。金属成型、冲裁。C 形机架+滑块",
+  // 港口
+  container: "集装箱。标准海运箱。箱体+门;可指定尺寸(20ft/40ft)",
+  crane: "起重机/龙门吊。港口、堆场。立柱+横梁+吊钩",
+  forklift: "叉车。仓库搬运。车身+货叉",
+  dock: "泊位/码头。港口停靠区。平台+护舷",
+  // 通用
+  desk: "办公桌。桌面+桌腿;可配挡板",
+  cabinet: "文件柜/储物柜。侧板+层板+门;可指定宽高深",
+  partition: "隔断/屏风。办公区隔断。框架+面板",
+  signage: "标识牌/指示牌。方向指引、房间号。面板+立柱",
 }
 
 export const LIGHT_DESCRIPTIONS: Record<LightType, string> = {
@@ -331,6 +397,7 @@ objects 是**扁平列表**,节点间通过 parentId 引用形成层级,**禁止
 - \`mesh\` —— 基本几何体(配 geometry + material)
 - \`glb\` —— 引用 assets.glb 的外部模型(配 asset)
 - \`points\` —— 点云(配 material.color + size)
+- \`component\` —— 复合组件(配 component),渲染器自动展开为 group + 子节点
 
 ### mesh 节点
 \`\`\`json
@@ -348,6 +415,26 @@ geometry.type 只能取封闭目录(见 GEOMETRY CATALOG);params 键名必须匹
 \`\`\`
 - asset 必须指向 assets.glb 中已声明的 key。**禁止在 object 里直接写 url**。
 - 想放多个同类模型(一片树):在 assets.glb 声明一次,objects 里放多个引用同一 asset 的 glb 节点(渲染器会自动 clone)。
+
+### component 节点(复合组件)
+\`\`\`json
+{ "id":"warehouseRack", "type":"component",
+  "component": { "type":"rack", "params": {"levels":4, "width":2, "height":2, "depth":0.6} },
+  "material": { "type":"standard", "color":"#8B8B8B", "roughness":0.5, "metalness":0.8 },
+  "position":[0,0,0], "castShadow":true, "receiveShadow":true }
+\`\`\`
+- component.type 只能取封闭目录(见 COMPONENT CATALOG)。
+- 渲染器自动展开为 group + 子节点;LLM **无需**手动生成子节点。
+- **rack 组件展开后的子节点 id**:
+  - 4 根角柱: \`{objectId}_postTL\` / \`{objectId}_postTR\` / \`{objectId}_postBL\` / \`{objectId}_postBR\`
+  - N 层隔板: \`{objectId}_shelf0\` ~ \`{objectId}_shelf{N-1}\`
+- **其他物体可用这些子节点 id 作为 parentId**,在指定层上放置物品:
+\`\`\`json
+{ "id":"box1", "type":"mesh", "parentId":"warehouseRack_shelf2",
+  "geometry": { "type":"box", "params": {"width":0.4, "height":0.3, "depth":0.3} },
+  "material": { "type":"standard", "color":"#C4A35A", "roughness":0.8 },
+  "position":[0, 0.17, 0], "castShadow":true }
+\`\`\`
 
 ### 声明式动效(简单可靠,优先使用)
 - \`"spin":[0, 30, 0]\` —— 各轴 度/秒 持续旋转。风车/转盘/行星默认用这个。
@@ -512,6 +599,43 @@ export const EXAMPLE_FULL_INTERIOR = `{
   ]
 }`
 
+export const EXAMPLE_RACK_COMPONENT = `{
+  "version": "1",
+  "scene": { "background": "#1a1a2e", "environment": { "preset": "warehouse" }, "renderStyle": "studio" },
+  "camera": { "position": [4, 2, 5], "lookAt": [0, 1, 0] },
+  "lights": [
+    { "type": "ambient", "intensity": 0.4 },
+    { "type": "directional", "intensity": 2, "position": [5, 8, 5], "castShadow": true }
+  ],
+  "assets": {
+    "materials": {
+      "matRack": { "type": "standard", "color": "#7a7a8a", "roughness": 0.4, "metalness": 0.8 },
+      "matBox": { "type": "standard", "color": "#C4A35A", "roughness": 0.8 }
+    }
+  },
+  "objects": [
+    { "id": "floor", "type": "mesh", "geometry": { "type": "plane", "params": { "width": 10, "height": 10 } },
+      "material": { "type": "standard", "color": "#2a2a3a", "roughness": 0.9 },
+      "rotation": [-90, 0, 0], "receiveShadow": true },
+    { "id": "rack1", "type": "component",
+      "component": { "type": "rack", "params": { "levels": 4, "width": 2, "height": 2.5, "depth": 0.6 } },
+      "material": "matRack",
+      "position": [0, 0, 0], "castShadow": true, "receiveShadow": true },
+    { "id": "boxA", "type": "mesh", "parentId": "rack1_shelf1",
+      "geometry": { "type": "box", "params": { "width": 0.4, "height": 0.3, "depth": 0.3 } },
+      "material": "matBox",
+      "position": [-0.5, 0.17, 0], "castShadow": true },
+    { "id": "boxB", "type": "mesh", "parentId": "rack1_shelf1",
+      "geometry": { "type": "box", "params": { "width": 0.35, "height": 0.25, "depth": 0.35 } },
+      "material": "matBox",
+      "position": [0.2, 0.145, 0], "castShadow": true },
+    { "id": "boxC", "type": "mesh", "parentId": "rack1_shelf3",
+      "geometry": { "type": "box", "params": { "width": 0.5, "height": 0.35, "depth": 0.4 } },
+      "material": "matBox",
+      "position": [0, 0.195, 0], "castShadow": true }
+  ]
+}`
+
 // ===========================================================================
 // 6. JSON Schema(对应 A2UI STRUCTURE SCHEMA)
 // ===========================================================================
@@ -548,7 +672,7 @@ export const SCENE_JSON_SCHEMA = `{
         "properties": {
           "id": { "type": "string" },
           "parentId": { "type": ["string","null"] },
-          "type": { "enum": ["group","mesh","glb","points"] }
+          "type": { "enum": ["group","mesh","glb","points","component"] }
         }
       }
     }
@@ -566,6 +690,17 @@ function geometryCatalog(): string {
     const g = GEOMETRY_PARAMS[key]
     const desc = GEOMETRY_DESCRIPTIONS[key]
     const ps = g.params.map((p) => `${p}=${g.defaults[p]}`).join(", ")
+    lines.push(`- \`${key}\`(${desc}) params: ${ps}`)
+  }
+  return lines.join("\n")
+}
+
+function componentCatalog(): string {
+  const lines = ["# Component Catalog (closed)"]
+  for (const key of Object.keys(COMPONENT_PARAMS) as ComponentType[]) {
+    const c = COMPONENT_PARAMS[key]
+    const desc = COMPONENT_DESCRIPTIONS[key]
+    const ps = c.params.map((p) => `${p}=${c.defaults[p]}`).join(", ")
     lines.push(`- \`${key}\`(${desc}) params: ${ps}`)
   }
   return lines.join("\n")
@@ -604,9 +739,11 @@ export function buildIntentPrompt(query: string): string {
     ``,
     geometryCatalog(),
     ``,
+    componentCatalog(),
+    ``,
     lightCatalog(),
     ``,
-    `输出 JSON,包含:场景主题、风格(renderStyle 候选)、规模、关键物体清单(每个物体建议用基本体还是 glb)、光照氛围、相机视角。`,
+    `输出 JSON,包含:场景主题、风格(renderStyle 候选)、规模、关键物体清单(每个物体建议用基本体还是 glb 还是 component)、光照氛围、相机视角。`,
     `---`,
     ``,
     query,
@@ -626,6 +763,8 @@ export function buildObjectPrompt(opts: {
     `Component Catalog: Three.js objects`,
     ``,
     geometryCatalog(),
+    ``,
+    componentCatalog(),
     ``,
     MATERIAL_CATALOG_TEXT,
     ``,
@@ -666,6 +805,8 @@ export function buildScenePrompt(query: string): string {
     ``,
     geometryCatalog(),
     ``,
+    componentCatalog(),
+    ``,
     MATERIAL_CATALOG_TEXT,
     ``,
     lightCatalog(),
@@ -696,6 +837,8 @@ export function buildScenePrompt(query: string): string {
     EXAMPLE_GLB_INSTANCES,
     `## Full interior (bloom + emissive + fog)`,
     EXAMPLE_FULL_INTERIOR,
+    `## Rack component with items on shelves`,
+    EXAMPLE_RACK_COMPONENT,
     ``,
     `---`,
     ``,
