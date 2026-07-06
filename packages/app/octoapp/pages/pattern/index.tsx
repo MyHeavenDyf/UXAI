@@ -380,6 +380,20 @@ function PatternContent() {
     }
   }
 
+  async function handleWorkflowError(err: unknown, sessionId: string, label: string) {
+    console.error(`[PatternPage] ${label} failed`, err)
+    void saveDebugSnapshot(patternHistoryDir(), sessionId, "error", { error: String(err instanceof Error ? err.message : err) })
+    for (const childID of childSessionIDs()) {
+      await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
+    }
+    const error = classifyAIError(err)
+    if (error.title) {
+      setSessionErrors((prev) => ({ ...prev, [sessionId]: error.title }))
+      showToast({ title: error.title, description: error.description })
+      const errDir = patternHistoryDir()
+      if (errDir) void saveProtoError(errDir, sessionId, error.title)
+    }
+  }
 
   const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
   function getInitialChatWidth(): number {
@@ -620,22 +634,8 @@ function PatternContent() {
       console.log(`[Pattern] 第一次生成页面耗时: ${genDuration}s`)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
-      console.error("[PatternPage] handleSubmit failed", err)
-      if (sid) void saveDebugSnapshot(patternHistoryDir(), sid, isModifying() ? "modify" : "create", { error: String(err instanceof Error ? err.message : err) })
+      await handleWorkflowError(err, sid!, "handleSubmit")
       setIsModifying(false)
-
-      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
-      for (const childID of childSessionIDs()) {
-        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
-      }
-
-      const error = classifyAIError(err)
-      if (error.title) {
-        setSessionErrors((prev) => ({ ...prev, [sid!]: error.title }))
-        showToast({ title: error.title, description: error.description })
-        const errDir = patternHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid!, error.title)
-      }
     } finally {
       setSendingSids((prev) => {
         if (!prev.has(sid!)) return prev
@@ -717,21 +717,7 @@ function PatternContent() {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
-      console.error("[PatternPage] handleConfirmReview failed", err)
-      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
-
-      // 并行生成中有 module 失败时，abort 其他仍在运行的子 session
-      for (const childID of childSessionIDs()) {
-        await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
-      }
-
-      const error = classifyAIError(err)
-      if (error.title) {
-        setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
-        showToast({ title: error.title, description: error.description })
-        const errDir = patternHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid, error.title)
-      }
+      await handleWorkflowError(err, sid, "handleConfirmReview")
       setIsPlanReview(true)
     } finally {
       setUserInput("")
@@ -796,18 +782,7 @@ function PatternContent() {
       setShowPatternMatch(true)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
-       const msg = err instanceof Error ? err.message : String(err)
-      console.error("[PatternPage] handleConfirmIntent failed", err)
-      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: msg })
-      if (sid) {
-        setSessionErrors((prev) => ({ ...prev, [sid]: msg }))
-        const errDir = patternHistoryDir()
-        if (errDir) void saveProtoError(errDir, sid, msg)
-      }
-      console.error("[PatternPage] handleConfirmIntent failed", err)
-      void saveDebugSnapshot(patternHistoryDir(), sid!, "error", { error: String(err instanceof Error ? err.message : err) })
-      const error = classifyAIError(err)
-      if (error.title) showToast({ title: error.title, description: error.description })
+      await handleWorkflowError(err, sid!, "handleConfirmIntent")
     } finally {
       setSendingSids((prev) => {
         if (!prev.has(sid)) return prev
