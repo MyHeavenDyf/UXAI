@@ -24,12 +24,21 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string; preserveP
   })
 
   // 参照 Insight 的守卫模式：child store 在 Tab 切换期间持久化，
-  // 如果消息已存在则跳过 sync，避免用后端快照覆盖 SSE 实时数据。
+  // 如果消息已存在且最后一条 assistant 消息已完成（parts 已完整），
+  // 则跳过 sync，避免用后端快照覆盖 SSE 实时数据。
+  // 但如果最后一条 assistant 消息未完成（可能 parts 丢失），则强制 sync 补齐。
   createEffect(
     on(
-      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
-      ([id, missing]) => {
-        if (!id || !missing) return
+      () => {
+        const id = params.id ?? ""
+        const messages = sync.data.message[id]
+        if (!messages) return [id, true] as const
+        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+        const incomplete = !!lastAssistant && typeof lastAssistant.time.completed !== "number"
+        return [id, incomplete] as const
+      },
+      ([id, needsSync]) => {
+        if (!id || !needsSync) return
         void sync.session.sync(id)
       },
     ),
