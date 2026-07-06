@@ -9,7 +9,6 @@ import {
   createResource,
   createSignal,
   on,
-  onCleanup,
   onMount,
   Show,
   type JSX,
@@ -29,6 +28,7 @@ import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
+import { createSplitDrag } from "./utils/drag-split"
 import { exportZip } from "./utils/preview-handler/zip"
 import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify-json-quick'
 import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
@@ -46,7 +46,7 @@ import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
-import type { A2UIDocument } from "./utils/a2ui-protocol"
+import { createReorderHandler } from "./utils/reorder"
 
 const AGENT_NAME = "proto_triage"
 
@@ -360,57 +360,17 @@ function PatternContent() {
     void handleSubmit()
   }
 
-  // 拖拽重排序：在 A2UI JSON 中重新排列同级 children
-  function handleReorder(elementId: string, targetSiblingId: string, position: "before" | "after") {
-    const doc = pendingPreviewData() as A2UIDocument | null
-    if (!doc?.elements) {
-      console.warn("[reorder] no pending data or elements")
-      return
-    }
-    const matchChildId = (children: string[], id: string) => {
-      if (children.includes(id)) return id
-      const baseId = id.replace(/(:\d+)+$/, "")
-      return children.includes(baseId) ? baseId : null
-    }
-    const reorderLoopChildren = (children: { path: string; componentId: string }) => {
-      const sourceMatch = elementId.match(new RegExp(`^${children.componentId}:(\\d+)$`))
-      const targetMatch = targetSiblingId.match(new RegExp(`^${children.componentId}:(\\d+)$`))
-      const list = children.path.replace(/^\//, "").split("/").reduce<unknown>((value, key) => {
-        if (!value || typeof value !== "object") return undefined
-        return (value as Record<string, unknown>)[key]
-      }, clone.state)
-      if (!sourceMatch || !targetMatch || !Array.isArray(list)) return false
-      const sourceIndex = Number(sourceMatch[1])
-      const targetIndex = Number(targetMatch[1])
-      if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= list.length || targetIndex >= list.length) return false
-      const reordered = list.filter((_, index) => index !== sourceIndex)
-      const targetOffset = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
-      reordered.splice(position === "before" ? targetOffset : targetOffset + 1, 0, list[sourceIndex])
-      list.splice(0, list.length, ...reordered)
-      return true
-    }
-    const clone = JSON.parse(JSON.stringify(doc)) as A2UIDocument
-    for (const el of clone.elements) {
-      if (el.children && !Array.isArray(el.children) && reorderLoopChildren(el.children)) {
-        console.log("[reorder] loop success:", elementId, position, targetSiblingId, "in parent", el.id)
-        sendToPreview(clone)
-        return
-      }
-      if (!Array.isArray(el.children)) continue
-      const kids = el.children as string[]
-      const sourceId = matchChildId(kids, elementId)
-      const targetId = matchChildId(kids, targetSiblingId)
-      if (!sourceId || !targetId || sourceId === targetId) continue
-      const filtered = kids.filter(id => id !== sourceId)
-      const idx = filtered.indexOf(targetId)
-      filtered.splice(position === "before" ? idx : idx + 1, 0, sourceId)
-      el.children = filtered
-      console.log("[reorder] success:", sourceId, position, targetId, "in parent", el.id)
-      sendToPreview(clone)
-      return
-    }
-    console.warn("[reorder] no matching parent found for", elementId, "->", targetSiblingId, "(may be loop-bound children)")
-  }
+  const handleReorder = createReorderHandler({
+    getPendingData: pendingPreviewData,
+    sendToPreview,
+    getSessionId: () => params.id,
+    getHistoryDir: () => patternHistoryDir(),
+    getLastIntent: lastIntent,
+    getLastPlanner: lastPlanner,
+    getLastModules: lastModules,
+    setVersions,
+    setCurrentVersionId,
+  })
 
   const quickModifyCtx: QuickModifyContext = {
     getPendingData: pendingPreviewData,
@@ -456,54 +416,7 @@ function PatternContent() {
     }
   }
 
-  const CHAT_WIDTH_KEY = "octo:pattern:chat-width"
-  function getInitialChatWidth(): number {
-    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
-    if (stored) {
-      const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 345 && n <= 720) return n
-    }
-    return 460
-  }
-  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
-  const [focusMode, setFocusMode] = createSignal(false)
-  const MIN_CHAT = 345
-  const MAX_CHAT = 720
-
-  let dragCleanup: (() => void) | null = null
-
-  function handleDividerMouseDown(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = chatWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    document.body.style.overflow = "hidden"
-    const resetBody = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
-      dragCleanup = null
-    }
-    const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
-    }
-    const onUp = () => {
-      resetBody()
-      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-    dragCleanup = () => {
-      resetBody()
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-  }
-
-  onCleanup(() => { dragCleanup?.() })
+  const { chatWidth, focusMode, setFocusMode, onDividerMouseDown } = createSplitDrag()
 
   const autoScroll = createAutoScroll({ working: isBusy })
 
@@ -1122,7 +1035,7 @@ function PatternContent() {
         </Show>
 
         <Show when={hasContent() && !focusMode()}>
-          <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
+          <div class="octo-split-handle" onMouseDown={onDividerMouseDown} />
         </Show>
 
         {/* 预览页 */}
