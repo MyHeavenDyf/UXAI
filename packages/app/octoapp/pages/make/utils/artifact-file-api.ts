@@ -271,17 +271,19 @@ export function formatTimeAgo(ms: number): string {
 }
 
 export function artifactFileToOutputCard(file: ArtifactFile): OutputCard {
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? ""
-  let type: OutputCardType = "html"
+  const kindToType: Partial<Record<ArtifactFileKind, OutputCardType>> = {
+    html: "html",
+    svg: "svg",
+    image: "image",
+    video: "video",
+    audio: "audio",
+    markdown: "markdown-document",
+    text: "text",
+    code: "text",
+    pdf: "pdf",
+  }
 
-  if (ext === "svg") type = "svg"
-  else if (ext === "md" || ext === "markdown") type = "markdown-document"
-  else if (ext === "json") type = "json"
-  else if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) type = "image"
-  else if (["mp4", "webm", "mov", "avi"].includes(ext)) type = "video"
-  else if (["mp3", "wav", "ogg", "m4a", "flac"].includes(ext)) type = "audio"
-  else if (ext === "pdf") type = "pdf"
-  else if (["txt", "js", "ts", "css", "jsx", "tsx"].includes(ext)) type = "text"
+  const type = kindToType[file.kind] ?? "file"
 
   return {
     id: file.path,
