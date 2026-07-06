@@ -1,5 +1,4 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { basename } from "node:path"
 import { readFile } from "node:fs/promises"
 
 /**
@@ -67,6 +66,11 @@ function hasFileRef(node: unknown): boolean {
 }
 
 // 递归收集 args 里出现、且在 known 集合中的文件名(要替换的那几个)。
+// 只做**精确匹配**(2026-07-03 复审决定):不做去空白等启发式归一化修补——归一化可能把引用
+// 误配到"仅空白不同"的另一个文件(静默换错文件比失败更糟,历史会话清单里构造得出来);且
+// "模型改写引用"是无界类(今天加空格,明天换全角/删字),启发式追不完。模型抄错 → 精确 miss →
+// 不替换 → 工具失败、错误回灌(响亮失败);根治是 SPEC-INS-017 §2.1 chip 声明强制覆盖
+// (文件参数由客户端钉死,不经模型)。
 function collectRefs(node: unknown, known: Set<string>, found: Set<string>): void {
   if (typeof node === "string") {
     if (known.has(node)) found.add(node)
@@ -109,6 +113,12 @@ type UploadApiResponse = {
   errorMessage: string | null
 }
 
+// 跨平台 basename:sidecar 与桌面端同机,但清单里是 Windows 反斜杠路径时 node:path(posix 语义)
+// 切不开 —— 统一按两种分隔符切,别依赖运行平台。
+function baseNameOf(p: string): string {
+  return p.split(/[\\/]/).pop() || p
+}
+
 // 把本地文件上传到内网上传服务,返回精确 URL。带进程内缓存(同路径只传一次)。
 // 失败抛错(由 tool.execute.before 上抛 → 工具调用失败 → 错误回灌模型)。
 async function uploadLocalFile(localPath: string, endpoint: string): Promise<string> {
@@ -129,9 +139,11 @@ async function uploadLocalFile(localPath: string, endpoint: string): Promise<str
   }
 
   const form = new FormData()
-  // 只发 file 一个字段(路径策略是服务端的事);显式带 basename 作 multipart 文件名。
+  // 只发 file 一个字段(路径策略是服务端的事);multipart 文件名 = 原样 basename。
+  // 特殊字符的 URL 安全由服务端合同 v2 保证(uuid key + 下载走自有域名,file-upload.md 顶部提案);
+  // v2 落地前,含白名单外字符的文件名在 MCP 下载链路仍可能失败(已知窗口,不再做客户端清洗)。
   // Node/Bun 均有全局 Blob/FormData/fetch(Node 18+)。
-  form.append("file", new Blob([ab]), basename(localPath))
+  form.append("file", new Blob([ab]), baseNameOf(localPath))
 
   const t0 = Date.now()
   let res: Response
@@ -184,8 +196,9 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       }
 
       // 聚合**整个 session** 所有 user 消息里的 [附件] 区块,建「引用 → 本地路径」总表。
-      // 引用同时收录**文件名与完整路径**两种键:提示词要模型填文件名,但内网弱模型可能照抄清单里的
-      // 完整路径 —— 两种都认,避免"填了路径却没上传、把本地路径丢给 MCP"。
+      // 引用收录**文件名 / 完整路径 / 路径 basename** 三种键:提示词要模型填文件名,但内网弱模型
+      // 可能照抄清单里的完整路径、或从 extract_document 的路径参数里抄磁盘 basename(撞名后缀名,
+      // 与清单文件名可能不同)—— 三种都认,避免"引用了文件却没上传、把裸文件名/本地路径丢给 MCP"。
       const refToPath = new Map<string, string>()
       try {
         const res = await client.session.messages({ path: { id: input.sessionID } })
@@ -199,6 +212,7 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
             for (const f of parseManifest(p.text)) {
               refToPath.set(f.filename, f.path)
               refToPath.set(f.path, f.path)
+              refToPath.set(baseNameOf(f.path), f.path)
             }
           }
         }
@@ -215,7 +229,7 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
         return
       }
 
-      // 只对 args 里真正引用到的(文件名或路径)做按需上传(不预传"全部文件")。
+      // 只对 args 里真正引用到的(文件名/路径/basename,精确匹配)做按需上传(不预传"全部文件")。
       const referenced = new Set<string>()
       collectRefs(output.args, new Set(refToPath.keys()), referenced)
       if (referenced.size === 0) return
@@ -236,7 +250,7 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       console.log(`${LOG} args rewritten`, {
         tool: input.tool,
         sessionID: input.sessionID,
-        knownRefs: refToPath.size, // 已知引用键数(文件名 + 路径,约为文件数 ×2)
+        knownRefs: refToPath.size, // 已知引用键数(文件名 + 路径 + basename,约为文件数 ×3)
         uploaded: refToUrl.size, // 本次按需上传/命中缓存的引用数
         changed: before !== after,
         before,

@@ -121,8 +121,8 @@ export function StudioResultCanvas(props: {
     if (!stage) return
     const ro = new ResizeObserver(() => {
       // stage.clientWidth 含 32px×2 的 padding，内联按钮全部展开约需 620px 内容宽度
-      // clientWidth >= 700 时内容区足够宽，4 个按钮平铺展示
-      setCompactActions(stage.clientWidth < 700)
+      // clientWidth >= 750 时内容区足够宽，4 个按钮平铺展示
+      setCompactActions(stage.clientWidth < 750)
     })
     ro.observe(stage)
     onCleanup(() => ro.disconnect())
