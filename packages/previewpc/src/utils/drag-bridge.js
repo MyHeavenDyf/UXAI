@@ -123,10 +123,13 @@
     var g = el.cloneNode(true)
     g.style.cssText =
       "position:fixed;z-index:99999;pointer-events:none;opacity:0.85;" +
-      "width:" + r.width + "px;height:" + r.height + "px;" +
       "left:" + r.left + "px;top:" + r.top + "px;" +
       "box-shadow:0 8px 24px rgba(0,123,255,.35);border:2px solid #007bff;" +
       "border-radius:6px;background:rgba(255,255,255,.95);overflow:hidden;"
+    g.style.setProperty("width", r.width + "px", "important")
+    g.style.setProperty("height", r.height + "px", "important")
+    g.style.setProperty("min-width", r.width + "px", "important")
+    g.style.setProperty("max-width", r.width + "px", "important")
     document.body.appendChild(g)
     return g
   }
