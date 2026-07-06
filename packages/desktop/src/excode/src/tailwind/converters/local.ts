@@ -16,16 +16,16 @@ import { tailwindConfig } from '../../../dev/tailwind.config';
  * 创建本地 tw-to-css 转换器实例
  * Tailwind 配置已通过 import 注入，无需传参。
  *
- * @returns {{ convert: (className: string) => Record<string, string> }}
+ * @returns {{ convert: (className: string) => Record<string, string | number> }}
  */
-export function createLocalConverter(): { convert: (className: string) => Record<string, string> } {
+export function createLocalConverter(): { convert: (className: string) => Record<string, string | number> } {
   // 单例缓存 twj 实例
-  let twjInstance: ((className: string) => Record<string, string>) | null = null;
+  let twjInstance: ((className: string) => Record<string, string | number>) | null = null;
 
-  function getTwj(): (className: string) => Record<string, string> {
+  function getTwj(): (className: string) => Record<string, string | number> {
     if (twjInstance) return twjInstance;
     const { twj } = tailwindToCSS({ config: tailwindConfig as any });
-    twjInstance = twj;
+    twjInstance = (className: string) => twj(className) as Record<string, string | number>;
     return twjInstance;
   }
 
@@ -35,7 +35,7 @@ export function createLocalConverter(): { convert: (className: string) => Record
      * @param className - 一个或多个 tailwind 类名（空格分隔）
      * @returns CSS 属性键值对
      */
-    convert(className: string): Record<string, string> {
+    convert(className: string): Record<string, string | number> {
       if (!className || !className.trim()) return {};
       return getTwj()(className);
     },

@@ -12,9 +12,9 @@ import { createDesktopConverter } from './converters/desktop';
  * 创建 tailwind 转换适配器实例
  *
  * @param adapterName - 适配器名称: "local" | "desktop"
- * @returns {{ convert: (className: string) => Record<string, string> }}
+ * @returns {{ convert: (className: string) => Record<string, string | number> }}
  */
-export async function createTailwindAdapter(adapterName: string = 'local'): Promise<{ convert: (className: string) => Record<string, string> }> {
+export async function createTailwindAdapter(adapterName: string = 'local'): Promise<{ convert: (className: string) => Record<string, string | number> }> {
   if (adapterName === 'local') {
     return createLocalConverter();
   }
