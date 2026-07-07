@@ -58,7 +58,8 @@ export interface TransformResult {
   import?: string;
   props?: Record<string, any>;
   children?: any;
-  wrapper?: any;
+  /** wrapper — 包裹节点（作为 CodeGenNode，渲染时在当前节点外层套一层） */
+  wrapper?: { __nodeType: string; tag: string; import?: string; importMode?: string; props?: Record<string, any>; children?: any[]; };
   _inlineVarProps?: any;
   selfClosing?: boolean;
   stateData?: Record<string, any>;

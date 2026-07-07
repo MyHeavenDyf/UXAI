@@ -79,9 +79,10 @@ export class JsxSerializer {
     // 渲染当前节点的 JSX
     const innerJSX = JsxSerializer._renderInner(tag, node, ctx);
 
-    // wrapper 包裹：无论类型，只要节点上有 wrapper 字段就包裹
+    // wrapper 包裹：wrapper 是 CodeGenNode，将其作为外层标签包裹本节点内容
     if (node.wrapper) {
-      return JsxSerializer._applyWrapper(node.wrapper, innerJSX);
+      // innerJSX 已由 _renderInner 渲染（不含 wrapper 影响），直接包裹即可
+      return JsxSerializer._applyWrapper(node.wrapper, innerJSX, ctx);
     }
 
     return innerJSX;
@@ -182,9 +183,10 @@ export class JsxSerializer {
     return `<${tag} ${allProps}>\n${JsxSerializer._indent(childrenJSX || '', 2)}\n</${tag}>`;
   }
 
-  static _applyWrapper(wrapper: any, innerJSX: string): string {
+  static _applyWrapper(wrapper: any, innerJSX: string, ctx?: SerializeCtx): string {
     if (!wrapper) return innerJSX;
 
+    // wrapper 是 CodeGenNode，提取 tag/props
     const wrapperTag = wrapper.tag;
     const wrapperProps = wrapper.props || {};
     const wrapperPropsStr = Object.entries(wrapperProps)

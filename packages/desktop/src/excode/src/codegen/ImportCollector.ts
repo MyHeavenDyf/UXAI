@@ -47,18 +47,9 @@ export class ImportCollector {
       }
     }
 
-    // 2. 收集 wrapper.import（若有）
-    if (node.wrapper && node.wrapper.import) {
-      const wi = node.wrapper.import;
-      if (!imports.has(wi.source)) {
-        imports.set(wi.source, { default: null, named: new Set() });
-      }
-      const entry = imports.get(wi.source)!;
-      if (wi.specifier === 'default') {
-        entry.default = entry.default || node.wrapper.tag;
-      } else {
-        entry.named.add(wi.specifier);
-      }
+    // 2. 收集 wrapper.import（wrapper 是 CodeGenNode，递归 collect 统一处理）
+    if (node.wrapper) {
+      ImportCollector.collect(node.wrapper, imports, transformFn);
     }
 
     // 3. 递归子节点和循环模板
