@@ -29,7 +29,7 @@ export const STEP_B_PROMPT = `
 export VECTOR_API_BASE=\${VECTOR_API_BASE} NODE_TLS_REJECT_UNAUTHORIZED=0
 \`\`\`
 
-脚本路径：packages/app/octoapp/pages/dslToHex/lib/api-call.ts
+脚本路径：\${API_CALL_SCRIPT}
 
 根据节点 layerType 和 resourceType 分为三套完全独立的 API 流程：
 
@@ -44,7 +44,7 @@ export VECTOR_API_BASE=\${VECTOR_API_BASE} NODE_TLS_REJECT_UNAUTHORIZED=0
 ##### 精简搜索
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorSearch --type component --queries "按钮 禁用,输入框 正常"
+bun \${API_CALL_SCRIPT} vectorSearch --type component --queries "按钮 禁用,输入框 正常"
 \`\`\`
 
 参数说明：
@@ -55,7 +55,7 @@ bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorSearch --type comp
 ##### 全量数据获取
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorDetail --type component --data_id abc123
+bun \${API_CALL_SCRIPT} vectorDetail --type component --data_id abc123
 \`\`\`
 
 ##### 搜索关键词构造
@@ -115,7 +115,7 @@ queries 必须包含具体属性词，不要只写资源类别名：
 只调用一次，缓存配置数据，后续所有 icon 节点共用此配置。
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow icon
+bun \${API_CALL_SCRIPT} getConfig --flow icon
 \`\`\`
 
 返回：
@@ -133,7 +133,7 @@ bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow icon
 对每个 icon 节点的语义关键词调用此接口：
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIconInfo --keyword "返回" --topK 5
+bun \${API_CALL_SCRIPT} getIconInfo --keyword "返回" --topK 5
 \`\`\`
 
 参数：keyword（必选，搜索关键词）、topK（可选，默认5）、Category（可选）
@@ -160,7 +160,7 @@ bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIconInfo --keyword "�
 对每个选中的 icon_id 调用此接口，传入从 getConfig 和 getIconInfo 获得的参数：
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getSvg --icon_id 123 --size 24 --style "线性" --color "GTS_线程_Blue-5" --fileType svg
+bun \${API_CALL_SCRIPT} getSvg --icon_id 123 --size 24 --style "线性" --color "GTS_线程_Blue-5" --fileType svg
 \`\`\`
 
 参数说明：
@@ -197,7 +197,7 @@ bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getSvg --icon_id 123 --s
 只调用一次，缓存配置数据，后续所有 illus 节点共用此配置。
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow illus
+bun \${API_CALL_SCRIPT} getConfig --flow illus
 \`\`\`
 
 返回：
@@ -216,7 +216,7 @@ bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow illus
 对每个 illus 节点的语义关键词调用此接口：
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllusInfo --keyword "空状态" --topK 5
+bun \${API_CALL_SCRIPT} getIllusInfo --keyword "空状态" --topK 5
 \`\`\`
 
 参数：keyword（必选，搜索关键词）、topK（可选，默认5）、Category（可选）
@@ -243,7 +243,7 @@ bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllusInfo --keyword "
 支持批量获取，优先把所有选中的 illus_id 用逗号拼成一个请求，减少请求数：
 
 \`\`\`bash
-bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅色" --fileType svg
+bun \${API_CALL_SCRIPT} getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅色" --fileType svg
 \`\`\`
 
 参数说明：
@@ -286,15 +286,15 @@ bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllus --illus_id "EMP
 #### 调用顺序
 
 0. export VECTOR_API_BASE=\${VECTOR_API_BASE} NODE_TLS_REJECT_UNAUTHORIZED=0
-1. 若有 icon 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow icon（只调一次，缓存配置）
-2. 若有 illus 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow illus（只调一次，缓存配置）
-3. 若有 component 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorSearch --type component --queries "所有组件关键词"
-4. 若有 icon 节点：对每个关键词 bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIconInfo --keyword "xxx" --topK 5
-5. 若有 illus 节点：对每个关键词 bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllusInfo --keyword "xxx" --topK 5
-6. 若有 image 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorSearch --type image --queries "..."
-7. 对每个选中的 icon_id：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getSvg --icon_id xxx --size xx --style "xx" --color "xx" --fileType svg
-8. 对所有选中的 illus_id（批量逗号拼接）：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllus --illus_id "id1,id2,...-theme "浅色" --fileType svg
-9. 对每个选中的 data_id：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorDetail --type xxx --data_id xxx
+1. 若有 icon 节点：bun \${API_CALL_SCRIPT} getConfig --flow icon（只调一次，缓存配置）
+2. 若有 illus 节点：bun \${API_CALL_SCRIPT} getConfig --flow illus（只调一次，缓存配置）
+3. 若有 component 节点：bun \${API_CALL_SCRIPT} vectorSearch --type component --queries "所有组件关键词"
+4. 若有 icon 节点：对每个关键词 bun \${API_CALL_SCRIPT} getIconInfo --keyword "xxx" --topK 5
+5. 若有 illus 节点：对每个关键词 bun \${API_CALL_SCRIPT} getIllusInfo --keyword "xxx" --topK 5
+6. 若有 image 节点：bun \${API_CALL_SCRIPT} vectorSearch --type image --queries "..."
+7. 对每个选中的 icon_id：bun \${API_CALL_SCRIPT} getSvg --icon_id xxx --size xx --style "xx" --color "xx" --fileType svg
+8. 对所有选中的 illus_id（批量逗号拼接）：bun \${API_CALL_SCRIPT} getIllus --illus_id "id1,id2,...-theme "浅色" --fileType svg
+9. 对每个选中的 data_id：bun \${API_CALL_SCRIPT} vectorDetail --type xxx --data_id xxx
 
 #### ⛔ 严禁臆想资源数据
 

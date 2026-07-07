@@ -2,7 +2,8 @@ import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { STEP_A_PROMPT } from "./prompts/step-a"
 import { STEP_B_PROMPT } from "./prompts/step-b"
-import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest } from "./utils/artifact-persist"
+import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest, ensureApiCallScript } from "./utils/artifact-persist"
+import API_CALL_SOURCE from "./lib/api-call.ts?raw"
 import { stripFollowUpTags } from "./utils/strip-conversational"
 import { IframeBridge } from "./lib/iframe-bridge"
 import { stripThinkTags } from "./lib/think-filter"
@@ -668,6 +669,15 @@ const sessionMessagesLoaded = createMemo(() => {
     || localStorage.getItem("octo:vector-api-base")
     || "https://octo-beta.hdesign.huawei.com"
 
+  // bash 工具的 cwd 是 session 的 directory（用户打开的设计项目），不是 UXAI 仓库根目录，
+  // 所以仓库相对路径命不中。首选做法：step-b 前把脚本源码落盘到项目 .octo/dslToHex/ 下，
+  // 用下面这个相对项目目录的路径引用（零配置、对所有人生效）。落盘只在桌面端可用；纯 web
+  // 环境写不了磁盘，退回 FALLBACK（可用 localStorage/env 覆盖，或把 UXAI 当项目打开）。
+  const API_CALL_SCRIPT_MATERIALIZED = ".octo/dslToHex/api-call.ts"
+  const API_CALL_SCRIPT_FALLBACK = import.meta.env.VITE_API_CALL_SCRIPT
+    || localStorage.getItem("octo:api-call-script")
+    || "packages/app/octoapp/pages/dslToHex/lib/api-call.ts"
+
   const STEP_A_DISABLED_TOOLS = {
     write: false,
     edit: false,
@@ -1233,7 +1243,13 @@ const sessionMessagesLoaded = createMemo(() => {
       const textPart: TextPartInput = { type: "text", text }
       const modelKey = activeModelKey()
       if (!modelKey) return
-      const systemPrompt = STEP_B_PROMPT.replace(/\$\{VECTOR_API_BASE\}/g, VECTOR_API_BASE)
+      // 把 api-call.ts 落盘到项目 .octo/dslToHex/ 下，agent 用相对项目目录的路径即可命中；
+      // 桌面端落盘成功走相对路径，纯 web 写不了盘则回退。
+      const wroteScript = dslDir ? await ensureApiCallScript(dslDir, API_CALL_SOURCE).catch(() => false) : false
+      const apiCallScript = wroteScript ? API_CALL_SCRIPT_MATERIALIZED : API_CALL_SCRIPT_FALLBACK
+      const systemPrompt = STEP_B_PROMPT
+        .replace(/\$\{VECTOR_API_BASE\}/g, VECTOR_API_BASE)
+        .replace(/\$\{API_CALL_SCRIPT\}/g, apiCallScript)
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_dsl",

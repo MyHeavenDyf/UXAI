@@ -57,6 +57,18 @@ export async function saveManifest(projectDir: string, manifest: Manifest): Prom
   localStorage.setItem(manifestStorageKey(projectDir), json)
 }
 
+// api-call.ts 是资源 API 的调用脚本，agent(step-b)靠 bash 跑它。agent 的 bash cwd 是
+// session 的项目目录，而非 UXAI 仓库根，所以仓库相对路径命不中。这里把脚本源码落盘到项目的
+// .octo/dslToHex/ 下（和产物同目录），prompt 用相对项目目录的路径 `.octo/dslToHex/api-call.ts`
+// 即可在任何机器命中。仅桌面端可写磁盘；写成功返回 true，纯 web 环境返回 false 由调用方回退。
+export async function ensureApiCallScript(projectDir: string, source: string): Promise<boolean> {
+  const api = getDesktopApi()
+  if (!api?.writeFileBuffer) return false
+  const path = `${projectDir}/${ARTIFACT_DIR}/api-call.ts`
+  await api.writeFileBuffer(path, new TextEncoder().encode(source).buffer)
+  return true
+}
+
 export async function saveArtifact(
   projectDir: string,
   sessionId: string,
