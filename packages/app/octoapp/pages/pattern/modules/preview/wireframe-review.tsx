@@ -81,6 +81,8 @@ export function WireframeReview(props: {
       updatedSectionDetails: editing.details,
       intentDescription: { ...props.intentDescription, sectionDetailList: editing.details },
     })
+    setShowDrawer(false)
+    setSelectedSectionId("")
   }
 
   return (
