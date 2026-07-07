@@ -1041,8 +1041,7 @@ function PatternContent() {
 
   const inputDisabled = () => {
     const sid = params.id
-    if (!sid) return true
-    return sending() || isBusy() || !activeModelKey() || !!isPlanReview()[sid] || !!showPatternMatch()[sid] || intentConfirm()[sid] != null
+    return (sid ? sending() || isBusy() : false) || !activeModelKey() || (sid ? (!!isPlanReview()[sid] || !!showPatternMatch()[sid] || intentConfirm()[sid] != null) : false)
   }
 
   const chartInputProps = () => ({
