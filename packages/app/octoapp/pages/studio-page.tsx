@@ -26,6 +26,7 @@ import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
+import { directoryHeader } from "@/utils/headers"
 import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -217,7 +218,7 @@ export default function StudioPage() {
     async (current: any) => {
       const headers: Record<string, string> = {
         accept: "application/json",
-        "x-opencode-directory": projectDir(),
+        ...directoryHeader(projectDir()),
       }
       if (current.http.password) {
         headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -245,7 +246,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       accept: "application/json",
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -1592,7 +1593,7 @@ export default function StudioPage() {
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2032,7 +2033,7 @@ export default function StudioPage() {
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
       "content-type": "application/json",
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2077,7 +2078,7 @@ export default function StudioPage() {
     const current = server.current
     if (!current) throw new Error("No active server.")
     const headers: Record<string, string> = {
-      "x-opencode-directory": projectDir(),
+      ...directoryHeader(projectDir()),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2114,7 +2115,7 @@ export default function StudioPage() {
     try {
       const headers: Record<string, string> = {
         "content-type": "application/json",
-        "x-opencode-directory": projectDir(),
+        ...directoryHeader(projectDir()),
       }
       if (current.http.password) {
         headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2749,8 +2750,24 @@ export default function StudioPage() {
     Boolean(pendingResult()) ||
     sending() ||
     isEditingWorkspaceMode() ||
-    Boolean(workspaceModeForCapability(capability())),
+    Boolean(workspaceModeForCapability(capability())) ||
+    Boolean(params.id),
   )
+
+  const sessionDataLoaded = createMemo(() => {
+    if (!params.id) return false
+    return dataStore.message[params.id] !== undefined
+  })
+
+  createEffect(() => {
+    if (!params.id) return
+    if (!sessionDataLoaded()) return
+    if (displayTurns().length > 0 || pendingResult() || sending()) return
+    // 清除 last session 记录，防止恢复 effect 重定向回来造成死循环
+    const decoded = decode64(params.dir)
+    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
+    navigate(`/${routeSlug()}/studio`, { replace: true })
+  })
 
   const [hintVisible, setHintVisible] = createSignal(false)
 
@@ -3012,7 +3029,7 @@ if (!headerTitle.pendingRename) return
             }}
             class="studio-center-scroll"
           >
-            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={<StudioIntro />}>
+            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={params.id && !sessionDataLoaded() ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
@@ -3075,9 +3092,11 @@ if (!headerTitle.pendingRename) return
 
       <main class="studio-workspace">
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
-          <div class="studio-empty-workspace">
-            <StudioIntro />
-          </div>
+          params.id && !sessionDataLoaded() ? null : (
+            <div class="studio-empty-workspace">
+              <StudioIntro />
+            </div>
+          )
         }>
         <section class="studio-canvas">
           <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
