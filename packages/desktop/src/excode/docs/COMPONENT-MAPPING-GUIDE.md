@@ -47,10 +47,11 @@ export default {
     // node = { __nodeType: 'unresolved', component, props, children }
     // context = { rawState, resolveNode }
     // 返回 { props, children?, _inlineVarProps?, selfClosing?,
-    //        stateData?, componentData? }
+    //        stateData?, componentData?,
+    //        tag? , import? }                    ← 可选覆盖目标组件
     // stateData     → 纯数据，合并到页面 initialState
     // componentData → 含 JSX，路由到所属模块顶部 const 声明
-    // 注意：不返回 tag/import，管线自动使用顶层导出的值
+    // tag/import    → 可选：动态切换目标组件（见 3.5 返回值规范）
     // 完整类型体系见 DATA-STRUCTURE.md
   },
 }
@@ -158,6 +159,8 @@ defaults: {
  *
  * @returns {object} transform 结果
  *   { props: { ... },                    ← 处理后的目标组件 props
+ *     tag?: 'IconButton',                ← 可选：动态覆盖目标组件名（默认使用映射文件顶层 tag）
+ *     import?: '@nce/.../IconButton',    ← 可选：动态覆盖导入路径（默认使用映射文件顶层 import）
  *     children: [{...}, '文本'],          ← 子节点数组（可选），每项可以是：
  *                                              UnresolvedNode: { __nodeType: 'unresolved', component, ... }
  *                                              CodeGenNode:    { __nodeType: 'component'|'html', tag, ... }
@@ -167,7 +170,8 @@ defaults: {
  *     stateData?: { key: value },        ← 可选：纯数据，合并到 initialState
  *     componentData?: { key: value },    ← 可选：含 JSX，模块顶部 const 声明
  *   }
- *   // 注意：transform 不返回 tag 和 import，管线自动使用映射文件的 tag/import
+ *   // tag/import 可选覆盖：当需要根据运行时条件动态切换目标组件时返回，
+ *   // 管线使用 result.tag || def.tag / result.import || def.import。
  *   // transform 返回的 children 中的 unresolved 节点，管线会递归映射
  *   // 需要包裹子节点时，在 child 上加 wrapper（看 3.2）
  */
@@ -278,11 +282,18 @@ transform 返回:
 interface TransformResult {
   props: Record<string, any>        // 处理后的目标组件 props
   children?: Array<any>             // 子节点数组（可选）
+  tag?: string                      // 可选：动态覆盖目标组件名（默认使用映射文件顶层 tag）
+  import?: string                   // 可选：动态覆盖导入路径（默认使用映射文件顶层 import）
   _inlineVarProps?: string[]       // 需提取为模块级变量的 prop key（可选）
   selfClosing?: boolean            // 强制自闭合（可选）
   stateData?: Record<string, any>  // 纯数据 → 合并到 initialState（可选）
   componentData?: Record<string, any> // 含 JSX → 模块顶部 const 声明（可选）
 }
+
+// tag/import 覆盖规则：
+// 管线使用 result.tag || def.tag / result.import || def.import，
+// 即 transform 返回的 tag/import 优先级高于映射文件顶层声明。
+// 典型场景：同一 A2UI 组件根据条件分支映射到不同的目标组件（如 Button → Button/IconButton）。
 ```
 
 **stateData 与 componentData 说明**：
@@ -702,7 +713,7 @@ children 处理（transform 返回）
 - [ ] `valueMap` 的 key 使用**目标 prop 名**（改名后的），不是原名
 - [ ] `defaults` 声明是否在最终产物中出现（管线自动在 transform 前后两次兜底注入，无需手动维护）
 - [ ] `transform` 已提取为独立顶层函数，不在 `export default` 内联
-- [ ] `transform` 不返回 `tag` 和 `import`（管线的固有行为）
+- [ ] `transform` 仅在需要动态切换目标组件时返回 `tag` 和 `import`（默认使用映射文件顶层声明）
 - [ ] 涉及 `children` 包裹时，使用 `child.wrapper` 方式（不需要额外的映射文件）
 - [ ] `wrapper.import` 正确设置了 `source` 和 `specifier`，同源能与组件自己的 import 合并
 - [ ] `_inlineVarProps` 标注了需要提取的复杂 prop

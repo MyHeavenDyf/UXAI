@@ -234,14 +234,16 @@ A2UI JSON
 UnresolvedNode { __nodeType: 'unresolved', component, props, children }
    │
    │  管线：查 registry → 声明式字段 → transform
-   │  transform 返回中包含：
-   │    • props（处理后的目标组件 props）
-   │    • children（可选），每项可以是：
-   │        - UnresolvedNode（管线递归映射）
-   │        - CodeGenNode（直接透传）
-   │        - 文本字符串
-   │    • stateData / componentData（可选，附在 CodeGenNode 上）
-   │    • wrapper（包裹标记，附加到子节点上）
+  │  transform 返回中包含：
+  │    • props（处理后的目标组件 props）
+  │    • tag（可选，动态覆盖目标组件名，默认使用映射文件顶层 tag）
+  │    • import（可选，动态覆盖导入路径，默认使用映射文件顶层 import）
+  │    • children（可选），每项可以是：
+  │        - UnresolvedNode（管线递归映射）
+  │        - CodeGenNode（直接透传）
+  │        - 文本字符串
+  │    • stateData / componentData（可选，附在 CodeGenNode 上）
+  │    • wrapper（包裹标记，附加到子节点上）
    │
    ▼
 CodeGenNode { __nodeType: 'component', tag, import, props, children,
