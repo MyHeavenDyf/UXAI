@@ -16,7 +16,7 @@
   1. **物化该区域：** 根据 sectionDetail 的 elements 与 layout，把每个物体落成具体的 object 节点。
     - 简单/结构/数据可视化物体 → 用封闭目录内的基本几何体（mesh + geometry.type）。
     - 真实/复杂物体（角色、树、家具、车）→ 用 glb 节点（asset 引用，不要内联 url）。
-    - **预设模型组件(关键)**：风车/风力发电机 → 必须使用 `windmill` 组件(`type: "component", component: { type: "windmill" }`)，禁止用基本体拼凑风车。windmill 组件会自动加载真实的风车 GLB 模型。
+    - **预设模型组件(关键)**：风车/风力发电机 → 必须使用 model 组件加预设(`type: "component", component: { type: "model", params: { preset: "windmill" } }`)，禁止用基本体拼凑风车。model 组件会自动加载真实的风车 GLB 模型。
   2. **空间排布：** 严格按 layout 描述的坐标放置物体。本区域内所有物体的 **parentId 必须等于本 slot 的 parent_id**（即都挂在该区域所属的 group 下）。物体坐标是相对该 group 的局部坐标。
   3. **物理合理性：**
     - 接触地面的物体，其 Y（高度）必须 ≥ 自身半高，绝不悬空。

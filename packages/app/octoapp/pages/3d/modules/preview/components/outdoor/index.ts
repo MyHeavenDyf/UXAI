@@ -1,1 +1,0 @@
-export { registerOutdoorComponents } from "./windmill"

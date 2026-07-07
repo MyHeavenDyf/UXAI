@@ -16,7 +16,6 @@ import { registerWarehouseComponents } from "./warehouse"
 import { registerIndustrialComponents } from "./industrial"
 import { registerPortComponents } from "./port"
 import { registerCommonComponents } from "./common"
-import { registerOutdoorComponents } from "./outdoor"
 
 /** 注册所有组件到 registry（在渲染器初始化时调用一次） */
 export function registerAllComponents(registry: ComponentRegistry): void {
@@ -24,5 +23,11 @@ export function registerAllComponents(registry: ComponentRegistry): void {
   registerIndustrialComponents(registry)
   registerPortComponents(registry)
   registerCommonComponents(registry)
-  registerOutdoorComponents(registry)
+
+  // 兼容垫片:AI 可能仍输出老格式 {type:"windmill"},这里自动转 model + preset
+  // 等确认 AI 稳定输出新格式 {type:"model",params:{preset:"windmill"}} 后可删除
+  registry.register("windmill", (params, material, pool) => {
+    console.warn('[components] `type:"windmill"` 已废弃,请改用 `type:"model", params:{preset:"windmill"}`')
+    return registry.create("model", { preset: "windmill", ...params }, material, pool)!
+  })
 }

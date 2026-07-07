@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js"
 import type { ComponentRegistry } from "../ComponentRegistry"
 import type { AssetPool } from "../AssetPool"
+import { getModelPreset } from "./model-presets"
 
 /** GLB 场景缓存：url → 已加载的场景，多实例 clone 复用 */
 const gltfCache = new Map<string, THREE.Group>()
@@ -59,13 +60,22 @@ function buildModel(
   _material: THREE.Material,
   _pool: AssetPool,
 ): THREE.Group {
-  const url = String(params.url ?? "")
-  const scale = Number(params.scale) > 0 ? Number(params.scale) : 1
+  // preset 查表：按预设名取 url/scale，params 显式值优先于 preset 配置
+  const presetName =
+    params.preset != null && String(params.preset) !== "" ? String(params.preset) : undefined
+  const presetCfg = presetName ? getModelPreset(presetName) : undefined
+  if (presetName && !presetCfg) {
+    console.warn(`[model] 未知 preset: "${presetName}"`)
+  }
+
+  const url = String(params.url ?? presetCfg?.url ?? "")
+  const scaleRaw = Number(params.scale ?? presetCfg?.scale ?? 1)
+  const scale = scaleRaw > 0 ? scaleRaw : 1
 
   const group = new THREE.Group()
 
   if (!url) {
-    console.warn("[model] 缺少 url 参数")
+    console.warn("[model] 缺少 url 或有效 preset")
     return group
   }
 

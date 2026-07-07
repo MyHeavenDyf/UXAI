@@ -26,6 +26,7 @@ import { type OutputCard } from "./modules/chat/insight-turn"
 
 import create_scene from "./workflow/create_scene"
 import modify_scene_ai from "./workflow/modify_scene_ai"
+import { getModelPreset } from "./modules/preview/components/common/model-presets"
 
 import { appendSceneVersion, loadCurrentSceneState, listSceneVersions, type VersionEntry } from "./utils/persist"
 import { rollbackToVersion } from "./utils/history"
@@ -530,10 +531,30 @@ function ThreeDContent() {
     // sceneDoc 已是完整场景,PreviewPage 响应式渲染,无需额外处理
   }
 
+  /** 生成 live-data.json 时给模型节点带上实际 glb url,方便无 preset/asset 映射的消费方(如 3d-templete)直接加载 */
+  function enrichModelUrls(doc: SceneDocument): SceneDocument {
+    const assetsGlb = ((doc as any).assets?.glb ?? {}) as Record<string, { url?: string }>
+    const objects = (doc.objects ?? []).map((o: any) => {
+      // component + model + preset → 把解析出的 url 写进 params
+      if (o.type === "component" && o.component?.type === "model" && o.component.params?.preset) {
+        const url = getModelPreset(String(o.component.params.preset))?.url
+        if (url) return { ...o, component: { ...o.component, params: { ...o.component.params, url } } }
+      }
+      // glb + asset → 把 assets.glb[asset].url 提到顶层
+      if (o.type === "glb" && o.asset && !o.url) {
+        const url = assetsGlb[o.asset]?.url
+        if (url) return { ...o, url }
+      }
+      return o
+    })
+    return { ...doc, objects }
+  }
+
   // 实时预览:把当前场景写成 live-data.json,新开独立窗口(preview-server 51857 托管)渲染
   async function handleLivePreview() {
-    const data = sceneDoc()
-    if (!data) return showToast({ title: "暂无可预览的内容" })
+    const raw = sceneDoc()
+    if (!raw) return showToast({ title: "暂无可预览的内容" })
+    const data = enrichModelUrls(raw)
     console.log("[3D] live-data.json:", JSON.stringify(data, null, 2))
     const api = (window as any).api
     const dir = await api?.getPreviewDist3dDir?.()

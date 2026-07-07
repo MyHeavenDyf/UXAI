@@ -12,7 +12,7 @@
 - 单位约定 **1 单位 = 1 米**：人物高约 1.7，建筑高约 10，桌面高约 0.75。
 - 可用几何体（封闭目录）：box/sphere/plane/circle/cylinder/cone/torus/torusKnot/ring/capsule/dodecahedron/icosahedron/octahedron/tetrahedron。
 - 复杂/真实物体（角色、树、家具、车）应使用 **glb 外部模型**，而非用基本体硬拼。
-- **预设模型组件(关键)**：风车/风力发电机 → 必须使用 `windmill` 组件(`type: "component", component: { type: "windmill" }`)，禁止用基本体拼凑风车。windmill 组件会自动加载真实的风车 GLB 模型。
+- **预设模型组件(关键)**：风车/风力发电机 → 必须使用 model 组件加预设(`type: "component", component: { type: "model", params: { preset: "windmill" } }`)，禁止用基本体拼凑风车。model 组件会自动加载真实的风车 GLB 模型。
 - 可用灯光：ambient（环境光，防黑）/ hemisphere（半球光，户外基底）/ directional（平行光，主光，可投影）/ point（点光，灯泡）/ spot（聚光）/ rectArea（面光）。
 - 渲染外观 renderStyle：studio（中性产品）/ cinematic-bloom（电影泛光）/ soft-glow（柔和）/ neon（霓虹）/ flat-shaded（扁平）/ wireframe-debug（线框）。
 

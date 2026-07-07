@@ -217,8 +217,6 @@ export type ComponentType =
   | "conveyor" | "robot-arm" | "cnc-machine" | "press"
   // 港口
   | "container" | "crane" | "forklift" | "dock"
-  // 户外/能源
-  | "windmill"
   // 通用
   | "desk" | "cabinet" | "partition" | "signage"
   // 通用模型(加载外部 GLB)
@@ -305,15 +303,13 @@ export const COMPONENT_PARAMS: Record<ComponentType, { params: string[]; default
   crane: { params: ["height", "reach"], defaults: { height: 15, reach: 10 } },
   forklift: { params: ["width", "height", "length"], defaults: { width: 1.2, height: 2, length: 2.5 } },
   dock: { params: ["length", "width"], defaults: { length: 20, width: 5 } },
-  // 户外/能源
-  windmill: { params: ["height", "bladeLength"], defaults: { height: 8, bladeLength: 3 } },
   // 通用
   desk: { params: ["width", "height", "depth"], defaults: { width: 1.4, height: 0.75, depth: 0.7 } },
   cabinet: { params: ["width", "height", "depth"], defaults: { width: 0.8, height: 1.8, depth: 0.4 } },
   partition: { params: ["width", "height"], defaults: { width: 1.5, height: 1.6 } },
   signage: { params: ["width", "height"], defaults: { width: 0.6, height: 0.3 } },
-  // 通用模型(加载外部 GLB)
-  model: { params: ["url", "scale"], defaults: { url: "", scale: 1 } },
+  // 通用模型(加载外部 GLB；preset 选预设模型，url 直指定 GLB 路径)
+  model: { params: ["preset", "url", "scale"], defaults: { preset: "", url: "", scale: 1 } },
 }
 
 export const GEOMETRY_DESCRIPTIONS: Record<GeometryType, string> = {
@@ -351,15 +347,13 @@ export const COMPONENT_DESCRIPTIONS: Record<ComponentType, string> = {
   crane: "起重机/龙门吊。港口、堆场。立柱+横梁+吊钩",
   forklift: "叉车。仓库搬运。车身+货叉",
   dock: "泊位/码头。港口停靠区。平台+护舷",
-  // 户外/能源
-  windmill: "风车。户外风景、能源场景。自动展开为 model 组件，加载 2592c9a1ec7fea63.glb",
   // 通用
   desk: "办公桌。桌面+桌腿;可配挡板",
   cabinet: "文件柜/储物柜。侧板+层板+门;可指定宽高深",
   partition: "隔断/屏风。办公区隔断。框架+面板",
   signage: "标识牌/指示牌。方向指引、房间号。面板+立柱",
   // 通用模型
-  model: "通用模型组件。加载外部 GLB 文件，params.url 指定路径。风车等预设模型自动映射到此组件",
+  model: "通用模型组件。加载外部 GLB 文件：params.url 直指定 GLB 路径，或用 params.preset 选预设模型。可用 preset: windmill(风车)",
 }
 
 export const LIGHT_DESCRIPTIONS: Record<LightType, string> = {
