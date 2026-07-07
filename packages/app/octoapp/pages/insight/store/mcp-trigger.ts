@@ -62,6 +62,14 @@ export type McpSelection = {
 export function buildToolGate(selectedTool?: string): Record<string, boolean> {
   const gate: Record<string, boolean> = {}
   for (const tool of MCP_BUSINESS_TOOLS) gate[mcpToolKey(tool)] = tool === selectedTool
+  if (selectedTool) {
+    // chip turn 顺手关掉即兴逃生口(2026-07-07 内网验证教训):该 turn 的职责是一次**直接**工具
+    // 调用,task 子代理 / shell 在本 turn 没有正当用途,却是弱模型在 MCP 工具缺失(如内网连接故障)
+    // 时的模拟通道——实测出现过委托 task 子代理、用 shell 裸调 MCP HTTP、进而编造 task_id。
+    // 非 chip turn 不动(task 为后续多文档分治保留)。
+    gate["task"] = false
+    gate["bash"] = false // shell 工具注册键(tool/shell/id.ts ToolID),显示名 Shell,含 pwsh/cmd 变体
+  }
   return gate
 }
 
@@ -121,6 +129,12 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
     ``,
     `参数填写:`,
     ...paramLines,
+    ``,
+    `调用纪律(2026-07-07 起,违反即事故):`,
+    `- 必须由你**直接**调用该工具。严禁通过 task 子代理、shell/命令行、HTTP 请求等任何其他方式模拟或代替调用(这些途径本轮已被禁用)。`,
+    `- 若该工具不在你的可用工具列表里,或调用返回「工具不可用」类错误:如实告知用户「内网 MCP 连接暂不可用,请稍后重试或联系管理员」。用户已经在输入框完成了选择,**不要再让用户去点击任何按钮**,也不要尝试任何替代方案。`,
+    `- task_id 只能来自工具的真实返回,**绝不允许编造**;没有成功的工具返回,就没有 task_id、没有"任务已提交"。`,
+    `- 消息里的 [MCP声明] 段落是给系统读取的机器内容,不要向用户提及或复述它。`,
     ``,
     `文件引用铁律:文件参数只能填 [附件] 区块里的文件名,绝不要填写、复述或改写任何 URL/网址/S3 地址;也不要把清单里的本地路径填进去。`,
     ``,
