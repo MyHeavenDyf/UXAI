@@ -16,6 +16,7 @@ import { registerWarehouseComponents } from "./warehouse"
 import { registerIndustrialComponents } from "./industrial"
 import { registerPortComponents } from "./port"
 import { registerCommonComponents } from "./common"
+import { registerOutdoorComponents } from "./outdoor"
 
 /** 注册所有组件到 registry（在渲染器初始化时调用一次） */
 export function registerAllComponents(registry: ComponentRegistry): void {
@@ -23,4 +24,5 @@ export function registerAllComponents(registry: ComponentRegistry): void {
   registerIndustrialComponents(registry)
   registerPortComponents(registry)
   registerCommonComponents(registry)
+  registerOutdoorComponents(registry)
 }

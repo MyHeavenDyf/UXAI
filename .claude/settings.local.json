@@ -14,7 +14,11 @@
       "Bash(cp D:/octoAI/merge/UXAI/packages/opencode/test/tool/registry.test.ts D:/octoAI/octoAI/packages/opencode/test/tool/registry.test.ts)",
       "Bash(git show *)",
       "Read(//tmp/**)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(ls /Users/zengshufeng/Documents/3D/UXAI/packages/desktop/../../../preview3d 2>/dev/null || echo \"preview3d not found\"; ls /Users/zengshufeng/Documents/3D/UXAI/preview3d 2>/dev/null || echo \"UXAI/preview3d not found\")",
+      "Read(//Users/zengshufeng/Documents/3D/**)",
+      "Bash(ln -sf /Users/zengshufeng/Documents/3D/UXAI/packages/app/octoapp/pages/3d/assets/model/2592c9a1ec7fea63.glb /Users/zengshufeng/Documents/3D/UXAI/packages/app/public/assets/model/2592c9a1ec7fea63.glb)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/assets/model/2592c9a1ec7fea63.glb)"
     ]
   }
 }

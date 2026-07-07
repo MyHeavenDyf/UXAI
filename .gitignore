@@ -43,3 +43,4 @@ bun.lock
 
 analysis/
 packages/app/octoapp/pages/3d/assets/model/
+packages/app/public/assets/model/
