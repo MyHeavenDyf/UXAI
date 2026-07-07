@@ -15,6 +15,7 @@ export function StudioConversation(props: {
   busy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
+  onEditGeneration: (result: StudioGenerationResult) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
 }): JSX.Element {
@@ -49,6 +50,7 @@ export function StudioConversation(props: {
                 busy={props.busy && turn.isLatest}
                 cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
                 onCancelGeneration={props.onCancelGeneration}
+                onEditGeneration={props.onEditGeneration}
                 onSelectImage={props.onSelectImage}
               />
             </Show>
@@ -74,6 +76,7 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}
+        poster={props.image.thumbnailUrl}
         class={props.class}
         controls={props.controls}
         muted={!props.controls}
@@ -106,22 +109,25 @@ export function StudioResultCanvas(props: {
   onGenerateVideo: () => void
   showVideoGeneration: boolean
   regenerateDisabled: boolean
+  actionDisabled: boolean
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
-  let canvasStageRef!: HTMLDivElement
+  const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
+  const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
   const [editToolsOpen, setEditToolsOpen] = createSignal(false)
 
   createEffect(() => {
-    const el = canvasStageRef
-    if (!el) return
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? Infinity
-      setCompactActions(w < 700)
+    const stage = canvasStageRef()
+    if (!stage) return
+    const ro = new ResizeObserver(() => {
+      // stage.clientWidth 含 32px×2 的 padding，内联按钮全部展开约需 620px 内容宽度
+      // clientWidth >= 750 时内容区足够宽，4 个按钮平铺展示
+      setCompactActions(stage.clientWidth < 750)
     })
-    ro.observe(el)
+    ro.observe(stage)
     onCleanup(() => ro.disconnect())
   })
 
@@ -183,6 +189,44 @@ export function StudioResultCanvas(props: {
               <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
                   const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : [props.result!.images[0]]
+                  const [isTabTruncated, setIsTabTruncated] = createSignal(false)
+                  let tabLabelRef!: HTMLSpanElement
+                  let tabResizeObserver: ResizeObserver | undefined
+                  const checkTabTruncation = () => {
+                    if (tabLabelRef) setIsTabTruncated(tabLabelRef.scrollWidth > tabLabelRef.clientWidth)
+                  }
+                  createEffect(() => {
+                    void tabLabelFor(tabImage, index())
+                    queueMicrotask(() => checkTabTruncation())
+                  })
+                  onCleanup(() => tabResizeObserver?.disconnect())
+                  const [showTabTooltip, setShowTabTooltip] = createSignal(false)
+                  let tabTooltipTimeout: ReturnType<typeof setTimeout> | undefined
+                  let tabTooltipRef!: HTMLDivElement
+                  const [tabTooltipStyle, setTabTooltipStyle] = createSignal<JSX.CSSProperties>({})
+                  const updateTabTooltipPos = () => {
+                    if (!tabLabelRef) return
+                    const rect = tabLabelRef.getBoundingClientRect()
+                    const spaceBelow = window.innerHeight - rect.bottom
+                    const style: JSX.CSSProperties = { left: `${rect.left}px` }
+                    if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+                      style.top = `${rect.bottom + 4}px`
+                    } else {
+                      style.bottom = `${window.innerHeight - rect.top + 4}px`
+                    }
+                    setTabTooltipStyle(style)
+                  }
+                  const enterTabTrigger = () => {
+                    if (!isTabTruncated()) return
+                    clearTimeout(tabTooltipTimeout)
+                    updateTabTooltipPos()
+                    setShowTabTooltip(true)
+                  }
+                  const leaveTabTrigger = () => {
+                    tabTooltipTimeout = setTimeout(() => setShowTabTooltip(false), 150)
+                  }
+                  const enterTabTooltip = () => clearTimeout(tabTooltipTimeout)
+                  const leaveTabTooltip = () => setShowTabTooltip(false)
                   return (
                     <span
                       class="studio-canvas-tab"
@@ -192,9 +236,27 @@ export function StudioResultCanvas(props: {
                       }}
                       onClick={() => props.onSelectImage!(tabImage.id)}
                     >
-                      <span class="studio-canvas-label-text">{tabLabelFor(tabImage, index())}</span>
+                      <span
+                        ref={(el) => { tabLabelRef = el; tabResizeObserver?.disconnect(); tabResizeObserver = new ResizeObserver(() => checkTabTruncation()); tabResizeObserver.observe(el); queueMicrotask(() => checkTabTruncation()) }}
+                        class="studio-canvas-label-text"
+                        onMouseEnter={enterTabTrigger}
+                        onMouseLeave={leaveTabTrigger}
+                      >{tabLabelFor(tabImage, index())}</span>
                       <Show when={(props.tabImages && props.tabImages.length > 0) ? Boolean(props.onCloseTab) : Boolean(props.onDeleteImage)}>
                         <span class="studio-canvas-tab-close" onClick={(e) => { e.stopPropagation(); (props.tabImages && props.tabImages.length > 0 ? props.onCloseTab! : props.onDeleteImage!)(tabImage.id); }} />
+                      </Show>
+                      <Show when={showTabTooltip()}>
+                        <Portal>
+                          <div
+                            ref={tabTooltipRef!}
+                            style={{ ...tabTooltipStyle(), "max-width": "300px" }}
+                            onMouseEnter={enterTabTooltip}
+                            onMouseLeave={leaveTabTooltip}
+                            class="studio-custom-tooltip fixed z-[1000]"
+                          >
+                            {tabLabelFor(tabImage, index())}
+                          </div>
+                        </Portal>
                       </Show>
                     </span>
                   )
@@ -202,7 +264,7 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
-              <div ref={canvasStageRef!} class="studio-canvas-stage">
+              <div ref={setCanvasStageRef} class="studio-canvas-stage">
                 <div class="studio-canvas-image-wrapper">
                   <Show
                     when={isVideoMedia(image())}
@@ -216,7 +278,7 @@ export function StudioResultCanvas(props: {
                     />
                   </Show>
                 </div>
-                <div class="studio-canvas-floating-actions">
+                <div ref={setFloatingActionsRef} class="studio-canvas-floating-actions">
                   <button
                     type="button"
                     onClick={props.onRegenerate}
@@ -230,7 +292,7 @@ export function StudioResultCanvas(props: {
                     <button
                       type="button"
                       onClick={props.onGenerateVideo}
-                      disabled={props.regenerateDisabled || !props.image}
+                      disabled={props.actionDisabled || !props.image}
                       class="studio-canvas-video-action disabled:opacity-45 disabled:cursor-not-allowed"
                     >
                       视频生成
@@ -240,7 +302,7 @@ export function StudioResultCanvas(props: {
                     <span class="studio-canvas-action-divider" />
                     <Show when={!compactActions()} fallback={
                       <DropdownMenu gutter={4} placement="bottom" open={editToolsOpen()} onOpenChange={setEditToolsOpen}>
-                        <DropdownMenu.Trigger class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" disabled={props.regenerateDisabled}>
+                        <DropdownMenu.Trigger class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" disabled={props.actionDisabled}>
                           <span>AI修图</span>
                           <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{ "margin-left": "4px", transform: editToolsOpen() ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>
                             <path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -248,19 +310,19 @@ export function StudioResultCanvas(props: {
                         </DropdownMenu.Trigger>
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content>
-                            <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>变清晰</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onCutout} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onCutout} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>抠图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>智能重绘</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.regenerateDisabled}>
+                            <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.actionDisabled}>
                               <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
                               <DropdownMenu.ItemLabel>扩图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
@@ -269,22 +331,22 @@ export function StudioResultCanvas(props: {
                       </DropdownMenu>
                     }>
                       <div class="studio-canvas-action-group">
-                        <button type="button" onClick={props.onUpscale} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onUpscale} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="变清晰">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
                           <span>变清晰</span>
                         </button>
-                        <button type="button" onClick={props.onCutout} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onCutout} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="抠图">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
                           <span>抠图</span>
                         </button>
-                        <button type="button" onClick={props.onInpaint} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onInpaint} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="智能重绘">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
                           <span>智能重绘</span>
                         </button>
-                        <button type="button" onClick={props.onOutpaint} disabled={props.regenerateDisabled}
+                        <button type="button" onClick={props.onOutpaint} disabled={props.actionDisabled}
                           class="studio-canvas-icon-action disabled:opacity-45 disabled:cursor-not-allowed" title="扩图">
                           <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
                           <span>扩图</span>
@@ -293,13 +355,14 @@ export function StudioResultCanvas(props: {
                     </Show>
                     <span class="studio-canvas-action-divider" />
                   </Show>
-                  <button type="button" onClick={props.onDownload} class="studio-canvas-download-action" title="下载">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                </button>
+                  <button type="button" onClick={props.onDownload} class="studio-canvas-download-action">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>下载</span>
+                  </button>
                 </div>
               </div>
               {props.children}

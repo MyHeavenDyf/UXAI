@@ -6,6 +6,8 @@
 
 **架构（2026-06-16 改造后）**：单层触发 — onerror 在满足条件时直接调用 `triggerReconnect()` 启动 `reconnectWithBackoff`，绕过 SDK 的 `onclose` 死链。onclose 仅作可观测性日志和最后兜底。
 
+**架构（2026-06-29 方案 B）**：preflight 检查范围从 `s.clients` 扩展到 `remoteConfigs.keys()`，覆盖 5 次重连全失败后的 failed 状态。失败分支补清 `triggeredReconnectFlags`。死 server 在下次对话触发 tools() 时自动尝试恢复。
+
 ## 设计决策
 
 - **独立文件**：重连核心逻辑放在 `src/mcp/reconnect.ts`，`index.ts` 仅做 ~20 行集成调用
@@ -15,6 +17,186 @@
 - **单层触发（2026-06-16）**：onerror 直接触发重连，不依赖 `client.close() → onclose` 链路。绕过 SDK 多个 race condition（give-up 后不调 onclose / 多 SSE stream 共享 `_reconnectionTimeout` / `transport.close()` 异步边界）
 
 ## 提交记录
+
+### 2026-06-30: 修复 closeClient 误设 intentionalDisconnects 导致重连被永久拦下
+
+**问题**：用户日志 `[reconnect] trigger suppressed - intentional disconnect`，所有重连触发（包括 tool-execute）都被第一道检查拦下。前 9 轮重连修复都没用，因为所有路径都被这一个标志拦在 triggerReconnect 入口。
+
+**根因（致命 bug）**：`closeClient`（`packages/opencode/src/mcp/index.ts:705-711`）在 3 个场景被复用，但**无条件**调 `Reconnect.markIntentionalDisconnect(name)`：
+
+| 调用点 | 场景 | 应设标志？ |
+|---|---|---|
+| `storeClient` line 721 | 装新 client 前关旧 client（**重连成功必走**） | ❌ |
+| `createAndStore` 失败 line 768 | create 失败清理 | ❌ |
+| `disconnect` line 793 | 用户主动断开 | ✓ |
+
+每次重连成功后 `storeClient` → `closeClient` → `markIntentionalDisconnect`，标志被设。下次断开时 `triggerReconnect` 第一道检查就拦下，**整个重连系统形同虚设**。
+
+**修复**：
+
+1. **`closeClient` 移除 `markIntentionalDisconnect` 调用**（index.ts:705-713）
+   ```ts
+   function closeClient(s: State, name: string) {
+     const client = s.clients[name]
+     delete s.defs[name]
+     if (!client) return Effect.void
+     // 不在此处调 markIntentionalDisconnect：closeClient 被 storeClient/createAndStore 复用
+     return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
+   }
+   ```
+
+2. **`disconnect` 显式调 `markIntentionalDisconnect`**（index.ts:793-800）
+   ```ts
+   const disconnect = Effect.fn("MCP.disconnect")(function* (name: string) {
+     const s = yield* InstanceState.get(state)
+     Reconnect.markIntentionalDisconnect(name)  // 显式：只有这里才是真"主动断开"
+     yield* closeClient(s, name)
+     delete s.clients[name]
+     s.status[name] = { status: "disabled" }
+   })
+   ```
+
+3. **`setupConnectionHandlers` 入口加 `intentionalDisconnects.delete(name)`**（reconnect.ts:529）
+   - 防御性兜底：connect 成功（storeClient → setupConnectionHandlers）后清掉可能残留的标志
+   - 即便 disconnect 后 connect 也能干净启动
+
+**用户日志时间线还原**：
+```
+T0      启动连接成功 → storeClient → closeClient（旧 client） → markIntentionalDisconnect 设
+T0+176s SSE stream disconnected → terminal error counted 1（< 2，未触发重连）
+T0+176s+8min  tool "get_task_result" failed "Session not found"
+        → triggerReconnect(source=tool-execute)
+        → 被 intentionalDisconnects 拦下 [trigger suppressed - intentional disconnect]
+        → 永久无法恢复
+```
+
+修复后：
+- storeClient 替换不再设标志 → 后续断开能正常触发重连
+- 单次终端错误累积到 2 → triggerReconnect → 标志没设 → 通过
+- 5 次重连第 1 次成功 → storeClient → setupConnectionHandlers 清所有标志
+
+**未改动**：
+- MAX_ERRORS_BEFORE_RECONNECT 保持 2（不是阈值问题）
+- 6 路触发架构不变
+- AbortError ping 验证（2026-06-30）保持
+- 方案 B（5 次失败后自愈）保持
+
+**反思**：这个 bug 之所以藏了 9 轮修复，因为：
+- 日志 `[reconnect] trigger suppressed - intentional disconnect` 不显眼（INFO 级别）
+- 重连触发逻辑本身没问题，问题在更上游（标志设置）
+- 测试只覆盖触发逻辑，没覆盖 closeClient 复用语义
+- 设计上 closeClient 应该叫 `closeClientForReplace` 或拆分成两个函数
+
+### 2026-06-30: AbortError 兜底（方案 B - onerror 异步 ping 验证）
+
+**问题**：用户日志显示 `[reconnect] transport error error=This operation was aborted isTerminal=false`，MCP 状态显示 connected 但实际不可用。
+
+**根因**：`isTerminalConnectionError` 的 9 个关键字不含 "aborted"。Node Web Streams 内部 stream 清理时会触发 `AbortController.abort()`（栈：`writableStreamAbort` → `readableStream.complete`，全部 `node:internal/webstreams/*`，`from_user_code=no`），SDK 把它转成 `client.onerror("This operation was aborted")`。reconnect.ts 当非终端处理 → 不计数、不重连 → status 残留 connected → 用户感知"MCP 不可用"。
+
+**为何不直接把 aborted 加入终端列表**：SDK 内部正常的 stream 清理（单 SSE 完成）也会触发 abort，列终端会误触发重连。需要区分"SDK 正常清理"和"transport 真死"。
+
+**修复（方案 B：onerror 异步 ping 验证）**：
+
+1. **`isAbortError(msg)`（reconnect.ts:51-56）**：新增辅助函数，匹配 `aborted` / `aborterror`（大小写不敏感）
+
+2. **`verifyClientAfterAbortedError`（reconnect.ts:278-348）**：新增 Effect 函数
+   - ping client（3s 超时，复用 `PREFLIGHT_PING_TIMEOUT_MS` + `withClientTimeout`）
+   - ping OK → info 日志，认为 SDK 正常清理，不触发重连
+   - ping 失败 → warn 日志，调 `triggerReconnect(source="onerror-aborted")`
+   - `Effect.catch` 兜底，永不让 onerror 失败
+
+3. **`client.onerror` 加优先级 3 分支（reconnect.ts:503-516）**：
+   ```ts
+   if (isAbortError(msg)) {
+     bridge.promise(verifyClientAfterAbortedError(...)).catch(...)
+     return
+   }
+   ```
+   fire-and-forget，不阻塞 onerror
+
+4. **`TriggerSource` 扩展**：新增 `"onerror-aborted"` union 成员
+
+**幂等保障**：
+- `triggerReconnect` 内的 `triggeredReconnectFlags` + `intentionalDisconnects` + stale 检查仍生效
+- ping 期间 client 被替换 → triggerReconnect 的 stale 检查拦下
+- ping 期间别的路径触发重连 → triggeredReconnectFlags 幂等
+
+**预期日志序列（transport 真死场景）**：
+```
+[reconnect] transport error  error="This operation was aborted" isTerminal=false
+[reconnect] aborted error - pinging to verify
+[reconnect] aborted error - ping failed, triggering reconnect  pingError="..."
+[reconnect] trigger fired - starting reconnect loop  source=onerror-aborted
+[reconnect] starting reconnect loop
+[reconnect] attempt starting  attempt=1
+[reconnect] succeeded  attempt=1
+```
+
+**预期日志序列（SDK 正常清理场景）**：
+```
+[reconnect] transport error  error="This operation was aborted" isTerminal=false
+[reconnect] aborted error - pinging to verify
+[reconnect] aborted error - ping ok, treating as SDK internal cleanup
+```
+
+**未改动**：
+- 现有 5 路触发架构不变（onerror-giveup / onerror-counter / onclose-fallback / tools-preflight / tool-execute）
+- `isTerminalConnectionError` 列表不变（不加入 aborted）
+- preflight / 重连循环 / 状态机不变
+
+**风险**：
+- 每次 AbortError 多 ~50ms 正常 / 最多 3s 异常的 ping 开销
+- SDK 高频内部清理会反复触发 ping，但 ping OK 不会触发重连（只是日志噪音）
+- 若 SDK 的 ping API 自身有问题（如 ping 永远 hang），3s 超时兜底
+
+### 2026-06-29: 修复 5 次重连全失败后永久卡死（方案 B）
+
+**问题**：用户反馈"服务重启后客户端永久不可用"，需手动点 disconnect→connect 才能恢复。
+
+**根因**：`reconnectWithBackoff` 5 次全部失败的分支（reconnect.ts:646-659）只清 `clients/defs` + 设 `status=failed`，**没清 `triggeredReconnectFlags`**。`finally` 块只清 `activeReconnects`。后果是 server 进入"永久死"状态：
+
+| 触发路径 | 是否能自愈 | 原因 |
+|---------|-----------|------|
+| `onerror` / `onclose` | ❌ | client 已 `delete`，handler 不存在 |
+| `tools-preflight` | ❌ | `remoteNames = Object.keys(s.clients).filter(...)` 不含 failed 的 server（client 没了） |
+| `tool-execute` | ❌ | `clientGetter()` 返回 undefined → 直接返回 isError |
+| `setupConnectionHandlers` | ❌ | 没新 client 创建，不会装新 handler |
+
+唯一恢复途径：用户手动点 UI 的 disconnect→connect。
+
+**修复（方案 B：preflight 覆盖 failed 状态，按需触发）**：
+
+1. **`verifyAndReconnectIfNeeded`（reconnect.ts:116-205）**：
+   - `remoteNames` 从 `Object.keys(s.clients).filter(...)` 改为 `Array.from(remoteConfigs.keys())`，覆盖所有有 remote 配置的 server（含 failed/missing client）
+   - 新增 failed/missing 分支：`!client || currentStatus === "failed"` 时跳过 ping，直接 `triggerReconnect(s, name, client /* undefined */, ..., "tools-preflight", ...)`
+   - 不引入定时器，按需触发（用户发消息 → tools() → preflight），与现有设计哲学一致
+
+2. **`triggerReconnect`（reconnect.ts:339-418）**：
+   - 签名 `client: Client` → `client: Client | undefined`（适配 failed 分支）
+   - stale 检查逻辑不变（`undefined !== undefined === false`，不误判；`undefined !== someClient === true`，state 已有 client 时跳过）
+   - `client.close()` → `client?.close()` 防 undefined 崩溃
+
+3. **`reconnectWithBackoff` 失败分支（reconnect.ts:654）**：
+   - 补 `triggeredReconnectFlags.delete(name)`
+   - 否则下次 preflight 因标志残留被幂等检查拦下（`triggerReconnect` line 349）
+
+**预期行为**：
+- 服务重启 → SSE 断开 → 终端错误累积到 2 → triggerReconnect → 5 次重连全失败 → status=failed + 标志已清
+- 远端服务恢复 → 用户重新发消息 → tools() → preflight 发现 status=failed + 无 client → 直接 triggerReconnect → 5 次重连尝试 → 第 1 次成功 → storeClient → status=connected
+
+**未改动**：
+- onerror / onclose / 5 路触发架构保持不变
+- MAX_RECONNECT_ATTEMPTS=5 / backoff 序列不变
+- 前端 SSE 监听不变
+- `convertMcpTool` getter 不变
+
+**风险**：
+- 每次 tools() 都会遍历所有 remoteConfigs（含 failed 的），但 `triggeredReconnectFlags` 幂等检查保证同一 server 同一轮只触发一次
+- failed server 持续触发 5 次重试会消耗 ~30s（5×backoff），但因为是用户主动对话触发，用户本来就在等
+- 若远端真的死了（永久），每次对话都会浪费 ~30s 重试。后续可考虑加"连续 N 次失败后退避"机制（暂不做，等待实际反馈）
+
+**新日志**：
+- `[reconnect] preflight found dead client - triggering reconnect directly` — preflight 发现 failed/missing client 时（关键字段 `name, currentStatus, hasClient`）
 
 ### 2026-06-17: 新增 D2+B 方案 — preflight ping + 工具调用失败兜底
 

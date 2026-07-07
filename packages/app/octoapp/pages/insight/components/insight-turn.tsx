@@ -87,16 +87,27 @@ export function InsightTurn(props: {
     return out
   })
 
-  // 用户上传的文件:从本 turn user 消息的 synthetic 上传块解析。
-  // URL 走 synthetic text part(LLM 收得到,气泡不显示),这里渲染成文件卡片替代裸 S3 地址。
-  const inputAttachments = createMemo((): Array<{ filename: string; url: string }> => {
-    const parts =
-      (data.store.part as Record<string, Array<{ type: string; text?: string; synthetic?: boolean }>>)?.[
-        props.messageID
-      ] ?? []
-    const block = parts.find((p) => p.type === "text" && p.synthetic && typeof p.text === "string")
+  // 本 turn user 消息的全部 part(附件清单文本块 + 图片 FilePart 都从这里取)。
+  const turnParts = createMemo(
+    () =>
+      (data.store.part as Record<
+        string,
+        Array<{ type: string; text?: string; synthetic?: boolean; mime?: string; url?: string; filename?: string }>
+      >)?.[props.messageID] ?? [],
+  )
+
+  // 非图片附件(SPEC-INS-015 ②④):从 synthetic [附件] 清单解析(filename + 本地路径),只取 filename 渲染文件卡片。
+  const inputAttachments = createMemo((): Array<{ filename: string; path: string }> => {
+    const block = turnParts().find((p) => p.type === "text" && p.synthetic && typeof p.text === "string")
     if (!block?.text) return []
     return parseUploadedFiles(block.text)
+  })
+
+  // 图片附件(③):从本 turn 的图片 FilePart(type=file + mime=image/*) 取 url 渲染缩略图。
+  const inputImages = createMemo((): Array<{ filename: string; url: string }> => {
+    return turnParts()
+      .filter((p) => p.type === "file" && typeof p.mime === "string" && p.mime.startsWith("image/") && typeof p.url === "string")
+      .map((p) => ({ filename: p.filename ?? "image", url: p.url! }))
   })
 
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
@@ -264,8 +275,8 @@ export function InsightTurn(props: {
 
   return (
     <div class="flex flex-col mb-4">
-      {/* 用户上传的文件卡片(贴合用户气泡上方,右对齐)——替代在气泡里暴露 S3 URL */}
-      <Show when={inputAttachments().length > 0}>
+      {/* 用户附件(贴合用户气泡上方,右对齐)——非图片走文件卡片,图片走缩略图,替代在气泡里暴露裸路径/URL */}
+      <Show when={inputAttachments().length > 0 || inputImages().length > 0}>
         <div class="octo-input-attachments">
           <For each={inputAttachments()}>
             {(f) => (
@@ -273,6 +284,16 @@ export function InsightTurn(props: {
                 <img class="octo-input-attachment-card__icon" src={fileTypeIconUrl(f.filename)} width={24} height={24} alt="" aria-hidden="true" />
                 <span class="octo-input-attachment-card__name">{f.filename}</span>
               </div>
+            )}
+          </For>
+          <For each={inputImages()}>
+            {(img) => (
+              <img
+                src={img.url}
+                title={img.filename}
+                alt={img.filename}
+                style={{ width: "48px", height: "48px", "object-fit": "cover", "border-radius": "8px", "flex-shrink": "0" }}
+              />
             )}
           </For>
         </div>

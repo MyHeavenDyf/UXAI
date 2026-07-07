@@ -49,3 +49,18 @@
 - `packages/opencode/src/server/routes/instance/index.ts` 和 `httpapi/handlers/instance.ts`：`/skill/refresh` 两个处理器在 `skill.refresh()` 后追加 `command.refresh()`
 
 **为什么不走前端传 directory 的方案 A**：skills.json 是 `~/.config/octo/skills.json` 全局配置，影响所有 instance。即便前端正确传了当前项目目录，用户切换到另一个项目目录时缓存仍会读到旧值。方案 B 一处 refresh 全部 directory 生效，符合配置语义。
+
+### `dev_dyf` 修复 skill 目录递归扫描导致 type 丢失
+
+**问题**：用户自定义 skill 目录下存在 `dist/semiconductor-component-skill/SKILL.md` 副本时，`discoverSkills()` 用 `**/SKILL.md` 递归扫描会同时命中两个文件。由于 `add()` 并发执行，dist 下的文件可能先被处理，其 `skillDir`（`semiconductor-component-skill`）在 `typeMap` 中查不到 type，导致 skill.type 为 `undefined`，被 `available()` 过滤掉，系统提示词中不注入。
+
+**根因**：
+- `discoverSkills()` 对 `octoConfig/skill/` 使用 `**/SKILL.md` 扫描，会递归进入 `dist/`、`node_modules/` 等子目录
+- `add()` 并发执行（`concurrency: "unbounded"`），两个同名 SKILL.md 谁先到不确定
+- 先到的路径的 `skillDir` 决定了最终的 `type`，如果 typeMap 中不存在则为 undefined
+- `available()` 中 `!skill.type` 硬过滤，没有 type 的 skill 不注入任何 agent 的系统提示词
+- `add()` 去重时只打印 warn 不覆盖，即使后到的路径能正确匹配 type 也无济于事
+
+**修改**：
+- `packages/opencode/src/skill/index.ts`：`octoConfig/skill/` 扫描 pattern 从 `**/SKILL.md` 改为 `*/SKILL.md`，只匹配一层子目录（skill-name/SKILL.md）
+- `packages/opencode/src/skill/index.ts`：`add()` 去重时，如果已有 entry 缺少 type，从新匹配的路径补充 type 字段

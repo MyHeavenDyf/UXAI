@@ -142,6 +142,50 @@ export function isPlanConfirmed(
 
 const HTML_ARTIFACT_RE = /<artifact\b[^>]*\btype\s*=\s*["']text\/html["']/
 
+/**
+ * Sentinel + response markers for the two-phase design-plan entry flow.
+ *
+ * Agent emits `[design-plan-intent]` when it wants to enter planning mode;
+ * user responds by clicking a button that sends `[enter-plan]` or `[skip-plan]`.
+ * The markers tolerate trailing args / whitespace inside the brackets.
+ */
+const PLAN_INTENT_RE = /\[design-plan-intent\b[^\]]*\]/
+const PLAN_RESPONSE_RE = /\[(?:enter-plan|skip-plan)\b[^\]]*\]/
+
+/**
+ * 是否存在尚未被用户响应的 `[design-plan-intent]` sentinel。
+ *
+ * "已被响应" = 最新 sentinel 之后,在任意消息中出现以下任一信号:
+ *   - 用户消息含 `[enter-plan]` 或 `[skip-plan]` (前端按钮触发)
+ *   - 助手消息含任何 `<artifact>` 标签 (agent 违规提前输出 plan/html,视同已流转)
+ *
+ * 没出现过 sentinel 或 sentinel 已被响应 → 返回 false (无 pending intent)。
+ */
+export function isPlanIntentResolved(
+  messages: Message[] | undefined,
+  partStore: Record<string, TextPartLike[] | undefined> | undefined,
+): boolean {
+  if (!messages || messages.length === 0) return true
+
+  let intentSeenIdx = -1
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg.role !== "assistant") continue
+    const text = concatMessageText(partStore?.[msg.id])
+    if (text && PLAN_INTENT_RE.test(text)) intentSeenIdx = i
+  }
+  if (intentSeenIdx === -1) return true
+
+  for (let i = intentSeenIdx; i < messages.length; i++) {
+    const msg = messages[i]
+    const text = concatMessageText(partStore?.[msg.id])
+    if (!text) continue
+    if (msg.role === "user" && PLAN_RESPONSE_RE.test(text)) return true
+    if (msg.role === "assistant" && text.includes("<artifact")) return true
+  }
+  return false
+}
+
 function concatMessageText(parts: TextPartLike[] | undefined): string {
   if (!parts || parts.length === 0) return ""
   return parts
