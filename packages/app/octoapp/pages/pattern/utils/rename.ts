@@ -24,7 +24,9 @@ export async function autoRenameSession(input: {
       parts: [{ type: "text", text: `${userText}\n\n请务必用中文生成标题。` }],
     })
     const raw = await getResultFromMessages(sync, tsid, knownIds)
-    const clean = raw.trim().split("\n")[0].slice(0, 50)
+    const clean = raw.includes("</think>")
+      ? raw.slice(raw.indexOf("</think>") + "</think>".length).trim().split("\n")[0].slice(0, 50)
+      : raw.trim().split("\n")[0].slice(0, 50)
     if (clean) {
       await client.session.update({ sessionID: targetSessionID, title: clean }).catch(() => {})
       return clean
