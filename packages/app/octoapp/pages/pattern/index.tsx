@@ -467,10 +467,22 @@ function PatternContent() {
   }
 
   async function handleApplyPattern(sectionId: string, match: PatternMatchItem) {
+    const sid = params.id
     const ds = selectedDesignSystem()
     const content = await readPatternFile("block", match.pattern.path, ds)
     if (!content) return null
-    return JSON.parse(content)
+    const patternJson = JSON.parse(content)
+
+    // 读取 assets 静态资源，上传到 uploads 并替换 JSON 中的路径
+    const folderName = match.pattern.path.split("/").slice(0, -1).pop() || ""
+    const assets = await readPatternAssets("block", folderName, ds)
+    const replacements: Record<string, string> = {}
+    for (const a of assets) {
+      if (!sid) break
+      const url = await saveUploadImage(a.buffer, sid)
+      if (url) replacements[a.filename] = url
+    }
+    return replacePatternAssetPaths(patternJson, replacements)
   }
 
   async function handleSubmit() {
