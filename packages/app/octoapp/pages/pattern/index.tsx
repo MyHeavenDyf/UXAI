@@ -36,7 +36,8 @@ import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
 import { PatternMatchPage } from "./modules/preview/pattern-match-page"
 import type { PatternMatchItem } from "./utils/pattern-resource"
-import { readPatternFile, readPatternAssets, saveUploadImage, replacePatternAssetPaths } from "./utils/pattern-resource"
+import { readPatternFile, readPatternAssets, readPatternPreview, saveUploadImage, replacePatternAssetPaths } from "./utils/pattern-resource"
+import proto_pattern_block from "./agents/proto_pattern_block"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
@@ -321,7 +322,7 @@ function PatternContent() {
   // 是否正在生成模块（线框审查确认后 → 预览之间）
   const [isGeneratingReview, setIsGeneratingReview] = createSignal(false)
   // 页面级 Pattern 匹配结果
-  const [patternMatches, setPatternMatches] = createSignal<import("./utils/pattern-resource").PatternMatchItem[]>([])
+  const [patternMatches, setPatternMatches] = createSignal<PatternMatchItem[]>([])
   // 是否展示 Pattern 匹配结果页
   const [showPatternMatch, setShowPatternMatch] = createSignal(false)
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
@@ -436,6 +437,40 @@ function PatternContent() {
   function handleEnterWireframe() {
     setShowPatternMatch(false)
     setIsPlanReview(true)
+  }
+
+  async function handleMatchPattern(sectionId: string, detail: { name: string; intent: string; function: string; elements: string; layout: string }) {
+    const sid = params.id
+    if (!sid) return []
+    const mk = activeModelKey()
+    if (!mk) return []
+    const ds = selectedDesignSystem()
+    const desc = `[名称]  ${detail.name}\n[意图] ${detail.intent}\n[功能] ${detail.function}\n[布局] ${detail.layout}\n[元素] ${detail.elements}`
+    const result = await proto_pattern_block({
+      sdk,
+      sync,
+      modelKey: mk,
+      rootSession: sid,
+      userInput: desc,
+      extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
+      onSessionCreated: (childID: string) => {
+        if (params.id !== sid) return
+        setChildSessionIDs((prev) => [...prev, childID])
+      },
+    })
+    console.log("[Pattern Block] 匹配结果:", result)
+    for (const match of result.matches) {
+      if (!match.pattern.preview) continue
+      match.previewUrl = await readPatternPreview("block", match.pattern.preview, ds)
+    }
+    return result.matches
+  }
+
+  async function handleApplyPattern(sectionId: string, match: PatternMatchItem) {
+    const ds = selectedDesignSystem()
+    const content = await readPatternFile("block", match.pattern.path, ds)
+    if (!content) return null
+    return JSON.parse(content)
   }
 
   async function handleSubmit() {
@@ -1069,6 +1104,8 @@ function PatternContent() {
                         intentDescription={lastIntent()!}
                         userInput={userInput()}
                         onConfirm={handleConfirmReview}
+                        onMatchPattern={handleMatchPattern}
+                        onApplyPattern={handleApplyPattern}
                       />
                       <Show when={isGeneratingReview()}>
                         <PatternGenerating />
