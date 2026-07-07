@@ -248,10 +248,16 @@
 
     window.addEventListener("pointermove", onMove, true)
     window.addEventListener("pointerup", onUp, true)
+    window.addEventListener("pointerleave", onUp, true)
+    document.addEventListener("pointerout", onPointerOut, true)
   }
 
   function onMove(e) {
     if (!dragEl) return
+    if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+      onUp(e)
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
 
@@ -282,6 +288,8 @@
   function onUp(e) {
     window.removeEventListener("pointermove", onMove, true)
     window.removeEventListener("pointerup", onUp, true)
+    window.removeEventListener("pointerleave", onUp, true)
+    document.removeEventListener("pointerout", onPointerOut, true)
     clearTimeout(longPressTimer)
     longPressTimer = null
 
@@ -300,17 +308,22 @@
           }, "*")
         }
       }
-      if (ghost) { ghost.remove(); ghost = null }
-      if (indicator) { indicator.remove(); indicator = null }
-      document.body.style.cursor = ""
       showPicker()
     }
+    if (ghost) { ghost.remove(); ghost = null }
+    if (indicator) { indicator.remove(); indicator = null }
+    document.body.style.cursor = ""
 
     dragEl.style.opacity = ""
     dragEl.removeAttribute("data-drag-sel")
     dragEl = null
     dragId = null
     moved = false
+  }
+
+  function onPointerOut(e) {
+    if (!dragEl || e.relatedTarget) return
+    onUp(e)
   }
 
   function enable() {
@@ -325,6 +338,8 @@
     window.removeEventListener("pointerdown", onDown, true)
     window.removeEventListener("pointermove", onMove, true)
     window.removeEventListener("pointerup", onUp, true)
+    window.removeEventListener("pointerleave", onUp, true)
+    document.removeEventListener("pointerout", onPointerOut, true)
     clearTimeout(longPressTimer)
     longPressTimer = null
     document.body.style.cursor = ""
