@@ -10,43 +10,49 @@ export function extractJson(text: string) {
   // 2. 移除大模型的思维链（如 DeepSeek 的 <think>...</think>）
   if (cleanText.includes('</think>')) {
     const thinkEndIndex = cleanText.indexOf('</think>') + '</think>'.length;
-    // 从 </think> 后面开始找第一个真正的 {，避免把 think 内部的括号带进来
     const realJsonStart = cleanText.indexOf('{', thinkEndIndex);
     
-    // 如果找到了 {，则裁剪出真正包含 JSON 的后半部分
     if (realJsonStart !== -1) {
       cleanText = cleanText.slice(realJsonStart);
     } else {
-      // 如果 think 后面连 { 都没有，可以直接判断格式错误
       return null;
     }
   }
 
   try {
-    // 3. 优先匹配 Markdown 代码块 (操作清洗后的 cleanText)
-    let match = cleanText.match(/```(?:json)?\s*\n([\s\S]*?)\n?```/);
+    // 3. 优先匹配 Markdown 代码块
+    let match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\n?```/); // 这里顺便去掉了 \n 的强限制，更稳健
     let raw = match ? match[1] : cleanText;
     let parsed = JSON.parse(raw.trim());
     
     console.log(parsed, 'parsed');
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
-    // 4. 绝地求生（截取首尾大括号兜底）
-    let start = cleanText.indexOf("{");
-    if (start === -1) return null;
-    
+    // 4. 绝地求生（升级版：放在这里，专门对付多套 JSON 和夹带废话的情况）
     let end = cleanText.lastIndexOf("}");
-    if (end <= start) return null;
-    
-    try {
-      let rawjson = cleanText.substring(start, end + 1);
-      let parsed = JSON.parse(rawjson.trim());
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch {
-      return null;
+    if (end === -1) return null;
+
+    // 从最后一个 } 开始往前找 {
+    let start = cleanText.lastIndexOf("{", end); 
+
+    // 循环向上探测，直到成功解析出最完整的 JSON 对象
+    while (start !== -1) {
+      try {
+        let rawjson = cleanText.substring(start, end + 1);
+        let parsed = JSON.parse(rawjson.trim());
+        if (parsed && typeof parsed === "object") {
+          console.log(parsed, 'parsed from recovery');
+          return parsed; // 🎉 在这里成功抢救出最后一套正确的 JSON！
+        }
+      } catch {
+        // 如果失败了，说明找的 { 还在 JSON 内部，继续往左边（外面）找更靠前的 {
+        start = cleanText.lastIndexOf("{", start - 1);
+      }
     }
+
+    return null;
   }
-} 
+}
 
 /**
  * 监听 sync store 中的消息状态，当指定 session 出现新的已完成 assistant 消息时返回其文本。
