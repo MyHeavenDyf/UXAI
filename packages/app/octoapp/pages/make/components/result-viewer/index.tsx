@@ -111,7 +111,7 @@ export function ResultViewer(props: {
     }
   }
 
-  const canToggleMode = (tab: ResultTab) => tab.type === "html" || tab.type === "svg"
+  const canToggleMode = (tab: ResultTab) => tab.type === "html"
 
   createEffect(() => {
     const activeTabIds = new Set(props.tabs.map(t => t.id))
@@ -227,8 +227,8 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
               const tabType = tab.type
             const canToggle = canToggleMode(tab)
             const htmlMode = createMemo(() => getHtmlMode(tabId))
-            const showRefresh = tabType === "html" || tabType === "image" || tabType === "video" || tabType === "audio" || tabType === "pdf" || tabType === "svg" || tabType === "text"
-            const showFocusToggle = tabType === "local-file" || tabType === "html" || tabType === "svg"
+            const showRefresh = true
+            const showFocusToggle = tabType !== "html" && tabType !== "design-plan"
 
             return (
               <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -277,9 +277,9 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                       setEditing(false)
                     }
                   }}
-                  onRefresh={showRefresh ? handleRefresh : undefined}
+                  onRefresh={handleRefresh}
                   focusMode={props.focusMode}
-                  onFocusModeToggle={showFocusToggle ? props.onFocusModeToggle : undefined}
+                  onFocusModeToggle={tabType !== "html" && tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
                 />
                 </Show>
                 <div class="flex-1 min-h-0 overflow-hidden">
@@ -374,6 +374,13 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                     </Match>
                     <Match when={tabType === "text"}>
                       <TextRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                    </Match>
+                    <Match when={tabType === "file"}>
+                      <div class="flex items-center justify-center h-full">
+                        <span style={{ color: "var(--octo-text-secondary)", "font-size": "14px" }}>
+                          此格式不支持预览
+                        </span>
+                      </div>
                     </Match>
                   </Switch>
                 </div>

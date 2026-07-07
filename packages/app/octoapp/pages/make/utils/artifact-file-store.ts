@@ -20,7 +20,6 @@ interface PersistedViewState {
   groupMode?: GroupMode
   collapsedGenerated?: boolean
   collapsedUploaded?: boolean
-  collapsedSections?: string[]
 }
 
 function readViewState(sessionId: string): PersistedViewState {
@@ -82,7 +81,6 @@ export type ArtifactFileStore = {
   uploadedFiles: ArtifactFile[]
   collapsedGenerated: boolean
   collapsedUploaded: boolean
-  collapsedSections: Set<string>
   selected: Set<string>
   sortKey: SortKey
   sortDir: SortDir
@@ -98,7 +96,6 @@ function createFileListComputed(
   sortDir: () => SortDir,
   kindFilter: () => Set<ArtifactFileKind>,
   groupMode: () => GroupMode,
-  collapsedSections: () => Set<string>,
   sectionPrefix: string,
   dayBoundary: () => number,
 ) {
@@ -199,7 +196,6 @@ export function createArtifactFileStore(sessionId: string) {
     uploadedFiles: [],
     collapsedGenerated: savedViewState.collapsedGenerated ?? false,
     collapsedUploaded: savedViewState.collapsedUploaded ?? false,
-    collapsedSections: new Set(savedViewState.collapsedSections ?? []),
     selected: new Set(),
     sortKey: savedViewState.sortKey ?? DEFAULT_SORT_KEY,
     sortDir: savedViewState.sortDir ?? DEFAULT_SORT_DIR,
@@ -225,7 +221,6 @@ export function createArtifactFileStore(sessionId: string) {
     () => store.sortDir,
     () => store.kindFilter,
     () => store.groupMode,
-    () => store.collapsedSections,
     "generated",
     dayBoundary,
   )
@@ -236,7 +231,6 @@ export function createArtifactFileStore(sessionId: string) {
     () => store.sortDir,
     () => store.kindFilter,
     () => store.groupMode,
-    () => store.collapsedSections,
     "uploaded",
     dayBoundary,
   )
@@ -264,7 +258,6 @@ export function createArtifactFileStore(sessionId: string) {
       () => store.groupMode,
       () => store.collapsedGenerated,
       () => store.collapsedUploaded,
-      () => store.collapsedSections,
     ],
     () => {
       writeViewState(sessionId, {
@@ -274,7 +267,6 @@ export function createArtifactFileStore(sessionId: string) {
         groupMode: store.groupMode,
         collapsedGenerated: store.collapsedGenerated,
         collapsedUploaded: store.collapsedUploaded,
-        collapsedSections: Array.from(store.collapsedSections),
       })
     },
   ))
@@ -341,13 +333,6 @@ export function createArtifactFileStore(sessionId: string) {
 
     toggleUploadedSection() {
       setStore("collapsedUploaded", !store.collapsedUploaded)
-    },
-
-    toggleSection(section: string) {
-      const next = new Set(store.collapsedSections)
-      if (next.has(section)) next.delete(section)
-      else next.add(section)
-      setStore("collapsedSections", next)
     },
 
     setSortKey(key: SortKey) {

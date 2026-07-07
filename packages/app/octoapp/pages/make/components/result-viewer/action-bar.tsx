@@ -326,14 +326,14 @@ export function ActionBar(props: {
 
   const canToggleMode = () => props.tab.type === "html"
   const showViewport = () => props.tab.type === "html"
-  const showRefreshButton = () =>
-    props.tab.type === "html" ||
-    props.tab.type === "image" ||
-    props.tab.type === "video" ||
-    props.tab.type === "audio" ||
-    props.tab.type === "pdf" ||
-    props.tab.type === "svg" ||
-    props.tab.type === "text"
+  const showRefreshButton = () => true
+  const shouldShowCopy = () =>
+    props.tab.type === "table" ||
+    props.tab.type === "markdown" ||
+    props.tab.type === "markdown-document" ||
+    props.tab.type === "json" ||
+    props.tab.type === "text" ||
+    props.tab.type === "code-snippet"
 
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
@@ -341,7 +341,7 @@ export function ActionBar(props: {
   return (
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
-        {showRefreshButton() && props.onRefresh && (
+        {props.onRefresh && (
           <button
             type="button"
             class="octo-action-btn"
@@ -365,9 +365,6 @@ export function ActionBar(props: {
             onChange={(v) => props.onViewportChange!(v as ViewportPreset)}
           />
         )}
-        <Show when={(showRefreshButton() && props.onRefresh || canToggleMode() && props.onModeChange || showViewport() && props.onViewportChange) && showViewport() && (props.onPaletteChange || props.onInspectToggle || props.onDrawToggle || props.onEditToggle || props.onFocusModeToggle)}>
-          <div class="octo-action-bar-divider" />
-        </Show>
       </div>
       <div class="octo-action-bar-right">
         {showViewport() && props.onPaletteChange && (
@@ -436,14 +433,22 @@ export function ActionBar(props: {
             <span>编辑</span>
           </button>
         )}
-        <Show when={props.tab.type !== "local-file"}>
+        <Show when={shouldShowCopy()}>
           <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>
             <IconActionCopy size={13} />
             <span>复制</span>
           </button>
+        </Show>
+        <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
           <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
         </Show>
-        <Show when={props.onFocusModeToggle}>
+        <Show when={props.tab.type === "html"}>
+          <button type="button" class="octo-action-btn" onClick={handleDownload}>
+            <IconActionDownload size={13} />
+            <span>下载</span>
+          </button>
+        </Show>
+        <Show when={props.tab.type !== "html" && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
           <button
             type="button"
             class="octo-action-btn"
