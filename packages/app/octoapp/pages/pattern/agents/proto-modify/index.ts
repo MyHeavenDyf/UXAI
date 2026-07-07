@@ -1,0 +1,94 @@
+import { extractJson } from '../../utils/json-parser';
+import { runChildSession } from "../run-child-session"
+import { logAgentParsed } from "../../utils/debug-log"
+import { mergeJson, type PatchOp, type PatchSource } from "../../utils/patch-json"
+
+const AGENT_NAME = "proto_modify";
+
+export interface ModuleModifyInput {
+  ui_json_str: Record<string, unknown>
+  audit_feedback: string
+  idPrefix: string
+  sectionId: string
+  originModules: Record<string, unknown>
+  modifications: Record<string, unknown>
+  intentDescription?: Record<string, unknown>
+}
+
+export interface ModuleModifyResult {
+  ui_json: Record<string, unknown>
+  sectionId: string
+  elementId: string
+  idPrefix: string
+}
+
+type ModuleModifyContext = {
+  // 公共sdk
+  sdk: any
+  // 公共流式数据
+  sync: any
+  // 当前使用的模型
+  modelKey: any
+  // 根节点session
+  rootSession: string
+  // 用户输入
+  userInput: string
+  // 透传到工具 ctx.extra 的数据
+  extra?: Record<string, unknown>
+  // 修改输入
+  input: ModuleModifyInput
+  // 子 session 创建回调
+  onSessionCreated?: (childSessionID: string) => void
+}
+
+export default async function proto_module_modify(ctx: ModuleModifyContext): Promise<ModuleModifyResult> {
+  const {
+    sdk,
+    sync,
+    modelKey,
+    rootSession,
+    userInput,
+    onSessionCreated 
+  } = ctx
+  debugger
+  // 组装输入提示词
+  const humanMessage = buildHumanMessage(ctx.input)
+  console.log("----- 模块修改Agent开始执行 ----- ");
+  const startTime = Date.now();
+  const modifyRes = await runChildSession({
+    sync,
+    modelKey,
+    onSessionCreated,
+    agent: AGENT_NAME,
+    client: sdk.client,
+    prompt: humanMessage,
+    directory: sdk.directory,
+    parentSessionID: rootSession,
+    extra: ctx.extra,
+  })
+  console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
+  const patchOps = extractJson(modifyRes.text) as unknown as PatchOp[]
+  const patched = mergeJson(ctx.input.ui_json_str as unknown as PatchSource, patchOps)
+
+  const returnValue = {
+    ui_json: patched as unknown as Record<string, unknown>,
+    sectionId: ctx.input.sectionId,
+    elementId: ctx.input.originModules.rootId as string,
+    idPrefix: ctx.input.idPrefix,
+  }
+  logAgentParsed(modifyRes.childSessionId, returnValue)
+  return returnValue
+}
+
+
+function buildHumanMessage(input: ModuleModifyInput): string {
+  const lines = [
+    ` [JSON数据为:] ===============`,
+    JSON.stringify(input.ui_json_str),
+    ``,
+    `[需要修改的内容为]: ===============`,
+    input.audit_feedback,
+  ]
+
+  return lines.join("\n")
+}
