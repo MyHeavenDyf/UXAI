@@ -22,7 +22,7 @@
  *         （BuildTrees 已将 binding 解析为实际值，但 props.items 可能仍保留 binding 形式）
  *
  * 调用外部 API 批量查询映射，结果存入 ctx.iconNameMap。
- * 未映射的 name 使用占位图标 IconPlusIcIctPlaceholder。
+ * 未映射的 name 使用占位图标 IconPlusIcPublicTransverseRectangleTemplate。
  *
  * 设计决策：
  *   - API 调用集中在编译期单步完成，避免 transform 内同步阻塞
@@ -38,7 +38,7 @@ import { Step } from '../core/Step';
 import type { PipelineContext } from '../pipeline/PipelineContext';
 
 // 占位图标组件名（与 Icon.ts 中保持一致）
-const PLACEHOLDER_ICON = 'IconPlusIcIctPlaceholder';
+const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate';
 
 // icon 名称映射接口地址
 // 接口协议：GET {ICON_API_URL}?keyword={names}&topK=2
@@ -47,6 +47,26 @@ const ICON_API_URL = '/api/icons/search';
 
 // state 递归深度上限，防止极端循环引用导致栈溢出
 const MAX_STATE_DEPTH = 20;
+
+/**
+ * 将下划线格式的 icon 名称转换为 IconPlus 前缀的 PascalCase 组件名
+ *
+ * 转换规则：
+ *   1. 去掉首尾空白
+ *   2. 按下划线 _ 分段
+ *   3. 每段首字母大写（PascalCase）
+ *   4. 拼接后加上 IconPlus 前缀
+ *
+ * 示例：
+ *   'ic_bpit_home'       → 'IconPlusIcBpitHome'
+ *   'ic_ict_menu'        → 'IconPlusIcIctMenu'
+ *   'ic_public_transverse_rectangle_template' → 'IconPlusIcPublicTransverseRectangleTemplate'
+ */
+function toIconComponentName(raw: string): string {
+  const segments = raw.trim().split('_').filter(Boolean);
+  const pascal = segments.map(seg => seg.charAt(0).toUpperCase() + seg.slice(1)).join('');
+  return `IconPlus${pascal}`;
+}
 
 export class ResolveIcons extends Step {
   async execute(ctx: PipelineContext): Promise<void> {
@@ -81,10 +101,13 @@ export class ResolveIcons extends Step {
 
     try {
       // 真实 API 返回的是按 names 顺序对应的英文名数组（可能含 null）
+      // 返回格式如 'ic_bpit_home'，需转换为 'IconPlusIcBpitHome'
       const englishNames = await this._callIconApi(ICON_API_URL, names);
       for (let i = 0; i < names.length; i++) {
         const target = englishNames[i];
-        iconNameMap[names[i]] = (typeof target === 'string' && target) || PLACEHOLDER_ICON;
+        iconNameMap[names[i]] = (typeof target === 'string' && target)
+          ? toIconComponentName(target)
+          : PLACEHOLDER_ICON;
       }
     } catch (err: any) {
       console.warn(`  [warn] ResolveIcons: API 调用失败 (${err.message})，使用占位图标`);

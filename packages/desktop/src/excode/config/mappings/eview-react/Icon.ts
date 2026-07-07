@@ -15,7 +15,7 @@
  * 2. 映射机制：
  *    - 通过 context.iconNameMap 查询 name → 目标组件名（如 "menu" → "IconPlusIcIctMenu"）
  *    - iconNameMap 由 ResolveIcons 步骤在管线执行时填充（调用外部接口获取）
- *    - 未映射的 name 使用占位图标 IconPlusIcIctPlaceholder
+ *    - 未映射的 name 使用占位图标 IconPlusIcPublicTransverseRectangleTemplate
  *
  * 3. 动态 tag/import：
  *    - transform 返回动态的 tag（目标组件名）和 import（@hui/icon-plus）
@@ -37,7 +37,7 @@
  * 当 A2UI icon 名称在 iconNameMap 中找不到映射时使用。
  * 该组件应存在于 @hui/icon-plus 库中，作为兜底显示。
  */
-export const PLACEHOLDER_ICON = 'IconPlusIcIctPlaceholder';
+export const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate';
 
 // ─── 导出工具函数 ───
 
@@ -54,7 +54,7 @@ export const PLACEHOLDER_ICON = 'IconPlusIcIctPlaceholder';
  *     识别 __nodeType 后调用 JsxSerializer.renderNode 渲染为 <IconPlusXxx /> JSX
  *   - importMode: 'named' 告诉 ImportCollector 生成命名导入
  *     `import { IconPlusIcIctMenu } from '@hui/icon-plus'`
- *   - 未映射的 name 使用占位图标 IconPlusIcIctPlaceholder
+ *   - 未映射的 name 使用占位图标 IconPlusIcPublicTransverseRectangleTemplate
  *   - 默认 props
  *
  * 用法（在 mapping transform 中）：
@@ -126,6 +126,7 @@ export default {
   // 顶层声明占位值，实际由 transform 动态覆盖
   tag: PLACEHOLDER_ICON,
   import: '@hui/icon-plus',
+  importMode: 'named',
 
   /**
    * transform — Icon → @hui/icon-plus 组件
