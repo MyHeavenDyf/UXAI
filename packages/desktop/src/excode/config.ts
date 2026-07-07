@@ -23,6 +23,7 @@ const defaultConfig: TransformerConfig = {
     'RegisterComponents',
     'ReadPages',
     'BuildTrees',
+    'ResolveIcons',
     'GenerateComponents',
     'GenerateRoutes',
     'WriteOutput',

@@ -17,6 +17,7 @@ import { PipelineContext } from './src/pipeline/PipelineContext';
 import { RegisterComponents } from './src/steps/RegisterComponents';
 import { ReadPages } from './src/steps/ReadPages';
 import { BuildTrees } from './src/steps/BuildTrees';
+import { ResolveIcons } from './src/steps/ResolveIcons';
 import { GenerateComponents } from './src/steps/GenerateComponents';
 import { GenerateRoutes } from './src/steps/GenerateRoutes';
 import { WriteOutput } from './src/steps/WriteOutput';
@@ -52,6 +53,7 @@ const DEFAULT_STEPS = [
   'RegisterComponents',
   'ReadPages',
   'BuildTrees',
+  'ResolveIcons',
   'GenerateComponents',
   'GenerateRoutes',
   'WriteOutput',
@@ -62,6 +64,7 @@ const STEP_MAP: Record<string, any> = {
   RegisterComponents,
   ReadPages,
   BuildTrees,
+  ResolveIcons,
   GenerateComponents,
   GenerateRoutes,
   WriteOutput,

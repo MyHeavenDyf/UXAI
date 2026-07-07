@@ -167,6 +167,7 @@ export class ComponentRegistry {
    * @param opts.forImport 仅用于 import 收集（不调用 transform 以免副作用）
    * @param opts.rawState 注入到 transform 用于 state 访问
    * @param opts.resolveNode 递归解析器，供 transform 手动解析任意 A2UI 节点
+   * @param opts.iconNameMap A2UI icon name → @hui/icon-plus 组件名映射表（由 ResolveIcons 步骤填充）
    * @returns 转换结果（含 stateData/componentData 时携带）
    */
   transform(componentName: string, node: any, opts: any = {}): TransformResult | null {
@@ -185,20 +186,45 @@ export class ComponentRegistry {
       const importPath = def.import;
 
       // 如果只用于 import 收集，返回一个轻量结果
+      // 对于支持动态 tag/import 的组件（如 Icon），仍需调用 transform 获取真实 tag/import
       if (opts.forImport) {
-        return { __nodeType: 'component', tag, import: importPath };
+        // 静态 tag/import 优先返回（性能优化：避免不必要的 transform 调用）
+        if (!def.transform) {
+          return { __nodeType: 'component', tag, import: importPath };
+        }
+        // 有自定义 transform 的组件：调用 transform 获取动态 tag/import
+        // 注入与正常 transform 相同的 context（iconNameMap 等）
+        const schemaProps = this.applySchema(componentName, node.props || {});
+        const schemaNode = { ...node, props: schemaProps };
+        try {
+          const ctx = {
+            rawState: opts.rawState,
+            resolveNode: opts.resolveNode,
+            iconNameMap: opts.iconNameMap,
+          };
+          const result = transformFn(schemaNode, ctx);
+          return {
+            __nodeType: 'component',
+            tag: (result && result.tag) || tag,
+            import: (result && result.import) || importPath,
+            importMode: result && result.importMode,
+          };
+        } catch (err: any) {
+          return { __nodeType: 'component', tag, import: importPath };
+        }
       }
 
       // 1. 应用 schema 处理 props
       const schemaProps = this.applySchema(componentName, node.props || {});
       const schemaNode = { ...node, props: schemaProps };
 
-      // 2. 调用 transform（注入 context: rawState + resolveNode）
+      // 2. 调用 transform（注入 context: rawState + resolveNode + iconNameMap）
       let result: any;
       try {
         const ctx = {
           rawState: opts.rawState,
           resolveNode: opts.resolveNode,
+          iconNameMap: opts.iconNameMap,
         };
         result = transformFn(schemaNode, ctx);
       } catch (err: any) {

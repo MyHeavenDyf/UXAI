@@ -33,9 +33,11 @@
  *
  * 5. mode 属性：eview-react Accordion 不支持 horizontal 模式，直接略过
  *
- * 6. icon 暂透传（string 保留，后续统一处理）
+ * 6. icon 处理：调用 resolveIcon(item.icon, iconNameMap) 返回 CodeGenNode，
+ *    直接嵌入 dataItem.icon 位置，StateTransformer 序列化为 <IconPlusXxx /> JSX。
  */
 import { resolveBindingValue } from '../../../src/core/stateUtils';
+import { resolveIcon } from './Icon';
 
 /**
  * 递归转换 menuItem 数组 → Accordion dataItem 数组
@@ -43,11 +45,15 @@ import { resolveBindingValue } from '../../../src/core/stateUtils';
  * 转换规则：
  *   - title → title（透传）
  *   - key → value（改名）
- *   - icon → icon（透传，暂为 string）
+ *   - icon → resolveIcon 返回的 CodeGenNode（直接嵌入，序列化为 <IconPlusXxx />）
  *   - children → children（递归转换）
  *   - openKeySet 中存在 key → isExpand: true
  */
-function convertMenuItems(items: any[], openKeySet: Set<string | number>): any[] {
+function convertMenuItems(
+  items: any[],
+  openKeySet: Set<string | number>,
+  iconNameMap: Record<string, string>,
+): any[] {
   if (!Array.isArray(items)) return [];
 
   return items.map((item: any) => {
@@ -56,9 +62,14 @@ function convertMenuItems(items: any[], openKeySet: Set<string | number>): any[]
       value: item.key,
     };
 
-    // icon 暂透传（后续统一处理 string → ReactNode）
+    // icon 字符串 → CodeGenNode（resolveIcon 返回 <IconPlusXxx /> 节点）
     if (item.icon !== undefined) {
-      dataItem.icon = item.icon;
+      if (typeof item.icon === 'string') {
+        dataItem.icon = resolveIcon(item.icon, iconNameMap);
+      } else {
+        // 非字符串：保留原值
+        dataItem.icon = item.icon;
+      }
     }
 
     // 展开状态
@@ -68,7 +79,7 @@ function convertMenuItems(items: any[], openKeySet: Set<string | number>): any[]
 
     // 递归子菜单
     if (Array.isArray(item.children) && item.children.length > 0) {
-      dataItem.children = convertMenuItems(item.children, openKeySet);
+      dataItem.children = convertMenuItems(item.children, openKeySet, iconNameMap);
     }
 
     return dataItem;
@@ -133,8 +144,9 @@ export default {
    * 都会在 stateData 写入 selectedValue 初值并构造 two-way binding，
    * 让管线自动生成 `const [selectedValue, setSelectedValue] = useState(...)`。
    */
-  transform(node: any, { rawState }: { rawState: any }) {
+  transform(node: any, { rawState, iconNameMap }: { rawState: any; iconNameMap?: Record<string, string> }) {
     const props = node.props || {};
+    const iconMap = iconNameMap || {};
 
     // ─── 1. items ───
     const deleteFields: string[] = [];
@@ -153,7 +165,8 @@ export default {
     // ─── 3. 转换 data ───
     const menuData = convertMenuItems(
       Array.isArray(rawItems) ? rawItems : [],
-      openKeySet
+      openKeySet,
+      iconMap,
     );
 
     // ─── 4. selectedKeys → selectedValue ───

@@ -10,10 +10,12 @@
  */
 import { default as Table } from './Table';
 import { default as Menu } from './Menu';
+import { default as Icon } from './Icon';
 
 export default {
     Table,
     Menu,
+    Icon,
     // ── 后续组件按字母顺序添加 ──
     // Badge,
     // Button,

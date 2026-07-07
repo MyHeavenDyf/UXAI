@@ -20,6 +20,9 @@
  * pagesData[]        ← 步骤 01: 原始页面数据
  * resolvedPages[]    ← 步骤 02: 构建树 + 绑定解析结果
  * styleResults[]     ← 步骤 02: 样式转换结果
+ * iconNameMap        ← 步骤 03: ResolveIcons 收集的 icon 名称映射表
+ *                      A2UI icon name → @hui/icon-plus 组件名
+ *                      如 { menu: 'IconPlusIcIctMenu', home: 'IconPlusIcIctHome' }
  * generatedPages[]   ← 步骤 05: 代码生成结果
  * routeResult        ← 步骤 06: 路由文件
  * outputFiles        ← 步骤 07: 最终的输出文件清单
@@ -35,6 +38,11 @@ export class PipelineContext {
   pagesData: any[];
   resolvedPages: any[];
   styleResults: any[];
+  /**
+   * icon 名称映射表（A2UI name → @hui/icon-plus 组件名）
+   * 由 ResolveIcons 步骤填充，供 Icon.ts 等 mapping transform 查询
+   */
+  iconNameMap: Record<string, string>;
   generatedPages: any[];
   routeResult: any;
   outputFiles: any[];
@@ -66,5 +74,7 @@ export class PipelineContext {
     this.routeResult = null;
     // 步骤 07：WriteOutput
     this.outputFiles = [];
+    // 步骤 03：ResolveIcons（在 GenerateComponents 之前）
+    this.iconNameMap = {};
   }
 }
