@@ -40,8 +40,16 @@
  *   p.leftIcon = { __slotNode: iconNode };
  *
  *   // Tag.ts
- *   p.iconName = { __slotNode: iconNode };
+ *   outputProps.iconName = { __slotNode: iconNode };
  *   ```
+ *
+ * ## 实现风格
+ *
+ * 采用 `outputProps` 增量构造模式（与 Input.ts / Switch.ts 一致）：
+ *   - `p` 仅作为输入读取，不做 in-place 变更
+ *   - `outputProps` 仅包含显式设置的字段（白名单式输出）
+ *   - 避免 transform 中误传 binding 未声明的 prop
+ *   - style/color 的合并逻辑在 outputProps 上显式完成，可读性更佳
  */
 import { resolveIcon } from "./Icon"
 
@@ -73,27 +81,56 @@ export default {
 
   /**
    * transform — props 转换
+   *
+   * 采用 outputProps 增量构造（详见文件头"实现风格"）。
+   *
+   * 输入输出分离的好处：
+   *   1. 显式列出所有输出字段，便于审计
+   *   2. style/color 合并逻辑清晰，不会污染源 p 对象
+   *   3. 与 Input.ts / Switch.ts 保持一致风格
    */
   transform(node: any, { iconNameMap }: { iconNameMap?: Record<string, string> } = {}) {
     const p = { ...(node.props || {}) }
     const iconMap = iconNameMap || {}
+    const outputProps: Record<string, any> = {}
 
     // ─── 1. iconName → resolveIcon + __slotNode 包装 + hasIcon 配套开关 ───
     if ("iconName" in p) {
       const iconNode = resolveIcon(p.iconName, iconMap)
-      p.iconName = { __slotNode: iconNode }
-      p.hasIcon = true
+      outputProps.iconName = { __slotNode: iconNode }
+      outputProps.hasIcon = true
     }
 
-    // ─── 2. color HEX → style.--background ───
-    // 必须在 valueMap 之后执行（valueMap 先做预设色映射，这里只处理剩下的 HEX）
-    if ("color" in p && typeof p.color === "string" && HEX_COLOR_REGEX.test(p.color)) {
-      p.style = { ...(p.style || {}), "--background": p.color }
-      delete p.color
+    // ─── 2. style 透传基础值（先初始化，便于后续合并 HEX color） ───
+    if (p.style !== undefined) {
+      outputProps.style = { ...p.style }
     }
 
-    // ─── 3. value 保持为 prop（JsxSerializer._isBinding 渲染 binding 对象） ───
-    // 子节点（如有）透传
-    return { props: p, children: null }
+    // ─── 3. color 处理 ───
+    // valueMap 已先做枚举映射（error→danger, processing→primary）
+    // HEX 色（#RRGGBB 等）→ style.--background（CSS 变量，优先级高于预设色）
+    // 其他枚举值（primary/success/warning/danger/caution/default）→ 透传
+    if (typeof p.color === "string" && HEX_COLOR_REGEX.test(p.color)) {
+      outputProps.style = { ...(outputProps.style || {}), "--background": p.color }
+    } else if ("color" in p) {
+      outputProps.color = p.color
+    }
+
+    // ─── 4. size 透传（valueMap 已完成 medium → normal） ───
+    if ("size" in p) {
+      outputProps.size = p.size
+    }
+
+    // ─── 5. className 透传 ───
+    if (p.className !== undefined) {
+      outputProps.className = p.className
+    }
+
+    // ─── 6. value 保持为 prop（JsxSerializer._isBinding 渲染 binding 对象） ───
+    if ("value" in p) {
+      outputProps.value = p.value
+    }
+
+    return { props: outputProps, children: null }
   },
 }
