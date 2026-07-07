@@ -19,6 +19,13 @@ export type TitlebarTheme = {
 export type WindowConfig = {
   updaterEnabled: boolean
 }
+
+export type DownloadSavePathInfo = {
+  url: string
+  filename: string
+  path: string | null
+  state: "completed" | "cancelled" | "interrupted"
+}
 // jk-j60099994-replace-with-60062650-preload-types-1-start
 export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
@@ -55,6 +62,8 @@ export type ElectronAPI = {
   onSqliteMigrationProgress: (cb: (progress: SqliteMigrationProgress) => void) => () => void
   onMenuCommand: (cb: (id: string) => void) => () => void
   onDeepLink: (cb: (urls: string[]) => void) => () => void
+  /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
+  onDownloadSavePath: (cb: (info: DownloadSavePathInfo) => void) => () => void
 
   openDirectoryPicker: (opts?: {
     multiple?: boolean
