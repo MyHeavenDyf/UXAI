@@ -46,9 +46,6 @@ export class BindingResolver {
       _isSlotRoot: !!node._isSlotRoot,
       _sectionId: node._sectionId || null,
       _idPrefix: node._idPrefix || null,
-      _loopTemplate: node._loopTemplate
-        ? BindingResolver.resolveNode(node._loopTemplate, registry, skipSlotRoots, true, bindings, resolveNodeRef)
-        : null,
     };
 
     // 处理循环数据源绑定
@@ -80,6 +77,9 @@ export class BindingResolver {
         .filter(Boolean);
     } else if (typeof node.children === 'string') {
       resolved.children = node.children;
+    } else if (node.children && typeof node.children === 'object') {
+      // 循环模板节点（作为单 children 直接挂载）：递归解析，走 loopContext=true
+      resolved.children = BindingResolver.resolveNode(node.children, registry, skipSlotRoots, true, bindings, resolveNodeRef);
     }
 
     return resolved;
