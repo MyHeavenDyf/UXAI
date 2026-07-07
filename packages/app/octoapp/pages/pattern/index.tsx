@@ -134,16 +134,19 @@ function PatternContent() {
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {
           layout.lastSessionPerTab.setPattern(id)
-          setLastIntent(prev => ({ ...prev, [id]: null }))
-          setLastPlanner(prev => ({ ...prev, [id]: null }))
           setLastModules(prev => ({ ...prev, [id]: [] }))
           setPatternMatches(prev => ({ ...prev, [id]: [] }))
           setVersions(prev => ({ ...prev, [id]: [] }))
           setCurrentVersionId(prev => ({ ...prev, [id]: null }))
-          setHasPreviewContent(prev => ({ ...prev, [id]: false }))
           setIsModifying(prev => ({ ...prev, [id]: false }))
-          setIsPlanReview(prev => ({ ...prev, [id]: false }))
           setShowPatternMatch(prev => ({ ...prev, [id]: false }))
+          // 正在生成的 session 保留原有数据，切换回来后继续显示线框审查+loading
+          if (!isGeneratingReview()[id]) {
+            setLastIntent(prev => ({ ...prev, [id]: null }))
+            setLastPlanner(prev => ({ ...prev, [id]: null }))
+            setHasPreviewContent(prev => ({ ...prev, [id]: false }))
+            setIsPlanReview(prev => ({ ...prev, [id]: false }))
+          }
 
           // 同步子 session 消息，全部加载完成后才标记 synced
           void sync.session.sync(id).then(async () => {
@@ -1120,22 +1123,36 @@ function PatternContent() {
             <Show when={intentConfirm()[params.id!] ?? null} fallback={
               <Show when={!!showPatternMatch()[params.id!]} fallback={
                 <Show when={!!isPlanReview()[params.id!]} fallback={
-                  <Show when={!!hasPreviewContent()[params.id!]} fallback={<PatternPreviewEmpty />}>
-                    <PreviewPage
-                      api={previewApi}
-                      pendingData={pendingPreviewData()[params.id!] ?? null}
-                      sessionId={params.id}
-                      onModifyElement={handleModifyElement}
-                      onPickerSubmit={handlePickerSubmit}
-                      onDownload={handleDownload}
-                      onShare={handleShare}
-                      onReorder={handleReorder}
-                      onLivePreview={handleLivePreview}
-                      onPixsoPreview={handlePixsoPreview}
-                      versions={versions()[params.id!] ?? []}
-                      currentVersionId={currentVersionId()[params.id!] ?? null}
-                      onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
-                    />
+                  <Show when={!!isGeneratingReview()[params.id!]} fallback={
+                    <Show when={!!hasPreviewContent()[params.id!]} fallback={<PatternPreviewEmpty />}>
+                      <PreviewPage
+                        api={previewApi}
+                        pendingData={pendingPreviewData()[params.id!] ?? null}
+                        sessionId={params.id}
+                        onModifyElement={handleModifyElement}
+                        onPickerSubmit={handlePickerSubmit}
+                        onDownload={handleDownload}
+                        onShare={handleShare}
+                        onReorder={handleReorder}
+                        onLivePreview={handleLivePreview}
+                        onPixsoPreview={handlePixsoPreview}
+                        versions={versions()[params.id!] ?? []}
+                        currentVersionId={currentVersionId()[params.id!] ?? null}
+                        onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+                      />
+                    </Show>
+                  }>
+                    <Show when={(lastPlanner()[params.id!] ?? null) && (lastIntent()[params.id!] ?? null)} fallback={<PatternGenerating />}>
+                      <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                        <WireframeReview
+                          planner={lastPlanner()[params.id!]!}
+                          intentDescription={lastIntent()[params.id!]!}
+                          userInput={userInput()[params.id!] ?? ""}
+                          onConfirm={handleConfirmReview}
+                        />
+                        <PatternGenerating />
+                      </div>
+                    </Show>
                   </Show>
                 }>
                   <Show when={(lastPlanner()[params.id!] ?? null) && (lastIntent()[params.id!] ?? null)} fallback={<PatternPreviewEmpty />}>
