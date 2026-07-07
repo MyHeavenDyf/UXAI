@@ -17,6 +17,12 @@ interface CodeGenNode {
   import?:    string    // 组件导入路径，仅组件有
                         // 示例: '@nce/eview-react/Carousel'
                         // HTML 元素无此字段
+  importMode?: 'default' | 'named'
+  // 导入模式（可选，默认 'default'）
+  // 'default' → import Tag from 'source'
+  // 'named'   → import { Tag } from 'source'
+  // 典型场景：@hui/icon-plus 使用命名导出
+  // 示例: import { IconPlusIcIctHome } from '@hui/icon-plus'
 
   // ── 节点类型（显式标识）──
   __nodeType: 'component' | 'html'
@@ -605,7 +611,32 @@ _loopTemplate?: object      // 循环模板节点树（CodeGenNode）
 3. 转换后 `_isLoop` / `_loopBinding` / `_loopTemplate` 被删除
 4. 下游 JsxSerializer 只消费 `__type: 'loop'`，不识别 `_isLoop`
 
-### 5.5 `stateData` / `componentData` — 编译期数据转换
+### 5.5 `importMode` — 导入模式
+
+```typescript
+importMode?: 'default' | 'named'   // 导入模式，默认 'default'
+```
+
+**影响 ImportCollector 的 import 语句生成**：
+
+| importMode | 生成的 import 语句 |
+|-----------|-------------------|
+| `'default'`（默认） | `import IconPlusIcIctHome from '@hui/icon-plus'` |
+| `'named'` | `import { IconPlusIcIctHome } from '@hui/icon-plus'` |
+
+**典型场景**：@hui/icon-plus 组件库使用命名导出，每个 icon 是一个独立的命名导出。`resolveIcon()` 返回的 CodeGenNode 自动设置 `importMode: 'named'`。
+
+**合并规则**：当多个同源组件使用 `importMode: 'named'` 时，ImportCollector 合并为同一条 import 语句：
+```ts
+// 多个 icon 组件
+{ tag: 'IconPlusIcIctHome', import: '@hui/icon-plus', importMode: 'named' }
+{ tag: 'IconPlusIcIctMenu', import: '@hui/icon-plus', importMode: 'named' }
+
+// 合并结果
+import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@hui/icon-plus'
+```
+
+### 5.6 `stateData` / `componentData` — 编译期数据转换
 
 ```typescript
 stateData?: Record<string, any>     // 纯数据，路由到 initialState

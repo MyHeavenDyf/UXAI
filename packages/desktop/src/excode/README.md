@@ -13,10 +13,11 @@
   - [4.1 RegisterComponents — 加载组件映射](#41-registercomponents--加载组件映射)
   - [4.2 ReadPages — 读取页面源数据](#42-readpages--读取页面源数据)
   - [4.3 BuildTrees — 建树 / 绑定解析 / 样式转换](#43-buildtrees--建树--绑定解析--样式转换)
-  - [4.4 GenerateComponents — 组件代码生成](#44-generatecomponents--组件代码生成)
-  - [4.5 GenerateRoutes — 生成路由](#45-generateroutes--生成路由)
-  - [4.6 WriteOutput — 收集产出文件](#46-writeoutput--收集产出文件)
-  - [4.7 GenerateReport — 生成报告](#47-generatereport--生成报告)
+  - [4.4 ResolveIcons — 收集并映射 icon 名称](#44-resolveicons--收集并映射-icon-名称)
+  - [4.5 GenerateComponents — 组件代码生成](#45-generatecomponents--组件代码生成)
+  - [4.6 GenerateRoutes — 生成路由](#46-generateroutes--生成路由)
+  - [4.7 WriteOutput — 收集产出文件](#47-writeoutput--收集产出文件)
+  - [4.8 GenerateReport — 生成报告](#48-generatereport--生成报告)
 - [5. 核心数据流](#5-核心数据流)
 - [6. 关键模块](#6-关键模块)
 - [7. 配置参考](#7-配置参考)
@@ -117,6 +118,14 @@ A2UI JSON 数据（API 模式）
 │  • BindingResolver 解析 props 中的 path 绑定                      │
 │  • TailwindConverter 将 className → LESS/CSS                     │
 │  • 一次性写入 ctx.resolvedPages + ctx.styleResults                │
+└──────────────────────────────────────────────────────────────────┘
+      │
+      ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  ResolveIcons             收集并映射 icon 名称                    │
+│  • 遍历节点树 + state 数据，收集所有 A2UI icon name              │
+│  • 调用外部 API 批量查询英文组件名映射                           │
+│  • 结果存入 ctx.iconNameMap，供 Icon/Menu 等 mapping 使用        │
 └──────────────────────────────────────────────────────────────────┘
       │
       ▼
@@ -261,7 +270,46 @@ CLI 模式（node cli.ts）：
 
 > **注意**：BuildTrees 内部通过 `createTailwindAdapter('desktop')` 自动创建 Tailwind 适配器。若 `config` 中预置了 `tailwindAdapter`，则优先使用预置实例。
 
-### 4.4 GenerateComponents — 组件代码生成
+### 4.4 ResolveIcons — 收集并映射 icon 名称
+
+**输入**：`ctx.resolvedPages`（节点树 + state 数据）
+**输出**：`ctx.iconNameMap`（A2UI name → @hui/icon-plus 组件名映射表）
+
+**处理逻辑**：
+
+在 BuildTrees 之后、GenerateComponents 之前执行，集中收集所有 A2UI icon 名称并调用外部 API 批量映射。
+
+**收集范围**（覆盖 A2UI 中所有可能出现的 icon 名称）：
+
+| 来源 | 场景 | 示例 |
+|------|------|------|
+| 节点树 | `Icon` 组件的 `props.name` | `{ component: "Icon", props: { name: "globe" } }` |
+| 节点树 | 任意节点 `props.icon` 字面量 | `{ component: "Button", props: { icon: "help-circle" } }` |
+| 节点树 | `props.items[].icon` 字面量数组 | `{ props: { items: [{ icon: "home" }] } }` |
+| 节点树 | `props.items` 是 DataBinding | 从 state 中按 accessPath 取实际数组再收集 |
+| 节点树 | 递归 children / slot / loop | 所有子节点 |
+| state 数据 | 递归遍历 state 中所有对象/数组的 `icon` 字段 | `state.menuItems[0].icon` |
+| 树形嵌套 | `items[].children[].icon` 递归 | 嵌套多层的 menu/tree 结构 |
+
+**API 调用**：
+
+```ts
+// 接口协议：GET /api/icons/search?keyword={names}&topK=2
+// 返回 Array<{ icons: Array<{ name: string, group?: string[] }> }>
+// 优先取 group 包含"系统图标"的 icon name，否则取第一个 icon name
+```
+
+- 每批 6 个 name，并发请求所有批次
+- 返回结果按 names 顺序一一对应（未匹配项为 null）
+- 未映射的 name 使用占位图标 `IconPlusIcIctPlaceholder`
+
+**设计要点**：
+- API 调用集中在编译期单步完成，避免 transform 内同步阻塞
+- 一次性批量查询所有 name，减少 API 请求次数
+- 占位图标保证未映射 name 仍能生成可运行代码
+- state 数据递归收集：保证 DataBinding 引用的树形数据中的 icon 不会遗漏
+
+### 4.5 GenerateComponents — 组件代码生成
 
 **输入**：`ctx.resolvedPages` + `ctx.styleResults`
 **输出**：`ctx.generatedPages`（含生成的代码文件列表）
@@ -334,7 +382,7 @@ CLI 模式（node cli.ts）：
 | 文本节点 | `typeof === 'string'` | 直接透传 |
 | 字符串节点 | 透传 | 直接输出到 children |
 
-### 4.5 GenerateRoutes — 生成路由
+### 4.6 GenerateRoutes — 生成路由
 
 **输入**：`ctx.generatedPages`
 **输出**：`ctx.routeResult`（路由文件）
@@ -350,7 +398,7 @@ export default createBrowserRouter([
 ]);
 ```
 
-### 4.6 WriteOutput — 收集产出文件
+### 4.7 WriteOutput — 收集产出文件
 
 **输入**：`ctx.generatedPages` + `ctx.routeResult` + 模板文件
 **输出**：`ctx.outputFiles`（文件列表，每项 `{ path, content }`）
@@ -373,7 +421,7 @@ CLI 模式:
   → cli.ts 将 ctx.outputFiles 写入 outputDir
 ```
 
-### 4.7 GenerateReport — 生成报告
+### 4.8 GenerateReport — 生成报告
 
 **输入**：`ctx.*`（各步骤的统计信息）
 **输出**：报告文本
@@ -401,6 +449,7 @@ PipelineContext (ctx)
 ├── pagesData              // [ReadPages] 原始页面 JSON 数据
 ├── resolvedPages          // [BuildTrees] 建树 + 绑定解析后的页面数据
 ├── styleResults           // [BuildTrees] 样式转换结果（含 lessFiles, globalLess, pageRules）
+├── iconNameMap            // [ResolveIcons] A2UI icon name → @hui/icon-plus 组件名映射表
 ├── generatedPages         // [GenerateComponents] 代码生成后的页面数据
 ├── routeResult            // [GenerateRoutes] 路由生成结果
 ├── outputFiles            // [WriteOutput] 产出文件列表 [{ path, content }]
@@ -441,6 +490,7 @@ PipelineContext (ctx)
 |------|------|
 | `Step.ts` | 步骤基类，所有步骤继承此类 |
 | `ComponentRegistry.ts` | 组件注册中心，管理映射文件的注册与查询。提供 `register()`、`loadMappings()`、`transform()`、`applySchema()`、`getBinding()` 等接口 |
+| `Icon.ts` | Icon 组件映射，同时导出 `resolveIcon(iconName, iconNameMap, extraProps?)` 和 `PLACEHOLDER_ICON`，用于在 mapping transform 中将 A2UI icon 名称转换为 @hui/icon-plus 组件的 CodeGenNode |
 | `stateUtils.ts` | state 工具函数，导出 `resolveBindingValue(rawState, binding)` 用于在 mapping transform 中从原始 state 按绑定路径提取实际数据 |
 
 ### `src/codegen/`
@@ -574,6 +624,7 @@ excode/
 │   │   ├── RegisterComponents.ts
 │   │   ├── ReadPages.ts
 │   │   ├── BuildTrees.ts
+│   │   ├── ResolveIcons.ts           ← icon 名称收集与 API 映射
 │   │   ├── GenerateComponents.ts
 │   │   ├── GenerateRoutes.ts
 │   │   ├── WriteOutput.ts

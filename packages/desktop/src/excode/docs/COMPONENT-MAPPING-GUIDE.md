@@ -735,3 +735,151 @@ children 处理（transform 返回）
 | 数据转换 | `tag + import + transform` + `stateData`/`componentData` | Table(columns+render) |
 | renderFn 抽取 | `tag + import + transform` + `__type: 'renderFn'` + `extract: true` | Table(columns.render) |
 | 循环渲染 | `tag + import + transform` + `__type: 'loop'` | List, Table(body) |
+| icon 组件映射 | `tag + import + transform` + `resolveIcon()` | Icon |
+| icon 属性处理 | `tag + import + transform` + `resolveIcon()` | Menu, Tree, List |
+
+---
+
+## 9. Icon 处理
+
+### 9.1 概述
+
+excode 管线通过 **ResolveIcons** 步骤统一收集页面中所有 icon 名称，调用远程 API 获取 @hui/icon-plus 的映射关系，存入 `ctx.iconNameMap`。映射文件在 transform 中通过 `resolveIcon()` 工具函数将 A2UI icon 名称转换为 CodeGenNode。
+
+### 9.2 数据流
+
+```
+A2UI JSON 中的 icon 名称
+  │
+  ▼
+ResolveIcons 步骤
+  ├─ 从节点树收集: Icon.props.name, *.props.icon, items[].icon, children[].icon
+  ├─ 从 state 数据收集: 递归遍历 state 对象（深度 ≤ 20）
+  ├─ 从 DataBinding 收集: 解析 __binding 路径，从 rawState 取值后递归
+  └─ 调用 API: GET /api/icons/search?keyword={names}&topK=2（batch=6，并发）
+  │
+  ▼
+ctx.iconNameMap: Record<string, string>
+  例: { 'home': 'IconPlusIcIctHome', 'menu': 'IconPlusIcIctMenu', ... }
+  │
+  ▼
+映射文件 transform 中:
+  import { resolveIcon } from './Icon'
+  resolveIcon(iconName, iconNameMap, extraProps?)
+  │
+  ▼
+CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@hui/icon-plus', importMode: 'named', props: { shape: 'outline' }, selfClosing: true }
+```
+
+### 9.3 resolveIcon() 工具函数
+
+**位置**：`config/mappings/eview-react/Icon.ts`
+
+```ts
+import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
+
+/**
+ * 将 A2UI icon 名称转换为 @hui/icon-plus 的 CodeGenNode
+ *
+ * @param iconName    - A2UI icon 名称（如 'home', 'menu'）
+ * @param iconNameMap - ResolveIcons 步骤产出的映射表（ctx.iconNameMap）
+ * @param extraProps  - 可选额外 props（如 { color, className, shape }）
+ * @returns CodeGenNode | null
+ *
+ * 返回的 CodeGenNode:
+ *   { __nodeType: 'component',
+ *     tag: 'IconPlusIcIctHome',
+ *     import: '@hui/icon-plus',
+ *     importMode: 'named',
+ *     props: { shape: 'outline', ...extraProps },
+ *     children: null,
+ *     selfClosing: true }
+ *
+ * 未找到映射时返回 PLACEHOLDER_ICON（避免生成失败）
+ */
+```
+
+### 9.4 在映射文件中使用
+
+#### 场景 A：Icon 组件（直接渲染 icon）
+
+```ts
+// config/mappings/eview-react/Icon.ts
+import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
+
+export default {
+  tag: 'IconPlusIcIctHome',    // 动态 tag，实际由 resolveIcon 决定
+  import: '@hui/icon-plus',     // 动态 import，实际由 resolveIcon 决定
+
+  transform(node, { iconNameMap }) {
+    const p = { ...(node.props || {}) };
+    const iconName = p.name || '';
+    delete p.name;
+
+    // 使用 resolveIcon 生成 CodeGenNode
+    const iconNode = resolveIcon(iconName, iconNameMap, {
+      color: p.color,
+      className: p.className,
+      shape: p.shape || 'outline',
+    });
+
+    // 将 icon 作为 componentData 返回，主变量引用
+    return {
+      props: { ...p, icon: { __varRef: 'pageIcon' } },
+      children: node.children,
+      componentData: { pageIcon: iconNode },
+    };
+  },
+};
+```
+
+#### 场景 B：Menu 等组件（items 数据中的 icon 字段）
+
+```ts
+// config/mappings/eview-react/Menu.ts
+import { resolveIcon } from './Icon';
+
+export default {
+  tag: 'Accordion',
+  import: '@nce/eview-react/Accordion',
+
+  transform(node, { rawState, iconNameMap }) {
+    const p = { ...(node.props || {}) };
+
+    // 处理 items 中的 icon
+    if (Array.isArray(p.items)) {
+      p.items = p.items.map(item => {
+        if (item.icon) {
+          const iconNode = resolveIcon(item.icon, iconNameMap);
+          if (iconNode) {
+            return { ...item, icon: iconNode };
+          }
+        }
+        return item;
+      });
+    }
+
+    return { props: p, children: node.children };
+  },
+};
+```
+
+### 9.5 importMode: 'named' 说明
+
+@hui/icon-plus 使用命名导出（named export），每个 icon 是一个独立的命名导出：
+
+```ts
+import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@hui/icon-plus';
+```
+
+映射文件中通过 `importMode: 'named'` 告知 ImportCollector 使用命名导入语法。该字段在 `resolveIcon()` 返回的 CodeGenNode 中自动设置。
+
+### 9.6 验证清单
+
+- [ ] Icon 组件映射使用 `resolveIcon()` 而非手动构造 CodeGenNode
+- [ ] 含 icon 属性的组件（Menu, Tree, List 等）在 transform 中调用 `resolveIcon()`
+- [ ] `resolveIcon()` 从 `./Icon` 导入
+- [ ] `iconNameMap` 从 transform context 获取
+- [ ] 未找到映射时使用 `PLACEHOLDER_ICON` 兜底
+- [ ] ResolveIcons 步骤在 BuildTrees 之后、GenerateComponents 之前执行
+- [ ] ResolveIcons 覆盖了节点树 + state 数据 + DataBinding 中的 icon 名称

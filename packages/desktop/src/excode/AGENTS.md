@@ -42,10 +42,10 @@ await downloadHuiCode(Array<HuiCodeInput>, options?)
 
 ---
 
-## 3. 7 步管线总览
+## 3. 8 步管线总览
 
 ```
-RegisterComponents → ReadPages → BuildTrees → GenerateComponents → GenerateRoutes → WriteOutput → GenerateReport
+RegisterComponents → ReadPages → BuildTrees → ResolveIcons → GenerateComponents → GenerateRoutes → WriteOutput → GenerateReport
 ```
 
 | 步骤 | 输入 | 输出 | 职责 |
@@ -53,7 +53,8 @@ RegisterComponents → ReadPages → BuildTrees → GenerateComponents → Gener
 | RegisterComponents | mappingRegistry 静态导入 | `ctx.registry` | 加载组件映射到 ComponentRegistry |
 | ReadPages | `ctx.pagesSourceData` 或文件系统 | `ctx.pagesData` | 读取 A2UI JSON（双数据源） |
 | BuildTrees | `ctx.pagesData` | `ctx.resolvedPages` + `ctx.styleResults` | 建树 + 绑定解析 + 样式转换（三步合一） |
-| GenerateComponents | `ctx.resolvedPages` + `ctx.styleResults` | `ctx.generatedPages` | 7 阶段代码生成（核心） |
+| ResolveIcons | `ctx.resolvedPages` + `ctx.pagesData` | `ctx.iconNameMap` | 收集页面中所有 icon 名称，调用 API 获取 @hui/icon-plus 映射关系 |
+| GenerateComponents | `ctx.resolvedPages` + `ctx.styleResults` + `ctx.iconNameMap` | `ctx.generatedPages` | 7 阶段代码生成（核心） |
 | GenerateRoutes | `ctx.generatedPages` | `ctx.routeResult` | 生成 React Router 路由 |
 | WriteOutput | 各步骤产出 | `ctx.outputFiles` | 仅收集文件列表，不写磁盘 |
 | GenerateReport | 各步骤统计 | `ctx.generationReport` | API 模式存内存，CLI 模式写磁盘 |
@@ -91,7 +92,7 @@ excode/
 │   │   └── stateUtils.ts      ← state 工具函数（resolveBindingValue）
 │   ├── codegen/
 │   │   ├── JsxSerializer.ts   ← JSX 渲染引擎
-│   │   ├── ImportCollector.ts ← import 收集器（同源合并）
+│   │   ├── ImportCollector.ts ← import 收集器（同源合并，支持 named import）
 │   │   ├── StateStrategy.ts   ← 状态策略（state.js / hooks）
 │   │   └── StateTransformer.ts ← JSX 表达式变量序列化
 │   ├── parser/
@@ -107,6 +108,7 @@ excode/
 │   │   ├── RegisterComponents.ts
 │   │   ├── ReadPages.ts
 │   │   ├── BuildTrees.ts      ← 三步合并：建树 + 绑定 + 样式
+│   │   ├── ResolveIcons.ts    ← icon 名称收集与 API 映射
 │   │   ├── GenerateComponents.ts ← 代码生成（核心）
 │   │   ├── GenerateRoutes.ts
 │   │   ├── WriteOutput.ts
@@ -213,9 +215,11 @@ transform(node, context) → {
   stateData?, componentData?, wrapper?
 }
 
-// context = { rawState, resolveNode }
+// context = { rawState, resolveNode, iconNameMap }
 //   rawState    — A2UI 原始 state，用于编译期读取实际数据
 //   resolveNode — _deepResolve 自身，可手动递归解析任意 A2UI 节点
+//   iconNameMap — ResolveIcons 步骤产出的 icon 名称映射表
+//                 Record<string, string>，如 { 'home': 'IconPlusIcIctHome' }
 //
 // stateData      → 纯数据，合并到页面 initialState（state.js）
 // componentData  → 含 JSX，路由到所属模块顶部 const 声明（ModuleX.jsx）
@@ -230,13 +234,16 @@ transform(node, context) → {
 | 构建树 | `TreeBuilder.buildTree` | ID 引用解析 + slotMap 打标 |
 | 绑定解析 | `BindingResolver.resolveNode` | 递归前序 + path 绑定识别 + 循环标记 |
 | 样式收集 | `TailwindConverter.convertPage` | 递归前序 + className 提取 |
-| 节点解析 | `GenerateComponents._deepResolve` | 分支处理（slot 截断 / 已解析 / 未解析 / 字符串） |
+| 节点解析 | `GenerateComponents._deepResolve` | 分支处理（slot 截断 / 已解析 / 未解析 / 字符串），注入 iconNameMap |
+| icon 收集 | `ResolveIcons._collectIconNames` | 递归前序 + state 递归 + DataBinding 解析 + API 调用 |
 | 代码渲染 | `JsxSerializer.renderNode` | 递归后序 + JSX 字符串构建 |
 | 数据提取 | `GenerateComponents._collectDataFromNode` | 递归遍历 + stateData/componentData 提取 |
 
 ---
 
-## 7. `stateUtils` 工具函数
+## 7. 共享工具函数
+
+### 7.1 `stateUtils` — state 工具函数
 
 `src/core/stateUtils.ts` 导出 **`resolveBindingValue(rawState, binding)`**：
 
@@ -253,6 +260,28 @@ transform(node, { rawState }) {
 
 用途：在 mapping transform 编译期，从原始 state 中按绑定路径取实际数据，用于生成静态 `stateData` / `componentData`。
 
+### 7.2 `Icon.ts` — icon 工具函数
+
+`config/mappings/eview-react/Icon.ts` 导出 **`resolveIcon(iconName, iconNameMap, extraProps?)`** 和 **`PLACEHOLDER_ICON`**：
+
+```ts
+import { resolveIcon, PLACEHOLDER_ICON } from '../../../config/mappings/eview-react/Icon';
+
+transform(node, { iconNameMap }) {
+  const iconNode = resolveIcon('home', iconNameMap, { color: '#333' });
+  // 返回 CodeGenNode:
+  // { __nodeType: 'component',
+  //   tag: 'IconPlusIcIctHome',
+  //   import: '@hui/icon-plus',
+  //   importMode: 'named',
+  //   props: { shape: 'outline', color: '#333' },
+  //   children: null,
+  //   selfClosing: true }
+}
+```
+
+用途：在 mapping transform 中将 A2UI icon 名称转换为 @hui/icon-plus 组件的 CodeGenNode。未找到映射时返回 PLACEHOLDER_ICON 兜底。
+
 ---
 
 ## 8. PipelineContext 字段
@@ -268,6 +297,7 @@ PipelineContext (ctx)
 ├── pagesData           [ReadPages] 原始页面 JSON
 ├── resolvedPages       [BuildTrees] 建树 + 绑定解析后的页面
 ├── styleResults        [BuildTrees] 样式转换结果（lessFiles, globalLess, pageRules）
+├── iconNameMap         [ResolveIcons] icon 名称映射表（A2UI名 → @hui/icon-plus 组件名）
 ├── generatedPages      [GenerateComponents] 代码生成后的页面
 ├── routeResult         [GenerateRoutes] 路由文件
 ├── outputFiles         [WriteOutput] 产出文件列表 [{ path, content }]
@@ -275,6 +305,8 @@ PipelineContext (ctx)
 ```
 
 `tailwindAdapter`：若 `config.tailwindAdapter` 未传入，`BuildTrees` 自动通过 `createTailwindAdapter('desktop')` 创建。
+
+`iconNameMap`：由 `ResolveIcons` 步骤填充，`GenerateComponents` 在 `_deepResolve` 时注入到 transform context 的 `iconNameMap` 字段。
 
 ---
 
@@ -297,7 +329,12 @@ const defaultConfig = {
   outputDir: './output',
   templateDir: './templates',
   preserveOutput: false,
-  steps: ['RegisterComponents','ReadPages','BuildTrees','GenerateComponents','GenerateRoutes','WriteOutput','GenerateReport'],
+const defaultConfig = {
+  pagesDir: './pages-source',
+  outputDir: './output',
+  templateDir: './templates',
+  preserveOutput: false,
+  steps: ['RegisterComponents','ReadPages','BuildTrees','ResolveIcons','GenerateComponents','GenerateRoutes','WriteOutput','GenerateReport'],
 };
 ```
 
@@ -315,6 +352,13 @@ const defaultConfig = {
 6. **Slot 根截断**：`_deepResolve` 在 `cutSlotRoots=true` 时遇到 `_isSlotRoot` 截断为模块组件引用（`<ModuleName />`），模块实际内容由独立组件文件渲染。
 7. **reactFn 抽取模式**：`__type: 'renderFn'` + `extract: true` + `refName` → 模块顶部 `const refName = (params) => (bodyJSX)`，主变量引用函数名。内联模式直接渲染箭头函数。
 8. **零 runtime 开销**：所有数据转换在编译期完成，`state.js` 永远不出现 JSX 代码，JSX 中的 const 声明也不依赖运行时 state。
+9. **Icon 处理流程**：
+   - `ResolveIcons` 步骤从节点树（`Icon.props.name`、`*.props.icon`、`items[].icon`、`children[].icon`）+ state 数据 + DataBinding 中收集所有 icon 名称
+   - 调用 `GET /api/icons/search?keyword={names}&topK=2`（batch=6，并发请求）获取映射
+   - 结果存入 `ctx.iconNameMap`，`GenerateComponents` 注入到 transform context 的 `iconNameMap` 字段
+   - 映射文件通过 `resolveIcon(iconName, iconNameMap)` 将 A2UI icon 名称转换为 CodeGenNode
+   - `resolveIcon` 返回的 CodeGenNode 带 `importMode: 'named'`，ImportCollector 生成 `import { IconName } from '@hui/icon-plus'`
+10. **Named import 支持**：`importMode: 'named'` 字段控制 ImportCollector 使用命名导入语法。多个同源 named import 自动合并为同一条 import 语句。
 
 ---
 
@@ -329,6 +373,7 @@ const defaultConfig = {
 7. **Tailwind 配置**统一在 `dev/tailwind.config.ts`，管线不感知；适配器内部自行加载
 8. **GenerateReport** 在 API 模式下不写磁盘，仅将报告内容存入 `ctx.generationReport`
 9. **cherrio / tw-to-css** 等依赖只在 `tailwind/converters/` 内部使用，管线其他部分不直接 import
+10. **Icon 映射**：新增含 icon 属性的组件映射时，在 transform 中调用 `resolveIcon()` 处理 icon 字段；Icon 组件本身使用 `resolveIcon(props.name, iconNameMap)` 生成 CodeGenNode
 
 ---
 
@@ -337,5 +382,6 @@ const defaultConfig = {
 | 文档 | 用途 |
 |------|------|
 | [README.md](./README.md) | 给人看的工程详细介绍 |
-| [docs/COMPONENT-MAPPING-GUIDE.md](./docs/COMPONENT-MAPPING-GUIDE.md) | 组件映射文件编写规范 |
-| [docs/DATA-STRUCTURE.md](./docs/DATA-STRUCTURE.md) | 节点结构与 Props 类型系统完整定义 |
+| [docs/COMPONENT-MAPPING-GUIDE.md](./docs/COMPONENT-MAPPING-GUIDE.md) | 组件映射文件编写规范（含 Icon 处理章节） |
+| [docs/DATA-STRUCTURE.md](./docs/DATA-STRUCTURE.md) | 节点结构与 Props 类型系统完整定义（含 importMode 字段） |
+| [docs/agent.md](./docs/agent.md) | Agent 辅助文档 |
