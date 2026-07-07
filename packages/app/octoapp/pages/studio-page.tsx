@@ -31,6 +31,7 @@ import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
+  referenceImageLimit,
   styleModelLabel,
   styleModelRequiresSeedreamPermission,
 } from "./studio/data"
@@ -187,6 +188,7 @@ export default function StudioPage() {
   const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
   const styleModel = () => imageSettingStore.styleModel
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
@@ -1407,13 +1409,36 @@ export default function StudioPage() {
 
   const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const
 
+  function readStudioAssetDimensions(asset: StudioAsset) {
+    return new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      img.onerror = () => reject(new Error("无法读取图片尺寸。"))
+      img.src = asset.dataUrl
+    })
+  }
+
+  function selectStyleModel(value: string) {
+    setStyleModel(value)
+    setAssets((items) => items.slice(0, referenceImageLimit(value)))
+  }
+
   function addAssets(files: File[]) {
-    const file = files.find((item) => item.type.startsWith("image/"))
-    if (!file) return
+    const imageFiles = files.filter((item) => item.type.startsWith("image/"))
+    if (!imageFiles.length) return
+    const limit = maxReferenceImages()
+    const selectedFiles = limit === 1 ? imageFiles.slice(0, 1) : imageFiles.slice(0, Math.max(limit - assets().length, 0))
+    if (!selectedFiles.length) {
+      showToast({
+        title: "上传失败",
+        description: `最多上传 ${limit} 张参考图。`,
+      })
+      return
+    }
     const isJimeng = imageTool() === "jimeng"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
-    const ext = file.name.split(".").pop()?.toLowerCase()
-    if (!ext || !allowedExts.includes(ext)) {
+    const invalidExtFile = selectedFiles.find((file) => !allowedExts.includes(file.name.split(".").pop()?.toLowerCase() ?? ""))
+    if (invalidExtFile) {
       showToast({
         title: "上传失败",
         description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
@@ -1422,35 +1447,25 @@ export default function StudioPage() {
     }
     const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
     const maxSizeLabel = isJimeng ? "15MB" : "8MB"
-    if (file.size > maxSize) {
+    if (selectedFiles.some((file) => file.size > maxSize)) {
       showToast({
         title: "上传失败",
         description: `图片文件大小不能超过 ${maxSizeLabel}。`,
       })
       return
     }
-    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: files.length }) })
-    readStudioAsset(file)
-      .then((asset) => {
-        const img = new Image()
-        img.onload = () => {
-          if (img.naturalWidth > 7500 || img.naturalHeight > 7500) {
-            showToast({
-              title: "上传失败",
-              description: "图片最大尺寸不能超过 7500px。",
-            })
-            return
-          }
-          setAssets([asset])
-          autoSetAspectRatioFromDimensions(img.naturalWidth, img.naturalHeight)
-        }
-        img.onerror = () => {
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: selectedFiles.length }) })
+    Promise.all(selectedFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
+      .then((items) => {
+        if (items.some((item) => item.dimensions.width > 7500 || item.dimensions.height > 7500)) {
           showToast({
             title: "上传失败",
-            description: "无法读取图片尺寸。",
+            description: "图片最大尺寸不能超过 7500px。",
           })
+          return
         }
-        img.src = asset.dataUrl
+        setAssets((current) => limit === 1 ? [items[0].asset] : [...current, ...items.map((item) => item.asset)].slice(0, limit))
+        autoSetAspectRatioFromDimensions(items[0].dimensions.width, items[0].dimensions.height)
       })
       .catch((error) => {
         showToast({
@@ -1951,15 +1966,13 @@ export default function StudioPage() {
     }
   }
 
-  async function restoredImageAssets(referenceImages: string[]) {
-    const referenceImage = referenceImages[0]
-    if (!referenceImage) return []
-    try {
-      return [await studioAssetFromImageUrl(referenceImage, "reference-1.png")]
-    } catch (error) {
-      console.warn("[StudioPage] restore edit draft reference image failed", error)
-      return []
-    }
+  async function restoredImageAssets(referenceImages: string[], limit: number) {
+    return (await Promise.all(referenceImages.slice(0, limit).map((referenceImage, index) =>
+      studioAssetFromImageUrl(referenceImage, `reference-${index + 1}.png`).catch((error) => {
+        console.warn("[StudioPage] restore edit draft reference image failed", error)
+        return undefined
+      })
+    ))).filter((asset): asset is StudioAsset => Boolean(asset))
   }
 
   async function restoredVideoFrameAssets(frames: { first?: string; last?: string }) {
@@ -2004,7 +2017,7 @@ export default function StudioPage() {
     if (draft.capability === "image.generate") {
       if (draft.styleModel) setStyleModel(draft.styleModel)
       clearVideoFrames()
-      setAssets(await restoredImageAssets(draft.referenceImages))
+      setAssets(await restoredImageAssets(draft.referenceImages, referenceImageLimit(draft.styleModel ?? styleModel())))
       showEditDraftSyncedToast()
       return
     }
@@ -2882,6 +2895,7 @@ export default function StudioPage() {
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
                   styleModel={styleModel()}
+                  maxReferenceImages={maxReferenceImages()}
                   aspectRatio={aspectRatio()}
                   count={count()}
                   assets={assets()}
@@ -2895,7 +2909,7 @@ export default function StudioPage() {
                   wordBook={wordBook}
                   onPrompt={setPrompt}
                   onCapability={selectStudioCapability}
-                  onStyleModel={setStyleModel}
+                  onStyleModel={selectStyleModel}
                   onAspectRatio={setAspectRatio}
                   onCount={setCount}
                   onVideoDuration={setVideoDuration}
@@ -3049,6 +3063,7 @@ if (!headerTitle.pendingRename) return
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
             styleModel={styleModel()}
+            maxReferenceImages={maxReferenceImages()}
             aspectRatio={aspectRatio()}
             count={count()}
             assets={assets()}
@@ -3062,7 +3077,7 @@ if (!headerTitle.pendingRename) return
             wordBook={wordBook}
             onPrompt={setPrompt}
             onCapability={selectStudioCapability}
-            onStyleModel={setStyleModel}
+            onStyleModel={selectStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
             onVideoDuration={setVideoDuration}
@@ -3255,7 +3270,7 @@ if (!headerTitle.pendingRename) return
         </Show>
         </main>
       </Show>
-      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" multiple class="hidden" onChange={handleFileChange} />
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />
