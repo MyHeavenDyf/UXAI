@@ -347,7 +347,7 @@ const defaultConfig = {
 1. **transform 不会自动递归 children**：transform 返回的 children 中，仅 `__nodeType: 'unresolved'` 的子节点会被管线递归映射；已 resolve 的（component/html/loop/renderFn）直接透传。需要手动递归可调用 `context.resolveNode(childNode)`。
 2. **Transform 兜底逻辑**：未注册的组件名以小写开头 → HTML 兜底；大写开头 → 默认 A2UI 组件兜底（`@/components/${componentName}`）。
 3. **stateData 支持 `__deleteFields`**：`transform` 可在 `stateData` 中设置 `__deleteFields: ['key.path']`，从 `mergedState` 中删除指定字段（支持嵌套路径），用于清理不再使用的 state 字段。
-4. **Wrapper import 同源合并**：`wrapper.import.source` 与节点自身 `import` 一致时，ImportCollector 合并到同一语句：`import Carousel, { CarouselItem } from '@nce/eview-react/Carousel'`。
+4. **Wrapper 作为 CodeGenNode 递归收集**：wrapper 是 CodeGenNode（`{ __nodeType, tag, import, props, children }`），渲染时在当前节点外层套一层标签。ImportCollector 通过递归 `collect(node.wrapper, ...)` 统一收集 wrapper 的 import，无需特殊处理；wrapper 的 import 与节点自身 import 同源时自动合并：`import Carousel, { CarouselItem } from '@nce/eview-react/Carousel'`。
 5. **`_isLoop` 转换**：`BuildTrees` 在绑定解析阶段设置 `_isLoop` / `_loopBinding` / `_loopTemplate`；`GenerateComponents._deepResolve` 阶段2自动转换为 `__type: 'loop'` 后清除标记。
 6. **Slot 根截断**：`_deepResolve` 在 `cutSlotRoots=true` 时遇到 `_isSlotRoot` 截断为模块组件引用（`<ModuleName />`），模块实际内容由独立组件文件渲染。
 7. **reactFn 抽取模式**：`__type: 'renderFn'` + `extract: true` + `refName` → 模块顶部 `const refName = (params) => (bodyJSX)`，主变量引用函数名。内联模式直接渲染箭头函数。
