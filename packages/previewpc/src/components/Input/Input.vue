@@ -78,10 +78,10 @@ function change(val: string) {
     @change="change"
   >
     <template v-if="prefix" #prefix>
-      <component :is="getLucideIconComponentRef(prefix)" :size="16" />
+      <component :is="getLucideIconComponentRef(prefix)" :size="14" />
     </template>
     <template v-if="suffix" #suffix>
-      <component :is="getLucideIconComponentRef(suffix)" :size="16" />
+      <component :is="getLucideIconComponentRef(suffix)" :size="14" />
     </template>
   </ElInput>
 </template>

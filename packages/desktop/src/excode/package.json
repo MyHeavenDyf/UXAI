@@ -10,16 +10,12 @@
     "./transform": "./index.ts"
   },
   "scripts": {
-    "start": "node --loader ts-node/esm cli.ts",
-    "dev": "node --loader ts-node/esm cli.ts",
-    "generate": "node --loader ts-node/esm cli.ts",
+    "start": "tsx cli.ts",
+    "dev": "tsx cli.ts",
+    "generate": "tsx cli.ts",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": [
-    "a2ui",
-    "code-generator",
-    "react"
-  ],
+  "keywords": ["a2ui", "code-generator", "react"],
   "license": "MIT",
   "engines": {
     "node": ">=16"
@@ -28,6 +24,7 @@
     "tw-to-css": "^0.0.12"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0"
+    "@types/node": "^26.1.0",
+    "tsx": "^4.19.0"
   }
 }

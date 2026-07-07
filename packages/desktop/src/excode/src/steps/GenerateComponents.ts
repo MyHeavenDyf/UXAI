@@ -52,14 +52,14 @@ export class GenerateComponents extends Step {
         const moduleName = this._toPascalCase(mod.section_id || moduleId);
 
         const codeGenElements = mod.elements.map((el: any) =>
-          this._deepResolve(el, ctx.registry, false, state)
+          this._deepResolve(el, ctx.registry, false, state, ctx.iconNameMap)
         );
 
         moduleInfos.push({ moduleId, moduleName, elements: codeGenElements, modRef: mod });
       }
 
       // ── 阶段2：解析页面根树（cutSlotRoots=true，slot 根截断为模块引用）──
-      const rootCodeGen = this._deepResolve(resolvedTree, ctx.registry, true, state);
+      const rootCodeGen = this._deepResolve(resolvedTree, ctx.registry, true, state, ctx.iconNameMap);
 
       // ── 阶段3：遍历所有已解析节点树，提取 stateData + componentData ──
       //  - stateData：纯数据 → 合并到 initialState
@@ -118,7 +118,7 @@ export class GenerateComponents extends Step {
         //     来源 3：loop template 中的 CodeGenNode
         const imports: Map<string, any> = new Map();
         const transformFn = (component: string, node: any, opts: any) =>
-          ctx.registry.transform(component, node, opts);
+          ctx.registry.transform(component, node, { ...opts, iconNameMap: ctx.iconNameMap });
 
         for (const codeGenEl of elements) {
           ImportCollector.collect(codeGenEl, imports, transformFn);
@@ -131,7 +131,13 @@ export class GenerateComponents extends Step {
 
         // 6c. 模块级 const 声明
         //     来源：moduleRefs（state 引用） + modComponentVars（含 JSX）
+        //     - readonly / loop binding → 模块级 const（在组件函数外）
+        //     - two-way binding → 组件函数内 useState（见 6g2 hookDecls）
         const decls = StateStrategy.generateModuleDecls(moduleRefs, []);
+
+        // 6c2. 模块内 hook 声明（two-way binding → useState）
+        //     在组件函数体内、return 之前输出
+        const hookDecls = StateStrategy.generateHookDecls(moduleRefs);
 
         // 6d. 渲染模块 JSX
         const jsxCtx: any = {
@@ -163,16 +169,17 @@ export class GenerateComponents extends Step {
 
         // 6g. 组装模块文件
         const hasCompVars = compVarDecls.trim().length > 0;
-        const fileBody = hasCompVars
-          ? `  // 数据转换（编译期生成）\n${compVarDecls.split('\n').map((l: string) => `  ${l}`).join('\n')}\n`
+        // componentVars 的 const 声明放在组件函数体顶部、return 之前
+        const compVarBody = hasCompVars
+          ? `  // 数据转换（编译期生成）\n${compVarDecls.split('\n').map((l: string) => `  ${l}`).join('\n')}\n\n`
           : '';
 
         const indentedJsx = jsxParts
-          .map((p: string) => p.split('\n').map((line: string) => `      ${line}`).join('\n'))
+          .map((p: string) => p.split('\n').map((line: string) => `    ${line}`).join('\n'))
           .join('\n');
 
         const fileContent = ([
-          "import React from 'react';",
+          "import React, { useState } from 'react';",
           "import { initialState } from '../state';",
           ...(styleImports.length > 0 ? ['', ...styleImports] : []),
           '',
@@ -180,10 +187,11 @@ export class GenerateComponents extends Step {
           decls,
           '',
           `export const ${moduleName} = () => {`,
-          fileBody ? `  return (\n${'      '.trim()}<>` : '  return (',
-          ...(fileBody
-            ? [indentedJsx, '    </>', '  );']
-            : [indentedJsx, '  );']),
+          hookDecls,
+          compVarBody,
+          '  return (',
+          indentedJsx,
+          '  );',
           '};',
           '',
           `export default ${moduleName};`,
@@ -202,8 +210,7 @@ export class GenerateComponents extends Step {
 
       const pageImports: Map<string, any> = new Map();
       const pageTransformFn = (component: string, node: any, opts: any) =>
-        ctx.registry.transform(component, node, opts);
-
+          ctx.registry.transform(component, node, { ...opts, iconNameMap: ctx.iconNameMap });
       ImportCollector.collect(rootCodeGen, pageImports, pageTransformFn);
       const { statements: pageImportStmts } = ImportCollector.generate(pageImports);
 
@@ -287,6 +294,21 @@ export class GenerateComponents extends Step {
     if (!node || typeof node !== 'object') return;
 
     if (node.stateData && typeof node.stateData === 'object') {
+      // 支持 __deleteFields：从 mergedState 中删除指定字段（支持嵌套路径）
+      if (node.stateData.__deleteFields && Array.isArray(node.stateData.__deleteFields)) {
+        for (const fieldPath of node.stateData.__deleteFields) {
+          const segments = fieldPath.split('.');
+          if (segments.length === 1) {
+            delete mergedState[fieldPath];
+          } else {
+            const parent = segments.slice(0, -1).reduce((obj: any, key: string) => obj?.[key], mergedState);
+            if (parent) delete parent[segments[segments.length - 1]];
+          }
+        }
+        // 删除标记本身，不进入 mergedState
+        delete node.stateData.__deleteFields;
+      }
+      // 普通字段覆盖
       for (const [key, value] of Object.entries(node.stateData)) {
         mergedState[key] = value;
       }
@@ -409,7 +431,7 @@ export class GenerateComponents extends Step {
    * @param cutSlotRoots - 遇到 _isSlotRoot 时截断为模块组件引用
    * @param rawState - 注入到 transform 用于 state 访问
    */
-  _deepResolve(node: any, registry: any, cutSlotRoots: boolean = false, rawState: any = null): any {
+  _deepResolve(node: any, registry: any, cutSlotRoots: boolean = false, rawState: any = null, iconNameMap: Record<string, string> = {}): any {
     if (!node) return null;
 
     // ── 1. Slot 根截断 ──
@@ -431,13 +453,13 @@ export class GenerateComponents extends Step {
       // 递归 children
       if (resolved.children && Array.isArray(resolved.children)) {
         resolved.children = resolved.children
-          .map((child: any) => this._deepResolve(child, registry, cutSlotRoots, rawState))
+          .map((child: any) => this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap))
           .filter(Boolean);
       }
 
       // ★ 处理 _isLoop：转换为 __type: 'loop'
       if (resolved._isLoop && resolved._loopTemplate) {
-        const resolvedTemplate = this._deepResolve(resolved._loopTemplate, registry, cutSlotRoots, rawState);
+        const resolvedTemplate = this._deepResolve(resolved._loopTemplate, registry, cutSlotRoots, rawState, iconNameMap);
         const loopNode = {
           __type: 'loop',
           extract: false,    // 默认内联
@@ -463,7 +485,7 @@ export class GenerateComponents extends Step {
         for (const [key, value] of Object.entries(resolved.props)) {
           if (value && typeof value === 'object' && (value as any).__slotNode) {
             resolved.props[key] = {
-              __slotNode: this._deepResolve((value as any).__slotNode, registry, cutSlotRoots, rawState)
+              __slotNode: this._deepResolve((value as any).__slotNode, registry, cutSlotRoots, rawState, iconNameMap)
             };
           }
         }
@@ -491,8 +513,9 @@ export class GenerateComponents extends Step {
       const self = this;
       const codeGen = registry.transform(unifiedNode.component, unifiedNode, {
         rawState,
+        iconNameMap,
         resolveNode: (childNode: any) =>
-          self._deepResolve(childNode, registry, cutSlotRoots, rawState),
+          self._deepResolve(childNode, registry, cutSlotRoots, rawState, iconNameMap),
       });
 
       if (!codeGen) {
@@ -514,7 +537,7 @@ export class GenerateComponents extends Step {
             if (typeof child === 'string') return child;
             // 未解析 → 递归（含 _isLoop，由 Step 2 处理）
             if (child.__nodeType === 'unresolved' || child.component) {
-              return this._deepResolve(child, registry, cutSlotRoots, rawState);
+              return this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap);
             }
             // 已 resolve → 透传
             return child;
@@ -536,7 +559,8 @@ export class GenerateComponents extends Step {
         { ...node, __nodeType: 'unresolved' },
         registry,
         cutSlotRoots,
-        rawState
+        rawState,
+        iconNameMap
       );
     }
 

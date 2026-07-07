@@ -39,7 +39,7 @@ export default {
     items: 'firstOfArray',        // 数组取首项
   },
   defaults: {
-    closable: false,              // 仅当 prop 不存在时填充默认值
+    closable: false,              // 默认值，transform 前后均会兜底注入
   },
 
   // ── 可选 transform（最高优先级，处理声明式无法表达的逻辑）──
@@ -47,10 +47,11 @@ export default {
     // node = { __nodeType: 'unresolved', component, props, children }
     // context = { rawState, resolveNode }
     // 返回 { props, children?, _inlineVarProps?, selfClosing?,
-    //        stateData?, componentData? }
+    //        stateData?, componentData?,
+    //        tag? , import? }                    ← 可选覆盖目标组件
     // stateData     → 纯数据，合并到页面 initialState
     // componentData → 含 JSX，路由到所属模块顶部 const 声明
-    // 注意：不返回 tag/import，管线自动使用顶层导出的值
+    // tag/import    → 可选：动态切换目标组件（见 3.5 返回值规范）
     // 完整类型体系见 DATA-STRUCTURE.md
   },
 }
@@ -59,11 +60,14 @@ export default {
 ### 1.3 字段执行顺序（关键！）
 
 ```
-1. defaults   ← 填充默认值（仅 prop 不存在时）
+1. defaults   ← 填充默认值（仅 prop 不存在时，注入到 node.props）
 2. propsMap   ← prop 改名/删除（原名 → 目标名）
 3. valueMap   ← 枚举值映射（key 使用【改名后的目标 prop 名】！不是原名）
 4. transform  ← 任意复杂逻辑（props 结构重组、children 包裹、绑定升级等）
+5. defaults（二次兜底）← transform **返回后**再次合并 defaults 中尚未出现在最终 props 中的字段
 ```
+
+**第 5 步说明**：transform 返回后，管线会将 `defaults` 中最终 props 仍缺失的字段再次注入。这意味着**无论 transform 是否透传 `node.props`，defaults 声明一定会出现在生成的目标组件 props 中**。映射文件作者无需关心 transform 是否完全重组 props，defaults 始终是安全的兜底。
 
 **⚠️ 重要规则**：
 
@@ -128,7 +132,11 @@ defaults: {
 }
 ```
 
-仅当 prop 在原始节点中完全不存在时生效，不会覆盖已有值。
+在管线中经历两种性质的填充：
+- **transform 前**（`applySchema` 阶段）：填充到 `node.props`，transform 可以读取和使用
+- **transform 后**（二次兜底）：填充到最终输出 props 中尚未出现的字段，确保 defaults 声明不被丢弃
+
+> 映射文件作者无需关心这两种填充的差别。管线保证 `defaults` 字段一定出现在最终生成的目标组件 props 中。
 
 ---
 
@@ -151,6 +159,8 @@ defaults: {
  *
  * @returns {object} transform 结果
  *   { props: { ... },                    ← 处理后的目标组件 props
+ *     tag?: 'IconButton',                ← 可选：动态覆盖目标组件名（默认使用映射文件顶层 tag）
+ *     import?: '@nce/.../IconButton',    ← 可选：动态覆盖导入路径（默认使用映射文件顶层 import）
  *     children: [{...}, '文本'],          ← 子节点数组（可选），每项可以是：
  *                                              UnresolvedNode: { __nodeType: 'unresolved', component, ... }
  *                                              CodeGenNode:    { __nodeType: 'component'|'html', tag, ... }
@@ -160,7 +170,8 @@ defaults: {
  *     stateData?: { key: value },        ← 可选：纯数据，合并到 initialState
  *     componentData?: { key: value },    ← 可选：含 JSX，模块顶部 const 声明
  *   }
- *   // 注意：transform 不返回 tag 和 import，管线自动使用映射文件的 tag/import
+ *   // tag/import 可选覆盖：当需要根据运行时条件动态切换目标组件时返回，
+ *   // 管线使用 result.tag || def.tag / result.import || def.import。
  *   // transform 返回的 children 中的 unresolved 节点，管线会递归映射
  *   // 需要包裹子节点时，在 child 上加 wrapper（看 3.2）
  */
@@ -271,11 +282,18 @@ transform 返回:
 interface TransformResult {
   props: Record<string, any>        // 处理后的目标组件 props
   children?: Array<any>             // 子节点数组（可选）
+  tag?: string                      // 可选：动态覆盖目标组件名（默认使用映射文件顶层 tag）
+  import?: string                   // 可选：动态覆盖导入路径（默认使用映射文件顶层 import）
   _inlineVarProps?: string[]       // 需提取为模块级变量的 prop key（可选）
   selfClosing?: boolean            // 强制自闭合（可选）
   stateData?: Record<string, any>  // 纯数据 → 合并到 initialState（可选）
   componentData?: Record<string, any> // 含 JSX → 模块顶部 const 声明（可选）
 }
+
+// tag/import 覆盖规则：
+// 管线使用 result.tag || def.tag / result.import || def.import，
+// 即 transform 返回的 tag/import 优先级高于映射文件顶层声明。
+// 典型场景：同一 A2UI 组件根据条件分支映射到不同的目标组件（如 Button → Button/IconButton）。
 ```
 
 **stateData 与 componentData 说明**：
@@ -693,9 +711,9 @@ children 处理（transform 返回）
 - [ ] `propsMap` 的 key 使用 A2UI 原名，value 使用 eview-react 目标名
 - [ ] `propsMap` 中没有 `value → children` 这样的错误映射
 - [ ] `valueMap` 的 key 使用**目标 prop 名**（改名后的），不是原名
-- [ ] `defaults` 是否真的只在 prop 不存在时生效
+- [ ] `defaults` 声明是否在最终产物中出现（管线自动在 transform 前后两次兜底注入，无需手动维护）
 - [ ] `transform` 已提取为独立顶层函数，不在 `export default` 内联
-- [ ] `transform` 不返回 `tag` 和 `import`（管线的固有行为）
+- [ ] `transform` 仅在需要动态切换目标组件时返回 `tag` 和 `import`（默认使用映射文件顶层声明）
 - [ ] 涉及 `children` 包裹时，使用 `child.wrapper` 方式（不需要额外的映射文件）
 - [ ] `wrapper.import` 正确设置了 `source` 和 `specifier`，同源能与组件自己的 import 合并
 - [ ] `_inlineVarProps` 标注了需要提取的复杂 prop
@@ -728,3 +746,151 @@ children 处理（transform 返回）
 | 数据转换 | `tag + import + transform` + `stateData`/`componentData` | Table(columns+render) |
 | renderFn 抽取 | `tag + import + transform` + `__type: 'renderFn'` + `extract: true` | Table(columns.render) |
 | 循环渲染 | `tag + import + transform` + `__type: 'loop'` | List, Table(body) |
+| icon 组件映射 | `tag + import + transform` + `resolveIcon()` | Icon |
+| icon 属性处理 | `tag + import + transform` + `resolveIcon()` | Menu, Tree, List |
+
+---
+
+## 9. Icon 处理
+
+### 9.1 概述
+
+excode 管线通过 **ResolveIcons** 步骤统一收集页面中所有 icon 名称，调用远程 API 获取 @hui/icon-plus 的映射关系，存入 `ctx.iconNameMap`。映射文件在 transform 中通过 `resolveIcon()` 工具函数将 A2UI icon 名称转换为 CodeGenNode。
+
+### 9.2 数据流
+
+```
+A2UI JSON 中的 icon 名称
+  │
+  ▼
+ResolveIcons 步骤
+  ├─ 从节点树收集: Icon.props.name, *.props.icon, items[].icon, children[].icon
+  ├─ 从 state 数据收集: 递归遍历 state 对象（深度 ≤ 20）
+  ├─ 从 DataBinding 收集: 解析 __binding 路径，从 rawState 取值后递归
+  └─ 调用 API: GET /api/icons/search?keyword={names}&topK=2（batch=6，并发）
+  │
+  ▼
+ctx.iconNameMap: Record<string, string>
+  例: { 'home': 'IconPlusIcIctHome', 'menu': 'IconPlusIcIctMenu', ... }
+  │
+  ▼
+映射文件 transform 中:
+  import { resolveIcon } from './Icon'
+  resolveIcon(iconName, iconNameMap, extraProps?)
+  │
+  ▼
+CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@hui/icon-plus', importMode: 'named', props: { shape: 'outline' }, selfClosing: true }
+```
+
+### 9.3 resolveIcon() 工具函数
+
+**位置**：`config/mappings/eview-react/Icon.ts`
+
+```ts
+import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
+
+/**
+ * 将 A2UI icon 名称转换为 @hui/icon-plus 的 CodeGenNode
+ *
+ * @param iconName    - A2UI icon 名称（如 'home', 'menu'）
+ * @param iconNameMap - ResolveIcons 步骤产出的映射表（ctx.iconNameMap）
+ * @param extraProps  - 可选额外 props（如 { color, className, shape }）
+ * @returns CodeGenNode | null
+ *
+ * 返回的 CodeGenNode:
+ *   { __nodeType: 'component',
+ *     tag: 'IconPlusIcIctHome',
+ *     import: '@hui/icon-plus',
+ *     importMode: 'named',
+ *     props: { shape: 'outline', ...extraProps },
+ *     children: null,
+ *     selfClosing: true }
+ *
+ * 未找到映射时返回 PLACEHOLDER_ICON（避免生成失败）
+ */
+```
+
+### 9.4 在映射文件中使用
+
+#### 场景 A：Icon 组件（直接渲染 icon）
+
+```ts
+// config/mappings/eview-react/Icon.ts
+import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
+
+export default {
+  tag: 'IconPlusIcIctHome',    // 动态 tag，实际由 resolveIcon 决定
+  import: '@hui/icon-plus',     // 动态 import，实际由 resolveIcon 决定
+
+  transform(node, { iconNameMap }) {
+    const p = { ...(node.props || {}) };
+    const iconName = p.name || '';
+    delete p.name;
+
+    // 使用 resolveIcon 生成 CodeGenNode
+    const iconNode = resolveIcon(iconName, iconNameMap, {
+      color: p.color,
+      className: p.className,
+      shape: p.shape || 'outline',
+    });
+
+    // 将 icon 作为 componentData 返回，主变量引用
+    return {
+      props: { ...p, icon: { __varRef: 'pageIcon' } },
+      children: node.children,
+      componentData: { pageIcon: iconNode },
+    };
+  },
+};
+```
+
+#### 场景 B：Menu 等组件（items 数据中的 icon 字段）
+
+```ts
+// config/mappings/eview-react/Menu.ts
+import { resolveIcon } from './Icon';
+
+export default {
+  tag: 'Accordion',
+  import: '@nce/eview-react/Accordion',
+
+  transform(node, { rawState, iconNameMap }) {
+    const p = { ...(node.props || {}) };
+
+    // 处理 items 中的 icon
+    if (Array.isArray(p.items)) {
+      p.items = p.items.map(item => {
+        if (item.icon) {
+          const iconNode = resolveIcon(item.icon, iconNameMap);
+          if (iconNode) {
+            return { ...item, icon: iconNode };
+          }
+        }
+        return item;
+      });
+    }
+
+    return { props: p, children: node.children };
+  },
+};
+```
+
+### 9.5 importMode: 'named' 说明
+
+@hui/icon-plus 使用命名导出（named export），每个 icon 是一个独立的命名导出：
+
+```ts
+import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@hui/icon-plus';
+```
+
+映射文件中通过 `importMode: 'named'` 告知 ImportCollector 使用命名导入语法。该字段在 `resolveIcon()` 返回的 CodeGenNode 中自动设置。
+
+### 9.6 验证清单
+
+- [ ] Icon 组件映射使用 `resolveIcon()` 而非手动构造 CodeGenNode
+- [ ] 含 icon 属性的组件（Menu, Tree, List 等）在 transform 中调用 `resolveIcon()`
+- [ ] `resolveIcon()` 从 `./Icon` 导入
+- [ ] `iconNameMap` 从 transform context 获取
+- [ ] 未找到映射时使用 `PLACEHOLDER_ICON` 兜底
+- [ ] ResolveIcons 步骤在 BuildTrees 之后、GenerateComponents 之前执行
+- [ ] ResolveIcons 覆盖了节点树 + state 数据 + DataBinding 中的 icon 名称

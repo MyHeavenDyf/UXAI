@@ -40,7 +40,11 @@ export class ImportCollector {
       ImportCollector._collectNodeImport(node, imports, transformFn);
     } else if (node.__nodeType === 'component' && node.import) {
       // 直接使用已解析节点的 import
-      ImportCollector._addImport(node.import, node.tag, imports);
+      if (node.importMode === 'named') {
+        ImportCollector._addNamedImport(node.import, node.tag, imports);
+      } else {
+        ImportCollector._addImport(node.import, node.tag, imports);
+      }
     }
 
     // 2. 收集 wrapper.import（若有）
@@ -72,6 +76,13 @@ export class ImportCollector {
         ImportCollector._collectFromPropValue(value, imports, transformFn);
       }
     }
+
+    // 5. 从 componentData 中递归收集 import（如 Menu 的 icon 组件 CodeGenNode）
+    if (node.componentData) {
+      for (const value of Object.values(node.componentData)) {
+        ImportCollector._collectFromPropValue(value, imports, transformFn);
+      }
+    }
   }
 
   /**
@@ -80,7 +91,11 @@ export class ImportCollector {
   static _collectNodeImport(node: any, imports: ImportMap, transformFn: (component: string, node: any, opts: { forImport: boolean }) => any): void {
     const result = transformFn(node.component, node, { forImport: true });
     if (result && result.__nodeType === 'component' && result.import) {
-      ImportCollector._addImport(result.import, result.tag, imports);
+      if (result.importMode === 'named') {
+        ImportCollector._addNamedImport(result.import, result.tag, imports);
+      } else {
+        ImportCollector._addImport(result.import, result.tag, imports);
+      }
     }
   }
 
@@ -99,12 +114,29 @@ export class ImportCollector {
   }
 
   /**
-   * 从 prop value 中递归收集 import（slotNode）
+   * 向 imports 添加一条命名导入
+   */
+  static _addNamedImport(importPath: string, specifier: string, imports: ImportMap): void {
+    if (!importPath) return;
+    if (!imports.has(importPath)) {
+      imports.set(importPath, { default: null, named: new Set() });
+    }
+    const entry = imports.get(importPath)!;
+    entry.named.add(specifier);
+  }
+
+  /**
+   * 从 prop value 中递归收集 import（slotNode / CodeGenNode）
    */
   static _collectFromPropValue(value: any, imports: ImportMap, transformFn: (component: string, node: any, opts: { forImport: boolean }) => any): void {
     if (!value || typeof value !== 'object') return;
     if (value.__slotNode) {
       ImportCollector.collect(value.__slotNode, imports, transformFn);
+      return;
+    }
+    // CodeGenNode — 递归 collect 收集其 import
+    if (value.__nodeType === 'component' || value.__nodeType === 'html') {
+      ImportCollector.collect(value, imports, transformFn);
       return;
     }
     for (const v of Object.values(value)) {

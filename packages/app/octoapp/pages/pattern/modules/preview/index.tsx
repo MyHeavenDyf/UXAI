@@ -349,13 +349,20 @@ export function PreviewPage(props: {
     }
   }
 
+  function onParentPointerUp(e: PointerEvent) {
+    if (!editing() || e.target === previewIframeRef) return
+    previewIframeRef?.contentWindow?.postMessage({ type: "DRAG_CANCEL" }, "*")
+  }
+
   window.addEventListener("message", handleIframeMessage)
   window.addEventListener("click", onClickOutside)
   window.addEventListener("keydown", onKeyDown)
+  window.addEventListener("pointerup", onParentPointerUp)
   onCleanup(() => {
     window.removeEventListener("message", handleIframeMessage)
     window.removeEventListener("click", onClickOutside)
     window.removeEventListener("keydown", onKeyDown)
+    window.removeEventListener("pointerup", onParentPointerUp)
   })
 
   return (

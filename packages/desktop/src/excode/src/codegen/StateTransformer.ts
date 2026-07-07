@@ -133,6 +133,12 @@ export class StateTransformer {
     if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 
     if (value && typeof value === 'object') {
+      // CodeGenNode — 渲染为 JSX 元素（如 icon 组件嵌套在 componentData 中）
+      if (value.__nodeType === 'component' || value.__nodeType === 'html') {
+        const bodyCtx = { ...jsxCtx, loopVarName: 'rowData' };
+        return JsxSerializer.renderNode(value, bodyCtx);
+      }
+
       // renderFn — 新格式
       if (value.__type === 'renderFn') {
         if (value.extract && value.refName) {

@@ -87,18 +87,31 @@
 }
 .el-button--large {
   --el-button-size: 36px;
-  padding: var(--spacing-0) var(--spacing-6);
+  padding: var(--spacing-0) var(--spacing-5);
   min-width: 96px;
-  font-size: var(--el-font-size-large);
+  font-size: var(--el-font-size-base);
 }
 
 .el-button.icon-only-circle {
-  width: auto !important;
-  height: auto !important;
+  width: 32px !important;
+  height: 32px !important;
   min-width: auto !important;
   border: none;
   background-color: transparent;
   padding: 0px;
+  svg {
+    width: var(--font-size-2xl);
+    height: var(--font-size-2xl);
+  }
+
+  &.el-button--small {
+    width: 24px !important;
+    height: 24px !important;
+    svg {
+      width: var(--font-size-md);
+      height: var(--font-size-md);
+    }
+  }
 }
 
 .el-button.icon-only-circle:hover,
