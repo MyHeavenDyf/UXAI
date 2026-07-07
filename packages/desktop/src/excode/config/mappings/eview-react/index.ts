@@ -10,10 +10,13 @@
  */
 import { default as Button } from './Button';
 import { default as Icon } from './Icon';
-import { default as Menu } from './Menu';
 import { default as Tabs } from './Tabs';
 import { default as TabItem } from './TabItem';
+import { default as Input } from './Input';
+import { default as Menu } from './Menu';
+import { default as Switch } from './Switch';
 import { default as Table } from './Table';
+import { default as Tag } from './Tag';
 
 export default {
     Button,
@@ -22,10 +25,12 @@ export default {
     Tabs,
     TabItem,
     Table,
+    Input,
+    Switch,
+    Tag,
     // ── 后续组件按字母顺序添加 ──
     // Badge,
     // Carousel,
-    // Input,
     // ProgressBar,
     // TextField,
     // ...

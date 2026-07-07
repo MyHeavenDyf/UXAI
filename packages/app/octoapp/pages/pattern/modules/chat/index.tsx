@@ -38,6 +38,8 @@ function RoundCard(props: {
   error?: string
   needsConfirm: boolean
   confirmText?: { title: string; subtitle: string } | null
+  pauseMs: number
+  pauseStartedAt?: number
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
   const generating = () => isLatest() && props.pipelineBusy && !props.needsConfirm
@@ -53,8 +55,8 @@ function RoundCard(props: {
         needsConfirm={props.needsConfirm}
         confirmText={props.confirmText}
       />
-      <Show when={done() || generating()}>
-        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} />
+      <Show when={done() || generating() || props.needsConfirm}>
+        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} pauseMs={props.pauseMs} pauseStartedAt={props.pauseStartedAt} />
       </Show>
     </>
   )
@@ -95,6 +97,8 @@ export function ChatPanel(props: {
   roundMessages: Round[]
   needsConfirm: boolean
   confirmText: { title: string; subtitle: string } | null
+  pauseMs: number
+  pauseStartedAt?: number
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
   /** 标题修改后通知父组件更新 */
@@ -321,6 +325,8 @@ export function ChatPanel(props: {
                           error={round().error}
                           needsConfirm={props.needsConfirm}
                           confirmText={props.confirmText}
+                          pauseMs={props.pauseMs}
+                          pauseStartedAt={props.pauseStartedAt}
                         />
                       </>
                     )}
