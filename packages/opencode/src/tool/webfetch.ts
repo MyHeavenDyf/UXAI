@@ -155,6 +155,18 @@ export const WebFetchTool = Tool.define(
 )
 
 async function extractTextFromHTML(html: string) {
+  // HTMLRewriter 是 Bun 独有 API，Electron utilityProcess (Node) 无此全局。
+  // 不可用时回退到 TurndownService 转 markdown 再剥离格式标记。
+  if (typeof HTMLRewriter === "undefined") {
+    const markdown = convertHTMLToMarkdown(html)
+    return markdown
+      .replace(/^#{1,6}\s+/gm, "")         // remove heading markers
+      .replace(/[\[\]]/g, "")               // remove link brackets
+      .replace(/[*_~`]/g, "")               // remove formatting markers
+      .replace(/\n{3,}/g, "\n\n")           // collapse excessive newlines
+      .trim()
+  }
+
   let text = ""
   let skipContent = false
 
