@@ -4,7 +4,7 @@
 //   - 图片必然要上传(模型无法理解本地路径的图),故选/粘当下就传,与"是否调 MCP"无关。
 //   - 非图片文件(④ 喂 MCP)的 S3 上传**不在前端**——下沉到 server 端 octo-upload-inject 插件,
 //     模型真调 MCP 工具时才按需上传(见 insight-file-passing.md §3)。
-// 本文件保留:客户端校验 + 文件名清洗 + 图片 uploadFile + [附件] 清单 format/parse。
+// 本文件保留:客户端校验 + 图片 uploadFile + [附件] 清单 format/parse。
 //
 // 设计要点：
 // - form 里只发 file 一个字段，不组 S3 路径（路径策略是服务端的事）
@@ -17,11 +17,15 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
-// 图片(png/jpg/jpeg/gif/webp)是前端单独放开的白名单项：产品要求输入框能粘贴/上传图片，
-// 但 file-upload spec 里服务端白名单（由 analyze_interview 可处理格式决定）暂未含图片。
-// 这是「前端先放校验、后端后续跟进」的有意为之，别照 spec 把图片项删掉——删了图片就上传不了。
+// 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
+// - txt/md → FilePart 内联（路由 ①）；docx/xlsx/pdf/pptx → extract_document 本地抽取（②）+ MCP
+//   按需上传（④）。服务端白名单现为 txt/md/docx/xlsx/pdf（见 file-upload spec），pptx 已请协作
+//   团队跟进；跟进前 pptx 走 ② 正常、走 ④ 会 415 回灌。
+// - 图片(png/jpg/jpeg/gif/webp)是前端单独放开的白名单项：产品要求输入框能粘贴/上传图片，
+//   但服务端白名单（由 analyze_interview 可处理格式决定）暂未含图片。这是「前端先放校验、
+//   后端后续跟进」的有意为之，别照 file-upload spec 把图片项删掉——删了图片就上传不了。
 // UPLOAD_ACCEPT / UPLOAD_HINT / validateFile 都从本常量派生，单一事实源。
-export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "png", "jpg", "jpeg", "gif", "webp"] as const
+export const ALLOWED_EXT = ["txt", "md", "docx", "xlsx", "pdf", "pptx", "png", "jpg", "jpeg", "gif", "webp"] as const
 
 export type UploadResult = {
   url: string
@@ -66,7 +70,7 @@ function getExt(filename: string): string {
 }
 
 // 「只有扩展名、没有文件名」判定：主名（末尾扩展名之前、再去掉开头的点）为空。
-// 命中：".txt" / ".env" / 清洗后塌成 ".txt" 的 "***.txt" / "..txt" / "."。
+// 命中：".txt" / ".env" / "..txt" / "."。
 // 不命中：".index.md"（主名 ".index" 非空，合法隐藏文件）、"report"（无点，属无扩展名另一类）。
 function hasEmptyBaseName(filename: string): boolean {
   const dot = filename.lastIndexOf(".")
@@ -74,22 +78,9 @@ function hasEmptyBaseName(filename: string): boolean {
   return filename.slice(0, dot).replace(/^\.+/, "") === ""
 }
 
-// 文件名清洗：内网上传服务把**未编码的原始文件名**直接拼进返回 URL，URL 再交给 MCP 取文件。
-// 文件名里出现允许集之外的特殊字符（如 ()（）、&、%、+、@、！、，、各种全角标点，以及
-// 路径/通配相关的 \ : * ? < > |）会让 MCP 端解析/取文件失败。这里在上传前把这类字符整段去掉。
-//
-// 允许保留：字母 / 数字 / 各类文字（含中文等 Unicode 字母）+ 以下特殊字符与空格：
-//   # - . / [ ] ^ _ ` { } 和空格
-// 其余字符一律删除。删空后兜底为 "file"（极端情况下整名都是非法字符）。
-//
-// 本函数只去非法字符、不造主名：形如 ".txt"、或清洗后塌成 ".txt" 的 "***.txt"，属
-// 「无扩展名的隐藏文件」(见 getExt：开头的点不算扩展名)，交由 validateFile 以
-// EXT_NOT_ALLOWED 清晰拒掉，而非偷偷改名成 file.txt 再上传。
-const FILENAME_DISALLOWED = /[^\p{L}\p{N} #./[\]^_`{}-]/gu
-
-export function sanitizeFileName(name: string): string {
-  return name.replace(FILENAME_DISALLOWED, "").trim() || "file"
-}
+// 客户端文件名清洗已移除（2026-07-03）：原 sanitizeFileName 是防「内网上传服务把未编码的
+// 原始文件名拼进返回 URL、特殊字符致 MCP 取文件失败」的防御性补丁。字符集安全改由服务端
+// 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部 2026-07-03 修订提案）。
 
 export function validateFile(file: File): UploadError | null {
   if (file.size === 0) return new UploadError("FILE_INVALID", "文件为空")

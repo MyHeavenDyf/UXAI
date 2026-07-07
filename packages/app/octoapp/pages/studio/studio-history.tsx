@@ -1,4 +1,5 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { ThumbnailMap } from "./session-thumbnail"
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
@@ -31,7 +32,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; onNewConversation: () => void; toggleDrawer?: () => void }): JSX.Element {
+export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
@@ -60,6 +61,13 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     }
   }, { defer: true }))
 
+  // Trigger thumbnail loading when sessions are first loaded
+  createEffect(on(sessions, (data) => {
+    if (data && data.length > 0 && props.onLoadThumbnails) {
+      props.onLoadThumbnails(data)
+    }
+  }, { defer: true }))
+
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
@@ -73,6 +81,13 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
 
   const isLoading = createMemo(() => sessions.loading)
   const [collapsed, setCollapsed] = createSignal(false)
+
+  // When thumbnail version increments, refetch sessions to force For re-render
+  createEffect(() => {
+    const ver = props.thumbnailVersion
+    if (ver && ver > 0) refetch()
+  })
+
   const [title, setTitle] = createStore({
     draft: "",
     editingID: "",
@@ -297,35 +312,149 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                     {(session) => {
                       const isActive = () => props.activeSessionID === session.id
                       const isContextTarget = () => contextMenu.show && contextMenu.session?.id === session.id
+                      const thumbnailUrl = createMemo(() => {
+                        // Depend on version to re-evaluate when a thumbnail is set elsewhere
+                        void props.thumbnailVersion
+                        return props.thumbnails?.[session.id]?.url
+                      })
+                      const [isTruncated, setIsTruncated] = createSignal(false)
+                      let titleSpanRef!: HTMLSpanElement
+                      let titleResizeObserver: ResizeObserver | undefined
+                      const checkTruncation = () => {
+                        if (titleSpanRef) setIsTruncated(titleSpanRef.scrollWidth > titleSpanRef.clientWidth)
+                      }
+                      createEffect(() => {
+                        const _title = sessionTitle(session.title) ?? language.t("command.session.new")
+                        void _title
+                        queueMicrotask(() => checkTruncation())
+                      })
+                      onCleanup(() => titleResizeObserver?.disconnect())
+                      const [showTooltip, setShowTooltip] = createSignal(false)
+                      let tooltipTimeout: ReturnType<typeof setTimeout> | undefined
+                      let tooltipRef!: HTMLDivElement
+                      const [tooltipStyle, setTooltipStyle] = createSignal<JSX.CSSProperties>({})
+                      const updateTooltipPos = () => {
+                        if (!titleSpanRef) return
+                        const rect = titleSpanRef.getBoundingClientRect()
+                        const spaceBelow = window.innerHeight - rect.bottom
+                        const style: JSX.CSSProperties = { left: `${rect.left}px` }
+                        if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+                          style.top = `${rect.bottom + 4}px`
+                        } else {
+                          style.bottom = `${window.innerHeight - rect.top + 4}px`
+                        }
+                        setTooltipStyle(style)
+                      }
+                      const enterTrigger = () => {
+                        if (!isTruncated()) return
+                        clearTimeout(tooltipTimeout)
+                        updateTooltipPos()
+                        setShowTooltip(true)
+                      }
+                      const leaveTrigger = () => {
+                        tooltipTimeout = setTimeout(() => setShowTooltip(false), 150)
+                      }
+                      const enterTooltip = () => clearTimeout(tooltipTimeout)
+                      const leaveTooltip = () => setShowTooltip(false)
                       return (
-                        <div class="group/item relative">
+                        <div class="relative">
                           <Show
                             when={title.editingID === session.id}
                             fallback={
-                              <a
-                                href={`/${props.routeSlug}/studio/${session.id}`}
-                                class="flex items-center w-full rounded-[8px] transition-colors"
-                                style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
-                                classList={{
-                                  "bg-[rgba(10,89,247,0.08)]": isActive(),
-                                  "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
-                                  "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
-                                }}
-                                onContextMenu={(e) => {
-                                  e.preventDefault()
-                                  setContextMenu({ show: true, x: e.clientX, y: e.clientY, session })
-                                }}
-                              >
-                                <span class="flex-1 min-w-0 truncate">
-                                  {sessionTitle(session.title) ?? language.t("command.session.new")}
-                                </span>
-                              </a>
+                              <>
+                                <a
+                                  href={`/${props.routeSlug}/studio/${session.id}`}
+                                  class="flex items-center w-full rounded-[8px] transition-colors"
+                                  style={{ height: "36px", padding: "0 44px 0 12px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined }}
+                                  classList={{
+                                    "bg-[rgba(10,89,247,0.08)]": isActive(),
+                                    "hover:bg-surface-base-hover": !isActive() && !isContextTarget(),
+                                    "bg-[rgba(0,0,0,0.06)]": isContextTarget(),
+                                  }}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault()
+                                    setContextMenu({ show: true, x: e.clientX, y: e.clientY, session })
+                                  }}
+                                  onMouseEnter={enterTrigger}
+                                  onMouseLeave={leaveTrigger}
+                                >
+                                  {/* Thumbnail */}
+                                  <div
+                                    style={{
+                                      width: "24px",
+                                      height: "24px",
+                                      "flex-shrink": "0",
+                                      "margin-right": "8px",
+                                      "border-radius": "4px",
+                                      overflow: "hidden",
+                                      background: "rgba(0,0,0,0.06)",
+                                      display: "flex",
+                                      "align-items": "center",
+                                      "justify-content": "center",
+                                    }}
+                                  >
+                                    <Show
+                                      when={thumbnailUrl()}
+                                      fallback={
+                                        <Show when={props.thumbnailsLoading} fallback={
+                                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                                            <circle cx="9" cy="9" r="2" />
+                                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                                          </svg>
+                                        }>
+                                          <Spinner class="size-3" />
+                                        </Show>
+                                      }
+                                    >
+                                      <img
+                                        src={thumbnailUrl()!}
+                                        alt=""
+                                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                                        loading="lazy"
+                                        onError={(e) => {
+                                          const el = e.currentTarget as HTMLImageElement
+                                          el.style.display = "none"
+                                        }}
+                                      />
+                                    </Show>
+                                  </div>
+                                  <span ref={(el) => { titleSpanRef = el; titleResizeObserver?.disconnect(); titleResizeObserver = new ResizeObserver(() => checkTruncation()); titleResizeObserver.observe(el); queueMicrotask(() => checkTruncation()) }} class="flex-1 min-w-0 truncate">
+                                    {sessionTitle(session.title) ?? language.t("command.session.new")}
+                                  </span>
+                                </a>
+                                <Show when={showTooltip()}>
+                                  <Portal>
+                                    <div
+                                      ref={tooltipRef!}
+                                      style={tooltipStyle()}
+                                      onMouseEnter={enterTooltip}
+                                      onMouseLeave={leaveTooltip}
+                                      class="studio-custom-tooltip fixed z-[1000]"
+                                    >
+                                      {sessionTitle(session.title) ?? language.t("command.session.new")}
+                                    </div>
+                                  </Portal>
+                                </Show>
+                              </>
                             }
                           >
                             <div
                               class="flex items-center w-full rounded-[8px]"
-                              style={{ height: "36px", padding: "0 44px 0 44px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined, background: isActive() ? "rgba(10,89,247,0.08)" : undefined }}
+                              style={{ height: "36px", padding: "0 44px 0 12px", "font-size": "12px", "line-height": "20px", color: isActive() ? "#0A59F7" : undefined, background: isActive() ? "rgba(10,89,247,0.08)" : undefined }}
                             >
+                              {/* Thumbnail placeholder during edit */}
+                              <div
+                                style={{
+                                  width: "24px",
+                                  height: "24px",
+                                  "flex-shrink": "0",
+                                  "margin-right": "8px",
+                                  "border-radius": "4px",
+                                  overflow: "hidden",
+                                  background: "rgba(0,0,0,0.06)",
+                                }}
+                              />
                               <InlineInput
                                 ref={(el) => {
                                   titleRef = el

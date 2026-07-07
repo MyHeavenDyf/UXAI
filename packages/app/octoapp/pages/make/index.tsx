@@ -54,8 +54,10 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
+import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { type ToolCallInfo } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
@@ -181,6 +183,24 @@ function MakeContent() {
         local.model.set({ providerID, modelID })
       },
       { defer: true },
+    ),
+  )
+
+  // 追踪会话页面上的最新模型选择，在切换到空态（新建对话）时回填
+  let lastSessionModel: { providerID: string; modelID: string } | null = null
+  createEffect(() => {
+    if (!params.id) return
+    const m = currentModel()
+    if (m) lastSessionModel = { providerID: m.provider.id, modelID: m.id }
+  })
+  createEffect(
+    on(
+      () => params.id,
+      (id, prevId) => {
+        if (!id && prevId && lastSessionModel) {
+          local.model.set(lastSessionModel, { recent: true })
+        }
+      },
     ),
   )
 
@@ -645,6 +665,33 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => document.removeEventListener("mousedown", handler))
   })
 
+  // ── Skills Config (from skills.json) ──
+  type SkillsConfigEntry = { description?: string; import?: boolean; type?: string }
+  type SkillsConfig = Record<string, SkillsConfigEntry>
+
+  const [skillsConfig, setSkillsConfig] = createSignal<SkillsConfig>({})
+  const [skillsLoading, setSkillsLoading] = createSignal(false)
+  const [skillsMenuState, setSkillsMenuState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [skillsMenuIndex, setSkillsMenuIndex] = createSignal(0)
+  const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
+
+  async function loadSkillsConfig() {
+    if (skillsLoading()) return
+    setSkillsLoading(true)
+
+    try {
+      const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
+      const config = await api?.getSkillsConfig?.()
+      if (config) {
+        setSkillsConfig(config)
+      }
+    } catch (err) {
+      console.error("[MakePage] Failed to load skills config:", err)
+    } finally {
+      setSkillsLoading(false)
+    }
+  }
+
   // ── Slash Command List ──
   interface SlashCommand {
     trigger: string
@@ -692,6 +739,15 @@ const sessionMessagesLoaded = createMemo(() => {
       source: "builtin",
     })
 
+    // Builtin: /skills command
+    list.push({
+      trigger: "skills",
+      title: "加载技能",
+      description: "将技能指令注入prompt（仅显示已激活技能）",
+      id: "builtin.skills",
+      source: "builtin",
+    })
+
     // Sort alphabetically
     list.sort((a, b) => a.trigger.localeCompare(b.trigger))
     return list
@@ -708,6 +764,40 @@ const sessionMessagesLoaded = createMemo(() => {
       (cmd.description?.toLowerCase() ?? "").includes(lowerQuery)
     )
   })
+
+  // Filter active skills (import !== false + type match)
+  const activeSkills = createMemo(() => {
+    const config = skillsConfig()
+    const list: Array<{ name: string; description: string }> = []
+
+    for (const [name, entry] of Object.entries(config)) {
+      if (entry.import === false) continue
+      if (!entry.type) continue
+      if (entry.type !== "common" && entry.type !== "octo_make") continue
+
+      list.push({
+        name,
+        description: entry.description ?? "",
+      })
+    }
+
+    return list.sort((a, b) => a.name.localeCompare(b.name))
+  })
+
+  // Filter skills by search query
+  const filteredSkills = createMemo(() => {
+    const query = skillsMenuState()?.query ?? ""
+    const list = activeSkills()
+
+    if (!query) return list
+
+    const lowerQuery = query.toLowerCase()
+    return list.filter(skill =>
+      skill.name.toLowerCase().includes(lowerQuery) ||
+      skill.description.toLowerCase().includes(lowerQuery)
+    )
+  })
+
   const DS_KEY_PREFIX = "octo:make:design-system:"
   const PROMPT_KEY_PREFIX = "octo:make:prompt:"
   const dsKey = () => params.id ? DS_KEY_PREFIX + params.id : null
@@ -994,6 +1084,22 @@ const sessionMessagesLoaded = createMemo(() => {
       }))
       let promptText = text
 
+      const loadedSkills = skillToolCalls()
+      if (loadedSkills.length > 0) {
+        const skillPrefix = loadedSkills
+          .filter(call => call.status === "done" && call.output)
+          .map(call => [
+            `<skill_content name="${call.input?.name}">`,
+            call.output,
+            "</skill_content>",
+            ""
+          ].join("\n"))
+          .join("\n")
+        
+        promptText = skillPrefix + "\n" + text
+        setSkillToolCalls([])
+      }
+
       // Design system prompt injection (prepended as hidden context, user text preserved)
       const dsId = selectedDesignSystem()
       if (dsId) {
@@ -1094,7 +1200,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
       const textPart: TextPartInput = { type: "text", text: promptText }
       const modelKey = activeModelKey()
-      if (!modelKey) return
+      if (!modelKey) {
+        setAttachments([])
+        return
+      }
       tracker.interaction({
         module: "design",
         name: "send-message",
@@ -1109,6 +1218,7 @@ const sessionMessagesLoaded = createMemo(() => {
       setAttachments([])
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
+      setAttachments([])
     }
   }
 
@@ -1180,6 +1290,37 @@ if (dsId) {
       }
     }
 
+    const skillsMenu = skillsMenuState()
+
+    // Skills menu keyboard navigation
+    if (skillsMenu) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSkillsMenuIndex(i => Math.min(i + 1, filteredSkills().length - 1))
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSkillsMenuIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault()
+        e.stopPropagation()
+        const selected = filteredSkills()[skillsMenuIndex()]
+        if (selected) pickSkillFromMenu(selected)
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        setSkillsMenuState(null)
+        return
+      }
+    }
+
     // Slash command navigation
     if (slash) {
       if (e.key === "ArrowDown") {
@@ -1212,11 +1353,11 @@ if (dsId) {
     }
 
     // Enter to send (only when both popovers are closed)
-    if (e.key === "Enter" && !e.shiftKey && !slash && !mention) {
+    if (e.key === "Enter" && !e.shiftKey && !slash && !mention && !skillsMenu) {
       if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
-      
-      // Check for /preview command: /preview URL或路径
+
+      // Check for /preview command
       const previewMatch = prompt().match(/^\/preview\s+(.+)$/)
       if (previewMatch) {
         const target = previewMatch[1].trim()
@@ -1224,7 +1365,15 @@ if (dsId) {
         setPrompt("")
         return
       }
-      
+
+      // Check for /skills <name> command
+      const skillsMatch = prompt().match(/^\/skills\s+([^\s]+)\s*$/)
+      if (skillsMatch) {
+        const skillName = skillsMatch[1].trim()
+        handleSkillCommand(skillName)
+        return
+      }
+
       void handleSubmit()
     }
   }
@@ -1236,6 +1385,21 @@ if (dsId) {
     const cursor = ta.selectionStart
 
     setPrompt(value)
+
+    // Detect /skills trigger (skills menu)
+    const skillsMenuMatch = value.match(/^\/skills(?:\s+(.*))?$/)
+    if (skillsMenuMatch && cursor === value.length) {
+      const query = skillsMenuMatch[1]?.trim() ?? ""
+      setSkillsMenuState({ query, cursor })
+      setSkillsMenuIndex(0)
+      setSlashState(null)
+      setMentionState(null)
+
+      loadSkillsConfig()
+      return
+    }
+
+    setSkillsMenuState(null)
 
     // Detect slash trigger: /^\/([^\s/]*)$/
     const slashMatch = value.match(/^\/([^\s/]*)$/)
@@ -1263,16 +1427,60 @@ if (dsId) {
 
     const ta = textareaRef
     const before = prompt()
-    
+
     // Replace `/query` with `/trigger `
     const replaced = before.replace(/^\/([^\s/]*)$/, `/${cmd.trigger} `)
     setPrompt(replaced)
     setSlashState(null)
 
+    if (cmd.trigger === "skills") {
+      setSkillsMenuState({ query: "", cursor: replaced.length })
+      setSkillsMenuIndex(0)
+      loadSkillsConfig()
+    }
+
     // Focus textarea and position cursor at end
     requestAnimationFrame(() => {
       ta.focus()
       ta.setSelectionRange(replaced.length, replaced.length)
+    })
+  }
+
+  /** Pick a skill from skills menu and insert into prompt */
+  async function pickSkillFromMenu(skill: { name: string; description: string }) {
+    const state = skillsMenuState()
+    if (!state) return
+
+    const ta = textareaRef
+
+    setSkillToolCalls(prev => [...prev, {
+      name: "skill",
+      status: "running",
+      input: { name: skill.name }
+    }])
+
+    const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
+    const result = await api?.getSkillContent?.(skill.name)
+
+    if (!result?.success) {
+      console.error("[MakePage] Failed to load skill:", result?.error)
+      setSkillToolCalls(prev => prev.filter(c => c.input?.name !== skill.name))
+      return
+    }
+
+    setSkillToolCalls(prev => prev.map(c => 
+      c.input?.name === skill.name 
+        ? { ...c, status: "done", output: result.content }
+        : c
+    ))
+
+    const before = prompt()
+    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
+    setSkillsMenuState(null)
+
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(ta.value.length, ta.value.length)
     })
   }
 
@@ -1317,8 +1525,8 @@ if (dsId) {
     try {
       const content = await fetchArtifactContent(globalSDK.url, sdk.directory ?? "", file.path)
       const mime = getMimeForKind(file.kind)
-      const dataUrl = file.kind === "image"
-        ? content.content
+      const dataUrl = (file.kind === "image" || file.kind === "svg")
+        ? `data:${mime};base64,${content.content}`
         : `data:${mime};base64,${btoa(unescape(encodeURIComponent(content.content)))}`
 
       setAttachments(prev => [...prev, {
@@ -1480,9 +1688,7 @@ if (dsId) {
       if (!skipContentLoad) {
         try {
           const response = await fetch(`${sdk.url}/file/content?path=${encodeURIComponent(card.filePath)}`, {
-            headers: {
-              "x-opencode-directory": sdk.directory || "",
-            },
+            headers: { ...directoryHeader(sdk.directory || "") },
           })
           if (response.ok) {
             const data = await response.json()
@@ -1519,7 +1725,7 @@ if (dsId) {
   }
 
   function handleOpenLocalFile(filePath: string) {
-    // 检测 http/https URL
+    // Check if it's a URL
     if (/^https?:\/\//i.test(filePath)) {
       let title: string
       try {
@@ -1530,7 +1736,7 @@ if (dsId) {
       } catch {
         title = filePath
       }
-      
+
       const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
       tabStore.openLocalFileTab({
         id: tabId,
@@ -1541,16 +1747,11 @@ if (dsId) {
       tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
       return
     }
-    
+
     const dir = projectDir()
-    
     const normalizedPath = filePath.replace(/\\/g, '/')
-    
-    // 判断是否为绝对路径
-    // Windows: C:/... 或 C:\...
-    // MacOS/Linux: /...
     const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
-    
+
     let absolutePath: string
     if (isAbsolute) {
       absolutePath = normalizedPath
@@ -1564,9 +1765,9 @@ if (dsId) {
       absolutePath += normalizedPath
     }
     absolutePath = absolutePath.replace(/\/+/g, '/')
-    
+
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
-    
+
     tabStore.openLocalFileTab({
       id: tabId,
       title: filePath.split(/[/\\]/).pop() ?? filePath,
@@ -1576,7 +1777,34 @@ if (dsId) {
     tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local" }) })
   }
 
-  /** 继续生成（追加被截断的内容作为 prompt） */
+  /** Handle `/skills <name>` command: inject skill name into prompt */
+  function handleSkillCommand(skillName: string) {
+    const skill = activeSkills().find(s => s.name === skillName)
+    if (!skill) {
+      showToast({
+        title: `技能 "${skillName}" 未激活`,
+        description: "请在技能库中激活此技能"
+      })
+      setPrompt("")
+      return
+    }
+
+    tracker.interaction({
+      module: "design",
+      name: "skill-inject",
+      extend: JSON.stringify({ skill: skillName })
+    })
+
+    const skillPrompt = `请使用 ${skillName} skill 来处理这个任务。${skill.description}`
+    setPrompt(skillPrompt)
+
+    requestAnimationFrame(() => {
+      textareaRef.focus()
+      textareaRef.setSelectionRange(skillPrompt.length, skillPrompt.length)
+    })
+  }
+
+  /** Continue generation (append truncated content as prompt) */
   function handleContinue(card: OutputCard) {
     tracker.interaction({ module: "design", name: "continue-generation" })
     const sid = params.id
@@ -1802,6 +2030,41 @@ if (dsId) {
                       </div>
                     </Show>
 
+                    {/* Skills Menu Popover */}
+                    <Show when={skillsMenuState()}>
+                      <div class="slash-popover">
+                        <div class="slash-popover-head">
+                          <span class="slash-popover-title">技能列表</span>
+                          <Show when={skillsLoading()}>
+                            <span class="slash-popover-loading">加载中...</span>
+                          </Show>
+                          <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        </div>
+                        <div class="slash-popover-body">
+                          <Show when={!skillsLoading() && filteredSkills().length === 0}>
+                            <div class="slash-popover-empty">
+                              {skillsMenuState()?.query ? "未找到匹配技能" : "暂无可用技能（请在技能库中激活）"}
+                            </div>
+                          </Show>
+                          <For each={filteredSkills()}>
+                            {(skill, index) => (
+                              <button
+                                type="button"
+                                class="slash-popover-item"
+                                classList={{ "slash-popover-item-active": index() === skillsMenuIndex() }}
+                                onClick={() => pickSkillFromMenu(skill)}
+                              >
+                                <div class="slash-popover-item-title" title={skill.name}>{skill.name}</div>
+                                <Show when={skill.description}>
+                                  <div class="slash-popover-item-desc" title={skill.description}>{skill.description}</div>
+                                </Show>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+
                     {/* Mention Popover（新建对话） */}
                     <Show when={mentionFiles()}>
                       {(files) => (
@@ -1974,6 +2237,7 @@ if (dsId) {
                         }}
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        skillToolCalls={skillToolCalls()}
                       />
                     )}
                   </For>
@@ -2072,6 +2336,41 @@ if (dsId) {
                           )
                         }}
                       </For>
+                    </div>
+                  </Show>
+
+                  {/* Skills Menu Popover */}
+                  <Show when={skillsMenuState()}>
+                    <div class="slash-popover">
+                      <div class="slash-popover-head">
+                        <span class="slash-popover-title">技能列表</span>
+                        <Show when={skillsLoading()}>
+                          <span class="slash-popover-loading">加载中...</span>
+                        </Show>
+                        <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                      </div>
+                      <div class="slash-popover-body">
+                        <Show when={!skillsLoading() && filteredSkills().length === 0}>
+                          <div class="slash-popover-empty">
+                            {skillsMenuState()?.query ? "未找到匹配技能" : "暂无可用技能（请在技能库中激活）"}
+                          </div>
+                        </Show>
+                        <For each={filteredSkills()}>
+                          {(skill, index) => (
+                            <button
+                              type="button"
+                              class="slash-popover-item"
+                              classList={{ "slash-popover-item-active": index() === skillsMenuIndex() }}
+                              onClick={() => pickSkillFromMenu(skill)}
+                            >
+                              <div class="slash-popover-item-title" title={skill.name}>{skill.name}</div>
+                              <Show when={skill.description}>
+                                <div class="slash-popover-item-desc" title={skill.description}>{skill.description}</div>
+                              </Show>
+                            </button>
+                          )}
+                        </For>
+                      </div>
                     </div>
                   </Show>
 

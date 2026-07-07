@@ -19,6 +19,14 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
 }
 
+function stripExtension(title: string, ext: string): string {
+  const suffix = `.${ext}`
+  if (title.toLowerCase().endsWith(suffix.toLowerCase())) {
+    return title.slice(0, -suffix.length)
+  }
+  return title
+}
+
 async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
   const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
   const blob = new Blob([blobPart], { type: mimeType })
@@ -107,22 +115,23 @@ function getCodeSnippetExt(content: string): string {
 function getDownloadInfo(tab: ResultTab): { filename: string; mime: string } {
   switch (tab.type) {
     case "html":
-      return { filename: `${tab.title}.html`, mime: "text/html;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "html")}.html`, mime: "text/html;charset=utf-8" }
     case "deck":
-      return { filename: `${tab.title}.pdf`, mime: "application/pdf" }
+      return { filename: `${stripExtension(tab.title, "pdf")}.pdf`, mime: "application/pdf" }
     case "svg":
-      return { filename: `${tab.title}.svg`, mime: "image/svg+xml;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "svg")}.svg`, mime: "image/svg+xml;charset=utf-8" }
     case "json":
-      return { filename: `${tab.title}.json`, mime: "application/json;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "json")}.json`, mime: "application/json;charset=utf-8" }
     case "table":
-      return { filename: `${tab.title}.csv`, mime: "text/csv;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "csv")}.csv`, mime: "text/csv;charset=utf-8" }
     case "code-snippet":
-      return { filename: `${tab.title}.${getCodeSnippetExt(tab.content)}`, mime: "text/plain;charset=utf-8" }
+      const ext = getCodeSnippetExt(tab.content)
+      return { filename: `${stripExtension(tab.title, ext)}.${ext}`, mime: "text/plain;charset=utf-8" }
     case "markdown":
     case "markdown-document":
-      return { filename: `${tab.title}.md`, mime: "text/markdown;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "md")}.md`, mime: "text/markdown;charset=utf-8" }
     default:
-      return { filename: `${tab.title}.txt`, mime: "text/plain;charset=utf-8" }
+      return { filename: `${stripExtension(tab.title, "txt")}.txt`, mime: "text/plain;charset=utf-8" }
   }
 }
 
@@ -152,7 +161,7 @@ const EXPORT_MIME: Record<ArtifactExportKind, string> = {
 
 function getExportContent(tab: ResultTab, kind: ArtifactExportKind): { content: string | Uint8Array; filename: string } | null {
   const raw = extractDownloadContent(tab)
-  const base = tab.title.replace(/[^a-zA-Z0-9一-鿿_-]/g, "_")
+  const base = stripExtension(tab.title.replace(/[^a-zA-Z0-9一-鿿_-]/g, "_"), kind)
   switch (kind) {
     case "html":
       return { content: raw, filename: `${base}.html` }
@@ -166,11 +175,12 @@ function getExportContent(tab: ResultTab, kind: ArtifactExportKind): { content: 
       return { content: raw, filename: `${base}.md` }
     case "txt": {
       const ext = getCodeSnippetExt(tab.content)
-      return { content: raw, filename: `${base}.${ext}` }
+      const stripped = stripExtension(tab.title.replace(/[^a-zA-Z0-9一-鿿_-]/g, "_"), ext)
+      return { content: raw, filename: `${stripped}.${ext}` }
     }
     case "pdf":
       if (tab.type === "deck") {
-        exportDeckAsPDF(tab.content, tab.title)
+        exportDeckAsPDF(tab.content, stripExtension(tab.title, "pdf"))
         return null
       }
       return { content: raw, filename: `${base}.html` }
@@ -316,14 +326,14 @@ export function ActionBar(props: {
 
   const canToggleMode = () => props.tab.type === "html"
   const showViewport = () => props.tab.type === "html"
-  const showRefreshButton = () =>
-    props.tab.type === "html" ||
-    props.tab.type === "image" ||
-    props.tab.type === "video" ||
-    props.tab.type === "audio" ||
-    props.tab.type === "pdf" ||
-    props.tab.type === "svg" ||
-    props.tab.type === "text"
+  const showRefreshButton = () => true
+  const shouldShowCopy = () =>
+    props.tab.type === "table" ||
+    props.tab.type === "markdown" ||
+    props.tab.type === "markdown-document" ||
+    props.tab.type === "json" ||
+    props.tab.type === "text" ||
+    props.tab.type === "code-snippet"
 
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
@@ -331,7 +341,7 @@ export function ActionBar(props: {
   return (
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
-        {showRefreshButton() && props.onRefresh && (
+        {props.onRefresh && (
           <button
             type="button"
             class="octo-action-btn"
@@ -355,9 +365,6 @@ export function ActionBar(props: {
             onChange={(v) => props.onViewportChange!(v as ViewportPreset)}
           />
         )}
-        <Show when={(showRefreshButton() && props.onRefresh || canToggleMode() && props.onModeChange || showViewport() && props.onViewportChange) && showViewport() && (props.onPaletteChange || props.onInspectToggle || props.onDrawToggle || props.onEditToggle || props.onFocusModeToggle)}>
-          <div class="octo-action-bar-divider" />
-        </Show>
       </div>
       <div class="octo-action-bar-right">
         {showViewport() && props.onPaletteChange && (
@@ -426,14 +433,22 @@ export function ActionBar(props: {
             <span>编辑</span>
           </button>
         )}
-        <Show when={props.tab.type !== "local-file"}>
+        <Show when={shouldShowCopy()}>
           <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>
             <IconActionCopy size={13} />
             <span>复制</span>
           </button>
+        </Show>
+        <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
           <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
         </Show>
-        <Show when={props.onFocusModeToggle}>
+        <Show when={props.tab.type === "html"}>
+          <button type="button" class="octo-action-btn" onClick={handleDownload}>
+            <IconActionDownload size={13} />
+            <span>下载</span>
+          </button>
+        </Show>
+        <Show when={props.tab.type !== "html" && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
           <button
             type="button"
             class="octo-action-btn"

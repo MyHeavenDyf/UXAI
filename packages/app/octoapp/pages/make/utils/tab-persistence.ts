@@ -1,6 +1,7 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { autoSaveArtifact } from "./artifact-auto-save"
+import { directoryHeader } from "@/utils/headers"
 
 /**
  * Unified persistence function for tab changes
@@ -38,7 +39,7 @@ export async function persistTabChanges(
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "x-opencode-directory": options.sdkDirectory,
+          ...directoryHeader(options.sdkDirectory),
         },
         body: JSON.stringify({ path: tab.filePath, content: tab.content }),
       })
