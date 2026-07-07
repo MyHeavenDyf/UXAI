@@ -250,6 +250,22 @@ function PatternContent() {
   })
 
   const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>({})
+  // per-session 暂停计时（需求确认 / 线框审查等待期间不计时）
+  const [pauseMs, setPauseMs] = createSignal<Record<string, number>>({})
+  const [pauseStart, setPauseStart] = createSignal<Record<string, number | undefined>>({})
+
+  function startPause(sid: string) {
+    setPauseStart(prev => prev[sid] === undefined ? { ...prev, [sid]: Date.now() } : prev)
+  }
+  function endPause(sid: string) {
+    setPauseStart(prev => {
+      const at = prev[sid]
+      if (at === undefined) return prev
+      const elapsed = Date.now() - at
+      setPauseMs(p => ({ ...p, [sid]: (p[sid] ?? 0) + elapsed }))
+      return { ...prev, [sid]: undefined }
+    })
+  }
 
   const roundMessages = createMemo(() => {
     const id = params.id
@@ -604,6 +620,7 @@ function PatternContent() {
         if (Object.keys(confirmResult.options).length > 0) {
           if (sid) setUserInput(prev => ({ ...prev, [sid!]: text }))
           if (sid) setIntentConfirm(prev => ({ ...prev, [sid!]: confirmResult }))
+          startPause(sid!)
           const confirmDir = patternHistoryDir()
           if (confirmDir) {
             await saveIntentConfirmCheckpoint(confirmDir, sid!, {
@@ -658,6 +675,7 @@ function PatternContent() {
         } else {
           setIsPlanReview(prev => ({ ...prev, [sid!]: true }))
         }
+        startPause(sid!)
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
@@ -728,6 +746,7 @@ function PatternContent() {
 
     tracker.interaction({ module: "prototype", name: "confirm-review" })
 
+    endPause(sid)
     setIsGeneratingReview(prev => ({ ...prev, [sid]: true }))
 
     const ds = selectedDesignSystem()
@@ -796,6 +815,7 @@ function PatternContent() {
     const ckptDir = patternHistoryDir()
     if (ckptDir) await clearIntentConfirmCheckpoint(ckptDir, sid)
     setSendingSids((prev) => new Set(prev).add(sid))
+    endPause(sid)
     setIsGenerating(prev => ({ ...prev, [sid]: true }))
     try {
       const intentCtx: ProtoCreateJsonInput = {
@@ -847,6 +867,7 @@ function PatternContent() {
       } else {
         setIsPlanReview(prev => ({ ...prev, [sid!]: true }))
       }
+      startPause(sid)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleConfirmIntent")
@@ -888,6 +909,8 @@ function PatternContent() {
     setIntentConfirm(prev => ({ ...prev, [sid]: null }))
     setIsPlanReview(prev => ({ ...prev, [sid]: false }))
     setShowPatternMatch(prev => ({ ...prev, [sid]: false }))
+    // 取消时保留已累计的 pauseMs（扣除暂停时间），只停止实时暂停
+    endPause(sid)
     setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
     const haltDir = patternHistoryDir()
     if (haltDir) void clearProtoError(haltDir, sid)
@@ -1080,6 +1103,8 @@ function PatternContent() {
             roundMessages={roundMessages()}
             needsConfirm={needsConfirm()}
             confirmText={confirmText()}
+            pauseMs={pauseMs()[params.id!] ?? 0}
+            pauseStartedAt={pauseStart()[params.id!]}
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
           />
