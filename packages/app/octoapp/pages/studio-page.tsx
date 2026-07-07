@@ -22,6 +22,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
 import { DialogSettings } from "@/components/dialog-settings"
+import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
@@ -1341,14 +1342,17 @@ export default function StudioPage() {
     })
   }
 
-  async function resolveImageDataUrl(image: StudioImage) {
-    if (image.remoteUrl?.startsWith("data:image/")) return image.remoteUrl
-    if (image.url.startsWith("data:image/")) return image.url
-    const response = await fetch(image.remoteUrl ?? image.url)
+  async function resolveImageUrlDataUrl(url: string) {
+    if (url.startsWith("data:image/")) return url
+    const response = await fetch(url)
     if (!response.ok) throw new Error(`Unable to load selected image. status=${response.status}`)
     const blob = await response.blob()
     if (!blob.type.startsWith("image/")) throw new Error(`Selected media is not an image. content-type=${blob.type || "unknown"}`)
     return readBlobAsDataUrl(blob)
+  }
+
+  async function resolveImageDataUrl(image: StudioImage) {
+    return resolveImageUrlDataUrl(image.remoteUrl ?? image.url)
   }
 
   async function validateVideoFrame(file: File) {
@@ -1891,6 +1895,123 @@ export default function StudioPage() {
       count: nextCount,
       useRestoredInputs: true,
     }
+  }
+
+  function restoreGenerationEditDraft(result: StudioGenerationResult) {
+    const input = inputRecord(result)
+    const extra = inputExtraRecord(result)
+    const nextAspectRatio = aspectRatioValue(recordValue(input, "aspectRatio")) ?? result.aspectRatio
+    const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
+    return {
+      capability: result.capability,
+      prompt: stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
+      styleModel: stringValue(input, "styleModel") ?? result.styleModel ?? result.model,
+      aspectRatio: nextAspectRatio,
+      count: nextCount,
+      referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+      videoFrames: restoredVideoFrames(result),
+      videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
+      videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
+    }
+  }
+
+  function canEditGenerationDraft(draft: ReturnType<typeof restoreGenerationEditDraft>) {
+    if (draft.capability === "video.generate" && !canGenerateVideo()) {
+      showToast({
+        title: "暂无视频生成权限",
+        description: "当前账号暂无视频生成权限，无法重新编辑该视频生成任务。",
+      })
+      return false
+    }
+    if (
+      draft.capability === "image.generate" &&
+      styleModelRequiresSeedreamPermission(draft.styleModel) &&
+      !canUseSeedream()
+    ) {
+      showToast({
+        title: "暂无模型使用权限",
+        description: "当前账号暂无该模型权限，无法重新编辑该图片生成任务。",
+      })
+      return false
+    }
+    return true
+  }
+
+  function showEditDraftSyncedToast() {
+    showFloatingNotice("info", "已经同步参数到左侧输入区")
+  }
+
+  async function studioAssetFromImageUrl(url: string, name: string): Promise<StudioAsset> {
+    return {
+      id: crypto.randomUUID(),
+      name,
+      mime: "image/png",
+      dataUrl: await resolveImageUrlDataUrl(url),
+    }
+  }
+
+  async function restoredImageAssets(referenceImages: string[]) {
+    const referenceImage = referenceImages[0]
+    if (!referenceImage) return []
+    try {
+      return [await studioAssetFromImageUrl(referenceImage, "reference-1.png")]
+    } catch (error) {
+      console.warn("[StudioPage] restore edit draft reference image failed", error)
+      return []
+    }
+  }
+
+  async function restoredVideoFrameAssets(frames: { first?: string; last?: string }) {
+    const first = frames.first
+      ? await studioAssetFromImageUrl(frames.first, "first-frame.png").catch((error) => {
+          console.warn("[StudioPage] restore edit draft first frame failed", error)
+          return undefined
+        })
+      : undefined
+    const last = frames.last
+      ? await studioAssetFromImageUrl(frames.last, "last-frame.png").catch((error) => {
+          console.warn("[StudioPage] restore edit draft last frame failed", error)
+          return undefined
+        })
+      : undefined
+    return { first, last }
+  }
+
+  async function editGenerationDraft(result: StudioGenerationResult) {
+    if (isBusy()) return
+    if (result.capability !== "image.generate" && result.capability !== "video.generate") return
+    const draft = restoreGenerationEditDraft(result)
+    if (!canEditGenerationDraft(draft)) return
+    batch(() => {
+      setOpenMenu(null)
+      setMode("preview")
+      setCapability(draft.capability)
+      setPrompt(draft.prompt)
+      setAspectRatio(draft.aspectRatio)
+      if (draft.count) setCount(draft.count)
+    })
+    tracker.interaction({
+      module: "studio",
+      name: "edit-generation-draft",
+      extend: JSON.stringify({
+        capability: result.capability,
+        aspectRatio: result.aspectRatio,
+        count: result.images.length,
+        hasReferenceImage: draft.referenceImages.length > 0 || Boolean(draft.videoFrames.first || draft.videoFrames.last),
+      }),
+    })
+    if (draft.capability === "image.generate") {
+      if (draft.styleModel) setStyleModel(draft.styleModel)
+      clearVideoFrames()
+      setAssets(await restoredImageAssets(draft.referenceImages))
+      showEditDraftSyncedToast()
+      return
+    }
+    setAssets([])
+    if (draft.videoDuration) setVideoDuration(draft.videoDuration)
+    if (draft.videoQualityMode) setVideoQualityMode(draft.videoQualityMode)
+    replaceVideoFrames(await restoredVideoFrameAssets(draft.videoFrames))
+    showEditDraftSyncedToast()
   }
 
   async function createStudioGeneration(input: {
@@ -2898,6 +3019,7 @@ if (!headerTitle.pendingRename) return
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
                 onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
+                onEditGeneration={(generation) => void editGenerationDraft(generation)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
               />

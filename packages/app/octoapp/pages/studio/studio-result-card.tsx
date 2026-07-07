@@ -1,7 +1,7 @@
 import { For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
 import { isVideoMedia } from "./studio-shared"
-import type { StudioAspectRatio, StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
 
 const PORTRAIT_RATIOS: StudioAspectRatio[] = ["2:3", "3:4", "9:16"]
@@ -13,6 +13,7 @@ type StudioResultCardProps = {
   busy: boolean
   cancelling: boolean
   onCancelGeneration: (generationID: string) => void
+  onEditGeneration: (result: StudioGenerationResult) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
@@ -48,6 +49,10 @@ export function StudioResultCard(props: StudioResultCardProps) {
   }
   const generating = () => status() === "queued" || status() === "running"
   const cancellable = () => generating() && props.turn.result?.id.startsWith("studio_gen")
+  const editable = () =>
+    Boolean(props.turn.result) &&
+    !generating() &&
+    (capability() === "image.generate" || capability() === "video.generate")
   const progress = () => {
     if (status() === "succeeded") return 100
     return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
@@ -126,6 +131,17 @@ export function StudioResultCard(props: StudioResultCardProps) {
               </button>
             </Show>
           </>
+        </Show>
+        <Show when={editable() && props.turn.result}>
+          {(result) => (
+            <button
+              type="button"
+              class="studio-result-cancel"
+              onClick={() => props.onEditGeneration(result())}
+            >
+              重新编辑
+            </button>
+          )}
         </Show>
       </div>
       <Show when={createdAt()}>
