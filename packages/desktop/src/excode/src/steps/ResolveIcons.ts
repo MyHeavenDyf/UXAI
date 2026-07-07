@@ -22,7 +22,7 @@
  *         （BuildTrees 已将 binding 解析为实际值，但 props.items 可能仍保留 binding 形式）
  *
  * 调用外部 API 批量查询映射，结果存入 ctx.iconNameMap。
- * 未映射的 name 使用占位图标 IconPlusIcIctPlaceholder。
+ * 未映射的 name 使用占位图标 IconPlusIcPublicTransverseRectangleTemplate。
  *
  * 设计决策：
  *   - API 调用集中在编译期单步完成，避免 transform 内同步阻塞
@@ -38,7 +38,7 @@ import { Step } from '../core/Step';
 import type { PipelineContext } from '../pipeline/PipelineContext';
 
 // 占位图标组件名（与 Icon.ts 中保持一致）
-const PLACEHOLDER_ICON = 'IconPlusIcIctPlaceholder';
+const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate';
 
 // icon 名称映射接口地址
 // 接口协议：GET {ICON_API_URL}?keyword={names}&topK=2

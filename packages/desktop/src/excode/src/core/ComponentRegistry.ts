@@ -252,6 +252,7 @@ export class ComponentRegistry {
         __nodeType: 'component',
         tag: result.tag || tag,
         import: result.import || importPath,
+        importMode: result.importMode,
         props: finalProps,
         children: result.children !== undefined ? result.children : (node.children || null),
         wrapper: result.wrapper || node.wrapper,

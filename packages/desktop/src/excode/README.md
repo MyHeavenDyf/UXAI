@@ -301,7 +301,7 @@ CLI 模式（node cli.ts）：
 
 - 每批 6 个 name，并发请求所有批次
 - 返回结果按 names 顺序一一对应（未匹配项为 null）
-- 未映射的 name 使用占位图标 `IconPlusIcIctPlaceholder`
+- 未映射的 name 使用占位图标 `IconPlusIcPublicTransverseRectangleTemplate`
 
 **设计要点**：
 - API 调用集中在编译期单步完成，避免 transform 内同步阻塞
