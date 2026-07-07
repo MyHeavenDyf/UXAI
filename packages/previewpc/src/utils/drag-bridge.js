@@ -29,6 +29,7 @@
   var pointerStartY = 0
   var longPressTimer = null
   var shouldPreventClick = false
+  var outsideIframe = false
 
   function attrSelector(id) {
     return "[" + ATTR + '="' + String(id).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]'
@@ -248,16 +249,13 @@
 
     window.addEventListener("pointermove", onMove, true)
     window.addEventListener("pointerup", onUp, true)
-    window.addEventListener("pointerleave", onUp, true)
-    document.addEventListener("pointerout", onPointerOut, true)
+    window.addEventListener("pointerleave", onLeave, true)
+    window.addEventListener("pointerenter", onEnter, true)
   }
 
   function onMove(e) {
     if (!dragEl) return
-    if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
-      onUp(e)
-      return
-    }
+    outsideIframe = false
     e.preventDefault()
     e.stopPropagation()
 
@@ -288,8 +286,8 @@
   function onUp(e) {
     window.removeEventListener("pointermove", onMove, true)
     window.removeEventListener("pointerup", onUp, true)
-    window.removeEventListener("pointerleave", onUp, true)
-    document.removeEventListener("pointerout", onPointerOut, true)
+    window.removeEventListener("pointerleave", onLeave, true)
+    window.removeEventListener("pointerenter", onEnter, true)
     clearTimeout(longPressTimer)
     longPressTimer = null
 
@@ -319,11 +317,37 @@
     dragEl = null
     dragId = null
     moved = false
+    outsideIframe = false
   }
 
-  function onPointerOut(e) {
-    if (!dragEl || e.relatedTarget) return
-    onUp(e)
+  function cancelDrag() {
+    window.removeEventListener("pointermove", onMove, true)
+    window.removeEventListener("pointerup", onUp, true)
+    window.removeEventListener("pointerleave", onLeave, true)
+    window.removeEventListener("pointerenter", onEnter, true)
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+    if (!dragEl) return
+    if (moved) showPicker()
+    if (ghost) { ghost.remove(); ghost = null }
+    if (indicator) { indicator.remove(); indicator = null }
+    document.body.style.cursor = ""
+    dragEl.style.opacity = ""
+    dragEl.removeAttribute("data-drag-sel")
+    dragEl = null
+    dragId = null
+    moved = false
+    outsideIframe = false
+  }
+
+  function onLeave() {
+    if (!dragEl) return
+    outsideIframe = true
+  }
+
+  function onEnter() {
+    if (!dragEl) return
+    outsideIframe = false
   }
 
   function enable() {
@@ -338,12 +362,13 @@
     window.removeEventListener("pointerdown", onDown, true)
     window.removeEventListener("pointermove", onMove, true)
     window.removeEventListener("pointerup", onUp, true)
-    window.removeEventListener("pointerleave", onUp, true)
-    document.removeEventListener("pointerout", onPointerOut, true)
+    window.removeEventListener("pointerleave", onLeave, true)
+    window.removeEventListener("pointerenter", onEnter, true)
     clearTimeout(longPressTimer)
     longPressTimer = null
     document.body.style.cursor = ""
     if (dragEl) { dragEl.style.opacity = ""; dragEl.removeAttribute("data-drag-sel"); dragEl = null }
+    outsideIframe = false
     if (ghost) { ghost.remove(); ghost = null }
     if (indicator) { indicator.remove(); indicator = null }
   }
@@ -358,7 +383,12 @@
 
   window.addEventListener("message", function (ev) {
     var d = ev && ev.data
-    if (!d || d.type !== "DRAG_MODE") return
+    if (!d) return
+    if (d.type === "DRAG_CANCEL") {
+      cancelDrag()
+      return
+    }
+    if (d.type !== "DRAG_MODE") return
     siblingMap = d.siblingMap && typeof d.siblingMap === "object" ? d.siblingMap : {}
     if (d.enabled) enable()
     else disable()
