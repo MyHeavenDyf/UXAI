@@ -11,9 +11,10 @@
  *   - 消除了 findNodeById BFS，减少一次全树遍历
  *
  * 节点标记：
- *   - _isLoop / _loopPath / _loopComponentId / _loopTemplate
+ *   - _isLoop / _loopPath / _loopComponentId
  *   - _isSlotRoot / _sectionId / _idPrefix（模块切片时打标）
  *   - props 中 { componentId } → 展开为 { __slotNode }
+ *   - 循环 children：直接挂载模板节点到 children，标记挂在模板节点上
  */
 
 interface BuildOptions {
@@ -101,14 +102,18 @@ export class TreeBuilder {
           .filter(Boolean);
       } else if (typeof el.children === 'object' && !Array.isArray(el.children)) {
         // 循环列表: { path: "/xxx", componentId: "yyy" }
-        node._isLoop = true;
-        node._loopPath = el.children.path;
-        node._loopComponentId = el.children.componentId;
+        // 模板节点直接挂载为 children，标记 (_isLoop/_loopPath) 挂在模板节点自身
         if (el.children.componentId) {
           const templateNode = build(el.children.componentId, depth + 1);
-          if (templateNode) node._loopTemplate = templateNode;
+          if (templateNode) {
+            templateNode._isLoop = true;
+            templateNode._loopPath = el.children.path;
+            templateNode._loopComponentId = el.children.componentId;
+          }
+          node.children = templateNode;
+        } else {
+          node.children = null;
         }
-        node.children = null;
       } else if (typeof el.children === 'string') {
         node.children = el.children;
       }
