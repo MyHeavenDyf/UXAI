@@ -48,7 +48,9 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
   const sectionDetailList = intentDescription?.sectionDetailList ?? []
   const sectionDetail = sectionDetailList.find((item: any) => item?.id === sectionId)
   if (sectionDetail?.patternJson) {
-    const remapped = remapPatternRootId(sectionDetail.patternJson, elementId)
+    // intentDescription 来自 SolidJS store，patternJson 是 Proxy，需深拷贝为纯对象
+    const patternJson = JSON.parse(JSON.stringify(sectionDetail.patternJson))
+    const remapped = remapPatternRootId(patternJson, elementId)
     console.log(`----- 模块 ${sectionId} 使用 Pattern 模板，跳过 LLM -----`)
     return {
       ui_json: remapped,
