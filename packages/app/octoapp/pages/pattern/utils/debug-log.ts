@@ -68,6 +68,15 @@ export type DebugPhase = "intent_confirm" | "planner" | "modules" | "modify" | "
 
 const DEBUG_LOG_PREFIX = "octo:pattern:debug-log"
 
+function sanitizeForPath(input: string): string {
+  return input
+    .replace(/[/\\:*?"<>|]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 30)
+}
+
 export async function saveDebugSnapshot(
   historyDir: string,
   sessionId: string,
@@ -86,7 +95,9 @@ export async function saveDebugSnapshot(
   const snapshot = getDebugSnapshot()
   const baseDir = historyDir.replace(/\/history$/, "")
   const fid = _current?.startedAt ?? Date.now()
-  const path = `${baseDir}/debug-log/${sessionId}/${fid}.json`
+  const userLabel = sanitizeForPath(opts?.summary ?? _current?.userInput ?? "")
+  const dirName = userLabel ? `${sessionId}_${userLabel}` : sessionId
+  const path = `${baseDir}/debug-log/${dirName}/${fid}.json`
 
   let entries: Array<Record<string, unknown>> = []
   if (api?.readFileBuffer) {
@@ -95,7 +106,7 @@ export async function saveDebugSnapshot(
       if (buf) entries = JSON.parse(new TextDecoder().decode(buf))
     } catch {}
   } else {
-    const stored = localStorage.getItem(`${DEBUG_LOG_PREFIX}:${sessionId}:${fid}`)
+    const stored = localStorage.getItem(`${DEBUG_LOG_PREFIX}:${dirName}:${fid}`)
     if (stored) {
       try { entries = JSON.parse(stored) } catch {}
     }
@@ -122,5 +133,5 @@ export async function saveDebugSnapshot(
     await api.writeFileBuffer(path, encoder.encode(payload).buffer)
     return
   }
-  localStorage.setItem(`${DEBUG_LOG_PREFIX}:${sessionId}:${fid}`, payload)
+  localStorage.setItem(`${DEBUG_LOG_PREFIX}:${dirName}:${fid}`, payload)
 }
