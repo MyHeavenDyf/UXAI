@@ -10,7 +10,7 @@
 export type PresetPrompt = {
   id: string                  // 与 expectedTool 同名,便于追踪
   label: string               // chip 菜单项 / 激活态上的短文案
-  text: string                // 用户未输入文字时,chip turn 的可见气泡文案
+  text: string                // 菜单项 tooltip 的功能说明(原 SPEC-INS-007 预置正文;气泡不再回落它——空输入不可发送)
   expectedTool: string        // 触发的 MCP tool 名(不含 server 前缀;SPEC-INS-017 §2)
   categories: string[]        // 外网将按 category 过滤;本期 octo 不读但 schema 要预留
   description?: string        // 可选 tooltip

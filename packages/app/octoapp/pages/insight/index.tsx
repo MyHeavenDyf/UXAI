@@ -794,9 +794,9 @@ function InsightContent() {
     opts: {
       consumeAttachments: boolean
       source: string
-      /** SPEC-INS-017 chip turn:注入 [MCP触发指令] 模板 + [MCP声明],tools gate 只放行所选工具。
-       *  typedText = 用户实际键入的文字(user_prompt 原文;text 参数是气泡可见文案,空输入时回落预置文案) */
-      chip?: { selection: McpSelection; typedText: string }
+      /** SPEC-INS-017 chip turn:注入 [MCP解析模式] 模板 + [MCP声明],tools gate 只放行所选工具。
+       *  text 参数即用户键入原文(空输入不可发送,气泡文案 = user_prompt 原文,无回落) */
+      chip?: { selection: McpSelection }
     },
   ) {
     // SPEC-INS-015 文件传参路由:发送时按「文件类 × 用途」分流(spec docs/specs/infra/insight-file-passing.md)。
@@ -818,8 +818,8 @@ function InsightContent() {
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
     // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
     // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
-    const chipTemplate = opts.chip ? buildChipTemplate(opts.chip.selection, opts.chip.typedText) : undefined
-    const chipDeclaration = opts.chip ? buildChipDeclaration(opts.chip.selection, opts.chip.typedText) : undefined
+    const chipTemplate = opts.chip ? buildChipTemplate(opts.chip.selection, text) : undefined
+    const chipDeclaration = opts.chip ? buildChipDeclaration(opts.chip.selection, text) : undefined
     if (chipTemplate && chipDeclaration) {
       parts.push({ type: "text", text: chipTemplate, synthetic: true })
       parts.push({ type: "text", text: chipDeclaration, synthetic: true })
@@ -936,7 +936,7 @@ function InsightContent() {
         sessionID: sessionId,
         messageID,
         functionId: opts.chip.selection.preset.id,
-        typedTextLen: opts.chip.typedText.length,
+        textLen: text.length,
         toolGate,
       })
     }
@@ -1004,7 +1004,7 @@ function InsightContent() {
     }
   }
 
-  function sendMessage(sessionId: string, text: string, chip?: { selection: McpSelection; typedText: string }) {
+  function sendMessage(sessionId: string, text: string, chip?: { selection: McpSelection }) {
     return doSendPrompt(sessionId, text, { consumeAttachments: true, source: chip ? "mcp-chip" : "user", chip })
   }
 
@@ -1071,10 +1071,10 @@ function InsightContent() {
   }
 
   async function handleSubmit(trigger: "button" | "enter" = "button") {
-    const typed = prompt().trim()
+    const text = prompt().trim()
     const chipSel = mcpSelection()
-    // chip 选中时允许空文本发送(纯 chip 触发;可见文案回落预置文案)
-    if ((!typed && !chipSel) || hasUploadingAttachments()) return
+    // 空输入一律不可发送(与业界一致,chip 选中也不豁免):气泡与 user_prompt 恒为用户原话
+    if (!text || hasUploadingAttachments()) return
 
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
     if (!local.model.current()) {
@@ -1093,10 +1093,7 @@ function InsightContent() {
     // ── chip turn(SPEC-INS-017):不设文件门槛——缺材料由模型在对话里向用户索取(我们做的是
     // Agent 不是表单);多角色分桶归模型(拿不准时先向用户确认)。chip 是常驻模式,busy 时照常
     // 入队,flush 时按当时的 chip 状态携带(见 flushQueueHead),无需特殊拦截。──
-    const chipPayload = chipSel ? { selection: chipSel, typedText: typed } : undefined
-
-    // 气泡可见文案:用户键入优先;纯 chip 触发回落该功能的预置文案(SPEC-INS-007 设计师文案)
-    const text = typed || (chipSel?.preset.text ?? "")
+    const chipPayload = chipSel ? { selection: chipSel } : undefined
 
     // welcome 入口(无会话或会话尚无用户消息)vs 对话内继续追问,用 source 区分
     const source = params.id && userMessages().length > 0 ? "conversation" : "welcome"
@@ -1145,7 +1142,7 @@ function InsightContent() {
     console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
     // chip 是常驻模式:按 flush 那一刻的选择态携带(队列只存文本;发出那一刻输入框是什么模式就是什么模式)
     const chipSel = mcpSelection()
-    void sendMessage(sid, next, chipSel ? { selection: chipSel, typedText: next } : undefined)
+    void sendMessage(sid, next, chipSel ? { selection: chipSel } : undefined)
   }
 
   // busy → idle 那一刻自动 flush 队首
@@ -1185,10 +1182,8 @@ function InsightContent() {
   // 输入框空 + AI 忙(含 retry)→ 发送键变为停止键;retry 期间同样可点终止
   const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
-  // 发送键禁用:无内容(文本 / MCP chip 二者皆无)或附件上传中;chip 选中时允许空文本发送(SPEC-INS-017)
-  const sendDisabled = createMemo(
-    () => !stopping() && ((!prompt().trim() && !mcpSelection()) || hasUploadingAttachments()),
-  )
+  // 发送键禁用:空输入或附件上传中(chip 选中不豁免——空输入一律不可发送,与业界一致)
+  const sendDisabled = createMemo(() => !stopping() && (!prompt().trim() || hasUploadingAttachments()))
 
   // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
   // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
