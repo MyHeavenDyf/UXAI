@@ -21,35 +21,41 @@ export const STEP_B_PROMPT = `
 
 ### 阶段2：调用资源 API，为资源节点匹配真实设计资源
 
+所有 API 请求通过 api-call.ts 脚本执行（用 bash 工具调用）。脚本自动处理 URL 编码，中文参数直接传入原始值即可。
+
+开始前先设置环境变量（bash 会话持久化，只需设置一次）：
+
+\`\`\`bash
+export VECTOR_API_BASE=\${VECTOR_API_BASE} NODE_TLS_REJECT_UNAUTHORIZED=0
+\`\`\`
+
+脚本路径：packages/app/octoapp/pages/dslToHex/lib/api-call.ts
+
 根据节点 layerType 和 resourceType 分为三套完全独立的 API 流程：
 
-- **component / image（resourceType=image）** → 向量搜索 API（/lib-resource-service/api/vertor/search/llm + /lib-resource-service/api/vertor/detail）
-- **icon** → iconPlus API（getConfig → getIconInfo → getSvg），三步顺序调用
-- **image（resourceType=illus）** → illusPlus API（getConfig → getIllusInfo → getIllus），三步顺序调用
+- **component / image（resourceType=image）** → vectorSearch + vectorDetail
+- **icon** → getConfig → getIconInfo → getSvg，三步顺序调用
+- **image（resourceType=illus）** → getConfig → getIllusInfo → getIllus，三步顺序调用
 
 ---
 
-#### 流程A：component / image — 向量搜索 API
+#### 流程A：component / image — 向量搜索
 
-##### 2a-A: 精简搜索 — POST /lib-resource-service/api/vertor/search/llm
-
-用 bash 工具执行 curl 命令：
+##### 精简搜索
 
 \`\`\`bash
-curl -s -X POST \${VECTOR_API_BASE}/lib-resource-service/api/vertor/search/llm \
-  -H "Content-Type: application/json" \
-  -d '{"type": "资源类型", "queries": ["关键词1", "关键词2"], "top_k": 5}'
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorSearch --type component --queries "按钮 禁用,输入框 正常"
 \`\`\`
 
 参数说明：
 - type：资源类型名（component / image），对应 layerType → resourceType 映射见下方表格
-- queries：搜索关键词列表，支持批量搜索
-- top_k：每条 query 返回结果数，建议设为 5
+- queries：逗号分隔的搜索关键词列表（脚本自动转为数组）
+- top_k：可选，每条 query 返回结果数，默认 5
 
-##### 2b-A: 全量数据获取 — GET /lib-resource-service/api/vertor/detail
+##### 全量数据获取
 
 \`\`\`bash
-curl -s "\${VECTOR_API_BASE}/lib-resource-service/api/vertor/detail?type=资源类型&data_id=从2a获取的data_id"
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorDetail --type component --data_id abc123
 \`\`\`
 
 ##### 搜索关键词构造
@@ -71,7 +77,7 @@ queries 必须包含具体属性词，不要只写资源类别名：
 
 ##### API 返回格式
 
-/lib-resource-service/api/vertor/search/llm 返回：
+/lib-resource-service/api/vector/search/llm 返回：
 \`\`\`json
 {
   "results": [
@@ -81,7 +87,7 @@ queries 必须包含具体属性词，不要只写资源类别名：
 }
 \`\`\`
 
-/lib-resource-service/api/vertor/detail 返回（type=component）：
+/lib-resource-service/api/vector/detail 返回（type=component）：
 \`\`\`json
 {
   "cv_component_name": "...",
@@ -102,14 +108,14 @@ queries 必须包含具体属性词，不要只写资源类别名：
 
 #### 流程B：icon — iconPlus 三步 API
 
-⚠️ icon 资源不走向量搜索 API（/lib-resource-service/api/vertor/search/llm 和 /lib-resource-service/api/vertor/detail），走独立的 iconPlus 三步链路。icon 节点的 resourceId / resourceScore 来自 getIconInfo，resourceDetail 来自 getIconInfo + getSvg 合并。
+⚠️ icon 资源不走向量搜索 API（/lib-resource-service/api/vector/search/llm 和 /lib-resource-service/api/vector/detail），走独立的 iconPlus 三步链路。icon 节点的 resourceId / resourceScore 来自 getIconInfo，resourceDetail 来自 getIconInfo + getSvg 合并。
 
-##### 步骤1：获取配置 — GET /iconPlus/getConfig
+##### 步骤1：获取配置
 
 只调用一次，缓存配置数据，后续所有 icon 节点共用此配置。
 
 \`\`\`bash
-curl -s "\${VECTOR_API_BASE}/iconPlus/getConfig"
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow icon
 \`\`\`
 
 返回：
@@ -122,21 +128,21 @@ curl -s "\${VECTOR_API_BASE}/iconPlus/getConfig"
 }
 \`\`\`
 
-##### 步骤2：搜索图标 — GET /iconPlus/getIconInfo
+##### 步骤2：搜索图标
 
 对每个 icon 节点的语义关键词调用此接口：
 
 \`\`\`bash
-curl -s "\${VECTOR_API_BASE}/iconPlus/getIconInfo?keyword=返回&topK=5"
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIconInfo --keyword "返回" --topK 5
 \`\`\`
 
 参数：keyword（必选，搜索关键词）、topK（可选，默认5）、Category（可选）
 
 返回：
 \`\`\`json
-[{
-  "keyword": "返回",
-  "icons": [{
+ [{
+   "keyword": "返回",
+   "icons": [{
     "icon_id": "123",
     "name": "下载",
     "chineseName": "返回",
@@ -149,19 +155,19 @@ curl -s "\${VECTOR_API_BASE}/iconPlus/getIconInfo?keyword=返回&topK=5"
 }]
 \`\`\`
 
-##### 步骤3：获取 SVG/PNG — GET /iconPlus/getSvg
+##### 步骤3：获取 SVG/PNG
 
 对每个选中的 icon_id 调用此接口，传入从 getConfig 和 getIconInfo 获得的参数：
 
 \`\`\`bash
-curl -s "\${VECTOR_API_BASE}/iconPlus/getSvg?icon_id=123&size=24&style=线性&color=GTS_线程_Blue-5&fileType=svg"
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getSvg --icon_id 123 --size 24 --style "线性" --color "GTS_线程_Blue-5" --fileType svg
 \`\`\`
 
 参数说明：
 - icon_id（必选）：来自 getIconInfo 返回的 icon_id
 - size（必选）：来自 getConfig 的 size 列表，根据 icon 节点语义描述中的尺寸选择（导航图标选 24，功能图标选 20→选 16 或 24，装饰图标选 16）
-- style（必选）：来自 getConfig 的 style.value，根据语义描述选择（细线→线性，面性/粗线→面性）
-- color（必选）：来自 getConfig 的 color.id，根据 icon 设计上下文选择最合适的颜色（从 color 列表中匹配：value 是色值，key 是颜色名，domain 是所属域，style 是适用风格）
+- style（必选）：来自 getConfig 的 style.value（直接传原始值，如"线性"/"面性"）
+- color（必选）：来自 getConfig 的 color.id（直接传原始值），根据 icon 设计上下文选择最合适的颜色（从 color 列表中匹配：value 是色值，key 是颜色名，domain 是所属域，style 是适用风格）
 - fileType（可选）：默认 svg，需要 PNG 时传 png
 
 返回：
@@ -186,12 +192,12 @@ curl -s "\${VECTOR_API_BASE}/iconPlus/getSvg?icon_id=123&size=24&style=线性&co
 
 ⚠️ resourceType=illus 的 image 节点不走向量搜索 API，走独立的 illusPlus 三步链路。其 resourceId / resourceScore 来自 getIllusInfo，resourceDetail 来自 getIllusInfo + getIllus 合并。
 
-##### 步骤1：获取配置 — GET /illusPlus/getConfig
+##### 步骤1：获取配置
 
 只调用一次，缓存配置数据，后续所有 illus 节点共用此配置。
 
 \`\`\`bash
-curl -s "\${VECTOR_API_BASE}/illusPlus/getConfig"
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow illus
 \`\`\`
 
 返回：
@@ -205,12 +211,12 @@ curl -s "\${VECTOR_API_BASE}/illusPlus/getConfig"
 }
 \`\`\`
 
-##### 步骤2：搜索插画 — GET /illusPlus/getIllusInfo
+##### 步骤2：搜索插画
 
 对每个 illus 节点的语义关键词调用此接口：
 
 \`\`\`bash
-curl -s "\${VECTOR_API_BASE}/illusPlus/getIllusInfo?keyword=空状态&topK=5"
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllusInfo --keyword "空状态" --topK 5
 \`\`\`
 
 参数：keyword（必选，搜索关键词）、topK（可选，默认5）、Category（可选）
@@ -232,17 +238,17 @@ curl -s "\${VECTOR_API_BASE}/illusPlus/getIllusInfo?keyword=空状态&topK=5"
 }]
 \`\`\`
 
-##### 步骤3：获取插画内容 — GET /illusPlus/getIllus
+##### 步骤3：获取插画内容
 
 支持批量获取，优先把所有选中的 illus_id 用逗号拼成一个请求，减少请求数：
 
 \`\`\`bash
-curl -s "\${VECTOR_API_BASE}/illusPlus/getIllus?illus_id=EMPLY_ILL,ERROR_ILL&theme=浅色&fileType=svg"
+bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅色" --fileType svg
 \`\`\`
 
 参数说明：
 - illus_id（必选）：来自 getIllusInfo 返回的 illus_id，支持逗号隔开分批获取
-- theme（可选）：来自 getConfig 的 theme.value，根据语义描述选择（深色背景→深色，浅色背景→浅色），默认浅色
+- theme（可选）：来自 getConfig 的 theme.value（直接传原始值，如"浅色"/"深色"），根据语义描述选择（深色背景→深色，浅色背景→浅色），默认浅色
 - fileType（可选）：默认 svg，需要 PNG 时传 png
 
 返回：
@@ -279,27 +285,28 @@ curl -s "\${VECTOR_API_BASE}/illusPlus/getIllus?illus_id=EMPLY_ILL,ERROR_ILL&the
 
 #### 调用顺序
 
-1. 若有 icon 节点：curl GET /iconPlus/getConfig（只调一次，缓存配置）
-2. 若有 resourceType=illus 的 image 节点：curl GET /illusPlus/getConfig（只调一次，缓存配置）
-3. 若有 component 节点：curl POST /lib-resource-service/api/vertor/search/llm (type=component, queries=[所有组件关键词])
-4. 若有 icon 节点：对每个 icon 关键词 curl GET /iconPlus/getIconInfo?keyword=xxx&topK=5
-5. 若有 resourceType=illus 的 image 节点：对每个 illus 关键词 curl GET /illusPlus/getIllusInfo?keyword=xxx&topK=5
-6. 若有 image 节点：curl POST /lib-resource-service/api/vertor/search/llm (type=image, queries=[...])
-7. 对每个选中的 icon_id：curl GET /iconPlus/getSvg?icon_id=xxx&size=xx&style=xx&color=xx&fileType=svg
-8. 对所有选中的 illus_id（批量逗号拼接）：curl GET /illusPlus/getIllus?illus_id=id1,id2,...&theme=浅色&fileType=svg
-9. 对每个选中的 component/image data_id：curl GET /lib-resource-service/api/vertor/detail?type=xxx&data_id=xxx
+0. export VECTOR_API_BASE=\${VECTOR_API_BASE} NODE_TLS_REJECT_UNAUTHORIZED=0
+1. 若有 icon 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow icon（只调一次，缓存配置）
+2. 若有 illus 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getConfig --flow illus（只调一次，缓存配置）
+3. 若有 component 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorSearch --type component --queries "所有组件关键词"
+4. 若有 icon 节点：对每个关键词 bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIconInfo --keyword "xxx" --topK 5
+5. 若有 illus 节点：对每个关键词 bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllusInfo --keyword "xxx" --topK 5
+6. 若有 image 节点：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorSearch --type image --queries "..."
+7. 对每个选中的 icon_id：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getSvg --icon_id xxx --size xx --style "xx" --color "xx" --fileType svg
+8. 对所有选中的 illus_id（批量逗号拼接）：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts getIllus --illus_id "id1,id2,...-theme "浅色" --fileType svg
+9. 对每个选中的 data_id：bun packages/app/octoapp/pages/dslToHex/lib/api-call.ts vectorDetail --type xxx --data_id xxx
 
 #### ⛔ 严禁臆想资源数据
 
 resourceType 是语义字段（表示节点的资源类型），始终保留。resourceId / resourceVectorText / resourceScore / resourceDetail 是数据性字段，其值必须且只能来自对应 API 流程的真实返回结果：
-- component/image 节点的数据性字段必须来自向量搜索 API（/lib-resource-service/api/vertor/search/llm + /lib-resource-service/api/vertor/detail）
+- component/image 节点的数据性字段必须来自向量搜索 API（/lib-resource-service/api/vector/search/llm + /lib-resource-service/api/vector/detail）
 - icon 节点的数据性字段必须来自 iconPlus API（getIconInfo + getSvg）
 - resourceType=illus 的 image 节点的数据性字段必须来自 illusPlus API（getIllusInfo + getIllus）
-严禁自行编造、猜测、推断任何数据性字段。如果你没有通过 curl 实际调用 API 并拿到返回数据，则数据性字段必须省略（不输出空字符串、null 或任何编造的占位值），只保留 resourceType。如果 API 调用失败或无返回，同样省略数据性字段，只保留 resourceType。
+严禁自行编造、猜测、推断任何数据性字段。如果你没有通过脚本实际调用 API 并拿到返回数据，则数据性字段必须省略（不输出空字符串、null 或任何编造的占位值），只保留 resourceType。如果 API 调用失败或无返回，同样省略数据性字段，只保留 resourceType。
 
 #### API 调用失败时的处理
 
-如果 curl 返回错误（服务不可用、网络超时等），或搜索无匹配结果，跳过资源绑定步骤，继续生成 JSON。此时资源节点只保留 resourceType，其余数据性字段全部省略。
+如果脚本返回错误（服务不可用、网络超时等），或搜索无匹配结果，跳过资源绑定步骤，继续生成 JSON。此时资源节点只保留 resourceType，其余数据性字段全部省略。
 
 ### 阶段3：生成完整的 Node DSL JSON
 
@@ -336,14 +343,14 @@ resourceType 是语义字段（表示节点的资源类型），始终保留。r
 | loaded | boolean | 否 | img 是否加载成功 |
 | passthrough | boolean | 否 | true 表示尺寸 0 但有可见后代 |
 | resourceType | string | layerType 为 component/icon/image 时必选 | 资源类型语义标记：component / icon / image / illus，始终保留。其中 resourceType=illus 对应 layerType=image |
-| resourceId | string | API 返回真实 ID 时必选，否则省略 | component/image 来自 /lib-resource-service/api/vertor/search/llm 的 data_id；icon 来自 getIconInfo 的 icon_id；illus 来自 getIllusInfo 的 illus_id |
+| resourceId | string | API 返回真实 ID 时必选，否则省略 | component/image 来自 /lib-resource-service/api/vector/search/llm 的 data_id；icon 来自 getIconInfo 的 icon_id；illus 来自 getIllusInfo 的 illus_id |
 | resourceVectorText | string | 同 resourceId | 资源核心信息文本 |
 | resourceScore | number | 同 resourceId，可选 | 匹配置信度（0-1） |
 | resourceDetail | ResourceDetail | 同 resourceId | 完整资源数据，结构按 resourceType 不同而不同 |
 | children | Node[] | 否 | 子节点列表 |
 
 > ⛔ text / icon / component / rectangle 节点不得有 children 字段。
-> 🔗 component / icon / image 节点必须包含 resourceType。如果 API 返回了真实数据，则同时包含 resourceId / resourceVectorText / resourceDetail。如果 API 未返回或搜索无匹配，只保留 resourceType，省略其余数据性字段。⚠️ icon 资源走 iconPlus API（/iconPlus/），resourceType=illus 的 image 资源走 illusPlus API（/illusPlus/），不走向量搜索 API（/lib-resource-service/api/vertor/）。frame / text / rectangle 节点不得有任何 resource 相关字段。
+> 🔗 component / icon / image 节点必须包含 resourceType。如果 API 返回了真实数据，则同时包含 resourceId / resourceVectorText / resourceDetail。如果 API 未返回或搜索无匹配，只保留 resourceType，省略其余数据性字段。⚠️ icon 资源走 iconPlus API（/iconPlus/），resourceType=illus 的 image 资源走 illusPlus API（/illusPlus/），不走向量搜索 API（/lib-resource-service/api/vector/）。frame / text / rectangle 节点不得有任何 resource 相关字段。
 
 ### ResourceDetail 结构
 
@@ -617,7 +624,7 @@ file_path, name, description
 2. **禁止任何前置/后置文字** — 不输出"好的"、"以下是"、分析说明、总结、页面描述等任何非 JSON 文字。
 3. **禁止 markdown 代码块** — 不使用 \`\`\`json 或任何代码围栏。
 4. **禁止 \<artifact\> 标签** — 不使用任何 XML/HTML 包裹标签。
-5. **只允许调用 bash 和 webfetch 工具** — 仅用于调用向量搜索 API（curl 和 webfetch），禁止调用 write、edit、read、glob、grep、skill、task,plan_exit,hover,todowrite,websearch 或任何其他工具。
+5. **只允许调用 bash 工具** — 仅用于通过 api-call.ts 脚本调用资源 API，禁止调用 write、edit、read、glob、grep、skill、task,plan_exit,hover,todowrite,websearch 或任何其他工具。
 6. **推理留在内部** — 可以内部推理，但推理内容不得出现在文字回复中。
 7. **禁止输出前端代码** — 不输出 \<html\>、\<head\>、\<body\>、\<style\>、\<script\> 标签，不输出 CSS 规则块（如 .class 选择器+属性块），不输出 JavaScript 代码，不输出任何可直接在浏览器运行的前端代码。你的输出是结构描述，不是实现代码。
 8. **禁止输出页面说明文字** — 不输出"这是一个完整的Web端首页"、"页面包含7个核心区块"等任何描述性文字。这些信息应体现在 JSON 的 layerName/layerDescription 字段中，而非作为独立文字输出。

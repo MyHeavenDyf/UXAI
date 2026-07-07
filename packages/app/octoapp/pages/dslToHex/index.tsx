@@ -698,7 +698,7 @@ const sessionMessagesLoaded = createMemo(() => {
     grep: false,
     todowrite: false,
     websearch: false,
-    webfetch: true,
+    webfetch: false,
     shell: true,
     skill: false,
     task: false,
@@ -932,7 +932,7 @@ const sessionMessagesLoaded = createMemo(() => {
           const input = state.input as Record<string, unknown> | undefined
           const cmd = typeof input?.command === "string" ? input.command : ""
           const url = typeof input?.url === "string" ? input.url : ""
-          const isResourceCall = cmd.includes("/lib-resource-service/api/vertor/") || url.includes("/lib-resource-service/api/vertor/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/") || cmd.includes("/illusPlus/") || url.includes("/illusPlus/")
+          const isResourceCall = cmd.includes("/lib-resource-service/api/vector/") || url.includes("/lib-resource-service/api/vector/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/") || cmd.includes("/illusPlus/") || url.includes("/illusPlus/")
           if (!isResourceCall) continue
           try {
             const parsed = JSON.parse(state.output as string)
