@@ -233,7 +233,7 @@ export function SceneCanvas(props: {
       const loader = new FontLoader(loadingManager)
       fontPromise = loader.loadAsync(FONT_URL).then((f) => { fontCache = f; return f }).catch(() => null)
     }
-    return fontPromise
+    return fontPromise!
   }
 
   async function buildScene(doc: SceneDocument | null | undefined) {
