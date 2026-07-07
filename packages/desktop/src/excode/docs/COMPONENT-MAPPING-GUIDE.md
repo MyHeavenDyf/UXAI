@@ -39,7 +39,7 @@ export default {
     items: 'firstOfArray',        // 数组取首项
   },
   defaults: {
-    closable: false,              // 仅当 prop 不存在时填充默认值
+    closable: false,              // 默认值，transform 前后均会兜底注入
   },
 
   // ── 可选 transform（最高优先级，处理声明式无法表达的逻辑）──
@@ -59,11 +59,14 @@ export default {
 ### 1.3 字段执行顺序（关键！）
 
 ```
-1. defaults   ← 填充默认值（仅 prop 不存在时）
+1. defaults   ← 填充默认值（仅 prop 不存在时，注入到 node.props）
 2. propsMap   ← prop 改名/删除（原名 → 目标名）
 3. valueMap   ← 枚举值映射（key 使用【改名后的目标 prop 名】！不是原名）
 4. transform  ← 任意复杂逻辑（props 结构重组、children 包裹、绑定升级等）
+5. defaults（二次兜底）← transform **返回后**再次合并 defaults 中尚未出现在最终 props 中的字段
 ```
+
+**第 5 步说明**：transform 返回后，管线会将 `defaults` 中最终 props 仍缺失的字段再次注入。这意味着**无论 transform 是否透传 `node.props`，defaults 声明一定会出现在生成的目标组件 props 中**。映射文件作者无需关心 transform 是否完全重组 props，defaults 始终是安全的兜底。
 
 **⚠️ 重要规则**：
 
@@ -128,7 +131,11 @@ defaults: {
 }
 ```
 
-仅当 prop 在原始节点中完全不存在时生效，不会覆盖已有值。
+在管线中经历两种性质的填充：
+- **transform 前**（`applySchema` 阶段）：填充到 `node.props`，transform 可以读取和使用
+- **transform 后**（二次兜底）：填充到最终输出 props 中尚未出现的字段，确保 defaults 声明不被丢弃
+
+> 映射文件作者无需关心这两种填充的差别。管线保证 `defaults` 字段一定出现在最终生成的目标组件 props 中。
 
 ---
 
@@ -693,7 +700,7 @@ children 处理（transform 返回）
 - [ ] `propsMap` 的 key 使用 A2UI 原名，value 使用 eview-react 目标名
 - [ ] `propsMap` 中没有 `value → children` 这样的错误映射
 - [ ] `valueMap` 的 key 使用**目标 prop 名**（改名后的），不是原名
-- [ ] `defaults` 是否真的只在 prop 不存在时生效
+- [ ] `defaults` 声明是否在最终产物中出现（管线自动在 transform 前后两次兜底注入，无需手动维护）
 - [ ] `transform` 已提取为独立顶层函数，不在 `export default` 内联
 - [ ] `transform` 不返回 `tag` 和 `import`（管线的固有行为）
 - [ ] 涉及 `children` 包裹时，使用 `child.wrapper` 方式（不需要额外的映射文件）

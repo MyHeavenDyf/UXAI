@@ -27,6 +27,10 @@
  * transform 通过返回值产出 stateData/componentData（替代旧的 stateTransform）：
  *   - stateData：纯数据，合并到 initialState
  *   - componentData：含 JSX，路由到所属模块 const 声明
+ *
+ * 注意：
+ * - defaults 字段在 applySchema（transform 前）和 transform 结果（transform 后）中
+ *   都会兜底合并，确保任何 transform（包括完全重组的变换）也不会丢弃 defaults 字段。
  */
 
 // ─── 类型定义 ───
@@ -202,12 +206,27 @@ export class ComponentRegistry {
         result = { props: schemaProps, children: node.children || null };
       }
 
-      // 3. 组装 CodeGenNode（注入 tag/import）
+      // 3. 确定最终 props（优先用 transform 输出，否则用 schemaProps）
+      let finalProps: Record<string, any> =
+        result.props !== undefined ? result.props : schemaProps;
+
+      // 3a. transform 后兜底合并 defaults
+      // 确保任何 transform（哪怕是完全重组 props）也不会丢弃 defaults 字段。
+      // 这是 defaults 字段语义的"二次防御"：映射文件作者无需关心 transform
+      // 是否透传 node.props，defaults 声明一定会出现在生成组件的 props 中。
+      if (def.defaults) {
+        finalProps = { ...finalProps };
+        for (const [k, v] of Object.entries(def.defaults)) {
+          if (!(k in finalProps)) finalProps[k] = v;
+        }
+      }
+
+      // 3b. 组装 CodeGenNode（注入 tag/import）
       const codeGen: TransformResult = {
         __nodeType: 'component',
         tag: result.tag || tag,
         import: result.import || importPath,
-        props: result.props !== undefined ? result.props : schemaProps,
+        props: finalProps,
         children: result.children !== undefined ? result.children : (node.children || null),
         wrapper: result.wrapper || node.wrapper,
         _inlineVarProps: result._inlineVarProps,
