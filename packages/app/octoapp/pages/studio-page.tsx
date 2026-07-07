@@ -22,6 +22,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
 import { DialogSettings } from "@/components/dialog-settings"
+import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
@@ -30,6 +31,7 @@ import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
+  referenceImageLimit,
   styleModelLabel,
   styleModelRequiresSeedreamPermission,
 } from "./studio/data"
@@ -186,6 +188,7 @@ export default function StudioPage() {
   const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
   const styleModel = () => imageSettingStore.styleModel
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
@@ -1342,14 +1345,17 @@ export default function StudioPage() {
     })
   }
 
-  async function resolveImageDataUrl(image: StudioImage) {
-    if (image.remoteUrl?.startsWith("data:image/")) return image.remoteUrl
-    if (image.url.startsWith("data:image/")) return image.url
-    const response = await fetch(image.remoteUrl ?? image.url)
+  async function resolveImageUrlDataUrl(url: string) {
+    if (url.startsWith("data:image/")) return url
+    const response = await fetch(url)
     if (!response.ok) throw new Error(`Unable to load selected image. status=${response.status}`)
     const blob = await response.blob()
     if (!blob.type.startsWith("image/")) throw new Error(`Selected media is not an image. content-type=${blob.type || "unknown"}`)
     return readBlobAsDataUrl(blob)
+  }
+
+  async function resolveImageDataUrl(image: StudioImage) {
+    return resolveImageUrlDataUrl(image.remoteUrl ?? image.url)
   }
 
   async function validateVideoFrame(file: File) {
@@ -1403,13 +1409,36 @@ export default function StudioPage() {
 
   const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const
 
+  function readStudioAssetDimensions(asset: StudioAsset) {
+    return new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      img.onerror = () => reject(new Error("无法读取图片尺寸。"))
+      img.src = asset.dataUrl
+    })
+  }
+
+  function selectStyleModel(value: string) {
+    setStyleModel(value)
+    setAssets((items) => items.slice(0, referenceImageLimit(value)))
+  }
+
   function addAssets(files: File[]) {
-    const file = files.find((item) => item.type.startsWith("image/"))
-    if (!file) return
+    const imageFiles = files.filter((item) => item.type.startsWith("image/"))
+    if (!imageFiles.length) return
+    const limit = maxReferenceImages()
+    const selectedFiles = limit === 1 ? imageFiles.slice(0, 1) : imageFiles.slice(0, Math.max(limit - assets().length, 0))
+    if (!selectedFiles.length) {
+      showToast({
+        title: "上传失败",
+        description: `最多上传 ${limit} 张参考图。`,
+      })
+      return
+    }
     const isJimeng = imageTool() === "jimeng"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
-    const ext = file.name.split(".").pop()?.toLowerCase()
-    if (!ext || !allowedExts.includes(ext)) {
+    const invalidExtFile = selectedFiles.find((file) => !allowedExts.includes(file.name.split(".").pop()?.toLowerCase() ?? ""))
+    if (invalidExtFile) {
       showToast({
         title: "上传失败",
         description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
@@ -1418,35 +1447,25 @@ export default function StudioPage() {
     }
     const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
     const maxSizeLabel = isJimeng ? "15MB" : "8MB"
-    if (file.size > maxSize) {
+    if (selectedFiles.some((file) => file.size > maxSize)) {
       showToast({
         title: "上传失败",
         description: `图片文件大小不能超过 ${maxSizeLabel}。`,
       })
       return
     }
-    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: files.length }) })
-    readStudioAsset(file)
-      .then((asset) => {
-        const img = new Image()
-        img.onload = () => {
-          if (img.naturalWidth > 7500 || img.naturalHeight > 7500) {
-            showToast({
-              title: "上传失败",
-              description: "图片最大尺寸不能超过 7500px。",
-            })
-            return
-          }
-          setAssets([asset])
-          autoSetAspectRatioFromDimensions(img.naturalWidth, img.naturalHeight)
-        }
-        img.onerror = () => {
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: selectedFiles.length }) })
+    Promise.all(selectedFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
+      .then((items) => {
+        if (items.some((item) => item.dimensions.width > 7500 || item.dimensions.height > 7500)) {
           showToast({
             title: "上传失败",
-            description: "无法读取图片尺寸。",
+            description: "图片最大尺寸不能超过 7500px。",
           })
+          return
         }
-        img.src = asset.dataUrl
+        setAssets((current) => limit === 1 ? [items[0].asset] : [...current, ...items.map((item) => item.asset)].slice(0, limit))
+        autoSetAspectRatioFromDimensions(items[0].dimensions.width, items[0].dimensions.height)
       })
       .catch((error) => {
         showToast({
@@ -1892,6 +1911,121 @@ export default function StudioPage() {
       count: nextCount,
       useRestoredInputs: true,
     }
+  }
+
+  function restoreGenerationEditDraft(result: StudioGenerationResult) {
+    const input = inputRecord(result)
+    const extra = inputExtraRecord(result)
+    const nextAspectRatio = aspectRatioValue(recordValue(input, "aspectRatio")) ?? result.aspectRatio
+    const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
+    return {
+      capability: result.capability,
+      prompt: stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
+      styleModel: stringValue(input, "styleModel") ?? result.styleModel ?? result.model,
+      aspectRatio: nextAspectRatio,
+      count: nextCount,
+      referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+      videoFrames: restoredVideoFrames(result),
+      videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
+      videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
+    }
+  }
+
+  function canEditGenerationDraft(draft: ReturnType<typeof restoreGenerationEditDraft>) {
+    if (draft.capability === "video.generate" && !canGenerateVideo()) {
+      showToast({
+        title: "暂无视频生成权限",
+        description: "当前账号暂无视频生成权限，无法重新编辑该视频生成任务。",
+      })
+      return false
+    }
+    if (
+      draft.capability === "image.generate" &&
+      styleModelRequiresSeedreamPermission(draft.styleModel) &&
+      !canUseSeedream()
+    ) {
+      showToast({
+        title: "暂无模型使用权限",
+        description: "当前账号暂无该模型权限，无法重新编辑该图片生成任务。",
+      })
+      return false
+    }
+    return true
+  }
+
+  function showEditDraftSyncedToast() {
+    showFloatingNotice("info", "已经同步参数到左侧输入区")
+  }
+
+  async function studioAssetFromImageUrl(url: string, name: string): Promise<StudioAsset> {
+    return {
+      id: crypto.randomUUID(),
+      name,
+      mime: "image/png",
+      dataUrl: await resolveImageUrlDataUrl(url),
+    }
+  }
+
+  async function restoredImageAssets(referenceImages: string[], limit: number) {
+    return (await Promise.all(referenceImages.slice(0, limit).map((referenceImage, index) =>
+      studioAssetFromImageUrl(referenceImage, `reference-${index + 1}.png`).catch((error) => {
+        console.warn("[StudioPage] restore edit draft reference image failed", error)
+        return undefined
+      })
+    ))).filter((asset): asset is StudioAsset => Boolean(asset))
+  }
+
+  async function restoredVideoFrameAssets(frames: { first?: string; last?: string }) {
+    const first = frames.first
+      ? await studioAssetFromImageUrl(frames.first, "first-frame.png").catch((error) => {
+          console.warn("[StudioPage] restore edit draft first frame failed", error)
+          return undefined
+        })
+      : undefined
+    const last = frames.last
+      ? await studioAssetFromImageUrl(frames.last, "last-frame.png").catch((error) => {
+          console.warn("[StudioPage] restore edit draft last frame failed", error)
+          return undefined
+        })
+      : undefined
+    return { first, last }
+  }
+
+  async function editGenerationDraft(result: StudioGenerationResult) {
+    if (isBusy()) return
+    if (result.capability !== "image.generate" && result.capability !== "video.generate") return
+    const draft = restoreGenerationEditDraft(result)
+    if (!canEditGenerationDraft(draft)) return
+    batch(() => {
+      setOpenMenu(null)
+      setMode("preview")
+      setCapability(draft.capability)
+      setPrompt(draft.prompt)
+      setAspectRatio(draft.aspectRatio)
+      if (draft.count) setCount(draft.count)
+    })
+    tracker.interaction({
+      module: "studio",
+      name: "edit-generation-draft",
+      extend: JSON.stringify({
+        capability: result.capability,
+        aspectRatio: result.aspectRatio,
+        count: result.images.length,
+        hasReferenceImage: draft.referenceImages.length > 0 || Boolean(draft.videoFrames.first || draft.videoFrames.last),
+      }),
+    })
+    if (draft.capability === "image.generate") {
+      if (draft.styleModel) setStyleModel(draft.styleModel)
+      clearVideoFrames()
+      setAssets(await restoredImageAssets(draft.referenceImages, referenceImageLimit(draft.styleModel ?? styleModel())))
+      showEditDraftSyncedToast()
+      return
+    }
+    setAssets([])
+    if (draft.videoDuration) setVideoDuration(draft.videoDuration)
+    if (draft.videoQualityMode) setVideoQualityMode(draft.videoQualityMode)
+    replaceVideoFrames(await restoredVideoFrameAssets(draft.videoFrames))
+    showEditDraftSyncedToast()
   }
 
   async function createStudioGeneration(input: {
@@ -2761,6 +2895,7 @@ export default function StudioPage() {
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
                   styleModel={styleModel()}
+                  maxReferenceImages={maxReferenceImages()}
                   aspectRatio={aspectRatio()}
                   count={count()}
                   assets={assets()}
@@ -2774,7 +2909,7 @@ export default function StudioPage() {
                   wordBook={wordBook}
                   onPrompt={setPrompt}
                   onCapability={selectStudioCapability}
-                  onStyleModel={setStyleModel}
+                  onStyleModel={selectStyleModel}
                   onAspectRatio={setAspectRatio}
                   onCount={setCount}
                   onVideoDuration={setVideoDuration}
@@ -2915,6 +3050,7 @@ if (!headerTitle.pendingRename) return
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
                 onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
+                onEditGeneration={(generation) => void editGenerationDraft(generation)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
               />
@@ -2927,6 +3063,7 @@ if (!headerTitle.pendingRename) return
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
             styleModel={styleModel()}
+            maxReferenceImages={maxReferenceImages()}
             aspectRatio={aspectRatio()}
             count={count()}
             assets={assets()}
@@ -2940,7 +3077,7 @@ if (!headerTitle.pendingRename) return
             wordBook={wordBook}
             onPrompt={setPrompt}
             onCapability={selectStudioCapability}
-            onStyleModel={setStyleModel}
+            onStyleModel={selectStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
             onVideoDuration={setVideoDuration}
@@ -3133,7 +3270,7 @@ if (!headerTitle.pendingRename) return
         </Show>
         </main>
       </Show>
-      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" class="hidden" onChange={handleFileChange} />
+      <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" multiple class="hidden" onChange={handleFileChange} />
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
       <Show when={videoRiskDialogOpen()}>
         <StudioVideoRiskDialog onCancel={cancelVideoRiskDialog} onConfirm={confirmVideoRiskDialog} />

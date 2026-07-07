@@ -15,6 +15,7 @@ export function StudioConversation(props: {
   busy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
+  onEditGeneration: (result: StudioGenerationResult) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
 }): JSX.Element {
@@ -49,6 +50,7 @@ export function StudioConversation(props: {
                 busy={props.busy && turn.isLatest}
                 cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
                 onCancelGeneration={props.onCancelGeneration}
+                onEditGeneration={props.onEditGeneration}
                 onSelectImage={props.onSelectImage}
               />
             </Show>
@@ -74,6 +76,7 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}
+        poster={props.image.thumbnailUrl}
         class={props.class}
         controls={props.controls}
         muted={!props.controls}
@@ -269,6 +272,7 @@ export function StudioResultCanvas(props: {
                   >
                     <StudioVideoPlayer
                       src={image().remoteUrl ?? image().url}
+                      poster={image().thumbnailUrl}
                       class={`studio-canvas-image ${getImageOrientation(image())}`}
                       mount={props.videoPlayerMount}
                     />
