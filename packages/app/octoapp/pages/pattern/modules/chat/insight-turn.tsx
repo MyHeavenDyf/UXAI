@@ -186,6 +186,7 @@ export function InsightTurn(props: {
     if (text.endsWith("请开始意图扩展。")) return "意图扩展"
     if (text.startsWith("请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：")) return "布局规划"
     if (text.startsWith("[用户修改请求]: ===============")) return "模块生成"
+    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "模块生成"
     if (text.startsWith("请根据以下内容，修改外壳布局并指定下一步细化模块")) return "细化模块"
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
     if (text.startsWith("[用户修改请求]: ")) return "分诊"
@@ -468,55 +469,55 @@ export function InsightTurn(props: {
       {/* 自定义标签卡片 */}
       <Show when={customCardLabel()}>
         {(label) => (
-              <div
-              class="mx-3 mb-1 captured-card-btn"
-              classList={{
-                generating: assistantGenerating(),
-                error: !assistantGenerating() && hasError(),
-              }}
+          <div
+            class="mx-3 mb-1 captured-card-btn"
+            classList={{
+              generating: assistantGenerating(),
+              error: !assistantGenerating() && hasError(),
+            }}
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setContentCollapsed((p) => !p)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setContentCollapsed((p) => !p) } }}
+              class="flex items-center gap-3 cursor-pointer select-none justify-between"
             >
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setContentCollapsed((p) => !p)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setContentCollapsed((p) => !p) } }}
-                class="flex items-center gap-3 cursor-pointer select-none justify-between"
-              >
-                <div class="flex items-center gap-1 min-w-0">
-                  <div class="flex flex-col min-w-0">
-                    <span class="truncate title">{label()}</span>
-                  </div>
-                  <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      class="transition-transform"
-                      style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
-                    >
-                      <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </span>
+              <div class="flex items-center gap-1 min-w-0">
+                <div class="flex flex-col min-w-0">
+                  <span class="truncate title">{label()}</span>
                 </div>
-                <Show when={!assistantGenerating() && hasError()} fallback={
-                  <Show when={assistantGenerating()} fallback={
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="#2E7D32" stroke-width="2" />
-                      <path d="M8 12L11 15L16 9" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  }>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
-                      <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
-                        <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563EB" stroke-width="3" stroke-linecap="round" />
-                    </svg>
-                  </Show>
-                }>
+                <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    class="transition-transform"
+                    style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
+                  >
+                    <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
+              </div>
+              <Show when={!assistantGenerating() && hasError()} fallback={
+                <Show when={assistantGenerating()} fallback={
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="#D32F2F" stroke-width="2" />
-                    <path d="M9 9L15 15M15 9L9 15" stroke="#D32F2F" stroke-width="2" stroke-linecap="round" />
+                    <circle cx="12" cy="12" r="10" stroke="#2E7D32" stroke-width="2" />
+                    <path d="M8 12L11 15L16 9" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                }>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
+                    <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
+                    <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563EB" stroke-width="3" stroke-linecap="round" />
                   </svg>
                 </Show>
+              }>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="#D32F2F" stroke-width="2" />
+                  <path d="M9 9L15 15M15 9L9 15" stroke="#D32F2F" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </Show>
             </div>
           </div>
         )}
