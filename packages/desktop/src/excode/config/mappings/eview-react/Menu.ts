@@ -172,6 +172,10 @@ export default {
       outputProps.className = props.className;
     }
 
+    if (props.inlineCollapsed !== undefined) {
+      outputProps.expanded = !props.inlineCollapsed;
+    }
+
     // ─── inlineCollapsed（字面量 boolean）→ expanded ───
     // A2UI inlineCollapsed（antd 语义：false=展开，true=收起）
     // eview-react Accordion expanded 语义与之一致：false=展开，true=收起（反直觉）
