@@ -61,11 +61,10 @@ type ChipDeclaration = {
 // 「user_prompt 矫正命中」进程内计数(spec §2.1 度量):模型改写用户原文、被声明矫正的次数。
 let chipCorrectionHits = 0
 
-// 解析一段 [MCP声明] 区块文本 → ChipDeclaration。格式坏 = 客户端 bug,返回 Error 由调用方响亮失败。
+// 解析一段 [MCP声明] 区块文本(必须以头开始)→ ChipDeclaration。格式坏 = 客户端 bug,返回 Error 由调用方响亮失败。
 function parseChipDeclaration(text: string): ChipDeclaration | Error {
-  const jsonStart = text.indexOf(MCP_DECLARATION_HEADER) + MCP_DECLARATION_HEADER.length
   try {
-    const parsed = JSON.parse(text.slice(jsonStart).trim()) as ChipDeclaration
+    const parsed = JSON.parse(text.slice(MCP_DECLARATION_HEADER.length).trim()) as ChipDeclaration
     if (typeof parsed?.tool !== "string" || typeof parsed?.outline_required !== "boolean") {
       return new Error("[MCP声明] 缺少 tool / outline_required 字段")
     }
@@ -332,7 +331,11 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
           if (m.info?.role !== "user") continue
           lastUser = m
           for (const p of m.parts ?? []) {
-            if (p.type !== "text" || typeof p.text !== "string" || !p.text.includes(UPLOAD_BLOCK_HEADER)) continue
+            // 必须按「头在第 0 位」锚定,不能用 includes:chip 模板正文里会**提及** [附件] / [MCP声明]
+            // 字面量(如调用纪律"[MCP声明] 段落是给系统读取的…"),includes 会把模板误当区块解析
+            // ——2026-07-08 内网事故:声明定位命中模板,JSON.parse 到中文句子,所有 chip 调用响亮失败。
+            // 清单/声明 part 由客户端构造,头恒在开头(formatUploadsForPrompt / buildChipDeclaration)。
+            if (p.type !== "text" || typeof p.text !== "string" || !p.text.startsWith(UPLOAD_BLOCK_HEADER)) continue
             for (const f of parseManifest(p.text)) {
               if (!refToPath.has(f.filename)) manifestNames.push(f.filename)
               refToPath.set(f.filename, f.path)
@@ -341,10 +344,10 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
             }
           }
         }
-        // 声明只认**当前 turn**:chip 是单 turn 语义,历史 turn 的声明不得影响本次调用
+        // 声明只认**当前 turn**(最后一条 user 消息);同样按 startsWith 锚定,见上
         if (isMcpTool && lastUser) {
           declarationText = (lastUser.parts ?? []).find(
-            (p) => p.type === "text" && typeof p.text === "string" && p.text.includes(MCP_DECLARATION_HEADER),
+            (p) => p.type === "text" && typeof p.text === "string" && p.text.startsWith(MCP_DECLARATION_HEADER),
           )?.text
         }
       } catch (err) {
