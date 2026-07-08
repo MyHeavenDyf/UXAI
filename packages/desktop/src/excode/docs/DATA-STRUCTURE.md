@@ -21,8 +21,8 @@ interface CodeGenNode {
   // 导入模式（可选，默认 'default'）
   // 'default' → import Tag from 'source'
   // 'named'   → import { Tag } from 'source'
-  // 典型场景：@hui/icon-plus 使用命名导出
-  // 示例: import { IconPlusIcIctHome } from '@hui/icon-plus'
+  // 典型场景：@nce/icon-plus 使用命名导出
+  // 示例: import { IconPlusIcIctHome } from '@nce/icon-plus'
 
   // ── 节点类型（显式标识）──
   __nodeType: 'component' | 'html'
@@ -585,19 +585,19 @@ importMode?: 'default' | 'named'   // 导入模式，默认 'default'
 
 | importMode | 生成的 import 语句 |
 |-----------|-------------------|
-| `'default'`（默认） | `import IconPlusIcIctHome from '@hui/icon-plus'` |
-| `'named'` | `import { IconPlusIcIctHome } from '@hui/icon-plus'` |
+| `'default'`（默认） | `import IconPlusIcIctHome from '@nce/icon-plus'` |
+| `'named'` | `import { IconPlusIcIctHome } from '@nce/icon-plus'` |
 
-**典型场景**：@hui/icon-plus 组件库使用命名导出，每个 icon 是一个独立的命名导出。`resolveIcon()` 返回的 CodeGenNode 自动设置 `importMode: 'named'`。
+**典型场景**：@nce/icon-plus 组件库使用命名导出，每个 icon 是一个独立的命名导出。`resolveIcon()` 返回的 CodeGenNode 自动设置 `importMode: 'named'`。
 
 **合并规则**：当多个同源组件使用 `importMode: 'named'` 时，ImportCollector 合并为同一条 import 语句：
 ```ts
 // 多个 icon 组件
-{ tag: 'IconPlusIcIctHome', import: '@hui/icon-plus', importMode: 'named' }
-{ tag: 'IconPlusIcIctMenu', import: '@hui/icon-plus', importMode: 'named' }
+{ tag: 'IconPlusIcIctHome', import: '@nce/icon-plus', importMode: 'named' }
+{ tag: 'IconPlusIcIctMenu', import: '@nce/icon-plus', importMode: 'named' }
 
 // 合并结果
-import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@hui/icon-plus'
+import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@nce/icon-plus'
 ```
 
 ### 5.6 `stateData` / `componentData` — 编译期数据转换

@@ -53,7 +53,7 @@ RegisterComponents → ReadPages → BuildTrees → ResolveIcons → GenerateCom
 | RegisterComponents | mappingRegistry 静态导入 | `ctx.registry` | 加载组件映射到 ComponentRegistry |
 | ReadPages | `ctx.pagesSourceData` 或文件系统 | `ctx.pagesData` | 读取 A2UI JSON（双数据源） |
 | BuildTrees | `ctx.pagesData` | `ctx.resolvedPages` + `ctx.styleResults` | 建树 + 绑定解析 + 样式转换（三步合一） |
-| ResolveIcons | `ctx.resolvedPages` + `ctx.pagesData` | `ctx.iconNameMap` | 收集页面中所有 icon 名称，调用 API 获取 @hui/icon-plus 映射关系 |
+| ResolveIcons | `ctx.resolvedPages` + `ctx.pagesData` | `ctx.iconNameMap` | 收集页面中所有 icon 名称，调用 API 获取 @nce/icon-plus 映射关系 |
 | GenerateComponents | `ctx.resolvedPages` + `ctx.styleResults` + `ctx.iconNameMap` | `ctx.generatedPages` | 7 阶段代码生成（核心） |
 | GenerateRoutes | `ctx.generatedPages` | `ctx.routeResult` | 生成 React Router 路由 |
 | WriteOutput | 各步骤产出 | `ctx.outputFiles` | 仅收集文件列表，不写磁盘 |
@@ -272,7 +272,7 @@ transform(node, { iconNameMap }) {
   // 返回 CodeGenNode:
   // { __nodeType: 'component',
   //   tag: 'IconPlusIcIctHome',
-  //   import: '@hui/icon-plus',
+  //   import: '@nce/icon-plus',
   //   importMode: 'named',
   //   props: { shape: 'outline', color: '#333' },
   //   children: null,
@@ -280,7 +280,7 @@ transform(node, { iconNameMap }) {
 }
 ```
 
-用途：在 mapping transform 中将 A2UI icon 名称转换为 @hui/icon-plus 组件的 CodeGenNode。未找到映射时返回 PLACEHOLDER_ICON 兜底。
+用途：在 mapping transform 中将 A2UI icon 名称转换为 @nce/icon-plus 组件的 CodeGenNode。未找到映射时返回 PLACEHOLDER_ICON 兜底。
 
 ---
 
@@ -297,7 +297,7 @@ PipelineContext (ctx)
 ├── pagesData           [ReadPages] 原始页面 JSON
 ├── resolvedPages       [BuildTrees] 建树 + 绑定解析后的页面
 ├── styleResults        [BuildTrees] 样式转换结果（lessFiles, globalLess, pageRules）
-├── iconNameMap         [ResolveIcons] icon 名称映射表（A2UI名 → @hui/icon-plus 组件名）
+├── iconNameMap         [ResolveIcons] icon 名称映射表（A2UI名 → @nce/icon-plus 组件名）
 ├── generatedPages      [GenerateComponents] 代码生成后的页面
 ├── routeResult         [GenerateRoutes] 路由文件
 ├── outputFiles         [WriteOutput] 产出文件列表 [{ path, content }]
@@ -357,7 +357,7 @@ const defaultConfig = {
    - 调用 `GET /api/icons/search?keyword={names}&topK=2`（batch=6，并发请求）获取映射
    - 结果存入 `ctx.iconNameMap`，`GenerateComponents` 注入到 transform context 的 `iconNameMap` 字段
    - 映射文件通过 `resolveIcon(iconName, iconNameMap)` 将 A2UI icon 名称转换为 CodeGenNode
-   - `resolveIcon` 返回的 CodeGenNode 带 `importMode: 'named'`，ImportCollector 生成 `import { IconName } from '@hui/icon-plus'`
+   - `resolveIcon` 返回的 CodeGenNode 带 `importMode: 'named'`，ImportCollector 生成 `import { IconName } from '@nce/icon-plus'`
 10. **Named import 支持**：`importMode: 'named'` 字段控制 ImportCollector 使用命名导入语法。多个同源 named import 自动合并为同一条 import 语句。
 
 ---

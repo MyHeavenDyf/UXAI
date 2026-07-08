@@ -759,7 +759,7 @@ children 处理（transform 返回）
 
 ### 9.1 概述
 
-excode 管线通过 **ResolveIcons** 步骤统一收集页面中所有 icon 名称，调用远程 API 获取 @hui/icon-plus 的映射关系，存入 `ctx.iconNameMap`。映射文件在 transform 中通过 `resolveIcon()` 工具函数将 A2UI icon 名称转换为 CodeGenNode。
+excode 管线通过 **ResolveIcons** 步骤统一收集页面中所有 icon 名称，调用远程 API 获取 @nce/icon-plus 的映射关系，存入 `ctx.iconNameMap`。映射文件在 transform 中通过 `resolveIcon()` 工具函数将 A2UI icon 名称转换为 CodeGenNode。
 
 ### 9.2 数据流
 
@@ -783,7 +783,7 @@ ctx.iconNameMap: Record<string, string>
   resolveIcon(iconName, iconNameMap, extraProps?)
   │
   ▼
-CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@hui/icon-plus', importMode: 'named', props: { shape: 'outline' }, selfClosing: true }
+CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@nce/icon-plus', importMode: 'named', props: { shape: 'outline' }, selfClosing: true }
 ```
 
 ### 9.3 resolveIcon() 工具函数
@@ -794,7 +794,7 @@ CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@hui/
 import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
 
 /**
- * 将 A2UI icon 名称转换为 @hui/icon-plus 的 CodeGenNode
+ * 将 A2UI icon 名称转换为 @nce/icon-plus 的 CodeGenNode
  *
  * @param iconName    - A2UI icon 名称（如 'home', 'menu'）
  * @param iconNameMap - ResolveIcons 步骤产出的映射表（ctx.iconNameMap）
@@ -804,7 +804,7 @@ import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
  * 返回的 CodeGenNode:
  *   { __nodeType: 'component',
  *     tag: 'IconPlusIcIctHome',
- *     import: '@hui/icon-plus',
+ *     import: '@nce/icon-plus',
  *     importMode: 'named',
  *     props: { shape: 'outline', ...extraProps },
  *     children: null,
@@ -824,7 +824,7 @@ import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
 
 export default {
   tag: 'IconPlusIcIctHome',    // 动态 tag，实际由 resolveIcon 决定
-  import: '@hui/icon-plus',     // 动态 import，实际由 resolveIcon 决定
+  import: '@nce/icon-plus',     // 动态 import，实际由 resolveIcon 决定
 
   transform(node, { iconNameMap }) {
     const p = { ...(node.props || {}) };
@@ -881,10 +881,10 @@ export default {
 
 ### 9.5 importMode: 'named' 说明
 
-@hui/icon-plus 使用命名导出（named export），每个 icon 是一个独立的命名导出：
+@nce/icon-plus 使用命名导出（named export），每个 icon 是一个独立的命名导出：
 
 ```ts
-import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@hui/icon-plus';
+import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@nce/icon-plus';
 ```
 
 映射文件中通过 `importMode: 'named'` 告知 ImportCollector 使用命名导入语法。该字段在 `resolveIcon()` 返回的 CodeGenNode 中自动设置。

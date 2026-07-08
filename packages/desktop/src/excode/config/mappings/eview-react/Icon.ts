@@ -1,13 +1,13 @@
 /**
- * Icon → @hui/icon-plus 映射
+ * Icon → @nce/icon-plus 映射
  *
- * A2UI Icon 组件 → @hui/icon-plus 命名导出组件。
+ * A2UI Icon 组件 → @nce/icon-plus 命名导出组件。
  * 同时导出 resolveIcon / PLACEHOLDER_ICON 供其他映射文件（如 Menu.ts）使用。
  *
  * ## 核心逻辑
  *
  * 1. A2UI Icon 的 props：
- *    - name: string — 图标名称（如 "menu", "home"），需映射到 @hui/icon-plus 的组件名
+ *    - name: string — 图标名称（如 "menu", "home"），需映射到 @nce/icon-plus 的组件名
  *    - shape: "outline" | "solid" — 图标风格，透传给目标组件
  *    - color: string — 颜色（可选），透传给目标组件
  *    - className: string — 样式类名，透传
@@ -23,7 +23,7 @@
  *
  * 4. 生成代码示例：
  *    ```jsx
- *    import { IconPlusIcIctMenu } from '@hui/icon-plus';
+ *    import { IconPlusIcIctMenu } from '@nce/icon-plus';
  *    // ...
  *    <IconPlusIcIctMenu type="lined" className="w-5 h-5" />
  *    ```
@@ -35,14 +35,14 @@
  * 占位图标组件名
  *
  * 当 A2UI icon 名称在 iconNameMap 中找不到映射时使用。
- * 该组件应存在于 @hui/icon-plus 库中，作为兜底显示。
+ * 该组件应存在于 @nce/icon-plus 库中，作为兜底显示。
  */
 export const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate';
 
 // ─── 导出工具函数 ───
 
 /**
- * resolveIcon — 将 A2UI icon 名称转换为 @hui/icon-plus 组件的 CodeGenNode
+ * resolveIcon — 将 A2UI icon 名称转换为 @nce/icon-plus 组件的 CodeGenNode
  *
  * @param iconName     - A2UI 中的 icon 名称（如 "menu", "home"）
  * @param iconNameMap  - icon 名称映射表（由 ResolveIcons 步骤填充）
@@ -53,7 +53,7 @@ export const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate';
  *   - 返回 CodeGenNode 而非字符串，让 StateTransformer._serializeJsxVar
  *     识别 __nodeType 后调用 JsxSerializer.renderNode 渲染为 <IconPlusXxx /> JSX
  *   - importMode: 'named' 告诉 ImportCollector 生成命名导入
- *     `import { IconPlusIcIctMenu } from '@hui/icon-plus'`
+ *     `import { IconPlusIcIctMenu } from '@nce/icon-plus'`
  *   - 未映射的 name 使用占位图标 IconPlusIcPublicTransverseRectangleTemplate
  *   - 默认 props
  *
@@ -112,7 +112,7 @@ export function resolveIcon(
   return {
     __nodeType: 'component',
     tag: targetIconName,
-    import: '@hui/icon-plus',
+    import: '@nce/icon-plus',
     importMode: 'named',
     props: {...(extraProps || {}) },
     children: null,
@@ -125,14 +125,14 @@ export function resolveIcon(
 export default {
   // 顶层声明占位值，实际由 transform 动态覆盖
   tag: PLACEHOLDER_ICON,
-  import: '@hui/icon-plus',
+  import: '@nce/icon-plus',
   importMode: 'named',
 
   /**
-   * transform — Icon → @hui/icon-plus 组件
+   * transform — Icon → @nce/icon-plus 组件
    *
    * context 提供：
-   *   - iconNameMap: A2UI name → @hui/icon-plus 组件名映射表
+   *   - iconNameMap: A2UI name → @nce/icon-plus 组件名映射表
    *   - rawState: A2UI 原始 state（透传）
    *   - resolveNode: 递归解析任意 A2UI 节点（透传）
    */

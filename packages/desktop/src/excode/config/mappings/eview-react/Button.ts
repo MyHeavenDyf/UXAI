@@ -55,7 +55,7 @@ export default {
    * transform — props 转换
    *
    * context 提供：
-   *   - iconNameMap: A2UI name → @hui/icon-plus 组件名映射表
+   *   - iconNameMap: A2UI name → @nce/icon-plus 组件名映射表
    *   - rawState: A2UI 原始 state（透传）
    *
    * 1. 纯图标按钮（有 icon 无 value）→ 返回 IconButton 分支

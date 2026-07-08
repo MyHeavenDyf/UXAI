@@ -29,7 +29,7 @@
  *
  * ## icon 处理（与 docs §9.4 + Button.ts 一致）
  *
- * 调用 resolveIcon 把 iconName 转为 CodeGenNode（@hui/icon-plus 的命名导出组件），
+ * 调用 resolveIcon 把 iconName 转为 CodeGenNode（@nce/icon-plus 的命名导出组件），
  * 通过 `__slotNode` 包装嵌入 iconName prop，让 JsxSerializer 渲染为 JSX。
  *
  * 同时设置 hasIcon=true 触发 eview-react Tag 的 icon 显示开关。
@@ -51,12 +51,25 @@
  *   - 避免 transform 中误传 binding 未声明的 prop
  *   - style/color 的合并逻辑在 outputProps 上显式完成，可读性更佳
  */
-import { resolveIcon } from "./Icon"
+import { resolveBindingValue } from '../../../src/core/stateUtils';
+import { resolveIcon } from './Icon';
+
 
 /**
- * HEX 颜色正则（匹配 #RGB / #RRGGBB / #RRGGBBAA）
+ * 从 DataBinding 或字面量中提取实际值
+ *
+ * 返回 [actualValue, stateKey | null]
+ * - actualValue: 实际数组或原始值
+ * - stateKey: 如果是从 state 中取的数据，返回用于删除的 path；否则 null
  */
-const HEX_COLOR_REGEX = /^#[0-9a-f]{3,8}$/i
+function resolveValue(rawState: any, prop: any): [any, string | null] {
+  if (prop?.__binding) {
+    const path = prop.accessPath;
+    const value = resolveBindingValue(rawState, prop);
+    return [value, path];
+  }
+  return [prop, null];
+}
 
 export default {
   tag: "Tag",
@@ -84,12 +97,8 @@ export default {
    *
    * 采用 outputProps 增量构造（详见文件头"实现风格"）。
    *
-   * 输入输出分离的好处：
-   *   1. 显式列出所有输出字段，便于审计
-   *   2. style/color 合并逻辑清晰，不会污染源 p 对象
-   *   3. 与 Input.ts / Switch.ts 保持一致风格
    */
-  transform(node: any, { iconNameMap }: { iconNameMap?: Record<string, string> } = {}) {
+  transform(node: any, { rawState, iconNameMap }: { rawState?: any; iconNameMap?: Record<string, string> }) {
     const p = { ...(node.props || {}) }
     const iconMap = iconNameMap || {}
     const outputProps: Record<string, any> = {}
@@ -110,7 +119,7 @@ export default {
     // valueMap 已先做枚举映射（error→danger, processing→primary）
     // HEX 色（#RRGGBB 等）→ style.--background（CSS 变量，优先级高于预设色）
     // 其他枚举值（primary/success/warning/danger/caution/default）→ 透传
-    if (typeof p.color === "string" && HEX_COLOR_REGEX.test(p.color)) {
+    if (typeof p.color === "string") {
       outputProps.style = { ...(outputProps.style || {}), "--background": p.color }
     } else if ("color" in p) {
       outputProps.color = p.color
@@ -128,6 +137,7 @@ export default {
 
     // ─── 6. value 保持为 prop（JsxSerializer._isBinding 渲染 binding 对象） ───
     if ("value" in p) {
+         const [value, valuePath] = resolveValue(rawState, p.value);
       outputProps.value = p.value
     }
 
