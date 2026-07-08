@@ -172,8 +172,8 @@ export default {
       outputProps.className = props.className;
     }
 
-    if (props.inlineCollapsed !== undefined) {
-      outputProps.expanded = !props.inlineCollapsed;
+    if (props.inlineCollapsed) {
+      outputProps.expanded = props.inlineCollapsed;
     }
 
     // ─── inlineCollapsed（字面量 boolean）→ expanded ───
