@@ -161,14 +161,37 @@ export class TailwindConverter {
       rules.push({ selector: `${selector}:hover`, declarations: hoverDeclarations });
     }
 
-    if (node.children && Array.isArray(node.children)) {
-      for (const child of node.children) {
-        this.collectRules(child, rules, excludeIds);
+    if (node.children) {
+      if (Array.isArray(node.children)) {
+        for (const child of node.children) {
+          this.collectRules(child, rules, excludeIds);
+        }
+      } else if (typeof node.children === 'object') {
+        // BuildTrees 阶段：循环模板节点作为单 children 直接挂载（非数组）
+        this.collectRules(node.children, rules, excludeIds);
       }
     }
 
-    if (node._isLoop && node._loopTemplate) {
-      this.collectRules(node._loopTemplate, rules, excludeIds);
+    // 循环模板（兼容 BuildTrees 阶段与 _deepResolve 阶段两种形态）
+    if (node._isLoop) {
+      const template = node._loopTemplate || (node as any)._resolvedTemplate;
+      if (template) {
+        this.collectRules(template, rules, excludeIds);
+      } else if (node.children && !Array.isArray(node.children)) {
+        // BuildTrees 阶段：模板节点直接挂在 children（单个对象）
+        this.collectRules(node.children, rules, excludeIds);
+      }
+    } else if ((node as any).__type === 'loop') {
+      // _deepResolve 阶段：body 在 template.body
+      if ((node as any).template && (node as any).template.body) {
+        this.collectRules((node as any).template.body, rules, excludeIds);
+      }
+      return;  // 避免误入 template 对象的字段
+    } else if ((node as any).__type === 'renderFn') {
+      if ((node as any).body) {
+        this.collectRules((node as any).body, rules, excludeIds);
+      }
+      return;
     }
   }
 
