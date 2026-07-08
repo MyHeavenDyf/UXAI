@@ -2094,7 +2094,7 @@ export default function StudioPage() {
             : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
         isCustomSize: Boolean(input.width && input.height),
-        ...(input.width && input.height ? { size: [input.width, input.height] } : {}),
+        ...(input.width && input.height ? { target_size: { width: input.width, height: input.height } } : {}),
         imageTool: imageTool(),
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
