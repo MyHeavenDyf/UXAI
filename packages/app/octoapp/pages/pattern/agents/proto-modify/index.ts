@@ -73,7 +73,8 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
     extra: ctx.extra,
   })
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
-  const patchOps = extractJson(modifyRes.text) as unknown as PatchOp[]
+  const raw = extractJson(modifyRes.text) as unknown
+  const patchOps = (Array.isArray(raw) ? raw : [raw]) as PatchOp[]
   const patched = mergeJson(ctx.input.ui_json_str as unknown as PatchSource, patchOps)
 
   const returnValue = {

@@ -188,6 +188,7 @@ export function InsightTurn(props: {
     if (text.startsWith("[用户修改请求]: ===============")) return "模块生成"
     if (text.startsWith("请根据以下内容，修改外壳布局并指定下一步细化模块")) return "细化模块"
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
+    if (text.startsWith("[用户修改请求]: ")) return "分诊"
     return null
   })
 
