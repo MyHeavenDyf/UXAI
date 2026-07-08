@@ -981,6 +981,8 @@ function PatternContent() {
 
   // 监听对话框回车键
   function handleKeyDown(e: KeyboardEvent) {
+    // 输入法合成期间(如拼音待选)的回车用于确认候选词,不应触发发送
+    if (e.isComposing || e.keyCode === 229) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       void handleSubmit()
