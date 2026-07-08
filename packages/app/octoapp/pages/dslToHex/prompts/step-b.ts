@@ -267,10 +267,6 @@ bun \${API_CALL_SCRIPT} getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅�
 - 多个 illus_id：[{illus_id, alias, file, illus_file_type, theme}]（svg 与 png 均会落盘）
 - 识别不了的返回内容：对应条目回退返回原始数据，同样无需抄写
 
-不带 --save 时返回格式：
-- 单个 illus_id：返回 JSON {illus_id, alias, data}，data 为 SVG/PNG 原文
-- 多个 illus_id：返回 [{illus_id, alias, data}]
-
 ##### illus 参数选择指引
 
 - theme：根据 layerDescription 中的主题描述从 getConfig.category.theme 中选择 value。深色/暗色背景→深色；浅色/明亮背景→浅色。无描述时默认 浅色
@@ -311,7 +307,9 @@ bun \${API_CALL_SCRIPT} getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅�
 8. 对所有选中的 illus_id（批量逗号拼接）：bun \${API_CALL_SCRIPT} getIllus --illus_id "id1,id2,..." --theme "浅色" --fileType svg --save \${ASSETS_DIR}
 9. 对每个选中的 data_id：bun \${API_CALL_SCRIPT} vectorDetail --type xxx --data_id xxx
 
-⚠️ 步骤 7/8/9 不可省略：系统在渲染前根据这些调用的真实输出自动回填每个节点的 resourceDetail。getSvg/getIllus 必须带 --save \${ASSETS_DIR}——SVG 落盘为素材文件，你只会看到文件引用 JSON，系统自动读取文件内容。没有对应调用输出的资源节点，渲染时将没有资源数据。
+⚠️ 步骤 7/8/9 不可省略：系统在渲染前根据这些调用的真实输出自动回填每个节点的 resourceDetail。getSvg/getIllus **必须带 --save \${ASSETS_DIR}**（不是可选项）——SVG 落盘为素材文件，你只会看到文件引用 JSON，系统自动读取文件内容。没有对应调用输出的资源节点，渲染时将没有资源数据。
+
+⚠️ 变体标识 resourceVariant：当同一 icon_id 在页面中用了**多种变体**（不同 size/style/color），或同一 illus_id 用了不同 theme 时，每个用到该资源的节点必须填 resourceVariant（icon：\`{"size","style","color"}\`；illus：\`{"theme"}\`），值与该节点对应的 getSvg/getIllus 调用参数完全一致。否则系统无法区分变体，会给节点回填错误的素材。只有单一变体时可省略。
 
 #### ⛔ 严禁臆想资源数据
 
@@ -439,7 +437,7 @@ file_path, name, description
 ### 布局约束
 
 - 所有布局容器必须使用 flex 布局：display: flex，配合 flexDirection / gap / alignItems / justifyContent 控制排列
-- 最外层根节点的 rect.w 必须等于 100%（即 375 移动端宽度），所有子容器宽度也应尽量使用父容器宽度，确保线框图在不同屏幕尺寸下能自适应
+- rect.w / rect.h 一律是像素数值（number），不要写 "100%" 等字符串。最外层根节点 rect.w 等于画布宽度（移动端 375），子容器宽度尽量与父容器一致（rect.w 取父级宽度值），以便线框在不同屏幕下自适应
 - 禁止使用绝对定位（position: absolute）来排列子元素，仅 fixed 元素使用 position: fixed
 - 子元素间距统一用 gap 控制，不要手动计算偏移
 - 容器宽度优先继承父容器（rect.w 与父级相同），高度按内容自适应或设定合理值
@@ -452,7 +450,7 @@ file_path, name, description
 - layerName：同类节点须可区分（如"登录按钮"/"注册按钮"，不得笼统写"按钮"）
 - layerDescription：icon 类型须注明尺寸和线条粗细（如"返回图标 24x24 细线"）
 - style 只写非默认值字段
-- component / icon / image 节点必须包含 resourceType；resourceId / resourceVectorText 仅在 API 返回真实数据时才包含，否则省略；resourceDetail 一律不输出，由系统自动回填（icon 走 iconPlus，resourceType=illus 走 illusPlus，component/resourceType=image 走向量搜索）
+- component / icon / image 节点必须包含 resourceType；resourceId / resourceVectorText 仅在 API 返回真实数据时才包含，否则省略；多变体的 icon/illus 节点还须填 resourceVariant；resourceDetail 一律不输出，由系统自动回填（icon 走 iconPlus，resourceType=illus 走 illusPlus，component/resourceType=image 走向量搜索）
 - frame / text / rectangle 节点不得有 resource 相关字段
 
 ### 常用尺寸参考

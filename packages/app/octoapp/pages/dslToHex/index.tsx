@@ -620,7 +620,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!text) continue
       if (looksLikeJson(text)) continue
       const parts = partStore?.[msg.id] ?? []
-      if (parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")) continue
+      if (parts.some((p) => p.type === "tool")) continue
       stepAMsg = msg
       break
     }
@@ -800,7 +800,7 @@ const sessionMessagesLoaded = createMemo(() => {
     for (const msg of [...allMsgs].reverse()) {
       if (msg.role !== "assistant") continue
       const parts = partStore?.[msg.id] ?? []
-      const hasToolCall = parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
+      const hasToolCall = parts.some((p) => p.type === "tool")
       if (hasToolCall) continue
       const joined = joinTextParts(parts)
       if (!joined) continue
@@ -822,7 +822,7 @@ const sessionMessagesLoaded = createMemo(() => {
     for (const msg of [...allMsgs].reverse()) {
       if (msg.role !== "assistant") continue
       const parts = partStore?.[msg.id] ?? []
-      const hasToolCall = parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
+      const hasToolCall = parts.some((p) => p.type === "tool")
       if (hasToolCall) continue
       const text = joinTextParts(parts)
       if (!text) continue
@@ -1033,8 +1033,9 @@ const sessionMessagesLoaded = createMemo(() => {
                  ? iconVariantKey(rid, variant.size, variant.style, variant.color)
                  : illusVariantKey(rid, variant.theme)
                : null
+             // detail 完全由工具真实输出构成，不 spread node.resourceDetail：prompt 已禁止
+             // LLM 输出该字段，它若违规塞了搜索浅记录（{data_id, vector_text, score}）会污染结果
              const detail: Record<string, unknown> = {
-               ...(node.resourceDetail as Record<string, unknown> | undefined ?? {}),
                ...(cachedDetail ?? {}),
                ...((variantKey ? variantDetailMap.get(variantKey) : undefined) ?? {}),
              }
@@ -1052,7 +1053,9 @@ const sessionMessagesLoaded = createMemo(() => {
                 detail.illus_content = detail.data
                 delete detail.data
               }
+             // 有真实数据才写；否则删掉（含 LLM 违规输出的 resourceDetail），符合"无数据则省略"
              if (Object.keys(detail).length > 0) node.resourceDetail = detail
+             else delete node.resourceDetail
            }
           const children = node.children as Record<string, unknown>[] | undefined
           if (children) for (const c of children) cleanNode(c)
@@ -1085,15 +1088,15 @@ const sessionMessagesLoaded = createMemo(() => {
       } else if (obj && typeof obj === "object") {
         const rec = obj as Record<string, unknown>
         if (typeof rec.data_id === "string") {
-          const { results, ...detail } = rec
+          const { results, data_id, vector_text, score, ...detail } = rec
           if (Object.keys(detail).length > 1) map.set(rec.data_id, { ...map.get(rec.data_id) ?? {}, ...detail })
         }
         if (iconDetailMap && typeof rec.icon_id === "string") {
-          const { results, ...detail } = rec
+          const { results, score, ...detail } = rec
           if (Object.keys(detail).length > 1) iconDetailMap.set(rec.icon_id, { ...iconDetailMap.get(rec.icon_id) ?? {}, ...detail })
         }
         if (illusDetailMap && typeof rec.illus_id === "string") {
-          const { results, ...detail } = rec
+          const { results, keyword, score, ...detail } = rec
           if (Object.keys(detail).length > 1) illusDetailMap.set(rec.illus_id, { ...illusDetailMap.get(rec.illus_id) ?? {}, ...detail })
         }
         for (const val of Object.values(rec)) collectDetails(val, map, iconDetailMap, illusDetailMap)
@@ -1103,14 +1106,14 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── 产物持久化 ─────────────────────────────────────────────
   const dslDir = projectDir()
 
-  createEffect(() => {
+  // 仅在本 session「真正生成完成」（a-generating → a-done 的转换）时存盘一次。
+  // 切回已完成的 session 走 inferFromCache（其它 phase → a-done，prevPhase 非 a-generating），
+  // 由 restore effect 从缓存/磁盘恢复，不在此重算——避免用未同步全的消息覆盖磁盘正确产物，
+  // 也避免误取到步骤二 JSON 消息把步骤一产物覆盖。on 回调内读 stepADescription 不建立依赖。
+  createEffect(on(stepPhase, (phase, prevPhase) => {
     const id = params.id
     if (!id || !dslDir) return
-    const phase = stepPhase()
-    // 仅在"真正空闲完成步骤一"时存盘。切回一个仍在生成步骤二的 session 时，
-    // phase 会短暂为 a-done 但 isBusy 为真，此时 stepADescription 可能（消息未同步全）
-    // 误取到步骤二的 JSON 消息，若存盘就会把步骤一产物覆盖成步骤二内容。
-    if (phase === "a-done" && !isBusy()) {
+    if (phase === "a-done" && prevPhase === "a-generating" && !isBusy()) {
       const text = stepADescription()
       // ── 调试：打印 step A 捕获到的原始 part 文本 vs 清洗后文本 ──
       const partStore = sync.data.part as Record<string, { type: string; text?: string }[]>
@@ -1127,23 +1130,25 @@ const sessionMessagesLoaded = createMemo(() => {
         saveArtifact(dslDir, id, "a", text).catch(() => {})
       }
     }
-  })
+  }))
 
-  createEffect(() => {
+  // 仅在本 session「真正生成完成」（b-generating → b-done 的转换）时存盘一次。
+  // 切回已完成的 session 走 inferFromCache，是「其它 phase → b-done」，prevPhase 非 b-generating，
+  // 不在此重复提取+存盘——恢复由下方 restore effect 从缓存/磁盘负责，避免用未同步全的消息
+  // 重算并覆盖磁盘上已正确的产物。on 回调内读 stepBDslJson 不建立依赖，故 sync 流式变化不会反复触发。
+  createEffect(on(stepPhase, (phase, prevPhase) => {
     const id = params.id
     if (!id || !dslDir) return
-    const phase = stepPhase()
-    if (phase === "b-done") {
-      const json = stepBDslJson()
-      if (json) {
-        // 存盘/缓存回填后的版本：恢复会话时直接发给 iframe，resourceDetail（含 SVG）完整
-        const reconciled = reconcileResources(json)
-        setStepBArtifact(reconciled)
-        cacheArtifact(id, { b: reconciled })
-        saveArtifact(dslDir, id, "b", reconciled).catch(() => {})
-      }
-    }
-  })
+    if (phase !== "b-done" || prevPhase !== "b-generating") return
+    if (isBusy()) return
+    const json = stepBDslJson()
+    if (!json) return
+    // 存盘/缓存回填后的版本：恢复会话时直接发给 iframe，resourceDetail（含 SVG）完整
+    const reconciled = reconcileResources(json)
+    setStepBArtifact(reconciled)
+    cacheArtifact(id, { b: reconciled })
+    saveArtifact(dslDir, id, "b", reconciled).catch(() => {})
+  }))
 
   function handleZipData(zipData: ArrayBuffer) {
     const id = params.id
@@ -1281,7 +1286,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const lastAssistant = [...allMsgs].reverse().find((m) => m.role === "assistant")
     if (!lastAssistant) { debugLog("phase-advance: no lastAssistant, phase=", phase); return }
     const lastParts = partStore?.[lastAssistant.id] ?? []
-    const hasToolCall = lastParts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
+    const hasToolCall = lastParts.some((p) => p.type === "tool")
     const hasStepB = hasStepBData()
     debugLog("phase-advance:", { phase, hasStepB, hasToolCall, partTypes: lastParts.map(p => p.type), lastMsgId: lastAssistant.id })
     if (phase === "a-generating") {

@@ -279,7 +279,13 @@ async function handleVectorDetail(opts: Record<string, string>): Promise<void> {
     console.error("Missing required parameters: --type, --data_id")
     process.exit(1)
   }
-  output(await httpGet("/lib-resource-service/api/vector/detail", { type: opts.type, data_id: opts.data_id }))
+  // detail API 的返回体不含 data_id，而前端按 data_id 关联回填，这里注入回去
+  const detail = await httpGet("/lib-resource-service/api/vector/detail", { type: opts.type, data_id: opts.data_id })
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    output({ data_id: opts.data_id, ...(detail as Record<string, unknown>) })
+    return
+  }
+  output(detail)
 }
 
 const handlers: Record<string, (opts: Record<string, string>) => Promise<void>> = {
