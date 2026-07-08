@@ -40,6 +40,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { PreviewPane } from "./preview-pane"
 import { Breadcrumb } from "./breadcrumb"
 import { DesignFilesToolbar } from "./design-files-toolbar"
@@ -604,14 +605,15 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           />
         </Show>
 
-        <div class="flex-1 min-h-0 overflow-auto">
-          <div style={{ padding: "24px" }} class="h-full">
-            <Show when={hasAnyFiles()}>
-              <Breadcrumb
-                currentPath={fileStore.store.currentPath}
-                onNavigate={(path) => fileStore.setCurrentPath(path)}
-              />
-            </Show>
+        <div class="flex-1 min-h-0 flex flex-col">
+          <Show when={hasAnyFiles()}>
+            <Breadcrumb
+              currentPath={fileStore.store.currentPath}
+              onNavigate={(path) => fileStore.setCurrentPath(path)}
+            />
+          </Show>
+          <ScrollView class="flex-1 min-h-0" style={{ padding: "0 24px 24px" }}>
+            
             <Show when={fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0}>
             <div class="flex items-center justify-center h-full">
               <Spinner class="size-[20px]" />
@@ -810,7 +812,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
               </tbody>
             </table>
           </Show>
-          </div>
+          </ScrollView>
         </div>
       </div>
 

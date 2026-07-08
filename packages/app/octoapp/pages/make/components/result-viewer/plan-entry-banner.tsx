@@ -66,7 +66,7 @@ export function PlanEntryBanner(props: {
           <button
             type="button"
             class="text-[12px] font-semibold rounded-[8px] px-3 py-1.5 text-white transition-colors"
-            style={{ background: "rgb(74,81,255)" }}
+            style={{ background: "#0a59f7", color: "white" }}
             onClick={props.onEnter}
           >
             进入

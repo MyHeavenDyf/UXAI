@@ -1355,6 +1355,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           "border-icon-info-active border-dashed": store.draggingType !== null,
           [props.class ?? ""]: !!props.class,
         }}
+        style={{ "min-height": "150px" }}
       >
         <PromptDragOverlay
           type={store.draggingType}
