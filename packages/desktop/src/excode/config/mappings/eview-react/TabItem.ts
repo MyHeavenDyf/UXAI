@@ -15,8 +15,8 @@
  */
 export default {
   tag: 'TabItem',
-  import: '@nce/eview-react/TabItem',
-
+  import: '@nce/eview-react/Tab',
+  importMode: 'named',
   propsMap: {
     label: 'title',
   },
