@@ -46,7 +46,6 @@ export interface TriageResult {
   add: TriageAddItem[]
   modify: TriageModifyItem[]
   reply: string
-  updated_intent: Record<string, unknown>
   reason: string
 }
 
@@ -99,7 +98,6 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
       action: m.action ?? "",
     })),
     reply: (triageJson.reply as string) ?? "",
-    updated_intent: (triageJson.updated_intent as Record<string, unknown>) ?? {},
     reason: (triageJson.reason as string) ?? "",
   }
   logAgentParsed(triageRes.childSessionId, returnValue)

@@ -67,18 +67,16 @@ export default async function modify_json_ai(
       sectionId: "",
       originModules: {},
       modifications: {},
-      intentDescription: triage.updated_intent as Record<string, unknown> | undefined,
+      intentDescription: undefined,
     },
   })
 
-  void saveDebugSnapshot(historyDir, inputCtx.rootSession, "modify", {
-    lastIntent: triage.updated_intent as Record<string, unknown> | null,
-  })
+  void saveDebugSnapshot(historyDir, inputCtx.rootSession, "modify")
 
   const result = modifyResult.ui_json as Record<string, unknown>
 
   await onFinshed({
-    pageIntent: triage.updated_intent,
+    pageIntent: null,
     layoutPlanner: modifyResult.ui_json as unknown as Record<string, unknown>,
     modulesJson: [modifyResult.ui_json],
     pageJson: result,
