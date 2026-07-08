@@ -1,6 +1,6 @@
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Effect, Layer } from "effect"
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { pathToFileURL } from "url"
 import type { Permission } from "../../src/permission"
@@ -93,4 +93,30 @@ Use this skill.
       { git: true },
     ),
   )
+})
+
+// Separate describe block for bus event tests (not using testEffect)
+describe("skill.used event", () => {
+  afterEach(() => disposeAllInstances())
+
+  test("publishes skill.used event", async () => {
+    const { Bus } = await import("../../src/bus")
+    const { Skill } = await import("../../src/skill")
+    const { WithInstance } = await import("../../src/project/with-instance")
+    const { tmpdir } = await import("../fixture/fixture")
+
+    await using tmp = await tmpdir()
+    const received: string[] = []
+
+    await WithInstance.provide({ directory: tmp.path, fn: async () => {
+      Bus.subscribe(Skill.SkillUsed, (evt) => {
+        received.push(evt.properties.skillName)
+      })
+      await Bun.sleep(10)
+      await Bus.publish(Skill.SkillUsed, { skillName: "test-skill" })
+      await Bun.sleep(10)
+    }})
+
+    expect(received).toContain("test-skill")
+  })
 })
