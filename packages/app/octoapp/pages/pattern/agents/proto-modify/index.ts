@@ -56,7 +56,6 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
     userInput,
     onSessionCreated 
   } = ctx
-  debugger
   // 组装输入提示词
   const humanMessage = buildHumanMessage(ctx.input)
   console.log("----- 模块修改Agent开始执行 ----- ");
@@ -73,6 +72,7 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
     extra: ctx.extra,
   })
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
+  logAgentParsed(modifyRes.childSessionId, { output: modifyRes.text })
   const raw = extractJson(modifyRes.text) as unknown
   const patchOps = (Array.isArray(raw) ? raw : [raw]) as PatchOp[]
   const patched = mergeJson(ctx.input.ui_json_str as unknown as PatchSource, patchOps)
@@ -83,7 +83,6 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
     elementId: ctx.input.originModules.rootId as string,
     idPrefix: ctx.input.idPrefix,
   }
-  logAgentParsed(modifyRes.childSessionId, returnValue)
   return returnValue
 }
 
