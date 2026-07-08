@@ -14,6 +14,7 @@
 {DESIGN_SYSTEM_PROMPT}
 
 ------
+
 {OP_PROMPT}
 
 ------
@@ -22,3 +23,15 @@
   Must use `load_components_docs` 工具:
   在修改涉及具体 A2UI 组件（如 Table, Tabs, Button 等）的属性时，必须先调用 `load_components_docs` 工具查询该组件的 API Schema 和 Example，以确认需要修改的属性是否合法以及正确的使用方式。
   严禁依靠记忆编造未在文档中出现的属性，遗漏未查看文档的组件会使本 agent 出现重大错误！
+
+# Output Format
+You MUST output ONLY a valid JSON array of patch operations. No markdown formatting, no code blocks, no explanations.
+每条指令必须包含 `op` 字段指定操作类型，以及对应操作所需的必填字段。
+输出示例格式：
+```json
+[
+  { "op": "props_replace", "element_id": "mainCardTitle", "value": { "className": "text-xl font-bold text-red-500" } },
+  { "op": "data_replace", "path": "brandName", "value": "新品牌名" },
+  { "op": "children_replace", "element_id": "mainCardBody", "value": ["newElem1", "newElem2"] }
+]
+```
