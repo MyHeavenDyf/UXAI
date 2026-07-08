@@ -11,6 +11,7 @@ export function formatStudioMediaTime(value: number) {
 
 export function StudioVideoPlayer(props: {
   src: string
+  poster?: string
   class?: string
   mount: () => HTMLElement
 }): JSX.Element {
@@ -192,6 +193,7 @@ export function StudioVideoPlayer(props: {
           <video
             ref={videoRef!}
             src={props.src}
+            poster={props.poster}
             class={`studio-video-player-media ${props.class ?? ""}`}
             playsinline
             preload="auto"
