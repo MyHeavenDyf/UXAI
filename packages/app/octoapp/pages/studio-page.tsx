@@ -103,6 +103,8 @@ type StudioGenerationOverrides = {
   videoFrames?: { first?: string; last?: string }
   styleModel?: string
   aspectRatio?: StudioAspectRatio
+  width?: number
+  height?: number
   count?: 1 | 2 | 3 | 4
   videoDuration?: StudioVideoDuration
   videoQualityMode?: StudioVideoQualityMode
@@ -188,6 +190,9 @@ export default function StudioPage() {
   const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
   const styleModel = () => imageSettingStore.styleModel
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const [customWidth, setCustomWidth] = createSignal(0)
+  const [customHeight, setCustomHeight] = createSignal(0)
+  const [isCustomSizeStore, setIsCustomSizeStore] = createSignal(false)
   const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
@@ -1873,6 +1878,8 @@ export default function StudioPage() {
         videoFrames: restoredVideoFrames(result),
         aspectRatio: nextAspectRatio,
         count: nextCount,
+        width: result.width,
+        height: result.height,
         videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
         videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
         useRestoredInputs: true,
@@ -1893,6 +1900,8 @@ export default function StudioPage() {
         styleModel: stringValue(input, "styleModel"),
         aspectRatio: nextAspectRatio,
         count: nextCount,
+        width: result.width,
+        height: result.height,
         useRestoredInputs: true,
       }
     }
@@ -1909,6 +1918,8 @@ export default function StudioPage() {
       extra: { ...(extra ?? {}), skipPromptRefine: true },
       aspectRatio: nextAspectRatio,
       count: nextCount,
+      width: result.width,
+      height: result.height,
       useRestoredInputs: true,
     }
   }
@@ -1924,6 +1935,8 @@ export default function StudioPage() {
       styleModel: stringValue(input, "styleModel") ?? result.styleModel ?? result.model,
       aspectRatio: nextAspectRatio,
       count: nextCount,
+      width: result.width,
+      height: result.height,
       referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
       videoFrames: restoredVideoFrames(result),
       videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
@@ -2003,6 +2016,9 @@ export default function StudioPage() {
       setPrompt(draft.prompt)
       setAspectRatio(draft.aspectRatio)
       if (draft.count) setCount(draft.count)
+      if (draft.width) setCustomWidth(draft.width)
+      if (draft.height) setCustomHeight(draft.height)
+      setIsCustomSizeStore(Boolean(draft.width && draft.height))
     })
     tracker.interaction({
       module: "studio",
@@ -2035,6 +2051,8 @@ export default function StudioPage() {
     capability: StudioCapability
     styleModel?: string
     aspectRatio?: StudioAspectRatio
+    width?: number
+    height?: number
     count?: 1 | 2 | 3 | 4
     referenceImages?: string[]
     sourceImage?: string
@@ -2069,8 +2087,14 @@ export default function StudioPage() {
         refinedPrompt: input.refinedPrompt,
         effectivePrompt: input.effectivePrompt,
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
-        aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? input.aspectRatio ?? aspectRatio() : undefined,
+        aspectRatio: (input.width && input.height)
+          ? undefined
+          : input.capability === "image.generate" || input.capability === "video.generate"
+            ? input.aspectRatio ?? aspectRatio()
+            : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
+        isCustomSize: Boolean(input.width && input.height),
+        ...(input.width && input.height ? { size: [input.width, input.height] } : {}),
         imageTool: imageTool(),
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
@@ -2173,6 +2197,9 @@ export default function StudioPage() {
     const nextCapability = overrides?.capability ?? capability()
     const nextStyleModel = overrides?.styleModel ?? styleModelLabel(styleModel())
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
+    const nextWidth = overrides?.width ?? customWidth()
+    const nextHeight = overrides?.height ?? customHeight()
+    const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomSizeStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
@@ -2249,7 +2276,10 @@ export default function StudioPage() {
       displayPrompt: overrides?.displayPrompt,
       provider: "internel",
       model: nextStyleModel,
-      aspectRatio: nextAspectRatio,
+      aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
+      width: nextIsCustom ? nextWidth : undefined,
+      height: nextIsCustom ? nextHeight : undefined,
+      isCustomSize: nextIsCustom || undefined,
       images: [],
       progress: 0,
       createdAt: Date.now(),
@@ -2288,7 +2318,9 @@ export default function StudioPage() {
         refinedPrompt: overrides?.refinedPrompt,
         effectivePrompt: overrides?.effectivePrompt,
         styleModel: nextStyleModel,
-        aspectRatio: nextAspectRatio,
+        aspectRatio: nextIsCustom ? undefined : nextAspectRatio,
+        width: nextIsCustom ? nextWidth : undefined,
+        height: nextIsCustom ? nextHeight : undefined,
         count: nextCount,
         referenceImages,
         sourceImage: overrides?.sourceImage,
@@ -2898,6 +2930,9 @@ export default function StudioPage() {
                   maxReferenceImages={maxReferenceImages()}
                   aspectRatio={aspectRatio()}
                   count={count()}
+                  customWidth={customWidth()}
+                  customHeight={customHeight()}
+                  isCustomSize={isCustomSizeStore()}
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
@@ -2912,6 +2947,9 @@ export default function StudioPage() {
                   onStyleModel={selectStyleModel}
                   onAspectRatio={setAspectRatio}
                   onCount={setCount}
+                  onCustomWidth={setCustomWidth}
+                  onCustomHeight={setCustomHeight}
+                  onIsCustomSize={setIsCustomSizeStore}
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onOpenMenu={setOpenMenu}
@@ -3066,6 +3104,9 @@ if (!headerTitle.pendingRename) return
             maxReferenceImages={maxReferenceImages()}
             aspectRatio={aspectRatio()}
             count={count()}
+            customWidth={customWidth()}
+            customHeight={customHeight()}
+            isCustomSize={isCustomSizeStore()}
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
@@ -3080,6 +3121,9 @@ if (!headerTitle.pendingRename) return
             onStyleModel={selectStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
+            onCustomWidth={setCustomWidth}
+            onCustomHeight={setCustomHeight}
+            onIsCustomSize={setIsCustomSizeStore}
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}

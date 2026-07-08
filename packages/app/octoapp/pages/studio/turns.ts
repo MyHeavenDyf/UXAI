@@ -367,6 +367,8 @@ function buildResult(input: {
   const requestRecord = toolRequest(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
+  const width = numberField(inputRecord, "width")
+  const height = numberField(inputRecord, "height")
   const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const prompt = stringField(inputRecord, "effectivePrompt") ??
     stringField(inputRecord, "refinedPrompt") ??
@@ -408,6 +410,8 @@ function buildResult(input: {
           model,
           styleModel: stringField(inputRecord, "styleModel"),
           aspectRatio,
+          width,
+          height,
           videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
           duration: stringField(output, "duration") as StudioGenerationResult["duration"],
           videoQualityMode: stringField(output, "videoQualityMode") as StudioGenerationResult["videoQualityMode"],
