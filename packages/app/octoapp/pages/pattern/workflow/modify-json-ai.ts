@@ -25,7 +25,6 @@ export default async function modify_json_ai(
   lastData: LastDataInput,
   onFinshed: (finalJson: any) => Promise<void>,
 ) {
-  debugger
   const lastPlanner = lastData.lastPlanner
   const lastModules = lastData.lastModules
   const historyDir = `${inputCtx.sdk.directory}/.octo/design/history`
@@ -43,7 +42,11 @@ export default async function modify_json_ai(
         (lastPlanner.slots ?? lastPlanner.layout_planner?.slots ?? []) as Array<{ section_id: string; element_id: string }>,
       ) as unknown as Record<string, unknown>
 
-  const auditFeedback = inputCtx.userInput
+  const triageOps = [
+    ...triage.delete.map((d) => ({ element_id: d.element_id, action: d.action })),
+    ...triage.add.map((a) => ({ element_id: "", action: a.action })),
+    ...triage.modify.map((m) => ({ element_id: m.element_id, action: m.action })),
+  ]
 
   const modifyResult = await proto_module_modify({
     sdk: inputCtx.sdk,
@@ -55,7 +58,8 @@ export default async function modify_json_ai(
     onSessionCreated: inputCtx.onSessionCreated,
     input: {
       ui_json_str: currentPage,
-      audit_feedback: auditFeedback,
+      audit_feedback: inputCtx.userInput,
+      triage_ops: triageOps,
       idPrefix: "",
       sectionId: "",
       originModules: {},

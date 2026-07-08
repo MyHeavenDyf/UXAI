@@ -5,9 +5,15 @@ import { mergeJson, type PatchOp, type PatchSource } from "../../utils/patch-jso
 
 const AGENT_NAME = "proto_modify";
 
+export interface TriageOpItem {
+  element_id: string
+  action: string
+}
+
 export interface ModuleModifyInput {
   ui_json_str: Record<string, unknown>
   audit_feedback: string
+  triage_ops: TriageOpItem[]
   idPrefix: string
   sectionId: string
   originModules: Record<string, unknown>
@@ -82,12 +88,21 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
 
 
 function buildHumanMessage(input: ModuleModifyInput): string {
+  const triageLines = input.triage_ops.length > 0
+    ? [
+        ``,
+        `[分诊操作列表]: ===============`,
+        JSON.stringify(input.triage_ops),
+      ]
+    : []
+
   const lines = [
-    ` [JSON数据为:] ===============`,
-    JSON.stringify(input.ui_json_str),
-    ``,
-    `[需要修改的内容为]: ===============`,
+    `[用户修改请求]: ===============`,
     input.audit_feedback,
+    ``,
+    `[JSON数据为:] ===============`,
+    JSON.stringify(input.ui_json_str),
+    ...triageLines,
   ]
 
   return lines.join("\n")

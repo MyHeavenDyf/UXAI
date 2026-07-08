@@ -31,10 +31,19 @@ export interface TriageModifyItem {
   action: string
 }
 
+export interface TriageDeleteItem {
+  element_id: string
+  action: string
+}
+
+export interface TriageAddItem {
+  action: string
+}
+
 export interface TriageResult {
   routing: "regenerate" | "modify" | "chat"
-  delete: string[]
-  add: string[]
+  delete: TriageDeleteItem[]
+  add: TriageAddItem[]
   modify: TriageModifyItem[]
   reply: string
   updated_intent: Record<string, unknown>
@@ -77,8 +86,13 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
   }
   const returnValue = {
     routing: (triageJson.routing as "regenerate" | "modify" | "chat") ?? "regenerate",
-    delete: (triageJson.delete as string[]) ?? [],
-    add: (triageJson.add as string[]) ?? [],
+    delete: ((triageJson.delete as TriageDeleteItem[]) ?? []).map((d) => ({
+      element_id: d.element_id ?? "",
+      action: d.action ?? "",
+    })),
+    add: ((triageJson.add as TriageAddItem[]) ?? []).map((a) => ({
+      action: a.action ?? "",
+    })),
     modify: ((triageJson.modify as TriageModifyItem[]) ?? []).map((m) => ({
       section_id: m.section_id ?? "",
       element_id: m.element_id ?? "",

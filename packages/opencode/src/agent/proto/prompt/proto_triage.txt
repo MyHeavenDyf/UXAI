@@ -31,14 +31,14 @@ You will receive:
 When routing is "modify", classify each requested change into one of three operation types:
 
 ### delete
-Section-level removals. When the user asks to remove an entire module/section, add its `section_id` to the `delete` list.
+Section-level removals. When the user asks to remove an entire module/section, add an object with the target `element_id` and an `action` describing the deletion.
 - Internal element removals within a module → classify under `modify` instead.
 
 ### add
-Descriptions of new elements or modules to add. Each entry is a concise natural language description including WHAT to add and WHERE to add it.
+Descriptions of new elements or modules to add. Each entry is an object with an `action` field describing WHAT to add and WHERE to add it.
 
 ### modify
-Element-level modifications within existing modules. Each entry specifies the `section_id` of the parent module, the target `element_id`, and a natural language description of the operation.
+Element-level modifications within existing modules. Each entry specifies the `section_id` of the parent module, the target `element_id`, and an `action` describing the operation.
 - Only include elements that actually need to change. Do NOT include unchanged elements.
 
 ## Step 3: If "modify" update Page Intent 
@@ -63,10 +63,10 @@ If the user's request is too vague (e.g., "优化一下", "改好看点", "调�
 |---|---|---|
 | "给我一个用户管理页面" | regenerate | delete:[], add:[], modify:[] |
 | "把按钮改成蓝色" | modify | delete:[], add:[], modify:[{"section_id":"form_section", "element_id":"btn_id","action":"把按钮改成蓝色"}] |
-| "删掉侧边栏" | modify | delete:["sidebar_section_id"], add:[], modify:[] |
-| "在顶部增加一个搜索框" | modify | delete:[], add:["在页面顶部增加一个搜索框"], modify:[] |
-| "把标题改大一点，同时删除顶部的导航栏，然后在页面底部增加一个版权信息" | modify | delete:["nav_section_id"], add:["在页面底部增加一个版权信息"], modify:[{"section_id":"header_section", "element_id":"title_id","action":"把标题字号调大"}] |
-| "把侧边栏移到页面顶部" | modify | delete:["sidebar_section_id"], add:["在页面顶部增加侧边栏"], modify:[] |
+| "删掉侧边栏" | modify | delete:[{"element_id":"sidebar_section_id", "action":"删掉侧边栏"}], add:[], modify:[] |
+| "在顶部增加一个搜索框" | modify | delete:[], add:[{"action":"在页面顶部增加一个搜索框"}], modify:[] |
+| "把标题改大一点，同时删除顶部的导航栏，然后在页面底部增加一个版权信息" | modify | delete:[{"element_id":"nav_section_id", "action":"删除顶部的导航栏"}], add:[{"action":"在页面底部增加一个版权信息"}], modify:[{"section_id":"header_section", "element_id":"title_id","action":"把标题字号调大"}] |
+| "把侧边栏移到页面顶部" | modify | delete:[{"element_id":"sidebar_section_id", "action":"删除侧边栏"}], add:[{"action":"在页面顶部增加侧边栏"}], modify:[] |
 | "交换表格和图表的位置（同属一个模块）" | modify | delete:[], add:[], modify:[{"section_id":"dashboard_section", "element_id":"table_id","action":"移动到图表的原位置"},{"section_id":"dashboard_section", "element_id":"chart_id","action":"移动到表格的原位置"}] |
 | "把整个页面换成暗色主题" | modify | delete:[], add:[], modify:[{"section_id":"global_layout", "element_id":"root_id","action":"把整个页面换成暗色主题"}] |
 
@@ -77,8 +77,8 @@ You MUST output a valid JSON object with the following fields:
 ```json
 {
   "routing": "regenerate" | "modify",
-  "delete": ["section_id", ...],
-  "add": ["description of what to add and where", ...],
+  "delete": [{"element_id": "element_id", "action": "description of the deletion"}, ...],
+  "add": [{"action": "description of what to add and where"}, ...],
   "modify": [{"section_id": "section_id", "element_id": "element_id", "action": "description of the modification"}, ...],
   "updated_intent": {
     "pageDescription": "...",
@@ -98,9 +98,9 @@ You MUST output a valid JSON object with the following fields:
 
 Field descriptions:
 - `routing`: "regenerate" when user wants a completely new page, "modify" when adjusting the existing page.
-- `delete`: Array of `section_id` strings. Sections that should be entirely removed. Empty if nothing to delete.
-- `add`: Array of strings. Each describes a new element or module to add, including both WHAT and WHERE.
-- `modify`: Array of objects. Each has `element_id` (the exact element ID to modify) and `action` (Chinese description of the modification).
+- `delete`: Array of objects. Each has `element_id` (the exact element ID to delete) and `action` (Chinese description). Empty if nothing to delete.
+- `add`: Array of objects. Each has `action` describing what and where to add. Empty if nothing to add.
+- `modify`: Array of objects. Each has `section_id` (parent module), `element_id` (the exact element ID to modify) and `action` (Chinese description of the modification).
 - `updated_intent`: Object with updated page description, layout description, and section intent/function.
 - `reason`: Brief explanation of the routing decision in Chinese (1-2 sentences).
 
