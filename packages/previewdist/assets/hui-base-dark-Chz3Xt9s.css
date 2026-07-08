@@ -324,6 +324,20 @@
 .el-popper {
   --el-popper-bg-color-light: var(--neutral-700);
   --el-popper-bg-color-dark: var(--el-text-color-primary);
+  &[data-popper-placement="top-start"],
+  &[data-popper-placement="top"],
+  &[data-popper-placement="top-end"] {
+    margin-bottom: -8px;
+  }
+
+  &[data-popper-placement="bottom-start"],
+  &[data-popper-placement="bottom"],
+  &[data-popper-placement="bottom-end"] {
+    margin-top: -8px;
+  }
+  .el-popper__arrow {
+    display: none;
+  }
 }
 
 .el-popper.is-dark,
@@ -334,24 +348,38 @@
   box-shadow: var(--el-box-shadow);
   color: var(--el-text-color-regular);
 
-  &>.el-popper__arrow:before {
+  /* &>.el-popper__arrow:before {
     border: 1px solid var(--el-border-color-light);
     background: var(--el-popper-bg-color-light);
-  }
+  } */
 }
 .el-popper.is-light {
     border: none;
 }
-.el-popper[data-popper-placement^=bottom]>.el-popper__arrow:before {
+/* .el-popper[data-popper-placement^=bottom]>.el-popper__arrow:before {
     border-bottom-color: var(--el-bg-color-overlay) !important;
     border-right-color: var(--el-bg-color-overlay) !important;
-}
+} */
 
 /* ================= Dropdown ================= */
 .el-dropdown__popper.el-popper {
   --el-dropdown-menu-box-shadow: var(--el-box-shadow);
   --el-dropdown-menuItem-hover-fill: var(--el-fill-color-light);
   --el-dropdown-menuItem-hover-color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  padding: 4px;
+    .el-dropdown-menu {
+    padding: 0px;
+  }
+  .el-dropdown-menu__item {
+    padding:5px 4px 5px 8px;
+    margin-bottom: 4px;
+    min-width: 88px;
+    border-radius: var(--radius-md);
+    &:last-child {
+      margin-bottom: 0px;
+    }
+  }
 }
 
 /* ================= Select ================= */
@@ -368,17 +396,26 @@
   }
 }
 
-
-.el-select-dropdown__item.is-hovering {
-  background-color: rgba(243, 243, 243, 0.2);
-  color: var(--text-primary-hover);
+.el-select-dropdown {
+  border-radius: var(--radius-lg);
+  .el-select-dropdown__wrap {
+    padding: 4px;
+  }
 }
 
-.el-select-dropdown__item.is-selected {
-  color: var(--text-primary-hover);
-  font-weight: var(--el-font-weight-primary);
-  background-color: rgb(from var(--primary-500) r g b / 0.4);
+.el-select-dropdown__item {
+  border-radius: var(--radius-md);
+  &.is-hovering {
+    background-color: rgba(243, 243, 243, 0.2);
+    color: var(--text-primary-hover);
+  }
+  &.is-selected {
+    color: var(--text-primary-hover);
+    font-weight: var(--el-font-weight-primary);
+    background-color: rgb(from var(--primary-500) r g b / 0.4);
+  }
 }
+
 
 .el-select-dropdown__list {
   padding: 0px;
