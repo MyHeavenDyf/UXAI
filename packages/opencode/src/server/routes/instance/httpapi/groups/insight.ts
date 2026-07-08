@@ -11,6 +11,7 @@ const root = "/insight"
 
 export const InsightPaths = {
   sessions: `${root}/sessions`,
+  files: `${root}/files`,
 } as const
 
 export const InsightSessionListQuery = Schema.Struct({
@@ -22,6 +23,25 @@ export const InsightSessionListQuery = Schema.Struct({
 export const InsightSessionListResult = Schema.Struct({
   items: Schema.Array(Session.Info),
   total: Schema.Number,
+})
+
+// SPEC-INS-014 §10:列 <projectDir>/insight/<sessionId>/{uploads,outputs}/。
+export const InsightFileCategory = Schema.Union([Schema.Literal("uploads"), Schema.Literal("outputs")])
+
+export const InsightFileListQuery = Schema.Struct({
+  sessionId: Schema.String,
+  category: InsightFileCategory,
+})
+
+export const InsightFileEntry = Schema.Struct({
+  name: Schema.String,
+  path: Schema.String,
+  size: Schema.Number,
+  mtime: Schema.Number,
+})
+
+export const InsightFileListResult = Schema.Struct({
+  files: Schema.Array(InsightFileEntry),
 })
 
 export const InsightApi = HttpApi.make("insight")
@@ -38,6 +58,20 @@ export const InsightApi = HttpApi.make("insight")
             summary: "List insight sessions (paged)",
             description:
               "List octo_insight sessions for a directory, agent-filtered server-side, with total count for pagination.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.get("listFiles", InsightPaths.files, {
+          query: InsightFileListQuery,
+          success: described(InsightFileListResult, "Insight session files"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "insight.files.list",
+            summary: "List insight session files",
+            description:
+              "List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10.",
           }),
         ),
       )

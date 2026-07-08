@@ -54,6 +54,8 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
+import { extToOutputType } from "./utils/write-output"
+import type { InsightFileEntry } from "./utils/insight-file-api"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
@@ -140,6 +142,14 @@ function readLastSession(): { dir: string; id: string } | undefined {
   } catch { /* 历史格式/损坏 → 视为无记录 */ }
   return undefined
 }
+// SPEC-INS-014 §4.1.2(v2 会话隔离新增):判断附件本地路径是否还落在预会话落地区
+// insight/uploads/(而非已经 rename 进 insight/<sessionId>/uploads/)——发送时用来决定要不要挪。
+function isPendingUploadPath(path: string): boolean {
+  const segs = path.split(/[\\/]/)
+  const i = segs.lastIndexOf("insight")
+  return i !== -1 && segs[i + 1] === "uploads"
+}
+
 // 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
 let didBootRestore = false
 // 上次挂载 InsightContent 时的目录:keyed 重挂时与之对比,检测"用户切了项目目录"。
@@ -147,7 +157,7 @@ let didBootRestore = false
 let lastInsightDir: string | undefined
 
 // §SPEC-INS-011 §9.5:整页崩兜底 UI。组件体在错误被捕获那一刻执行一次 → 记 boundary beacon;
-// 「复制错误」= lastError(),让用户在崩溃态(console 够不着)也能一键带出 → 粘给 Claude 定位。
+// 「复制错误」= lastError(),让用户在崩溃态(console 够不着)也能一键带出,用于问题排查。
 function InsightCrashFallback(props: { error: unknown }) {
   recordError("boundary", props.error)
   const [copied, setCopied] = createSignal(false)
@@ -155,7 +165,7 @@ function InsightCrashFallback(props: { error: unknown }) {
   const onCopy = () => {
     copyLastError(1)
     setCopied(true)
-    showToast({ title: "错误信息已复制", description: "可粘贴给排查方 / Claude 定位" })
+    showToast({ title: "错误信息已复制" })
   }
   return (
     <div style={{ padding: "32px", display: "flex", "flex-direction": "column", gap: "12px", "max-width": "640px", margin: "0 auto" }}>
@@ -531,11 +541,16 @@ function InsightContent() {
 
   const tabStore = createTabStore()
 
-  // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009) ────────────────
+  // SPEC-INS-014 §10:tabs/files 页面级切换,默认 files——进入会话就有"文件管理"可看,
+  // 不必等第一个产物 tab 打开(Make 模块同款默认)。
+  const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
+
+  // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009;v2 常驻可见改动见 SPEC-INS-014 §10) ────
   // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
-  // panelVisible = 有已打开产物 且 未手动收起。无产物时聊天居中铺满,有产物才 split。
+  // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
+  // 进入会话就有内容可看,不必等第一个产物 tab 打开)。无会话时聊天居中铺满。
   const [panelCollapsed, setPanelCollapsed] = createSignal(false)
-  const panelVisible = createMemo(() => tabStore.tabs().length > 0 && !panelCollapsed())
+  const panelVisible = createMemo(() => !!params.id && !panelCollapsed())
 
   // 动画三态:
   //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
@@ -549,6 +564,9 @@ function InsightContent() {
   let panelExitTimer: ReturnType<typeof setTimeout> | undefined
   let panelAnimEndTimer: ReturnType<typeof setTimeout> | undefined
 
+  // v2(SPEC-INS-014 §10)不再 defer:panelVisible 现在只依赖 params.id,已有会话时挂载
+  // 组件那一刻就是 true(不像旧版靠"tabs 从空到非空"制造一次真实变化)——defer:true 会吃掉
+  // 这个"首次就是 true"的初始值,导致 panelMounted 永远不被置真、面板整个不渲染。
   createEffect(on(panelVisible, (show) => {
     if (panelExitTimer) { clearTimeout(panelExitTimer); panelExitTimer = undefined }
     setPanelAnimating(true)
@@ -563,11 +581,20 @@ function InsightContent() {
     // 动画窗口结束后关掉 animating,使后续拖拽无 transition
     if (panelAnimEndTimer) clearTimeout(panelAnimEndTimer)
     panelAnimEndTimer = setTimeout(() => setPanelAnimating(false), PANEL_ANIM_MS + 30)
-  }, { defer: true }))
+  }))
 
   /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
   function revealPanel() {
     if (panelCollapsed()) setPanelCollapsed(false)
+  }
+
+  // SPEC-INS-014 §10:文件管理面板里点文件 → 复用 tabStore.openTab 的 (filePath,type) 去重逻辑
+  // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
+  function openFileFromManager(file: InsightFileEntry) {
+    const type = extToOutputType(file.name)
+    tabStore.openTab({ id: crypto.randomUUID(), title: file.name, type, source: "path", filePath: file.path, createdAt: new Date() })
+    setResultViewMode("tabs")
+    revealPanel()
   }
 
   /** 切 tab:仅在切到不同 tab 时打点(避免重复点击当前 tab 也计数) */
@@ -579,12 +606,15 @@ function InsightContent() {
     tabStore.activate(id)
   }
 
-  /** 关 tab:若关掉的是最后一个,复位 collapsed 以便下次产物干净滑入 */
+  /** 关 tab:若关掉的是最后一个,复位 collapsed 以便下次产物干净滑入,并落回文件视图(SPEC-INS-014 §10) */
   function handleCloseTab(id: string) {
     const tab = tabStore.tabs().find((t) => t.id === id)
     tracker.interaction({ module: "insight", name: "result-tab-close", extend: JSON.stringify({ tabType: tab?.type }) })
     tabStore.closeTab(id)
-    if (tabStore.tabs().length === 0) setPanelCollapsed(false)
+    if (tabStore.tabs().length === 0) {
+      setPanelCollapsed(false)
+      setResultViewMode("files")
+    }
   }
 
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
@@ -600,6 +630,7 @@ function InsightContent() {
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
+    setResultViewMode("files")
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
     if (sendingNavigation) {
@@ -747,10 +778,38 @@ function InsightContent() {
     // 图片(已 change 即传拿到 S3 url):走 ③ vision FilePart{url},不进 [附件] 清单。
     const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
 
+    // SPEC-INS-014 §4.1.2(v2 新增):发送前把还落在预会话落地区(insight/uploads/)的附件
+    // rename 进真实会话目录(insight/<sessionId>/uploads/)——此时 sessionId 已经 resolve。
+    // rename 是本地文件系统原子操作,失败(源文件在拷贝完成后被删/移动,极少见)不阻断发送,
+    // 该附件在 [附件] 清单里退化为指向预会话区的旧路径,仍可读。
+    const movedPaths = new Map<string, string>()
+    {
+      const api = getDesktopApi()
+      const baseDir = projectDir()
+      if (baseDir && typeof api?.movePendingUploadToSession === "function") {
+        await Promise.all(
+          localFiles
+            .filter((a) => a.path && isPendingUploadPath(a.path))
+            .map(async (a) => {
+              try {
+                const newPath = await api.movePendingUploadToSession!(a.path!, baseDir, sessionId)
+                movedPaths.set(a.id, newPath)
+              } catch (err) {
+                console.warn("[octo:worktree] upload-move failed, keep pending path", { id: a.id, path: a.path, err })
+              }
+            }),
+        )
+        if (movedPaths.size > 0) {
+          setAttachments((prev) => prev.map((x) => (movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id) } : x)))
+        }
+      }
+    }
+    const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
+
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
     const uploadBlock = formatUploadsForPrompt(
-      localFiles.map((a) => ({ filename: a.filename, path: a.path! })),
+      localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
     )
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
@@ -759,7 +818,7 @@ function InsightContent() {
     //   (office 不走此路 —— FilePart 二进制会被 base64,② 由模型调 extract_document 读。)
     for (const a of localFiles) {
       if (!isTextInlineFile(a.filename)) continue
-      parts.push({ type: "file", mime: "text/plain", url: `file://${encodeFilePath(a.path!)}`, filename: a.filename })
+      parts.push({ type: "file", mime: "text/plain", url: `file://${encodeFilePath(resolvedPath(a))}`, filename: a.filename })
     }
     // ③ 图片 → vision FilePart{url:S3}:交多模态模型看(非多模态由 opencode stripMedia 换占位)。
     const imageParts: FilePartInput[] = imageFiles.map((a) => ({
@@ -834,7 +893,7 @@ function InsightContent() {
       text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
       textLen: text.length,
       attachmentsCount: done.length,
-      localFiles: localFiles.map((a) => ({ name: a.filename, path: a.path })),
+      localFiles: localFiles.map((a) => ({ name: a.filename, path: resolvedPath(a) })),
       images: imageFiles.map((a) => ({ name: a.filename, url: a.url })),
     })
     // 完整 text 单独 dump(不截断),便于内网把怪 case 粘到外网定位
@@ -1113,7 +1172,8 @@ function InsightContent() {
           ...prev,
           { id, filename: file.name, mime, size: file.size, status: "uploading" },
         ])
-        // 非图片不 eager 上传:只拷进 insight/sources(本地副本)。done 带 path,发送时进 [附件] 清单;
+        // 非图片不 eager 上传:只拷进 insight/uploads(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
+        // done 带 path,发送时进 [附件] 清单 + rename 进 insight/<sessionId>/uploads(见 doSendPrompt);
         // 插件在模型调 MCP 时才按需上传(④)。
         void doImport(id, rawFile, file.name)
       }
@@ -1121,7 +1181,7 @@ function InsightContent() {
   }
 
   // ③ 图片:change 即传 S3。成功 → done + url(发送时产出 vision FilePart{url});失败 → retriable。
-  // 不拷进 sources、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
+  // 不拷进 uploads、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
   async function doImageUpload(id: string, file: File) {
     try {
       const result = await uploadFile(file)
@@ -1143,7 +1203,7 @@ function InsightContent() {
     }
   }
 
-  // 把源文件导入 worktree 的 insight/sources/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式),
+  // 把源文件导入 worktree 的 insight/uploads/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式,预会话落地区),
   // 拿到本地绝对路径写进附件(SPEC-INS-015:供 [本地文件] 注入块,插件按需上传 S3)。
   //   - 成功:status=done + path
   //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
@@ -1187,7 +1247,8 @@ function InsightContent() {
     }
   }
 
-  // 把源文件拷贝进 worktree 的 insight/sources/(磁盘流式拷贝,原样不转格式),返回本地绝对路径。
+  // 把源文件拷贝进 worktree 的 insight/uploads/(预会话落地区,磁盘流式拷贝,原样不转格式),返回本地绝对路径。
+  // 不需要 sessionId——选中时可能还没有真实会话(欢迎页);发送时统一由 doSendPrompt rename 进真会话目录(§4.1.2)。
   //   - 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)/ 拿不到真实路径 → 返回 null(降级)
   //   - copyFileToWorktree 抛错(真失败)→ 向上抛,由 doImport 转成可重试错误
   async function copySourceToWorktree(filename: string, srcFile: File): Promise<string | null> {
@@ -1685,12 +1746,12 @@ function InsightContent() {
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
                 panelBadge={
-                  tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()
+                  !!params.id && panelCollapsed() && !panelAnimating()
                     ? (
                       <button
                         type="button"
                         onClick={() => setPanelCollapsed(false)}
-                        title="展开产出面板"
+                        title="展开面板"
                         class="flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors"
                         style={{
                           background: "var(--octo-surface-page)",
@@ -1700,7 +1761,7 @@ function InsightContent() {
                         }}
                       >
                         <Icon name="chevron-left" class="size-3 opacity-70" />
-                        产出 ({tabStore.tabs().length})
+                        {tabStore.tabs().length > 0 ? `产出 (${tabStore.tabs().length})` : "文件"}
                       </button>
                     )
                     : undefined
@@ -1924,6 +1985,9 @@ function InsightContent() {
             onCacheContent={tabStore.cacheContent}
             onCollapse={() => setPanelCollapsed(true)}
             onSetViewMode={tabStore.setViewMode}
+            viewMode={resultViewMode()}
+            onViewModeChange={setResultViewMode}
+            onOpenLocalFile={openFileFromManager}
           />
         </Show>
         </div>
