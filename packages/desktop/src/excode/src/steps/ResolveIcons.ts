@@ -43,7 +43,7 @@ const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate';
 // icon 名称映射接口地址
 // 接口协议：GET {ICON_API_URL}?keyword={names}&topK=2
 // 返回 Array<{ icons: Array<{ name, group? }> }>
-const ICON_API_URL = '/api/icons/search';
+const ICON_API_URL = 'https://octo-beta.hdesign.huawei.com/iconPlus/getIconInfo';
 
 // state 递归深度上限，防止极端循环引用导致栈溢出
 const MAX_STATE_DEPTH = 20;
