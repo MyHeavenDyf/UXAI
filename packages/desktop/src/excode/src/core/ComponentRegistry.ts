@@ -169,7 +169,7 @@ export class ComponentRegistry {
    * @param opts.forImport 仅用于 import 收集（不调用 transform 以免副作用）
    * @param opts.rawState 注入到 transform 用于 state 访问
    * @param opts.resolveNode 递归解析器，供 transform 手动解析任意 A2UI 节点
-   * @param opts.iconNameMap A2UI icon name → @hui/icon-plus 组件名映射表（由 ResolveIcons 步骤填充）
+   * @param opts.iconNameMap A2UI icon name → @nce/icon-plus 组件名映射表（由 ResolveIcons 步骤填充）
    * @returns 转换结果（含 stateData/componentData 时携带）
    */
   transform(componentName: string, node: any, opts: any = {}): TransformResult | null {

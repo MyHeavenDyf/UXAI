@@ -48,6 +48,7 @@ import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentCo
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { createReorderHandler } from "./utils/reorder"
+import * as sessionMap from "./utils/session-map"
 
 const AGENT_NAME = "proto_triage"
 
@@ -134,18 +135,18 @@ function PatternContent() {
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {
           layout.lastSessionPerTab.setPattern(id)
-          setLastModules(prev => ({ ...prev, [id]: [] }))
-          setPatternMatches(prev => ({ ...prev, [id]: [] }))
-          setVersions(prev => ({ ...prev, [id]: [] }))
-          setCurrentVersionId(prev => ({ ...prev, [id]: null }))
-          setIsModifying(prev => ({ ...prev, [id]: false }))
-          setShowPatternMatch(prev => ({ ...prev, [id]: false }))
+          sessionMap.set(setLastModules, id, [])
+          sessionMap.set(setPatternMatches, id, [])
+          sessionMap.set(setVersions, id, [])
+          sessionMap.set(setCurrentVersionId, id, null)
+          sessionMap.set(setIsModifying, id, false)
+          sessionMap.set(setShowPatternMatch, id, false)
           // 正在生成的 session 保留原有数据，切换回来后继续显示线框审查+loading
           if (!isGeneratingReview()[id]) {
-            setLastIntent(prev => ({ ...prev, [id]: null }))
-            setLastPlanner(prev => ({ ...prev, [id]: null }))
-            setHasPreviewContent(prev => ({ ...prev, [id]: false }))
-            setIsPlanReview(prev => ({ ...prev, [id]: false }))
+            sessionMap.set(setLastIntent, id, null)
+            sessionMap.set(setLastPlanner, id, null)
+            sessionMap.set(setHasPreviewContent, id, false)
+            sessionMap.set(setIsPlanReview, id, false)
           }
 
           // 同步子 session 消息，全部加载完成后才标记 synced
@@ -178,33 +179,33 @@ function PatternContent() {
               const checkpoint = await loadIntentConfirmCheckpoint(dir, id)
               if (params.id !== id) return
               if (checkpoint) {
-                setUserInput(prev => ({ ...prev, [id]: checkpoint.userInput }))
-                setIntentConfirm(prev => ({ ...prev, [id]: { options: checkpoint.options, current_step: "intent_confirm" } }))
+                sessionMap.set(setUserInput, id, checkpoint.userInput)
+                sessionMap.set(setIntentConfirm, id, { options: checkpoint.options, current_step: "intent_confirm" })
                 return
               }
               // 线框审查数据读取
               const reviewCkpt = await loadReviewCheckpoint(dir, id)
               if (params.id !== id) return
               if (reviewCkpt) {
-                setLastPlanner(prev => ({ ...prev, [id]: reviewCkpt.planner }))
-                setLastIntent(prev => ({ ...prev, [id]: reviewCkpt.intentDescription }))
+                sessionMap.set(setLastPlanner, id, reviewCkpt.planner)
+                sessionMap.set(setLastIntent, id, reviewCkpt.intentDescription)
                 const matches= reviewCkpt.pattern
-                setPatternMatches(prev => ({ ...prev, [id]: matches }))
-                setUserInput(prev => ({ ...prev, [id]: reviewCkpt.userInput }))
+                sessionMap.set(setPatternMatches, id, matches)
+                sessionMap.set(setUserInput, id, reviewCkpt.userInput)
                 if (matches?.length > 0) {
-                  setShowPatternMatch(prev => ({ ...prev, [id]: true }))
+                  sessionMap.set(setShowPatternMatch, id, true)
                 } else {
-                  setIsPlanReview(prev => ({ ...prev, [id]: true }))
+                  sessionMap.set(setIsPlanReview, id, true)
                 }
                 return
               }
               // 已完成状态数据读取
               const state = await loadCurrentPatternState(dir, id)
               if (!state || params.id !== id) return
-              if (state.lastIntent) setLastIntent(prev => ({ ...prev, [id]: state.lastIntent }))
-              if (state.lastPlanner) setLastPlanner(prev => ({ ...prev, [id]: state.lastPlanner }))
+              if (state.lastIntent) sessionMap.set(setLastIntent, id, state.lastIntent)
+              if (state.lastPlanner) sessionMap.set(setLastPlanner, id, state.lastPlanner)
               if (state.lastModules.length > 0) {
-                setLastModules(prev => ({ ...prev, [id]: state.lastModules }))
+                sessionMap.set(setLastModules, id, state.lastModules)
                 const a2uiJSON = state.mergedA2UI
                 if (a2uiJSON) sendToPreview(a2uiJSON)
               }
@@ -212,8 +213,8 @@ function PatternContent() {
             // 版本列表独立并行加载
             void listPatternVersions(dir, id).then(({ versions: versionEntries, current }) => {
               if (params.id !== id) return
-              setVersions(prev => ({ ...prev, [id]: versionEntries }))
-              setCurrentVersionId(prev => ({ ...prev, [id]: current }))
+              sessionMap.set(setVersions, id, versionEntries)
+              sessionMap.set(setCurrentVersionId, id, current)
             })
           }
         }
@@ -319,29 +320,30 @@ function PatternContent() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string>("ICT3.1")
-  const [lastIntent, setLastIntent] = createSignal<Record<string, Record<string, unknown> | null>>({})
-  const [lastPlanner, setLastPlanner] = createSignal<Record<string, Record<string, unknown> | null>>({})
-  const [lastModules, setLastModules] = createSignal<Record<string, Array<Record<string, unknown>>>>({})
-  const [versions, setVersions] = createSignal<Record<string, VersionEntry[]>>({})
-  const [currentVersionId, setCurrentVersionId] = createSignal<Record<string, string | null>>({})
-  const [hasPreviewContent, setHasPreviewContent] = createSignal<Record<string, boolean>>({})
-  const [pendingPreviewData, setPendingPreviewData] = createSignal<Record<string, unknown>>({})
-  const [isModifying, setIsModifying] = createSignal<Record<string, boolean>>({})
 
+  // ── per-session 状态 Map（按 session ID 隔离，互不干扰）──
+  const [lastIntent, setLastIntent] = sessionMap.createSessionMap<Record<string, unknown> | null>()
+  const [lastPlanner, setLastPlanner] = sessionMap.createSessionMap<Record<string, unknown> | null>()
+  const [lastModules, setLastModules] = sessionMap.createSessionMap<Array<Record<string, unknown>>>()
+  const [versions, setVersions] = sessionMap.createSessionMap<VersionEntry[]>()
+  const [currentVersionId, setCurrentVersionId] = sessionMap.createSessionMap<string | null>()
+  const [hasPreviewContent, setHasPreviewContent] = sessionMap.createSessionMap<boolean>()
+  const [pendingPreviewData, setPendingPreviewData] = sessionMap.createSessionMap<unknown>()
+  const [isModifying, setIsModifying] = sessionMap.createSessionMap<boolean>()
   // 用户原始输入（意图确认 / 线框审查阶段复用）
-  const [userInput, setUserInput] = createSignal<Record<string, string>>({})
+  const [userInput, setUserInput] = sessionMap.createSessionMap<string>()
   // 是否处于线框审查阶段
-  const [isPlanReview, setIsPlanReview] = createSignal<Record<string, boolean>>({})
+  const [isPlanReview, setIsPlanReview] = sessionMap.createSessionMap<boolean>()
   // 是否正在生成（意图确认后 → pattern匹配之间）
-  const [isGenerating, setIsGenerating] = createSignal<Record<string, boolean>>({})
+  const [isGenerating, setIsGenerating] = sessionMap.createSessionMap<boolean>()
   // 是否正在生成模块（线框审查确认后 → 预览之间）
-  const [isGeneratingReview, setIsGeneratingReview] = createSignal<Record<string, boolean>>({})
+  const [isGeneratingReview, setIsGeneratingReview] = sessionMap.createSessionMap<boolean>()
   // 页面级 Pattern 匹配结果
-  const [patternMatches, setPatternMatches] = createSignal<Record<string, PatternMatchItem[]>>({})
+  const [patternMatches, setPatternMatches] = sessionMap.createSessionMap<PatternMatchItem[]>()
   // 是否展示 Pattern 匹配结果页
-  const [showPatternMatch, setShowPatternMatch] = createSignal<Record<string, boolean>>({})
+  const [showPatternMatch, setShowPatternMatch] = sessionMap.createSessionMap<boolean>()
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
-  const [intentConfirm, setIntentConfirm] = createSignal<Record<string, IntentConfirmResult | null>>({})
+  const [intentConfirm, setIntentConfirm] = sessionMap.createSessionMap<IntentConfirmResult | null>()
 
   const needsConfirm = createMemo(() => {
     const id = params.id
@@ -405,11 +407,11 @@ function PatternContent() {
     },
     setVersions: (fn: (prev: VersionEntry[]) => VersionEntry[]) => {
       const sid = params.id
-      if (sid) setVersions(prev => ({ ...prev, [sid]: fn(prev[sid] ?? []) }))
+      if (sid) sessionMap.update(setVersions, sid, fn, [])
     },
     setCurrentVersionId: (id: string) => {
       const sid = params.id
-      if (sid) setCurrentVersionId(prev => ({ ...prev, [sid]: id }))
+      if (sid) sessionMap.set(setCurrentVersionId, sid, id)
     },
   })
 
@@ -436,11 +438,11 @@ function PatternContent() {
     },
     setVersions: (fn: (prev: VersionEntry[]) => VersionEntry[]) => {
       const sid = params.id
-      if (sid) setVersions(prev => ({ ...prev, [sid]: fn(prev[sid] ?? []) }))
+      if (sid) sessionMap.update(setVersions, sid, fn, [])
     },
     setCurrentVersionId: (id: string) => {
       const sid = params.id
-      if (sid) setCurrentVersionId(prev => ({ ...prev, [sid]: id }))
+      if (sid) sessionMap.set(setCurrentVersionId, sid, id)
     },
   }
 
@@ -488,17 +490,17 @@ function PatternContent() {
     const json = typeof data === "string" ? data : JSON.stringify(data)
     if (json === lastSentPreviewJson[sid]) return
     lastSentPreviewJson[sid] = json
-    setPendingPreviewData(prev => ({ ...prev, [sid]: data }))
+    sessionMap.set(setPendingPreviewData, sid, data)
     previewApi.sendToPreview(data)
-    setHasPreviewContent(prev => ({ ...prev, [sid]: true }))
+    sessionMap.set(setHasPreviewContent, sid, true)
   }
 
   // 从 Pattern 匹配页进入线框审查
   function handleEnterWireframe() {
     const sid = params.id
     if (!sid) return
-    setShowPatternMatch(prev => ({ ...prev, [sid]: false }))
-    setIsPlanReview(prev => ({ ...prev, [sid]: true }))
+    sessionMap.set(setShowPatternMatch, sid, false)
+    sessionMap.set(setIsPlanReview, sid, true)
   }
 
   async function handleMatchPattern(sectionId: string, detail: { name: string; intent: string; function: string; elements: string; layout: string }) {
@@ -611,8 +613,8 @@ function PatternContent() {
                 mergedA2UI: pageJson as unknown as Record<string, unknown>,
             }, text.slice(0, 80))
             if (params.id === sid) {
-              setVersions(prev => ({ ...prev, [sid!]: [...(prev[sid!] ?? []), { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }] }))
-              setCurrentVersionId(prev => ({ ...prev, [sid!]: vid }))
+              sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }], [])
+              sessionMap.set(setCurrentVersionId, sid!, vid)
               clearDebugLog()
             }
             void saveDebugSnapshot(dir, sid!, "modules", {
@@ -624,9 +626,9 @@ function PatternContent() {
             })
           }
           // 内存数据更新（始终写入该 session 的 slot，与当前视图 session 无关）
-          setLastIntent(prev => ({ ...prev, [sid!]: pageIntent }))
-          setLastPlanner(prev => ({ ...prev, [sid!]: layoutPlanner }))
-          setLastModules(prev => ({ ...prev, [sid!]: modulesJson }))
+          sessionMap.set(setLastIntent, sid!, pageIntent)
+          sessionMap.set(setLastPlanner, sid!, layoutPlanner)
+          sessionMap.set(setLastModules, sid!, modulesJson)
           // 仅当前仍在该 session 时才推送到 iframe
           if (params.id === sid && pageJson) sendToPreview(pageJson)
       }
@@ -639,11 +641,11 @@ function PatternContent() {
           lastModules: sid ? lastModules()[sid] ?? [] : [],
         }
         // AI 修改页面 — 先切到加载态
-        if (sid) setIsModifying(prev => ({ ...prev, [sid!]: true }))
+        if (sid) sessionMap.set(setIsModifying, sid!, true)
         tracker.interaction({ module: "prototype", name: "modify-page" })
         const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
         if (params.id !== sid) return
-        if (sid) setIsModifying(prev => ({ ...prev, [sid!]: false }))
+        if (sid) sessionMap.set(setIsModifying, sid!, false)
         if ((modifyResult as any)?.reply) {
           showToast({ title: (modifyResult as any).reply })
         }
@@ -667,8 +669,8 @@ function PatternContent() {
         const confirmResult = await create_intent_confirm(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
         if (Object.keys(confirmResult.options).length > 0) {
-          if (sid) setUserInput(prev => ({ ...prev, [sid!]: text }))
-          if (sid) setIntentConfirm(prev => ({ ...prev, [sid!]: confirmResult }))
+          if (sid) sessionMap.set(setUserInput, sid!, text)
+          if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
           startPause(sid!)
           const confirmDir = patternHistoryDir()
           if (confirmDir) {
@@ -695,8 +697,8 @@ function PatternContent() {
             lastModules: [],
           }, text.slice(0, 80))
           if (params.id === sid) {
-            setVersions(prev => ({ ...prev, [sid!]: [...(prev[sid!] ?? []), { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }] }))
-            setCurrentVersionId(prev => ({ ...prev, [sid!]: vid }))
+            sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }], [])
+            sessionMap.set(setCurrentVersionId, sid!, vid)
           }
         }
         // 持久化线框审查检查点
@@ -714,22 +716,22 @@ function PatternContent() {
 
         // 展示 Pattern 匹配结果页
         if (params.id !== sid) return
-        setLastPlanner(prev => ({ ...prev, [sid!]: new_planner.planner.layout_planner }))
-        setLastIntent(prev => ({ ...prev, [sid!]: new_planner.intent.intent_description }))
+        sessionMap.set(setLastPlanner, sid!, new_planner.planner.layout_planner)
+        sessionMap.set(setLastIntent, sid!, new_planner.intent.intent_description)
         const matches = new_planner.patternPageResult.matches
-        setPatternMatches(prev => ({ ...prev, [sid!]: matches }))
-        if (sid) setUserInput(prev => ({ ...prev, [sid!]: text }))
+        sessionMap.set(setPatternMatches, sid!, matches)
+        if (sid) sessionMap.set(setUserInput, sid!, text)
         if (matches?.length > 0) {
-          setShowPatternMatch(prev => ({ ...prev, [sid!]: true }))
+          sessionMap.set(setShowPatternMatch, sid!, true)
         } else {
-          setIsPlanReview(prev => ({ ...prev, [sid!]: true }))
+          sessionMap.set(setIsPlanReview, sid!, true)
         }
         startPause(sid!)
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleSubmit")
-      if (sid) setIsModifying(prev => ({ ...prev, [sid!]: false }))
+      if (sid) sessionMap.set(setIsModifying, sid!, false)
     } finally {
       setSendingSids((prev) => {
         if (!prev.has(sid!)) return prev
@@ -761,7 +763,7 @@ function PatternContent() {
     const patchedModules = replacePatternAssetPaths(lastModules, replacements)
     const patchedA2UI = replacePatternAssetPaths(mergedA2UI, replacements)
 
-    setShowPatternMatch(prev => ({ ...prev, [sid]: false }))
+    sessionMap.set(setShowPatternMatch, sid, false)
 
     const dir = patternHistoryDir()
     if (dir) {
@@ -782,9 +784,9 @@ function PatternContent() {
 
     if (params.id !== sid) return
     sendToPreview(patchedA2UI)
-    setLastIntent(prev => ({ ...prev, [sid]: lastIntent }))
-    setLastPlanner(prev => ({ ...prev, [sid]: lastPlanner }))
-    setLastModules(prev => ({ ...prev, [sid]: patchedModules }))
+    sessionMap.set(setLastIntent, sid, lastIntent)
+    sessionMap.set(setLastPlanner, sid, lastPlanner)
+    sessionMap.set(setLastModules, sid, patchedModules)
   }
 
   // 线框审查确认后，继续执行阶段 2：模块生成
@@ -799,7 +801,7 @@ function PatternContent() {
 
     const text = userInput()[sid] ?? ""
     // 把设计师编辑后的意图合并回 lastIntent
-    setLastIntent(prev => ({ ...prev, [sid]: result.intentDescription }))
+    sessionMap.set(setLastIntent, sid, result.intentDescription)
 
     // 删除检查点（阶段 2 启动后不再需要回退到审查）
     const ckptDir = patternHistoryDir()
@@ -808,7 +810,7 @@ function PatternContent() {
     tracker.interaction({ module: "prototype", name: "confirm-review" })
 
     endPause(sid)
-    setIsGeneratingReview(prev => ({ ...prev, [sid]: true }))
+    sessionMap.set(setIsGeneratingReview, sid, true)
 
     const ds = selectedDesignSystem()
     const intentCtx: ProtoCreateJsonInput = {
@@ -842,12 +844,12 @@ function PatternContent() {
             clearDebugLog()
           }
         // 内存数据更新（始终写入该 session 的 slot，与当前视图 session 无关）
-        setLastIntent(prev => ({ ...prev, [sid]: pageIntent }))
-        setLastPlanner(prev => ({ ...prev, [sid]: layoutPlanner }))
-        setLastModules(prev => ({ ...prev, [sid]: modulesJson }))
+        sessionMap.set(setLastIntent, sid, pageIntent)
+        sessionMap.set(setLastPlanner, sid, layoutPlanner)
+        sessionMap.set(setLastModules, sid, modulesJson)
         // 切换到预览页
-        setIsGeneratingReview(prev => ({ ...prev, [sid]: false }))
-        setIsPlanReview(prev => ({ ...prev, [sid]: false }))
+        sessionMap.set(setIsGeneratingReview, sid, false)
+        sessionMap.set(setIsPlanReview, sid, false)
         // 仅当前仍在该 session 时才推送到 iframe
         if (params.id === sid && pageJson) sendToPreview(pageJson)
     }
@@ -856,12 +858,12 @@ function PatternContent() {
       await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
-      setIsGeneratingReview(prev => ({ ...prev, [sid]: false }))
+      sessionMap.set(setIsGeneratingReview, sid, false)
       await handleWorkflowError(err, sid, "handleConfirmReview")
-      setIsPlanReview(prev => ({ ...prev, [sid]: true }))
+      sessionMap.set(setIsPlanReview, sid, true)
     } finally {
-      setIsGeneratingReview(prev => ({ ...prev, [sid]: false }))
-      setUserInput(prev => ({ ...prev, [sid]: "" }))
+      sessionMap.set(setIsGeneratingReview, sid, false)
+      sessionMap.set(setUserInput, sid, "")
     }
   }
 
@@ -877,7 +879,7 @@ function PatternContent() {
     if (ckptDir) await clearIntentConfirmCheckpoint(ckptDir, sid)
     setSendingSids((prev) => new Set(prev).add(sid))
     endPause(sid)
-    setIsGenerating(prev => ({ ...prev, [sid]: true }))
+    sessionMap.set(setIsGenerating, sid, true)
     try {
       const intentCtx: ProtoCreateJsonInput = {
         sdk,
@@ -902,8 +904,8 @@ function PatternContent() {
           lastModules: [],
         }, enrichedText.slice(0, 80))
         if (params.id === sid) {
-          setVersions(prev => ({ ...prev, [sid!]: [...(prev[sid!] ?? []), { id: vid, createdAt: Date.now(), summary: enrichedText.slice(0, 80) }] }))
-          setCurrentVersionId(prev => ({ ...prev, [sid!]: vid }))
+          sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: enrichedText.slice(0, 80) }], [])
+          sessionMap.set(setCurrentVersionId, sid!, vid)
         }
       }
       const userDir = patternHistoryDir()
@@ -917,23 +919,23 @@ function PatternContent() {
           createdAt: Date.now(),
         })
       }
-      setIntentConfirm(prev => ({ ...prev, [sid!]: null }))
-      setLastPlanner(prev => ({ ...prev, [sid!]: new_planner.planner.layout_planner }))
-      setLastIntent(prev => ({ ...prev, [sid!]: new_planner.intent.intent_description }))
+      sessionMap.set(setIntentConfirm, sid!, null)
+      sessionMap.set(setLastPlanner, sid!, new_planner.planner.layout_planner)
+      sessionMap.set(setLastIntent, sid!, new_planner.intent.intent_description)
       const matches = new_planner.patternPageResult.matches
-      setPatternMatches(prev => ({ ...prev, [sid!]: matches }))
-      setUserInput(prev => ({ ...prev, [sid!]: enrichedText }))
+      sessionMap.set(setPatternMatches, sid!, matches)
+      sessionMap.set(setUserInput, sid!, enrichedText)
       if (matches?.length > 0) {
-        setShowPatternMatch(prev => ({ ...prev, [sid!]: true }))
+        sessionMap.set(setShowPatternMatch, sid!, true)
       } else {
-        setIsPlanReview(prev => ({ ...prev, [sid!]: true }))
+        sessionMap.set(setIsPlanReview, sid!, true)
       }
       startPause(sid)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleConfirmIntent")
     } finally {
-      setIsGenerating(prev => ({ ...prev, [sid]: false }))
+      sessionMap.set(setIsGenerating, sid, false)
       setSendingSids((prev) => {
         if (!prev.has(sid)) return prev
         const next = new Set(prev)
@@ -964,12 +966,12 @@ function PatternContent() {
       return next
     })
     // 清理该 session 的 workflow 状态
-    setIsGenerating(prev => ({ ...prev, [sid]: false }))
-    setIsGeneratingReview(prev => ({ ...prev, [sid]: false }))
-    setIsModifying(prev => ({ ...prev, [sid]: false }))
-    setIntentConfirm(prev => ({ ...prev, [sid]: null }))
-    setIsPlanReview(prev => ({ ...prev, [sid]: false }))
-    setShowPatternMatch(prev => ({ ...prev, [sid]: false }))
+    sessionMap.set(setIsGenerating, sid, false)
+    sessionMap.set(setIsGeneratingReview, sid, false)
+    sessionMap.set(setIsModifying, sid, false)
+    sessionMap.set(setIntentConfirm, sid, null)
+    sessionMap.set(setIsPlanReview, sid, false)
+    sessionMap.set(setShowPatternMatch, sid, false)
     // 取消时保留已累计的 pauseMs（扣除暂停时间），只停止实时暂停
     endPause(sid)
     setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
@@ -1055,14 +1057,14 @@ function PatternContent() {
       sendToPreview,
       setCurrentVersionId: (id: string) => {
         const sid = params.id
-        if (sid) setCurrentVersionId(prev => ({ ...prev, [sid]: id }))
+        if (sid) sessionMap.set(setCurrentVersionId, sid, id)
       },
       onStateRestored: (state) => {
         const sid = params.id
         if (!sid) return
-        if (state.lastIntent) setLastIntent(prev => ({ ...prev, [sid]: state.lastIntent }))
-        if (state.lastPlanner) setLastPlanner(prev => ({ ...prev, [sid]: state.lastPlanner }))
-        if (state.lastModules.length > 0) setLastModules(prev => ({ ...prev, [sid]: state.lastModules }))
+        if (state.lastIntent) sessionMap.set(setLastIntent, sid, state.lastIntent)
+        if (state.lastPlanner) sessionMap.set(setLastPlanner, sid, state.lastPlanner)
+        if (state.lastModules.length > 0) sessionMap.set(setLastModules, sid, state.lastModules)
       },
     })
   }
