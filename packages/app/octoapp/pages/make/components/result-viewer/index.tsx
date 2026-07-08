@@ -96,6 +96,7 @@ export function ResultViewer(props: {
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [editing, setEditing] = createSignal(false)
   const [drawing, setDrawing] = createSignal(false)
+  const [commenting, setCommenting] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -108,6 +109,7 @@ export function ResultViewer(props: {
       setInspecting(false)
       setEditing(false)
       setDrawing(false)
+      setCommenting(false)
     }
   }
 
@@ -228,7 +230,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
             const canToggle = canToggleMode(tab)
             const htmlMode = createMemo(() => getHtmlMode(tabId))
             const showRefresh = true
-            const showFocusToggle = tabType !== "html" && tabType !== "design-plan"
+            const showFocusToggle = tabType !== "design-plan"
 
             return (
               <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -241,45 +243,45 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   onViewportChange={setViewport}
                   palette={palette()}
                   onPaletteChange={setPalette}
-                  inspecting={inspecting()}
-                  onInspectToggle={htmlMode() === "edit" ? undefined : () => {
-                    const nextInspecting = !inspecting()
-                    setInspecting(nextInspecting)
-                    tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
-                    if (nextInspecting && editing()) {
-                      setEditing(false)
-                    }
-                    if (nextInspecting && drawing()) {
-                      setDrawing(false)
-                    }
-                  }}
-                  editing={editing()}
-                  onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                    const nextEditing = !editing()
-                    setEditing(nextEditing)
-                    tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                    if (nextEditing && inspecting()) {
-                      setInspecting(false)
-                    }
-                    if (nextEditing && drawing()) {
-                      setDrawing(false)
-                    }
-                  }}
-                  drawing={drawing()}
-                  onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                    const nextDrawing = !drawing()
-                    setDrawing(nextDrawing)
-                    tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                    if (nextDrawing && inspecting()) {
-                      setInspecting(false)
-                    }
-                    if (nextDrawing && editing()) {
-                      setEditing(false)
-                    }
-                  }}
+inspecting={inspecting()}
+                   onInspectToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextInspecting = !inspecting()
+                     setInspecting(nextInspecting)
+                     tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
+                     if (nextInspecting && editing()) setEditing(false)
+                     if (nextInspecting && drawing()) setDrawing(false)
+                     if (nextInspecting && commenting()) setCommenting(false)
+                   }}
+                   editing={editing()}
+                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextEditing = !editing()
+                     setEditing(nextEditing)
+                     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+                     if (nextEditing && inspecting()) setInspecting(false)
+                     if (nextEditing && drawing()) setDrawing(false)
+                     if (nextEditing && commenting()) setCommenting(false)
+                   }}
+                   drawing={drawing()}
+                   onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextDrawing = !drawing()
+                     setDrawing(nextDrawing)
+                     tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                     if (nextDrawing && inspecting()) setInspecting(false)
+                     if (nextDrawing && editing()) setEditing(false)
+                     if (nextDrawing && commenting()) setCommenting(false)
+                   }}
+                   commenting={commenting()}
+                   onCommentToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextCommenting = !commenting()
+                     setCommenting(nextCommenting)
+                     tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
+                     if (nextCommenting && inspecting()) setInspecting(false)
+                     if (nextCommenting && editing()) setEditing(false)
+                     if (nextCommenting && drawing()) setDrawing(false)
+                   }}
                   onRefresh={handleRefresh}
                   focusMode={props.focusMode}
-                  onFocusModeToggle={tabType !== "html" && tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
+                  onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
                 />
                 </Show>
                 <div class="flex-1 min-h-0 overflow-hidden">
@@ -308,9 +310,10 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                         mode={htmlMode()}
                         viewport={viewport()}
                         palette={palette()}
-                        inspecting={inspecting()}
-                        editing={editing()}
-                        drawing={drawing()}
+inspecting={inspecting()}
+                         editing={editing()}
+                         drawing={drawing()}
+                         commenting={commenting()}
                         onDrawActiveChange={setDrawing}
                         inspectPanel={true}
                         onInspectTarget={setInspectTarget}

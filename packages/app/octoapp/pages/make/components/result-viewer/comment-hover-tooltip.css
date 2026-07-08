@@ -1,0 +1,29 @@
+.comment-hover-tooltip {
+  position: absolute;
+  width: 200px;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.comment-hover-tooltip-label {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.comment-hover-tooltip-selector {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.comment-hover-tooltip-text {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 11px;
+}

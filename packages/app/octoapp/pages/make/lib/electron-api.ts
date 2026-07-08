@@ -8,8 +8,14 @@ export type DesktopApi = {
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
+  getPathForFile?: (file: File) => string
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
   return (window as unknown as { api?: DesktopApi }).api
+}
+
+export function getArtifactFilename(filePath: string): string {
+  if (!filePath) return ''
+  return filePath.split(/[/\\]/).pop() || ''
 }

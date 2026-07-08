@@ -10,6 +10,7 @@ import {
   injectEditBridge,
   injectInspectStyleBridge,
   injectPickerBridge,
+  injectCommentBridge,
 } from "@opencode-ai/core/bridge-scripts"
 import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
 import type { TitlebarTheme } from "../preload/types"
@@ -340,6 +341,7 @@ export function registerLocalProtocol() {
         htmlStr = injectEditBridge(htmlStr)
         htmlStr = injectInspectStyleBridge(htmlStr)
         htmlStr = injectPickerBridge(htmlStr)
+        htmlStr = injectCommentBridge(htmlStr)
         
         return new Response(new TextEncoder().encode(htmlStr), {
           headers: {

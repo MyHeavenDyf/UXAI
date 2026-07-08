@@ -304,6 +304,7 @@ export function ActionBar(props: {
     inspecting?: boolean
     editing?: boolean
     drawing?: boolean
+    commenting?: boolean
     focusMode?: boolean
     onRefresh?: () => void
     onModeChange?: () => void
@@ -312,6 +313,7 @@ export function ActionBar(props: {
     onInspectToggle?: () => void
     onEditToggle?: () => void
     onDrawToggle?: () => void
+    onCommentToggle?: () => void
     onFocusModeToggle?: () => void
   }): JSX.Element {
   async function handleDownload() {
@@ -403,10 +405,10 @@ export function ActionBar(props: {
             class="octo-action-btn"
             classList={{ "octo-viewport-btn-active": !!props.inspecting }}
             onClick={props.onInspectToggle}
-            title="元素检查"
+            title="局部修改"
           >
             <IconInspect size={13} />
-            <span>检查</span>
+            <span>局部修改</span>
           </button>
         )}
         {showViewport() && props.onDrawToggle && (
@@ -415,10 +417,10 @@ export function ActionBar(props: {
             class="octo-action-btn"
             classList={{ "octo-viewport-btn-active": !!props.drawing }}
             onClick={props.onDrawToggle}
-            title="标注绘图"
+            title="框选编辑"
           >
             <span style={{ "font-size": "13px" }}>✎</span>
-            <span>标注</span>
+            <span>框选编辑</span>
           </button>
         )}
         {showViewport() && props.onEditToggle && (
@@ -427,10 +429,10 @@ export function ActionBar(props: {
             class="octo-action-btn"
             classList={{ "octo-viewport-btn-active": !!props.editing }}
             onClick={props.onEditToggle}
-            title="可视化元素编辑（文本、链接、图片、样式）"
+            title="画布编辑"
           >
             <IconEditLine size={13} />
-            <span>编辑</span>
+            <span>画布编辑</span>
           </button>
         )}
         <Show when={shouldShowCopy()}>
@@ -448,7 +450,19 @@ export function ActionBar(props: {
             <span>下载</span>
           </button>
         </Show>
-        <Show when={props.tab.type !== "html" && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
+        {showViewport() && props.onCommentToggle && (
+          <button
+            type="button"
+            class="octo-action-btn"
+            classList={{ "octo-viewport-btn-active": !!props.commenting }}
+            onClick={props.onCommentToggle}
+            title="标注元素"
+          >
+            <span style={{ "font-size": "13px" }}>💬</span>
+            <span>标注</span>
+          </button>
+        )}
+        <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>
           <button
             type="button"
             class="octo-action-btn"
