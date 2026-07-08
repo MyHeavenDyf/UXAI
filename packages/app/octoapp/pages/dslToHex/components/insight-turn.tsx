@@ -9,7 +9,7 @@ import { createEffect, createMemo, createSignal, Show, For, type JSX } from "sol
 
 import { createArtifactParser } from "../utils/artifact-parser"
 import { stripThinkTags } from "../lib/think-filter"
-import { stripFollowUpTags } from "../utils/strip-conversational"
+import { stripFollowUpTags, joinTextParts, stripSemanticLayoutTags } from "../utils/strip-conversational"
 import { splitOnQuestionForms, type FormSegment } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import "./quick-brief-form.css"
@@ -75,12 +75,30 @@ function formatBlockTime(secs: number): string {
   return `${m}分${s}秒`
 }
 
-function looksLikeJson(text: string): boolean {
-  const trimmed = text.trim()
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return true
-  const mdMatch = trimmed.match(/```(?:json)?\s*[\s\S]*?```/)
-  if (mdMatch) return true
-  try { JSON.parse(trimmed); return true } catch { return false }
+/** 会话面板展示前剥离段落中的 JSON——完整/流式未闭合的 ```json 围栏与裸 JSON 都要剥,
+ *  否则模型把寒暄和 JSON 混在同一段输出时,JSON 会跟着刷进会话面板。
+ *  JSON 本体交给 <For> 外的稳定 DSL 卡片渲染(见 dslJson),这里只保留说明文字。 */
+function stripJsonForChat(text: string): string {
+  const out = text
+    .replace(/```(?:json)?\s*[\[{][\s\S]*?```/g, "")
+    .replace(/```(?:json)?\s*[\[{][\s\S]*$/, "")
+  const complete = tryParseJson(out)
+  if (complete) return out.replace(complete, "").trim()
+  const startBrace = out.indexOf("{")
+  const startBracket = out.indexOf("[")
+  const start = startBrace === -1 ? startBracket : startBracket === -1 ? startBrace : Math.min(startBrace, startBracket)
+  if (start === -1) return out.trim()
+  const openChar = out[start]
+  const closeChar = openChar === "{" ? "}" : "]"
+  let depth = 0
+  for (let i = start; i < out.length; i++) {
+    if (out[i] === openChar) depth++
+    if (out[i] === closeChar) depth--
+    // 括号配平但 JSON.parse 失败(上面 tryParseJson 已试过):是普通文字里的花括号,原样保留
+    if (depth === 0) return out.trim()
+  }
+  // 到文末仍未闭合:流式中的裸 JSON,从起始括号截到文末
+  return out.slice(0, start).trim()
 }
 
 /** 提取并美化 JSON 文本（去掉 markdown 代码围栏，能解析则缩进 2 空格，否则原样返回） */
@@ -447,16 +465,17 @@ export function InsightTurn(props: {
 
   const proseText = createMemo(() => {
     const parts = assistantParts()
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
-    if (!textPart?.text) return ""
+    // 合并全部 text part（与 index.tsx 的 stepADescription 对齐）：
+    // 部分 LLM 会把寒暄和正文拆成多个 part，只取一个会显示不全
+    const joined = joinTextParts(parts)
+    if (!joined) return ""
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(joined)) {
       if (ev.type === "text") prose += ev.delta
     }
-    return stripFollowUpTags(prose.trim())
+    // 展示时隐藏 <semantic-layout> 标签标记本身，内容原样保留
+    return stripFollowUpTags(stripSemanticLayoutTags(prose.trim()))
   })
 
   const proseSegments = createMemo(() => {
@@ -624,15 +643,16 @@ export function InsightTurn(props: {
         <For each={proseSegments()}>
           {(seg) => {
             if (seg.kind === "text") {
-              if (seg.text.trim().length === 0) return null
-              // JSON 段交给 <For> 外的稳定 DSL 卡片渲染（见下方 dslJson），这里跳过
-              if (looksLikeJson(seg.text)) return null
+              // 段落里的 JSON 交给 <For> 外的稳定 DSL 卡片渲染（见下方 dslJson），
+              // 这里剥掉 JSON 只保留说明文字，避免会话面板重复输出 JSON
+              const visible = stripJsonForChat(seg.text)
+              if (visible.length === 0) return null
               return (
                 <div
                   class="mb-2 px-3 py-2"
                   style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
                 >
-                  <Markdown text={seg.text} />
+                  <Markdown text={visible} />
                 </div>
               )
             }

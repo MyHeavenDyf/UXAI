@@ -140,6 +140,8 @@ curl -X POST https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vecto
 | `cv_variant_name` | 变体属性 |
 | `cv_component_key` | 组件 Key |
 | `cv_variant_key` | 变体 Key |
+| `width` | 组件宽度（px） |
+| `height` | 组件高度（px） |
 
 **图标专用字段**（type=icon）：
 | 字段 | 说明 |

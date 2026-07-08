@@ -69,6 +69,53 @@ export async function ensureApiCallScript(projectDir: string, source: string): P
   return true
 }
 
+// DSL 里资源节点的 resourceDetail.file 是 SVG 素材的项目相对路径（api-call.ts --save 落盘）。
+// iframe（独立 Vue app）读不了本地文件，发 NODE_DSL_JSON / NODE_DSL_PIPELINE 前把文件内容
+// 内联为 icon_content / illus_content——对 iframe 协议完全透明。读不到文件（纯 web 或文件
+// 缺失）时原样返回，让工具输出捕获的兜底内容（若有）继续生效。
+export async function inlineAssetContents(projectDir: string, jsonStr: string): Promise<string> {
+  if (!jsonStr || !projectDir) return jsonStr
+  const api = getDesktopApi()
+  if (!api?.readFileBuffer) return jsonStr
+  try {
+    const root = JSON.parse(jsonStr)
+    const nodes: Record<string, unknown>[] = []
+    const walk = (n: Record<string, unknown>) => {
+      nodes.push(n)
+      const children = n.children as Record<string, unknown>[] | undefined
+      if (children) for (const c of children) walk(c)
+    }
+    if (Array.isArray(root)) for (const n of root) walk(n)
+    else walk(root)
+
+    let changed = false
+    for (const node of nodes) {
+      const detail = node.resourceDetail as Record<string, unknown> | undefined
+      if (!detail || typeof detail.file !== "string") continue
+      const contentKey = node.resourceType === "illus" ? "illus_content" : "icon_content"
+      if (typeof detail[contentKey] === "string" && detail[contentKey]) continue
+      // file 正常是项目相对路径；防御性兼容绝对路径（不重复拼接）
+      const path = detail.file.startsWith("/") ? detail.file : `${projectDir}/${detail.file}`
+      const buf = await api.readFileBuffer(path).catch(() => null)
+      if (buf && buf.byteLength > 0) {
+        if (detail.file.endsWith(".png")) {
+          // png 二进制 → base64，与旧协议 icon_content/illus_content 的 png 格式对齐
+          const bytes = new Uint8Array(buf)
+          let binary = ""
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+          detail[contentKey] = btoa(binary)
+        } else {
+          detail[contentKey] = new TextDecoder().decode(buf)
+        }
+        changed = true
+      }
+    }
+    return changed ? JSON.stringify(root) : jsonStr
+  } catch {
+    return jsonStr
+  }
+}
+
 export async function saveArtifact(
   projectDir: string,
   sessionId: string,

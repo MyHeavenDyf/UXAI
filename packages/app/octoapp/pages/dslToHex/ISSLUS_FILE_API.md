@@ -39,7 +39,7 @@ Category 非必选 图标类别 一般不填写
 		“category”: “基础图标”,
 		“tags”:”办公”,
         “theme”: “浅色”，
-        “verison”: "1.0.0"
+        “version”: "1.0.0"
 		“score”:”0.95”
 	}]
 }]
@@ -52,14 +52,17 @@ illus_id 必选 是上一个接口获取到的illus_id，支持逗号隔开分�
 theme 非必选 主题参数
 fileType 非必选 默认 svg 还是png格式
 
-如果是单个 会响应个
+单个响应
 
-如果是svg， 会返回svg标签
-如果是png， 会返回base64
+{
+    illus_id: "123",
+    alias: "女性"，
+    data： “<svg></svg>” // png的话是base64
+}
 
-多个是会响应
+多个响应
 [{
     illus_id: "123",
     alias: "女性"，
-    data： “<svg></svg>”
+    data： “<svg></svg>”  // png的话是base64
 }]

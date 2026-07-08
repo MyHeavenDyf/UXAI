@@ -24,7 +24,7 @@ Category 非必选 图标类别 一般不填写
 		“icon_id”: “123”,
 		“name”: “下载”,
 		“chineseName”: “中文”,
-		“enlishName”: “英文”,
+		“englishName”: “英文”,
 		“description”: “”,
 		“category”: “基础图标”,
 		“group”:”通用”,
@@ -35,13 +35,23 @@ Category 非必选 图标类别 一般不填写
 3、最后再通过这两个进行匹配，调用 https://octo-beta.hdesign.huawei.com/iconPlus/getSvg
 
 它有五个参数
-icon_id 必选 是上一个接口获取到的icon_id
+icon_id 必选 是上一个接口获取到的icon_id，支持逗号隔开分批获取
 size 必选 是图标尺寸
 style 必选 配置的是线性还是面性
 color 必选 配置的最合适的颜色
 fileType 非必选 svg 还是png格式
 
-会响应个
+单个响应
 
-如果是svg， 会返回svg标签
-如果是png， 会返回base64
+{
+    icon_id: "123",
+    name: "女性"，
+    data： “<svg></svg>” // png的话是base64
+}
+
+多个响应
+[{
+    icon_id: "123",
+    name: "女性"，
+    data： “<svg></svg>”  // png的话是base64
+}]

@@ -2,9 +2,9 @@ import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { STEP_A_PROMPT } from "./prompts/step-a"
 import { STEP_B_PROMPT } from "./prompts/step-b"
-import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest, ensureApiCallScript } from "./utils/artifact-persist"
+import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest, ensureApiCallScript, inlineAssetContents } from "./utils/artifact-persist"
 import API_CALL_SOURCE from "./lib/api-call.ts?raw"
-import { stripFollowUpTags } from "./utils/strip-conversational"
+import { stripFollowUpTags, joinTextParts, extractSemanticLayout } from "./utils/strip-conversational"
 import { IframeBridge } from "./lib/iframe-bridge"
 import { stripThinkTags } from "./lib/think-filter"
 
@@ -446,9 +446,10 @@ const sessionMessagesLoaded = createMemo(() => {
       }
       const dslJson = stepBDslJsonPatched()
       if (!dslJson) return
-      try {
-        bridgeRef?.post("NODE_DSL_PIPELINE", JSON.parse(dslJson))
-      } catch {}
+      // 同 NODE_DSL_JSON：进入渲染管线前内联 SVG 素材文件
+      inlineAssetContents(dslDir ?? "", dslJson)
+        .catch(() => dslJson)
+        .then((inlined) => { try { bridgeRef?.post("NODE_DSL_PIPELINE", JSON.parse(inlined)) } catch {} })
       setStepCConfirmed(true)
       setStepPhase("c-generating")
     })
@@ -480,7 +481,10 @@ const sessionMessagesLoaded = createMemo(() => {
     const bArtifact = stepBArtifact()
     const cArtifact = stepCArtifact()
     if (bArtifact) {
-      try { bridge.post("NODE_DSL_JSON", JSON.parse(bArtifact)) } catch {}
+      // 存盘产物只存文件引用，回灌前内联 SVG 素材
+      inlineAssetContents(dslDir, bArtifact)
+        .catch(() => bArtifact)
+        .then((inlined) => { try { bridge.post("NODE_DSL_JSON", JSON.parse(inlined)) } catch {} })
     }
     if (isZipBuffer(cArtifact)) {
       bridge.post("PIPELINE_ZIP_DATA", cArtifact)
@@ -787,8 +791,9 @@ const sessionMessagesLoaded = createMemo(() => {
       const allMsgs = (sync.data.message[id] ?? []) as Message[]
       if (allMsgs.some(m => m.id === aMsgId)) {
         const parts = partStore?.[aMsgId] ?? []
-        const textPart = [...parts].find((p) => p.type === "text")
-        if (textPart?.text) return stripFollowUpTags(stripThinkTags(textPart.text.trim()))
+        // 合并全部 text part：部分 LLM 会把寒暄和正文拆成多个 part，只取第一个会丢正文
+        const joined = joinTextParts(parts)
+        if (joined) return extractSemanticLayout(stripFollowUpTags(stripThinkTags(joined)))
       }
     }
     const allMsgs = (sync.data.message[id] ?? []) as Message[]
@@ -797,9 +802,9 @@ const sessionMessagesLoaded = createMemo(() => {
       const parts = partStore?.[msg.id] ?? []
       const hasToolCall = parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
       if (hasToolCall) continue
-      const textPart = [...parts].find((p) => p.type === "text")
-      if (!textPart?.text) continue
-      const text = stripFollowUpTags(stripThinkTags(textPart.text.trim()))
+      const joined = joinTextParts(parts)
+      if (!joined) continue
+      const text = extractSemanticLayout(stripFollowUpTags(stripThinkTags(joined)))
       if (text.includes("<artifact")) continue
       if (looksLikeJson(text)) continue
       return text
@@ -819,9 +824,8 @@ const sessionMessagesLoaded = createMemo(() => {
       const parts = partStore?.[msg.id] ?? []
       const hasToolCall = parts.some((p) => p.type === "tool-call" || p.type === "tool-invocation")
       if (hasToolCall) continue
-      const textPart = [...parts].find((p) => p.type === "text")
-      if (!textPart?.text) continue
-      const text = textPart.text.trim()
+      const text = joinTextParts(parts)
+      if (!text) continue
       if (text.includes("<artifact")) continue
       if (looksLikeJson(text)) continue
       setStepAMessageId(msg.id)
@@ -836,7 +840,10 @@ const sessionMessagesLoaded = createMemo(() => {
     const dslJson = stepBDslJsonPatched()
     debugLog("bridge-send:", { phase, dslJsonLen: dslJson?.length, bridgeRefExists: !!bridgeRef, dslJsonPreview: dslJson?.slice(0, 200) })
     if (!dslJson) return
-    try { bridgeRef?.post("NODE_DSL_JSON", JSON.parse(dslJson)) } catch {}
+    // 发送前把 resourceDetail.file 引用的 SVG 素材读盘内联为 icon_content/illus_content
+    inlineAssetContents(dslDir ?? "", dslJson)
+      .catch(() => dslJson)
+      .then((inlined) => { try { bridgeRef?.post("NODE_DSL_JSON", JSON.parse(inlined)) } catch {} })
   })
 
    const stepBDslJson = createMemo(() => {
@@ -909,11 +916,13 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
-   const stepBDslJsonPatched = createMemo(() => stripFabricatedResources(applyNodeEdits(stepBDslJson())))
+   const stepBDslJsonPatched = createMemo(() => reconcileResources(applyNodeEdits(stepBDslJson())))
 
-   const RESOURCE_DATA_FIELDS = ["resourceId", "resourceVectorText", "resourceScore", "resourceDetail"] as const
+   const RESOURCE_DATA_FIELDS = ["resourceId", "resourceVectorText", "resourceScore", "resourceDetail", "resourceVariant"] as const
 
-   function stripFabricatedResources(jsonStr: string): string {
+   // 资源对账：resourceId 不在工具真实返回集合里的节点剥离数据性字段（防编造）；
+   // 在集合里的节点用工具真实输出程序化回填 resourceDetail（含 SVG），LLM 无需抄写。
+   function reconcileResources(jsonStr: string): string {
      if (!jsonStr) return jsonStr
      const id = params.id
      if (!id) return jsonStr
@@ -930,6 +939,32 @@ const sessionMessagesLoaded = createMemo(() => {
       const realDetailMap = new Map<string, Record<string, unknown>>()
       const realIconDetailMap = new Map<string, Record<string, unknown>>()
       const realIllusDetailMap = new Map<string, Record<string, unknown>>()
+      // 素材内容（SVG 文本或 png base64）与变体级 file 条目。key 有两级：id 级（后写覆盖）
+      // 与变体级（icon: "id|size|style|color"，illus: "id|theme"）。节点带 resourceVariant 时
+      // 优先按变体级匹配，解决同 id 多变体互相覆盖
+      const assetContentByKey = new Map<string, string>()
+      const variantDetailMap = new Map<string, Record<string, unknown>>()
+      const iconVariantKey = (id: string, size: unknown, style: unknown, color: unknown) => `${id}|${size ?? ""}|${style ?? ""}|${color ?? ""}`
+      const illusVariantKey = (id: string, theme: unknown) => `${id}|${theme ?? ""}`
+      // --save 模式的文件引用 JSON（{icon_id, file, size, style, color} / {illus_id, file, theme}）按变体建索引
+      function collectVariantAssets(obj: unknown) {
+        if (Array.isArray(obj)) {
+          for (const item of obj) collectVariantAssets(item)
+          return
+        }
+        if (!obj || typeof obj !== "object") return
+        const rec = obj as Record<string, unknown>
+        if (typeof rec.file === "string") {
+          if (typeof rec.icon_id === "string") variantDetailMap.set(iconVariantKey(rec.icon_id, rec.size, rec.style, rec.color), rec)
+          if (typeof rec.illus_id === "string") variantDetailMap.set(illusVariantKey(rec.illus_id, rec.theme), rec)
+        }
+        for (const val of Object.values(rec)) collectVariantAssets(val)
+      }
+      // 从命令行提取参数值（支持带引号含空格的值）
+      const argValue = (cmd: string, name: string) => {
+        const m = cmd.match(new RegExp(`--${name}\\s+(?:"([^"]*)"|'([^']*)'|(\\S+))`))
+        return m ? (m[1] ?? m[2] ?? m[3]) : undefined
+      }
 
       for (const msg of msgsSlice) {
         if (msg.role !== "assistant") continue
@@ -942,13 +977,38 @@ const sessionMessagesLoaded = createMemo(() => {
           const input = state.input as Record<string, unknown> | undefined
           const cmd = typeof input?.command === "string" ? input.command : ""
           const url = typeof input?.url === "string" ? input.url : ""
-          const isResourceCall = cmd.includes("/lib-resource-service/api/vector/") || url.includes("/lib-resource-service/api/vector/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/") || cmd.includes("/illusPlus/") || url.includes("/illusPlus/")
+          // 既识别直连 URL，也识别 api-call.ts 脚本调用（脚本封装了 URL，命令里只有子命令名）
+          const isResourceCall = cmd.includes("/lib-resource-service/api/vector/") || url.includes("/lib-resource-service/api/vector/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/") || cmd.includes("/illusPlus/") || url.includes("/illusPlus/") || cmd.includes("api-call.ts")
           if (!isResourceCall) continue
+          const out = state.output as string
           try {
-            const parsed = JSON.parse(state.output as string)
+            const parsed = JSON.parse(out)
             collectDataIds(parsed, realDataIds, realIconIds, realIllusIds)
             collectDetails(parsed, realDetailMap, realIconDetailMap, realIllusDetailMap)
-          } catch { /* non-JSON output, ignore */ }
+            collectVariantAssets(parsed)
+          } catch {
+            // 非 JSON 输出（未带 --save 的回退路径）：裸 SVG 或 png 的 base64
+            const isSvg = out.includes("<svg")
+            const isPng = argValue(cmd, "fileType") === "png" && /^[A-Za-z0-9+/=\r\n]+$/.test(out.trim())
+            if (!isSvg && !isPng) continue
+            const content = isSvg
+              ? (() => {
+                  const start = out.indexOf("<svg")
+                  const end = out.lastIndexOf("</svg>")
+                  return end > start ? out.slice(start, end + 6) : out.slice(start).trim()
+                })()
+              : out.trim()
+            const id = argValue(cmd, "icon_id") ?? argValue(cmd, "illus_id")
+            if (!id || id.includes(",")) continue
+            assetContentByKey.set(id, content)
+            if (/\bgetSvg\b/.test(cmd)) {
+              realIconIds.add(id)
+              assetContentByKey.set(iconVariantKey(id, argValue(cmd, "size"), argValue(cmd, "style"), argValue(cmd, "color")), content)
+            } else {
+              realIllusIds.add(id)
+              assetContentByKey.set(illusVariantKey(id, argValue(cmd, "theme") ?? "浅色"), content)
+            }
+          }
         }
       }
 
@@ -959,19 +1019,41 @@ const sessionMessagesLoaded = createMemo(() => {
          function cleanNode(node: Record<string, unknown>) {
            const rid = node.resourceId as string | undefined
            if (!rid || !allValidIds.has(rid)) {
+             // resourceId 缺失或不在工具真实返回集合里 → 属于编造，剥离全部数据性字段
              for (const f of RESOURCE_DATA_FIELDS) delete node[f]
            } else {
-              const cachedDetail = realDetailMap.get(rid) ?? realIconDetailMap.get(rid) ?? realIllusDetailMap.get(rid)
-             if (cachedDetail && node.resourceDetail) {
-              const detail = node.resourceDetail as Record<string, unknown>
-              const mismatch = Object.keys(cachedDetail).some(
-                (k) => detail[k] !== undefined && detail[k] !== cachedDetail[k],
-              )
-              if (mismatch) {
-                for (const f of RESOURCE_DATA_FIELDS) delete node[f]
+             // 程序化回填：resourceDetail 以工具真实输出为准。LLM 不再抄写 detail（prompt 已
+             // 要求省略），旧输出里抄了的也会被真实数据覆盖，抄错不再导致资源整体丢失。
+             const cachedDetail = realDetailMap.get(rid) ?? realIconDetailMap.get(rid) ?? realIllusDetailMap.get(rid)
+             // 节点带 resourceVariant（LLM 自己的调用参数）时按变体级精确匹配素材，
+             // 避免同 id 多变体（不同 size/color/theme）被"后写覆盖"串台
+             const variant = node.resourceVariant as Record<string, unknown> | undefined
+             const variantKey = variant
+               ? realIconIds.has(rid)
+                 ? iconVariantKey(rid, variant.size, variant.style, variant.color)
+                 : illusVariantKey(rid, variant.theme)
+               : null
+             const detail: Record<string, unknown> = {
+               ...(node.resourceDetail as Record<string, unknown> | undefined ?? {}),
+               ...(cachedDetail ?? {}),
+               ...((variantKey ? variantDetailMap.get(variantKey) : undefined) ?? {}),
+             }
+             // 素材内容（SVG 文本 / png base64）来自未带 --save 的回退输出，单独回填
+             const content = (variantKey ? assetContentByKey.get(variantKey) : undefined) ?? assetContentByKey.get(rid)
+             if (content) {
+               if (realIconIds.has(rid)) detail.icon_content = content
+               else detail.illus_content = content
+             }
+              if (realIconIds.has(rid) && detail.icon_content === undefined && typeof detail.data === "string" && detail.data.includes("<svg")) {
+                detail.icon_content = detail.data
+                delete detail.data
               }
-            }
-          }
+              if (!realIconIds.has(rid) && detail.illus_content === undefined && typeof detail.data === "string" && detail.data.includes("<svg")) {
+                detail.illus_content = detail.data
+                delete detail.data
+              }
+             if (Object.keys(detail).length > 0) node.resourceDetail = detail
+           }
           const children = node.children as Record<string, unknown>[] | undefined
           if (children) for (const c of children) cleanNode(c)
         }
@@ -995,22 +1077,24 @@ const sessionMessagesLoaded = createMemo(() => {
       }
     }
 
+    // 同一 id 可能出现多次（vectorSearch 的浅记录在前、vectorDetail 的完整记录在后），
+    // 作为回填数据源必须合并累积（后到覆盖先到），不能先到先得
     function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>, iconDetailMap?: Map<string, Record<string, unknown>>, illusDetailMap?: Map<string, Record<string, unknown>>) {
       if (Array.isArray(obj)) {
         for (const item of obj) collectDetails(item, map, iconDetailMap, illusDetailMap)
       } else if (obj && typeof obj === "object") {
         const rec = obj as Record<string, unknown>
-        if (typeof rec.data_id === "string" && !map.has(rec.data_id)) {
+        if (typeof rec.data_id === "string") {
           const { results, ...detail } = rec
-          if (Object.keys(detail).length > 1) map.set(rec.data_id, detail)
+          if (Object.keys(detail).length > 1) map.set(rec.data_id, { ...map.get(rec.data_id) ?? {}, ...detail })
         }
-        if (iconDetailMap && typeof rec.icon_id === "string" && !iconDetailMap.has(rec.icon_id)) {
+        if (iconDetailMap && typeof rec.icon_id === "string") {
           const { results, ...detail } = rec
-          if (Object.keys(detail).length > 1) iconDetailMap.set(rec.icon_id, detail)
+          if (Object.keys(detail).length > 1) iconDetailMap.set(rec.icon_id, { ...iconDetailMap.get(rec.icon_id) ?? {}, ...detail })
         }
-        if (illusDetailMap && typeof rec.illus_id === "string" && !illusDetailMap.has(rec.illus_id)) {
+        if (illusDetailMap && typeof rec.illus_id === "string") {
           const { results, ...detail } = rec
-          if (Object.keys(detail).length > 1) illusDetailMap.set(rec.illus_id, detail)
+          if (Object.keys(detail).length > 1) illusDetailMap.set(rec.illus_id, { ...illusDetailMap.get(rec.illus_id) ?? {}, ...detail })
         }
         for (const val of Object.values(rec)) collectDetails(val, map, iconDetailMap, illusDetailMap)
       }
@@ -1052,9 +1136,11 @@ const sessionMessagesLoaded = createMemo(() => {
     if (phase === "b-done") {
       const json = stepBDslJson()
       if (json) {
-        setStepBArtifact(json)
-        cacheArtifact(id, { b: json })
-        saveArtifact(dslDir, id, "b", json).catch(() => {})
+        // 存盘/缓存回填后的版本：恢复会话时直接发给 iframe，resourceDetail（含 SVG）完整
+        const reconciled = reconcileResources(json)
+        setStepBArtifact(reconciled)
+        cacheArtifact(id, { b: reconciled })
+        saveArtifact(dslDir, id, "b", reconciled).catch(() => {})
       }
     }
   })
@@ -1247,9 +1333,12 @@ const sessionMessagesLoaded = createMemo(() => {
       // 桌面端落盘成功走相对路径，纯 web 写不了盘则回退。
       const wroteScript = dslDir ? await ensureApiCallScript(dslDir, API_CALL_SOURCE).catch(() => false) : false
       const apiCallScript = wroteScript ? API_CALL_SCRIPT_MATERIALIZED : API_CALL_SCRIPT_FALLBACK
+      // SVG 素材落盘目录（api-call.ts --save），与该 session 的产物同级
+      const assetsDir = `.octo/dslToHex/${sessionId}/assets`
       const systemPrompt = STEP_B_PROMPT
         .replace(/\$\{VECTOR_API_BASE\}/g, VECTOR_API_BASE)
         .replace(/\$\{API_CALL_SCRIPT\}/g, apiCallScript)
+        .replace(/\$\{ASSETS_DIR\}/g, assetsDir)
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_dsl",
