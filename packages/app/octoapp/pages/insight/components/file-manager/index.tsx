@@ -31,7 +31,8 @@ import {
 } from "../../utils/insight-file-store"
 import { openFileLocally, revealFileInFolder, copyFilesToSessionUploads } from "../../utils/local-file-ops"
 import { canOpenLocally } from "../../utils/write-output"
-import { fileTypeIconUrl, IllustrationResultEmpty } from "../../icons/illustrations"
+import { fileTypeIconUrl } from "../../icons/illustrations"
+import emptyPng from "../../icons/empty.png"
 import { FileManagerToolbar } from "./toolbar"
 
 export function InsightFileManager(props: { onOpenFile: (file: InsightFileEntry) => void }): JSX.Element {
@@ -160,13 +161,13 @@ function FileManagerInner(props: { sessionId: string; onOpenFile: (file: Insight
             </div>
           </Match>
           <Match when={!hasAnyFiles()}>
-            <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
-              <IllustrationResultEmpty width={72} height={72} />
-              <span class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>
-                暂无文件——在对话中上传文件或让 Agent 生成文件后，这里会显示
+            {/* 空态文案 / 插画 / 按钮全部对齐 Design 模块(make/components/design-files/design-files-panel.tsx
+                的 top-level 空态):empty.png 150×150 + "暂无内容，点击上传新增文件吧" + #0a59F7 实心按钮 */}
+            <div class="flex flex-col items-center justify-center h-full text-center px-8">
+              <img src={emptyPng} width={150} height={150} alt="" draggable={false} />
+              <span class="text-[14px] leading-[22px]" style={{ color: "#666", "margin-bottom": "20px" }}>
+                暂无内容，点击上传新增文件吧
               </span>
-              {/* 按钮色值 / 尺寸对齐 Design 模块空态上传按钮(#0a59F7 / 108×32 / radius 4 / 14px),
-                  不用 --octo-brand 变量以消除主题解析歧义 */}
               <button
                 type="button"
                 onClick={() => fileInputRef?.click()}
@@ -402,9 +403,9 @@ function MenuItem(props: { label: string; onClick: () => void }): JSX.Element {
 
 function NoSessionEmpty(): JSX.Element {
   return (
-    <div class="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-      <IllustrationResultEmpty width={72} height={72} />
-      <span class="text-[13px]" style={{ color: "var(--octo-text-secondary)" }}>新建或进入一个会话后，这里会显示会话的文件</span>
+    <div class="flex flex-col items-center justify-center h-full text-center px-8">
+      <img src={emptyPng} width={150} height={150} alt="" draggable={false} />
+      <span class="text-[14px] leading-[22px]" style={{ color: "#666" }}>新建或进入一个会话后，这里会显示会话的文件</span>
     </div>
   )
 }
