@@ -942,6 +942,9 @@ const stateStatus = state.status as string | undefined
 
   // ── output cards (final, after generation, multiple) ──
   const outputCards = createMemo((): OutputCard[] => {
+    // 中断时不创建卡片，避免显示不完整内容
+    if (isAborted()) return []
+    
     const parts = assistantParts()
     if (parts.length === 0 && !showGenerating()) return []
     if (showGenerating()) return []
@@ -1226,13 +1229,6 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 中断提示：与 SessionTurn 的 session-turn-compaction 一致 */}
-      <Show when={isAborted()}>
-        <div data-slot="session-turn-compaction">
-          <MessageDivider label={i18n.t("ui.message.interrupted")} />
-        </div>
-      </Show>
-
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
         <Show when={showGenerating()} fallback={
@@ -1487,7 +1483,14 @@ const stateStatus = state.status as string | undefined
         <ProducedFilesList files={producedFiles()} />
       </Show>
 
-      {/* 生成中状态指示 — 始终在底部 */}
+      {/* 中断提示 — 始终在最底部 */}
+      <Show when={isAborted()}>
+        <div data-slot="session-turn-compaction">
+          <MessageDivider label={i18n.t("ui.message.interrupted")} />
+        </div>
+      </Show>
+
+      {/* 生成中状态指示 */}
       <Show when={showGenerating()}>
         <WaitingPill
           parts={assistantParts()}
