@@ -170,14 +170,29 @@ function FileManagerInner(props: { sessionId: string; onOpenFile: (file: Insight
               <span class="text-[14px] leading-[22px]" style={{ color: "#666", "margin-bottom": "20px" }}>
                 暂无内容，点击上传新增文件吧
               </span>
+              {/* 全部写 inline 属性,不用 class(text-white 在此不生效,被元素默认色盖掉,
+                  曾渲染成蓝底黑字);图标靠 color 继承 currentColor 变白,再显式兜底一次 */}
               <button
                 type="button"
                 onClick={() => fileInputRef?.click()}
-                class="flex items-center justify-center gap-2 text-white transition-opacity hover:opacity-90"
-                style={{ background: "#0a59F7", "border-radius": "8px", height: "40px", padding: "0 24px", "font-size": "14px", "font-weight": "500" }}
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  "justify-content": "center",
+                  gap: "8px",
+                  background: "#0a59F7",
+                  color: "#ffffff",
+                  border: "none",
+                  "border-radius": "8px",
+                  height: "40px",
+                  padding: "0 24px",
+                  "font-size": "14px",
+                  "font-weight": "500",
+                  cursor: "pointer",
+                }}
               >
-                <Icon name="upload" class="size-4" />
-                <span>上传文件</span>
+                <Icon name="upload" class="size-4" style={{ color: "#ffffff" }} />
+                <span style={{ color: "#ffffff" }}>上传文件</span>
               </button>
             </div>
           </Match>
