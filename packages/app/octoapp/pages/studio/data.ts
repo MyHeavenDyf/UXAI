@@ -45,6 +45,11 @@ export function styleModelRequiresSeedreamPermission(id: string) {
   return STUDIO_STYLE_MODELS.find((item) => item.id === id || item.label === id)?.requiresSeedreamPermission === true
 }
 
+export function referenceImageLimit(styleModel: string) {
+  const model = STUDIO_STYLE_MODELS.find((item) => item.id === styleModel || item.label === styleModel)
+  return model?.id === "seedream-5-lite" || model?.id === "qwen" ? 3 : 1
+}
+
 export function imageToolLabel(id: StudioImageTool) {
   return STUDIO_IMAGE_TOOLS.find((item) => item.id === id)?.label ?? "内部"
 }

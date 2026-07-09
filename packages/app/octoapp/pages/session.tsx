@@ -32,7 +32,6 @@ import { checksum } from "@opencode-ai/core/util/encode"
 import { useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import { useComments } from "@/context/comments"
-import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -764,14 +763,23 @@ export default function Page() {
       refreshTimer = undefined
       if (!id) return
 
-      const cached = untrack(() => sync.data.message[id] !== undefined)
-      const stale = !cached
-        ? false
-        : (() => {
-            const info = getSessionPrefetch(directory, id)
-            if (!info) return true
-            return Date.now() - info.at > SESSION_PREFETCH_TTL
-          })()
+      const stale = untrack(() => {
+        const messages = sync.data.message[id]
+        if (!messages) return false
+
+        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+        if (!lastAssistant) return false
+
+        // assistant 已完成 → 数据完整，无需兜底
+        if (typeof lastAssistant.time.completed === "number") return false
+
+        // assistant 未完成 + session 状态为 idle → 丢失了 SSE completion 事件，需要兜底
+        const status = sync.data.session_status[id]
+        if (!status || status.type === "idle") return true
+
+        // assistant 未完成 + session 仍在 busy → SSE 正在推送，不覆盖
+        return false
+      })
 
       refreshFrame = requestAnimationFrame(() => {
         refreshFrame = undefined
@@ -1846,7 +1854,7 @@ export default function Page() {
               style={{ background: "#fff" }}
             >
               <div classList={{ "w-full": true, "md:max-w-[848px]": centered() }}>
-                <NewSessionView worktree={newSessionWorktree()} />
+                <NewSessionView worktree={newSessionWorktree()} title="Octo Chat" subtitle="告诉我您的目标，我将为您深度调研并一键生成设计方案。" />
                 <SessionComposerRegion
                   state={composer}
                   ready={!store.deferRender && messagesReady()}
@@ -1911,7 +1919,7 @@ export default function Page() {
                 </Show>
               </Match>
               <Match when={true}>
-                <NewSessionView worktree={newSessionWorktree()} />
+                <NewSessionView worktree={newSessionWorktree()} title="Octo Chat" subtitle="告诉我您的目标，我将为您深度调研并一键生成设计方案。" />
               </Match>
             </Switch>
               </div>

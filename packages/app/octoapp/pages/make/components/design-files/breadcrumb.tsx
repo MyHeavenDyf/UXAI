@@ -14,13 +14,13 @@ export function Breadcrumb(props: BreadcrumbProps): JSX.Element {
 
   return (
     <div
-      class="flex items-center gap-1 pr-6 shrink-0" style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "margin-bottom": "16px", background: "var(--octo-surface-page)" }}
+      class="flex items-center gap-1 px-6 pt-6 shrink-0" style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "margin-bottom": "16px", background: "var(--octo-surface-page)" }}
     >
       <button
         type="button"
         onClick={() => props.onNavigate("")}
         class="hover:text-text-interactive-base transition-colors cursor-pointer font-medium"
-        style={{ color: "rgba(0, 0, 0, 0.9)" }}
+        style={{ color: props.currentPath ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.9)" }}
       >
         {language.t("designFiles.title")}
       </button>
@@ -33,11 +33,12 @@ export function Breadcrumb(props: BreadcrumbProps): JSX.Element {
           return (
             <>
               <Icon name="chevron-right" style={{ width: "16px", height: "16px", color: "var(--octo-text-secondary)" }} />
-              <Show when={!isLast()} fallback={<span class="font-medium">{segment}</span>}>
+              <Show when={!isLast()} fallback={<span class="font-medium" style={{ color: "rgba(0, 0, 0, 0.9)" }}>{segment}</span>}>
                 <button
                   type="button"
                   onClick={() => props.onNavigate(pathUpTo())}
-                  class="text-text-secondary hover:text-text-interactive-base transition-colors cursor-pointer"
+                  class="hover:text-text-interactive-base transition-colors cursor-pointer"
+                  style={{ color: "rgba(0, 0, 0, 0.6)" }}
                 >
                   {segment}
                 </button>

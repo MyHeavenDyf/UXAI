@@ -27,6 +27,7 @@ export function StudioComposer(props: {
   canGenerateVideo: boolean
   canUseSeedream: boolean
   styleModel: string
+  maxReferenceImages: number
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
   assets: StudioAsset[]
@@ -60,7 +61,10 @@ export function StudioComposer(props: {
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
   const [composing, setComposing] = createSignal(false)
-  const referenceAsset = createMemo(() => props.assets[0])
+  const [referenceExpanded, setReferenceExpanded] = createSignal(false)
+  const referenceAssets = createMemo(() => props.assets.slice(0, props.maxReferenceImages))
+  const referenceAsset = createMemo(() => referenceAssets()[0])
+  const canAddReferenceAsset = createMemo(() => referenceAssets().length < props.maxReferenceImages)
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
@@ -111,6 +115,10 @@ export function StudioComposer(props: {
     props.onPasteImage(files)
   }
 
+  function referenceAssetRotation(index: number) {
+    return [-7.8, 4.1, -3.6][index] ?? 0
+  }
+
   const handleDocumentPointerDown = (event: PointerEvent) => {
     if (!props.openMenu) return
     if (event.target instanceof Element && event.target.closest(".studio-menu")) return
@@ -147,33 +155,62 @@ export function StudioComposer(props: {
         <div class="studio-composer-input-row" classList={{ "with-reference": isImageGeneration() }}>
           <Show when={isImageGeneration()}>
             <div class="studio-composer-ref-slot" classList={{ filled: Boolean(referenceAsset()) }}>
-              <button
-                type="button"
-                onClick={props.onPickFile}
-                disabled={isBusy()}
-                class="studio-composer-ref-btn"
-                title={referenceAsset() ? "替换参考图" : "上传参考图"}
-              >
-                <Show when={referenceAsset()}>
-                  {(asset) => <img src={asset().dataUrl} alt={asset().name} class="studio-composer-ref-image" />}
-                </Show>
-              </button>
-              <Show when={referenceAsset()}>
-                {(asset) => (
+              <Show
+                when={referenceAsset()}
+                fallback={
                   <button
                     type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      props.onRemoveAsset(asset().id)
-                    }}
+                    onClick={props.onPickFile}
                     disabled={isBusy()}
-                    class="studio-composer-ref-remove"
-                    aria-label="删除参考图"
-                    title="删除参考图"
-                  >
-                    ×
-                  </button>
-                )}
+                    class="studio-composer-ref-btn"
+                    title="上传参考图"
+                  />
+                }
+              >
+                <div
+                  class="studio-composer-ref-stack"
+                  classList={{ expanded: referenceExpanded() }}
+                  onPointerEnter={() => setReferenceExpanded(true)}
+                  onPointerLeave={() => setReferenceExpanded(false)}
+                >
+                  <For each={referenceAssets()}>
+                    {(asset, index) => (
+                      <div
+                        class="studio-composer-ref-item"
+                        style={{
+                          "--ref-index": String(index()),
+                          "--ref-rotate": `${referenceAssetRotation(index())}deg`,
+                        }}
+                      >
+                        <div class="studio-composer-ref-btn" title={asset.name}>
+                          <img src={asset.dataUrl} alt={asset.name} class="studio-composer-ref-image" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            props.onRemoveAsset(asset.id)
+                          }}
+                          disabled={isBusy()}
+                          class="studio-composer-ref-remove"
+                          aria-label="删除参考图"
+                          title="删除参考图"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                  <Show when={referenceExpanded() && canAddReferenceAsset()}>
+                    <button
+                      type="button"
+                      onClick={props.onPickFile}
+                      disabled={isBusy()}
+                      class="studio-composer-ref-btn studio-composer-ref-add"
+                      title="继续上传参考图"
+                    />
+                  </Show>
+                </div>
               </Show>
             </div>
           </Show>

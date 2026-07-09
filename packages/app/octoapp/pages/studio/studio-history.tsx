@@ -32,6 +32,11 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
+function isVideoThumbnailUrl(url: string): boolean {
+  if (/^data:video\//i.test(url)) return true
+  return /\.(mp4|mov|webm)(?:[?#]|$)/i.test(url)
+}
+
 export function StudioHistory(props: { directory: string; routeSlug: string; activeSessionID?: string; onNewConversation: () => void; toggleDrawer?: () => void; thumbnails?: ThumbnailMap; thumbnailsLoading?: boolean; thumbnailVersion?: number; onLoadThumbnails?: (sessions: Session[]) => void }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
@@ -407,16 +412,30 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                         </Show>
                                       }
                                     >
-                                      <img
-                                        src={thumbnailUrl()!}
-                                        alt=""
-                                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                                        loading="lazy"
-                                        onError={(e) => {
-                                          const el = e.currentTarget as HTMLImageElement
-                                          el.style.display = "none"
-                                        }}
-                                      />
+                                      <Show when={isVideoThumbnailUrl(thumbnailUrl()!)} fallback={
+                                        <img
+                                          src={thumbnailUrl()!}
+                                          alt=""
+                                          style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                                          loading="lazy"
+                                          onError={(e) => {
+                                            const el = e.currentTarget as HTMLImageElement
+                                            el.style.display = "none"
+                                          }}
+                                        />
+                                      }>
+                                        <video
+                                          src={thumbnailUrl()!}
+                                          muted
+                                          playsinline
+                                          preload="metadata"
+                                          style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                                          onError={(e) => {
+                                            const el = e.currentTarget as HTMLVideoElement
+                                            el.style.display = "none"
+                                          }}
+                                        />
+                                      </Show>
                                     </Show>
                                   </div>
                                   <span ref={(el) => { titleSpanRef = el; titleResizeObserver?.disconnect(); titleResizeObserver = new ResizeObserver(() => checkTruncation()); titleResizeObserver.observe(el); queueMicrotask(() => checkTruncation()) }} class="flex-1 min-w-0 truncate">

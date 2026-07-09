@@ -260,7 +260,7 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
             onClick={newSession}
           >
             <Icon name="plus" size="normal" class="shrink-0" />
-            <span>新建</span>
+            <span>新建对话</span>
           </button>
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", "margin-bottom": "8px" }} />
@@ -278,7 +278,9 @@ export function MakeSidebar(props: { width: number }): JSX.Element {
               class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
             >
               <span class="flex items-center gap-[12px] min-w-0">
-                <img src="/makeIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+                <span style={{ "--icon-base": "#0a59f7", display: "inline-flex" }}>
+                  <Icon name="tab-make" size="normal" />
+                </span>
                 <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                   Octo Design
                 </span>

@@ -476,6 +476,11 @@ function triggerReconnect(
   triggeredReconnectFlags.add(name)
   terminalErrorCounts.set(name, 0)
 
+  // 立即更新 status 为 reconnecting，防止 tools() 在重连期间继续返回旧 client 给 agent 使用。
+  // 之前不更新此状态时，tools() 读到 status === "connected" 会把旧 client 暴露出去，
+  // 导致 agent 用断连的 client 调工具 → onerror → 想触发重连 → 被 triggeredReconnectFlags 拦下。
+  s.status[name] = { status: "reconnecting", error: `reconnecting (source: ${source}): ${reason}` }
+
   log.warn("[reconnect] trigger fired - starting reconnect loop", {
     name,
     source,

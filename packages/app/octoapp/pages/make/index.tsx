@@ -69,7 +69,7 @@ import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
-import IconHost from "@/pages/_shell/icons/IconHost.svg"
+import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { loadDesignSystem } from "./utils/design-system-loader"
@@ -1970,7 +1970,7 @@ if (dsId) {
                 </div>
               }>
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
-                  <ChatEmptyState />
+                  <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
                 <div class="w-full max-w-[800px]">
                   {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
 <StarterCards
@@ -2626,19 +2626,6 @@ if (dsId) {
   )
 }
 
-function ChatEmptyState(): JSX.Element {
-  return (
-    <div class="flex flex-col items-center gap-6 text-center pb-20 px-6">
-      <img src={IconHost} width={166} height={166} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-      <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "36px", "font-weight": "600", "line-height": "42px" }}>Octo Design</div>
-        <div style={{ color: "rgba(0, 0, 0, 0.6)", "font-size": "16px", "line-height": "24px" }}>
-          描述需求，开始生成原型
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
   const language = useLanguage()
