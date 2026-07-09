@@ -1,6 +1,6 @@
 {
     "state": {
-        "logoImage": "../pattern/logo-huawei.svg",
+        "logoImage": "./assets/logo-huawei.svg",
         "menuItems": [
             {
                 "title": "资源中心",

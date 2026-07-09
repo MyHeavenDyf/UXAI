@@ -420,6 +420,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       prompt.reset()
       input.setMode("normal")
       input.setPopover(null)
+      requestAnimationFrame(() => {
+        const editor = input.editor()
+        if (!editor) return
+        editor.focus()
+        setCursorPosition(editor, 0)
+      })
     }
 
     const restoreInput = () => {

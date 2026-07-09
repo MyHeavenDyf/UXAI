@@ -47,27 +47,43 @@ export class ImportCollector {
       }
     }
 
-    // 2. 收集 wrapper.import（若有）
-    if (node.wrapper && node.wrapper.import) {
-      const wi = node.wrapper.import;
-      if (!imports.has(wi.source)) {
-        imports.set(wi.source, { default: null, named: new Set() });
-      }
-      const entry = imports.get(wi.source)!;
-      if (wi.specifier === 'default') {
-        entry.default = entry.default || node.wrapper.tag;
-      } else {
-        entry.named.add(wi.specifier);
-      }
+    // 2. 收集 wrapper.import（wrapper 是 CodeGenNode，递归 collect 统一处理）
+    if (node.wrapper) {
+      ImportCollector.collect(node.wrapper, imports, transformFn);
     }
 
     // 3. 递归子节点和循环模板
+    //    兼容两种循环节点形态：
+    //    a) BuildTrees 阶段（_isLoop 标记）：模板节点挂在 children（单对象）或 _loopTemplate 字段
+    //    b) _deepResolve 阶段（__type: 'loop' / 'renderFn'）：模板 body 在 template.body / body
     if (node._isLoop) {
       const template = node._loopTemplate || node._resolvedTemplate;
-      if (template) ImportCollector.collect(template, imports, transformFn);
+      if (template) {
+        ImportCollector.collect(template, imports, transformFn);
+      } else if (node.children && !Array.isArray(node.children)) {
+        // BuildTrees 后：模板节点直接挂在 children 上（单个对象，非数组）
+        ImportCollector.collect(node.children, imports, transformFn);
+      }
+    } else if (node.__type === 'loop') {
+      // _deepResolve 阶段：循环表达式的 body 在 template.body
+      if (node.template && node.template.body) {
+        ImportCollector.collect(node.template.body, imports, transformFn);
+      }
+      // 抽取模式：node.template.refName 引用独立函数，函数体在 generateConstDecls 中单独收集
+      return;
+    } else if (node.__type === 'renderFn') {
+      if (node.body) {
+        ImportCollector.collect(node.body, imports, transformFn);
+      }
+      return;
     }
-    if (node.children && Array.isArray(node.children)) {
-      node.children.forEach((child: any) => ImportCollector.collect(child, imports, transformFn));
+    if (node.children) {
+      if (Array.isArray(node.children)) {
+        node.children.forEach((child: any) => ImportCollector.collect(child, imports, transformFn));
+      } else if (typeof node.children === 'object') {
+        // BuildTrees 阶段：循环模板节点作为单 children 直接挂载（非数组）
+        ImportCollector.collect(node.children, imports, transformFn);
+      }
     }
 
     // 4. 从 props 中的 slotNode 递归

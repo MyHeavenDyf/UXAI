@@ -257,7 +257,7 @@
 }
 
 .studio-empty-stack .studio-composer.video .studio-composer-input-row {
-  min-height: 60px;
+  min-height: 64px;
 }
 
 .studio-empty-stack .studio-composer-input {
@@ -284,8 +284,7 @@
 .studio-empty-stack .studio-composer-tool-btn {
   max-width: 200px;
   height: 28px;
-  padding: 4px 8px;
-  font-size: 13px;
+  padding: 4px 12px 4px 14px;
 }
 
 .studio-empty-stack .studio-composer-icon-tool {
@@ -353,4 +352,12 @@
 
 .studio-details-toggle:hover::before {
   background-color: #333;
+}
+
+/* 当 studio-canvas-stage 宽度不足 500px 时隐藏详情面板和切换按钮 */
+@container (max-width: 839px) {
+  .studio-details-toggle,
+  .studio-details {
+    display: none;
+  }
 }

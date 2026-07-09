@@ -1,5 +1,5 @@
 /**
- * 步骤：ResolveIcons — 收集所有 icon 名称并调用接口映射到 @hui/icon-plus 组件名
+ * 步骤：ResolveIcons — 收集所有 icon 名称并调用接口映射到 @nce/icon-plus 组件名
  *
  * 在 BuildTrees 之后、GenerateComponents 之前执行。
  *
@@ -32,7 +32,7 @@
  *
  * 数据流：
  *   输入：ctx.resolvedPages[].{resolvedTree, resolvedModules, state}
- *   输出：ctx.iconNameMap = { [a2uiName]: '@hui/icon-plus 组件名' }
+ *   输出：ctx.iconNameMap = { [a2uiName]: '@nce/icon-plus 组件名' }
  */
 import { Step } from '../core/Step';
 import type { PipelineContext } from '../pipeline/PipelineContext';
@@ -43,7 +43,7 @@ const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate';
 // icon 名称映射接口地址
 // 接口协议：GET {ICON_API_URL}?keyword={names}&topK=2
 // 返回 Array<{ icons: Array<{ name, group? }> }>
-const ICON_API_URL = '/api/icons/search';
+const ICON_API_URL = 'https://octo-beta.hdesign.huawei.com/iconPlus/getIconInfo';
 
 // state 递归深度上限，防止极端循环引用导致栈溢出
 const MAX_STATE_DEPTH = 20;
@@ -164,9 +164,14 @@ export class ResolveIcons extends Step {
     }
 
     // 5. 递归 children
-    if (Array.isArray(node.children)) {
-      for (const child of node.children) {
-        this._collectIconNames(child, names, pageState);
+    if (node.children) {
+      if (Array.isArray(node.children)) {
+        for (const child of node.children) {
+          this._collectIconNames(child, names, pageState);
+        }
+      } else if (typeof node.children === 'object') {
+        // BuildTrees 阶段：循环模板节点作为单 children 直接挂载（非数组）
+        this._collectIconNames(node.children, names, pageState);
       }
     }
 
@@ -179,9 +184,26 @@ export class ResolveIcons extends Step {
       }
     }
 
-    // 7. 递归 _loopTemplate（循环模板中的 icon）
-    if (node._loopTemplate) {
-      this._collectIconNames(node._loopTemplate, names, pageState);
+    // 7. 递归循环模板（兼容 BuildTrees 阶段与 _deepResolve 阶段两种形态）
+    if (node._isLoop) {
+      const template = node._loopTemplate || (node as any)._resolvedTemplate;
+      if (template) {
+        this._collectIconNames(template, names, pageState);
+      } else if (node.children && !Array.isArray(node.children)) {
+        // BuildTrees 阶段：模板节点直接挂在 children（单个对象）
+        this._collectIconNames(node.children, names, pageState);
+      }
+    } else if ((node as any).__type === 'loop') {
+      // _deepResolve 阶段：body 在 template.body
+      if ((node as any).template && (node as any).template.body) {
+        this._collectIconNames((node as any).template.body, names, pageState);
+      }
+      return;  // 避免误入 template 对象的字段
+    } else if ((node as any).__type === 'renderFn') {
+      if ((node as any).body) {
+        this._collectIconNames((node as any).body, names, pageState);
+      }
+      return;
     }
   }
 

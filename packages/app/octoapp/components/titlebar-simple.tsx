@@ -79,8 +79,8 @@ export function TitlebarSimple() {
 
   const activeTab = createMemo((): TabType | undefined => {
     const path = location.pathname
-    if (path === "/" || path === "/cowork" || path.startsWith("/insight")) return "cowork"
-    if (path === "/make" || path.startsWith("/make/")) return "make"
+    if (path === "/cowork" || path.startsWith("/insight")) return "cowork"
+    if (path === "/" || path === "/make" || path.startsWith("/make/")) return "make"
     if (path === "/pattern" || path.startsWith("/pattern/")) return "pattern"
     if (path === "/skills") {
       const source = layout.sidebarSource.get()

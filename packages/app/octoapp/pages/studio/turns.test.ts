@@ -55,20 +55,21 @@ const textPart = (id: string, messageID: string, text: string) =>
     text,
   }) as Part
 
-  const toolPart = (id: string, messageID: string, output: string, tool = "jimeng_image_generate") =>
-    ({
-      id,
-      sessionID: "ses_1",
-      messageID,
+const toolPart = (id: string, messageID: string, output: string, tool = "jimeng_image_generate", input?: Record<string, unknown>) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
     type: "tool",
     tool,
-      state: {
-        status: "completed",
-        title: "图片生成",
-        time: { start: 1, end: 2 },
-        output,
-      },
-    }) as Part
+    state: {
+      status: "completed",
+      title: "图片生成",
+      time: { start: 1, end: 2 },
+      input,
+      output,
+    },
+  }) as Part
 
 const attachmentToolPart = (id: string, messageID: string, url: string, tool = "jimeng_image_generate", mime = "image/png") =>
   ({
@@ -183,6 +184,33 @@ const contentFileToolPart = (id: string, messageID: string, url: string, tool = 
       content: [{ type: "file", uri: url, mime: "image/png", name: "internel-1.png" }],
     },
   }) as unknown as Part
+
+const completedGenerationToolPart = (
+  id: string,
+  messageID: string,
+  input: Record<string, unknown>,
+  output: Record<string, unknown> = {},
+  tool = "internel_image_generate",
+) =>
+  ({
+    id,
+    sessionID: "ses_1",
+    messageID,
+    type: "tool",
+    callID: `call_${id}`,
+    tool,
+    state: {
+      status: "completed",
+      title: "图片生成",
+      time: { start: 1, end: 2 },
+      input,
+      output: JSON.stringify({
+        ok: true,
+        images: ["https://example.com/regenerate.png"],
+        ...output,
+      }),
+    },
+  }) as Part
 
 const pendingResult = (status: StudioGenerationResult["status"] = "succeeded"): StudioGenerationResult =>
   ({
@@ -425,6 +453,33 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.error).toBe("生成失败")
   })
 
+  test("uses display prompt for regenerated turns while keeping the effective generation prompt", () => {
+    const user = userMessage("msg_regenerate_user")
+    const assistant = assistantMessage("msg_regenerate_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_regenerate_text", user.id, "一只大黄狗，阳光草地，胶片质感")],
+        [assistant.id]: [
+          textPart("p_regenerate_assistant", assistant.id, "好的，我会按当前结果的配置重新生成。"),
+          completedGenerationToolPart("p_regenerate_tool", assistant.id, {
+            capability: "image.generate",
+            prompt: "一只大黄狗",
+            displayPrompt: "再次生成",
+            refinedPrompt: "一只大黄狗，阳光草地，胶片质感",
+            effectivePrompt: "一只大黄狗，阳光草地，胶片质感",
+            aspectRatio: "3:4",
+          }),
+        ],
+      },
+    })
+
+    expect(turns[0].userText).toBe("再次生成")
+    expect(turns[0].assistantText).toBe("好的，我会按当前结果的配置重新生成。")
+    expect(turns[0].result?.prompt).toBe("一只大黄狗，阳光草地，胶片质感")
+    expect(turns[0].result?.displayPrompt).toBe("再次生成")
+  })
+
   test("restores create failure separately from generation failure", () => {
     const user = userMessage("msg_create_failed_user")
     const assistant = assistantMessage("msg_create_failed_assistant", 2)
@@ -459,12 +514,15 @@ describe("buildStudioTurns", () => {
         [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
         [a1.id]: [
           textPart("p_2", a1.id, "保持可爱风格，背景更明亮"),
-          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] }), "jimeng_image_generate", {
+            prompt: "生成一张卡通小猫的图",
+            effectivePrompt: "一张可爱的卡通小猫插画，背景明亮，整体风格温暖",
+          }),
         ],
       },
     })
 
-    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).toBe("一张可爱的卡通小猫插画，背景明亮，整体风格温暖")
     expect(summary).not.toContain("上一轮助手说明")
     expect(summary).not.toContain("3:4")
     expect(summary).not.toContain("https://example.com/one.png")
@@ -482,14 +540,17 @@ describe("buildStudioTurns", () => {
         [m1.id]: [textPart("p_1", m1.id, "生成一张卡通小猫的图")],
         [a1.id]: [
           textPart("p_2", a1.id, "第一轮完成"),
-          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] })),
+          toolPart("p_3", a1.id, JSON.stringify({ images: ["https://example.com/one.png"] }), "jimeng_image_generate", {
+            prompt: "生成一张卡通小猫的图",
+            effectivePrompt: "一张可爱的卡通小猫插画，背景明亮，整体风格温暖",
+          }),
         ],
         [m2.id]: [textPart("p_4", m2.id, "把它改成夜景")],
         [a2.id]: [runningToolPart("p_5", a2.id)],
       },
     })
 
-    expect(summary).toBe("生成一张卡通小猫的图")
+    expect(summary).toBe("一张可爱的卡通小猫插画，背景明亮，整体风格温暖")
     expect(summary).not.toContain("https://example.com/one.png")
     expect(summary).not.toContain("把它改成夜景")
   })

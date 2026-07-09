@@ -122,9 +122,9 @@ export async function searchDeliverables(teamId: number, pageNum: number, pageSi
   return apiFetch({ path: "/deliverable/search", query: { teamId, pageNum, pageSize } })
 }
 
-// deliverable 上传 — prefix 使用 main
+// deliverable 上传
 export async function uploadDeliverable(body: UploadDeliverableBody): Promise<any> {
-  return apiFetch({ path: "/deliverable/uploadDeliverable", method: "POST", body, prefix: API_PREFIXES.main })
+  return apiFetch({ path: "/deliverable/uploadDeliverable", method: "POST", body })
 }
 
 

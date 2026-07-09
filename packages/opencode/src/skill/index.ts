@@ -7,6 +7,7 @@ import { withStatics } from "@/util/schema"
 import { NamedError } from "@opencode-ai/core/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
+import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@opencode-ai/core/global"
@@ -185,9 +186,10 @@ const discoverSkills = Effect.fnUntraced(function* (
   }
 
   // Unified skill directory at octoConfig/skill/ (all skills including built-in)
+  // Only scan SKILL.md at depth 1 (skill-name/SKILL.md) to avoid picking up dist/ or nested copies
   const octoSkillDir = path.join(global.octoConfig, "skill")
   if (yield* fsys.isDir(octoSkillDir)) {
-    yield* scan(state, octoSkillDir, SKILL_PATTERN)
+    yield* scan(state, octoSkillDir, "*/SKILL.md")
   }
 
   const cfg = yield* config.get()
@@ -347,5 +349,12 @@ export function fmt(list: Info[], opts: { verbose: boolean }) {
       .map((skill) => `- **${skill.name}**: ${skill.description}`),
   ].join("\n")
 }
+
+export const SkillUsed = BusEvent.define(
+  "skill.used",
+  Schema.Struct({
+    skillName: Schema.String,
+  }),
+)
 
 export * as Skill from "."

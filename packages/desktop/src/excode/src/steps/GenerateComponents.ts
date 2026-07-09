@@ -169,7 +169,6 @@ export class GenerateComponents extends Step {
 
         // 6g. 组装模块文件
         const hasCompVars = compVarDecls.trim().length > 0;
-        // componentVars 的 const 声明放在组件函数体顶部、return 之前
         const compVarBody = hasCompVars
           ? `  // 数据转换（编译期生成）\n${compVarDecls.split('\n').map((l: string) => `  ${l}`).join('\n')}\n\n`
           : '';
@@ -202,8 +201,6 @@ export class GenerateComponents extends Step {
       }
 
       // ── 阶段7：生成页面主文件 ──
-      // 注意：如果根树也产出了 componentData（页面级），生成单独 const（暂存于最末模块）
-      // 这里简化处理：页面级 componentVars 一般不存在，如果存在，将其挂到第一个模块
       if (Object.keys(rootComponentVars).length > 0 && componentFiles.length > 0) {
         console.warn(`  [warn] 页面级 componentData 未分配到模块，请检查 mapping 设计`);
       }
@@ -224,7 +221,6 @@ export class GenerateComponents extends Step {
 
       const hookDecls = StateStrategy.generateHookDecls(pageStateRefs);
 
-      // 模块 import
       const moduleImports = componentFiles
         .map((f: { fileName: string; content: string }) => {
           const name = f.fileName.replace('.jsx', '');
@@ -273,28 +269,10 @@ export class GenerateComponents extends Step {
     console.log(`  ℹ  已生成 ${ctx.generatedPages.length} 个页面的组件代码`);
   }
 
-  /**
-   * 从 CodeGenNode 树中提取 stateData 和 componentData
-   *
-   * - stateData 合并到 mergedState（去重 / 覆盖）
-   * - componentData 累积到 componentVars 对象
-   *
-   * 支持递归进入：
-   *   - children 数组
-   *   - __type: 'loop' 的 template.body / template
-   *   - __type: 'renderFn' 的 body
-   *   - wrapper
-   *   - props.__slotNode
-   *
-   * @param node - CodeGenNode 或子树
-   * @param mergedState - 累加的 state
-   * @param componentVars - 累加的 componentVars
-   */
   _collectDataFromNode(node: any, mergedState: Record<string, any>, componentVars: Record<string, any>): void {
     if (!node || typeof node !== 'object') return;
 
     if (node.stateData && typeof node.stateData === 'object') {
-      // 支持 __deleteFields：从 mergedState 中删除指定字段（支持嵌套路径）
       if (node.stateData.__deleteFields && Array.isArray(node.stateData.__deleteFields)) {
         for (const fieldPath of node.stateData.__deleteFields) {
           const segments = fieldPath.split('.');
@@ -305,10 +283,8 @@ export class GenerateComponents extends Step {
             if (parent) delete parent[segments[segments.length - 1]];
           }
         }
-        // 删除标记本身，不进入 mergedState
         delete node.stateData.__deleteFields;
       }
-      // 普通字段覆盖
       for (const [key, value] of Object.entries(node.stateData)) {
         mergedState[key] = value;
       }
@@ -319,7 +295,6 @@ export class GenerateComponents extends Step {
       }
     }
 
-    // __type: 'loop' — 递归 template
     if (node.__type === 'loop') {
       if (node.template) {
         this._collectDataFromNode(node.template, mergedState, componentVars);
@@ -330,7 +305,6 @@ export class GenerateComponents extends Step {
       return;
     }
 
-    // __type: 'renderFn' — 递归 body
     if (node.__type === 'renderFn') {
       if (node.body) {
         this._collectDataFromNode(node.body, mergedState, componentVars);
@@ -357,15 +331,6 @@ export class GenerateComponents extends Step {
     }
   }
 
-  /**
-   * 从 componentVars 中递归收集组件 import
-   *
-   * 支持：
-   *   - __type: 'renderFn' 的 body 字段
-   *   - __type: 'loop' 的 template.body 字段
-   *   - 旧的 __type: 'jsxExpr'（向后兼容）
-   *   - 嵌套对象/数组
-   */
   _collectImportFromJsxVars(vars: any, imports: Map<string, any>, transformFn: any): void {
     if (!vars || typeof vars !== 'object') return;
     for (const value of Object.values(vars)) {
@@ -376,7 +341,6 @@ export class GenerateComponents extends Step {
   _collectImportFromValue(value: any, imports: Map<string, any>, transformFn: any): void {
     if (!value || typeof value !== 'object') return;
 
-    // renderFn → 取 body 收集
     if (value.__type === 'renderFn') {
       if (value.body) {
         ImportCollector.collect(value.body, imports, transformFn);
@@ -384,7 +348,6 @@ export class GenerateComponents extends Step {
       return;
     }
 
-    // loop → 取 template.body 收集
     if (value.__type === 'loop') {
       if (value.template && value.template.body) {
         ImportCollector.collect(value.template.body, imports, transformFn);
@@ -392,7 +355,6 @@ export class GenerateComponents extends Step {
       return;
     }
 
-    // 旧的 jsxExpr（向后兼容）
     if (value.__type === 'jsxExpr') {
       if (value.body) {
         ImportCollector.collect(value.body, imports, transformFn);
@@ -417,19 +379,19 @@ export class GenerateComponents extends Step {
    *
    * 核心逻辑：
    *   1. Slot 根截断（cutSlotRoots=true 时有效）
-   *   2. 已是 CodeGenNode（component/html）→ 递归 children + 处理 _isLoop → loop
+   *   2. 已是 CodeGenNode（component/html）→ 递归 children
    *   3. 未解析节点 → 调用 registry.transform（注入 rawState + resolveNode）
+   *      transform 返回后，处理三种 children 形式：
+   *        - Array：逐个递归
+   *        - Object（带 _isLoop）：包装为 __type:'loop' 节点
+   *        - Object（普通）：递归解析
    *   4. 字符串节点 → 透传
    *
    * _isLoop → __type: 'loop' 转换说明：
-   *   - 循环数据源来自 _loopBinding（或 _loopPath）
-   *   - 循环模板来自 _loopTemplate（已递归解析的 CodeGenNode）
-   *   - 产出 { __type: 'loop', data, template: { __type: 'renderFn', params, body } }
-   *
-   * @param node
-   * @param registry
-   * @param cutSlotRoots - 遇到 _isSlotRoot 时截断为模块组件引用
-   * @param rawState - 注入到 transform 用于 state 访问
+   *   - _isLoop/_loopBinding 标记在 children 模板节点自身（由 TreeBuilder 挂载）
+   *   - 循环数据源来自 _loopBinding
+   *   - 循环模板 = children（已解析的 CodeGenNode）
+   *   - 产出 { __type: 'loop', data, template: { body } }
    */
   _deepResolve(node: any, registry: any, cutSlotRoots: boolean = false, rawState: any = null, iconNameMap: Record<string, string> = {}): any {
     if (!node) return null;
@@ -446,38 +408,20 @@ export class GenerateComponents extends Step {
       };
     }
 
-    // ── 2. 已是 CodeGenNode → 递归 children + slot props + 处理 _isLoop ──
+    // ── 2. 已是 CodeGenNode → 递归 children + slot props ──
     if (node.__nodeType === 'component' || node.__nodeType === 'html') {
       const resolved = { ...node };
 
       // 递归 children
-      if (resolved.children && Array.isArray(resolved.children)) {
-        resolved.children = resolved.children
-          .map((child: any) => this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap))
-          .filter(Boolean);
-      }
-
-      // ★ 处理 _isLoop：转换为 __type: 'loop'
-      if (resolved._isLoop && resolved._loopTemplate) {
-        const resolvedTemplate = this._deepResolve(resolved._loopTemplate, registry, cutSlotRoots, rawState, iconNameMap);
-        const loopNode = {
-          __type: 'loop',
-          extract: false,    // 默认内联
-          data: resolved._loopBinding || { path: resolved._loopPath, __binding: true },
-          template: {
-            __type: 'renderFn',
-            params: '(item, idx)',
-            body: resolvedTemplate,
-          },
-        };
-        // loop 替换 children
-        resolved.children = [loopNode];
-        // 清除 _isLoop 标记
-        delete resolved._isLoop;
-        delete resolved._loopPath;
-        delete resolved._loopComponentId;
-        delete resolved._loopTemplate;
-        delete resolved._loopBinding;
+      if (resolved.children && typeof resolved.children === 'object') {
+        if (Array.isArray(resolved.children)) {
+          resolved.children = resolved.children
+            .map((child: any) => this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap))
+            .filter(Boolean);
+        } else {
+          // 单项 object children（如 transform 已处理的 loop body，或普通单项节点）
+          resolved.children = this._deepResolve(resolved.children, registry, cutSlotRoots, rawState, iconNameMap);
+        }
       }
 
       // 递归 props 中的 __slotNode
@@ -509,7 +453,6 @@ export class GenerateComponents extends Step {
 
       const unifiedNode = node.__nodeType ? node : { ...node, __nodeType: 'unresolved' };
 
-      // ★★★ 注入 resolveNode：将 _deepResolve 自身作为递归解析器 ★★★
       const self = this;
       const codeGen = registry.transform(unifiedNode.component, unifiedNode, {
         rawState,
@@ -527,22 +470,49 @@ export class GenerateComponents extends Step {
         codeGen.id = unifiedNode.id;
       }
 
-      // 递归处理 transform 返回的 children：
-      // 只递归 __nodeType: 'unresolved'（或 component 字段）的 child，
-      // 已 resolve 的 child（component/html/loop/renderFn）直接透传，
-      // transform 已全权负责其输出结构。
-      if (codeGen.children && Array.isArray(codeGen.children)) {
-        codeGen.children = codeGen.children
-          .map((child: any) => {
-            if (typeof child === 'string') return child;
-            // 未解析 → 递归（含 _isLoop，由 Step 2 处理）
-            if (child.__nodeType === 'unresolved' || child.component) {
-              return this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap);
+      // ★ 处理 transform 返回的 children（三种形式）：
+      //   1. Array → 逐个递归/透传
+      //   2. Object + _isLoop + (有 __nodeType 表示已 resolve / 无表示未解析) → 包装为 loop
+      //   3. Object + 非循环 → 递归
+      if (codeGen.children && typeof codeGen.children === 'object') {
+        if (Array.isArray(codeGen.children)) {
+          codeGen.children = codeGen.children
+            .map((child: any) => {
+              if (typeof child === 'string') return child;
+              if (child.__nodeType === 'unresolved' || child.component) {
+                return this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap);
+              }
+              return child;
+            })
+            .filter(Boolean);
+        } else {
+          // Object children：检测 _isLoop 标记（标记在 children 模板节点自身）
+          const child = codeGen.children;
+          if (child._isLoop && child._loopBinding) {
+            // 循环模板节点 → 包装为 __type: 'loop'
+            let body: any;
+            if (child.__nodeType) {
+              // 已 resolve（transform 内调用了 resolveNode）
+              body = child;
+            } else {
+              // 未 resolve → 深度递归后作为 body
+              body = this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap);
             }
-            // 已 resolve → 透传
-            return child;
-          })
-          .filter(Boolean);
+            codeGen.children = [{
+              __type: 'loop',
+              extract: false,
+              data: child._loopBinding,
+              template: {
+                __type: 'renderFn',
+                params: '(item, idx)',
+                body,
+              },
+            }];
+          } else {
+            // 普通 object children → 递归
+            codeGen.children = this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap);
+          }
+        }
       }
 
       return codeGen;

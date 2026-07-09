@@ -21,7 +21,7 @@
  * resolvedPages[]    ← 步骤 02: 构建树 + 绑定解析结果
  * styleResults[]     ← 步骤 02: 样式转换结果
  * iconNameMap        ← 步骤 03: ResolveIcons 收集的 icon 名称映射表
- *                      A2UI icon name → @hui/icon-plus 组件名
+ *                      A2UI icon name → @nce/icon-plus 组件名
  *                      如 { menu: 'IconPlusIcIctMenu', home: 'IconPlusIcIctHome' }
  * generatedPages[]   ← 步骤 05: 代码生成结果
  * routeResult        ← 步骤 06: 路由文件
@@ -39,7 +39,7 @@ export class PipelineContext {
   resolvedPages: any[];
   styleResults: any[];
   /**
-   * icon 名称映射表（A2UI name → @hui/icon-plus 组件名）
+   * icon 名称映射表（A2UI name → @nce/icon-plus 组件名）
    * 由 ResolveIcons 步骤填充，供 Icon.ts 等 mapping transform 查询
    */
   iconNameMap: Record<string, string>;

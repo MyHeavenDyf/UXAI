@@ -1,7 +1,7 @@
 import { DataProvider } from "@opencode-ai/ui/context"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
-import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, on, type ParentProps, Show } from "solid-js"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
@@ -23,9 +23,25 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string; preserveP
     }
   })
 
-  createResource(
-    () => params.id,
-    (id) => sync.session.sync(id),
+  // 参照 Insight 的守卫模式：child store 在 Tab 切换期间持久化，
+  // 如果消息已存在且最后一条 assistant 消息已完成（parts 已完整），
+  // 则跳过 sync，避免用后端快照覆盖 SSE 实时数据。
+  // 但如果最后一条 assistant 消息未完成（可能 parts 丢失），则强制 sync 补齐。
+  createEffect(
+    on(
+      () => {
+        const id = params.id ?? ""
+        const messages = sync.data.message[id]
+        if (!messages) return [id, true] as const
+        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+        const incomplete = !!lastAssistant && typeof lastAssistant.time.completed !== "number"
+        return [id, incomplete] as const
+      },
+      ([id, needsSync]) => {
+        if (!id || !needsSync) return
+        void sync.session.sync(id)
+      },
+    ),
   )
 
   return (

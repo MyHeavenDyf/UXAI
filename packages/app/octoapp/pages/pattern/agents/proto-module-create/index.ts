@@ -44,6 +44,22 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     intentDescription,
     onSessionCreated 
   } = input
+  // 如果该模块已应用 pattern，跳过 LLM，直接使用 pattern JSON
+  const sectionDetailList = intentDescription?.sectionDetailList ?? []
+  const sectionDetail = sectionDetailList.find((item: any) => item?.id === sectionId)
+  if (sectionDetail?.patternJson) {
+    // intentDescription 来自 SolidJS store，patternJson 是 Proxy，需深拷贝为纯对象
+    const patternJson = JSON.parse(JSON.stringify(sectionDetail.patternJson))
+    const remapped = remapPatternRootId(patternJson, elementId)
+    console.log(`----- 模块 ${sectionId} 使用 Pattern 模板，跳过 LLM -----`)
+    return {
+      ui_json: remapped,
+      section_id: sectionId,
+      element_id: elementId,
+      id_prefix: idPrefix
+    }
+  }
+
   // 组装输入提示词
   const humanMessage = buildHumanMessage(idPrefix, sectionId, elementId, layoutPlanner, intentDescription)
   console.log("----- 模块渲染Agent开始执行 ----- ");
@@ -75,6 +91,19 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
   }
   logAgentParsed(moduleResult.childSessionId, returnValue)
   return returnValue
+}
+
+// pattern 模板的 rootId 与 planner slot 的 elementId 可能不一致，需要重映射
+function remapPatternRootId(pattern: any, elementId: string): any {
+  const oldRootId = pattern.rootId
+  if (!oldRootId || oldRootId === elementId) return pattern
+  return {
+    ...pattern,
+    rootId: elementId,
+    elements: pattern.elements.map((el: any) =>
+      el.id === oldRootId ? { ...el, id: elementId } : el
+    ),
+  }
 }
 
 // 组装模块生成的输入文本

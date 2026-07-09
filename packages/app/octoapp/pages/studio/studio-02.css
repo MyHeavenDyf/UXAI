@@ -24,6 +24,7 @@
 
 .studio-composer-send {
   position: relative;
+  z-index: 1;
   width: 32px;
   min-width: 32px;
   height: 32px;
@@ -126,22 +127,25 @@
 }
 
 .studio-canvas-download-action {
-  width: 36px;
   height: 36px;
-  display: grid;
-  place-items: center;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 18px;
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
-  transition: transform 140ms ease, background-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
 .studio-canvas-download-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   transform: translateY(0);
   box-shadow: none;
   filter: none;
@@ -166,7 +170,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -185,8 +189,7 @@
 }
 
 .studio-canvas-regenerate-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   transform: translateY(0);
   box-shadow: none;
   filter: none;
@@ -211,7 +214,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -221,17 +224,16 @@
 
 .studio-canvas-video-action::before {
   content: "";
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   background-color: currentColor;
   mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
   -webkit-mask: url("/studio/imgCreate2.svg") center / contain no-repeat;
 }
 
 .studio-canvas-video-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   border-radius: 4px;
 }
 
@@ -250,7 +252,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #666;
+  color: #191919;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -258,15 +260,14 @@
 }
 
 .studio-canvas-icon-action:hover {
-  background: rgba(25, 25, 25, 0.06);
-  color: #191919;
+  color: #0a59f7;
   border-radius: 4px;
 }
 
 .studio-canvas-icon-action-icon {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   background: currentColor;
 }
 
@@ -300,6 +301,16 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px);
   border-radius: 12px;
+}
+
+/* Dropdown anchor — positioned absolutely above the toolbar, outside
+   .studio-composer-toolbar-items so overflow:hidden doesn't clip it.
+   left is set dynamically via JS based on button measurement.
+   height:0 so inner .studio-menu's bottom:calc(100%+8px) = 8px above toolbar. */
+.studio-composer-dropdown-anchor {
+  position: absolute;
+  bottom: 100%;
+  height: 0;
 }
 
 .studio-image-settings-menu {
@@ -712,7 +723,6 @@
 }
 
 .studio-assistant-editor-link:hover {
-  background: #dbe9ff;
   transform: translateY(-1px);
 }
 
@@ -773,7 +783,18 @@
   visibility: hidden;
 }
 
+/* ── Dialog（设置等弹窗，需高于浮层侧边栏 z-index:101） ────────── */
+[data-component="dialog-overlay"],
+[data-component="dialog"] {
+  z-index: 150;
+}
+
 /* ── DropdownMenu（右键菜单，与 chat 页面一致） ────────── */
+
+/* 确保下拉菜单渲染在浮层侧边栏（z-index:101）之上 */
+[data-popper-positioner] {
+  z-index: 99999 !important;
+}
 
 [data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
   background-color: #fff;
@@ -782,6 +803,8 @@
   border: none;
   padding: 8px;
   min-width: 132px !important;
+  position: relative;
+  z-index: 1000;
 }
 
 [data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {

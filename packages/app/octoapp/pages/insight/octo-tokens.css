@@ -75,6 +75,12 @@
   color: rgb(10, 89, 247);
 }
 
+/* hr 间距收紧：上游 markdown.css 的 40px 是 2.5rem 原值换算(opencode #20839 只统一了单位，数值未变)，
+   在对话气泡里作为分隔符偏大；收紧到 24px，与本文件标题/表格同级间距对齐。不动上游核心，这里按作用域覆盖。 */
+[data-component="session-turn"] [data-component="markdown"] hr {
+  margin: 24px 0;
+}
+
 [data-component="session-turn"] [data-slot="message-part-reasoning"],
 [data-component="session-turn"] [data-component="accordion"],
 [data-component="session-turn"] [data-slot="session-turn-diffs-header"],
