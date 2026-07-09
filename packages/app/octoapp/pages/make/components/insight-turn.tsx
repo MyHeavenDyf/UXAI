@@ -196,7 +196,7 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
       }
     }
     for (const ev of parser.feed(text)) handleEvent(ev)
-    for (const ev of parser.flush()) handleEvent(ev)
+    // 不调用 flush() — 未闭合的 artifact 不应该被输出，避免中断时生成混乱卡片
   } catch {
     // ignore parse errors
   }
