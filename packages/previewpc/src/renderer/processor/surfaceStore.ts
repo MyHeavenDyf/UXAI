@@ -7,11 +7,38 @@ export class SurfaceStore {
     private subscribers: Map<string, Set<() => void>> = new Map();
 
     createSurface(id: string, json: JsonInput) {
+        this.setImportantClassName(json)
         this.setSurfSurface(id, json)
     }
 
     updateSurface(id: string, json: JsonInput) {
+        this.setImportantClassName(json)
         this.setSurfSurface(id, json)
+    }
+
+    addImportantToClasses(classNameStr: string) {
+        if (!classNameStr) return ''
+        return classNameStr
+        .trim()
+        .split(/\s+/)
+        .map((cls: string) => {
+            if (cls.includes(':')) {
+            const lastColonIndex = cls.lastIndexOf(':')
+            return cls.substring(0, lastColonIndex + 1) + '!' + cls.substring(lastColonIndex + 1)
+            }
+            return '!' + cls
+        })
+        .join(' ')
+    }
+    private setImportantClassName(json: JsonInput) {
+        if (Array.isArray(json?.elements)) {
+            json.elements.forEach((item) => {
+                const className = item.props?.className
+                if (item.props && className) {
+                    item.props.className = this.addImportantToClasses(className)
+                }
+            })
+        }
     }
 
     private setSurfSurface(id: string, json: JsonInput) {
