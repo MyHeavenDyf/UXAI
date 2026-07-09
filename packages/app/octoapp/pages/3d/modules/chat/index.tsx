@@ -35,6 +35,8 @@ function RoundCard(props: {
   startTime: number
   endTime?: number
   onOpenPreview: () => void
+  /** 该轮 assistant 用的模型 ID,显示在用时上方 */
+  modelID?: string
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
   const generating = () => isLatest() && props.pipelineBusy
@@ -48,7 +50,7 @@ function RoundCard(props: {
         onOpenPreview={props.onOpenPreview}
       />
       <Show when={done() || generating()}>
-        <TurnDuration startTime={isLatest() && props.genStartTime > 0 ? props.genStartTime : props.startTime} endTime={props.endTime} active={generating()} />
+        <TurnDuration startTime={isLatest() && props.genStartTime > 0 ? props.genStartTime : props.startTime} endTime={props.endTime} active={generating()} modelID={props.modelID} />
       </Show>
     </>
   )
@@ -90,7 +92,7 @@ export function ChatPanel(props: {
   /** 当前生成开始时间(用于最新轮次的计时器,避免 sync 延迟导致叠加) */
   genStartTime: number
   /** 按轮分组的消息 */
-  roundMessages: { startTime: number; endTime?: number; items: { sessionID: string; messageID: string }[] }[]
+  roundMessages: { startTime: number; endTime?: number; modelID?: string; items: { sessionID: string; messageID: string }[] }[]
   /** 是否有可预览内容 */
   hasPreview: boolean
   /** 点击预览回调 */
@@ -148,7 +150,7 @@ export function ChatPanel(props: {
 
   return (
     <div
-      class="flex flex-col overflow-hidden"
+      class="flex flex-col overflow-hidden min-h-0"
       style={{
         background: props.isDragOver ? "var(--octo-brand-a3)" : "#fff",
         outline: props.isDragOver ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
@@ -277,6 +279,7 @@ export function ChatPanel(props: {
                           hasPreview={props.hasPreview}
                           startTime={round().startTime}
                           endTime={round().endTime}
+                          modelID={round().modelID}
                           onOpenPreview={props.onOpenPreview}
                         />
                       </>

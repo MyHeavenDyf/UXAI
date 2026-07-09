@@ -65,6 +65,7 @@ const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
 const ThreeDPage = lazy(() => import("@/pages/3d"))
+const ThreeDLivePage = lazy(() => import("@/pages/3d-live"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
 const loadSession = () => import("@/pages/session")
@@ -719,6 +720,7 @@ export function AppInterface(props: {
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/3d/:id?" component={ThreeDPage} />
+                  <Route path="/3d-live" component={ThreeDLivePage} />
                   <Route path="/skills" component={SkillsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={ChatIndexRoute} />

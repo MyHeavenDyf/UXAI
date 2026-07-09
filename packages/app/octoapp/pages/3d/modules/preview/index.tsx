@@ -4,7 +4,6 @@
  *   直接传 doc(SceneDocument),SceneCanvas 响应式重建,无需 sendToPreview postMessage。
  */
 import { For, Show, createSignal, type JSX } from "solid-js"
-import { SceneCanvas, type SceneCanvasAPI } from "./SceneCanvas"
 import type { SceneDocument } from "../../utils/scene-protocol"
 import type { VersionEntry } from "../../utils/persist"
 
@@ -24,12 +23,14 @@ export function PreviewPage(props: {
   onSelectVersion?: (id: string) => void
   /** 点选物体回调(对应 pattern 的 onModifyElement/onPickerSubmit,3D 简化为单回调) */
   onPickObject?: (id: string | null) => void
+  /** live-data.json 版本号,变化时 iframe 重新加载(右侧用 iframe 嵌 preview3d) */
+  liveVersion: number
 }): JSX.Element {
   let containerRef: HTMLDivElement | undefined
-  let canvasApi: SceneCanvasAPI | undefined
+  let iframeRef: HTMLIFrameElement | undefined
   const [versionOpen, setVersionOpen] = createSignal(false)
 
-  if (props.api) props.api.refresh = () => canvasApi?.refresh()
+  if (props.api) props.api.refresh = () => iframeRef?.contentWindow?.location.reload()
 
   const btnResetHover = (e: MouseEvent) => (e.currentTarget as HTMLElement).style.background = "transparent"
   const btn = (label: string, onClick: () => void, icon?: JSX.Element): JSX.Element => (
@@ -71,14 +72,9 @@ export function PreviewPage(props: {
       >
         {/* 左侧:刷新 + 重置视角 + 分隔线 + 历史版本 */}
         <div style={{ display: "flex", "align-items": "center", gap: "2px" }}>
-          {iconBtn("刷新", () => canvasApi?.refresh(),
+          {iconBtn("刷新", () => iframeRef?.contentWindow?.location.reload(),
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="14" height="14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-            </svg>
-          )}
-          {iconBtn("重置视角", () => canvasApi?.resetView(),
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="14" height="14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
             </svg>
           )}
         </div>
@@ -139,7 +135,11 @@ export function PreviewPage(props: {
       </div>
 
       <div class="flex-1 min-h-0">
-        <SceneCanvas doc={props.doc} onPickObject={props.onPickObject} ref={(api) => { canvasApi = api }} />
+        <iframe
+          ref={iframeRef}
+          src={`http://127.0.0.1:51857/?data=live-data.json&t=${props.liveVersion}`}
+          style={{ width: "100%", height: "100%", border: "0" }}
+        />
       </div>
     </div>
   )

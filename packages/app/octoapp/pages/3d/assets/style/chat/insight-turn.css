@@ -138,7 +138,7 @@
 .turn-duration {
   text-align: right;
   margin-right: 24px;
-  margin-top: 4px;
+  margin-top: 8px;
   color: var(--octo-text-tertiary, #999);
   font-size: 12px;
   line-height: 18px;

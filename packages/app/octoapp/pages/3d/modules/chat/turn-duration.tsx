@@ -4,6 +4,8 @@ export function TurnDuration(props: {
   startTime: number
   endTime?: number
   active: boolean
+  /** 模型 ID,有值时显示成 "glm-5.1（用时12s）" 格式 */
+  modelID?: string
 }): JSX.Element {
   const [duration, setDuration] = createSignal("")
 
@@ -30,7 +32,7 @@ export function TurnDuration(props: {
 
   return (
     <Show when={duration()}>
-      <div class="turn-duration">{duration()}</div>
+      <div class="turn-duration">{props.modelID ? `${props.modelID}（${duration()}）` : duration()}</div>
     </Show>
   )
 }

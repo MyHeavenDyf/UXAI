@@ -115,6 +115,8 @@ function ThreeDContent() {
           setSending(false)
           setPhase("idle")
           setPrompt("")
+          // 清零上次生成开始时间,否则切到历史会话时最新轮会误用旧 genStartTime,算出负数被兜底成 00s
+          setGenStartTime(0)
         }
         setChildSessionIDs([])
         discoverVersion++
@@ -195,7 +197,7 @@ function ThreeDContent() {
     if (childIDs.length === 0 && rootUserMsgs.length === 0) return []
 
     type Item = { sessionID: string; messageID: string; time: number }
-    type Round = { startTime: number; endTime?: number; items: Item[] }
+    type Round = { startTime: number; endTime?: number; modelID?: string; items: Item[] }
 
     const roundStarts: number[] = []
     const firstRootTime = rootUserMsgs.length > 0 ? (rootUserMsgs[0].time?.created ?? Infinity) : Infinity
@@ -212,10 +214,13 @@ function ThreeDContent() {
       const items: Item[] = []
       let startTime = roundStart === 0 ? Infinity : roundStart
       let endTime: number | undefined
+      let modelID: string | undefined
       const trackTime = (m: Message) => {
         const t = m.time as { created: number; completed?: number }
         if (t.created < startTime) startTime = t.created
         if (typeof t.completed === "number" && (!endTime || t.completed > endTime)) endTime = t.completed
+        // 记录该轮 assistant 用的模型 ID(显示在用时上方)
+        if (m.role === "assistant" && (m as any).modelID) modelID = (m as any).modelID
       }
       for (const m of rootUserMsgs) {
         const t = m.time?.created ?? 0
@@ -236,7 +241,7 @@ function ThreeDContent() {
       if (startTime === Infinity) startTime = items.length > 0 ? items[0].time : Date.now()
       // 非当前轮次(已中止/无 endTime)用下一轮开始时间作为 endTime,防止计时器无限增长
       if (!endTime && ri < roundStarts.length - 1) endTime = roundEnd !== Infinity ? roundEnd : undefined
-      return { startTime, endTime, items }
+      return { startTime, endTime, modelID, items }
     })
   })
 
@@ -283,6 +288,8 @@ function ThreeDContent() {
   const [lastIntent, setLastIntent] = createSignal<Record<string, unknown> | null>(null)
   const [lastPlanner, setLastPlanner] = createSignal<Record<string, unknown> | null>(null)
   const [sceneDoc, setSceneDoc] = createSignal<SceneDocument | null>(null)
+  // 每次写完 live-data.json 自增,驱动右侧 iframe 刷新(src 防缓存)
+  const [liveVersion, setLiveVersion] = createSignal(0)
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [isModifying, setIsModifying] = createSignal(false)
@@ -550,19 +557,31 @@ function ThreeDContent() {
     return { ...doc, objects }
   }
 
-  // 实时预览:把当前场景写成 live-data.json,新开独立窗口(preview-server 51857 托管)渲染
+  /** 把场景写成 preview3d 目录下的 live-data.json(供右侧 iframe / /3d-live 消费)。返回是否成功 */
+  async function writeLiveData(doc: SceneDocument): Promise<boolean> {
+    const data = enrichModelUrls(doc)
+    const api = (window as any).api
+    const dir = await api?.getPreviewDist3dDir?.()
+    if (!dir || !api?.writeFileBuffer) return false
+    const buffer = new TextEncoder().encode(JSON.stringify(data)).buffer
+    await api.writeFileBuffer(`${dir}/live-data.json`, buffer)
+    return true
+  }
+
+  // 实时预览:写 live-data.json,新开 /3d-live 窗口(用 SceneCanvas 渲染)
   async function handleLivePreview() {
     const raw = sceneDoc()
     if (!raw) return showToast({ title: "暂无可预览的内容" })
-    const data = enrichModelUrls(raw)
-    console.log("[3D] live-data.json:", JSON.stringify(data, null, 2))
-    const api = (window as any).api
-    const dir = await api?.getPreviewDist3dDir?.()
-    if (!dir || !api?.writeFileBuffer) return showToast({ title: "当前环境不支持实时预览" })
-    const buffer = new TextEncoder().encode(JSON.stringify(data)).buffer
-    await api.writeFileBuffer(`${dir}/live-data.json`, buffer)
-    window.open("http://127.0.0.1:51857/?fetch=live-data.json")
+    const ok = await writeLiveData(raw)
+    if (!ok) return showToast({ title: "当前环境不支持实时预览" })
+    window.open("/3d-live")
   }
+
+  // sceneDoc 变化 → 写 live-data.json + 触发右侧 iframe 刷新(iframe src 带 liveVersion 防缓存)
+  createEffect(on(() => sceneDoc(), (doc) => {
+    if (!doc) return
+    void writeLiveData(doc).then((ok) => { if (ok) setLiveVersion((v) => v + 1) })
+  }))
 
   // 生成完成后确保预览展示
   let wasBusy = false
@@ -675,6 +694,7 @@ function ThreeDContent() {
               <PreviewPage
                 api={previewApi}
                 doc={sceneDoc()}
+                liveVersion={liveVersion()}
                 onPickObject={handlePickObject}
                 onDownload={handleDownload}
                 onLivePreview={handleLivePreview}
