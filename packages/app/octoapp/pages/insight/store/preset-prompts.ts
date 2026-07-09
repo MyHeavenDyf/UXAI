@@ -14,8 +14,7 @@ export type PresetPrompt = {
   expectedTool: string        // 触发的 MCP tool 名(不含 server 前缀;SPEC-INS-017 §2)
   categories: string[]        // 外网将按 category 过滤;本期 octo 不读但 schema 要预留
   description?: string        // 可选 tooltip
-  /** 选中该功能时输入框的 placeholder(设计稿:按工具提示要上传什么材料)。
-   *  当前为占位文案,正式文案待设计师给出(登记于 design-assets-needed.md)。 */
+  /** 选中该功能时输入框的 placeholder(按工具提示要上传什么材料;设计师定稿文案 2026-07-08) */
   placeholder: string
   /** 多角色工具:除逐字稿外还需一个大纲/任务书文件。分桶归**模型**(拿不准时向用户确认,
    *  SPEC-INS-017 2026-07-06 修订),此字段用于模板措辞与声明的 outline_required 校验。 */
@@ -29,7 +28,7 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
     expectedTool: "key_findings",
     categories: ["interview"],
     text: "观点解析(key findings)：基于上传的逐字稿，解析用户观点。",
-    placeholder: "请上传需要解析的逐字稿，支持 .docx、.txt、.md 格式",
+    placeholder: "请上传逐字稿（.docx、.txt、.md），解析用户观点并溯源原声。",
   },
   {
     id: "run_guide_analysis",
@@ -37,7 +36,7 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
     expectedTool: "run_guide_analysis",
     categories: ["interview"],
     text: "按提纲聚类(run guide analysis)：基于上传的访谈大纲和逐字稿，聚类用户观点。",
-    placeholder: "请上传访谈大纲和逐字稿，支持 .docx、.txt、.md 格式",
+    placeholder: "请上传访谈大纲（.xlsx、.docx）和逐字稿（.docx、.txt、.md），按大纲聚类用户观点。",
     outlineRole: "访谈大纲",
   },
   {
@@ -46,7 +45,7 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
     expectedTool: "mindmap",
     categories: ["interview"],
     text: "思维导图(mindmap)：基于上传的逐字稿，生成思维导图。",
-    placeholder: "请上传需要生成思维导图的逐字稿，支持 .docx、.txt、.md 格式",
+    placeholder: "请上传逐字稿（.docx、.txt、.md），整理用户观点并生成思维导图。",
   },
   {
     id: "run_usability_analysis",
@@ -54,7 +53,7 @@ export const PRESET_PROMPTS: PresetPrompt[] = [
     expectedTool: "run_usability_analysis",
     categories: ["usability"],
     text: "可用性问题分析(run usability analysis)：基于上传的任务书和逐字稿，分析整理可用性问题。",
-    placeholder: "请上传任务书和逐字稿，支持 .docx、.txt、.md 格式",
+    placeholder: "请上传任务书和逐字稿（.docx、.txt、.md），分析整理体验问题。",
     outlineRole: "任务书",
   },
 ]
