@@ -10,7 +10,6 @@ import type { JSX } from "solid-js"
 import { Popover as Kobalte } from "@kobalte/core/popover"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Button } from "@opencode-ai/ui/button"
 import { useParams } from "@solidjs/router"
 import { useSDK } from "@/context/sdk"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -162,17 +161,24 @@ function FileManagerInner(props: { sessionId: string; onOpenFile: (file: Insight
             </div>
           </Match>
           <Match when={!hasAnyFiles()}>
-            {/* 空态插画 / 文案对齐 Design(empty.png 空箱子 + designFiles.emptyHint);
-                按钮用设计系统标准 <Button variant="primary">(走 --button-primary-base 等 token,
-                不硬编码色值/尺寸——SPEC 要求"用 token,token 不支持就不硬套") */}
+            {/* 空态插画 / 文案对齐 Design(empty.png 空箱子 + designFiles.emptyHint)。
+                按钮:设计稿为蓝底白字。设计系统 <Button variant="primary"> 的 --button-primary-base
+                在 insight 主题下解析成黑底(与设计稿不符),故这里直接用 insight 主蓝 #0a59F7
+                (= FileFallback 已上线的主按钮色),尺寸/圆角内网可再按设计稿微调。 */}
             <div class="flex flex-col items-center justify-center h-full text-center px-8">
               <img src={emptyPng} width={150} height={150} alt="" draggable={false} />
               <span class="text-[14px] leading-[22px]" style={{ color: "#666", "margin-bottom": "20px" }}>
                 暂无内容，点击上传新增文件吧
               </span>
-              <Button variant="primary" size="large" icon="upload" onClick={() => fileInputRef?.click()}>
-                上传文件
-              </Button>
+              <button
+                type="button"
+                onClick={() => fileInputRef?.click()}
+                class="flex items-center justify-center gap-2 text-white transition-opacity hover:opacity-90"
+                style={{ background: "#0a59F7", "border-radius": "8px", height: "40px", padding: "0 24px", "font-size": "14px", "font-weight": "500" }}
+              >
+                <Icon name="upload" class="size-4" />
+                <span>上传文件</span>
+              </button>
             </div>
           </Match>
           <Match when={hasAnyFiles()}>
