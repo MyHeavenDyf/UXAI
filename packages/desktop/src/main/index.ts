@@ -6,7 +6,7 @@ import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
-import type { Event } from "electron"
+import type { DownloadItem, Event, WebContents } from "electron"
 import { app, BrowserWindow, dialog, session } from "electron"
 import pkg from "electron-updater"
 import {shellPath} from "shell-path"
@@ -113,6 +113,24 @@ logger.log("app starting", {
 
 setupApp()
 
+// 监听 defaultSession 的 will-download:仅观察(不 setSavePath / 不 cancel),
+// 让 Electron 走默认保存对话框;下载 done 后把保存路径经 IPC 推给触发它的渲染进程。
+// 渲染层可凭 payload.url 自行判断是否为「SDK 触发」的下载。
+function setupDownloadInterceptor() {
+  session.defaultSession.on("will-download", (_event: Event, item: DownloadItem, webContents: WebContents) => {
+    const url = item.getURL()
+    const filename = item.getFilename()
+    logger.log("download started", { url, filename })
+
+    item.once("done", (_e: Event, state: "completed" | "cancelled" | "interrupted") => {
+      const path = state === "completed" ? item.getSavePath() : null
+      logger.log("download done", { url, filename, state, path })
+      if (webContents.isDestroyed()) return
+      webContents.send("download-save-path", { url, filename, path, state })
+    })
+  })
+}
+
 function setupApp() {
   ensureLoopbackNoProxy()
   useEnvProxy()
@@ -159,6 +177,7 @@ function setupApp() {
     await session.defaultSession.setProxy({
       mode: "direct"
     });
+    setupDownloadInterceptor()
     if (!TEST_ONBOARDING) {
       migrateAppId()
       migrate()
@@ -303,6 +322,8 @@ async function initialize() {
 
   mainWindow = createMainWindow()
   wireMenu()
+  // jk-j60099994-replace-with-index-3-start
+  // jk-j60099994-replace-with-index-3-end
 
   overlay?.close()
 }

@@ -398,5 +398,9 @@ export function applyDirectoryEvent(input: {
       input.invalidateMcp?.()
       break
     }
+    case "skill.used": {
+      // skill 使用事件由前端 hook 消费（打点上报等）
+      break
+    }
   }
 }

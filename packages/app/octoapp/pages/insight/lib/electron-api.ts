@@ -22,6 +22,13 @@ export type DesktopApi = {
   /** 用系统默认浏览器打开外链(shell.openExternal);避免在 Electron webview 内导航后无法返回 */
   openLink?: (url: string) => void
   writeClipboardText?: (text: string) => Promise<void>
+  /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
+  onDownloadSavePath?: (cb: (info: {
+    url: string
+    filename: string
+    path: string | null
+    state: "completed" | "cancelled" | "interrupted"
+  }) => void) => () => void
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
