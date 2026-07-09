@@ -62,7 +62,7 @@ export type StudioGenerationResult = {
   aspectRatio: StudioAspectRatio
   width?: number
   height?: number
-  isCustomSize?: boolean
+  isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
   duration?: "5" | "10"
   videoQualityMode?: "std" | "pro"

@@ -370,7 +370,7 @@ function buildResult(input: {
   const size = recordField(inputRecord, "target_size")
   const width = size ? numberField(size, "width") : numberField(inputRecord, "width")
   const height = size ? numberField(size, "height") : numberField(inputRecord, "height")
-  const isCustomSize = Boolean(inputRecord?.isCustomSize) || Boolean(width && height)
+  const isCustom = Boolean(inputRecord?.isCustom) || Boolean(width && height)
   const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const prompt = stringField(inputRecord, "effectivePrompt") ??
     stringField(inputRecord, "refinedPrompt") ??
@@ -414,7 +414,7 @@ function buildResult(input: {
           aspectRatio,
           width,
           height,
-          isCustomSize: isCustomSize || undefined,
+          isCustom: isCustom || undefined,
           videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
           duration: stringField(output, "duration") as StudioGenerationResult["duration"],
           videoQualityMode: stringField(output, "videoQualityMode") as StudioGenerationResult["videoQualityMode"],

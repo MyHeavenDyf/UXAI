@@ -192,7 +192,7 @@ export default function StudioPage() {
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
   const [customWidth, setCustomWidth] = createSignal(0)
   const [customHeight, setCustomHeight] = createSignal(0)
-  const [isCustomSizeStore, setIsCustomSizeStore] = createSignal(false)
+  const [isCustomStore, setIsCustomStore] = createSignal(false)
   const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
@@ -2018,7 +2018,7 @@ export default function StudioPage() {
       if (draft.count) setCount(draft.count)
       if (draft.width) setCustomWidth(draft.width)
       if (draft.height) setCustomHeight(draft.height)
-      setIsCustomSizeStore(Boolean(draft.width && draft.height))
+      setIsCustomStore(Boolean(draft.width && draft.height))
     })
     tracker.interaction({
       module: "studio",
@@ -2093,7 +2093,7 @@ export default function StudioPage() {
             ? input.aspectRatio ?? aspectRatio()
             : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
-        isCustomSize: Boolean(input.width && input.height),
+        isCustom: Boolean(input.width && input.height),
         ...(input.width && input.height ? { target_size: { width: input.width, height: input.height } } : {}),
         imageTool: imageTool(),
         referenceImages: input.referenceImages ?? [],
@@ -2199,7 +2199,7 @@ export default function StudioPage() {
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
-    const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomSizeStore() && nextWidth > 0 && nextHeight > 0
+    const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
@@ -2279,7 +2279,7 @@ export default function StudioPage() {
       aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
       width: nextIsCustom ? nextWidth : undefined,
       height: nextIsCustom ? nextHeight : undefined,
-      isCustomSize: nextIsCustom || undefined,
+      isCustom: nextIsCustom || undefined,
       images: [],
       progress: 0,
       createdAt: Date.now(),
@@ -2932,7 +2932,7 @@ export default function StudioPage() {
                   count={count()}
                   customWidth={customWidth()}
                   customHeight={customHeight()}
-                  isCustomSize={isCustomSizeStore()}
+                  isCustom={isCustomStore()}
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
@@ -2949,7 +2949,7 @@ export default function StudioPage() {
                   onCount={setCount}
                   onCustomWidth={setCustomWidth}
                   onCustomHeight={setCustomHeight}
-                  onIsCustomSize={setIsCustomSizeStore}
+                  onIsCustom={setIsCustomStore}
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onOpenMenu={setOpenMenu}
@@ -3106,7 +3106,7 @@ if (!headerTitle.pendingRename) return
             count={count()}
             customWidth={customWidth()}
             customHeight={customHeight()}
-            isCustomSize={isCustomSizeStore()}
+            isCustom={isCustomStore()}
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
@@ -3123,7 +3123,7 @@ if (!headerTitle.pendingRename) return
             onCount={setCount}
             onCustomWidth={setCustomWidth}
             onCustomHeight={setCustomHeight}
-            onIsCustomSize={setIsCustomSizeStore}
+            onIsCustom={setIsCustomStore}
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}

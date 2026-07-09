@@ -32,7 +32,7 @@ export function StudioComposer(props: {
   count: 1 | 2 | 3 | 4
   customWidth: number
   customHeight: number
-  isCustomSize: boolean
+  isCustom: boolean
   assets: StudioAsset[]
   videoFrames: { first?: StudioAsset; last?: StudioAsset }
   videoDuration: StudioVideoDuration
@@ -49,7 +49,7 @@ export function StudioComposer(props: {
   onCount: (value: 1 | 2 | 3 | 4) => void
   onCustomWidth: (value: number) => void
   onCustomHeight: (value: number) => void
-  onIsCustomSize: (value: boolean) => void
+  onIsCustom: (value: boolean) => void
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
@@ -335,12 +335,12 @@ export function StudioComposer(props: {
                 styleModel={props.styleModel}
                 customWidth={props.customWidth}
                 customHeight={props.customHeight}
-                isCustomSize={props.isCustomSize}
+                isCustom={props.isCustom}
                 onAspectRatio={props.onAspectRatio}
                 onCount={props.onCount}
                 onCustomWidth={props.onCustomWidth}
                 onCustomHeight={props.onCustomHeight}
-                onIsCustomSize={props.onIsCustomSize}
+                onIsCustom={props.onIsCustom}
               />
             </div>
           </Show>
@@ -577,15 +577,15 @@ function ImageSettings(props: {
   styleModel: string
   customWidth: number
   customHeight: number
-  isCustomSize: boolean
+  isCustom: boolean
   onAspectRatio: (value: StudioAspectRatio) => void
   onCount: (value: 1 | 2 | 3 | 4) => void
   onCustomWidth: (value: number) => void
   onCustomHeight: (value: number) => void
-  onIsCustomSize: (value: boolean) => void
+  onIsCustom: (value: boolean) => void
 }): JSX.Element {
-  const isCustom = () => props.isCustomSize
-  const setIsCustom = (v: boolean) => props.onIsCustomSize(v)
+  const isCustom = () => props.isCustom
+  const setIsCustom = (v: boolean) => props.onIsCustom(v)
   const defaultDims = () => getDefaultDimensions(props.styleModel, props.aspectRatio)
   const [width, setWidth] = createSignal(isCustom() ? props.customWidth : defaultDims().width)
   const [height, setHeight] = createSignal(isCustom() ? props.customHeight : defaultDims().height)
@@ -602,13 +602,13 @@ function ImageSettings(props: {
       const dims = getDefaultDimensions(props.styleModel, r)
       if (dims.width === w && dims.height === h) {
         setIsCustom(false)
-        props.onIsCustomSize(false)
+        props.onIsCustom(false)
         if (r !== props.aspectRatio) props.onAspectRatio(r)
         return
       }
     }
     setIsCustom(true)
-    props.onIsCustomSize(true)
+    props.onIsCustom(true)
   }
 
   const isJimeng = () => getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen"
@@ -685,7 +685,7 @@ function ImageSettings(props: {
 
   function selectRatio(r: StudioAspectRatio) {
     setIsCustom(false)
-    props.onIsCustomSize(false)
+    props.onIsCustom(false)
     props.onAspectRatio(r)
     props.onCustomWidth(0)
     props.onCustomHeight(0)
@@ -695,7 +695,7 @@ function ImageSettings(props: {
     setIsCustom(true)
     setWidth(props.customWidth || 0)
     setHeight(props.customHeight || 0)
-    props.onIsCustomSize(true)
+    props.onIsCustom(true)
   }
   return (
     <div class="studio-menu studio-image-settings-menu">
