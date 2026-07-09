@@ -759,12 +759,27 @@
 }
 
 .studio-result-progress-header {
-  display: grid;
-  grid-template-columns: max-content max-content minmax(0, 1fr) max-content max-content;
+  display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
   overflow: hidden;
+}
+
+.studio-result-progress-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.studio-result-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .studio-result-progress-title {
@@ -829,4 +844,3 @@
   background: rgba(0, 0, 0, 0.1);
   border: none;
 }
-

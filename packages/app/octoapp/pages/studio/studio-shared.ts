@@ -11,6 +11,7 @@ export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
 ])
 export const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 130_000
 export const STUDIO_GENERATION_CANCEL_TIMEOUT_MS = 20_000
+export const STUDIO_GENERATION_REBOOT_TIMEOUT_MS = 30_000
 export const STUDIO_GENERATION_STATUS_INTERVAL_MS = 7_500
 
 export function isStudioGenerationStatusRegression(

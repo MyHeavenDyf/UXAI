@@ -219,6 +219,7 @@ function studioProgress(part?: Extract<Part, { type: "tool" }>) {
         ? status
         : "running",
     rawStatus: studio?.rawStatus as number | string | undefined,
+    taskId: stringField(studio, "taskId"),
     progress: numberField(studio, "progress") ?? 0,
     order: numberField(studio, "order"),
   } as const
@@ -459,6 +460,7 @@ function buildResult(input: {
               prompt,
               displayPrompt,
               provider: resolveProvider(errored.tool),
+              taskId: failure.taskId,
               model,
               aspectRatio,
               images: [],

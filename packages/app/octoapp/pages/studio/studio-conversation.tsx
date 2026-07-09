@@ -13,9 +13,12 @@ export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
   busy: boolean
+  actionBusy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
+  rebootingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
   onEditGeneration: (result: StudioGenerationResult) => void
+  onRebootGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
 }): JSX.Element {
@@ -48,9 +51,12 @@ export function StudioConversation(props: {
                 turn={turn}
                 fallbackCapability={props.result?.capability}
                 busy={props.busy && turn.isLatest}
+                actionBusy={props.actionBusy}
                 cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
+                rebooting={Boolean(turn.result && props.rebootingGenerationIDs.has(turn.result.id))}
                 onCancelGeneration={props.onCancelGeneration}
                 onEditGeneration={props.onEditGeneration}
+                onRebootGeneration={props.onRebootGeneration}
                 onSelectImage={props.onSelectImage}
               />
             </Show>
