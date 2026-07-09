@@ -21,8 +21,8 @@ interface CodeGenNode {
   // 导入模式（可选，默认 'default'）
   // 'default' → import Tag from 'source'
   // 'named'   → import { Tag } from 'source'
-  // 典型场景：@hui/icon-plus 使用命名导出
-  // 示例: import { IconPlusIcIctHome } from '@hui/icon-plus'
+  // 典型场景：@nce/icon-plus 使用命名导出
+  // 示例: import { IconPlusIcIctHome } from '@nce/icon-plus'
 
   // ── 节点类型（显式标识）──
   __nodeType: 'component' | 'html'
@@ -33,9 +33,10 @@ interface CodeGenNode {
   props:    Record<string, PropValue>  // 处理后的 props
   children: Array<CodeGenNode | string | LoopNode> // 子节点数组（含 loop 表达式）
 
-  // ── 包裹层（可选）──
-  wrapper?: WrapperDecl  // 渲染时在当前节点外层套一层 wrapper
-  // 示例: <CarouselItem wrapper_tag><Carousel>...</Carousel></CarouselItem>
+  // ── 包裹层（可选） ──
+  wrapper?: CodeGenNode  // 包裹在当前节点外层的 CodeGenNode
+                         // 渲染时在当前节点外层套一层 wrapper
+  // 示例: <div className="btn-wrap"><Button>提交</Button></div>
 
   // ── 编译期数据转换（transform 产出 stateData/componentData） ──
   stateData?: Record<string, any>     // 纯数据，合并到页面的 initialState
@@ -53,47 +54,6 @@ interface CodeGenNode {
   _loopTemplate?: object      // 循环模板节点（CodeGenNode 树）
 }
 ```
-
-### 1.1 WrapperDecl — 包裹层声明
-
-```typescript
-interface WrapperDecl {
-  tag: string                          // 包裹组件名，如 'CarouselItem', 'div'
-  import?: {                           // import 信息（可选，HTML 无 import）
-    source: string                     // 导入路径，如 '@nce/eview-react/Carousel'
-    specifier: string                  // 导出名
-                                       // 'default' → 默认导出
-                                       // 其他字符串 → 命名导出
-  }
-  props?: Record<string, PropValue>    // 包裹层自身的 props（可选）
-}
-```
-
-**import 合并规则**：
-```
-wrapper.import.source === tag 所在文件的 import.source
-  → 合并到同一个 import 语句
-  → import Carousel, { CarouselItem } from '@nce/eview-react/Carousel'
-
-wrapper.import.source !== tag 所在文件的 import.source
-  → 生成单独的 import 语句
-  → import { PanelWrapper } from 'other-lib/panels'
-```
-
-**渲染逻辑**：
-```
-使用 wrapper                 不使用 wrapper
-─────────────────            ─────────────────
-<wrapper.tag ...>            <tag ...>
-  <tag ...>children...</tag>   children...
-</wrapper.tag>
-```
-
-**典型场景**：
-| 场景 | wrapper 位置 | 说明 |
-|------|-------------|------|
-| Carousel 子节点 | 每个 child 上加 `wrapper: { tag: 'CarouselItem', import: { source: '@nce/.../Carousel', specifier: 'CarouselItem' } }` | 子节点渲染时自动被 CarouselItem 包裹 |
-| 自身包裹 | 节点自身加 `wrapper: { tag: 'div' }` | 组件外再套一层 div |
 
 ### 1.2 使用 `__nodeType` 替代隐式推断
 
@@ -148,7 +108,7 @@ interface UnresolvedNode {
   //   5. 递归处理 transform 返回的 children（仅 unresolved 走映射）
 
   // ── 可选：transform 可在 child 上设 wrapper（走映射前）──
-  wrapper?: WrapperDecl
+  wrapper?: CodeGenNode
 }
 ```
 
@@ -172,8 +132,9 @@ interface CodeGenNode {
   // 'component' → 组件节点
   // 'html'      → HTML DOM 节点
 
-  // ── 包裹层 ──
-  wrapper?: WrapperDecl  // 渲染时在当前节点外层套一层 wrapper
+  // ── 包裹层（可选） ──
+  wrapper?: CodeGenNode  // 包裹在当前节点外层的 CodeGenNode
+                         // 渲染时在当前节点外层套一层 wrapper
 
   // ── 编译期数据转换结果（transform 产出）──
   stateData?: Record<string, any>     // 纯数据 → 合并到 initialState
@@ -587,13 +548,14 @@ selfClosing?: boolean   // 是否强制自闭合
 ### 5.3 `wrapper` — 包裹层
 
 ```typescript
-wrapper?: WrapperDecl   // 渲染时在当前节点外层套一层
+wrapper?: CodeGenNode   // 包裹在当前节点外层的 CodeGenNode
+                        // 渲染时在当前节点外层套一层 wrapper
 ```
 
 **wrapper 与 import 的协同**：
+wrapper 是 CodeGenNode，其 import 递归走 ImportCollector 统一收集，不需要特殊处理。
+当 wrapper 的 import 与节点自身 import 同源时，ImportCollector 自动合并：
 ```
-wrapper 的 import 与节点自身 import 相同源 → 合并 import 语句
-示例：
   节点:   import Carousel from '@nce/eview-react/Carousel'
   wrapper: import { CarouselItem } from '@nce/eview-react/Carousel'
   合并:  import Carousel, { CarouselItem } from '@nce/eview-react/Carousel'
@@ -623,19 +585,19 @@ importMode?: 'default' | 'named'   // 导入模式，默认 'default'
 
 | importMode | 生成的 import 语句 |
 |-----------|-------------------|
-| `'default'`（默认） | `import IconPlusIcIctHome from '@hui/icon-plus'` |
-| `'named'` | `import { IconPlusIcIctHome } from '@hui/icon-plus'` |
+| `'default'`（默认） | `import IconPlusIcIctHome from '@nce/icon-plus'` |
+| `'named'` | `import { IconPlusIcIctHome } from '@nce/icon-plus'` |
 
-**典型场景**：@hui/icon-plus 组件库使用命名导出，每个 icon 是一个独立的命名导出。`resolveIcon()` 返回的 CodeGenNode 自动设置 `importMode: 'named'`。
+**典型场景**：@nce/icon-plus 组件库使用命名导出，每个 icon 是一个独立的命名导出。`resolveIcon()` 返回的 CodeGenNode 自动设置 `importMode: 'named'`。
 
 **合并规则**：当多个同源组件使用 `importMode: 'named'` 时，ImportCollector 合并为同一条 import 语句：
 ```ts
 // 多个 icon 组件
-{ tag: 'IconPlusIcIctHome', import: '@hui/icon-plus', importMode: 'named' }
-{ tag: 'IconPlusIcIctMenu', import: '@hui/icon-plus', importMode: 'named' }
+{ tag: 'IconPlusIcIctHome', import: '@nce/icon-plus', importMode: 'named' }
+{ tag: 'IconPlusIcIctMenu', import: '@nce/icon-plus', importMode: 'named' }
 
 // 合并结果
-import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@hui/icon-plus'
+import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@nce/icon-plus'
 ```
 
 ### 5.6 `stateData` / `componentData` — 编译期数据转换
@@ -676,7 +638,7 @@ A2UI 原始节点                              CodeGenNode（最终消费）
   props: { value, color },                  import: '@nce/eview-react/Tag',
   children: [...],                           props: { iconName, color },
                                              children: ['标签文本'],
-  // A2UI 属性                                wrapper?: { tag, import, props },
+  // A2UI 属性                                wrapper?: CodeGenNode,
 }                                           _inlineVarProps: ['columns'],
                                             stateData?: { ... },
                                             componentData?: { ... },

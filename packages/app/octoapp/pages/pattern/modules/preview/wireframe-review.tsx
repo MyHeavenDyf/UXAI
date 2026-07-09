@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal, createEffect, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { Button } from "@opencode-ai/ui/button"
 import { WireframeTree, type SlotInfo, type SectionSimple } from "./wireframe-tree"
+import type { PatternMatchItem } from "../../utils/pattern-resource"
 import "../../assets/style/preview/wireframe.css"
 
 type SectionDetail = {
@@ -12,6 +12,7 @@ type SectionDetail = {
   elements: string
   layout: string
   data?: Record<string, unknown>
+  patternJson?: any
 }
 
 export type WireframeReviewResult = {
@@ -24,6 +25,8 @@ export function WireframeReview(props: {
   intentDescription: Record<string, unknown>
   userInput: string
   onConfirm: (result: WireframeReviewResult) => void
+  onMatchPattern?: (sectionId: string, detail: SectionDetail) => Promise<PatternMatchItem[]>
+  onApplyPattern?: (sectionId: string, match: PatternMatchItem) => Promise<any>
 }): JSX.Element {
   const slots = createMemo(() => (props.planner.slots ?? []) as SlotInfo[])
   const sections = createMemo(() => (props.intentDescription.sections ?? []) as SectionSimple[])
@@ -35,6 +38,11 @@ export function WireframeReview(props: {
   const [editing, setEditing] = createStore<{ details: SectionDetail[] }>({
     details: JSON.parse(JSON.stringify(sectionDetails())),
   })
+
+  const [blockMatches, setBlockMatches] = createSignal<Record<string, PatternMatchItem[]>>({})
+  const [isMatching, setIsMatching] = createSignal(false)
+  const [appliedPatterns, setAppliedPatterns] = createSignal<Record<string, string>>({})
+  const [previewModalUrl, setPreviewModalUrl] = createSignal<string | null>(null)
 
   const moduleCardRefs = new Map<string, HTMLDivElement>()
 
@@ -74,6 +82,27 @@ export function WireframeReview(props: {
     const idx = editing.details.findIndex((d) => d.id === sectionId)
     if (idx === -1) return
     setEditing("details", idx, field, value)
+  }
+
+  async function handleBlockMatch() {
+    const sid = selectedSectionId()
+    const detail = editing.details.find(d => d.id === sid)
+    if (!sid || !detail || !props.onMatchPattern) return
+    setIsMatching(true)
+    const matches = await props.onMatchPattern(sid, detail)
+    setBlockMatches(prev => ({ ...prev, [sid]: matches }))
+    setIsMatching(false)
+  }
+
+  async function handleApplyPattern(match: PatternMatchItem) {
+    const sid = selectedSectionId()
+    if (!sid || !props.onApplyPattern) return
+    const patternJson = await props.onApplyPattern(sid, match)
+    if (patternJson) {
+      const idx = editing.details.findIndex(d => d.id === sid)
+      if (idx !== -1) setEditing("details", idx, "patternJson", patternJson)
+    }
+    setAppliedPatterns(prev => ({ ...prev, [sid]: match.pattern.name }))
   }
 
   function handleConfirm() {
@@ -166,9 +195,65 @@ export function WireframeReview(props: {
                 )
               }}
             </For>
+            <Show when={selectedSectionId()}>
+              <div class="wireframe-match-section">
+                <div class="wireframe-match-header">
+                  <span class="wireframe-match-title">模板匹配</span>
+                  <button
+                    class="wireframe-match-btn"
+                    disabled={isMatching()}
+                    onClick={handleBlockMatch}
+                  >
+                    {isMatching() ? "匹配中..." : "匹配"}
+                  </button>
+                </div>
+                <Show when={blockMatches()[selectedSectionId()!]} fallback={<div class="wireframe-match-placeholder">点击"匹配"查找匹配的模块模板</div>}>
+                  <Show
+                    when={blockMatches()[selectedSectionId()!]!.length > 0}
+                    fallback={<div class="wireframe-match-empty">未匹配到</div>}
+                  >
+                    <div class="wireframe-match-list">
+                      <For each={blockMatches()[selectedSectionId()!]!}>
+                        {(match) => {
+                          const isApplied = () => appliedPatterns()[selectedSectionId()!] === match.pattern.name
+                          return (
+                            <div class="wireframe-match-item">
+                              <div class="wireframe-match-item-left">
+                                <Show when={match.previewUrl}>
+                                  <img
+                                    class="wireframe-match-item-preview"
+                                    src={match.previewUrl!}
+                                    alt={match.pattern.name}
+                                    onClick={() => setPreviewModalUrl(match.previewUrl!)}
+                                  />
+                                </Show>
+                                <span class="wireframe-match-item-name">{match.pattern.name}</span>
+                              </div>
+                              <button
+                                class="wireframe-match-item-use-btn"
+                                disabled={isApplied()}
+                                onClick={() => handleApplyPattern(match)}
+                              >
+                                {isApplied() ? "已应用" : "应用"}
+                              </button>
+                            </div>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+                </Show>
+              </div>
+            </Show>
           </div>
         </div>
       </div>
+
+      <Show when={previewModalUrl()}>
+        <div class="wireframe-preview-modal" onClick={() => setPreviewModalUrl(null)}>
+          <img class="wireframe-preview-modal-img" src={previewModalUrl()!} alt="preview" />
+        </div>
+      </Show>
     </div>
   )
 }

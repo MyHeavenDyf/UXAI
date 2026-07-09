@@ -48,6 +48,16 @@ function isSdkGiveUpSignal(msg: string): boolean {
   return /Maximum reconnection attempts.*exceeded/.test(msg)
 }
 
+/**
+ * 是否为 AbortError（Node Web Streams 内部清理 / SDK transport-level abort）。
+ * 这种错误 ambiguous：可能是 SDK 正常的 stream 清理（client 还活着），
+ * 也可能是 transport 实际已死（client 不能用）。需要 ping 验证才能区分。
+ */
+function isAbortError(msg: string): boolean {
+  const lower = msg.toLowerCase()
+  return lower.includes("aborted") || lower.includes("aborterror")
+}
+
 function backoffMs(attempt: number): number {
   return Math.min(INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1), MAX_BACKOFF_MS)
 }
@@ -120,7 +130,10 @@ export function verifyAndReconnectIfNeeded(
 ) {
   return Effect.gen(function* () {
     const s = yield* ctx.state.get()
-    const remoteNames = Object.keys(s.clients).filter((n) => remoteConfigs.has(n))
+    // 关键：检查范围是所有有 remote 配置的 server，不限于 s.clients 里现有的。
+    // 这样 5 次重连全失败（clients/defs 已删、status=failed）的 server 也能在
+    // 下次对话触发 tools() 时被重新拉起。disabled 的 server 由 intentionalDisconnects 拦住。
+    const remoteNames = Array.from(remoteConfigs.keys())
 
     if (remoteNames.length === 0) return
 
@@ -144,7 +157,27 @@ export function verifyAndReconnectIfNeeded(
           }
 
           const client = s.clients[name]
-          if (!client) return
+          const currentStatus = s.status[name]?.status
+
+          // 方案 B 核心：failed 或 missing client（5 次重连全失败 / 首次 create 失败）
+          // 无 client 可 ping，直接触发重连，让 reconnectWithBackoff 再走一轮 5 次。
+          if (!client || currentStatus === "failed") {
+            log.warn("[reconnect] preflight found dead client - triggering reconnect directly", {
+              name,
+              currentStatus: currentStatus ?? "missing",
+              hasClient: !!client,
+            })
+            triggerReconnect(
+              s,
+              name,
+              client,
+              bridge,
+              ctx,
+              "tools-preflight",
+              `client dead (status: ${currentStatus ?? "missing"}, hasClient: ${!!client})`,
+            )
+            return
+          }
 
           // 用 Promise 内部 catch 把失败转成 boolean，避免 Effect 错误通道类型复杂化
           let pingOk = false
@@ -241,6 +274,88 @@ export function triggerReconnectFromToolFailure(
   )
 }
 
+/**
+ * 方案 B（abort 兜底）：onerror 收到 AbortError 后异步 ping 验证 client 是否真死。
+ *
+ * 设计原因：Node Web Streams 内部 stream 清理时会触发 AbortController.abort()，
+ * 这种 abort 是 SDK 正常行为（client 还活着）；但 transport 实际死亡时也会抛
+ * AbortError（client 不能用）。两者单从 error message 区分不开，必须 ping 一次。
+ *
+ * 流程：
+ *   ping OK  → SDK 正常清理，忽略
+ *   ping 失败 → client 已死，triggerReconnect(source="onerror-aborted")
+ *
+ * 幂等保障：triggerReconnect 内部有 triggeredReconnectFlags + stale 检查，
+ * 即便 ping 期间 client 已被替换或别的路径已触发重连，也不会重复。
+ */
+function verifyClientAfterAbortedError(
+  name: string,
+  client: Client,
+  bridge: EffectBridge.Shape,
+  ctx: ReconnectContext,
+  originalError: string,
+) {
+  return Effect.gen(function* () {
+    log.info("[reconnect] aborted error - pinging to verify", {
+      name,
+      originalError,
+    })
+
+    let pingOk = false
+    let pingErr: unknown
+    yield* Effect.tryPromise({
+      try: () =>
+        withClientTimeout(client.ping(), PREFLIGHT_PING_TIMEOUT_MS).then(
+          () => {
+            pingOk = true
+          },
+          (e) => {
+            pingErr = e
+          },
+        ),
+      catch: (e) => {
+        pingErr = e
+        return e instanceof Error ? e : new Error(String(e))
+      },
+    })
+
+    if (pingOk) {
+      log.info("[reconnect] aborted error - ping ok, treating as SDK internal cleanup", {
+        name,
+        originalError,
+      })
+      return
+    }
+
+    const s = yield* ctx.state.get()
+    const pingMsg = pingErr instanceof Error ? pingErr.message : String(pingErr)
+    log.warn("[reconnect] aborted error - ping failed, triggering reconnect", {
+      name,
+      originalError,
+      pingError: pingMsg,
+    })
+    triggerReconnect(
+      s,
+      name,
+      client,
+      bridge,
+      ctx,
+      "onerror-aborted",
+      `abort detected + ping failed (orig=${originalError}, ping=${pingMsg})`,
+    )
+  }).pipe(
+    // 兜底：验证流程永远不应让 onerror 失败
+    Effect.catch((e) => {
+      log.warn("[reconnect] aborted verify aborted with error", {
+        name,
+        originalError,
+        error: String(e),
+      })
+      return Effect.void
+    }),
+  )
+}
+
 // === 辅助：Promise 超时包装（不依赖 Effect 的 withTimeout，保持纯 JS） ===
 
 function withClientTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -296,6 +411,7 @@ export interface ReconnectContext {
 export type TriggerSource =
   | "onerror-giveup"
   | "onerror-counter"
+  | "onerror-aborted"
   | "onclose-fallback"
   | "tools-preflight"
   | "tool-execute"
@@ -316,7 +432,7 @@ export type TriggerSource =
 function triggerReconnect(
   s: InternalState,
   name: string,
-  client: Client,
+  client: Client | undefined,
   bridge: EffectBridge.Shape,
   ctx: ReconnectContext,
   source: TriggerSource,
@@ -343,6 +459,8 @@ function triggerReconnect(
   }
 
   // stale client 检查：state 中的 client 已经被替换（storeClient / connect 等场景）
+  // 注意：方案 B 的 failed 分支会传 client=undefined，此时若 s.clients[name] 也为 undefined，
+  // undefined === undefined 不算 stale；若 state 中已有别的 client，说明被别的路径接管，跳过。
   const currentClient = s.clients[name]
   if (currentClient !== client) {
     log.info("[reconnect] trigger suppressed - stale handler", {
@@ -369,9 +487,9 @@ function triggerReconnect(
   })
 
   // 异步清理旧 client（不依赖其 onclose 触发）
-  // 用 .catch 兜底，避免 close 抛错影响重连流程
+  // 用 ?. + .catch 双兜底，避免 close 抛错影响重连流程；client 可能是 undefined（failed 分支）
   try {
-    client.close().catch((e) => {
+    client?.close().catch((e) => {
       log.debug("[reconnect] old client close error (safe to ignore)", {
         name,
         error: String(e),
@@ -408,6 +526,10 @@ export function setupConnectionHandlers(
   // 装新 handler 前清理该 server 的模块级状态（避免标志残留导致新 client 永远不触发重连）
   terminalErrorCounts.delete(name)
   triggeredReconnectFlags.delete(name)
+  // 防御性清理：connect 成功（storeClient → setupConnectionHandlers）后，
+  // 清掉可能残留的 intentionalDisconnects 标志。disconnect 时设的标志在 connect 后应该失效。
+  // 历史背景：closeClient 曾误设此标志导致重连被永久拦下，已修复（移到 disconnect 显式调）。
+  intentionalDisconnects.delete(name)
   handlerInstalledAt.set(name, installedAt)
 
   log.info("[reconnect] connection handlers installed", {
@@ -472,6 +594,21 @@ export function setupConnectionHandlers(
           `terminal errors reached threshold (${newCount}/${MAX_ERRORS_BEFORE_RECONNECT}): ${msg}`,
         )
       }
+      return
+    }
+
+    // 优先级 3：AbortError — 异步 ping 验证 client 是否真死（方案 B）
+    // Node Web Streams 内部清理会触发 abort（client 还活着），transport 死也会抛 abort，
+    // 单从 msg 区分不开，ping 一次区分。fire-and-forget，不阻塞 onerror。
+    if (isAbortError(msg)) {
+      bridge
+        .promise(verifyClientAfterAbortedError(name, client, bridge, ctx, msg))
+        .catch((e) => {
+          log.error("[reconnect] aborted verify promise rejected", {
+            name,
+            error: String(e),
+          })
+        })
       return
     }
 
@@ -626,6 +763,11 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
         status: "failed",
         error: `Reconnect failed after ${MAX_RECONNECT_ATTEMPTS} attempts: ${lastError ?? "unknown"}`,
       }
+      // 关键：清掉已触发标志，否则下次 tools() 的 preflight 会因为标志残留而跳过，
+      // server 进入"永久死"状态，只能靠用户手动 disconnect→connect 恢复。
+      // 清掉后，下次用户发消息触发 tools() 时，preflight 会发现 status=failed + 无 client，
+      // 重新触发一轮 5 次重连。
+      triggeredReconnectFlags.delete(name)
       log.error("[reconnect] failed - max attempts reached", {
         name,
         totalDurationMs: Date.now() - reconnectStartAt,

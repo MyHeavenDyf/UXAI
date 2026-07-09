@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from "electron"
-import type { ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
+import { contextBridge, ipcRenderer, webUtils } from "electron"
+import type { DownloadSavePathInfo, ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
 
 const api: ElectronAPI = {
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
@@ -46,6 +46,11 @@ const api: ElectronAPI = {
     ipcRenderer.on("deep-link", handler)
     return () => ipcRenderer.removeListener("deep-link", handler)
   },
+  onDownloadSavePath: (cb) => {
+    const handler = (_: unknown, info: DownloadSavePathInfo) => cb(info)
+    ipcRenderer.on("download-save-path", handler)
+    return () => ipcRenderer.removeListener("download-save-path", handler)
+  },
 
   openDirectoryPicker: (opts) => ipcRenderer.invoke("open-directory-picker", opts),
   openFilePicker: (opts) => ipcRenderer.invoke("open-file-picker", opts),
@@ -56,6 +61,12 @@ const api: ElectronAPI = {
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
   downloadResourceToTemp: (url, namespace, filename, baseDir) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir),
+  // SPEC-INS-014:把源文件拷贝进 <baseDir>/insight/sources/(主进程 fs.copyFile);返回落地路径。
+  copyFileToWorktree: (srcPath, baseDir, filename) =>
+    ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
+  // Electron 32+ 已移除 File.path —— 用 webUtils.getPathForFile 拿拖拽/选取文件的真实本地路径。
+  // 这是 Electron 官方推荐的 preload 暴露法(File 对象在此同步解析)。
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   readClipboardImage: () => ipcRenderer.invoke("read-clipboard-image"),
   showNotification: (title, body) => ipcRenderer.send("show-notification", title, body),
   getWindowFocused: () => ipcRenderer.invoke("get-window-focused"),
@@ -74,6 +85,7 @@ const api: ElectronAPI = {
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
+  getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
@@ -93,6 +105,7 @@ const api: ElectronAPI = {
   getPatternIndex: (category, theme) => ipcRenderer.invoke("get-pattern-index", category, theme),
   getPatternFile: (category, filename, theme) => ipcRenderer.invoke("get-pattern-file", category, filename, theme),
   getPatternPreview: (category, filename, theme) => ipcRenderer.invoke("get-pattern-preview", category, filename, theme),
+  getPatternAssets: (category, folderName, theme) => ipcRenderer.invoke("get-pattern-assets", category, folderName, theme),
   getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
   downloadHuiCode: (jsonData) => ipcRenderer.invoke("download-hui-code", jsonData),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),

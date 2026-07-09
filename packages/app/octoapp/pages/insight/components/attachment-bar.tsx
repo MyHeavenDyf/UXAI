@@ -10,9 +10,15 @@ export type Attachment = {
   mime: string
   size: number
   status: AttachmentStatus
-  url?: string // status=done 时有
+  // 非图片(SPEC-INS-015 ②④)：status=done 且成功导入 worktree 时,本地 insight/sources 绝对路径
+  // (进 [附件] 清单,插件按需上传 S3)。降级(无 projectDir/非桌面)→ done 但无 path,不进清单。
+  path?: string
+  // 图片(③)：status=done 时的 S3 url(发送时产出 vision FilePart{url})。
+  url?: string
+  // 图片(③)：本地 objectURL,选/粘当下即渲染缩略图,不等上传(URL.createObjectURL)。
+  previewUrl?: string
   error?: string // status=error 时有
-  // 是否可重传：仅"通过校验、真正发起过上传"的失败 chip 可重传(filesById 里有原 File)。
+  // 是否可重传：仅"通过校验、真正发起过导入/上传"的失败 chip 可重传(filesById 里有原 File)。
   // 客户端校验失败(扩展名/大小/空文件)的 chip 重试同文件必然同错,不提供重试,只能删除重选。
   retriable?: boolean
 }
@@ -21,17 +27,18 @@ export type Attachment = {
 const SPIN_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
 
 // 文件类型图标（24×24）— 按 filename/mime 走 fileTypeIconUrl(与结果卡 / FileFallback 同源)。
-// 上传中:图标上叠半透明黑遮罩 + 白色旋转光芒。
-function FileTypeIcon(props: { filename: string; mime: string; uploading?: boolean }): JSX.Element {
+// 图片附件(SPEC-INS-015 ③)：有 previewUrl 时直接渲染缩略图(object-fit cover),替代类型图标。
+// 上传中:图标/缩略图上叠半透明黑遮罩 + 白色旋转光芒。
+function FileTypeIcon(props: { filename: string; mime: string; uploading?: boolean; previewUrl?: string }): JSX.Element {
   return (
     <div style={{ position: "relative", width: "24px", height: "24px", "flex-shrink": "0" }}>
       <img
-        src={fileTypeIconUrl(props.filename, props.mime)}
+        src={props.previewUrl ?? fileTypeIconUrl(props.filename, props.mime)}
         width={24}
         height={24}
         alt=""
         aria-hidden="true"
-        style={{ display: "block" }}
+        style={{ display: "block", width: "24px", height: "24px", "object-fit": props.previewUrl ? "cover" : undefined, "border-radius": props.previewUrl ? "4px" : undefined }}
       />
       <Show when={props.uploading}>
         <div
@@ -102,7 +109,7 @@ function AttachmentChip(props: {
     }}>
       {/* 文件图标区——错误态下移 8px 使其垂直居中于 56px 容器 */}
       <div style={{ position: "absolute", left: "12px", top: isError() ? "16px" : "8px" }}>
-        <FileTypeIcon filename={props.att.filename} mime={props.att.mime} uploading={isUploading()} />
+        <FileTypeIcon filename={props.att.filename} mime={props.att.mime} uploading={isUploading()} previewUrl={props.att.previewUrl} />
       </div>
 
       {/* 文字区 */}

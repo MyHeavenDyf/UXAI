@@ -1,6 +1,6 @@
 {
     "state": {
-        "logoImage": "../pattern/logo-master.svg",
+        "logoImage": "./assets/logo-master.svg",
         "platformName": "IMaster NCE-Campus",
         "selectedMenuKeys": [
             "layout-dashboard"
@@ -24,7 +24,7 @@
             "系统"
         ],
         "userName": "Admin",
-        "avatarImage": "../pattern/icon-circle.svg"
+        "avatarImage": "./assets/icon-circle.svg"
     },
     "rootId": "headerZone",
     "elements": [

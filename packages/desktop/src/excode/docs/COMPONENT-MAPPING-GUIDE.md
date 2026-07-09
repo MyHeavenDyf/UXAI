@@ -184,14 +184,19 @@ function transform(node, context) {
 
 **用途**：部分组件（如 Carousel）要求每个子节点包裹在 `CarouselItem` 中。transform 为 child 节点添加 `wrapper` 标记，代码生成器在渲染阶段自动完成包裹，无需为包裹组件创建单独的映射文件。
 
+`wrapper` 是一个标准的 `CodeGenNode`，格式如下：
+
 ```typescript
-interface WrapperDecl {
+type Wrapper = {
+  __nodeType: 'component'              // 固定为 'component'
   tag: string                          // 包裹组件名，如 'CarouselItem'
-  import?: {
-    source: string                     // 导入路径，如 '@nce/eview-react/Carousel'
-    specifier: string                  // 导出名：'default' 或命名导出名
-  }
+  import?: string                      // 导入路径，如 '@nce/eview-react/Carousel'
+  importMode?: 'default' | 'named'     // 导入模式（可选，默认 'default'）
+                                       // 'default' → import X from '...'
+                                       // 'named'   → import { X } from '...'
   props?: Record<string, any>          // 包裹层自身的 props（可选）
+  children?: any[]                     // 包裹层内部的子节点（可选）
+  selfClosing?: boolean                // 是否自闭合（可选）
 }
 ```
 
@@ -203,12 +208,12 @@ interface WrapperDecl {
   </wrapper.tag>
 ```
 
-**import 合并规则**：wrapper 的 `import.source` 与节点自身 `import` 一致时，合并到同一条 import 语句。
+**import 合并规则**：wrapper 是 CodeGenNode，其 import 递归走 ImportCollector 统一收集，不需要特殊处理。当 wrapper 的 import 与节点自身 import 同源时，ImportCollector 自动合并：
 
 ```ts
-// 节点: import Carousel from '@nce/eview-react/Carousel'
-// wrapper: { import: { source: '@nce/eview-react/Carousel', specifier: 'CarouselItem' } }
-// 合并: import Carousel, { CarouselItem } from '@nce/eview-react/Carousel'
+// 节点:   import Carousel from '@nce/eview-react/Carousel'
+// wrapper: import { CarouselItem } from '@nce/eview-react/Carousel'  (importMode: 'named')
+// 合并:  import Carousel, { CarouselItem } from '@nce/eview-react/Carousel'
 ```
 
 **用于 children 包裹**：transform 中给每个 child 附加 wrapper。
@@ -216,8 +221,8 @@ interface WrapperDecl {
 ```
 transform 返回:
   children = [
-    child1: { ...原始节点..., wrapper: { tag: 'CarouselItem', import: { ... } } },
-    child2: { ...原始节点..., wrapper: { tag: 'CarouselItem', import: { ... } } },
+    child1: { ...原始节点..., wrapper: { __nodeType: 'component', tag: 'CarouselItem', import: '@nce/eview-react/Carousel', importMode: 'named' } },
+    child2: { ...原始节点..., wrapper: { __nodeType: 'component', tag: 'CarouselItem', import: '@nce/eview-react/Carousel', importMode: 'named' } },
   ]
 
 管线递归解析 child1:
@@ -381,11 +386,10 @@ export default {
     const children = (node.children || []).map(child => ({
       ...child,                      // 保持 child 原始结构（unresolved）
       wrapper: {
+        __nodeType: 'component',
         tag: 'CarouselItem',
-        import: {
-          source: '@nce/eview-react/Carousel',  // 同源
-          specifier: 'CarouselItem',            // 命名导出
-        },
+        import: '@nce/eview-react/Carousel',
+        importMode: 'named',         // 命名导出：import { CarouselItem }
       },
     }));
 
@@ -399,10 +403,10 @@ export default {
 Carousel transform 返回:
   children = [
     { __nodeType: 'unresolved', component: 'img', props: { src: 'a.jpg' },
-      wrapper: { tag: 'CarouselItem', import: { source: '@nce/eview-react/Carousel', specifier: 'CarouselItem' } }
+      wrapper: { __nodeType: 'component', tag: 'CarouselItem', import: '@nce/eview-react/Carousel', importMode: 'named' }
     },
     { __nodeType: 'unresolved', component: 'img', props: { src: 'b.jpg' },
-      wrapper: { tag: 'CarouselItem', import: { source: '@nce/eview-react/Carousel', specifier: 'CarouselItem' } }
+      wrapper: { __nodeType: 'component', tag: 'CarouselItem', import: '@nce/eview-react/Carousel', importMode: 'named' }
     },
   ]
                      ↓
@@ -412,7 +416,7 @@ Carousel transform 返回:
     2. img 不在注册表中 → HTML 兜底
     3. 输出 CodeGenNode:
        { __nodeType: 'html', tag: 'img', props: { src: 'a.jpg' },
-         wrapper: { tag: 'CarouselItem', import: { source: '...', specifier: 'CarouselItem' } }
+         wrapper: { __nodeType: 'component', tag: 'CarouselItem', import: '@nce/eview-react/Carousel', importMode: 'named' }
        }
     4. wrapper 保留在 CodeGenNode 上
                      ↓
@@ -641,7 +645,7 @@ export default {
 };
 ```
 
-**注意**：CarouselItem 不需要单独的映射文件，也不需要出现在注册表中。其 import 信息由 Carousel 的 transform 通过 `wrapper.import` 提供。
+**注意**：CarouselItem 不需要单独的映射文件，也不需要出现在注册表中。其 import 信息由 Carousel 的 transform 通过 `wrapper`（CodeGenNode 格式，含 `import` + `importMode`）提供。
 
 ---
 
@@ -715,7 +719,7 @@ children 处理（transform 返回）
 - [ ] `transform` 已提取为独立顶层函数，不在 `export default` 内联
 - [ ] `transform` 仅在需要动态切换目标组件时返回 `tag` 和 `import`（默认使用映射文件顶层声明）
 - [ ] 涉及 `children` 包裹时，使用 `child.wrapper` 方式（不需要额外的映射文件）
-- [ ] `wrapper.import` 正确设置了 `source` 和 `specifier`，同源能与组件自己的 import 合并
+- [ ] `wrapper` 是 CodeGenNode 格式（`__nodeType: 'component'` + `tag` + `import` + `importMode`），未被包裹组件自身的 import 被 ImportCollector 统一收集，同源自动合并
 - [ ] `_inlineVarProps` 标注了需要提取的复杂 prop
 - [ ] 文件头部有组件映射说明的 JSDoc 注释
 - [ ] 已在 `index.ts` 中注册
@@ -755,7 +759,7 @@ children 处理（transform 返回）
 
 ### 9.1 概述
 
-excode 管线通过 **ResolveIcons** 步骤统一收集页面中所有 icon 名称，调用远程 API 获取 @hui/icon-plus 的映射关系，存入 `ctx.iconNameMap`。映射文件在 transform 中通过 `resolveIcon()` 工具函数将 A2UI icon 名称转换为 CodeGenNode。
+excode 管线通过 **ResolveIcons** 步骤统一收集页面中所有 icon 名称，调用远程 API 获取 @nce/icon-plus 的映射关系，存入 `ctx.iconNameMap`。映射文件在 transform 中通过 `resolveIcon()` 工具函数将 A2UI icon 名称转换为 CodeGenNode。
 
 ### 9.2 数据流
 
@@ -779,7 +783,7 @@ ctx.iconNameMap: Record<string, string>
   resolveIcon(iconName, iconNameMap, extraProps?)
   │
   ▼
-CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@hui/icon-plus', importMode: 'named', props: { shape: 'outline' }, selfClosing: true }
+CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@nce/icon-plus', importMode: 'named', props: { shape: 'outline' }, selfClosing: true }
 ```
 
 ### 9.3 resolveIcon() 工具函数
@@ -790,7 +794,7 @@ CodeGenNode: { __nodeType: 'component', tag: 'IconPlusIcIctHome', import: '@hui/
 import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
 
 /**
- * 将 A2UI icon 名称转换为 @hui/icon-plus 的 CodeGenNode
+ * 将 A2UI icon 名称转换为 @nce/icon-plus 的 CodeGenNode
  *
  * @param iconName    - A2UI icon 名称（如 'home', 'menu'）
  * @param iconNameMap - ResolveIcons 步骤产出的映射表（ctx.iconNameMap）
@@ -800,7 +804,7 @@ import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
  * 返回的 CodeGenNode:
  *   { __nodeType: 'component',
  *     tag: 'IconPlusIcIctHome',
- *     import: '@hui/icon-plus',
+ *     import: '@nce/icon-plus',
  *     importMode: 'named',
  *     props: { shape: 'outline', ...extraProps },
  *     children: null,
@@ -820,7 +824,7 @@ import { resolveIcon, PLACEHOLDER_ICON } from './Icon';
 
 export default {
   tag: 'IconPlusIcIctHome',    // 动态 tag，实际由 resolveIcon 决定
-  import: '@hui/icon-plus',     // 动态 import，实际由 resolveIcon 决定
+  import: '@nce/icon-plus',     // 动态 import，实际由 resolveIcon 决定
 
   transform(node, { iconNameMap }) {
     const p = { ...(node.props || {}) };
@@ -877,10 +881,10 @@ export default {
 
 ### 9.5 importMode: 'named' 说明
 
-@hui/icon-plus 使用命名导出（named export），每个 icon 是一个独立的命名导出：
+@nce/icon-plus 使用命名导出（named export），每个 icon 是一个独立的命名导出：
 
 ```ts
-import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@hui/icon-plus';
+import { IconPlusIcIctHome, IconPlusIcIctMenu } from '@nce/icon-plus';
 ```
 
 映射文件中通过 `importMode: 'named'` 告知 ImportCollector 使用命名导入语法。该字段在 `resolveIcon()` 返回的 CodeGenNode 中自动设置。

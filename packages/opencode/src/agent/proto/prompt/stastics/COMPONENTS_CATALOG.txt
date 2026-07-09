@@ -1,6 +1,6 @@
 # A2UI Components Catalog 
   - **General:** `Button`, `Icon`(MUST be use Lucide icon name)
-  - **Navigation:** `Tabs`, `TabItem`, `Steps`, `StepItem`, `Breadcrumb`, `Dropdown`, `Menu`
+  - **Navigation:** `Tabs`, `TabItem`, `Steps`, `StepItem`, `Breadcrumb`, `Dropdown`, `Menu`, `Pagination`
   - **DataEntry:** `Checkbox`, `CheckboxGroup`, `RadioGroup`, `Select`, `Slider`, `Switch`, `Input`, `InputNumber`, `TextArea`, `TimePicker`, `DatePicker`, `Rate`
   - **DataDisplay:** `Tag`, `Table`, `TableRow`, `Collapse`, `CollapseItem`, `Timeline`, `TimelineItem`, `Divider`, `Badge`, `Carousel`, `Segmented`, `Tree`
   - **Response:** `Progress`

@@ -582,6 +582,18 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     })
   }
 
+  createEffect(() => {
+    if (props.disabled) return
+    const editor = editorRef
+    if (!editor || document.activeElement === editor) return
+    requestAnimationFrame(() => {
+      if (props.disabled || !editorRef || document.activeElement === editorRef) return
+      editorRef.focus()
+      const cursor = prompt.cursor()
+      setCursorPosition(editorRef, cursor ?? promptLength(prompt.current()))
+    })
+  })
+
   const agentList = createMemo(() =>
     sync.data.agent
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
@@ -716,6 +728,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
         const prev = node.previousSibling
         const next = node.nextSibling
+        if (!prev && !next) return true
         const prevIsBr = prev?.nodeType === Node.ELEMENT_NODE && (prev as HTMLElement).tagName === "BR"
         return !!prevIsBr && !next
       }
@@ -740,6 +753,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
     const last = editorRef.lastChild
     if (last?.nodeType === Node.ELEMENT_NODE && (last as HTMLElement).tagName === "BR") {
+      editorRef.appendChild(document.createTextNode("\u200B"))
+    }
+    if (!editorRef.firstChild) {
       editorRef.appendChild(document.createTextNode("\u200B"))
     }
   }

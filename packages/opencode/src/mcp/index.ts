@@ -706,7 +706,9 @@ export const layer = Layer.effect(
       const client = s.clients[name]
       delete s.defs[name]
       if (!client) return Effect.void
-      Reconnect.markIntentionalDisconnect(name)
+      // 不在此处调 markIntentionalDisconnect：closeClient 被 storeClient（重连成功后替换旧 client）
+      // 和 createAndStore 失败分支复用，只有 disconnect 才是真正的"用户主动断开"。
+      // 误设标志会让后续所有 triggerReconnect 被第一道检查拦下（用户反馈 MCP 重连失败的根因）。
       return Effect.tryPromise(() => client.close()).pipe(Effect.ignore)
     }
 
@@ -790,6 +792,9 @@ export const layer = Layer.effect(
 
     const disconnect = Effect.fn("MCP.disconnect")(function* (name: string) {
       const s = yield* InstanceState.get(state)
+      // 显式标记：只有 disconnect 是真正的"用户主动断开"。
+      // closeClient 本身不再设此标志（避免被 storeClient/createAndStore 复用时误设）。
+      Reconnect.markIntentionalDisconnect(name)
       yield* closeClient(s, name)
       delete s.clients[name]
       s.status[name] = { status: "disabled" }

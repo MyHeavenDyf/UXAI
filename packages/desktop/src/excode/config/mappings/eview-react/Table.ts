@@ -2,12 +2,9 @@
  * Table 组件映射
  *
  * 流程：
- *   - transform(node, context) 返回 CodeGenNode 节点（带 stateData / componentData）
  *   - stateData.tableColumns → 纯数据，合并到 initialState
- *   - componentData.tableColumnsJsx → 含 JSX render 函数的 columns 数组，模块顶部 const 声明
- *   - 组件 props columns 引用 {__varRef: 'tableColumnsJsx'}
- *
- * 使用 __type: 'renderFn' 表达 render 函数，支持 extract 抽取到模块顶部 const。
+ *   - componentData.tableColumnsJsx → 含 JSX render 函数的 columns，模块顶部 const 声明
+ *   - props.columns 引用 { __varRef: 'tableColumnsJsx' }
  */
 export default {
   tag: 'Table',
@@ -20,28 +17,20 @@ export default {
   },
 
   /**
-   * transform — 构建 Table 节点（完全体，合并了旧的 stateTransform）
-   *
-   * context 提供：
-   *   - rawState: A2UI 原始 state（包含 tableColumns / tableData 等）
-   *   - resolveNode: 递归解析任意 A2UI 节点为 CodeGenNode
+   * transform — 构建 Table 节点
    *
    * 三种 cell 解析模式（按优先级）：
    *   1) col.cell（componentId 引用）→ resolveNode 解析
-   *   2) node._loopTemplate.children[idx]（循环模式的实际 cell 节点）→ resolveNode 解析
+   *   2) node._loopTemplate.children[idx] → resolveNode 解析
    *   3) 无数据源 → 根据 colKey 模式匹配硬编码 render
-   *
-   * 产出：
-   *   - stateData.tableColumns: 纯数据列定义（合并到 initialState）
-   *   - componentData.tableColumnsJsx: 含 JSX render 函数的 columns（模块顶部 const 声明）
    */
   transform(node: any, { rawState, resolveNode }: { rawState: any; resolveNode: any }) {
     const rawColumns = rawState?.tableColumns || [];
 
-    // 获取循环模板中的 cell 节点（来自 _loopTemplate.children）
+    // 获取循环模板中的 cell 节点
     const templateChildren = node._loopTemplate?.children || null;
 
-    // ── 纯数据 columns（保留兼容 eview-react 的字段）──
+    // ── 纯数据 columns ──
     const columns = rawColumns.map((col: any) => ({
       key: col.dataIndex || col.key,
       title: col.title,
@@ -51,8 +40,6 @@ export default {
     }));
 
     // ── 含 JSX 的 columns（render 函数）──
-    // 每个 cell 通过 __type: 'renderFn' 表达渲染函数
-    // extract: true 表示抽取到模块顶部 const 声明
     const columnsJsx = rawColumns.map((col: any, idx: number) => {
       const colKey = col.dataIndex || col.key;
       const baseCol: Record<string, any> = {
@@ -78,10 +65,9 @@ export default {
         }
       }
 
-      // 2) 从 _loopTemplate.children 按索引取 cell 节点 → resolveNode 解析
+      // 2) _loopTemplate.children 按索引取 cell 节点 → resolveNode 解析
       if (templateChildren && templateChildren[idx] && resolveNode) {
         const cellNode = templateChildren[idx];
-        // cellNode 是 unresolved 节点（含 component/props/children）
         const resolved = resolveNode(cellNode);
         if (resolved) {
           baseCol.render = {

@@ -42,7 +42,12 @@ export function styleModelLabel(id: string) {
 }
 
 export function styleModelRequiresSeedreamPermission(id: string) {
-  return STUDIO_STYLE_MODELS.find((item) => item.id === id)?.requiresSeedreamPermission === true
+  return STUDIO_STYLE_MODELS.find((item) => item.id === id || item.label === id)?.requiresSeedreamPermission === true
+}
+
+export function referenceImageLimit(styleModel: string) {
+  const model = STUDIO_STYLE_MODELS.find((item) => item.id === styleModel || item.label === styleModel)
+  return model?.id === "seedream-5-lite" || model?.id === "qwen" ? 3 : 1
 }
 
 export function imageToolLabel(id: StudioImageTool) {

@@ -273,7 +273,7 @@ CLI 模式（node cli.ts）：
 ### 4.4 ResolveIcons — 收集并映射 icon 名称
 
 **输入**：`ctx.resolvedPages`（节点树 + state 数据）
-**输出**：`ctx.iconNameMap`（A2UI name → @hui/icon-plus 组件名映射表）
+**输出**：`ctx.iconNameMap`（A2UI name → @nce/icon-plus 组件名映射表）
 
 **处理逻辑**：
 
@@ -449,7 +449,7 @@ PipelineContext (ctx)
 ├── pagesData              // [ReadPages] 原始页面 JSON 数据
 ├── resolvedPages          // [BuildTrees] 建树 + 绑定解析后的页面数据
 ├── styleResults           // [BuildTrees] 样式转换结果（含 lessFiles, globalLess, pageRules）
-├── iconNameMap            // [ResolveIcons] A2UI icon name → @hui/icon-plus 组件名映射表
+├── iconNameMap            // [ResolveIcons] A2UI icon name → @nce/icon-plus 组件名映射表
 ├── generatedPages         // [GenerateComponents] 代码生成后的页面数据
 ├── routeResult            // [GenerateRoutes] 路由生成结果
 ├── outputFiles            // [WriteOutput] 产出文件列表 [{ path, content }]
@@ -490,7 +490,7 @@ PipelineContext (ctx)
 |------|------|
 | `Step.ts` | 步骤基类，所有步骤继承此类 |
 | `ComponentRegistry.ts` | 组件注册中心，管理映射文件的注册与查询。提供 `register()`、`loadMappings()`、`transform()`、`applySchema()`、`getBinding()` 等接口 |
-| `Icon.ts` | Icon 组件映射，同时导出 `resolveIcon(iconName, iconNameMap, extraProps?)` 和 `PLACEHOLDER_ICON`，用于在 mapping transform 中将 A2UI icon 名称转换为 @hui/icon-plus 组件的 CodeGenNode |
+| `Icon.ts` | Icon 组件映射，同时导出 `resolveIcon(iconName, iconNameMap, extraProps?)` 和 `PLACEHOLDER_ICON`，用于在 mapping transform 中将 A2UI icon 名称转换为 @nce/icon-plus 组件的 CodeGenNode |
 | `stateUtils.ts` | state 工具函数，导出 `resolveBindingValue(rawState, binding)` 用于在 mapping transform 中从原始 state 按绑定路径提取实际数据 |
 
 ### `src/codegen/`
