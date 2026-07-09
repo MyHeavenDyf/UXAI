@@ -3,9 +3,12 @@
  * 接口对齐 pattern/modules/preview,供页面 index.tsx 使用:
  *   直接传 doc(SceneDocument),SceneCanvas 响应式重建,无需 sendToPreview postMessage。
  */
-import { For, Show, createSignal, type JSX } from "solid-js"
+import { For, Show, createEffect, on, createSignal, type JSX } from "solid-js"
 import type { SceneDocument } from "../../utils/scene-protocol"
 import type { VersionEntry } from "../../utils/persist"
+
+/** 页面加载一次的 cache buster,防 iframe 缓存旧 preview3d(确保拿到带轮询/reload 的新版) */
+const previewCacheBuster = Date.now()
 
 export type PreviewPageAPI = {
   refresh: () => void
@@ -31,6 +34,12 @@ export function PreviewPage(props: {
   const [versionOpen, setVersionOpen] = createSignal(false)
 
   if (props.api) props.api.refresh = () => iframeRef?.contentWindow?.location.reload()
+
+  // liveVersion 变(主 app 写完 live-data.json) → postMessage 通知 iframe 重新加载,不重载页面
+  createEffect(on(() => props.liveVersion, () => {
+    console.log("[preview] postMessage reload, liveVersion:", props.liveVersion)
+    iframeRef?.contentWindow?.postMessage({ type: "reload-live-data" }, "*")
+  }))
 
   const btnResetHover = (e: MouseEvent) => (e.currentTarget as HTMLElement).style.background = "transparent"
   const btn = (label: string, onClick: () => void, icon?: JSX.Element): JSX.Element => (
@@ -137,7 +146,7 @@ export function PreviewPage(props: {
       <div class="flex-1 min-h-0">
         <iframe
           ref={iframeRef}
-          src={`http://127.0.0.1:51857/?data=live-data.json&t=${props.liveVersion}`}
+          src={`http://127.0.0.1:51857/?data=live-data.json&_=${previewCacheBuster}`}
           style={{ width: "100%", height: "100%", border: "0" }}
         />
       </div>

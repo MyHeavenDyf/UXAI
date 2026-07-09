@@ -557,9 +557,10 @@ function ThreeDContent() {
     return { ...doc, objects }
   }
 
-  /** 把场景写成 preview3d 目录下的 live-data.json(供右侧 iframe / /3d-live 消费)。返回是否成功 */
-  async function writeLiveData(doc: SceneDocument): Promise<boolean> {
-    const data = enrichModelUrls(doc)
+  /** 把场景写成 preview3d 目录下的 live-data.json(供右侧 iframe / /3d-live 消费)。返回是否成功。
+   *  doc 为 null 时写空场景(切换到无历史场景的会话时清空右侧,避免残留上个会话) */
+  async function writeLiveData(doc: SceneDocument | null): Promise<boolean> {
+    const data = doc ? enrichModelUrls(doc) : { version: "1", angleUnit: "degree", objects: [] }
     const api = (window as any).api
     const dir = await api?.getPreviewDist3dDir?.()
     if (!dir || !api?.writeFileBuffer) return false
@@ -577,10 +578,15 @@ function ThreeDContent() {
     window.open("/3d-live")
   }
 
-  // sceneDoc 变化 → 写 live-data.json + 触发右侧 iframe 刷新(iframe src 带 liveVersion 防缓存)
+  // sceneDoc 变化 → 串行写 live-data.json + 触发右侧 iframe 重新挂载刷新。
+  // 跳过 null:切换会话时 sceneDoc 先 null 再新场景,只写新场景,避免"空"和"新场景"并行写竞态。
+  // 队列串行化连续写(快速连切多个会话),保证最终文件是最后一个会话的场景。
+  let liveDataWriteQueue: Promise<void> = Promise.resolve()
   createEffect(on(() => sceneDoc(), (doc) => {
     if (!doc) return
-    void writeLiveData(doc).then((ok) => { if (ok) setLiveVersion((v) => v + 1) })
+    liveDataWriteQueue = liveDataWriteQueue.then(async () => {
+      if (await writeLiveData(doc)) setLiveVersion((v) => v + 1)
+    })
   }))
 
   // 生成完成后确保预览展示
@@ -690,19 +696,17 @@ function ThreeDContent() {
         {/* 3D 预览 */}
         <Show when={hasContent()}>
           <div style={{ position: "relative", overflow: "hidden" }}>
-            <Show when={sceneDoc()} fallback={<ThreeDPreviewEmpty />}>
-              <PreviewPage
-                api={previewApi}
-                doc={sceneDoc()}
-                liveVersion={liveVersion()}
-                onPickObject={handlePickObject}
-                onDownload={handleDownload}
-                onLivePreview={handleLivePreview}
-                versions={versions()}
-                currentVersionId={currentVersionId()}
-                onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
-              />
-            </Show>
+            <PreviewPage
+              api={previewApi}
+              doc={sceneDoc()}
+              liveVersion={liveVersion()}
+              onPickObject={handlePickObject}
+              onDownload={handleDownload}
+              onLivePreview={handleLivePreview}
+              versions={versions()}
+              currentVersionId={currentVersionId()}
+              onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+            />
             <Show when={isModifying()}>
               <div
                 style={{
