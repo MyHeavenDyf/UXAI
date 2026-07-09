@@ -3,15 +3,15 @@ import { createRoot, createEffect } from "solid-js"
 // 从 AI 返回的字符串中提取 JSON
 export function extractJson(text: string) {
   // 1. 边界防守
-  if (!text || !text.trim()) return null;
+  if (!text || typeof text !== 'string' || !text.trim()) return null;
 
-  let cleanText = text;
+  // 清洗不可见字符
+  let cleanText = text.replace(/[\u00a0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g, " ");
 
-  // 2. 移除大模型的思维链（如 DeepSeek 的 <think>...</think>）
+  // 2. 移除大模型的思维链
   if (cleanText.includes('</think>')) {
     const thinkEndIndex = cleanText.indexOf('</think>') + '</think>'.length;
-    const realJsonStart = cleanText.search(/[\{\[]/); // 寻找思维链后的第一个 { 或 [
-    
+    const realJsonStart = cleanText.search(/[\{\[]/);
     if (realJsonStart !== -1 && realJsonStart > thinkEndIndex) {
       cleanText = cleanText.slice(realJsonStart);
     } else {
@@ -23,15 +23,9 @@ export function extractJson(text: string) {
     // 3. 优先匹配 Markdown 代码块
     const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\n?```/);
     const raw = match ? match[1] : cleanText;
-    const parsed = JSON.parse(raw.trim());
-    
-    console.log(parsed, 'parsed');
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    // 4. 绝地求生（终极抗压版：同时兼容对象 {} 和数组 []，并带有安全防护）
-    const cleanTrimmed = cleanText.trim();
-    
-    // 动态探测结尾：判断文本中最后出现的到底是 ']' 还是 '}'
+    return JSON.parse(raw.trim());
+  } catch (err) {
+    // 4. 绝地求生（无需次数限制的无损全拉满版）
     const lastIdxOfBrace = cleanText.lastIndexOf("}");
     const lastIdxOfBracket = cleanText.lastIndexOf("]");
     
@@ -43,22 +37,19 @@ export function extractJson(text: string) {
 
     let start = cleanText.lastIndexOf(startChar, end);
     
-    // 安全防护：限制最大向前探测次数，防止遭遇极端恶意长文本时导致 CPU 爆表
-    let attempts = 0;
-    const MAX_ATTEMPTS = 50; 
+    // 用来记录上一次的指针，防止死循环
+    let lastStart = -1; 
 
-    // 循环向上探测，直到成功解析出最完整的 JSON
-    while (start !== -1 && attempts < MAX_ATTEMPTS) {
-      attempts++;
+    while (start !== -1 && start !== lastStart) {
+      lastStart = start;
       try {
         const rawjson = cleanText.substring(start, end + 1);
         const parsed = JSON.parse(rawjson.trim());
         if (parsed && typeof parsed === "object") {
-          console.log(parsed, `parsed from recovery (type: ${endChar === "]" ? 'Array' : 'Object'})`);
-          return parsed; // 🎉 完美抢救出最外层的完整数据！
+          return parsed; // 🎉 成功抢救！
         }
       } catch {
-        // 如果失败了，说明找的起始符还在 JSON 内部，继续往左边（外面）找更靠前的起始符
+        // 核心优化：直接找上一个起始符，只要指针在往前走，就允许它一直找，直到文本开头
         start = cleanText.lastIndexOf(startChar, start - 1);
       }
     }
