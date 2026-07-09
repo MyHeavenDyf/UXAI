@@ -1880,7 +1880,7 @@ export default function Page() {
                 </Show>
               </Match>
               <Match when={true}>
-                <NewSessionView worktree={newSessionWorktree()} />
+                <NewSessionView worktree={newSessionWorktree()} title="Octo Chat" subtitle="告诉我您的目标，我将为您深度调研并一键生成设计方案。" />
               </Match>
             </Switch>
           </div>
