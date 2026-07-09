@@ -14,6 +14,7 @@
  */
 ;(function () {
   var ATTR = "dom-picker-id"
+  var ACTIVE_ATTR = "data-dom-picker-active"
   var LONG_PRESS_MS = 300
   var dragMode = false
   var siblingMap = {}
@@ -96,15 +97,9 @@
     return mapped.length > 1 ? mapped : domSibs(el)
   }
 
-  function draggable(target) {
-    if (!target || !target.closest) return null
-    var first = target.closest("[" + ATTR + "]")
-    var el = first
-    while (el) {
-      if (getSibs(el).length > 1) return el
-      el = el.parentElement ? el.parentElement.closest("[" + ATTR + "]") : null
-    }
-    return first
+  // 当前 dom-picker 选中（冻结）的元素，只有它可以被拖拽
+  function selectedEl() {
+    return document.querySelector("[" + ACTIVE_ATTR + "]")
   }
 
   function orderedSibs(sibs, dir) {
@@ -227,8 +222,11 @@
 
   function onDown(e) {
     if (!dragMode || e.button !== 0) return
-    var el = draggable(e.target)
+    // 只允许拖拽当前 dom-picker 选中的元素
+    var el = selectedEl()
     if (!el) return
+    // 按下点必须落在选中元素范围内，否则交给点击逻辑（切换选中）
+    if (e.target !== el && !el.contains(e.target)) return
     e.preventDefault()
     e.stopPropagation()
     dragEl = el

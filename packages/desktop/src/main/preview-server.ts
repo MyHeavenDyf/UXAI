@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { app } from "electron"
 
 const root = dirname(fileURLToPath(import.meta.url))
-const PREVIEW_PORT = 51856
+const PREVIEW_PORT = 51857
 
 export function previewDistDir() {
   return app.isPackaged ? join(process.resourcesPath, "previewdist") : join(root, "../../../previewdist")
