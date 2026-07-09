@@ -30,3 +30,58 @@ export function revealFileInFolder(filePath: string): void {
   console.log("[octo:path] reveal-local", { filePath })
   api.showItemInFolder(filePath)
 }
+
+// SPEC-INS-014 §10.1:文件管理面板的"上传"——脱离对话框也能往 insight/<sessionId>/uploads/ 塞文件。
+// 复用输入框附件那条既有落地链路(不新造上传通道):copyFileToWorktree 拷进预会话区 uploads/ →
+// movePendingUploadToSession rename 进本会话目录。文件管理面板一定处在真实会话里,故拷完直接归属;
+// 撞名加后缀、sanitize 都由主进程处理。返回落地成功数,调用方据此决定是否刷新列表。
+export async function copyFilesToSessionUploads(
+  files: File[],
+  baseDir: string,
+  sessionId: string,
+): Promise<{ ok: number; failed: number }> {
+  const api = getDesktopApi()
+  if (
+    !baseDir ||
+    !sessionId ||
+    typeof api?.getPathForFile !== "function" ||
+    typeof api?.copyFileToWorktree !== "function"
+  ) {
+    showToast({ title: "无法上传", description: "未选择项目目录或当前非桌面端环境", variant: "error" })
+    return { ok: 0, failed: files.length }
+  }
+  let ok = 0
+  let failed = 0
+  for (const file of files) {
+    let srcPath = ""
+    try {
+      srcPath = api.getPathForFile(file)
+    } catch {
+      // 拿不到真实路径(如剪贴板内存 blob)→ 无法磁盘拷贝,跳过
+    }
+    if (!srcPath) {
+      failed++
+      console.warn("[octo:worktree] upload-copy skipped (no source path)", { filename: file.name })
+      continue
+    }
+    try {
+      const dest = await api.copyFileToWorktree(srcPath, baseDir, file.name)
+      let finalPath = dest
+      if (typeof api.movePendingUploadToSession === "function") {
+        try {
+          finalPath = await api.movePendingUploadToSession(dest, baseDir, sessionId)
+        } catch (err) {
+          console.warn("[octo:worktree] upload-move failed, kept in pending area", { dest, err })
+        }
+      }
+      console.log("[octo:worktree] upload-copy ok", { srcPath, dest: finalPath, sessionId })
+      ok++
+    } catch (err) {
+      failed++
+      console.error("[octo:worktree] upload-copy failed", { srcPath, filename: file.name, err })
+    }
+  }
+  if (ok > 0) showToast({ title: "上传完成", description: `已导入 ${ok} 个文件`, variant: "success", duration: 2000 })
+  if (failed > 0) showToast({ title: "部分文件未能上传", description: `${failed} 个文件失败`, variant: "error" })
+  return { ok, failed }
+}

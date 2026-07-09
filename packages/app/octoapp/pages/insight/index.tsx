@@ -588,13 +588,20 @@ function InsightContent() {
     if (panelCollapsed()) setPanelCollapsed(false)
   }
 
+  // 打开产物 tab 后统一切到 tabs 视图并展开面板。viewMode 默认停在「文件管理」(files),
+  // 若只 revealPanel 不切 viewMode,tab 虽已加入却不显示——用户点对话产物卡片后仍停在文件管理
+  // 空态、看不到内容(SPEC-INS-014 §10 引入 viewMode 后的回归)。凡"打开+激活 tab"都走这里。
+  function focusResultTabs() {
+    setResultViewMode("tabs")
+    revealPanel()
+  }
+
   // SPEC-INS-014 §10:文件管理面板里点文件 → 复用 tabStore.openTab 的 (filePath,type) 去重逻辑
   // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
   function openFileFromManager(file: InsightFileEntry) {
     const type = extToOutputType(file.name)
     tabStore.openTab({ id: crypto.randomUUID(), title: file.name, type, source: "path", filePath: file.path, createdAt: new Date() })
-    setResultViewMode("tabs")
-    revealPanel()
+    focusResultTabs()
   }
 
   /** 切 tab:仅在切到不同 tab 时打点(避免重复点击当前 tab 也计数) */
@@ -1361,7 +1368,7 @@ function InsightContent() {
       extend: JSON.stringify({ cardType: card.type }),
     })
     tabStore.openTab(card)
-    revealPanel()
+    focusResultTabs()
   }
 
   // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
@@ -1461,7 +1468,7 @@ function InsightContent() {
     // 故用 openTab 返回的「实际生效 id」激活,避免 activate 指向不存在的 tab 导致右侧栏空白。
     const openedIds = ocs.map((oc) => tabStore.openTab(oc))
     tabStore.activate(openedIds[0])
-    revealPanel()
+    focusResultTabs()
   }
 
   // ── 兑现「查看结果」:上面的查询返回真实产物后,把 pendingOpen 的那张任务结果打开并激活 ──
@@ -1476,7 +1483,7 @@ function InsightContent() {
     console.log("[octo:task] openResult fulfilled after query", { taskId: tid, count: ocs.length })
     const openedIds = ocs.map((oc) => tabStore.openTab(oc))
     tabStore.activate(openedIds[0])
-    revealPanel()
+    focusResultTabs()
   })
 
   // ── 自动 openTab(ResultViewer 当前为空时,把会话内所有 completed 任务的产物一次性全开;spec §8.3)──
@@ -1502,7 +1509,7 @@ function InsightContent() {
     }
     if (firstOpenedId !== undefined) {
       tabStore.activate(firstOpenedId)  // 激活首个任务的首张,其余作为待选 tab 并存
-      revealPanel()
+      focusResultTabs()
     }
   })
 
