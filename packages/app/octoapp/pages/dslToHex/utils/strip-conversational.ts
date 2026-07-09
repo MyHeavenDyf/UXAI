@@ -23,3 +23,11 @@ export function extractSemanticLayout(text: string): string {
 export function stripSemanticLayoutTags(text: string): string {
   return text.replace(/<\/?semantic-layout>\s*/gi, "")
 }
+
+// step-b 的 Node DSL JSON 用 <node-dsl> 标签包裹。按标签边界取内容，避免从混入文字/markdown
+// 里靠括号匹配暴力猜 JSON（那样在 JSON 语法错时会误提到一个"合法但不完整"的子片段）。
+// 忘写闭合标签（如流式未完或截断）时取到文末；完全没有标签时回退全文（兼容旧会话/未加标签的模型）。
+export function extractNodeDsl(text: string): string {
+  const m = text.match(/<node-dsl>\s*([\s\S]*?)\s*(?:<\/node-dsl>|$)/i)
+  return m ? m[1].trim() : text
+}

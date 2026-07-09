@@ -4,7 +4,7 @@ import { STEP_A_PROMPT } from "./prompts/step-a"
 import { STEP_B_PROMPT } from "./prompts/step-b"
 import { saveArtifact, loadArtifact, clearArtifacts, loadManifest, saveManifest, ensureApiCallScript, inlineAssetContents } from "./utils/artifact-persist"
 import API_CALL_SOURCE from "./lib/api-call.ts?raw"
-import { stripFollowUpTags, joinTextParts, extractSemanticLayout } from "./utils/strip-conversational"
+import { stripFollowUpTags, joinTextParts, extractSemanticLayout, extractNodeDsl } from "./utils/strip-conversational"
 import { IframeBridge } from "./lib/iframe-bridge"
 import { stripThinkTags } from "./lib/think-filter"
 
@@ -863,7 +863,10 @@ const sessionMessagesLoaded = createMemo(() => {
      if (!textPart?.text) { debugLog("stepBDslJson: no textPart, partTypes=", parts.map(p => p.type)); return "" }
       let text = stripThinkTags(textPart.text.trim())
       debugLog("stepBDslJson: raw text len=", text.length, "preview=", text.slice(0, 300))
-      if (text.includes("<artifact")) {
+      // 优先按 <node-dsl> 标签边界取（新契约，最稳）；无标签再走 <artifact> 兼容
+      if (text.includes("<node-dsl>")) {
+        text = extractNodeDsl(text)
+      } else if (text.includes("<artifact")) {
        const parser = createArtifactParser()
        let artifactContent = ""
        for (const ev of parser.feed(text)) {

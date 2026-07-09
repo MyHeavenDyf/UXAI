@@ -9,7 +9,7 @@ import { createEffect, createMemo, createSignal, Show, For, type JSX } from "sol
 
 import { createArtifactParser } from "../utils/artifact-parser"
 import { stripThinkTags } from "../lib/think-filter"
-import { stripFollowUpTags, joinTextParts, stripSemanticLayoutTags } from "../utils/strip-conversational"
+import { stripFollowUpTags, joinTextParts, extractSemanticLayout, extractNodeDsl } from "../utils/strip-conversational"
 import { splitOnQuestionForms, type FormSegment } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import "./quick-brief-form.css"
@@ -475,7 +475,9 @@ export function InsightTurn(props: {
       if (ev.type === "text") prose += ev.delta
     }
     // 展示时隐藏 <semantic-layout> 标签标记本身，内容原样保留
-    return stripFollowUpTags(stripSemanticLayoutTags(prose.trim()))
+    // 与渲染提取(stepADescription)对齐：聊天展示也只显示 <semantic-layout> 标签内的布局，
+    // 标签外的推理/碎碎念一并丢弃(prompt 已禁止输出，此处再兜一层)
+    return extractSemanticLayout(stripFollowUpTags(prose.trim()))
   })
 
   const proseSegments = createMemo(() => {
@@ -496,6 +498,15 @@ export function InsightTurn(props: {
       if (part.type !== "text" || !part.text) continue
       let text = stripThinkTags(part.text.trim())
       if (!text) continue
+      // 优先按 <node-dsl> 标签边界取（与 index.tsx stepBDslJson 对齐）
+      if (text.includes("<node-dsl>")) {
+        const inner = extractNodeDsl(text)
+        const complete = tryParseJson(inner)
+        if (complete) return complete
+        const partial = extractPartialJson(inner)
+        if (partial) return partial
+        continue
+      }
       if (text.includes("<artifact")) {
         const parser = createArtifactParser()
         let content = ""
