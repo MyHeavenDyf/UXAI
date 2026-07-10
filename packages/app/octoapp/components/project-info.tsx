@@ -1,30 +1,12 @@
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
-import { useServer } from "@/context/server"
-import { useLayout } from "@/context/layout"
-import { unwrap } from "solid-js/store"
-import { createEffect, createSignal, Show } from "solid-js"
-import type { Domain, ProductLine, Product, Version } from "@/network/types"
+import { useProjectSelection } from "@/hooks/use-project-selection"
+import { createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 
-type SelectionData = { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }
-
 export function ProjectInfo(): JSX.Element {
-  const server = useServer()
-  const layout = useLayout()
   const [visible, setVisible] = createSignal(false)
-  const [frozen, setFrozen] = createSignal<SelectionData | undefined>(undefined)
+  const selection = useProjectSelection({ keepFrozen: visible })
 
-  createEffect(() => {
-    if (layout.onboarding.show()) {
-      if (!frozen()) {
-        setFrozen(unwrap(server.projects.lastSelection()) as SelectionData)
-      }
-    } else if (!visible()) {
-      setFrozen(undefined)
-    }
-  })
-
-  const selection = () => frozen() ?? server.projects.lastSelection()
   const productName = () => selection()?.product?.name ?? ""
   const domainProductLine = () => {
     const s = selection()
@@ -46,7 +28,6 @@ export function ProjectInfo(): JSX.Element {
           cursor: "pointer",
         }}
         onClick={() => {
-          setFrozen(unwrap(server.projects.lastSelection()) as SelectionData)
           setVisible(true)
         }}
       >
@@ -80,7 +61,6 @@ export function ProjectInfo(): JSX.Element {
       </div>
       <Show when={visible()}>
         <DialogProjectOnboarding onSelect={() => {
-          setFrozen(undefined)
           setVisible(false)
         }} />
       </Show>
