@@ -127,13 +127,18 @@ export function verifyAndReconnectIfNeeded(
   bridge: EffectBridge.Shape,
   ctx: ReconnectContext,
   timeoutMs: number = PREFLIGHT_PING_TIMEOUT_MS,
+  serverNames?: string[],
 ) {
   return Effect.gen(function* () {
     const s = yield* ctx.state.get()
-    // 关键：检查范围是所有有 remote 配置的 server，不限于 s.clients 里现有的。
+    // 如果传入了 serverNames，只检查指定的 server（toolsForAgent scope 优化）；
+    // 没传时保持原行为：检查所有有 remote 配置的 server。
     // 这样 5 次重连全失败（clients/defs 已删、status=failed）的 server 也能在
     // 下次对话触发 tools() 时被重新拉起。disabled 的 server 由 intentionalDisconnects 拦住。
-    const remoteNames = Array.from(remoteConfigs.keys())
+    const allRemoteNames = Array.from(remoteConfigs.keys())
+    const remoteNames = serverNames
+      ? serverNames.filter((n) => allRemoteNames.includes(n))
+      : allRemoteNames
 
     if (remoteNames.length === 0) return
 
@@ -221,6 +226,28 @@ export function verifyAndReconnectIfNeeded(
       log.warn("[reconnect] preflight aborted with error", { error: String(error) })
       return Effect.void
     }),
+  )
+}
+
+/**
+ * toolsForAgent 专用版本：只对当前 agent 相关的 remote server 做 preflight 健康检查。
+ * 避免每次 tools() 都检查所有 remote server 导致频繁握手压垮服务器。
+ */
+export function verifyAndReconnectForAgent(
+  bridge: EffectBridge.Shape,
+  ctx: ReconnectContext,
+  agentMcp: string[] | undefined,
+  customServerNames: string[],
+) {
+  const relevantServerNames =
+    agentMcp && agentMcp.length > 0
+      ? [...agentMcp, ...customServerNames]
+      : customServerNames
+  return verifyAndReconnectIfNeeded(
+    bridge,
+    ctx,
+    PREFLIGHT_PING_TIMEOUT_MS,
+    relevantServerNames.length > 0 ? relevantServerNames : undefined,
   )
 }
 
