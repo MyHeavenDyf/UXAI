@@ -55,7 +55,8 @@ import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
-import type { InsightFileEntry } from "./utils/insight-file-api"
+import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
+import { pathToLocalUrl } from "./utils/insight-file-api"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
@@ -602,6 +603,44 @@ function InsightContent() {
     const type = extToOutputType(file.name)
     tabStore.openTab({ id: crypto.randomUUID(), title: file.name, type, source: "path", filePath: file.path, createdAt: new Date() })
     focusResultTabs()
+  }
+
+  // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
+  /** 添加至会话区:作为已就绪(path 已落盘)附件加入输入区,发送时进 [附件] 清单。 */
+  function addInsightFileToSession(file: InsightFile) {
+    if (attachments().some((a) => a.path === file.path)) {
+      showToast({ title: "已添加", description: file.name })
+      return
+    }
+    if (maxAttachments()) {
+      showToast({ title: "附件数量已达上限", description: `最多 ${MAX_ATTACHMENTS} 个附件` })
+      return
+    }
+    setAttachments((prev) => [...prev, {
+      id: crypto.randomUUID(),
+      filename: file.name,
+      mime: file.mime || "application/octet-stream",
+      size: file.size,
+      status: "done",
+      path: file.path,
+      // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
+      previewUrl: file.kind === "image" ? pathToLocalUrl(file.path) : undefined,
+    }])
+    showToast({ title: "已添加附件", description: file.name, variant: "success", duration: 2000 })
+  }
+
+  /** 按路径关闭 ResultViewer tab(删除文件后清理已打开的同路径 tab)。 */
+  function closeTabsByPath(paths: string[]) {
+    const set = new Set(paths.map((p) => p.replace(/\\/g, "/")))
+    for (const tab of tabStore.tabs()) {
+      if (tab.filePath && set.has(tab.filePath.replace(/\\/g, "/"))) tabStore.closeTab(tab.id)
+    }
+  }
+
+  /** 按路径移除输入区附件(删除文件后清理已添加的同路径附件)。 */
+  function removeAttachmentsByPath(paths: string[]) {
+    const set = new Set(paths.map((p) => p.replace(/\\/g, "/")))
+    setAttachments((prev) => prev.filter((a) => !a.path || !set.has(a.path.replace(/\\/g, "/"))))
   }
 
   /** 切 tab:仅在切到不同 tab 时打点(避免重复点击当前 tab 也计数) */
@@ -1995,6 +2034,9 @@ function InsightContent() {
             viewMode={resultViewMode()}
             onViewModeChange={setResultViewMode}
             onOpenLocalFile={openFileFromManager}
+            onAddToSession={addInsightFileToSession}
+            onCloseTabsByPath={closeTabsByPath}
+            onRemoveAttachmentsByPath={removeAttachmentsByPath}
           />
         </Show>
         </div>

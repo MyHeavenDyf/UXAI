@@ -26,7 +26,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 import { InsightFileManager } from "../file-manager"
-import type { InsightFileEntry } from "../../utils/insight-file-api"
+import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api"
 
 // ── 源码渲染器 ──────────────────────────────────────────────────
 // 复用上游 <Markdown> 的 shiki 高亮:把内容包成 ```lang fence 喂给它,
@@ -76,6 +76,11 @@ export function ResultViewer(props: {
   onViewModeChange: (mode: "tabs" | "files") => void
   /** 文件管理面板里点击某个文件 → 由 index.tsx 决定怎么开成 tab(复用 tabStore.openTab 去重) */
   onOpenLocalFile: (file: InsightFileEntry) => void
+  /** SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)——添加至会话区 / 按路径关 tab / 按路径清附件 / 刷新 */
+  onAddToSession?: (file: InsightFile) => void
+  onCloseTabsByPath?: (paths: string[]) => void
+  onRemoveAttachmentsByPath?: (paths: string[]) => void
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
   const projectDir = useProjectDir()
@@ -103,7 +108,13 @@ export function ResultViewer(props: {
           onViewModeChange={props.onViewModeChange}
         />
         <Show when={props.viewMode === "files"}>
-          <InsightFileManager onOpenFile={props.onOpenLocalFile} />
+          <InsightFileManager
+            onOpenFile={props.onOpenLocalFile}
+            onAddToSession={props.onAddToSession}
+            onCloseTabsByPath={props.onCloseTabsByPath}
+            onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+            onFilesRefresh={props.onFilesRefresh}
+          />
         </Show>
         <Show when={props.viewMode === "tabs" && activeTab()}>
           {(tab) => (

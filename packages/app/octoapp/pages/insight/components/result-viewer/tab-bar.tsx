@@ -2,7 +2,8 @@ import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { ResultTab } from "./tab-store"
-import { IconTabClose, IconActionFolder } from "../../icons"
+import { IconTabClose } from "../../icons"
+import { IconFolder } from "../../icons/design-files-icons"
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -37,7 +38,7 @@ export function TabBar(props: {
           }}
           onClick={() => props.onViewModeChange?.("files")}
         >
-          <IconActionFolder size={14} />
+          <IconFolder size={16} />
           <span class="text-[13px]" style={{ "font-weight": props.viewMode === "files" ? "500" : "400" }}>文件管理</span>
         </button>
       </Show>

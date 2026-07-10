@@ -12,6 +12,8 @@ const root = "/insight"
 export const InsightPaths = {
   sessions: `${root}/sessions`,
   files: `${root}/files`,
+  upload: `${root}/upload`,
+  uploadFolder: `${root}/upload-folder`,
 } as const
 
 export const InsightSessionListQuery = Schema.Struct({
@@ -31,6 +33,8 @@ export const InsightFileCategory = Schema.Union([Schema.Literal("uploads"), Sche
 export const InsightFileListQuery = Schema.Struct({
   sessionId: Schema.String,
   category: InsightFileCategory,
+  // 子路径(相对 uploads 根):非空时列 <uploads>/<path>/ 下的文件+文件夹,支持文件夹导航。
+  path: Schema.optional(Schema.String),
 })
 
 export const InsightFileEntry = Schema.Struct({
@@ -38,10 +42,40 @@ export const InsightFileEntry = Schema.Struct({
   path: Schema.String,
   size: Schema.Number,
   mtime: Schema.Number,
+  isFolder: Schema.Boolean,
+  // 相对 uploads 根的路径(文件夹导航 / 面包屑用);outputs 段无子目录,留空即可。
+  relativePath: Schema.String,
 })
 
 export const InsightFileListResult = Schema.Struct({
   files: Schema.Array(InsightFileEntry),
+})
+
+// 上传(对齐 artifact/upload:base64 content,撞名加后缀,path 指定子文件夹)。
+const InsightUploadPayload = Schema.Struct({
+  sessionId: Schema.String,
+  filename: Schema.String,
+  content: Schema.String,
+  path: Schema.optional(Schema.String),
+})
+
+const InsightUploadFileSchema = Schema.Struct({
+  relativePath: Schema.String,
+  content: Schema.String,
+})
+
+const InsightUploadFolderPayload = Schema.Struct({
+  sessionId: Schema.String,
+  folderName: Schema.String,
+  files: Schema.Array(InsightUploadFileSchema),
+  path: Schema.optional(Schema.String),
+})
+
+const InsightUploadFolderResult = Schema.Struct({
+  name: Schema.String,
+  path: Schema.String,
+  fileCount: Schema.Number,
+  mtime: Schema.Number,
 })
 
 export const InsightApi = HttpApi.make("insight")
@@ -72,6 +106,32 @@ export const InsightApi = HttpApi.make("insight")
             summary: "List insight session files",
             description:
               "List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("upload", InsightPaths.upload, {
+          payload: InsightUploadPayload,
+          success: described(InsightFileEntry, "Uploaded insight file"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "insight.files.upload",
+            summary: "Upload insight file",
+            description: "Upload a base64 file to <projectDir>/insight/<sessionId>/uploads/[path]/. Auto-renames on conflict.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("uploadFolder", InsightPaths.uploadFolder, {
+          payload: InsightUploadFolderPayload,
+          success: described(InsightUploadFolderResult, "Uploaded insight folder"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "insight.files.uploadFolder",
+            summary: "Upload insight folder",
+            description: "Upload a folder (preserving structure) to <projectDir>/insight/<sessionId>/uploads/[path]/.",
           }),
         ),
       )
