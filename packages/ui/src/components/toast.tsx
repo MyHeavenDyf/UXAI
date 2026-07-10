@@ -170,6 +170,7 @@ export function showPromiseToast<T, U = unknown>(
   return toaster.promise(promise, (props) => (
     <Toast
       toastId={props.toastId}
+      persistent={props.state === "pending"}
       data-variant={props.state === "pending" ? "loading" : props.state === "fulfilled" ? "success" : "error"}
     >
       <Toast.Content>

@@ -1,0 +1,32 @@
+/* 覆盖在页面之上的半透明加载遮罩 + spinner */
+
+.pattern-generating-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+/* 蓝色旋转 spinner（边框动画） */
+.pattern-generating-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--octo-border-divider, #e5e7eb);
+  border-top-color: var(--octo-brand, #3b82f6);
+  border-radius: 50%;
+  animation: pattern-generating-spin 0.8s linear infinite;
+}
+
+@keyframes pattern-generating-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pattern-generating-text {
+  font-size: 13px;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+}
