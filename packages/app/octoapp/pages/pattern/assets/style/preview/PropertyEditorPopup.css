@@ -6,6 +6,7 @@
   position: absolute;
   inset: 0;
   z-index: 199;
+  pointer-events: none;
 }
 
 .property-editor-popup {

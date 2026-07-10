@@ -1,0 +1,131 @@
+{
+  "state": {
+    "gaugeValue": 72,
+    "gaugeMax": 100,
+    "stackedBarNormal": 45,
+    "stackedBarWarning": 20,
+    "stackedBarDanger": 25,
+    "stackedBarError": 10
+  },
+  "rootId": "rootContainer",
+  "elements": [
+    {
+      "id": "rootContainer",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col min-h-screen bg-gray-50 p-8 gap-8"
+      },
+      "children": [
+        "pageTitle",
+        "contentGrid"
+      ]
+    },
+    {
+      "id": "pageTitle",
+      "component": "span",
+      "props": {
+        "value": "自定义组件预览",
+        "className": "text-2xl font-bold text-gray-900"
+      }
+    },
+    {
+      "id": "contentGrid",
+      "component": "div",
+      "props": {
+        "className": "grid grid-cols-2 gap-8"
+      },
+      "children": [
+        "gaugeCard",
+        "stackedBarCard"
+      ]
+    },
+    {
+      "id": "gaugeCard",
+      "component": "div",
+      "props": {
+        "className": "bg-white rounded-xl shadow-md p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "gaugeTitle",
+        "gaugeWrapper"
+      ]
+    },
+    {
+      "id": "gaugeTitle",
+      "component": "span",
+      "props": {
+        "value": "仪表盘 (Gauge)",
+        "className": "text-lg font-semibold text-gray-800"
+      }
+    },
+    {
+      "id": "gaugeWrapper",
+      "component": "div",
+      "props": {
+        "className": "flex justify-center items-center py-4"
+      },
+      "children": [
+        "gaugeComponent"
+      ]
+    },
+    {
+      "id": "gaugeComponent",
+      "component": "PatGauge",
+      "props": {
+        "value": {
+          "path": "/gaugeValue"
+        },
+        "max": {
+          "path": "/gaugeMax"
+        }
+      }
+    },
+    {
+      "id": "stackedBarCard",
+      "component": "div",
+      "props": {
+        "className": "bg-white rounded-xl shadow-md p-6 flex flex-col gap-4"
+      },
+      "children": [
+        "stackedBarTitle",
+        "stackedBarWrapper"
+      ]
+    },
+    {
+      "id": "stackedBarTitle",
+      "component": "span",
+      "props": {
+        "value": "状态分布条形图 (StackedBar)",
+        "className": "text-lg font-semibold text-gray-800"
+      }
+    },
+    {
+      "id": "stackedBarWrapper",
+      "component": "div",
+      "props": {
+        "className": "flex justify-center items-center py-4"
+      },
+      "children": [
+        "stackedBarComponent"
+      ]
+    },
+    {
+      "id": "stackedBarComponent",
+      "component": "PatStackedBar",
+      "props": {
+        "normal": {
+          "path": "/stackedBarNormal"
+        },
+        "warning": {
+          "path": "/stackedBarWarning"
+        },
+        "danger": {
+          "path": "/stackedBarDanger"
+        },
+        "error": {
+          "path": "/stackedBarError"
+        }
+      }
+    }
+  ]
+}

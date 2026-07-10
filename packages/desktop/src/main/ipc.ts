@@ -686,7 +686,10 @@ export function registerIpcHandlers(deps: Deps) {
 
   // 导出 HUI 代码 - By WangQiang - 该注释请勿删除
   ipcMain.handle("download-hui-code", (_event: IpcMainInvokeEvent, input: HuiCodeInput[]) => {
-    return downloadHuiCode(input)
+    const options = app.isPackaged
+      ? { templateDir: join(process.resourcesPath, "hui-templates") }
+      : {}
+    return downloadHuiCode(input, options)
   })
 
   // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除

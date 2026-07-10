@@ -1,0 +1,5010 @@
+{
+  "state": {
+    "btnLabel": "确认提交",
+    "searchLabel": "搜索",
+    "tagStatus": "运行中",
+    "badgeCount": 12,
+    "segValue": "日",
+    "segOptions": [
+      {
+        "label": "日",
+        "value": "日",
+        "icon": "calendar"
+      },
+      {
+        "label": "周",
+        "value": "周",
+        "icon": "calendar-days"
+      },
+      {
+        "label": "月",
+        "value": "月",
+        "icon": "calendar-range"
+      }
+    ],
+    "checkboxValues": [
+      "option1",
+      "option3"
+    ],
+    "checkboxOptions": [
+      {
+        "label": "选项一",
+        "value": "option1"
+      },
+      {
+        "label": "选项二",
+        "value": "option2"
+      },
+      {
+        "label": "选项三",
+        "value": "option3"
+      }
+    ],
+    "radioValue": "apple",
+    "radioOptions": [
+      {
+        "label": "苹果",
+        "value": "apple"
+      },
+      {
+        "label": "橙子",
+        "value": "orange"
+      },
+      {
+        "label": "葡萄",
+        "value": "grape"
+      }
+    ],
+    "radioButtonValue": "beijing",
+    "radioButtonOptions": [
+      {
+        "label": "北京",
+        "value": "beijing"
+      },
+      {
+        "label": "上海",
+        "value": "shanghai"
+      },
+      {
+        "label": "广州",
+        "value": "guangzhou"
+      },
+      {
+        "label": "深圳",
+        "value": "shenzhen"
+      }
+    ],
+    "dateValue": "2026-06-23",
+    "dateRangeValue": [
+      "2026-06-01",
+      "2026-06-23"
+    ],
+    "inputValue": "默认输入内容",
+    "passwordValue": "mypassword123",
+    "textareaValue": "这是一个多行文本输入框的示例内容，可以输入较长的文本。",
+    "numberValue": 42,
+    "timeValue": "14:30:00",
+    "selectValue": "option2",
+    "selectOptions": [
+      {
+        "label": "选项一",
+        "value": "option1"
+      },
+      {
+        "label": "选项二",
+        "value": "option2"
+      },
+      {
+        "label": "选项三",
+        "value": "option3"
+      },
+      {
+        "label": "选项四",
+        "value": "option4"
+      }
+    ],
+    "multiSelectValues": [
+      "option1",
+      "option3"
+    ],
+    "sliderValue": 36,
+    "sliderRangeValue": [
+      20,
+      80
+    ],
+    "sliderMarks": {
+      "0": "0",
+      "25": "25",
+      "50": "50",
+      "75": "75",
+      "100": "100"
+    },
+    "switchValue": true,
+    "rateValue": 3.5,
+    "progressPercent": 65,
+    "collapseActiveKey": "panel1",
+    "tabsActiveKey": "tab1",
+    "stepsCurrent": 2,
+    "treeOptions": [
+      {
+        "title": "总部",
+        "key": "hq",
+        "icon": "building-2",
+        "children": [
+          {
+            "title": "研发部",
+            "key": "rd",
+            "icon": "code-2",
+            "children": [
+              {
+                "title": "前端组",
+                "key": "fe",
+                "icon": "monitor"
+              },
+              {
+                "title": "后端组",
+                "key": "be",
+                "icon": "server"
+              }
+            ]
+          },
+          {
+            "title": "市场部",
+            "key": "mkt",
+            "icon": "megaphone",
+            "children": [
+              {
+                "title": "品牌组",
+                "key": "brand",
+                "icon": "palette"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "tableData": [
+      {
+        "key": "1",
+        "name": "张三",
+        "age": 28,
+        "department": "研发部",
+        "position": "前端工程师",
+        "status": "在职",
+        "email": "zhangsan@example.com",
+        "phone": "13800001111",
+        "joinDate": "2020-03-15",
+        "salary": "25000"
+      },
+      {
+        "key": "2",
+        "name": "李四",
+        "age": 32,
+        "department": "市场部",
+        "position": "产品经理",
+        "status": "在职",
+        "email": "lisi@example.com",
+        "phone": "13800002222",
+        "joinDate": "2018-07-01",
+        "salary": "30000"
+      },
+      {
+        "key": "3",
+        "name": "王五",
+        "age": 26,
+        "department": "设计部",
+        "position": "UI设计师",
+        "status": "休假",
+        "email": "wangwu@example.com",
+        "phone": "13800003333",
+        "joinDate": "2022-01-10",
+        "salary": "20000"
+      },
+      {
+        "key": "4",
+        "name": "赵六",
+        "age": 35,
+        "department": "研发部",
+        "position": "后端工程师",
+        "status": "在职",
+        "email": "zhaoliu@example.com",
+        "phone": "13800004444",
+        "joinDate": "2017-09-20",
+        "salary": "28000"
+      },
+      {
+        "key": "5",
+        "name": "孙七",
+        "age": 29,
+        "department": "运营部",
+        "position": "运营主管",
+        "status": "在职",
+        "email": "sunqi@example.com",
+        "phone": "13800005555",
+        "joinDate": "2019-11-05",
+        "salary": "26000"
+      }
+    ],
+    "dropdownMenu": [
+      {
+        "label": "编辑",
+        "key": "edit",
+        "icon": "pencil"
+      },
+      {
+        "label": "复制",
+        "key": "copy",
+        "icon": "copy"
+      },
+      {
+        "label": "删除",
+        "key": "delete",
+        "icon": "trash-2"
+      }
+    ],
+    "timelineItems": [
+      {
+        "title": "需求评审",
+        "content": "完成产品需求文档评审",
+        "icon": "file-check",
+        "color": "#52c41a"
+      },
+      {
+        "title": "设计阶段",
+        "content": "UI/UX设计稿输出",
+        "icon": "palette",
+        "color": "#1890ff"
+      },
+      {
+        "title": "开发中",
+        "content": "前端与后端并行开发",
+        "icon": "code-2",
+        "color": "#faad14"
+      },
+      {
+        "title": "测试阶段",
+        "content": "待进行功能与性能测试",
+        "icon": "test-tubes",
+        "color": "#d9d9d9"
+      }
+    ],
+    "collapseItems": [
+      {
+        "key": "panel1",
+        "label": "基础信息",
+        "content": "姓名：张三，年龄：28岁，部门：研发部。"
+      },
+      {
+        "key": "panel2",
+        "label": "工作经历",
+        "content": "2020年至今，就职于ABC科技有限公司，担任高级前端工程师。"
+      },
+      {
+        "key": "panel3",
+        "label": "教育背景",
+        "content": "2016-2020年，北京大学，计算机科学与技术专业，本科学历。"
+      }
+    ],
+    "breadcrumbItems": [
+      {
+        "title": "首页"
+      },
+      {
+        "title": "产品中心"
+      },
+      {
+        "title": "详情页"
+      }
+    ],
+    "tabItems": [
+      {
+        "key": "tab1",
+        "label": "概述",
+        "icon": "info"
+      },
+      {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file-text"
+      },
+      {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings"
+      }
+    ],
+    "stepItems": [
+      {
+        "title": "提交申请",
+        "content": "填写申请表单",
+        "icon": "send",
+        "status": "finish"
+      },
+      {
+        "title": "部门审核",
+        "content": "主管审批中",
+        "icon": "eye",
+        "status": "process"
+      },
+      {
+        "title": "财务确认",
+        "content": "等待处理",
+        "icon": "credit-card",
+        "status": "wait"
+      },
+      {
+        "title": "完成",
+        "content": "流程结束",
+        "icon": "check-circle",
+        "status": "wait"
+      }
+    ],
+    "tabContent1": "这是概述页面的内容，包含项目的整体介绍和关键信息摘要。",
+    "tabContent2": "这是详情页面的内容，包含项目的详细说明和技术规格参数。",
+    "selectedRowKeys": [
+      "1"
+    ],
+    "expandedTableData": [
+      {
+        "key": "1",
+        "name": "张三",
+        "age": 28,
+        "department": "研发部",
+        "position": "前端工程师",
+        "status": "在职",
+        "detail": "张三，2020年加入公司，精通 Vue、React 等前端框架，主导了多个核心项目。"
+      },
+      {
+        "key": "2",
+        "name": "李四",
+        "age": 32,
+        "department": "市场部",
+        "position": "产品经理",
+        "status": "在职",
+        "detail": "李四，2018年加入公司，负责产品规划与需求分析，拥有丰富的行业经验。"
+      },
+      {
+        "key": "3",
+        "name": "王五",
+        "age": 26,
+        "department": "设计部",
+        "position": "UI设计师",
+        "status": "休假",
+        "detail": "王五，2022年加入公司，擅长用户界面设计与交互体验优化。"
+      }
+    ]
+  },
+  "rootId": "pageRoot",
+  "elements": [
+    {
+      "id": "pageRoot",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col min-h-screen bg-surface-container-lowest p-8 gap-8"
+      },
+      "children": [
+        "mainContent"
+      ]
+    },
+    {
+      "id": "mainContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-10"
+      },
+      "children": [
+        "sectionGeneral",
+        "sectionDataDisplay",
+        "sectionDataEntry",
+        "sectionNavigation",
+        "sectionResponse"
+      ]
+    },
+    {
+      "id": "sectionGeneral",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "sectionGeneralTitle",
+        "buttonCard"
+      ]
+    },
+    {
+      "id": "sectionGeneralTitle",
+      "component": "span",
+      "props": {
+        "value": "通用组件 (General)",
+        "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+      }
+    },
+    {
+      "id": "buttonCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "buttonCardTitle",
+        "buttonRowColors",
+        "buttonRowSizes",
+        "buttonRowShapes",
+        "buttonRowTypes",
+        "buttonRowIcons"
+      ]
+    },
+    {
+      "id": "buttonCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Button 按钮",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "buttonRowColors",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "buttonRowColorsLabel",
+        "buttonRowColorsContent"
+      ]
+    },
+    {
+      "id": "buttonRowColorsLabel",
+      "component": "span",
+      "props": {
+        "value": "颜色变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "buttonRowColorsContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "btnDefault",
+        "btnPrimary",
+        "btnDanger",
+        "btnLink"
+      ]
+    },
+    {
+      "id": "btnDefault",
+      "component": "Button",
+      "props": {
+        "value": "默认按钮"
+      }
+    },
+    {
+      "id": "btnPrimary",
+      "component": "Button",
+      "props": {
+        "value": "主要按钮",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "btnDanger",
+      "component": "Button",
+      "props": {
+        "value": "危险按钮",
+        "color": "danger"
+      }
+    },
+    {
+      "id": "btnLink",
+      "component": "Button",
+      "props": {
+        "value": "链接按钮",
+        "types": "link"
+      }
+    },
+    {
+      "id": "buttonRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "buttonRowSizesLabel",
+        "buttonRowSizesContent"
+      ]
+    },
+    {
+      "id": "buttonRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "buttonRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "btnLarge",
+        "btnMedium",
+        "btnSmall"
+      ]
+    },
+    {
+      "id": "btnLarge",
+      "component": "Button",
+      "props": {
+        "value": "大按钮",
+        "color": "primary",
+        "size": "large"
+      }
+    },
+    {
+      "id": "btnMedium",
+      "component": "Button",
+      "props": {
+        "value": "中按钮",
+        "color": "primary",
+        "size": "medium"
+      }
+    },
+    {
+      "id": "btnSmall",
+      "component": "Button",
+      "props": {
+        "value": "小按钮",
+        "color": "primary",
+        "size": "small"
+      }
+    },
+    {
+      "id": "buttonRowShapes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "buttonRowShapesLabel",
+        "buttonRowShapesContent"
+      ]
+    },
+    {
+      "id": "buttonRowShapesLabel",
+      "component": "span",
+      "props": {
+        "value": "形状变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "buttonRowShapesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "btnShapeDefault",
+        "btnShapeRound",
+        "btnShapeCircle"
+      ]
+    },
+    {
+      "id": "btnShapeDefault",
+      "component": "Button",
+      "props": {
+        "value": "默认形状",
+        "color": "primary",
+        "shape": "default"
+      }
+    },
+    {
+      "id": "btnShapeRound",
+      "component": "Button",
+      "props": {
+        "value": "圆角按钮",
+        "color": "primary",
+        "shape": "round"
+      }
+    },
+    {
+      "id": "btnShapeCircle",
+      "component": "Button",
+      "props": {
+        "icon": "search",
+        "color": "primary",
+        "shape": "circle"
+      }
+    },
+    {
+      "id": "buttonRowTypes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "buttonRowTypesLabel",
+        "buttonRowTypesContent"
+      ]
+    },
+    {
+      "id": "buttonRowTypesLabel",
+      "component": "span",
+      "props": {
+        "value": "类型变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "buttonRowTypesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "btnTypeDefault",
+        "btnTypeLink"
+      ]
+    },
+    {
+      "id": "btnTypeDefault",
+      "component": "Button",
+      "props": {
+        "value": "默认类型",
+        "color": "primary",
+        "types": "default"
+      }
+    },
+    {
+      "id": "btnTypeLink",
+      "component": "Button",
+      "props": {
+        "value": "链接类型",
+        "types": "link"
+      }
+    },
+    {
+      "id": "buttonRowIcons",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "buttonRowIconsLabel",
+        "buttonRowIconsContent"
+      ]
+    },
+    {
+      "id": "buttonRowIconsLabel",
+      "component": "span",
+      "props": {
+        "value": "图标按钮",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "buttonRowIconsContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "btnIconStart",
+        "btnIconEnd",
+        "btnIconOnly"
+      ]
+    },
+    {
+      "id": "btnIconStart",
+      "component": "Button",
+      "props": {
+        "value": "搜索",
+        "icon": "search",
+        "iconPlacement": "start",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "btnIconEnd",
+      "component": "Button",
+      "props": {
+        "value": "下一步",
+        "icon": "chevron-right",
+        "iconPlacement": "end",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "btnIconOnly",
+      "component": "Button",
+      "props": {
+        "icon": "plus",
+        "color": "primary"
+      }
+    },
+    {
+      "id": "sectionDataDisplay",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "sectionDataDisplayTitle",
+        "tagCard",
+        "badgeCard",
+        "carouselCard",
+        "collapseCard",
+        "dividerCard",
+        "segmentedCard",
+        "timelineCard",
+        "treeCard",
+        "tableCard"
+      ]
+    },
+    {
+      "id": "sectionDataDisplayTitle",
+      "component": "span",
+      "props": {
+        "value": "数据展示组件 (DataDisplay)",
+        "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+      }
+    },
+    {
+      "id": "tagCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "tagCardTitle",
+        "tagRowColors",
+        "tagRowVariants",
+        "tagRowSizes",
+        "tagRowIcons"
+      ]
+    },
+    {
+      "id": "tagCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Tag 标签",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "tagRowColors",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowColorsLabel",
+        "tagRowColorsContent"
+      ]
+    },
+    {
+      "id": "tagRowColorsLabel",
+      "component": "span",
+      "props": {
+        "value": "颜色变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowColorsContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagDefault",
+        "tagSuccess",
+        "tagProcessing",
+        "tagWarning",
+        "tagError"
+      ]
+    },
+    {
+      "id": "tagDefault",
+      "component": "Tag",
+      "props": {
+        "value": "默认",
+        "color": "default"
+      }
+    },
+    {
+      "id": "tagSuccess",
+      "component": "Tag",
+      "props": {
+        "value": "成功",
+        "color": "success"
+      }
+    },
+    {
+      "id": "tagProcessing",
+      "component": "Tag",
+      "props": {
+        "value": "进行中",
+        "color": "processing"
+      }
+    },
+    {
+      "id": "tagWarning",
+      "component": "Tag",
+      "props": {
+        "value": "警告",
+        "color": "warning"
+      }
+    },
+    {
+      "id": "tagError",
+      "component": "Tag",
+      "props": {
+        "value": "错误",
+        "color": "error"
+      }
+    },
+    {
+      "id": "tagRowVariants",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowVariantsLabel",
+        "tagRowVariantsContent"
+      ]
+    },
+    {
+      "id": "tagRowVariantsLabel",
+      "component": "span",
+      "props": {
+        "value": "样式变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowVariantsContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagFilled",
+        "tagOutlined",
+        "tagSolid"
+      ]
+    },
+    {
+      "id": "tagFilled",
+      "component": "Tag",
+      "props": {
+        "value": "filled",
+        "color": "processing",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagOutlined",
+      "component": "Tag",
+      "props": {
+        "value": "outlined",
+        "color": "success",
+        "variant": "outlined"
+      }
+    },
+    {
+      "id": "tagSolid",
+      "component": "Tag",
+      "props": {
+        "value": "solid",
+        "color": "processing",
+        "variant": "solid"
+      }
+    },
+    {
+      "id": "tagRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowSizesLabel",
+        "tagRowSizesContent"
+      ]
+    },
+    {
+      "id": "tagRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagLarge",
+        "tagMedium",
+        "tagSmall"
+      ]
+    },
+    {
+      "id": "tagLarge",
+      "component": "Tag",
+      "props": {
+        "value": "大标签",
+        "color": "success",
+        "size": "large"
+      }
+    },
+    {
+      "id": "tagMedium",
+      "component": "Tag",
+      "props": {
+        "value": "中标签",
+        "color": "success",
+        "size": "medium"
+      }
+    },
+    {
+      "id": "tagSmall",
+      "component": "Tag",
+      "props": {
+        "value": "小标签",
+        "color": "success",
+        "size": "small"
+      }
+    },
+    {
+      "id": "tagRowIcons",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowIconsLabel",
+        "tagRowIconsContent"
+      ]
+    },
+    {
+      "id": "tagRowIconsLabel",
+      "component": "span",
+      "props": {
+        "value": "图标与可关闭",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowIconsContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagWithIcon",
+        "tagClosable"
+      ]
+    },
+    {
+      "id": "tagWithIcon",
+      "component": "Tag",
+      "props": {
+        "value": "在线",
+        "color": "success",
+        "icon": "check-circle"
+      }
+    },
+    {
+      "id": "tagClosable",
+      "component": "Tag",
+      "props": {
+        "value": "可关闭",
+        "color": "processing",
+        "closable": true
+      }
+    },
+    {
+      "id": "badgeCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "badgeCardTitle",
+        "badgeRowCount",
+        "badgeRowDot",
+        "badgeRowStatus"
+      ]
+    },
+    {
+      "id": "badgeCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Badge 徽标",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "badgeRowCount",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "badgeRowCountLabel",
+        "badgeRowContent"
+      ]
+    },
+    {
+      "id": "badgeRowCountLabel",
+      "component": "span",
+      "props": {
+        "value": "计数徽标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "badgeRowContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-6 flex-wrap"
+      },
+      "children": [
+        "badgeCount",
+        "badgeOverflow",
+        "badgeZero"
+      ]
+    },
+    {
+      "id": "badgeCount",
+      "component": "Badge",
+      "props": {
+        "count": 12
+      },
+      "children": [
+        "badgeCountBtn"
+      ]
+    },
+    {
+      "id": "badgeCountBtn",
+      "component": "Button",
+      "props": {
+        "value": "消息",
+        "shape": "round"
+      }
+    },
+    {
+      "id": "badgeOverflow",
+      "component": "Badge",
+      "props": {
+        "count": 108,
+        "overflowCount": 99
+      },
+      "children": [
+        "badgeOverflowBtn"
+      ]
+    },
+    {
+      "id": "badgeOverflowBtn",
+      "component": "Button",
+      "props": {
+        "value": "通知",
+        "shape": "round"
+      }
+    },
+    {
+      "id": "badgeZero",
+      "component": "Badge",
+      "props": {
+        "count": 0,
+        "showZero": true
+      },
+      "children": [
+        "badgeZeroBtn"
+      ]
+    },
+    {
+      "id": "badgeZeroBtn",
+      "component": "Button",
+      "props": {
+        "value": "邮件",
+        "shape": "round"
+      }
+    },
+    {
+      "id": "badgeRowDot",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "badgeRowDotLabel",
+        "badgeRowDotContent"
+      ]
+    },
+    {
+      "id": "badgeRowDotLabel",
+      "component": "span",
+      "props": {
+        "value": "点状徽标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "badgeRowDotContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-6 flex-wrap"
+      },
+      "children": [
+        "badgeDot"
+      ]
+    },
+    {
+      "id": "badgeDot",
+      "component": "Badge",
+      "props": {
+        "count": 0,
+        "dot": true
+      },
+      "children": [
+        "badgeDotBtn"
+      ]
+    },
+    {
+      "id": "badgeDotBtn",
+      "component": "Button",
+      "props": {
+        "value": "新功能",
+        "shape": "round"
+      }
+    },
+    {
+      "id": "badgeRowStatus",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "badgeRowStatusLabel",
+        "badgeRowStatusContent"
+      ]
+    },
+    {
+      "id": "badgeRowStatusLabel",
+      "component": "span",
+      "props": {
+        "value": "状态徽标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "badgeRowStatusContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-6 flex-wrap"
+      },
+      "children": [
+        "badgeStatusSuccess",
+        "badgeStatusProcessing",
+        "badgeStatusError",
+        "badgeStatusWarning",
+        "badgeStatusDefault"
+      ]
+    },
+    {
+      "id": "badgeStatusSuccess",
+      "component": "Badge",
+      "props": {
+        "count": 0,
+        "status": "success"
+      },
+      "children": [
+        "badgeStatusSuccessText"
+      ]
+    },
+    {
+      "id": "badgeStatusSuccessText",
+      "component": "span",
+      "props": {
+        "value": "成功",
+        "className": "text-sm text-on-surface"
+      }
+    },
+    {
+      "id": "badgeStatusProcessing",
+      "component": "Badge",
+      "props": {
+        "count": 0,
+        "status": "processing"
+      },
+      "children": [
+        "badgeStatusProcessingText"
+      ]
+    },
+    {
+      "id": "badgeStatusProcessingText",
+      "component": "span",
+      "props": {
+        "value": "进行中",
+        "className": "text-sm text-on-surface"
+      }
+    },
+    {
+      "id": "badgeStatusError",
+      "component": "Badge",
+      "props": {
+        "count": 0,
+        "status": "error"
+      },
+      "children": [
+        "badgeStatusErrorText"
+      ]
+    },
+    {
+      "id": "badgeStatusErrorText",
+      "component": "span",
+      "props": {
+        "value": "错误",
+        "className": "text-sm text-on-surface"
+      }
+    },
+    {
+      "id": "badgeStatusWarning",
+      "component": "Badge",
+      "props": {
+        "count": 0,
+        "status": "warning"
+      },
+      "children": [
+        "badgeStatusWarningText"
+      ]
+    },
+    {
+      "id": "badgeStatusWarningText",
+      "component": "span",
+      "props": {
+        "value": "警告",
+        "className": "text-sm text-on-surface"
+      }
+    },
+    {
+      "id": "badgeStatusDefault",
+      "component": "Badge",
+      "props": {
+        "count": 0,
+        "status": "default"
+      },
+      "children": [
+        "badgeStatusDefaultText"
+      ]
+    },
+    {
+      "id": "badgeStatusDefaultText",
+      "component": "span",
+      "props": {
+        "value": "默认",
+        "className": "text-sm text-on-surface"
+      }
+    },
+    {
+      "id": "carouselCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "carouselCardTitle",
+        "carouselRowDefault"
+      ]
+    },
+    {
+      "id": "carouselCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Carousel 走马灯",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "carouselRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "carouselRowDefaultLabel",
+        "carouselDefault"
+      ]
+    },
+    {
+      "id": "carouselRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认样式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "carouselDefault",
+      "component": "Carousel",
+      "props": {
+        "className": "rounded-lg overflow-hidden h-[300px]"
+      },
+      "children": [
+        "carouselImg1",
+        "carouselImg2",
+        "carouselImg3"
+      ]
+    },
+    {
+      "id": "carouselImg1",
+      "component": "div",
+      "props": {
+        "className": "h-full flex items-center justify-center bg-primary text-white text-xl font-bold"
+      },
+      "children": [
+        "carouselImg1Text"
+      ]
+    },
+    {
+      "id": "carouselImg1Text",
+      "component": "span",
+      "props": {
+        "value": "幻灯片 1",
+        "className": "text-white text-xl font-bold"
+      }
+    },
+    {
+      "id": "carouselImg2",
+      "component": "div",
+      "props": {
+        "className": "h-full flex items-center justify-center bg-success text-white text-xl font-bold"
+      },
+      "children": [
+        "carouselImg2Text"
+      ]
+    },
+    {
+      "id": "carouselImg2Text",
+      "component": "span",
+      "props": {
+        "value": "幻灯片 2",
+        "className": "text-white text-xl font-bold"
+      }
+    },
+    {
+      "id": "carouselImg3",
+      "component": "div",
+      "props": {
+        "className": "h-full flex items-center justify-center bg-warning text-white text-xl font-bold"
+      },
+      "children": [
+        "carouselImg3Text"
+      ]
+    },
+    {
+      "id": "carouselImg3Text",
+      "component": "span",
+      "props": {
+        "value": "幻灯片 3",
+        "className": "text-white text-xl font-bold"
+      }
+    },
+    {
+      "id": "collapseCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "collapseCardTitle",
+        "collapseRowDefault"
+      ]
+    },
+    {
+      "id": "collapseCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Collapse 折叠面板",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "collapseRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "collapseRowDefaultLabel",
+        "collapseDefault"
+      ]
+    },
+    {
+      "id": "collapseRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认展开面板",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "collapseDefault",
+      "component": "Collapse",
+      "props": {
+        "activeKey": "panel1"
+      },
+      "children": [
+        "collapseItem1",
+        "collapseItem2",
+        "collapseItem3"
+      ]
+    },
+    {
+      "id": "collapseItem1",
+      "component": "CollapseItem",
+      "props": {
+        "key": "panel1",
+        "label": "基础信息",
+        "content": "姓名：张三，年龄：28岁，部门：研发部。"
+      }
+    },
+    {
+      "id": "collapseItem2",
+      "component": "CollapseItem",
+      "props": {
+        "key": "panel2",
+        "label": "工作经历",
+        "content": "2020年至今，就职于ABC科技有限公司，担任高级前端工程师。"
+      }
+    },
+    {
+      "id": "collapseItem3",
+      "component": "CollapseItem",
+      "props": {
+        "key": "panel3",
+        "label": "教育背景",
+        "content": "2016-2020年，北京大学，计算机科学与技术专业。"
+      }
+    },
+    {
+      "id": "dividerCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "dividerCardTitle",
+        "dividerRowDefault",
+        "dividerRowDashed",
+        "dividerRowDotted",
+        "dividerRowText"
+      ]
+    },
+    {
+      "id": "dividerCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Divider 分割线",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "dividerRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "dividerRowDefaultLabel",
+        "dividerDefault"
+      ]
+    },
+    {
+      "id": "dividerRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "实线",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "dividerDefault",
+      "component": "Divider",
+      "props": {
+        "variant": "solid"
+      }
+    },
+    {
+      "id": "dividerRowDashed",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "dividerRowDashedLabel",
+        "dividerDashed"
+      ]
+    },
+    {
+      "id": "dividerRowDashedLabel",
+      "component": "span",
+      "props": {
+        "value": "虚线",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "dividerDashed",
+      "component": "Divider",
+      "props": {
+        "variant": "dashed"
+      }
+    },
+    {
+      "id": "dividerRowDotted",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "dividerRowDottedLabel",
+        "dividerDotted"
+      ]
+    },
+    {
+      "id": "dividerRowDottedLabel",
+      "component": "span",
+      "props": {
+        "value": "点线",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "dividerDotted",
+      "component": "Divider",
+      "props": {
+        "variant": "dotted"
+      }
+    },
+    {
+      "id": "dividerRowText",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "dividerRowTextLabel",
+        "dividerTextCenter",
+        "dividerTextLeft",
+        "dividerTextRight"
+      ]
+    },
+    {
+      "id": "dividerRowTextLabel",
+      "component": "span",
+      "props": {
+        "value": "带文字",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "dividerTextCenter",
+      "component": "Divider",
+      "props": {
+        "value": "居中文字",
+        "titlePlacement": "center"
+      }
+    },
+    {
+      "id": "dividerTextLeft",
+      "component": "Divider",
+      "props": {
+        "value": "左侧文字",
+        "titlePlacement": "start"
+      }
+    },
+    {
+      "id": "dividerTextRight",
+      "component": "Divider",
+      "props": {
+        "value": "右侧文字",
+        "titlePlacement": "end"
+      }
+    },
+    {
+      "id": "segmentedCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "segmentedCardTitle",
+        "segmentedRowSizes",
+        "segmentedRowBlock"
+      ]
+    },
+    {
+      "id": "segmentedCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Segmented 分段控制器",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "segmentedRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowSizesLabel",
+        "segmentedRowSizesContent"
+      ]
+    },
+    {
+      "id": "segmentedRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedLarge",
+        "segmentedMedium",
+        "segmentedSmall"
+      ]
+    },
+    {
+      "id": "segmentedLarge",
+      "component": "Segmented",
+      "props": {
+        "value": "选项一",
+        "options": [
+          "选项一",
+          "选项二",
+          "选项三"
+        ],
+        "size": "large"
+      }
+    },
+    {
+      "id": "segmentedMedium",
+      "component": "Segmented",
+      "props": {
+        "value": "选项一",
+        "options": [
+          "选项一",
+          "选项二",
+          "选项三"
+        ],
+        "size": "medium"
+      }
+    },
+    {
+      "id": "segmentedSmall",
+      "component": "Segmented",
+      "props": {
+        "value": "选项一",
+        "options": [
+          "选项一",
+          "选项二",
+          "选项三"
+        ],
+        "size": "small"
+      }
+    },
+    {
+      "id": "segmentedRowBlock",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowBlockLabel",
+        "segmentedBlock"
+      ]
+    },
+    {
+      "id": "segmentedRowBlockLabel",
+      "component": "span",
+      "props": {
+        "value": "块级模式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedBlock",
+      "component": "Segmented",
+      "props": {
+        "value": "选项一",
+        "options": [
+          "选项一",
+          "选项二",
+          "选项三"
+        ],
+        "block": true
+      }
+    },
+    {
+      "id": "timelineCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "timelineCardTitle",
+        "timelineRowDefault",
+        "timelineRowAlternate"
+      ]
+    },
+    {
+      "id": "timelineCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Timeline 时间轴",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "timelineRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "timelineRowDefaultLabel",
+        "timelineDefault"
+      ]
+    },
+    {
+      "id": "timelineRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认左侧对齐",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "timelineDefault",
+      "component": "Timeline",
+      "props": {
+        "mode": "start"
+      },
+      "children": [
+        "timelineItem1",
+        "timelineItem2",
+        "timelineItem3",
+        "timelineItem4"
+      ]
+    },
+    {
+      "id": "timelineItem1",
+      "component": "TimelineItem",
+      "props": {
+        "title": "需求评审",
+        "content": "完成产品需求文档评审",
+        "icon": "file-check",
+        "color": "#52c41a"
+      }
+    },
+    {
+      "id": "timelineItem2",
+      "component": "TimelineItem",
+      "props": {
+        "title": "设计阶段",
+        "content": "UI/UX设计稿输出",
+        "icon": "palette",
+        "color": "#1890ff"
+      }
+    },
+    {
+      "id": "timelineItem3",
+      "component": "TimelineItem",
+      "props": {
+        "title": "开发中",
+        "content": "前端与后端并行开发",
+        "icon": "code-2",
+        "color": "#faad14"
+      }
+    },
+    {
+      "id": "timelineItem4",
+      "component": "TimelineItem",
+      "props": {
+        "title": "测试阶段",
+        "content": "待进行功能与性能测试",
+        "icon": "test-tubes",
+        "color": "#d9d9d9"
+      }
+    },
+    {
+      "id": "timelineRowAlternate",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "timelineRowAlternateLabel",
+        "timelineAlternate"
+      ]
+    },
+    {
+      "id": "timelineRowAlternateLabel",
+      "component": "span",
+      "props": {
+        "value": "交替模式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "timelineAlternate",
+      "component": "Timeline",
+      "props": {
+        "mode": "alternate"
+      },
+      "children": [
+        "timelineAltItem1",
+        "timelineAltItem2",
+        "timelineAltItem3"
+      ]
+    },
+    {
+      "id": "timelineAltItem1",
+      "component": "TimelineItem",
+      "props": {
+        "title": "创建项目",
+        "content": "初始化项目仓库和基础框架",
+        "color": "#1890ff"
+      }
+    },
+    {
+      "id": "timelineAltItem2",
+      "component": "TimelineItem",
+      "props": {
+        "title": "功能开发",
+        "content": "完成核心功能模块开发",
+        "color": "#52c41a"
+      }
+    },
+    {
+      "id": "timelineAltItem3",
+      "component": "TimelineItem",
+      "props": {
+        "title": "部署上线",
+        "content": "生产环境部署与验证",
+        "color": "#faad14"
+      }
+    },
+    {
+      "id": "treeCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "treeCardTitle",
+        "treeRowDefault",
+        "treeRowCheckable"
+      ]
+    },
+    {
+      "id": "treeCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Tree 树形控件",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "treeRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "treeRowDefaultLabel",
+        "treeDefault"
+      ]
+    },
+    {
+      "id": "treeRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认展开",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "treeDefault",
+      "component": "Tree",
+      "props": {
+        "options": [
+          {
+            "title": "总部",
+            "key": "hq",
+            "icon": "building-2",
+            "children": [
+              {
+                "title": "研发部",
+                "key": "rd",
+                "icon": "code-2",
+                "children": [
+                  {
+                    "title": "前端组",
+                    "key": "fe",
+                    "icon": "monitor"
+                  },
+                  {
+                    "title": "后端组",
+                    "key": "be",
+                    "icon": "server"
+                  }
+                ]
+              },
+              {
+                "title": "市场部",
+                "key": "mkt",
+                "icon": "megaphone",
+                "children": [
+                  {
+                    "title": "品牌组",
+                    "key": "brand",
+                    "icon": "palette"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "defaultExpandedKeys": [
+          "hq",
+          "rd"
+        ]
+      }
+    },
+    {
+      "id": "treeRowCheckable",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "treeRowCheckableLabel",
+        "treeCheckable"
+      ]
+    },
+    {
+      "id": "treeRowCheckableLabel",
+      "component": "span",
+      "props": {
+        "value": "可勾选",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "treeCheckable",
+      "component": "Tree",
+      "props": {
+        "checkable": true,
+        "options": [
+          {
+            "title": "全部权限",
+            "key": "all",
+            "children": [
+              {
+                "title": "用户管理",
+                "key": "user",
+                "children": [
+                  {
+                    "title": "查看用户",
+                    "key": "user-view"
+                  },
+                  {
+                    "title": "编辑用户",
+                    "key": "user-edit"
+                  }
+                ]
+              },
+              {
+                "title": "系统设置",
+                "key": "sys",
+                "children": [
+                  {
+                    "title": "基本设置",
+                    "key": "sys-basic"
+                  },
+                  {
+                    "title": "安全设置",
+                    "key": "sys-security"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "defaultExpandedKeys": [
+          "all",
+          "user",
+          "sys"
+        ],
+        "defaultSelectedKeys": [
+          "user-view",
+          "sys-basic"
+        ]
+      }
+    },
+    {
+      "id": "tableCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "tableCardTitle",
+        "tableRowDefault",
+        "tableRowExpandable"
+      ]
+    },
+    {
+      "id": "tableCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Table 表格",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "tableRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tableRowDefaultLabel",
+        "tableDefault"
+      ]
+    },
+    {
+      "id": "tableRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "基础表格",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "sectionDataEntry",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "sectionDataEntryTitle",
+        "checkboxGroupCard",
+        "radioGroupCard",
+        "datePickerCard",
+        "inputCard",
+        "textareaCard",
+        "inputNumberCard",
+        "timePickerCard",
+        "selectCard",
+        "sliderCard",
+        "switchCard",
+        "rateCard"
+      ]
+    },
+    {
+      "id": "sectionDataEntryTitle",
+      "component": "span",
+      "props": {
+        "value": "数据录入组件 (DataEntry)",
+        "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+      }
+    },
+    {
+      "id": "checkboxGroupCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "checkboxGroupCardTitle",
+        "checkboxGroupRow"
+      ]
+    },
+    {
+      "id": "checkboxGroupCardTitle",
+      "component": "span",
+      "props": {
+        "value": "CheckboxGroup 复选框组",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "checkboxGroupRow",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "checkboxGroupRowLabel",
+        "checkboxGroupDefault"
+      ]
+    },
+    {
+      "id": "checkboxGroupRowLabel",
+      "component": "span",
+      "props": {
+        "value": "默认选中状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "checkboxGroupDefault",
+      "component": "CheckboxGroup",
+      "props": {
+        "value": [
+          "option1",
+          "option3"
+        ],
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          },
+          {
+            "label": "选项三",
+            "value": "option3"
+          }
+        ]
+      }
+    },
+    {
+      "id": "radioGroupCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "radioGroupCardTitle",
+        "radioGroupRowDefault",
+        "radioGroupRowButton",
+        "radioGroupRowVertical"
+      ]
+    },
+    {
+      "id": "radioGroupCardTitle",
+      "component": "span",
+      "props": {
+        "value": "RadioGroup 单选框组",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "radioGroupRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "radioGroupRowDefaultLabel",
+        "radioGroupDefault"
+      ]
+    },
+    {
+      "id": "radioGroupRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认样式（水平）",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "radioGroupDefault",
+      "component": "RadioGroup",
+      "props": {
+        "value": "apple",
+        "options": [
+          {
+            "label": "苹果",
+            "value": "apple"
+          },
+          {
+            "label": "橙子",
+            "value": "orange"
+          },
+          {
+            "label": "葡萄",
+            "value": "grape"
+          }
+        ],
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": "radioGroupRowButton",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "radioGroupRowButtonLabel",
+        "radioGroupRowButtonSizes"
+      ]
+    },
+    {
+      "id": "radioGroupRowButtonLabel",
+      "component": "span",
+      "props": {
+        "value": "按钮样式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "radioGroupRowButtonSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "radioGroupButtonLarge",
+        "radioGroupButtonMedium",
+        "radioGroupButtonSmall"
+      ]
+    },
+    {
+      "id": "radioGroupButtonLarge",
+      "component": "RadioGroup",
+      "props": {
+        "value": "beijing",
+        "options": [
+          {
+            "label": "北京",
+            "value": "beijing"
+          },
+          {
+            "label": "上海",
+            "value": "shanghai"
+          },
+          {
+            "label": "广州",
+            "value": "guangzhou"
+          }
+        ],
+        "optionType": "button",
+        "size": "large"
+      }
+    },
+    {
+      "id": "radioGroupButtonMedium",
+      "component": "RadioGroup",
+      "props": {
+        "value": "beijing",
+        "options": [
+          {
+            "label": "北京",
+            "value": "beijing"
+          },
+          {
+            "label": "上海",
+            "value": "shanghai"
+          },
+          {
+            "label": "广州",
+            "value": "guangzhou"
+          }
+        ],
+        "optionType": "button",
+        "size": "medium"
+      }
+    },
+    {
+      "id": "radioGroupButtonSmall",
+      "component": "RadioGroup",
+      "props": {
+        "value": "beijing",
+        "options": [
+          {
+            "label": "北京",
+            "value": "beijing"
+          },
+          {
+            "label": "上海",
+            "value": "shanghai"
+          },
+          {
+            "label": "广州",
+            "value": "guangzhou"
+          }
+        ],
+        "optionType": "button",
+        "size": "small"
+      }
+    },
+    {
+      "id": "radioGroupRowVertical",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "radioGroupRowVerticalLabel",
+        "radioGroupVertical"
+      ]
+    },
+    {
+      "id": "radioGroupRowVerticalLabel",
+      "component": "span",
+      "props": {
+        "value": "垂直布局",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "radioGroupVertical",
+      "component": "RadioGroup",
+      "props": {
+        "value": "apple",
+        "options": [
+          {
+            "label": "苹果",
+            "value": "apple"
+          },
+          {
+            "label": "橙子",
+            "value": "orange"
+          },
+          {
+            "label": "葡萄",
+            "value": "grape"
+          }
+        ],
+        "orientation": "vertical"
+      }
+    },
+    {
+      "id": "datePickerCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "datePickerCardTitle",
+        "datePickerRowSingle",
+        "datePickerRowRange",
+        "datePickerRowSizes"
+      ]
+    },
+    {
+      "id": "datePickerCardTitle",
+      "component": "span",
+      "props": {
+        "value": "DatePicker 日期选择器",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "datePickerRowSingle",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "datePickerRowSingleLabel",
+        "datePickerSingle"
+      ]
+    },
+    {
+      "id": "datePickerRowSingleLabel",
+      "component": "span",
+      "props": {
+        "value": "单日期选择",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "datePickerSingle",
+      "component": "DatePicker",
+      "props": {
+        "value": "2026-06-23",
+        "placeholder": "请选择日期",
+        "format": "YYYY-MM-DD"
+      }
+    },
+    {
+      "id": "datePickerRowRange",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "datePickerRowRangeLabel",
+        "datePickerRange"
+      ]
+    },
+    {
+      "id": "datePickerRowRangeLabel",
+      "component": "span",
+      "props": {
+        "value": "日期范围",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "datePickerRange",
+      "component": "DatePicker",
+      "props": {
+        "value": [
+          "2026-06-01",
+          "2026-06-23"
+        ],
+        "range": true,
+        "placeholder": [
+          "开始日期",
+          "结束日期"
+        ]
+      }
+    },
+    {
+      "id": "datePickerRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "datePickerRowSizesLabel",
+        "datePickerRowSizesContent"
+      ]
+    },
+    {
+      "id": "datePickerRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "datePickerRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "datePickerLarge",
+        "datePickerMedium",
+        "datePickerSmall"
+      ]
+    },
+    {
+      "id": "datePickerLarge",
+      "component": "DatePicker",
+      "props": {
+        "value": "2026-06-23",
+        "size": "large",
+        "placeholder": "大尺寸"
+      }
+    },
+    {
+      "id": "datePickerMedium",
+      "component": "DatePicker",
+      "props": {
+        "value": "2026-06-23",
+        "size": "medium",
+        "placeholder": "中尺寸"
+      }
+    },
+    {
+      "id": "datePickerSmall",
+      "component": "DatePicker",
+      "props": {
+        "value": "2026-06-23",
+        "size": "small",
+        "placeholder": "小尺寸"
+      }
+    },
+    {
+      "id": "inputCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "inputCardTitle",
+        "inputRowDefault",
+        "inputRowPrefix",
+        "inputRowPassword",
+        "inputRowSizes"
+      ]
+    },
+    {
+      "id": "inputCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Input 输入框",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "inputRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2 w-48"
+      },
+      "children": [
+        "inputRowDefaultLabel",
+        "inputDefault"
+      ]
+    },
+    {
+      "id": "inputRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认输入框",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "inputDefault",
+      "component": "Input",
+      "props": {
+        "value": "默认输入内容",
+        "placeholder": "请输入内容"
+      }
+    },
+    {
+      "id": "inputRowPrefix",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2 w-48"
+      },
+      "children": [
+        "inputRowPrefixLabel",
+        "inputRowPrefixContent"
+      ]
+    },
+    {
+      "id": "inputRowPrefixLabel",
+      "component": "span",
+      "props": {
+        "value": "带前缀/后缀图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "inputRowPrefixContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "inputPrefix",
+        "inputSuffix"
+      ]
+    },
+    {
+      "id": "inputPrefix",
+      "component": "Input",
+      "props": {
+        "value": "",
+        "placeholder": "搜索...",
+        "prefix": "search"
+      }
+    },
+    {
+      "id": "inputSuffix",
+      "component": "Input",
+      "props": {
+        "value": "www.example.com",
+        "suffix": "link"
+      }
+    },
+    {
+      "id": "inputRowPassword",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2 w-48"
+      },
+      "children": [
+        "inputRowPasswordLabel",
+        "inputPassword"
+      ]
+    },
+    {
+      "id": "inputRowPasswordLabel",
+      "component": "span",
+      "props": {
+        "value": "密码输入框",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "inputPassword",
+      "component": "Input",
+      "props": {
+        "value": "mypassword123",
+        "password": true,
+        "placeholder": "请输入密码"
+      }
+    },
+    {
+      "id": "inputRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2 w-48"
+      },
+      "children": [
+        "inputRowSizesLabel",
+        "inputRowSizesContent"
+      ]
+    },
+    {
+      "id": "inputRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "inputRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "inputLarge",
+        "inputMedium",
+        "inputSmall"
+      ]
+    },
+    {
+      "id": "inputLarge",
+      "component": "Input",
+      "props": {
+        "value": "大尺寸",
+        "size": "large"
+      }
+    },
+    {
+      "id": "inputMedium",
+      "component": "Input",
+      "props": {
+        "value": "中尺寸",
+        "size": "medium"
+      }
+    },
+    {
+      "id": "inputSmall",
+      "component": "Input",
+      "props": {
+        "value": "小尺寸",
+        "size": "small"
+      }
+    },
+    {
+      "id": "textareaCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "textareaCardTitle",
+        "textareaRowDefault",
+        "textareaRowAutoSize"
+      ]
+    },
+    {
+      "id": "textareaCardTitle",
+      "component": "span",
+      "props": {
+        "value": "TextArea 文本域",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "textareaRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "textareaRowDefaultLabel",
+        "textareaDefault"
+      ]
+    },
+    {
+      "id": "textareaRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认文本域",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "textareaDefault",
+      "component": "TextArea",
+      "props": {
+        "value": "这是一个多行文本输入框的示例内容，可以输入较长的文本。",
+        "placeholder": "请输入内容"
+      }
+    },
+    {
+      "id": "textareaRowAutoSize",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "textareaRowAutoSizeLabel",
+        "textareaAutoSize"
+      ]
+    },
+    {
+      "id": "textareaRowAutoSizeLabel",
+      "component": "span",
+      "props": {
+        "value": "自适应高度",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "textareaAutoSize",
+      "component": "TextArea",
+      "props": {
+        "value": "自适应高度的文本域，会根据内容自动调整高度。",
+        "autoSize": true
+      }
+    },
+    {
+      "id": "inputNumberCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "inputNumberCardTitle",
+        "inputNumberRowDefault",
+        "inputNumberRowControls"
+      ]
+    },
+    {
+      "id": "inputNumberCardTitle",
+      "component": "span",
+      "props": {
+        "value": "InputNumber 数字输入框",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "inputNumberRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "inputNumberRowDefaultLabel",
+        "inputNumberDefault"
+      ]
+    },
+    {
+      "id": "inputNumberRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认数字输入框",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "inputNumberDefault",
+      "component": "InputNumber",
+      "props": {
+        "value": 42,
+        "placeholder": "请输入数字"
+      }
+    },
+    {
+      "id": "inputNumberRowControls",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "inputNumberRowControlsLabel",
+        "inputNumberControls"
+      ]
+    },
+    {
+      "id": "inputNumberRowControlsLabel",
+      "component": "span",
+      "props": {
+        "value": "无控制器",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "inputNumberControls",
+      "component": "InputNumber",
+      "props": {
+        "value": 10,
+        "controls": false,
+        "step": 5
+      }
+    },
+    {
+      "id": "timePickerCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "timePickerCardTitle",
+        "timePickerRowDefault",
+        "timePickerRowRange",
+        "timePickerRowSizes"
+      ]
+    },
+    {
+      "id": "timePickerCardTitle",
+      "component": "span",
+      "props": {
+        "value": "TimePicker 时间选择器",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "timePickerRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "timePickerRowDefaultLabel",
+        "timePickerDefault"
+      ]
+    },
+    {
+      "id": "timePickerRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认时间选择",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "timePickerDefault",
+      "component": "TimePicker",
+      "props": {
+        "value": "2023-10-01 14:30:00",
+        "placeholder": "请选择时间"
+      }
+    },
+    {
+      "id": "timePickerRowRange",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "timePickerRowRangeLabel",
+        "timePickerRange"
+      ]
+    },
+    {
+      "id": "timePickerRowRangeLabel",
+      "component": "span",
+      "props": {
+        "value": "时间范围",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "timePickerRange",
+      "component": "TimePicker",
+      "props": {
+        "value": [
+          "2023-10-01 08:00:00",
+          "2023-10-01 18:00:00"
+        ],
+        "range": true,
+        "placeholder": [
+          "开始时间",
+          "结束时间"
+        ]
+      }
+    },
+    {
+      "id": "timePickerRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "timePickerRowSizesLabel",
+        "timePickerRowSizesContent"
+      ]
+    },
+    {
+      "id": "timePickerRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "timePickerRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "timePickerLarge",
+        "timePickerMedium",
+        "timePickerSmall"
+      ]
+    },
+    {
+      "id": "timePickerLarge",
+      "component": "TimePicker",
+      "props": {
+        "value": "2023-10-01 14:30:00",
+        "size": "large",
+        "placeholder": "大尺寸"
+      }
+    },
+    {
+      "id": "timePickerMedium",
+      "component": "TimePicker",
+      "props": {
+        "value": "2023-10-01 14:30:00",
+        "size": "medium",
+        "placeholder": "中尺寸"
+      }
+    },
+    {
+      "id": "timePickerSmall",
+      "component": "TimePicker",
+      "props": {
+        "value": "2023-10-01 14:30:00",
+        "size": "small",
+        "placeholder": "小尺寸"
+      }
+    },
+    {
+      "id": "selectCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "selectCardTitle",
+        "selectRowDefault",
+        "selectRowMultiple",
+        "selectRowSizes"
+      ]
+    },
+    {
+      "id": "selectCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Select 选择器",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "selectRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2 w-48"
+      },
+      "children": [
+        "selectRowDefaultLabel",
+        "selectDefault"
+      ]
+    },
+    {
+      "id": "selectRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认选择器",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "selectDefault",
+      "component": "Select",
+      "props": {
+        "value": "option2",
+        "placeholder": "请选择",
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          },
+          {
+            "label": "选项三",
+            "value": "option3"
+          },
+          {
+            "label": "选项四",
+            "value": "option4"
+          }
+        ]
+      }
+    },
+    {
+      "id": "selectRowMultiple",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2 w-48"
+      },
+      "children": [
+        "selectRowMultipleLabel",
+        "selectMultiple"
+      ]
+    },
+    {
+      "id": "selectRowMultipleLabel",
+      "component": "span",
+      "props": {
+        "value": "多选模式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "selectMultiple",
+      "component": "Select",
+      "props": {
+        "value": [
+          "option1",
+          "option3"
+        ],
+        "mode": "multiple",
+        "placeholder": "请选择多个选项",
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          },
+          {
+            "label": "选项三",
+            "value": "option3"
+          },
+          {
+            "label": "选项四",
+            "value": "option4"
+          }
+        ]
+      }
+    },
+    {
+      "id": "selectRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2 w-48"
+      },
+      "children": [
+        "selectRowSizesLabel",
+        "selectRowSizesContent"
+      ]
+    },
+    {
+      "id": "selectRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "selectRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "selectLarge",
+        "selectMedium",
+        "selectSmall"
+      ]
+    },
+    {
+      "id": "selectLarge",
+      "component": "Select",
+      "props": {
+        "value": "option1",
+        "size": "large",
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          }
+        ]
+      }
+    },
+    {
+      "id": "selectMedium",
+      "component": "Select",
+      "props": {
+        "value": "option1",
+        "size": "medium",
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          }
+        ]
+      }
+    },
+    {
+      "id": "selectSmall",
+      "component": "Select",
+      "props": {
+        "value": "option1",
+        "size": "small",
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sliderCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "sliderCardTitle",
+        "sliderRowDefault",
+        "sliderRowRange",
+        "sliderRowMarks",
+        "sliderRowInput"
+      ]
+    },
+    {
+      "id": "sliderCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Slider 滑动输入条",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "sliderRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "sliderRowDefaultLabel",
+        "sliderDefault"
+      ]
+    },
+    {
+      "id": "sliderRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "基础滑块",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "sliderDefault",
+      "component": "Slider",
+      "props": {
+        "value": 36,
+        "min": 0,
+        "max": 100
+      }
+    },
+    {
+      "id": "sliderRowRange",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "sliderRowRangeLabel",
+        "sliderRange"
+      ]
+    },
+    {
+      "id": "sliderRowRangeLabel",
+      "component": "span",
+      "props": {
+        "value": "范围滑块",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "sliderRange",
+      "component": "Slider",
+      "props": {
+        "value": [
+          20,
+          80
+        ],
+        "range": true,
+        "min": 0,
+        "max": 100
+      }
+    },
+    {
+      "id": "sliderRowMarks",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "sliderRowMarksLabel",
+        "sliderMarks"
+      ]
+    },
+    {
+      "id": "sliderRowMarksLabel",
+      "component": "span",
+      "props": {
+        "value": "带刻度标记",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "sliderMarks",
+      "component": "Slider",
+      "props": {
+        "value": 50,
+        "min": 0,
+        "max": 100,
+        "marks": {
+          "0": "0",
+          "25": "25",
+          "50": "50",
+          "75": "75",
+          "100": "100"
+        }
+      }
+    },
+    {
+      "id": "sliderRowInput",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "sliderRowInputLabel",
+        "sliderInput"
+      ]
+    },
+    {
+      "id": "sliderRowInputLabel",
+      "component": "span",
+      "props": {
+        "value": "带数字输入框",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "sliderInput",
+      "component": "Slider",
+      "props": {
+        "value": 45,
+        "min": 0,
+        "max": 100,
+        "input": true
+      }
+    },
+    {
+      "id": "switchCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "switchCardTitle",
+        "switchRowDefault",
+        "switchRowText",
+        "switchRowIcon",
+        "switchRowSizes"
+      ]
+    },
+    {
+      "id": "switchCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Switch 开关",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "switchRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "switchRowDefaultLabel",
+        "switchRowDefaultContent"
+      ]
+    },
+    {
+      "id": "switchRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "开/关状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "switchRowDefaultContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "switchOn",
+        "switchOff"
+      ]
+    },
+    {
+      "id": "switchOn",
+      "component": "Switch",
+      "props": {
+        "value": true
+      }
+    },
+    {
+      "id": "switchOff",
+      "component": "Switch",
+      "props": {
+        "value": false
+      }
+    },
+    {
+      "id": "switchRowText",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "switchRowTextLabel",
+        "switchText"
+      ]
+    },
+    {
+      "id": "switchRowTextLabel",
+      "component": "span",
+      "props": {
+        "value": "带文字描述",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "switchText",
+      "component": "Switch",
+      "props": {
+        "value": true,
+        "checkedChildren": "开",
+        "unCheckedChildren": "关"
+      }
+    },
+    {
+      "id": "switchRowIcon",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "switchRowIconLabel",
+        "switchIcon"
+      ]
+    },
+    {
+      "id": "switchRowIconLabel",
+      "component": "span",
+      "props": {
+        "value": "带图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "switchIcon",
+      "component": "Switch",
+      "props": {
+        "value": true,
+        "checkedChildrenIcon": "check",
+        "unCheckedChildrenIcon": "x"
+      }
+    },
+    {
+      "id": "switchRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "switchRowSizesLabel",
+        "switchRowSizesContent"
+      ]
+    },
+    {
+      "id": "switchRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "switchRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "switchMedium",
+        "switchSmall"
+      ]
+    },
+    {
+      "id": "switchMedium",
+      "component": "Switch",
+      "props": {
+        "value": true,
+        "size": "medium"
+      }
+    },
+    {
+      "id": "switchSmall",
+      "component": "Switch",
+      "props": {
+        "value": true,
+        "size": "small"
+      }
+    },
+    {
+      "id": "rateCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "rateCardTitle",
+        "rateRowDefault",
+        "rateRowSizes"
+      ]
+    },
+    {
+      "id": "rateCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Rate 评分",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "rateRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "rateRowDefaultLabel",
+        "rateDefault"
+      ]
+    },
+    {
+      "id": "rateRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "基础样式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "rateDefault",
+      "component": "Rate",
+      "props": {
+        "count": 5,
+        "value": 3
+      }
+    },
+    {
+      "id": "rateRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "rateRowSizesLabel",
+        "rateRowSizesContent"
+      ]
+    },
+    {
+      "id": "rateRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "rateRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "rateLarge",
+        "rateMedium",
+        "rateSmall"
+      ]
+    },
+    {
+      "id": "rateLarge",
+      "component": "Rate",
+      "props": {
+        "count": 5,
+        "value": 3,
+        "size": "large"
+      }
+    },
+    {
+      "id": "rateMedium",
+      "component": "Rate",
+      "props": {
+        "count": 5,
+        "value": 3,
+        "size": "medium"
+      }
+    },
+    {
+      "id": "rateSmall",
+      "component": "Rate",
+      "props": {
+        "count": 5,
+        "value": 3,
+        "size": "small"
+      }
+    },
+    {
+      "id": "sectionNavigation",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "sectionNavigationTitle",
+        "breadcrumbCard",
+        "dropdownCard",
+        "tabsCard",
+        "stepsCard",
+        "menuCard"
+      ]
+    },
+    {
+      "id": "sectionNavigationTitle",
+      "component": "span",
+      "props": {
+        "value": "导航组件 (Navigation)",
+        "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+      }
+    },
+    {
+      "id": "breadcrumbCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "breadcrumbCardTitle",
+        "breadcrumbRowDefault",
+        "breadcrumbRowCustom"
+      ]
+    },
+    {
+      "id": "breadcrumbCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Breadcrumb 面包屑",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "breadcrumbRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "breadcrumbRowDefaultLabel",
+        "breadcrumbDefault"
+      ]
+    },
+    {
+      "id": "breadcrumbRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认分隔符",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "breadcrumbDefault",
+      "component": "Breadcrumb",
+      "props": {
+        "separator": "/",
+        "items": [
+          {
+            "title": "首页"
+          },
+          {
+            "title": "产品中心"
+          },
+          {
+            "title": "详情页"
+          }
+        ]
+      }
+    },
+    {
+      "id": "breadcrumbRowCustom",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "breadcrumbRowCustomLabel",
+        "breadcrumbCustom"
+      ]
+    },
+    {
+      "id": "breadcrumbRowCustomLabel",
+      "component": "span",
+      "props": {
+        "value": "自定义分隔符",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "breadcrumbCustom",
+      "component": "Breadcrumb",
+      "props": {
+        "separator": ">",
+        "items": [
+          {
+            "title": "系统管理"
+          },
+          {
+            "title": "用户管理"
+          },
+          {
+            "title": "用户详情"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dropdownCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "dropdownCardTitle",
+        "dropdownRowDefault"
+      ]
+    },
+    {
+      "id": "dropdownCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Dropdown 下拉菜单",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "dropdownRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "dropdownRowDefaultLabel",
+        "dropdownRowContent"
+      ]
+    },
+    {
+      "id": "dropdownRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "点击触发",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "dropdownRowContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4"
+      },
+      "children": [
+        "dropdownClick",
+        "dropdownHover"
+      ]
+    },
+    {
+      "id": "dropdownClick",
+      "component": "Dropdown",
+      "props": {
+        "trigger": [
+          "click"
+        ],
+        "menu": [
+          {
+            "label": "编辑",
+            "key": "edit",
+            "icon": "pencil"
+          },
+          {
+            "label": "复制",
+            "key": "copy",
+            "icon": "copy"
+          },
+          {
+            "label": "删除",
+            "key": "delete",
+            "icon": "trash-2"
+          }
+        ]
+      },
+      "children": [
+        "dropdownClickBtn"
+      ]
+    },
+    {
+      "id": "dropdownClickBtn",
+      "component": "Button",
+      "props": {
+        "value": "点击展开",
+        "color": "primary",
+        "icon": "chevron-down",
+        "iconPlacement": "end"
+      }
+    },
+    {
+      "id": "dropdownHover",
+      "component": "Dropdown",
+      "props": {
+        "trigger": [
+          "hover"
+        ],
+        "menu": [
+          {
+            "label": "查看",
+            "key": "view",
+            "icon": "eye"
+          },
+          {
+            "label": "导出",
+            "key": "export",
+            "icon": "download"
+          },
+          {
+            "label": "设置",
+            "key": "settings",
+            "icon": "settings"
+          }
+        ]
+      },
+      "children": [
+        "dropdownHoverBtn"
+      ]
+    },
+    {
+      "id": "dropdownHoverBtn",
+      "component": "Button",
+      "props": {
+        "value": "悬停展开",
+        "icon": "chevron-down",
+        "iconPlacement": "end"
+      }
+    },
+    {
+      "id": "tabsCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "tabsCardTitle",
+        "tabsRowLine",
+        "tabsRowCard",
+        "tabsRowPlacement"
+      ]
+    },
+    {
+      "id": "tabsCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Tabs 标签页",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "tabsRowLine",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowLineLabel",
+        "tabsLine"
+      ]
+    },
+    {
+      "id": "tabsRowLineLabel",
+      "component": "span",
+      "props": {
+        "value": "线条样式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsLine",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line"
+      },
+      "children": [
+        "tabLine1",
+        "tabLine2",
+        "tabLine3"
+      ]
+    },
+    {
+      "id": "tabLine1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "概述",
+        "icon": "info",
+        "content": "这是概述页面的内容，包含项目的整体介绍和关键信息摘要。"
+      }
+    },
+    {
+      "id": "tabLine2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file-text",
+        "content": "这是详情页面的内容，包含项目的详细说明和技术规格参数。"
+      }
+    },
+    {
+      "id": "tabLine3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "这是设置页面的内容，包含各项配置选项。"
+      }
+    },
+    {
+      "id": "tabsRowCard",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowCardLabel",
+        "tabsCard2"
+      ]
+    },
+    {
+      "id": "tabsRowCardLabel",
+      "component": "span",
+      "props": {
+        "value": "卡片样式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsCard2",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "card"
+      },
+      "children": [
+        "tabCard1",
+        "tabCard2",
+        "tabCard3"
+      ]
+    },
+    {
+      "id": "tabCard1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "基础信息",
+        "content": "基础信息内容区域"
+      }
+    },
+    {
+      "id": "tabCard2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "扩展信息",
+        "content": "扩展信息内容区域"
+      }
+    },
+    {
+      "id": "tabCard3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "历史记录",
+        "content": "历史记录内容区域"
+      }
+    },
+    {
+      "id": "tabsRowPlacement",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowPlacementLabel",
+        "tabsPlacement"
+      ]
+    },
+    {
+      "id": "tabsRowPlacementLabel",
+      "component": "span",
+      "props": {
+        "value": "左侧标签",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsPlacement",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line",
+        "tabPlacement": "start"
+      },
+      "children": [
+        "tabPlacement1",
+        "tabPlacement2"
+      ]
+    },
+    {
+      "id": "tabPlacement1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "标签一",
+        "content": "标签一内容"
+      }
+    },
+    {
+      "id": "tabPlacement2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "标签二",
+        "content": "标签二内容"
+      }
+    },
+    {
+      "id": "stepsCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "stepsCardTitle",
+        "stepsRowDefault",
+        "stepsRowDot",
+        "stepsRowVertical"
+      ]
+    },
+    {
+      "id": "stepsCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Steps 步骤条",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "stepsRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "stepsRowDefaultLabel",
+        "stepsDefault"
+      ]
+    },
+    {
+      "id": "stepsRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认步骤条",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "stepsDefault",
+      "component": "Steps",
+      "props": {
+        "current": 2,
+        "className": "w-full"
+      },
+      "children": [
+        "stepItem1",
+        "stepItem2",
+        "stepItem3",
+        "stepItem4"
+      ]
+    },
+    {
+      "id": "stepItem1",
+      "component": "StepItem",
+      "props": {
+        "title": "提交申请",
+        "content": "填写申请表单",
+        "icon": "send",
+        "status": "finish"
+      }
+    },
+    {
+      "id": "stepItem2",
+      "component": "StepItem",
+      "props": {
+        "title": "部门审核",
+        "content": "主管审批中",
+        "icon": "eye",
+        "status": "process"
+      }
+    },
+    {
+      "id": "stepItem3",
+      "component": "StepItem",
+      "props": {
+        "title": "财务确认",
+        "content": "等待处理",
+        "icon": "credit-card",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "stepItem4",
+      "component": "StepItem",
+      "props": {
+        "title": "完成",
+        "content": "流程结束",
+        "icon": "check-circle",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "stepsRowDot",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "stepsRowDotLabel",
+        "stepsDot"
+      ]
+    },
+    {
+      "id": "stepsRowDotLabel",
+      "component": "span",
+      "props": {
+        "value": "点状步骤条",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "stepsDot",
+      "component": "Steps",
+      "props": {
+        "current": 1,
+        "types": "dot",
+        "className": "w-full"
+      },
+      "children": [
+        "stepDotItem1",
+        "stepDotItem2",
+        "stepDotItem3"
+      ]
+    },
+    {
+      "id": "stepDotItem1",
+      "component": "StepItem",
+      "props": {
+        "title": "已下单",
+        "status": "finish"
+      }
+    },
+    {
+      "id": "stepDotItem2",
+      "component": "StepItem",
+      "props": {
+        "title": "配送中",
+        "status": "process"
+      }
+    },
+    {
+      "id": "stepDotItem3",
+      "component": "StepItem",
+      "props": {
+        "title": "已签收",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "stepsRowVertical",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "stepsRowVerticalLabel",
+        "stepsVertical"
+      ]
+    },
+    {
+      "id": "stepsRowVerticalLabel",
+      "component": "span",
+      "props": {
+        "value": "垂直步骤条",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "stepsVertical",
+      "component": "Steps",
+      "props": {
+        "current": 1,
+        "orientation": "vertical"
+      },
+      "children": [
+        "stepVertItem1",
+        "stepVertItem2",
+        "stepVertItem3"
+      ]
+    },
+    {
+      "id": "stepVertItem1",
+      "component": "StepItem",
+      "props": {
+        "title": "创建项目",
+        "content": "初始化项目配置",
+        "status": "finish"
+      }
+    },
+    {
+      "id": "stepVertItem2",
+      "component": "StepItem",
+      "props": {
+        "title": "开发阶段",
+        "content": "前后端并行开发",
+        "status": "process"
+      }
+    },
+    {
+      "id": "stepVertItem3",
+      "component": "StepItem",
+      "props": {
+        "title": "部署上线",
+        "content": "生产环境发布",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "sectionResponse",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "sectionResponseTitle",
+        "progressCard"
+      ]
+    },
+    {
+      "id": "sectionResponseTitle",
+      "component": "span",
+      "props": {
+        "value": "反馈组件 (Response)",
+        "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+      }
+    },
+    {
+      "id": "progressCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "progressCardTitle",
+        "progressRowDefault",
+        "progressRowStatus",
+        "progressRowColor",
+        "progressRowSizes"
+      ]
+    },
+    {
+      "id": "progressCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Progress 进度条",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "progressRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "progressRowDefaultLabel",
+        "progressDefault"
+      ]
+    },
+    {
+      "id": "progressRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "默认进度条",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "progressDefault",
+      "component": "Progress",
+      "props": {
+        "percent": 65,
+        "status": "normal"
+      }
+    },
+    {
+      "id": "progressRowStatus",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "progressRowStatusLabel",
+        "progressRowStatusContent"
+      ]
+    },
+    {
+      "id": "progressRowStatusLabel",
+      "component": "span",
+      "props": {
+        "value": "状态变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "progressRowStatusContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "progressSuccess",
+        "progressException",
+        "progressActive"
+      ]
+    },
+    {
+      "id": "progressSuccess",
+      "component": "Progress",
+      "props": {
+        "percent": 100,
+        "status": "success"
+      }
+    },
+    {
+      "id": "progressException",
+      "component": "Progress",
+      "props": {
+        "percent": 30,
+        "status": "exception"
+      }
+    },
+    {
+      "id": "progressActive",
+      "component": "Progress",
+      "props": {
+        "percent": 50,
+        "status": "active"
+      }
+    },
+    {
+      "id": "progressRowColor",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "progressRowColorLabel",
+        "progressCustomColor"
+      ]
+    },
+    {
+      "id": "progressRowColorLabel",
+      "component": "span",
+      "props": {
+        "value": "自定义颜色",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "progressCustomColor",
+      "component": "Progress",
+      "props": {
+        "percent": 75,
+        "strokeColor": "#722ed1"
+      }
+    },
+    {
+      "id": "progressRowSizes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "progressRowSizesLabel",
+        "progressRowSizesContent"
+      ]
+    },
+    {
+      "id": "progressRowSizesLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "progressRowSizesContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "progressMedium",
+        "progressSmall"
+      ]
+    },
+    {
+      "id": "progressMedium",
+      "component": "Progress",
+      "props": {
+        "percent": 60,
+        "size": "medium"
+      }
+    },
+    {
+      "id": "progressSmall",
+      "component": "Progress",
+      "props": {
+        "percent": 60,
+        "size": "small"
+      }
+    },
+    {
+      "id": "tableRowExpandable",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tableRowExpandableLabel",
+        "tableExpandable"
+      ]
+    },
+    {
+      "id": "tableRowExpandableLabel",
+      "component": "span",
+      "props": {
+        "value": "展开行",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tableExpandable",
+      "component": "Table",
+      "props": {
+        "rowKey": "key",
+        "columns": [
+          {
+            "title": "姓名",
+            "dataIndex": "name",
+            "width": 100
+          },
+          {
+            "title": "年龄",
+            "dataIndex": "age",
+            "align": "center"
+          },
+          {
+            "title": "部门",
+            "dataIndex": "department"
+          },
+          {
+            "title": "职位",
+            "dataIndex": "position"
+          },
+          {
+            "title": "状态",
+            "dataIndex": "status"
+          }
+        ],
+        "dataSource": {
+          "path": "/expandedTableData"
+        },
+        "expandable": {
+          "expandedRowKeys": [
+            "1"
+          ]
+        },
+        "pagination": false
+      },
+      "children": {
+        "componentId": "tableExpandableRowTpl",
+        "path": "/expandedTableData"
+      }
+    },
+    {
+      "id": "tableExpandableRowTpl",
+      "component": "TableRow",
+      "props": {
+        "expandedRowRender": {
+          "componentId": "tableExpandableRowContent"
+        }
+      },
+      "children": [
+        "expandableCellName",
+        "expandableCellAge",
+        "expandableCellDept",
+        "expandableCellPosition",
+        "expandableCellStatus"
+      ]
+    },
+    {
+      "id": "tableExpandableRowContent",
+      "component": "div",
+      "props": {
+        "className": "p-4 bg-surface-container-low rounded-lg"
+      },
+      "children": [
+        "expandableContentTitle",
+        "expandableContentDesc"
+      ]
+    },
+    {
+      "id": "expandableContentTitle",
+      "component": "span",
+      "props": {
+        "value": "个人简介",
+        "className": "text-base font-semibold text-on-surface mb-2"
+      }
+    },
+    {
+      "id": "expandableContentDesc",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "detail"
+        },
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "expandableCellName",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "name"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "expandableCellAge",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "age"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "expandableCellDept",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "department"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "expandableCellPosition",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "position"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "expandableCellStatus",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "status"
+        },
+        "color": "default"
+      }
+    },
+    {
+      "id": "tableDefault",
+      "component": "Table",
+      "props": {
+        "rowKey": "key",
+        "columns": [
+          {
+            "title": "姓名",
+            "dataIndex": "name",
+            "fixed": "start",
+            "width": 100
+          },
+          {
+            "title": "年龄",
+            "dataIndex": "age",
+            "align": "center",
+            "minWidth": 80
+          },
+          {
+            "title": "部门",
+            "dataIndex": "department",
+            "minWidth": 100
+          },
+          {
+            "title": "职位",
+            "dataIndex": "position",
+            "minWidth": 120
+          },
+          {
+            "title": "邮箱",
+            "dataIndex": "email",
+            "minWidth": 200
+          },
+          {
+            "title": "电话",
+            "dataIndex": "phone",
+            "minWidth": 140
+          },
+          {
+            "title": "入职日期",
+            "dataIndex": "joinDate",
+            "minWidth": 130
+          },
+          {
+            "title": "薪资",
+            "dataIndex": "salary",
+            "minWidth": 100
+          },
+          {
+            "title": "状态",
+            "dataIndex": "status",
+            "fixed": "end",
+            "width": 100
+          }
+        ],
+        "dataSource": {
+          "path": "/tableData"
+        },
+        "rowSelection": {
+          "type": "checkbox",
+          "selectedRowKeys": {
+            "path": "/selectedRowKeys"
+          }
+        },
+        "pagination": true
+      },
+      "children": {
+        "componentId": "tableRowTpl",
+        "path": "/tableData"
+      }
+    },
+    {
+      "id": "tableRowTpl",
+      "component": "TableRow",
+      "children": [
+        "cellName",
+        "cellAge",
+        "cellDept",
+        "cellPosition",
+        "cellEmail",
+        "cellPhone",
+        "cellJoinDate",
+        "cellSalary",
+        "cellStatus"
+      ]
+    },
+    {
+      "id": "cellName",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "name"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellAge",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "age"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellDept",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "department"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellPosition",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "position"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellEmail",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "email"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellPhone",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "phone"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellJoinDate",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "joinDate"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellSalary",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "salary"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "cellStatus",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "status"
+        },
+        "color": "default"
+      }
+    },
+    {
+      "id": "menuCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "menuCardTitle",
+        "menuRowVertical",
+        "menuRowHorizontal",
+        "menuRowCollapsed"
+      ]
+    },
+    {
+      "id": "menuCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Menu 导航菜单",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "menuRowVertical",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "menuRowVerticalLabel",
+        "menuVertical"
+      ]
+    },
+    {
+      "id": "menuRowVerticalLabel",
+      "component": "span",
+      "props": {
+        "value": "垂直菜单（默认）",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "menuVertical",
+      "component": "Menu",
+      "props": {
+        "mode": "vertical",
+        "selectedKeys": [
+          "home"
+        ],
+        "openKeys": [
+          "system"
+        ],
+        "className": "w-54",
+        "items": [
+          {
+            "key": "home",
+            "title": "首页",
+            "icon": "home"
+          },
+          {
+            "key": "system",
+            "title": "系统管理",
+            "icon": "settings",
+            "children": [
+              {
+                "key": "user",
+                "title": "用户管理"
+              },
+              {
+                "key": "role",
+                "title": "角色管理"
+              },
+              {
+                "key": "permission",
+                "title": "权限管理"
+              }
+            ]
+          },
+          {
+            "key": "content",
+            "title": "内容管理",
+            "icon": "file-text",
+            "children": [
+              {
+                "key": "article",
+                "title": "文章管理",
+                "icon": "file-text"
+              },
+              {
+                "key": "category",
+                "title": "分类管理",
+                "icon": "folder"
+              }
+            ]
+          },
+          {
+            "key": "monitor",
+            "title": "系统监控",
+            "icon": "activity"
+          },
+          {
+            "key": "log",
+            "title": "日志管理",
+            "icon": "book-open"
+          }
+        ]
+      }
+    },
+    {
+      "id": "menuRowHorizontal",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "menuRowHorizontalLabel",
+        "menuHorizontal"
+      ]
+    },
+    {
+      "id": "menuRowHorizontalLabel",
+      "component": "span",
+      "props": {
+        "value": "水平菜单",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "menuHorizontal",
+      "component": "Menu",
+      "props": {
+        "mode": "horizontal",
+        "selectedKeys": [
+          "dashboard"
+        ],
+        "className": "w-full",
+        "items": [
+          {
+            "key": "dashboard",
+            "title": "工作台",
+            "icon": "layout-dashboard"
+          },
+          {
+            "key": "project",
+            "title": "项目管理",
+            "icon": "folder-kanban"
+          },
+          {
+            "key": "team",
+            "title": "团队协作",
+            "icon": "users"
+          },
+          {
+            "key": "analytics",
+            "title": "数据分析",
+            "icon": "bar-chart-3"
+          },
+          {
+            "key": "settings",
+            "title": "设置",
+            "icon": "settings"
+          }
+        ]
+      }
+    },
+    {
+      "id": "menuRowCollapsed",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "menuRowCollapsedLabel",
+        "menuCollapsed"
+      ]
+    },
+    {
+      "id": "menuRowCollapsedLabel",
+      "component": "span",
+      "props": {
+        "value": "折叠菜单",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "menuCollapsed",
+      "component": "Menu",
+      "props": {
+        "mode": "vertical",
+        "inlineCollapsed": true,
+        "selectedKeys": [
+          "home"
+        ],
+        "className": "w-12",
+        "items": [
+          {
+            "key": "home",
+            "title": "首页",
+            "icon": "home"
+          },
+          {
+            "key": "users",
+            "title": "用户",
+            "icon": "users"
+          },
+          {
+            "key": "settings",
+            "title": "设置",
+            "icon": "settings"
+          },
+          {
+            "key": "help",
+            "title": "帮助",
+            "icon": "help-circle"
+          }
+        ]
+      }
+    }
+  ]
+}

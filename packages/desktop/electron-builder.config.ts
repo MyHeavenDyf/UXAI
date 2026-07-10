@@ -57,6 +57,11 @@ const getBase = (): Configuration => ({
       to: "previewdist",
       filter: ["**/*"],
     },
+    {
+      from: "src/excode/templates",
+      to: "hui-templates",
+      filter: ["**/*"],
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",
