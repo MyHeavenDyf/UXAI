@@ -119,7 +119,8 @@ export async function downloadHuiCode(
     config.templateDir = path.resolve(__dirname, './templates');
   }
 
-  // 当 ./templates 不存在时（electron-vite 构建后），回退到源码路径
+  // electron-vite 构建后 ./templates 不存在（不会自动复制到 out/main/），
+  // 回退到 monorepo 源路径读取模板。模板最终会被 desktopApi.exportZip 打成 zip。
   if (!fs.existsSync(config.templateDir)) {
     const fallback = path.resolve(__dirname, '../../src/excode/templates');
     if (fs.existsSync(fallback)) {

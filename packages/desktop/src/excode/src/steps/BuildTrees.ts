@@ -8,22 +8,13 @@
  *   3. TailwindConverter.convertPage 提取样式 → LESS 文件
  *   4. 结果写 ctx.resolvedPages 和 ctx.styleResults
  *
- * 变更说明：
- *   - 合并原 02→03→04 三步为一次遍历
- *   - 消除了 ctx.parsedPages 中间态（不再需要，原仅作为 02→03 的桥梁）
- *   - 原步骤 03 和 04 的类已移除
- *
- * 样式转换适配：
- *   - 不再直接 import tw-to-css
- *   - 使用 ctx.tailwindAdapter（通过 TailwindConverter 期望的 { convert } 接口注入）
- *   - 由 src/tailwind/adapter 工厂创建，支持 local / uiux 切换
- *   - 如果 ctx 上未注入 adapter，则在此步骤中按配置自动创建
+ * 样式转换：
+ *   TailwindConverter 直接调用 convertTailwindToCSS（顶部 import 手动切换 CLI/Electron 模式）。
  */
 import { Step } from '../core/Step';
 import { TreeBuilder } from '../parser/TreeBuilder';
 import { BindingResolver } from '../resolver/BindingResolver';
 import { TailwindConverter } from '../style/TailwindConverter';
-import { createTailwindAdapter } from '../tailwind/index';
 import type { PipelineContext } from '../pipeline/PipelineContext';
 
 export class BuildTrees extends Step {
@@ -31,13 +22,8 @@ export class BuildTrees extends Step {
     ctx.resolvedPages = [];
     ctx.styleResults = [];
 
-    // 确保 tailwindAdapter 就绪（local adapter 内部直接 import 自身配置，管线不感知）
-    if (!ctx.tailwindAdapter) {
-      ctx.tailwindAdapter = await createTailwindAdapter('desktop');
-    }
-
-    // 创建转换器实例（使用通过 tailwind adapter 注入的转换能力）
-    const tailwindCvt = new TailwindConverter(ctx.tailwindAdapter);
+    // 创建样式转换器（顶部 import 决定使用本地 tw-to-css 还是 Electron 主进程模块）
+    const tailwindCvt = new TailwindConverter();
 
     for (const pageData of ctx.pagesData) {
       const { pageName, a2uiDoc, splitMeta } = pageData as any;

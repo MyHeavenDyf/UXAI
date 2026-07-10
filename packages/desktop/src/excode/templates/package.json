@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@cloudsop/horizon": "^1.0.2",
-    
     "@hui/icon-plus": "file:hui-icon-plus-0.2.56.tgz",
     "@nce/icon-plus": "file:hui-icon-plus-0.2.56.tgz",
     "@hui/charts": "file:hui-charts-0.3.0.tgz",
