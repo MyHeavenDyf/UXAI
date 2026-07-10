@@ -55,7 +55,10 @@ export function PreviewPage(props: {
   const [targetHeight, setTargetHeight] = createSignal(1080)
 
   createEffect(() => {
-    if (!editing()) setPropertyEditor('show', false)
+    if (!editing()) {
+      setPropertyEditor('show', false)
+      setPickerVisible(false)
+    }
   })
 
   
@@ -431,6 +434,7 @@ export function PreviewPage(props: {
           if (next) {
             setCanvasMode(false)
             sendDragMode(true)
+            unfreezeDomPicker()
           } else {
             sendDragMode(false)
           }
