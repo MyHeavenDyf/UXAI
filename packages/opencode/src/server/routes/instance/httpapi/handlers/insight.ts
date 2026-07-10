@@ -120,7 +120,8 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
         const fullPath = path.join(targetDir, finalFilename)
         const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!fileExists) break
-        finalFilename = `${baseName}-${counter}${ext}`
+        // 撞名加括号后缀,与操作系统 / 旧主进程上传口径一致(name (1).ext)。
+        finalFilename = `${baseName} (${counter})${ext}`
         counter++
       }
 
@@ -161,7 +162,18 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
         yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
 
-      const folderDir = path.join(targetDir, body.folderName)
+      // 文件夹撞名加括号后缀(name (1)),与单文件上传 / 操作系统口径一致,不覆盖已有同名文件夹。
+      let finalFolderName = body.folderName
+      let folderCounter = 1
+      while (true) {
+        const folderExists = yield* fs
+          .exists(path.join(targetDir, finalFolderName))
+          .pipe(Effect.catch(() => Effect.succeed(false)))
+        if (!folderExists) break
+        finalFolderName = `${body.folderName} (${folderCounter})`
+        folderCounter++
+      }
+      const folderDir = path.join(targetDir, finalFolderName)
       yield* fs.ensureDir(folderDir).pipe(Effect.orDie)
 
       for (const file of body.files) {
@@ -176,7 +188,7 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       const mtimeNum = stat && Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
 
       return {
-        name: body.folderName,
+        name: finalFolderName,
         path: folderDir,
         fileCount: body.files.length,
         mtime: mtimeNum,
