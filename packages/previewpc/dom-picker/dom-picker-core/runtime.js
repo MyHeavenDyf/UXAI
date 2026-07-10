@@ -178,7 +178,7 @@ export function installDomPicker(options = {}) {
 
   const applyActiveMarker = () => {
     document.querySelectorAll(`[${ACTIVE_ATTR}]`).forEach((el) => {
-      if (el !== activeElement) el.removeAttribute(ACTIVE_ATTR)
+      el.removeAttribute(ACTIVE_ATTR)
     })
     if (frozen && activeElement) {
       activeElement.setAttribute(ACTIVE_ATTR, '')
@@ -221,7 +221,7 @@ export function installDomPicker(options = {}) {
   const handleClick = async (event) => {
     if (disabled) return
     if (frozen) {
-      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_MENU' }, '*')
+      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_PANELS' }, '*')
       event.preventDefault()
       event.stopPropagation()
       return

@@ -314,6 +314,17 @@ export function PreviewPage(props: {
   }
 
   const handlePickerMessage = (e: MessageEvent) => {
+    if (e.data?.type === "DOM_PICKER_CLOSE_PANELS") {
+      if (ctxMenu.show) {
+        closeCtxMenu()
+        return
+      }
+      setPropertyEditor('show', false)
+      setPickerVisible(false)
+      unfreezeDomPicker()
+      return
+    }
+
     if (e.data?.type === "DOM_PICKER_CLOSE_MENU") {
       if (ctxMenu.show) closeCtxMenu()
       return

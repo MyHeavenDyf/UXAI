@@ -102,6 +102,17 @@
     return document.querySelector("[" + ACTIVE_ATTR + "]")
   }
 
+  function draggable(target) {
+    if (!target || !target.closest) return null
+    var first = target.closest("[" + ATTR + "]")
+    var el = first
+    while (el) {
+      if (getSibs(el).length > 1) return el
+      el = el.parentElement ? el.parentElement.closest("[" + ATTR + "]") : null
+    }
+    return first
+  }
+
   function orderedSibs(sibs, dir) {
     return sibs.slice().sort(function (a, b) {
       var ar = a.getBoundingClientRect()
@@ -222,11 +233,16 @@
 
   function onDown(e) {
     if (!dragMode || e.button !== 0) return
-    // 只允许拖拽当前 dom-picker 选中的元素
-    var el = selectedEl()
+    // 如果有冻结的选中元素，只允许拖拽它；否则拖拽指针下的任意可拖拽元素
+    var sel = selectedEl()
+    var el
+    if (sel) {
+      if (e.target !== sel && !sel.contains(e.target)) return
+      el = sel
+    } else {
+      el = draggable(e.target)
+    }
     if (!el) return
-    // 按下点必须落在选中元素范围内，否则交给点击逻辑（切换选中）
-    if (e.target !== el && !el.contains(e.target)) return
     e.preventDefault()
     e.stopPropagation()
     dragEl = el
