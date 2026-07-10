@@ -6,10 +6,11 @@
  *   2. generateLess(rules) → 生成 LESS 字符串
  *   3. generateGlobalLess(tailwindMap) → 生成 LESS 变量文件
  *
- * 架构变更（关键）：
- *   不再直接 import { tailwindToCSS } from 'tw-to-css'，
- *   通过外部注入的 adapter.convert() 进行转换。
- *   adapter 由 src/tailwind/ 模块工厂创建，可自由切换 local/uiux 实现。
+ * 架构说明：
+ *   直接调用 convertTailwindToCSS(className) 进行 tailwind→css 转换。
+ *   convertTailwindToCSS 由调用方提供（文件顶部两行 import 手动切换）：
+ *     - CLI 模式：使用 lib/convertTailwindToCSS.ts（基于 tw-to-css）
+ *     - Electron 模式：使用主进程 main/tailwind-to-css 模块
  *
  * 设计原则：
  *   - 样式提取在代码生成之前执行（确保从完整树提取所有样式）
@@ -17,6 +18,13 @@
  *   - 支持 hover: 变体伪类
  *   - 统计未识别的类名供告警
  */
+
+// ─── tailwind → CSS 转换器 ──────────────────────────────────
+// CLI 模式用（使用 tw-to-css 的本地实现）
+// import { convertTailwindToCSS } from '../../../lib/convertTailwindToCSS';
+// Electron 模式用（引用 Electron 主进程已有模块）
+import { convertTailwindToCSS } from '../../../main/tailwind-to-css';
+// ────────────────────────────────────────────────────────────
 
 interface StyleDeclaration {
   prop: string;
@@ -42,18 +50,13 @@ interface ConvertPageResult {
 }
 
 export class TailwindConverter {
-  private _adapter: { convert: (className: string) => Record<string, string> };
   private _unrecognized: Set<string>;
   private _totalClasses: number;
   private _unrecognizedOccurrences: number;
   private _classFreq: Map<string, number>;
   private _checkedClasses: Set<string>;
 
-  /**
-   * @param adapter - tailwind 转换适配器实例
-   */
-  constructor(adapter: { convert: (className: string) => Record<string, string> }) {
-    this._adapter = adapter;
+  constructor() {
     this._unrecognized = new Set();
     this._totalClasses = 0;
     this._unrecognizedOccurrences = 0;
@@ -144,13 +147,13 @@ export class TailwindConverter {
 
     const declarations: StyleDeclaration[] = [];
     if (regularClasses.length > 0) {
-      const styleObj = this._adapter.convert(regularClasses.join(' '));
+      const styleObj = convertTailwindToCSS(regularClasses.join(' '));
       declarations.push(...this._styleObjToDeclarations(styleObj));
     }
 
     const hoverDeclarations: StyleDeclaration[] = [];
     if (hoverClasses.length > 0) {
-      const hoverStyleObj = this._adapter.convert(hoverClasses.join(' '));
+      const hoverStyleObj = convertTailwindToCSS(hoverClasses.join(' '));
       hoverDeclarations.push(...this._styleObjToDeclarations(hoverStyleObj));
     }
 
@@ -214,7 +217,7 @@ export class TailwindConverter {
       if (this._checkedClasses.has(cls)) continue;
       this._checkedClasses.add(cls);
       const baseCls = cls.startsWith('hover:') ? cls.slice('hover:'.length) : cls;
-      const styleObj = this._adapter.convert(baseCls);
+      const styleObj = convertTailwindToCSS(baseCls);
       if (!styleObj || Object.keys(styleObj).length === 0) {
         this._unrecognized.add(cls);
         this._unrecognizedOccurrences += freq;
