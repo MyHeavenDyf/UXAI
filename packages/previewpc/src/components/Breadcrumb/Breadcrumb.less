@@ -1,0 +1,32 @@
+.el-breadcrumb__inner.is-link,
+.el-breadcrumb__inner,
+.el-breadcrumb__inner a {
+  font-weight: var(--font-weight-normal);
+  color: var(--el-text-color-secondary);
+}
+
+.el-breadcrumb__inner.is-link:hover,
+.el-breadcrumb__inner:hover,
+.el-breadcrumb__inner a:hover {
+  color: var(--el-color-primary);
+  cursor: pointer;
+}
+
+.el-breadcrumb__inner {
+}
+
+.el-breadcrumb__item:last-child .el-breadcrumb__inner,
+.el-breadcrumb__item:last-child .el-breadcrumb__inner:hover,
+.el-breadcrumb__item:last-child .el-breadcrumb__inner a,
+.el-breadcrumb__item:last-child .el-breadcrumb__inner a:hover {
+  font-weight: var(--font-weight-bold);
+  color: var(--el-text-color-primary);
+}
+
+.el-breadcrumb__separator {
+  color: var(--el-text-color-placeholder);
+  margin: 0 var(--spacing-1);
+  width: 12px;
+  font-weight: var(--font-weight-normal);
+  text-align: center;
+}
