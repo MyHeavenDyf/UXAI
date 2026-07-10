@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat, unlink, rm, copyFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile, lstat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
