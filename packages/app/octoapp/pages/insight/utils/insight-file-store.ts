@@ -1,7 +1,8 @@
 // SPEC-INS-014 §10.1:文件管理面板的视图状态 store。结构照抄站内 Design 模块
-// (make/utils/artifact-file-store.ts)已验证的分组 / 排序 / 筛选 / 多选计算逻辑——这套逻辑
-// 与后端存储形态无关,只把数据源从 Design 的 ArtifactFile 换成 Insight 自己的 InsightFile,
-// 并去掉 insight worktree 用不到的文件夹导航(currentPath / navigateToFolder / upload-files 前缀)。
+// (make/utils/artifact-file-store.ts)已验证的分组 / 排序 / 筛选 / 多选 / 文件夹导航 / 预览逻辑——
+// 这套逻辑与后端存储形态无关,只把数据源从 Design 的 ArtifactFile 换成 Insight 自己的 InsightFile。
+// 文件夹导航:currentPath 相对 insight/<sessionId>/uploads/ 根;非顶层只列 uploads/<path>/,
+//   不再分"已上传/已生成"两段(generated 产物无子目录,只在顶层并排)。
 
 import { createStore } from "solid-js/store"
 import { createMemo, createSignal, createEffect, on } from "solid-js"
@@ -80,6 +81,7 @@ export const MODIFIED_SECTION_LABELS: Record<ModifiedSection, string> = {
 }
 
 export type InsightFileStore = {
+  currentPath: string
   uploadedFiles: InsightFile[]
   generatedFiles: InsightFile[]
   collapsedUploaded: boolean
@@ -161,8 +163,10 @@ function createFileListComputed(
 
 export function createInsightFileStore(sessionId: string) {
   const saved = readViewState(sessionId)
+  const [previewFile, setPreviewFile] = createSignal<InsightFile | null>(null)
 
   const [store, setStore] = createStore<InsightFileStore>({
+    currentPath: "",
     uploadedFiles: [],
     generatedFiles: [],
     collapsedUploaded: saved.collapsedUploaded ?? false,
@@ -203,8 +207,16 @@ export function createInsightFileStore(sessionId: string) {
     dayBoundary,
   )
 
+  const isTopLevel = createMemo(() => store.currentPath === "")
+
   // 改筛选条件后清掉已选(被筛掉的行不该继续算在选中里)
   createEffect(on(() => store.kindFilter, () => setStore("selected", new Set()), { defer: true }))
+
+  // 切换文件夹路径:清选中 + 清预览(旧路径的预览不再适用)。
+  createEffect(on(() => store.currentPath, () => {
+    setStore("selected", new Set())
+    setPreviewFile(null)
+  }, { defer: true }))
 
   createEffect(on(
     [
@@ -239,14 +251,23 @@ export function createInsightFileStore(sessionId: string) {
     Array.from(kindCounts().keys()).sort((a, b) => kindSortPriority(a) - kindSortPriority(b)),
   )
 
-  // 当前(过滤后)可见的全部文件,供"全选"判定
-  const visibleFiles = createMemo(() => [...uploaded.sortedFiles(), ...generated.sortedFiles()])
-  const allSelected = createMemo(() => {
-    const files = visibleFiles()
+  // 当前页(过滤后)可见文件:顶层 = 已上传+已生成;非顶层(进文件夹)= 仅已上传。
+  const pageFiles = createMemo(() =>
+    isTopLevel() ? [...uploaded.sortedFiles(), ...generated.sortedFiles()] : uploaded.sortedFiles(),
+  )
+  const allPageSelected = createMemo(() => {
+    const files = pageFiles()
     return files.length > 0 && files.every((f) => store.selected.has(f.path))
   })
-  const someSelected = createMemo(() =>
-    !allSelected() && visibleFiles().some((f) => store.selected.has(f.path)),
+  const somePageSelected = createMemo(() =>
+    !allPageSelected() && pageFiles().some((f) => store.selected.has(f.path)),
+  )
+
+  // 批量删除只针对"已上传"段(generated 产物不能由用户删);selectedUploadedFiles 给 batch delete 用。
+  const selectedUploadedFiles = createMemo(() =>
+    Array.from(store.selected).filter((path) =>
+      store.uploadedFiles.some((f) => f.path === path),
+    ),
   )
 
   return {
@@ -256,14 +277,21 @@ export function createInsightFileStore(sessionId: string) {
     generated,
     kindCounts,
     availableKinds,
-    allSelected,
-    someSelected,
+    isTopLevel,
+    previewFile,
+    setPreviewFile,
+    allPageSelected,
+    somePageSelected,
+    selectedUploadedFiles,
 
     setLoading(loading: boolean) {
       setStore("loading", loading)
     },
     setError(error: string | null) {
       setStore("error", error)
+    },
+    setCurrentPath(p: string) {
+      setStore("currentPath", p)
     },
     setUploadedFiles(files: InsightFile[]) {
       setStore("uploadedFiles", files)
@@ -301,17 +329,29 @@ export function createInsightFileStore(sessionId: string) {
       else next.add(path)
       setStore("selected", next)
     },
-    selectAll() {
-      if (allSelected()) {
+    selectAllPage() {
+      if (allPageSelected()) {
         setStore("selected", new Set())
         return
       }
       const next = new Set(store.selected)
-      for (const file of visibleFiles()) next.add(file.path)
+      for (const file of pageFiles()) next.add(file.path)
       setStore("selected", next)
     },
     clearSelection() {
       setStore("selected", new Set())
+    },
+    deleteFile(path: string) {
+      setStore("uploadedFiles", store.uploadedFiles.filter((f) => f.path !== path))
+      setStore("generatedFiles", store.generatedFiles.filter((f) => f.path !== path))
+      const nextSelected = new Set(store.selected)
+      nextSelected.delete(path)
+      setStore("selected", nextSelected)
+      if (previewFile()?.path === path) setPreviewFile(null)
+    },
+    navigateToFolder(folder: InsightFile) {
+      if (!folder.isFolder) return
+      setStore("currentPath", folder.relativePath)
     },
   }
 }

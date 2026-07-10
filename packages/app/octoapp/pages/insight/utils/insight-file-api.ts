@@ -1,8 +1,7 @@
-// SPEC-INS-014 §10:薄封装,拉取 <projectDir>/insight/<sessionId>/{uploads,outputs}/ 列表。
-// 服务端实现在类型化 HttpApi 的 insight 分组(不是普通 Hono 路由——本仓开发/预览渠道默认启用
-// OPENCODE_EXPERIMENTAL_HTTPAPI,这种情况下普通 Hono 路由不会被处理请求的那套 server 用到):
-// packages/opencode/src/server/routes/instance/httpapi/groups/insight.ts(endpoint 定义)
-// packages/opencode/src/server/routes/instance/httpapi/handlers/insight.ts(listFiles 实现)
+// SPEC-INS-014 §10:薄封装,拉取 <projectDir>/insight/<sessionId>/{uploads,outputs}/[/path] 列表。
+// 服务端实现在类型化 HttpApi 的 insight 分组(packages/opencode/.../httpapi/{groups,handlers}/insight.ts)。
+// content/delete/archive/delete-batch 复用站内 artifact 分组的同款端点(它们按绝对 path 操作,
+// 与存储目录无关,insight 文件同样是 projectDir 下的绝对路径),故此处只封 list/upload/upload-folder。
 
 import { directoryHeader } from "@/utils/headers"
 
@@ -13,14 +12,15 @@ export interface InsightFileEntry {
   path: string
   size: number
   mtime: number
+  isFolder: boolean
+  // 相对 uploads 根的路径(文件夹导航 / 面包屑用);outputs 段为空串。
+  relativePath: string
 }
 
 // ── 文件类型分类(SPEC-INS-014 §10.1:类型筛选 / 类型分组用)────────────────
-// 说明:服务端 listFiles 只回 name(见 handlers/insight.ts),类型由客户端按扩展名派生——
-// worktree 文件类型比 Design 少,且文件名已过服务端;不为一个纯展示用的枚举再改一次
-// 类型化 HttpApi(避免踩 hono-vs-effect-httpapi 那套坑)。分类口径与 icons/illustrations.ts
-// 的 fileTypeIconUrl() 对齐(同一份扩展名清单派生 kind + 图标)。
+// kind 由客户端按 isFolder + 扩展名派生(worktree 文件类型比 Design 细,office 按 ext 分 word/ppt/excel)。
 export type InsightFileKind =
+  | "folder"
   | "html"
   | "markdown"
   | "json"
@@ -35,6 +35,7 @@ export type InsightFileKind =
   | "other"
 
 const KIND_LABELS: Record<InsightFileKind, string> = {
+  folder: "文件夹",
   html: "HTML 页面",
   markdown: "Markdown",
   json: "JSON",
@@ -50,6 +51,7 @@ const KIND_LABELS: Record<InsightFileKind, string> = {
 }
 
 const KIND_PRIORITY: Record<InsightFileKind, number> = {
+  folder: -1,
   html: 0,
   markdown: 1,
   json: 2,
@@ -70,7 +72,7 @@ const CODE_EXTS = new Set([
 ])
 const TEXT_EXTS = new Set(["txt", "text", "log", "rtf", "csv", "tsv"])
 
-/** 按文件名扩展名派生 InsightFileKind(与 fileTypeIconUrl 同源)。 */
+/** 按文件名扩展名派生 InsightFileKind(文件夹由 isFolder 单独判定,不走这里)。 */
 export function fileKind(fileName: string): InsightFileKind {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? ""
   if (ext === "html" || ext === "htm" || ext === "xhtml") return "html"
@@ -88,6 +90,28 @@ export function fileKind(fileName: string): InsightFileKind {
   return "other"
 }
 
+const MIME_BY_EXT: Record<string, string> = {
+  html: "text/html", htm: "text/html",
+  svg: "image/svg+xml",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+  mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska", avi: "video/x-msvideo",
+  mp3: "audio/mpeg", wav: "audio/wav",
+  md: "text/markdown", markdown: "text/markdown",
+  txt: "text/plain", csv: "text/csv",
+  json: "application/json",
+  js: "application/javascript", ts: "application/typescript", css: "text/css",
+  pdf: "application/pdf",
+  doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+/** 按文件名扩展名派生 mime(预览面板判定图片/视频/音频/html/markdown/code 用)。 */
+export function mimeForName(fileName: string): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? ""
+  return MIME_BY_EXT[ext] ?? "application/octet-stream"
+}
+
 export function kindLabel(kind: InsightFileKind): string {
   return KIND_LABELS[kind]
 }
@@ -96,13 +120,18 @@ export function kindSortPriority(kind: InsightFileKind): number {
   return KIND_PRIORITY[kind]
 }
 
-/** 服务端条目 + 客户端派生的 kind,供文件管理面板的分组 / 排序 / 筛选用。 */
+/** 服务端条目 + 客户端派生的 kind/mime,供文件管理面板的分组 / 排序 / 筛选 / 预览用。 */
 export interface InsightFile extends InsightFileEntry {
   kind: InsightFileKind
+  mime: string
 }
 
 export function toInsightFile(entry: InsightFileEntry): InsightFile {
-  return { ...entry, kind: fileKind(entry.name) }
+  return {
+    ...entry,
+    kind: entry.isFolder ? "folder" : fileKind(entry.name),
+    mime: entry.isFolder ? "" : mimeForName(entry.name),
+  }
 }
 
 export async function fetchInsightFiles(
@@ -110,18 +139,133 @@ export async function fetchInsightFiles(
   sdkDirectory: string,
   sessionId: string,
   category: InsightFileCategory,
+  subPath?: string,
 ): Promise<InsightFileEntry[]> {
   const params = new URLSearchParams({ sessionId, category })
+  if (category === "uploads" && subPath && subPath.trim() !== "") params.set("path", subPath)
   const res = await fetch(`${sdkUrl}/insight/files?${params.toString()}`, {
     headers: { ...directoryHeader(sdkDirectory) },
   })
   if (!res.ok) {
-    console.error("[octo:insight-files] list-failed", { sessionId, category, status: res.status })
+    console.error("[octo:insight-files] list-failed", { sessionId, category, subPath, status: res.status })
     throw new Error(`列出文件失败: ${res.statusText}`)
   }
   const data = (await res.json()) as { files: InsightFileEntry[] }
-  console.log("[octo:insight-files] list-ok", { sessionId, category, count: data.files.length })
+  console.log("[octo:insight-files] list-ok", { sessionId, category, subPath, count: data.files.length })
   return data.files
+}
+
+export interface InsightContentResponse {
+  content: string
+  mimeType: string
+  encoding?: "base64"
+}
+
+// 读文件内容:复用 artifact/content(按绝对 path,与存储目录无关)。
+export async function fetchInsightContent(
+  sdkUrl: string,
+  sdkDirectory: string,
+  filePath: string,
+): Promise<InsightContentResponse> {
+  const res = await fetch(`${sdkUrl}/artifact/content?path=${encodeURIComponent(filePath)}`, {
+    headers: { ...directoryHeader(sdkDirectory) },
+  })
+  if (!res.ok) throw new Error(`读取文件失败: ${res.statusText}`)
+  return res.json()
+}
+
+// 删单文件:复用 artifact DELETE(按绝对 path)。
+export async function deleteInsightFile(
+  sdkUrl: string,
+  sdkDirectory: string,
+  filePath: string,
+): Promise<void> {
+  const res = await fetch(`${sdkUrl}/artifact/file?path=${encodeURIComponent(filePath)}`, {
+    method: "DELETE",
+    headers: { ...directoryHeader(sdkDirectory) },
+  })
+  if (!res.ok) throw new Error(`删除文件失败: ${res.statusText}`)
+}
+
+// 批量删除:复用 artifact/delete-batch。
+export async function deleteInsightBatch(
+  sdkUrl: string,
+  sdkDirectory: string,
+  files: string[],
+): Promise<{ deleted: number }> {
+  const res = await fetch(`${sdkUrl}/artifact/delete-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
+    body: JSON.stringify({ files }),
+  })
+  if (!res.ok) throw new Error(`批量删除失败: ${res.statusText}`)
+  const data = await res.json()
+  return { deleted: data.deleted }
+}
+
+// 打包下载(zip):复用 artifact/archive。
+export async function archiveInsightFiles(
+  sdkUrl: string,
+  sdkDirectory: string,
+  files: string[],
+): Promise<Blob> {
+  const res = await fetch(`${sdkUrl}/artifact/archive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
+    body: JSON.stringify({ files }),
+  })
+  if (!res.ok) throw new Error(`打包下载失败: ${res.statusText}`)
+  return res.blob()
+}
+
+export interface InsightFolderUploadFile {
+  relativePath: string
+  content: string
+}
+
+export async function uploadInsightFile(
+  sdkUrl: string,
+  sdkDirectory: string,
+  sessionId: string,
+  filename: string,
+  content: string,
+  targetPath?: string,
+): Promise<InsightFileEntry> {
+  const res = await fetch(`${sdkUrl}/insight/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
+    body: JSON.stringify({ sessionId, filename, content, path: targetPath }),
+  })
+  if (!res.ok) throw new Error(`上传失败: ${res.statusText}`)
+  return res.json()
+}
+
+export async function uploadInsightFolder(
+  sdkUrl: string,
+  sdkDirectory: string,
+  sessionId: string,
+  folderName: string,
+  files: InsightFolderUploadFile[],
+  currentPath?: string,
+): Promise<{ name: string; path: string; fileCount: number; mtime: number }> {
+  const res = await fetch(`${sdkUrl}/insight/upload-folder`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
+    body: JSON.stringify({ sessionId, folderName, files, path: currentPath }),
+  })
+  if (!res.ok) throw new Error(`上传文件夹失败: ${res.statusText}`)
+  return res.json()
+}
+
+/** 把本地绝对路径转成 local:// URL(electron 拦截该协议直接读盘),供图片/视频等预览/缩略图用。 */
+export function pathToLocalUrl(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/")
+  return `local:///${normalized}`
+}
+
+/** 是否桌面端(electron):有 window.api 即是。预览面板据此决定 HTML 走 local:// 还是 data URL。 */
+export function isElectronDesktop(): boolean {
+  return typeof window !== "undefined" && typeof (window as any).api !== "undefined"
 }
 
 export function formatFileSize(bytes: number): string {
