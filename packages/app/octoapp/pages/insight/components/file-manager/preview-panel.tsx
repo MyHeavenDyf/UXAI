@@ -1,12 +1,16 @@
-// 文件预览面板:对齐 Design(make/components/design-files/preview-pane.tsx)。
-// 双击/单击文件 → 右侧 30% 宽面板预览(图片/视频/音频/html/markdown/code)。
-// 内容读取走 fetchInsightContent(复用 artifact/content,按绝对 path);html 在 electron 走 local://,
-// 非桌面端退回 data URL(无 insight serve 端点,不像 make 有 artifact/serve)。颜色走 --octo-* 变量。
+// 文件预览面板:右侧 30% 宽面板预览(图片/视频/音频/html/markdown/code)。
+// 内容读取走 fetchInsightContent(复用 artifact/content,按绝对 path);html/markdown/code 直接复用
+// insight 自己的 renderer(HtmlRenderer srcdoc / MarkdownPreview Vditor / SourceCodeView shiki),
+// 不再走 design 拷来的裸 iframe + <pre>,与标签页打开时的渲染保持一致。颜色走 --octo-* 变量。
 
 import { createResource, Show, Switch, Match } from "solid-js"
 import type { JSX } from "solid-js"
 import type { InsightFile } from "../../utils/insight-file-api"
-import { fetchInsightContent, pathToLocalUrl, isElectronDesktop, formatFileSize, formatTimeAgo } from "../../utils/insight-file-api"
+import { fetchInsightContent, formatFileSize, formatTimeAgo } from "../../utils/insight-file-api"
+import { langFromPath } from "../../utils/write-output"
+import { HtmlRenderer } from "../result-viewer/html-renderer"
+import { SourceCodeView } from "../result-viewer/source-code-view"
+import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 
@@ -19,16 +23,12 @@ interface Props {
   onDownload: () => void
 }
 
-export function PreviewPane(props: Props): JSX.Element {
+export function PreviewPanel(props: Props): JSX.Element {
+  // 不吞异常:失败进 resource.error 态,由下方 <Show when={content.error}> 显示"加载失败"。
+  // 所有 content() 读取都在 !content.error 分支内,不会冒泡到 ErrorBoundary。
   const [content] = createResource(
     () => props.file.path,
-    async (path) => {
-      try {
-        return await fetchInsightContent(props.sdkUrl, props.sdkDirectory, path)
-      } catch {
-        return { content: "", mimeType: "" }
-      }
-    },
+    (path) => fetchInsightContent(props.sdkUrl, props.sdkDirectory, path),
   )
 
   const isImage = () => ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"].includes(props.file.mime)
@@ -42,8 +42,14 @@ export function PreviewPane(props: Props): JSX.Element {
     const c = content()
     if (!c) return ""
     if (c.encoding === "base64") return c.content
+    // 分块 btoa:大文件不能 String.fromCharCode(...bytes) 整段展开(参数过多会爆栈)。
     const bytes = new TextEncoder().encode(c.content)
-    return btoa(String.fromCharCode(...bytes))
+    let binary = ""
+    const CHUNK = 0x8000
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+    }
+    return btoa(binary)
   }
 
   return (
@@ -99,33 +105,24 @@ export function PreviewPane(props: Props): JSX.Element {
             </Match>
 
             <Match when={isHtml()}>
-              <Show
-                when={isElectronDesktop()}
-                fallback={
-                  <iframe
-                    src={`data:text/html;base64,${base64Content()}`}
-                    sandbox="allow-scripts"
-                    class="w-full h-full border-0"
-                  />
-                }
-              >
-                <iframe src={pathToLocalUrl(props.file.path)} sandbox="allow-scripts" class="w-full h-full border-0" />
-              </Show>
+              {/* 复用 insight 的 HtmlRenderer(srcdoc + allow-scripts),与标签页 HTML 渲染同源 */}
+              <div class="w-full h-full">
+                <HtmlRenderer content={content()?.content ?? ""} />
+              </div>
             </Match>
 
             <Match when={isMarkdown()}>
-              <pre class="text-[13px] whitespace-pre-wrap p-3 overflow-auto max-h-full" style={{ color: "var(--octo-text-primary)" }}>
-                {content()?.content ?? ""}
-              </pre>
+              {/* 复用 insight 的 MarkdownPreview(Vditor),与标签页/编辑器渲染同源 */}
+              <div class="w-full h-full overflow-auto">
+                <MarkdownPreview content={content()?.content ?? ""} />
+              </div>
             </Match>
 
             <Match when={isCode()}>
-              <pre
-                class="text-[11px] font-mono whitespace-pre-wrap p-3 rounded overflow-auto max-h-full"
-                style={{ background: "var(--octo-surface-hover)", color: "var(--octo-text-primary)" }}
-              >
-                {content()?.content ?? ""}
-              </pre>
+              {/* 复用 insight 的 SourceCodeView(shiki 高亮),与标签页代码视图同源 */}
+              <div class="w-full h-full overflow-auto">
+                <SourceCodeView content={content()?.content ?? ""} lang={langFromPath(props.file.name)} />
+              </div>
             </Match>
           </Switch>
         </Show>

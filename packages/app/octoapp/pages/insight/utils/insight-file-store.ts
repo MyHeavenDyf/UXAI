@@ -255,12 +255,14 @@ export function createInsightFileStore(sessionId: string) {
   const pageFiles = createMemo(() =>
     isTopLevel() ? [...uploaded.sortedFiles(), ...generated.sortedFiles()] : uploaded.sortedFiles(),
   )
+  // 选区只含文件:文件夹是导航项,不参与批量下载(archive 不递归目录)/批量删除,也不计入全选。
+  const selectablePageFiles = createMemo(() => pageFiles().filter((f) => !f.isFolder))
   const allPageSelected = createMemo(() => {
-    const files = pageFiles()
+    const files = selectablePageFiles()
     return files.length > 0 && files.every((f) => store.selected.has(f.path))
   })
   const somePageSelected = createMemo(() =>
-    !allPageSelected() && pageFiles().some((f) => store.selected.has(f.path)),
+    !allPageSelected() && selectablePageFiles().some((f) => store.selected.has(f.path)),
   )
 
   // 批量删除只针对"已上传"段(generated 产物不能由用户删);selectedUploadedFiles 给 batch delete 用。
@@ -335,7 +337,7 @@ export function createInsightFileStore(sessionId: string) {
         return
       }
       const next = new Set(store.selected)
-      for (const file of pageFiles()) next.add(file.path)
+      for (const file of selectablePageFiles()) next.add(file.path)
       setStore("selected", next)
     },
     clearSelection() {

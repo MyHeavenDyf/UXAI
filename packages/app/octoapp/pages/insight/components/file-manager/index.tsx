@@ -48,7 +48,7 @@ import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
-import { PreviewPane } from "./preview-pane"
+import { PreviewPanel } from "./preview-panel"
 
 export function InsightFileManager(props: {
   onOpenFile: (file: InsightFileEntry) => void
@@ -93,14 +93,18 @@ function FileManagerInner(props: {
   // 切会话 / 切路径 → 重置并刷新。sessionId 变化时清掉路径/筛选/两段文件,避免残留。
   createEffect(on(
     [() => props.sessionId, () => store().currentPath],
-    ([sid], prev) => {
+    ([sid, path], prev) => {
       if (prev && prev[0] !== sid) {
+        // 切会话:清筛选/两段文件;若之前不在顶层,重置 currentPath 会再次触发本 effect(path 依赖),
+        // 由那次触发统一 refresh,这里 return 掉,避免同一次切会话拉两遍。
+        const wasInSubFolder = path !== ""
         batch(() => {
           fileStore.setCurrentPath("")
           fileStore.clearKindFilter()
           fileStore.setGeneratedFiles([])
           fileStore.setUploadedFiles([])
         })
+        if (wasInSubFolder) return
       }
       void refresh()
     },
@@ -503,7 +507,7 @@ function FileManagerInner(props: {
 
       <Show when={fileStore.previewFile()}>
         {(file) => (
-          <PreviewPane
+          <PreviewPanel
             file={file()}
             sdkUrl={sdk.url}
             sdkDirectory={sdk.directory || ""}
@@ -680,13 +684,16 @@ function FileRow(props: {
       onDblClick={handleDblClick}
     >
       <td style={{ width: "48px", "min-width": "48px", "max-width": "48px", padding: "12px 16px", "box-sizing": "border-box", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>
-        <input
-          type="checkbox"
-          checked={props.selected}
-          onChange={() => props.store.toggleFileSelection(props.file.path)}
-          onClick={(e) => e.stopPropagation()}
-          style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "vertical-align": "middle", "accent-color": "var(--octo-brand)" }}
-        />
+        {/* 文件夹不参与批量选择(archive 不递归目录,批量删按文件口径),不显示复选框 */}
+        <Show when={!props.file.isFolder}>
+          <input
+            type="checkbox"
+            checked={props.selected}
+            onChange={() => props.store.toggleFileSelection(props.file.path)}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "vertical-align": "middle", "accent-color": "var(--octo-brand)" }}
+          />
+        </Show>
       </td>
       <td class="px-4 truncate max-w-[200px]" title={props.file.name} style={{ color: "var(--octo-text-primary)", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>
         <div class="flex items-center" style={{ gap: "10px" }}>

@@ -1,7 +1,6 @@
 import { createMemo, createResource, createSignal, Show, Switch, Match } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
-import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { ResultTab, TabViewMode } from "./tab-store"
 import { TabBar } from "./tab-bar"
@@ -9,8 +8,8 @@ import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
+import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
-import { stripCodeFence } from "../../utils/detect"
 import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
@@ -27,29 +26,6 @@ import { useParams } from "@solidjs/router"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
 import { InsightFileManager } from "../file-manager"
 import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api"
-
-// ── 源码渲染器 ──────────────────────────────────────────────────
-// 复用上游 <Markdown> 的 shiki 高亮:把内容包成 ```lang fence 喂给它,
-// 自动获得 syntax highlight + 复制按钮(跟对话区的代码段视觉完全一致)。
-function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
-  const fenced = createMemo(() => {
-    // stripCodeFence 只对「内容本身可能被 ```lang 整段包裹」的来源(json/html,如 LLM 直出)有意义;
-    // 对 markdown / code 源**不能** strip —— md 源里合法存在代码围栏,strip 会把整篇抠成第一个围栏的内容
-    // (曾导致 md「代码」视图只剩一行,见 spec §8/output-renderers §1)。故仅 json/html 走 strip。
-    const stripable = props.lang === "json" || props.lang === "html"
-    const raw = stripable ? stripCodeFence(props.content) : props.content
-    let body = raw
-    if (props.lang === "json") {
-      try { body = JSON.stringify(JSON.parse(raw), null, 2) } catch { /* 解析失败保持原样,shiki 容错 */ }
-    }
-    return "```" + props.lang + "\n" + body + "\n```"
-  })
-  return (
-    <div class="octo-source-code-view p-4 h-full overflow-auto">
-      <Markdown text={fenced()} />
-    </div>
-  )
-}
 
 // ── Markdown 渲染器 ──────────────────────────────────────────
 // 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
