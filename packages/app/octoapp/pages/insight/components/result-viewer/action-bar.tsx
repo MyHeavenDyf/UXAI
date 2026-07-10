@@ -9,9 +9,11 @@ import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { getDesktopApi } from "../../lib/electron-api"
 import { ensureLocalMarkdownFile } from "../../utils/local-resource"
+import { openFileLocally, revealFileInFolder } from "../../utils/local-file-ops"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useParams } from "@solidjs/router"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -36,43 +38,18 @@ function sanitizeFilename(name: string): string {
 }
 
 // path 源(write 文本产物)的本地打开 / 文件夹定位:文件已在磁盘,直接传 filePath。
-async function openLocal(filePath: string) {
-  const api = getDesktopApi()
-  if (typeof api?.openPath !== "function") {
-    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.openPath", variant: "error" })
-    return
-  }
-  console.log("[octo:path] open-local", { filePath })
-  try {
-    const r = (await api.openPath(filePath)) as unknown as string | undefined
-    if (typeof r === "string" && r.length > 0) {
-      showToast({ title: "唤起本地应用失败", description: "请安装对应应用或在系统设置中关联打开方式", variant: "error" })
-    }
-  } catch (err) {
-    showToast({ title: "无法打开文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
-  }
-}
+// 实现见 utils/local-file-ops.ts(与文件管理面板共用,SPEC-INS-014 §10)。
 
-function revealLocal(filePath: string) {
-  const api = getDesktopApi()
-  if (typeof api?.showItemInFolder !== "function") {
-    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
-    return
-  }
-  console.log("[octo:path] reveal-local", { filePath })
-  api.showItemInFolder(filePath)
-}
-
-// uri md 卡「文件夹」:SPEC-INS-014 后 uri md 产物落在可见的 insight/outputs,
+// uri md 卡「文件夹」:SPEC-INS-014 v2 后 uri md 产物落在可见的 insight/<sessionId>/outputs,
 // 先命中/落地本地工作副本(与预览、编辑同一份),再在文件管理器定位。
-async function revealUriLocal(tab: ResultTab, dir: string) {
+async function revealUriLocal(tab: ResultTab, dir: string, sessionId: string) {
   const api = getDesktopApi()
   if (typeof api?.showItemInFolder !== "function") {
     showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
     return
   }
   try {
-    const { path } = await ensureLocalMarkdownFile(tab, dir)
+    const { path } = await ensureLocalMarkdownFile(tab, dir, sessionId)
     console.log("[octo:office] reveal-show", { localPath: path })
     api.showItemInFolder(path)
   } catch (err) {
@@ -198,9 +175,10 @@ export function ActionBar(props: {
   onEdit?: () => void
 }): JSX.Element {
   const projectDir = useProjectDir()
+  const params = useParams<{ id?: string }>()
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
-  // uri md 卡「文件夹」:产物落在可见的 insight/outputs,给定位入口(与 path 源的「文件夹」对齐)。
+  // uri md 卡「文件夹」:产物落在可见的 insight/<sessionId>/outputs,给定位入口(与 path 源的「文件夹」对齐)。
   const canRevealUri = () =>
     props.tab.type === "markdown" && props.tab.source === "uri" && !!props.tab.uri && ready()
   // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
@@ -212,7 +190,7 @@ export function ActionBar(props: {
   const showToggle = () =>
     isToggleType(props.tab.type) ||
     (props.tab.type === "json" && isMindmapJSON(props.tab.content ?? ""))
-  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 insight/outputs / path write 产物);
+  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 insight/<sessionId>/outputs / path write 产物);
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
@@ -238,8 +216,8 @@ export function ActionBar(props: {
           {/* path 源(write 文本产物):额外给"本地打开/文件夹打开"——文件在本地磁盘,
               方便用 Typora / VSCode 等原生应用打开编辑。见 output-renderers.md §2.6.8。 */}
           <Show when={props.tab.source === "path" && props.tab.filePath}>
-            <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openLocal(props.tab.filePath!)} />
-            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => revealLocal(props.tab.filePath!)} />
+            <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openFileLocally(props.tab.filePath!)} />
+            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => revealFileInFolder(props.tab.filePath!)} />
           </Show>
           <Show when={canEdit()}>
             <ActionBtn
@@ -251,14 +229,14 @@ export function ActionBar(props: {
               }}
             />
           </Show>
-          {/* uri md 卡「文件夹」定位——落点在可见的 insight/outputs;path 源已在上方 path 块提供。 */}
+          {/* uri md 卡「文件夹」定位——落点在可见的 insight/<sessionId>/outputs;path 源已在上方 path 块提供。 */}
           <Show when={canRevealUri()}>
             <ActionBtn
               icon={<IconActionFolder size={14} />}
               label="文件夹"
               onClick={() => {
                 tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: "md" }) })
-                void revealUriLocal(props.tab, projectDir() || "")
+                void revealUriLocal(props.tab, projectDir() || "", params.id ?? "")
               }}
             />
           </Show>

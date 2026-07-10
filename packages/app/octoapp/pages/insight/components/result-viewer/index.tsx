@@ -1,7 +1,6 @@
 import { createMemo, createResource, createSignal, Show, Switch, Match } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
-import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { ResultTab, TabViewMode } from "./tab-store"
 import { TabBar } from "./tab-bar"
@@ -9,8 +8,8 @@ import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
+import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
-import { stripCodeFence } from "../../utils/detect"
 import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
@@ -23,30 +22,10 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { useSDK } from "@/context/sdk"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useParams } from "@solidjs/router"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
-
-// ── 源码渲染器 ──────────────────────────────────────────────────
-// 复用上游 <Markdown> 的 shiki 高亮:把内容包成 ```lang fence 喂给它,
-// 自动获得 syntax highlight + 复制按钮(跟对话区的代码段视觉完全一致)。
-function SourceCodeView(props: { content: string; lang: string }): JSX.Element {
-  const fenced = createMemo(() => {
-    // stripCodeFence 只对「内容本身可能被 ```lang 整段包裹」的来源(json/html,如 LLM 直出)有意义;
-    // 对 markdown / code 源**不能** strip —— md 源里合法存在代码围栏,strip 会把整篇抠成第一个围栏的内容
-    // (曾导致 md「代码」视图只剩一行,见 spec §8/output-renderers §1)。故仅 json/html 走 strip。
-    const stripable = props.lang === "json" || props.lang === "html"
-    const raw = stripable ? stripCodeFence(props.content) : props.content
-    let body = raw
-    if (props.lang === "json") {
-      try { body = JSON.stringify(JSON.parse(raw), null, 2) } catch { /* 解析失败保持原样,shiki 容错 */ }
-    }
-    return "```" + props.lang + "\n" + body + "\n```"
-  })
-  return (
-    <div class="octo-source-code-view p-4 h-full overflow-auto">
-      <Markdown text={fenced()} />
-    </div>
-  )
-}
+import { InsightFileManager } from "../file-manager"
+import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api"
 
 // ── Markdown 渲染器 ──────────────────────────────────────────
 // 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
@@ -68,6 +47,16 @@ export function ResultViewer(props: {
   onCollapse?: () => void
   /** 切换 预览/代码 视图(仅 toggle 类型) */
   onSetViewMode?: (id: string, mode: TabViewMode) => void
+  /** SPEC-INS-014 §10:tabs/files 页面级切换,决定内容区渲染 tab 列表还是文件管理面板 */
+  viewMode: "tabs" | "files"
+  onViewModeChange: (mode: "tabs" | "files") => void
+  /** 文件管理面板里点击某个文件 → 由 index.tsx 决定怎么开成 tab(复用 tabStore.openTab 去重) */
+  onOpenLocalFile: (file: InsightFileEntry) => void
+  /** SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)——添加至会话区 / 按路径关 tab / 按路径清附件 / 刷新 */
+  onAddToSession?: (file: InsightFile) => void
+  onCloseTabsByPath?: (paths: string[]) => void
+  onRemoveAttachmentsByPath?: (paths: string[]) => void
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
   const projectDir = useProjectDir()
@@ -84,15 +73,26 @@ export function ResultViewer(props: {
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)", "border-left": "1px solid var(--octo-border-divider)" }}
     >
-      <Show when={props.tabs.length > 0} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0 || props.viewMode === "files"} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
           onActivate={props.onActivate}
           onClose={props.onClose}
           onCollapse={props.onCollapse}
+          viewMode={props.viewMode}
+          onViewModeChange={props.onViewModeChange}
         />
-        <Show when={activeTab()}>
+        <Show when={props.viewMode === "files"}>
+          <InsightFileManager
+            onOpenFile={props.onOpenLocalFile}
+            onAddToSession={props.onAddToSession}
+            onCloseTabsByPath={props.onCloseTabsByPath}
+            onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+            onFilesRefresh={props.onFilesRefresh}
+          />
+        </Show>
+        <Show when={props.viewMode === "tabs" && activeTab()}>
           {(tab) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <ActionBar
@@ -237,13 +237,14 @@ function UriTabBody(props: {
 
 // uri markdown 模式:先把产物落成本地工作副本(download-resource-to-temp 幂等),再读这份本地文件,
 // 使「卡片预览 / 编辑 / 本地打开 / 重开卡」回显的都是同一份(含用户改动)。要原件走「下载原件」。
-// 落点 <projectDir>/insight/outputs/<file>(SPEC-INS-014,扁平、撞名加后缀);无项目目录时落 OS 临时目录(非持久,重启可能丢)。
+// 落点 <projectDir>/insight/<sessionId>/outputs/<file>(SPEC-INS-014 v2,扁平、撞名加后缀);无项目目录/无会话时落 OS 临时目录(非持久,重启可能丢)。
 // 桌面端能力缺失(浏览器 __dev / 测试)时退回直接 fetch(url) 只读预览。见 insight-markdown-editor.md §3。
 function UriMarkdownTabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
   const projectDir = useProjectDir()
+  const params = useParams<{ id?: string }>()
   const [resource, { refetch }] = createResource(
     () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri, dir: projectDir() || "" } : null),
     async (src) => {
@@ -255,7 +256,7 @@ function UriMarkdownTabBody(props: {
         return text
       }
       // 与编辑器共用 ensureLocalMarkdownFile → 命中同一份本地工作副本(幂等:已落地复用,不重复下载)
-      const { path: localPath } = await ensureLocalMarkdownFile(props.tab, src.dir)
+      const { path: localPath } = await ensureLocalMarkdownFile(props.tab, src.dir, params.id ?? "")
       const buf = await api.readFileBuffer!(localPath)
       const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
       console.log("[octo:resource] md-local", { localPath, bytes: text.length })
@@ -442,8 +443,9 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   const [openBusy, setOpenBusy] = createSignal(false)
   const [downloadBusy, setDownloadBusy] = createSignal(false)
   const [revealBusy, setRevealBusy] = createSignal(false)
-  // 选了项目目录就把 MCP 文件落进 <projectDir>/insight/outputs/ 持久保留;否则走 OS 临时目录。
+  // 选了项目目录且有会话就把 MCP 文件落进 <projectDir>/insight/<sessionId>/outputs/ 持久保留;否则走 OS 临时目录。
   const projectDir = useProjectDir()
+  const params = useParams<{ id?: string }>()
 
   // 文件类型维度:优先取文件名扩展名,兜底 mimeType,供打点区分用户在不同类型文件上的操作偏好
   function trackFileType(): string {
@@ -499,7 +501,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       mode: "to-temp",
     })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined, params.id)
       console.log("[octo:office] download-ok", { localPath })
       console.log("[octo:office] open-path", { localPath })
       // shell.openPath 返回值约定: 空字符串 = 成功,非空 = 错误说明。
@@ -590,7 +592,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const fname = defaultFilename()
     console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.id, filename: fname })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined)
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined, params.id)
       console.log("[octo:office] reveal-show", { localPath })
       api.showItemInFolder!(localPath)
     } catch (err) {

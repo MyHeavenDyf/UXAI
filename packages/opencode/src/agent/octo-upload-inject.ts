@@ -7,7 +7,8 @@ import { readFile } from "node:fs/promises"
  * 背景 / 决策见 octo-agent 文档仓 SPEC-INS-015(文件传参机制 ④ MCP 按需上传)、ADR-015 / ADR-014。
  *
  * 机制(SPEC-INS-015 路由 ④):
- *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/insight/sources(本地副本),**不上传 S3**。
+ *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/insight/uploads 或 insight/<sessionId>/uploads
+ *     (本地副本,SPEC-INS-014 v2 会话隔离),**不上传 S3**。
  *     发送时以 `[附件]` synthetic text part 注入 session(可用文件清单,模型从不改写):
  *       [附件]
  *       - <文件名>: <本地绝对路径>
@@ -81,7 +82,7 @@ const DOC_EXT_RE = /\.(docx|xlsx|pdf|pptx|txt|md)$/i
 
 type ManifestFile = { filename: string; path: string }
 
-// 进程内缓存「本地路径 → 已上传 url」。路径全局唯一(sources 撞名加后缀),
+// 进程内缓存「本地路径 → 已上传 url」。路径全局唯一(uploads 撞名加后缀),
 // 同一文件多轮多次调用 MCP 只上传一次(SPEC-INS-015 §3 幂等)。
 const uploadCache = new Map<string, string>()
 
