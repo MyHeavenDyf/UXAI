@@ -30,6 +30,9 @@ export function StudioComposer(props: {
   maxReferenceImages: number
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
+  customWidth: number
+  customHeight: number
+  isCustom: boolean
   assets: StudioAsset[]
   videoFrames: { first?: StudioAsset; last?: StudioAsset }
   videoDuration: StudioVideoDuration
@@ -44,6 +47,9 @@ export function StudioComposer(props: {
   onStyleModel: (value: string) => void
   onAspectRatio: (value: StudioAspectRatio) => void
   onCount: (value: 1 | 2 | 3 | 4) => void
+  onCustomWidth: (value: number) => void
+  onCustomHeight: (value: number) => void
+  onIsCustom: (value: boolean) => void
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
@@ -326,8 +332,15 @@ export function StudioComposer(props: {
               <ImageSettings
                 aspectRatio={props.aspectRatio}
                 count={props.count}
+                styleModel={props.styleModel}
+                customWidth={props.customWidth}
+                customHeight={props.customHeight}
+                isCustom={props.isCustom}
                 onAspectRatio={props.onAspectRatio}
                 onCount={props.onCount}
+                onCustomWidth={props.onCustomWidth}
+                onCustomHeight={props.onCustomHeight}
+                onIsCustom={props.onIsCustom}
               />
             </div>
           </Show>
@@ -521,12 +534,169 @@ function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (v
   )
 }
 
+function getModelResolutionKey(styleModel: string): string {
+  if (styleModel === "hdesign") return "hdesign"
+  if (styleModel.includes("2k")) return "2k"
+  if (styleModel.includes("3k")) return "3k"
+  if (styleModel.includes("4k")) return "4k"
+  return "default"
+}
+
+// 精确维度映射 [width, height]，未列出的比例按 1:1 基准等比计算
+const STUDIO_SIZE_MAP: Record<string, Record<string, [number, number]>> = {
+  hdesign: { "1:1": [1280, 1280] },
+  "2k":    { "1:1": [2048, 2048], "2:3": [1664, 2496], "3:4": [1728, 2304], "9:16": [1600, 2848] },
+  "3k":    { "1:1": [3072, 3072], "2:3": [2496, 3744], "3:4": [2592, 3456], "9:16": [2304, 4096] },
+  "4k":    { "1:1": [4096, 4096], "2:3": [3328, 4992], "3:4": [3520, 4704], "9:16": [3040, 5504] },
+  default: { "1:1": [1024, 1024], "2:3": [800,  1200], "3:4": [768,  1024], "9:16": [720,  1280] },
+}
+
+function getDefaultDimensions(styleModel: string, aspectRatio: string): { width: number; height: number } {
+  const key = getModelResolutionKey(styleModel)
+  const map = STUDIO_SIZE_MAP[key] ?? STUDIO_SIZE_MAP.default
+  // 优先精确匹配，其次用 default 映射，最后等比回退
+  const exact = map[aspectRatio] ?? STUDIO_SIZE_MAP.default[aspectRatio]
+  if (exact) return { width: exact[0], height: exact[1] }
+  // 逆向比例：宽高互换
+  const [w, h] = aspectRatio.split(":").map(Number)
+  if (w && h && w !== h) {
+    const inverse = `${h}:${w}`
+    const inv = map[inverse] ?? STUDIO_SIZE_MAP.default[inverse]
+    if (inv) return { width: inv[1], height: inv[0] }
+  }
+  // 回退：按 1:1 基准等比计算
+  const base = (map["1:1"] ?? STUDIO_SIZE_MAP.default["1:1"])[0]
+  if (!w || !h || w === h) return { width: base, height: base }
+  if (w > h) return { width: Math.round(base * w / h), height: base }
+  return { width: base, height: Math.round(base * h / w) }
+}
+
 function ImageSettings(props: {
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
+  styleModel: string
+  customWidth: number
+  customHeight: number
+  isCustom: boolean
   onAspectRatio: (value: StudioAspectRatio) => void
   onCount: (value: 1 | 2 | 3 | 4) => void
+  onCustomWidth: (value: number) => void
+  onCustomHeight: (value: number) => void
+  onIsCustom: (value: boolean) => void
 }): JSX.Element {
+  const isCustom = () => props.isCustom
+  const setIsCustom = (v: boolean) => props.onIsCustom(v)
+  const defaultDims = () => getDefaultDimensions(props.styleModel, props.aspectRatio)
+  const [width, setWidth] = createSignal(isCustom() ? props.customWidth : defaultDims().width)
+  const [height, setHeight] = createSignal(isCustom() ? props.customHeight : defaultDims().height)
+  createEffect(() => {
+    if (isCustom()) return
+    const dims = getDefaultDimensions(props.styleModel, props.aspectRatio)
+    setWidth(dims.width)
+    setHeight(dims.height)
+  })
+
+  function tryMatchRatio(w: number, h: number) {
+    if (!w || !h) return
+    for (const r of STUDIO_ASPECT_RATIOS) {
+      const dims = getDefaultDimensions(props.styleModel, r)
+      if (dims.width === w && dims.height === h) {
+        setIsCustom(false)
+        props.onIsCustom(false)
+        if (r !== props.aspectRatio) props.onAspectRatio(r)
+        return
+      }
+    }
+    setIsCustom(true)
+    props.onIsCustom(true)
+  }
+
+  const isJimeng = () => getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen"
+  const JIMENG_AREA_MIN = 2560 * 1440
+  const JIMENG_AREA_MAX = Math.round(3072 * 3072 * 1.1025)
+  const sizeWarnText = () => {
+    if (props.styleModel === "qwen") return "请输入有效数值250px ~ 1664px"
+    if (isJimeng()) return `宽高乘积范围 ${JIMENG_AREA_MIN.toLocaleString()} ~ ${JIMENG_AREA_MAX.toLocaleString()}，宽高比 1:16 ~ 16:1`
+    return "请输入有效数值250px ~ 2500px"
+  }
+
+  function handleWidthInput(e: { currentTarget: HTMLInputElement }) {
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    const val = parseInt(e.currentTarget.value) || 0
+    setWidth(val)
+    if (isCustom()) props.onCustomWidth(val)
+    tryMatchRatio(val, height())
+  }
+
+  function handleHeightInput(e: { currentTarget: HTMLInputElement }) {
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    const val = parseInt(e.currentTarget.value) || 0
+    setHeight(val)
+    if (isCustom()) props.onCustomHeight(val)
+    tryMatchRatio(width(), val)
+  }
+
+  function handleSizeBlur(field: "w" | "h") {
+    if (isJimeng()) {
+      clampJimengSize(field)
+      return
+    }
+    const { min, max } = sizeLimit()
+    const val = field === "w" ? width() : height()
+    if (val === 0) return
+    if (val < min) {
+      if (field === "w") { setWidth(min); props.onCustomWidth(min) }
+      else { setHeight(min); props.onCustomHeight(min) }
+    }
+    else if (val > max) {
+      if (field === "w") { setWidth(max); props.onCustomWidth(max) }
+      else { setHeight(max); props.onCustomHeight(max) }
+    }
+  }
+
+  function clampJimengSize(field: "w" | "h") {
+    let w = width(), h = height()
+    if (!w || !h) return
+    // Clamp area
+    const area = w * h
+    if (area < JIMENG_AREA_MIN) {
+      const scale = Math.sqrt(JIMENG_AREA_MIN / area)
+      w = Math.round(w * scale)
+      h = Math.round(h * scale)
+    } else if (area > JIMENG_AREA_MAX) {
+      const scale = Math.sqrt(JIMENG_AREA_MAX / area)
+      w = Math.round(w * scale)
+      h = Math.round(h * scale)
+    }
+    // Clamp ratio
+    const ratio = w / h
+    if (ratio < 1 / 16) {
+      w = Math.round(h / 16)
+    } else if (ratio > 16) {
+      h = Math.round(w / 16)
+    }
+    setWidth(w)
+    setHeight(h)
+    props.onCustomWidth(w)
+    props.onCustomHeight(h)
+  }
+
+  const sizeLimit = () => props.styleModel === "qwen" ? { min: 250, max: 1664 } : { min: 250, max: 2500 }
+
+  function selectRatio(r: StudioAspectRatio) {
+    setIsCustom(false)
+    props.onIsCustom(false)
+    props.onAspectRatio(r)
+    props.onCustomWidth(0)
+    props.onCustomHeight(0)
+  }
+
+  function selectCustom() {
+    setIsCustom(true)
+    setWidth(props.customWidth || 0)
+    setHeight(props.customHeight || 0)
+    props.onIsCustom(true)
+  }
   return (
     <div class="studio-menu studio-image-settings-menu">
       <div class="studio-image-settings-title">图片设置</div>
@@ -536,10 +706,10 @@ function ImageSettings(props: {
           {(item) => (
             <button
               type="button"
-              onClick={() => props.onAspectRatio(item)}
+              onClick={() => selectRatio(item)}
               class="studio-image-settings-ratio"
-              classList={{ active: item === props.aspectRatio }}
-              aria-pressed={item === props.aspectRatio}
+              classList={{ active: !isCustom() && item === props.aspectRatio }}
+              aria-pressed={!isCustom() && item === props.aspectRatio}
             >
               <span
                 class="studio-image-settings-ratio-icon"
@@ -552,6 +722,21 @@ function ImageSettings(props: {
             </button>
           )}
         </For>
+        <button
+          type="button"
+          class="studio-image-settings-ratio"
+          classList={{ active: isCustom() || !STUDIO_ASPECT_RATIOS.includes(props.aspectRatio) }}
+          aria-pressed={isCustom() || !STUDIO_ASPECT_RATIOS.includes(props.aspectRatio)}
+          onClick={() => selectCustom()}
+        >
+          <span
+            class="studio-image-settings-ratio-icon custom"
+            style={{ "--icon-w": "20px", "--icon-h": "20px" }}
+          >
+            <span class="studio-image-settings-ratio-icon-l" />
+          </span>
+          <span class="studio-image-settings-ratio-text">自定义</span>
+        </button>
       </div>
       <div class="studio-image-settings-label">图片数量</div>
       <div class="studio-image-settings-counts">
@@ -568,6 +753,22 @@ function ImageSettings(props: {
             </button>
           )}
         </For>
+      </div>
+      <div class="studio-image-settings-label" style={{ "margin-top": "16px" }}>
+        尺寸
+        <span class="studio-image-settings-size-warn" title={sizeWarnText()} />
+        <span class="studio-image-settings-size-warn-text">{sizeWarnText()}</span>
+      </div>
+      <div class="studio-image-settings-size">
+        <div class="studio-image-settings-size-input">
+          <span class="studio-image-settings-size-label">W</span>
+          <input type="number" class="studio-image-settings-size-field" placeholder="宽" step="1" inputmode="numeric" value={width() || ""} onInput={handleWidthInput} onBlur={() => handleSizeBlur("w")} />
+        </div>
+        <div class="studio-image-settings-size-input">
+          <span class="studio-image-settings-size-label">H</span>
+          <input type="number" class="studio-image-settings-size-field" placeholder="高" step="1" inputmode="numeric" value={height() || ""} onInput={handleHeightInput} onBlur={() => handleSizeBlur("h")} />
+        </div>
+        <span class="studio-image-settings-size-unit">PX</span>
       </div>
     </div>
   )

@@ -97,8 +97,12 @@ export function InsightTurn(props: {
   )
 
   // 非图片附件(SPEC-INS-015 ②④):从 synthetic [附件] 清单解析(filename + 本地路径),只取 filename 渲染文件卡片。
+  // 必须按 "[附件]" 头定位:chip turn(SPEC-INS-017)还有 [MCP触发指令] / [MCP声明] 两个 synthetic part,
+  // 拿错 part 会把模板行误解析成文件卡片。
   const inputAttachments = createMemo((): Array<{ filename: string; path: string }> => {
-    const block = turnParts().find((p) => p.type === "text" && p.synthetic && typeof p.text === "string")
+    const block = turnParts().find(
+      (p) => p.type === "text" && p.synthetic && typeof p.text === "string" && p.text.startsWith("[附件]"),
+    )
     if (!block?.text) return []
     return parseUploadedFiles(block.text)
   })

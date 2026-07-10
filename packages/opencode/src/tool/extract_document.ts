@@ -188,7 +188,7 @@ export const ExtractDocumentTool = Tool.define(
               title,
               output:
                 `解析「${name}」失败:${parsed.failed}。` +
-                `文件可能已损坏、被加密或格式不规范;如需分析该文件,请改用 MCP 分析工具(文件参数填文件名)。`,
+                `文件可能已损坏、被加密或格式不规范;如需分析该文件,请建议用户点击输入框的 MCP 按钮转交内网解析。`,
               metadata: { path, format, error: "parse-error", errorMessage: parsed.failed } as ExtractMetadata,
             }
           }
@@ -203,7 +203,7 @@ export const ExtractDocumentTool = Tool.define(
               title,
               output:
                 `「${name}」解析成功但未抽取到文本(可能是扫描件 / 纯图片文档)。` +
-                `如需分析该文件,请改用 MCP 分析工具(文件参数填文件名)。`,
+                `如需分析该文件,请建议用户点击输入框的 MCP 按钮转交内网解析。`,
               metadata: { path, format, chars, tokenEstimate, ...result.detail } as ExtractMetadata,
             }
           }

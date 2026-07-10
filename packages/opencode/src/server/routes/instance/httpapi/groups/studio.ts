@@ -21,6 +21,7 @@ export const StudioPaths = {
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
   generationCancel: `${root}/generations/:generationID/cancel`,
+  generationReboot: `${root}/generations/:generationID/reboot`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
   permission: `${root}/permissions/check`,
@@ -183,6 +184,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.cancel",
             summary: "Cancel Studio generation",
             description: "Cancels an active asynchronous Studio generation.",
+          }),
+        ),
+        HttpApiEndpoint.post("rebootGeneration", StudioPaths.generationReboot, {
+          params: { generationID: Schema.String },
+          success: described(StudioGenerationResult, "Rebooted Studio generation"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.reboot",
+            summary: "Reboot Studio generation",
+            description: "Reboots a failed asynchronous Studio generation with an existing provider task id.",
           }),
         ),
         HttpApiEndpoint.get("getGeneration", StudioPaths.generation, {
