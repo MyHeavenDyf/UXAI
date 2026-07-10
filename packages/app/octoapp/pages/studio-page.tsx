@@ -15,7 +15,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showToast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -126,6 +126,7 @@ export default function StudioPage() {
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
+  onCleanup(() => { toaster.clear() })
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -3027,6 +3028,10 @@ export default function StudioPage() {
                   onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
                   onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
                   onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
+                  onReversePrompt={() => {
+                    tracker.interaction({ module: "studio", name: "reverse-prompt" })
+                    showToast({ title: "图文反推", description: "功能开发中" })
+                  }}
                 />
             </div>
           </div>
@@ -3204,6 +3209,9 @@ if (!headerTitle.pendingRename) return
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
             onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
+            onReversePrompt={() => {
+              showToast({ title: "图文反推", description: "功能开发中" })
+            }}
           />
         </section>
         </Show>
