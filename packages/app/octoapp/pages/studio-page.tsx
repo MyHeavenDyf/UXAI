@@ -69,6 +69,7 @@ import {
   recordValue,
   STUDIO_GENERATION_CANCEL_TIMEOUT_MS,
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
+  STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
   STUDIO_VIDEO_ASPECT_RATIOS,
   stringValue,
@@ -103,6 +104,8 @@ type StudioGenerationOverrides = {
   videoFrames?: { first?: string; last?: string }
   styleModel?: string
   aspectRatio?: StudioAspectRatio
+  width?: number
+  height?: number
   count?: 1 | 2 | 3 | 4
   videoDuration?: StudioVideoDuration
   videoQualityMode?: StudioVideoQualityMode
@@ -188,6 +191,9 @@ export default function StudioPage() {
   const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
   const styleModel = () => imageSettingStore.styleModel
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
+  const [customWidth, setCustomWidth] = createSignal(0)
+  const [customHeight, setCustomHeight] = createSignal(0)
+  const [isCustomStore, setIsCustomStore] = createSignal(false)
   const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
@@ -197,6 +203,7 @@ export default function StudioPage() {
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
+  const [rebootingGenerationIDs, setRebootingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedResultId, setSelectedResultId] = createSignal<string>()
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
@@ -596,6 +603,7 @@ export default function StudioPage() {
     pendingResult()?.status === "queued" ||
     pendingResult()?.status === "running"
   )
+  const isActionBusy = createMemo(() => isBusy() || rebootingGenerationIDs().size > 0)
   const turns = createMemo(() =>
     buildStudioTurns({
       messages: params.id ? dataStore.message[params.id] ?? [] : [],
@@ -621,6 +629,7 @@ export default function StudioPage() {
           ...normalized,
           userText: pending.displayPrompt || normalized.userText,
           assistantText: pending.displayPrompt ? assistantText : normalized.assistantText || assistantText,
+          toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
@@ -654,6 +663,7 @@ export default function StudioPage() {
               ...latest,
               userText: pendingUserText,
               assistantText: pendingAssistantText,
+              toolError: undefined,
               toolTitle: studioGenerationTitle(pending.capability, pending.status),
               toolName: pending.status === "create_failed" ? "内部 · 创建失败" : "内部 · 失败",
               toolRunning: false,
@@ -668,6 +678,7 @@ export default function StudioPage() {
             ...latest,
             userText: pendingUserText,
             assistantText: pending.displayPrompt ? pendingAssistantText : latest.assistantText || pendingAssistantText,
+            toolError: undefined,
             toolTitle: studioGenerationTitle(pending.capability, "succeeded"),
             toolName: "内部 · 完成",
             toolRunning: false,
@@ -683,6 +694,7 @@ export default function StudioPage() {
           id: pending.id,
           userText: pendingUserText,
           assistantText: pendingAssistantText,
+          toolError: undefined,
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
@@ -1018,7 +1030,7 @@ export default function StudioPage() {
     return Boolean(item?.capability === "image.generate" && styleModelRequiresSeedreamPermission(item.styleModel ?? item.model))
   }
   function resultRegenerateDisabled(item?: StudioGenerationResult) {
-    return isBusy() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
+    return isActionBusy() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
@@ -1027,7 +1039,7 @@ export default function StudioPage() {
   })
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
-    !isBusy() &&
+    !isActionBusy() &&
     !selectedCapabilityNeedsImage() &&
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
@@ -1873,6 +1885,8 @@ export default function StudioPage() {
         videoFrames: restoredVideoFrames(result),
         aspectRatio: nextAspectRatio,
         count: nextCount,
+        width: result.width,
+        height: result.height,
         videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
         videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
         useRestoredInputs: true,
@@ -1893,6 +1907,8 @@ export default function StudioPage() {
         styleModel: stringValue(input, "styleModel"),
         aspectRatio: nextAspectRatio,
         count: nextCount,
+        width: result.width,
+        height: result.height,
         useRestoredInputs: true,
       }
     }
@@ -1909,6 +1925,8 @@ export default function StudioPage() {
       extra: { ...(extra ?? {}), skipPromptRefine: true },
       aspectRatio: nextAspectRatio,
       count: nextCount,
+      width: result.width,
+      height: result.height,
       useRestoredInputs: true,
     }
   }
@@ -1924,6 +1942,8 @@ export default function StudioPage() {
       styleModel: stringValue(input, "styleModel") ?? result.styleModel ?? result.model,
       aspectRatio: nextAspectRatio,
       count: nextCount,
+      width: result.width,
+      height: result.height,
       referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
       videoFrames: restoredVideoFrames(result),
       videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
@@ -1992,7 +2012,7 @@ export default function StudioPage() {
   }
 
   async function editGenerationDraft(result: StudioGenerationResult) {
-    if (isBusy()) return
+    if (isActionBusy()) return
     if (result.capability !== "image.generate" && result.capability !== "video.generate") return
     const draft = restoreGenerationEditDraft(result)
     if (!canEditGenerationDraft(draft)) return
@@ -2003,6 +2023,9 @@ export default function StudioPage() {
       setPrompt(draft.prompt)
       setAspectRatio(draft.aspectRatio)
       if (draft.count) setCount(draft.count)
+      if (draft.width) setCustomWidth(draft.width)
+      if (draft.height) setCustomHeight(draft.height)
+      setIsCustomStore(Boolean(draft.width && draft.height))
     })
     tracker.interaction({
       module: "studio",
@@ -2035,6 +2058,8 @@ export default function StudioPage() {
     capability: StudioCapability
     styleModel?: string
     aspectRatio?: StudioAspectRatio
+    width?: number
+    height?: number
     count?: 1 | 2 | 3 | 4
     referenceImages?: string[]
     sourceImage?: string
@@ -2069,8 +2094,14 @@ export default function StudioPage() {
         refinedPrompt: input.refinedPrompt,
         effectivePrompt: input.effectivePrompt,
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
-        aspectRatio: input.capability === "image.generate" || input.capability === "video.generate" ? input.aspectRatio ?? aspectRatio() : undefined,
+        aspectRatio: (input.width && input.height)
+          ? undefined
+          : input.capability === "image.generate" || input.capability === "video.generate"
+            ? input.aspectRatio ?? aspectRatio()
+            : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
+        isCustom: Boolean(input.width && input.height),
+        ...(input.width && input.height ? { target_size: { width: input.width, height: input.height } } : {}),
         imageTool: imageTool(),
         referenceImages: input.referenceImages ?? [],
         sourceImage: input.sourceImage,
@@ -2165,6 +2196,61 @@ export default function StudioPage() {
     }
   }
 
+  async function rebootStudioGeneration(id: string) {
+    if (rebootingGenerationIDs().has(id) || isActionBusy()) return
+    const current = server.current
+    if (!current) {
+      showToast({
+        title: "重新生成失败",
+        description: "No active server.",
+      })
+      return
+    }
+    setRebootingGenerationIDs((ids) => new Set([...ids, id]))
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        ...directoryHeader(projectDir()),
+      }
+      if (current.http.password) {
+        headers.Authorization = `Basic ${authTokenFromCredentials({
+          username: current.http.username,
+          password: current.http.password,
+        })}`
+      }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), STUDIO_GENERATION_REBOOT_TIMEOUT_MS)
+      const response = await fetch(
+        new URL(`/studio/generations/${encodeURIComponent(id)}/reboot`, current.http.url),
+        { method: "POST", headers, signal: controller.signal },
+      ).finally(() => clearTimeout(timeout))
+      const bodyText = await response.text()
+      if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+      const generation = JSON.parse(bodyText) as StudioGenerationResult
+      terminatedGenerationIDs.delete(id)
+      setPendingResult((current) => ({
+        ...generation,
+        sessionID: current?.sessionID ?? generation.sessionID ?? params.id,
+        displayPrompt: current?.id === generation.id ? current.displayPrompt ?? generation.displayPrompt : generation.displayPrompt,
+        sourceImage: current?.id === generation.id ? current.sourceImage : undefined,
+      }))
+      setStatus(generation.status)
+      const sessionID = generation.sessionID ?? params.id
+      if (sessionID) {
+        void loadSessionMessages(sessionID).catch((error) => {
+          console.error("[StudioPage] rebooted session load failed", error)
+        })
+      }
+    } catch (error) {
+      showToast({
+        title: "重新生成失败",
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setRebootingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
+    }
+  }
+
   function isStudioGenerationID(id: string) {
     return id.startsWith("studio_gen")
   }
@@ -2173,6 +2259,9 @@ export default function StudioPage() {
     const nextCapability = overrides?.capability ?? capability()
     const nextStyleModel = overrides?.styleModel ?? styleModelLabel(styleModel())
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
+    const nextWidth = overrides?.width ?? customWidth()
+    const nextHeight = overrides?.height ?? customHeight()
+    const nextIsCustom = overrides ? Boolean(overrides.width && overrides.height) : isCustomStore() && nextWidth > 0 && nextHeight > 0
     const nextCount = overrides?.count ?? count()
     const nextVideoDuration = overrides?.videoDuration ?? videoDuration()
     const nextVideoQualityMode = overrides?.videoQualityMode ?? videoQualityMode()
@@ -2199,7 +2288,7 @@ export default function StudioPage() {
               ? "根据首尾帧生成自然连贯的视频"
             : ""
     )
-    if (!text || isBusy()) return
+    if (!text || isActionBusy()) return
     const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousAssets = assets()
@@ -2249,7 +2338,10 @@ export default function StudioPage() {
       displayPrompt: overrides?.displayPrompt,
       provider: "internel",
       model: nextStyleModel,
-      aspectRatio: nextAspectRatio,
+      aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
+      width: nextIsCustom ? nextWidth : undefined,
+      height: nextIsCustom ? nextHeight : undefined,
+      isCustom: nextIsCustom || undefined,
       images: [],
       progress: 0,
       createdAt: Date.now(),
@@ -2288,7 +2380,9 @@ export default function StudioPage() {
         refinedPrompt: overrides?.refinedPrompt,
         effectivePrompt: overrides?.effectivePrompt,
         styleModel: nextStyleModel,
-        aspectRatio: nextAspectRatio,
+        aspectRatio: nextIsCustom ? undefined : nextAspectRatio,
+        width: nextIsCustom ? nextWidth : undefined,
+        height: nextIsCustom ? nextHeight : undefined,
         count: nextCount,
         referenceImages,
         sourceImage: overrides?.sourceImage,
@@ -2516,7 +2610,7 @@ export default function StudioPage() {
   }
 
   function openHD() {
-    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
     batch(() => {
       setCapability("image.upscale")
       setWorkspaceImage(undefined)
@@ -2526,7 +2620,7 @@ export default function StudioPage() {
   }
 
   function openCutout() {
-    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
     batch(() => {
       setCapability("image.cutout")
       setWorkspaceImage(undefined)
@@ -2536,7 +2630,7 @@ export default function StudioPage() {
   }
 
   function openInpaint() {
-    if (!selectedImage() || isVideoMedia(selectedImage()) || isBusy()) return
+    if (!selectedImage() || isVideoMedia(selectedImage()) || isActionBusy()) return
     batch(() => {
       setCapability("image.inpaint")
       setWorkspaceImage(undefined)
@@ -2581,7 +2675,7 @@ export default function StudioPage() {
     compositeImage: string
     hasDrawing: boolean
   }) {
-    if (isBusy()) return
+    if (isActionBusy()) return
 
     async function doSubmit() {
       let sourceUrl = input.sourceImage
@@ -2703,7 +2797,7 @@ export default function StudioPage() {
 
   async function submitHD(input: { mode: StudioHDMode }) {
     const image = workspaceEditImage()
-    if (!image || isBusy()) return
+    if (!image || isActionBusy()) return
     let sourceUrl = image.remoteUrl ?? image.url
 
     // Auto-adjust original image (not local upload) if exceeds limits
@@ -2724,7 +2818,7 @@ export default function StudioPage() {
 
   async function submitCutout() {
     const image = workspaceEditImage()
-    if (!image || isBusy()) return
+    if (!image || isActionBusy()) return
     let sourceUrl = image.remoteUrl ?? image.url
 
     // Auto-adjust original image (not local upload) if exceeds limits
@@ -2898,6 +2992,9 @@ export default function StudioPage() {
                   maxReferenceImages={maxReferenceImages()}
                   aspectRatio={aspectRatio()}
                   count={count()}
+                  customWidth={customWidth()}
+                  customHeight={customHeight()}
+                  isCustom={isCustomStore()}
                   assets={assets()}
                   videoFrames={videoFrames}
                   videoDuration={videoDuration()}
@@ -2912,6 +3009,9 @@ export default function StudioPage() {
                   onStyleModel={selectStyleModel}
                   onAspectRatio={setAspectRatio}
                   onCount={setCount}
+                  onCustomWidth={setCustomWidth}
+                  onCustomHeight={setCustomHeight}
+                  onIsCustom={setIsCustomStore}
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
                   onOpenMenu={setOpenMenu}
@@ -3048,9 +3148,12 @@ if (!headerTitle.pendingRename) return
                 result={result()}
                 turns={displayTurns()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
+                actionBusy={isActionBusy()}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
+                rebootingGenerationIDs={rebootingGenerationIDs()}
                 onCancelGeneration={(generationID) => void cancelStudioGeneration(generationID)}
                 onEditGeneration={(generation) => void editGenerationDraft(generation)}
+                onRebootGeneration={(generationID) => void rebootStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
               />
@@ -3066,6 +3169,9 @@ if (!headerTitle.pendingRename) return
             maxReferenceImages={maxReferenceImages()}
             aspectRatio={aspectRatio()}
             count={count()}
+            customWidth={customWidth()}
+            customHeight={customHeight()}
+            isCustom={isCustomStore()}
             assets={assets()}
             videoFrames={videoFrames}
             videoDuration={videoDuration()}
@@ -3080,6 +3186,9 @@ if (!headerTitle.pendingRename) return
             onStyleModel={selectStyleModel}
             onAspectRatio={setAspectRatio}
             onCount={setCount}
+            onCustomWidth={setCustomWidth}
+            onCustomHeight={setCustomHeight}
+            onIsCustom={setIsCustomStore}
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
             onOpenMenu={setOpenMenu}
@@ -3146,7 +3255,7 @@ if (!headerTitle.pendingRename) return
               onGenerateVideo={generateVideoFromSelectedImage}
               showVideoGeneration={canGenerateVideo()}
               regenerateDisabled={resultRegenerateDisabled(result())}
-              actionDisabled={isBusy()}
+              actionDisabled={isActionBusy()}
             >
               <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
@@ -3229,7 +3338,7 @@ if (!headerTitle.pendingRename) return
               {(image) => (
                 <StudioCutoutEditor
                   image={image()}
-                  busy={isBusy()}
+                  busy={isActionBusy()}
                   onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitCutout}
@@ -3252,7 +3361,7 @@ if (!headerTitle.pendingRename) return
               {(image) => (
                 <StudioInpaintEditor
                   image={image()}
-                  busy={isBusy()}
+                  busy={isActionBusy()}
                   onClose={deleteWorkspaceImage}
                   onDelete={deleteWorkspaceImage}
                   onSubmit={submitInpaint}

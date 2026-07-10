@@ -10,7 +10,7 @@ import { fileTypeIconUrl } from "../icons/illustrations"
  *
  * 路由: /insight/__dev/attachment-parse
  * 复现的真实 bug:上传 10 个文件、发送后对话框上方文件列表少几个,丢的恰好都是
- * **文件名带空格**的。根因:注入块每行末尾是文件地址(SPEC-INS-015 后是 insight/sources 本地路径,
+ * **文件名带空格**的。根因:注入块每行末尾是文件地址(SPEC-INS-015 后是 insight/uploads 本地路径,
  * 文件名带空格 → 路径含空格),旧正则用 \S+ 匹配地址 → 在空格处截断 → \s*$ 匹配失败 → 整行被丢弃。
  *
  * 本页用真实的 formatUploadsForPrompt(拼 synthetic [本地文件] 块) → parseUploadedFiles(解析回卡片)
@@ -41,10 +41,10 @@ const MOCK_FILENAMES = [
   "原始问卷 v2.xlsx", // 带空格
 ]
 
-// 模拟 SPEC-INS-014 拷贝落地:源文件拷进 <projectDir>/insight/sources/<文件名>。
+// 模拟 SPEC-INS-014 v2 拷贝落地:源文件拷进 <projectDir>/insight/<sessionId>/uploads/<文件名>。
 // 文件名带空格 → 本地路径也带空格(这正是 bug 的源头)。
 function mockLocalPath(filename: string): string {
-  return `/Users/me/projects/demo/insight/sources/${filename}`
+  return `/Users/me/projects/demo/insight/ses_dev0000000000000000000000/uploads/${filename}`
 }
 
 export default function AttachmentParsePreviewPage(): JSX.Element {
