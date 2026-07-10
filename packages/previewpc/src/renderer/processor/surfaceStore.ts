@@ -22,6 +22,7 @@ export class SurfaceStore {
         .trim()
         .split(/\s+/)
         .map((cls: string) => {
+            if (cls.includes('!')) return cls
             if (cls.includes(':')) {
             const lastColonIndex = cls.lastIndexOf(':')
             return cls.substring(0, lastColonIndex + 1) + '!' + cls.substring(lastColonIndex + 1)
