@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile, lstat, copyFile } from "node:fs/promises"
 import { dirname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir } from "node:os"
 import { pathToFileURL } from "node:url"
-import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
+import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-start
