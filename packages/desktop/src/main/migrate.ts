@@ -217,29 +217,23 @@ export function deployProtoTools() {
     : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node")
 
   try {
-    for (const sub of ["design"]) {
-      const srcDir = join(builtinSource, sub)
-      if (!existsSync(srcDir)) {
-        log.warn("proto tools deployment: source directory not found", srcDir)
-        continue
-      }
-      const destDir = join(configDir, sub)
-      if (existsSync(destDir)) continue
-      cpSync(srcDir, destDir, { recursive: true })
-      log.log("proto tools deployment: copied", sub, "to", destDir)
+    // 部署设计系统原型目录 prototype/{version}/
+    const prototypeSrc = join(builtinSource, "prototype")
+    if (!existsSync(prototypeSrc)) {
+      log.warn("proto tools deployment: prototype source not found", prototypeSrc)
+      return
     }
 
-    const componentsSrc = join(builtinSource, "components")
-    if (existsSync(componentsSrc)) {
-      const componentsDest = join(configDir, "components")
-      mkdirSync(componentsDest, { recursive: true })
-      for (const dir of readdirSync(componentsSrc, { withFileTypes: true })) {
-        if (!dir.isDirectory()) continue
-        const destDir = join(componentsDest, dir.name)
-        if (existsSync(destDir) && readdirSync(destDir).length > 0) continue
-        cpSync(join(componentsSrc, dir.name), destDir, { recursive: true })
-        log.log("proto tools deployment: copied components/" + dir.name, "to", destDir)
-      }
+    const prototypeDest = join(configDir, "prototype")
+    mkdirSync(prototypeDest, { recursive: true })
+
+    for (const dsDir of readdirSync(prototypeSrc, { withFileTypes: true })) {
+      if (!dsDir.isDirectory()) continue
+      const srcDir = join(prototypeSrc, dsDir.name)
+      const destDir = join(prototypeDest, dsDir.name)
+      if (existsSync(destDir) && readdirSync(destDir).length > 0) continue
+      cpSync(srcDir, destDir, { recursive: true })
+      log.log("proto tools deployment: copied prototype/" + dsDir.name, "to", destDir)
     }
   } catch (err) {
     log.warn("proto tools deployment: failed", err)

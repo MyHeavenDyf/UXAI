@@ -1,0 +1,71 @@
+{
+	"name": "RadioGroup",
+	"type": "object",
+	"$defs": {
+		"DataBinding":{
+			"type": "object",
+			"description": "JSON Pointer state reference",
+			"required": ["path"],
+			"properties": {
+				"path": {
+					"type": "string",
+					"description": "A JSON Pointer path to a value in the state",
+					"examples": ["/value", "/form/value"]
+				}
+			}	
+		}
+	},
+	"properties": {
+		"id": {
+			"type": "string",
+			"description": "Unique ID for cross-referencing."
+		},
+		"component": {
+			"type": "string",
+			"const": "RadioGroup"
+		},
+		"props": {
+			"type": "object",
+			"properties": {
+				"value": {
+					"oneOf": [{
+							"type": "string"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "Used to set the selected value."
+				},
+				"options": {
+					"oneOf": [{
+							"type": "array"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "Semantic radio options."
+				},
+				"orientation": {
+					"type": "string",
+					"enum": ["horizontal", "vertical"]
+				},
+				"className": {
+					"type": "string",
+					"description": "Tailwind CSS classes for the component."
+				},
+				"optionType": {
+					"type": "string",
+					"enum": ["default", "button"]
+				},
+				"size": {
+					"type": "string",
+					"enum": ["large", "medium", "small"]
+				}
+			},
+			"required": ["value", "options"]
+		}
+	},
+	"required": ["id", "component", "props"]
+}

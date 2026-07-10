@@ -229,7 +229,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             style={{ "font-size": "14px", "line-height": "22px" }}
           >
             <IconDownload size={16} />
-            <span>{language.t("designFiles.download")} ({props.fileStore.store.selected.size})</span>
+            <span>{language.t("designFiles.download")}</span>
           </button>
           <button
             type="button"
@@ -237,7 +237,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             class="flex items-center gap-1 px-2 py-1 rounded transition-colors text-text-diff-delete-base cursor-pointer"
             style={{ "font-size": "14px", "line-height": "22px" }}
           >
-            <span>{language.t("designFiles.batchDelete")} ({props.fileStore.store.selected.size})</span>
+            <span>{language.t("designFiles.batchDelete")}</span>
           </button>
         </Show>
 

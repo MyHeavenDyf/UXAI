@@ -16,13 +16,24 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
+function ratioToNumber(ratio: StudioAspectRatio): number {
+  const [w, h] = ratio.split(":").map(Number)
+  return w / h
+}
+
+function findMatchingRatio(rect: OutpaintBox, ratios: StudioAspectRatio[]): StudioAspectRatio | undefined {
+  const currentRatio = rect.width / rect.height
+  const tolerance = 0.02
+  for (const ratio of ratios) {
+    if (Math.abs(currentRatio - ratioToNumber(ratio)) < tolerance) {
+      return ratio
+    }
+  }
+  return undefined
+}
+
 function ratioBox(imageBox: OutpaintBox, stage: { width: number; height: number }, ratio: StudioAspectRatio): OutpaintBox {
-  const ratioValue =
-    ratio === "16:9"
-      ? 16 / 9
-      : ratio === "9:16"
-        ? 9 / 16
-        : 1
+  const ratioValue = ratioToNumber(ratio)
   const imageRatio = imageBox.width / imageBox.height
   const width = ratioValue > imageRatio ? imageBox.height * ratioValue : imageBox.width
   const height = ratioValue > imageRatio ? imageBox.height : imageBox.width / ratioValue
@@ -158,6 +169,10 @@ export function StudioOutpaintEditor(props: {
     function onUp() {
       document.removeEventListener("pointermove", onMove)
       document.removeEventListener("pointerup", onUp)
+      const currentRect = rect()
+      if (currentRect) {
+        setLocalAspectRatio(findMatchingRatio(currentRect, ratios))
+      }
     }
     document.addEventListener("pointermove", onMove)
     document.addEventListener("pointerup", onUp)

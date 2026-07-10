@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, getGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, getGeneration, rebootGeneration } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 
@@ -136,5 +136,6 @@ export const StudioRoutes = lazy(() =>
     },
   )
   .post("/generations/:generationID/cancel", async (c) => c.json(await cancelGeneration(c.req.param("generationID"))))
+  .post("/generations/:generationID/reboot", async (c) => c.json(await rebootGeneration(c.req.param("generationID"))))
   .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID")))),
 )

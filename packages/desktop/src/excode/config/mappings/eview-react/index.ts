@@ -1,0 +1,33 @@
+/**
+ * eview-react 组件映射注册入口
+ *
+ * 手动导入每个组件的映射定义并集中导出。
+ * 新组件映射在此注册后即可被管线自动发现。
+ */
+import { default as Button } from './Button';
+import { default as Icon } from './Icon';
+import { default as Tabs } from './Tabs';
+import { default as TabItem } from './TabItem';
+import { default as Input } from './Input';
+import { default as Menu } from './Menu';
+import { default as Switch } from './Switch';
+import { default as Table } from './Table';
+import { default as Tag } from './Tag';
+
+export default {
+    Button,
+    Icon,
+    Menu,
+    Switch,
+    Tag,
+    Tabs,
+    TabItem,
+    Table,
+    Input,
+    // 后续组件按字母顺序添加
+    // Badge,
+    // Carousel,
+    // ProgressBar,
+    // TextField,
+    // ...
+};

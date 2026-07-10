@@ -56,7 +56,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
-import { startPreviewServer } from "./preview-server"
+import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
   getDefaultServerUrl,
   getWslConfig,
@@ -322,6 +322,8 @@ async function initialize() {
 
   mainWindow = createMainWindow()
   wireMenu()
+  // jk-j60099994-replace-with-index-3-start
+  // jk-j60099994-replace-with-index-3-end
 
   overlay?.close()
 }
