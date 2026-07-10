@@ -66,6 +66,7 @@
 }
 
 .studio-result-progress-track {
+  flex: 1 1 auto;
   min-width: 0;
   height: 4px;
   overflow: hidden;
@@ -92,7 +93,8 @@
   white-space: nowrap;
 }
 
-.studio-result-cancel {
+.studio-result-action {
+  width: max-content;
   padding: 0;
   border: 0;
   background: transparent;
@@ -106,11 +108,11 @@
   text-overflow: ellipsis;
 }
 
-.studio-result-cancel:hover:not(:disabled) {
+.studio-result-action:hover:not(:disabled) {
   color: #0a59f7;
 }
 
-.studio-result-cancel:disabled {
+.studio-result-action:disabled {
   cursor: wait;
   opacity: 0.55;
 }
