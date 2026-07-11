@@ -1,5 +1,5 @@
 import "./studio/studio.css"
-import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
 import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
@@ -49,6 +49,8 @@ import {
   buildStudioConversationContext,
   buildStudioDisplayPrompt,
   buildStudioTurns,
+  parseToolAttachments,
+  parseToolImages,
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
@@ -329,6 +331,31 @@ export default function StudioPage() {
       studioThumbnails.setThumbnail(sid, pickThumbnail(images)!)
     }
   })
+  // Global listener: update thumbnails when any session's generation completes,
+  // regardless of which session is active. This covers the case where the user
+  // switches sessions while a generation is in progress.
+  const thumbnailUnsub = globalSDK.event.listen((event) => {
+    const payload = event.details
+    if (payload.type !== "message.part.updated") return
+    const part = payload.properties.part as Part & { sessionID?: string }
+    if (part.type !== "tool") return
+    const state = part.state as { status?: string; output?: string; attachments?: Array<{ url: string; kind?: string }> }
+    if (state.status !== "completed") return
+    const sessionID = part.sessionID
+    if (!sessionID) return
+    const attachments = parseToolAttachments(part as Extract<Part, { type: "tool" }>)
+    const images = parseToolImages(state.output ?? "")
+    if (attachments.length === 0 && images.length === 0) return
+    const url = attachments.length > 0
+      ? (attachments.find((a) => a.kind !== "video") ?? attachments[0]).url
+      : images[0]
+    if (url) {
+      console.log("[Thumbnail] Cross-session event setThumbnail for session", sessionID)
+      studioThumbnails.setThumbnail(sessionID, url)
+    }
+  })
+  onCleanup(thumbnailUnsub)
+
   let fileInputRef!: HTMLInputElement
   let videoFrameInputRef!: HTMLInputElement
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
@@ -1771,6 +1798,8 @@ export default function StudioPage() {
   function startNewStudioConversation() {
     tracker.interaction({ module: "studio", name: "new-session" })
     pendingVideoFirstFrame = undefined
+    pendingEditorSessionID = undefined
+    pendingGenerationSessionID = undefined
     generationToken++
     setVideoRiskDialogOpen(false)
     setVideoRiskConfirmedSessionID(undefined)
@@ -1778,6 +1807,9 @@ export default function StudioPage() {
     setStatus("idle")
     setPendingResult(undefined)
     setSending(false)
+    setPendingEditorEntries([])
+    setMode("preview")
+    setCapability("image.generate")
     navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
   }
 
