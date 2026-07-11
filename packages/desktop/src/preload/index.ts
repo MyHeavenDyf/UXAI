@@ -85,7 +85,6 @@ const api: ElectronAPI = {
   checkUpdate: () => ipcRenderer.invoke("check-update"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
-  setWebRequestAuth: (auth) => ipcRenderer.invoke("set-web-request-auth", auth),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
   // jk-j60099994-replace-with-60062650-preload-index-1-start

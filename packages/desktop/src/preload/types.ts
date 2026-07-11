@@ -27,9 +27,6 @@ export type DownloadSavePathInfo = {
   state: "completed" | "cancelled" | "interrupted"
 }
 
-export type WebRequestAuth = {
-  uiplusToken?: string | null
-}
 // jk-j60099994-replace-with-60062650-preload-types-1-start
 export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
@@ -114,7 +111,6 @@ export type ElectronAPI = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void>
   setBackgroundColor: (color: string) => Promise<void>
-  setWebRequestAuth: (auth: WebRequestAuth) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>

@@ -12,7 +12,7 @@ import {
   injectPickerBridge,
 } from "@opencode-ai/core/bridge-scripts"
 import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
-import type { TitlebarTheme, WebRequestAuth } from "../preload/types"
+import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
 
@@ -23,8 +23,6 @@ const rendererHost = "renderer"
 const clipboardWritePermission = "clipboard-sanitized-write"
 const apiBaseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
 const webRequestAuthUrlPatterns = getWebRequestAuthUrlPatterns()
-
-let webRequestAuth: WebRequestAuth = {}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -53,12 +51,6 @@ const titlebarOverlayHidden = new WeakSet<BrowserWindow>()
 
 export function setBackgroundColor(color: string) {
   backgroundColor = color
-}
-
-export function setWebRequestAuth(auth: WebRequestAuth) {
-  webRequestAuth = {
-    uiplusToken: auth.uiplusToken?.trim() || null,
-  }
 }
 
 export function getBackgroundColor(): string | undefined {
@@ -171,16 +163,16 @@ export function createMainWindow() {
       callback({ requestHeaders })
       return
     }
-    if (webRequestAuth.uiplusToken) {
-      upsertKeyValue(requestHeaders, "uiplustoken", webRequestAuth.uiplusToken)
-    } else {
-      deleteKey(requestHeaders, "uiplustoken")
-    }
     upsertKeyValue(requestHeaders, "X-OCTO-AGENT", "1")
-    void cookieHeaderForUrl(win, details.url).then(
-      (cookie) => {
-        if (cookie) {
-          upsertKeyValue(requestHeaders, "Cookie", cookie)
+    void localStorageAuth(win).then(
+      (auth) => {
+        if (auth.uiplusToken) {
+          upsertKeyValue(requestHeaders, "uiplustoken", auth.uiplusToken)
+        } else {
+          deleteKey(requestHeaders, "uiplustoken")
+        }
+        if (auth.uiplusCookie) {
+          upsertKeyValue(requestHeaders, "Cookie", auth.uiplusCookie)
         } else {
           deleteKey(requestHeaders, "Cookie")
         }
@@ -447,10 +439,28 @@ function shouldInjectWebRequestAuth(resourceType: string) {
   return resourceType === "xhr" || resourceType === "other" || resourceType === "webSocket"
 }
 
-async function cookieHeaderForUrl(win: BrowserWindow, url: string) {
-  return (await win.webContents.session.cookies.get({ url }))
-    .map((cookie) => `${cookie.name}=${cookie.value}`)
-    .join("; ")
+async function localStorageAuth(win: BrowserWindow) {
+  const value = await win.webContents.executeJavaScript(
+    `({
+      uiplusToken: localStorage.getItem("uiplusToken"),
+      uiplusCookie: localStorage.getItem("uiplusCookie"),
+    })`,
+    true,
+  )
+  if (!isLocalStorageAuth(value)) return { uiplusToken: null, uiplusCookie: null }
+  return {
+    uiplusToken: value.uiplusToken?.trim() || null,
+    uiplusCookie: value.uiplusCookie?.trim() || null,
+  }
+}
+
+function isLocalStorageAuth(value: unknown): value is { uiplusToken?: string | null; uiplusCookie?: string | null } {
+  if (!value || typeof value !== "object") return false
+  const auth = value as Record<string, unknown>
+  return (
+    (typeof auth.uiplusToken === "string" || auth.uiplusToken === null || auth.uiplusToken === undefined) &&
+    (typeof auth.uiplusCookie === "string" || auth.uiplusCookie === null || auth.uiplusCookie === undefined)
+  )
 }
 
 function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: any) {
