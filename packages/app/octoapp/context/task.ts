@@ -21,18 +21,6 @@ export type TaskItem = {
 
 const [store, setStore] = createStore({ items: [] as TaskItem[] })
 
-if (import.meta.env.DEV) {
-  const now = Date.now()
-  setStore("items", [
-    { key: "upload-demo-1-0", taskId: "upload-demo-1", type: "upload", name: "设计稿v3.fig", size: 25 * 1024 * 1024, progress: 67, status: "in_progress", createdAt: now - 5000, fileIndex: 0 },
-    { key: "upload-demo-1-1", taskId: "upload-demo-1", type: "upload", name: "产品需求文档.pdf", size: 3.2 * 1024 * 1024, progress: 100, status: "completed", createdAt: now - 5000, fileIndex: 1 },
-    { key: "upload-demo-2-0", taskId: "upload-demo-2", type: "upload", name: "原型图.png", size: 8 * 1024 * 1024, progress: 23, status: "in_progress", createdAt: now - 3000, fileIndex: 0 },
-    { key: "download-demo-1", taskId: "download-demo-1", type: "download", name: "项目交付包.zip", size: 0, progress: 45, status: "in_progress", createdAt: now - 2000 },
-    { key: "download-demo-2", taskId: "download-demo-2", type: "download", name: "源码备份.tar.gz", size: 0, progress: 100, status: "completed", createdAt: now - 10000 },
-    { key: "upload-demo-3-0", taskId: "upload-demo-3", type: "upload", name: "接口文档.md", size: 512 * 1024, progress: 0, status: "pending", createdAt: now - 500, fileIndex: 0 },
-    { key: "download-demo-3", taskId: "download-demo-3", type: "download", name: "数据库备份.sql", size: 0, progress: 0, status: "pending", createdAt: now - 500 },
-  ])
-}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
