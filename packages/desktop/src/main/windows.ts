@@ -159,7 +159,7 @@ export function createMainWindow() {
   win.webContents.session.webRequest.onBeforeSendHeaders({ urls: webRequestAuthUrlPatterns }, (details, callback) => {
     const requestHeaders = details.requestHeaders
     upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
-    if (!shouldInjectWebRequestAuth(details.resourceType)) {
+    if (details.webContentsId !== win.webContents.id || !shouldInjectWebRequestAuth(details.resourceType)) {
       callback({ requestHeaders })
       return
     }
