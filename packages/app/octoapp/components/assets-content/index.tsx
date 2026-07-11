@@ -15,7 +15,7 @@ export function AssetsContent(): JSX.Element {
   const [scope, setScope] = createSignal<Scope>("platform")
 
   return (
-    <div class="h-full overflow-y-auto" style={{ background: "#f5f5f7" }}>
+    <div class="h-full" style={{ background: "#fff" }}>
       <div
         class="flex items-center justify-between bg-white border-b"
         style={{ "border-color": "#e1e1e1", padding: "24px 24px 16px" }}
