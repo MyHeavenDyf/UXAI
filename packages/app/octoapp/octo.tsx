@@ -64,6 +64,7 @@ const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
+const AssetsPage = lazy(() => import("@/pages/assets"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
@@ -415,6 +416,10 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/skills"
   }
 
+  const isAssetsPage = () => {
+    return location.pathname === "/assets"
+  }
+
   return (
     <SettingsProvider>
       <PermissionProvider>
@@ -436,10 +441,10 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <Show when={isPatternPage()}>
                       <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
                     </Show>
-                    <Show when={isSkillsPage()}>
+                    <Show when={isSkillsPage() || isAssetsPage()}>
                       <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
                     </Show>
-                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
+                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage() && !isAssetsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>
@@ -646,6 +651,7 @@ export function AppInterface(props: {
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/skills" component={SkillsPage} />
+                  <Route path="/assets" component={AssetsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={ChatIndexRoute} />
                     <Route path="/chat/:id?" component={ChatPage} />
