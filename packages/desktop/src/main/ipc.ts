@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat, copyFile, rename } from "node:fs/promises"
-import { dirname, join, basename, resolve as resolvePath, sep } from "node:path"
-import { homedir } from "node:os"
+import { mkdir, readFile, writeFile, lstat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
+import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -29,14 +30,27 @@ import type {
 } from "../preload/types"
 import { getStore } from "./store"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
+import { downloadHuiCode, type HuiCodeInput } from "../excode/index"
 import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
-import { previewDistDir } from "./preview-server"
+import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
+}
+
+// 判断图片类型
+function detectImageExt(buf: Buffer): string {
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return "png"
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return "jpg"
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "gif"
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return "webp"
+  if (buf[0] === 0x42 && buf[1] === 0x4D) return "bmp"
+  const head = buf.slice(0, 5).toString("utf-8").toLowerCase()
+  if (head.startsWith("<svg") || head.startsWith("<?xml")) return "svg"
+  return "png"
 }
 
 // ── SPEC-INS-014 Insight 本地工作目录布局(worktree)共享工具 ────────────────
@@ -117,6 +131,29 @@ type Deps = {
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
   // jk-j60099994-replace-with-ipc-2-end
+}
+
+function addZipComment(zipPath: string, comment: string) {
+  const buf = readFileSync(zipPath)
+  const eocdSig = Buffer.from([0x50, 0x4b, 0x05, 0x06])
+  const eocdOffset = buf.lastIndexOf(eocdSig)
+  if (eocdOffset === -1) return
+
+  const eocd = Buffer.from(buf.subarray(eocdOffset, eocdOffset + 22))
+  const commentBuf = Buffer.from(comment, "utf-8")
+  eocd.writeUInt16LE(commentBuf.length, 20)
+
+  writeFileSync(zipPath, Buffer.concat([buf.subarray(0, eocdOffset), eocd, commentBuf]))
+}
+
+function readZipComment(zipPath: string): string {
+  const buf = readFileSync(zipPath)
+  const eocdSig = Buffer.from([0x50, 0x4b, 0x05, 0x06])
+  const eocdOffset = buf.lastIndexOf(eocdSig)
+  if (eocdOffset === -1) return ""
+  const commentLen = buf.readUInt16LE(eocdOffset + 20)
+  if (commentLen === 0) return ""
+  return buf.subarray(eocdOffset + 22, eocdOffset + 22 + commentLen).toString("utf-8")
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -340,7 +377,28 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(path, Buffer.from(buffer))
   })
 
-  // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
+  ipcMain.handle("set-uploads-dir", async (_event: IpcMainInvokeEvent, dir: string) => {
+    await mkdir(dir, { recursive: true })
+    setUploadsDir(dir)
+  })
+
+  ipcMain.handle("get-uploads-dir", async () => getUploadsDir())
+
+  ipcMain.handle("save-upload-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, sessionId: string) => {
+    const baseDir = getUploadsDir()
+    if (!baseDir || !sessionId) throw new Error("base dir or session not set")
+    const uploadsDir = join(baseDir, sessionId, "uploads")
+    await mkdir(uploadsDir, { recursive: true })
+    const buf = Buffer.from(buffer)
+    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
+    const ext = detectImageExt(buf)
+    const filename = `${hash}.${ext}`
+    const filePath = join(uploadsDir, filename)
+    if (!existsSync(filePath)) await writeFile(filePath, buf)
+    return `/history/${sessionId}/uploads/${filename}`
+  })
+  
+// insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
   // 两类合法目标:
   //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/insight/<sessionId>/outputs/ 或 OS 临时目录(octo/);
@@ -375,6 +433,14 @@ export function registerIpcHandlers(deps: Deps) {
       return buf.buffer
     } catch {
       return null
+    }
+  })
+
+  ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      await unlink(path)
+    } catch {
+      // 文件不存在时忽略，不执行任何代码
     }
   })
 
@@ -578,16 +644,225 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 将 Tailwind 转换为 CSS - By WangQiang - 该注释请勿删除
   ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
     return convertTailwindToCSS(className)
   })
 
+  // 将 CSS 转换为 Tailwind - By WangQiang - 该注释请勿删除
   ipcMain.handle("css-to-tailwind", (_event: IpcMainInvokeEvent, cssObject: Record<string, unknown>) => {
     return convertCssToTailwind(cssObject)
   })
 
+  // pattern 资源目录: ~/.config/octo/prototype/{theme}/pattern/{category}/
+  const patternDir = (category: string, theme: string) => join(getOctoConfigPath(), "prototype", theme, "pattern", category)
+
+  // 读取 pattern 资源目录下的 index.json 目录 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("get-pattern-index", (_event: IpcMainInvokeEvent, category: string, theme: string = "ICT3.1") => {
+    const indexPath = join(patternDir(category, theme), "index.json")
+    if (!existsSync(indexPath)) return null
+    try {
+      return JSON.parse(readFileSync(indexPath, "utf-8"))
+    } catch {
+      return null
+    }
+  })
+
+  // 读取 pattern 资源目录下的具体 pattern 文件 - By WangQiang - 该注释请勿删除
+  ipcMain.handle(
+    "get-pattern-file",
+    (_event: IpcMainInvokeEvent, category: string, filename: string, theme: string = "ICT3.1") => {
+      const filePath = join(patternDir(category, theme), filename)
+      if (!existsSync(filePath)) return null
+      return readFileSync(filePath, "utf-8")
+    },
+  )
+
+  // 读取 pattern 预览图片，返回 base64 data URL - By WangQiang - 该注释请勿删除
+  const MIME_PREVIEW: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+  }
+  ipcMain.handle(
+    "get-pattern-preview",
+    (_event: IpcMainInvokeEvent, category: string, filename: string, theme: string = "ICT3.1") => {
+      const filePath = join(patternDir(category, theme), filename)
+      if (!existsSync(filePath)) return null
+      const buf = readFileSync(filePath)
+      const ext = extname(filename).toLowerCase()
+      const mime = MIME_PREVIEW[ext] ?? "image/png"
+      return `data:${mime};base64,${buf.toString("base64")}`
+    },
+  )
+
+  // 读取 pattern assets 目录下所有静态资源文件 - By WangQiang - 该注释请勿删除
+  ipcMain.handle(
+    "get-pattern-assets",
+    (_event: IpcMainInvokeEvent, category: string, folderName: string, theme: string = "ICT3.1") => {
+      const assetsDir = join(patternDir(category, theme), folderName, "assets")
+      if (!existsSync(assetsDir)) return []
+      return readdirSync(assetsDir, { withFileTypes: true })
+        .filter((d) => d.isFile())
+        .map((d) => ({
+          filename: d.name,
+          buffer: readFileSync(join(assetsDir, d.name)).buffer,
+        }))
+    },
+  )
+
+  // 列出已部署的设计系统目录名 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("get-design-systems", () => {
+    const root = join(getOctoConfigPath(), "prototype")
+    if (!existsSync(root)) return [] as string[]
+    try {
+      return readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && existsSync(join(root, d.name, "components")))
+        .map((d) => d.name).sort()
+    } catch {
+      return [] as string[]
+    }
+  })
+
+  // 导出 HUI 代码 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("download-hui-code", (_event: IpcMainInvokeEvent, input: HuiCodeInput[]) => {
+    const options = app.isPackaged
+      ? { templateDir: join(process.resourcesPath, "hui-templates") }
+      : {}
+    return downloadHuiCode(input, options)
+  })
+
+  // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
 
+  // 将页面转换为pixso转送码 - By WangQiang - 该注释请勿删除
+  ipcMain.handle("run-pixso-build", async (_event: IpcMainInvokeEvent, input: string) => {
+    const { pathToFileURL } = await import("node:url")
+    const { existsSync } = await import("node:fs")
+    const { join } = await import("node:path")
+
+    const buildJsPath = app.isPackaged
+      ? join(process.resourcesPath, "toPixso", "build.js")
+      : "D:/Code/toPixso/build.js"
+
+    if (!existsSync(buildJsPath)) {
+      throw new Error(`build.js not found at ${buildJsPath}`)
+    }
+
+    try {
+      const mod = await import(pathToFileURL(buildJsPath).href)
+      const result = await mod.default(input)
+      return result
+    } catch (err) {
+      console.error("[pixso] build failed:", err)
+      throw err
+    }
+  })
+
+  ipcMain.handle(
+    "export-zip",
+    async (
+      event: IpcMainInvokeEvent,
+      opts: {
+        defaultName: string
+        files?: { path: string; content: string }[]
+        sourceDir?: string
+        comment?: string
+      },
+    ) => {
+      if (opts.sourceDir && !existsSync(opts.sourceDir)) return null
+
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
+        title: "导出压缩包",
+        defaultPath: opts.defaultName,
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+      }
+      const result = win
+        ? await dialog.showSaveDialog(win, dialogOpts)
+        : await dialog.showSaveDialog(dialogOpts)
+      if (result.canceled || !result.filePath) return null
+
+      const destZip = result.filePath
+      const isDirect = !!opts.sourceDir
+      const workDir = opts.sourceDir ?? join(tmpdir(), `octo-export-${Date.now()}`)
+
+      if (!isDirect) {
+        await mkdir(workDir, { recursive: true })
+        for (const file of opts.files ?? []) {
+          const filePath = join(workDir, file.path)
+          await mkdir(dirname(filePath), { recursive: true })
+          await writeFile(filePath, file.content, "utf-8")
+        }
+      }
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          if (process.platform === "win32") {
+            execFile(
+              "powershell",
+              [
+                "-NoProfile",
+                "-Command",
+                `Compress-Archive -Path '${workDir}\\*' -DestinationPath '${destZip}' -Force`,
+              ],
+              (err) => (err ? reject(err) : resolve()),
+            )
+          } else {
+            execFile("zip", ["-r", destZip, "."], { cwd: workDir }, (err) =>
+              err ? reject(err) : resolve(),
+            )
+          }
+        })
+
+        if (opts.comment) addZipComment(destZip, opts.comment)
+
+        return destZip
+      } finally {
+        if (!isDirect) await rm(workDir, { recursive: true, force: true }).catch(() => { })
+      }
+    },
+  )
+
+  ipcMain.handle("import-zip", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "导入压缩包",
+      filters: [{ name: "ZIP", extensions: ["zip"] }],
+      properties: ["openFile"],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+
+    const zipPath = result.filePaths[0]
+    if (readZipComment(zipPath) !== "a2ui-pattern") return []
+
+    const extractDir = join(tmpdir(), `octo-import-${Date.now()}`)
+    await mkdir(extractDir, { recursive: true })
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        if (process.platform === "win32") {
+          execFile(
+            "powershell",
+            ["-NoProfile", "-Command", `Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force`],
+            (err) => (err ? reject(err) : resolve()),
+          )
+        } else {
+          execFile("unzip", ["-o", zipPath, "-d", extractDir], (err) =>
+            err ? reject(err) : resolve(),
+          )
+        }
+      })
+
+      return readdirSync(extractDir)
+        .filter((f) => f.endsWith(".json"))
+        .map((name) => ({ name, content: readFileSync(join(extractDir, name), "utf-8") }))
+    } finally {
+      await rm(extractDir, { recursive: true, force: true }).catch(() => { })
+    }
+  })
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))

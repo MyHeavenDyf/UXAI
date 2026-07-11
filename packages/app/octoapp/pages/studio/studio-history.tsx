@@ -354,11 +354,11 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                         if (!isTruncated()) return
                         clearTimeout(tooltipTimeout)
                         updateTooltipPos()
-                        tooltipTimeout = setTimeout(() => setShowTooltip(true), 200)
+                        tooltipTimeout = setTimeout(() => setShowTooltip(true), 500)
                       }
                       const leaveTrigger = () => {
                         clearTimeout(tooltipTimeout)
-                        tooltipTimeout = setTimeout(() => setShowTooltip(false), 150)
+                        setShowTooltip(false)
                       }
                       const enterTooltip = () => clearTimeout(tooltipTimeout)
                       const leaveTooltip = () => setShowTooltip(false)

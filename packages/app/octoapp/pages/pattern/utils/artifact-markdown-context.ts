@@ -4,8 +4,8 @@
  */
 
 export const FENCE_OPEN_RE = /^```(\w[\w+-]*)?\s*$/
-export const FENCE_CLOSE_RE = /^```\s*$/
-export const INLINE_CODE_RE = /`[^`]+`/g
+const FENCE_CLOSE_RE = /^```\s*$/
+const INLINE_CODE_RE = /`[^`]+`/g
 
 const HEADING_RE = /^#{1,4}\s+/
 const UL_ITEM_RE = /^\s*[-*+]\s+/
@@ -16,7 +16,7 @@ export function isRealArtifactOpenAt(content: string, idx: number): boolean {
   return next !== "" && /\s/.test(next)
 }
 
-export type Range = readonly [number, number]
+type Range = readonly [number, number]
 
 export function computeSkipRanges(buffer: string): {
   ranges: Range[]

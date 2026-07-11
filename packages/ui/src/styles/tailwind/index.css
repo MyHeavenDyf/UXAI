@@ -45,8 +45,16 @@
   --text-lg: var(--font-size-large);
   --text-xl: var(--font-size-x-large);
 
+  --font-weight-thin: 100;
+  --font-weight-extralight: 200;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
   --font-weight-regular: var(--font-weight-regular);
   --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
 
   --leading-lg: var(--line-height-large);
   --leading-xl: var(--line-height-x-large);

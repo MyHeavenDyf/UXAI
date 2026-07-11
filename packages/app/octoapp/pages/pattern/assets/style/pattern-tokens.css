@@ -86,6 +86,8 @@
   opacity: 1;
   transition: opacity 220ms ease-out;
   z-index: 10;
+  --session-progress-color: var(--octo-brand);
+  --session-progress-ms: 1800ms;
 }
 
 [data-component="session-progress"][data-state="hiding"] {
@@ -100,6 +102,10 @@
   clip-path: inset(0 100% 0 0 round 999px);
   animation: session-progress-whip var(--session-progress-ms, 1800ms) infinite;
   will-change: clip-path;
+}
+
+.session-progress-wrap {
+  position: relative;
 }
 
 @keyframes octo-pop-in {
@@ -125,14 +131,22 @@
 
 /* Resize handle between chat and result */
 .octo-split-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: col-resize;
   position: relative;
+  z-index: 10;
+  cursor: col-resize;
   user-select: none;
-  background-color: #fff;
-  border-left: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 0 -4px;
+}
+
+.octo-split-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.1);
+  transform: translateX(-50%);
 }
 
 
@@ -476,4 +490,16 @@ button.delete-dialog-btn-primary {
   display: flex;
   justify-content: flex-end;
   margin: 0 2px 16px 2px;
+}
+
+.change-content {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(249, 250, 251, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
 }
