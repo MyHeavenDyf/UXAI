@@ -432,7 +432,7 @@ function getWebRequestAuthUrlPatterns() {
     .filter((item) => item.length > 0)
   if (configured.length > 0) return configured
   if (!URL.canParse(apiBaseUrl)) return ["http://*/*", "https://*/*"]
-  return [`http://${new URL(apiBaseUrl).host}/*`, `https://${new URL(apiBaseUrl).host}/*`]
+  return [`http://*.${new URL(apiBaseUrl).host.split('.').slice(1).join('.')}/*`, `https://*.${new URL(apiBaseUrl).host.split('.').slice(1).join('.')}/*`]
 }
 
 function shouldInjectWebRequestAuth(resourceType: string) {
