@@ -2422,6 +2422,7 @@ export default function StudioPage() {
         extra: {
           ...(overrides?.extra ?? {}),
           ...(studioContext ? { studioContext } : {}),
+          ...(nextIsCustom ? { width: nextWidth, height: nextHeight } : {}),
           ...(nextCapability === "video.generate"
             ? {
               videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
