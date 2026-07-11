@@ -23,6 +23,8 @@
   Must use `load_components_docs` 工具:
   在修改涉及具体 A2UI 组件（如 Table, Tabs, Button 等）的属性时，必须先调用 `load_components_docs` 工具查询该组件的 API Schema 和 Example，以确认需要修改的属性是否合法以及正确的使用方式。
   严禁依靠记忆编造未在文档中出现的属性，遗漏未查看文档的组件会使本 agent 出现重大错误！
+  支持查询的组件如下:
+  {COMPONENTS_CATALOG}
 
 # Output Format
 You MUST output ONLY a valid JSON array of patch operations. No markdown formatting, no code blocks, no explanations.
