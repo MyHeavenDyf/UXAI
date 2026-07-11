@@ -1,3 +1,5 @@
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import type {
@@ -7,6 +9,7 @@ import type {
   ImageGenerateOutput,
   StudioCapability,
 } from "@/studio/image-provider"
+import { Instance } from "@/project/instance"
 
 const METHOD = "POST"
 // const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
@@ -1159,22 +1162,25 @@ function toolActionForCapability(capability: StudioCapability): InternalToolActi
   return "generate_image"
 }
 
-async function getSourceImageDataUrl(input: ImageGenerateInput) {
-  const settings = extractStudioToolSettings(input.prompt)
-  const sourceImage =
-    input.sourceImage ??
-    input.referenceImages?.[0] ??
-    (typeof settings.sourceImage === "string" ? settings.sourceImage : undefined)
-  if (!sourceImage) throw new Error("This Studio action requires a source image.")
-  if (sourceImage.startsWith("data:image/")) {
-    if (!dataUrlToBase64(sourceImage)) throw new Error("Studio source image data URL is missing base64 content.")
-    return sourceImage
+function localImagePath(value: string) {
+  const filePath = value.startsWith("file://") ? fileURLToPath(value) : path.isAbsolute(value) ? value : undefined
+  if (!filePath) return undefined
+  const artifactRoot = path.resolve(Instance.directory, ".octo", "artifacts", "make")
+  const resolved = path.resolve(filePath)
+  if (resolved !== artifactRoot && !resolved.startsWith(`${artifactRoot}${path.sep}`)) {
+    throw new Error(`Studio local image path is outside artifact storage: ${filePath}`)
   }
-  const response = await fetch(sourceImage)
-  if (!response.ok) throw new Error(`Failed to fetch Studio source image. status=${response.status}`)
-  const mime = response.headers.get("content-type") ?? "image/png"
-  if (!mime.startsWith("image/")) throw new Error(`Studio source URL is not an image. content-type=${mime}`)
-  return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
+  return resolved
+}
+
+async function readLocalImageDataUrl(value: string) {
+  const filePath = localImagePath(value)
+  if (!filePath) return undefined
+  const file = Bun.file(filePath)
+  if (!(await file.exists())) throw new Error(`Studio image file does not exist: ${filePath}`)
+  const mime = file.type || "image/png"
+  if (!mime.startsWith("image/")) throw new Error(`Studio local file is not an image. content-type=${mime}`)
+  return `data:${mime};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`
 }
 
 async function resolveImageInputDataUrl(value: string) {
@@ -1182,11 +1188,23 @@ async function resolveImageInputDataUrl(value: string) {
     if (!dataUrlToBase64(value)) throw new Error("Studio image data URL is missing base64 content.")
     return value
   }
+  const local = await readLocalImageDataUrl(value)
+  if (local) return local
   const response = await fetch(value)
   if (!response.ok) throw new Error(`Failed to fetch Studio image. status=${response.status}`)
   const mime = response.headers.get("content-type") ?? "image/png"
   if (!mime.startsWith("image/")) throw new Error(`Studio source URL is not an image. content-type=${mime}`)
   return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`
+}
+
+async function getSourceImageDataUrl(input: ImageGenerateInput) {
+  const settings = extractStudioToolSettings(input.prompt)
+  const sourceImage =
+    input.sourceImage ??
+    input.referenceImages?.[0] ??
+    (typeof settings.sourceImage === "string" ? settings.sourceImage : undefined)
+  if (!sourceImage) throw new Error("This Studio action requires a source image.")
+  return resolveImageInputDataUrl(sourceImage)
 }
 
 async function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
@@ -1373,12 +1391,6 @@ async function buildInternalRequestBody(input: ImageGenerateInput, context: Inte
 }
 
 function normalizePersistedInput(input: ImageGenerateInput) {
-  if (input.capability === "image.inpaint") {
-    return {
-      ...input,
-      sourceImage: undefined,
-    }
-  }
   return input
 }
 
@@ -1479,6 +1491,50 @@ function compactRequestWithHistory(requestBody: JsonRecord, capability: StudioCa
   return next
 }
 
+function compactRequestWithInputMedia(requestBody: JsonRecord, input: ImageGenerateInput, capability: StudioCapability) {
+  const next = structuredClone(requestBody) as JsonRecord
+  const args = next.args
+  if (!args || typeof args !== "object" || Array.isArray(args)) return next
+  if (capability === "image.generate") {
+    const current = Array.isArray((args as JsonRecord).ref_img_list) ? (args as JsonRecord).ref_img_list as unknown[] : []
+    ;(args as JsonRecord).ref_img_list = current.map((item: unknown, index: number) => {
+      const replacement = input.referenceImages?.[index]
+      if (!replacement || replacement.startsWith("data:image/") || !item || typeof item !== "object" || Array.isArray(item)) return item
+      return { ...(item as JsonRecord), image_base64: replacement }
+    })
+    return next
+  }
+  if (capability === "video.generate") {
+    const firstFrame = typeof input.extra?.firstFrame === "string" ? input.extra.firstFrame : input.referenceImages?.[0]
+    const lastFrame = typeof input.extra?.lastFrame === "string" ? input.extra.lastFrame : input.referenceImages?.[1]
+    if (firstFrame && !firstFrame.startsWith("data:image/")) (args as JsonRecord).image = firstFrame
+    if (lastFrame && !lastFrame.startsWith("data:image/")) (args as JsonRecord).image_tail = lastFrame
+    return next
+  }
+  if (capability === "image.upscale" || capability === "image.outpaint") {
+    if (input.sourceImage && !input.sourceImage.startsWith("data:image/")) {
+      ;(args as JsonRecord).image_base64 = input.sourceImage
+    }
+    return next
+  }
+  if (capability === "image.cutout") {
+    const current = Array.isArray((args as JsonRecord).image_list) ? (args as JsonRecord).image_list as unknown[] : []
+    ;(args as JsonRecord).image_list = current.map((item: unknown, index: number) => {
+      if (index !== 0 || !input.sourceImage || input.sourceImage.startsWith("data:image/") || !item || typeof item !== "object" || Array.isArray(item)) return item
+      return { ...(item as JsonRecord), image_base64: input.sourceImage }
+    })
+    return next
+  }
+  if (capability === "image.inpaint") {
+    const compositeImage = typeof input.extra?.compositeImage === "string" ? input.extra.compositeImage : undefined
+    if (compositeImage && !compositeImage.startsWith("data:image/")) {
+      ;(args as JsonRecord).image_base64 = compositeImage
+    }
+    return next
+  }
+  return next
+}
+
 export async function createInternalGeneration(input: ImageGenerateInput): Promise<ImageGenerationTask> {
   const capability = getStudioCapability(input)
   const toolAction = toolActionForCapability(capability)
@@ -1530,7 +1586,11 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
       return undefined
     })
   const compactedInput = compactInputWithHistory(persistedInput, historyArgs)
-  const compactedRequest = compactRequestWithHistory(requestBody, capability, historyArgs)
+  const compactedRequest = compactRequestWithHistory(
+    compactRequestWithInputMedia(requestBody, persistedInput, capability),
+    capability,
+    historyArgs,
+  )
   return {
     provider: "internel",
     model: requestTaskType,

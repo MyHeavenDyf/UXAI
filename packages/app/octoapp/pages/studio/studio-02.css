@@ -797,6 +797,27 @@
   width: 100%;
   margin: 0 auto;
 }
+
+.studio-user-input-images {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-left: auto;
+  margin-bottom: 12px;
+}
+
+.studio-user-input-image {
+  width: 80px;
+  height: 80px;
+  display: block;
+  object-fit: cover;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
 .studio-user-bubble {
   width: fit-content;
   max-width: 374px;
