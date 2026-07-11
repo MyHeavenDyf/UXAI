@@ -12,7 +12,7 @@ import {
   injectPickerBridge,
 } from "@opencode-ai/core/bridge-scripts"
 import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
-import type { TitlebarTheme } from "../preload/types"
+import type { TitlebarTheme, WebRequestAuth } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
 
@@ -21,6 +21,10 @@ const rendererRoot = join(root, "../renderer")
 const rendererProtocol = "oc"
 const rendererHost = "renderer"
 const clipboardWritePermission = "clipboard-sanitized-write"
+const apiBaseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
+const webRequestAuthUrlPatterns = getWebRequestAuthUrlPatterns()
+
+let webRequestAuth: WebRequestAuth = {}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -49,6 +53,12 @@ const titlebarOverlayHidden = new WeakSet<BrowserWindow>()
 
 export function setBackgroundColor(color: string) {
   backgroundColor = color
+}
+
+export function setWebRequestAuth(auth: WebRequestAuth) {
+  webRequestAuth = {
+    uiplusToken: auth.uiplusToken?.trim() || null,
+  }
 }
 
 export function getBackgroundColor(): string | undefined {
@@ -154,10 +164,30 @@ export function createMainWindow() {
     return { action: "deny" }
   })
 
-  win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-    const { requestHeaders } = details
+  win.webContents.session.webRequest.onBeforeSendHeaders({ urls: webRequestAuthUrlPatterns }, (details, callback) => {
+    const requestHeaders = details.requestHeaders
     upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
-    callback({ requestHeaders })
+    if (!shouldInjectWebRequestAuth(details.resourceType)) {
+      callback({ requestHeaders })
+      return
+    }
+    if (webRequestAuth.uiplusToken) {
+      upsertKeyValue(requestHeaders, "uiplustoken", webRequestAuth.uiplusToken)
+    } else {
+      deleteKey(requestHeaders, "uiplustoken")
+    }
+    upsertKeyValue(requestHeaders, "X-OCTO-AGENT", "1")
+    void cookieHeaderForUrl(win, details.url).then(
+      (cookie) => {
+        if (cookie) {
+          upsertKeyValue(requestHeaders, "Cookie", cookie)
+        } else {
+          deleteKey(requestHeaders, "Cookie")
+        }
+        callback({ requestHeaders })
+      },
+      () => callback({ requestHeaders }),
+    )
   })
 
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
@@ -250,8 +280,7 @@ export function registerRendererProtocol() {
         if (mockResponse) return mockResponse
       }
       // baseUrl 从 VITE_OCTO_BASE_URL 读取, 支持内网 beta/prod 不同域名; 原硬编码只指向公网默认域名
-      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
-      const realUrl = `${baseUrl}${url.pathname}${url.search}`
+      const realUrl = `${apiBaseUrl}${url.pathname}${url.search}`
       return net.fetch(realUrl, {
         method: request.method,
         headers: Object.fromEntries(request.headers.entries()),
@@ -404,6 +433,26 @@ function wireZoom(win: BrowserWindow) {
   })
 }
 
+function getWebRequestAuthUrlPatterns() {
+  const configured = String(process.env.OCTO_AUTH_INJECT_URLS || import.meta.env.VITE_OCTO_AUTH_INJECT_URLS || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+  if (configured.length > 0) return configured
+  if (!URL.canParse(apiBaseUrl)) return ["http://*/*", "https://*/*"]
+  return [`http://${new URL(apiBaseUrl).host}/*`, `https://${new URL(apiBaseUrl).host}/*`]
+}
+
+function shouldInjectWebRequestAuth(resourceType: string) {
+  return resourceType === "xhr" || resourceType === "other" || resourceType === "webSocket"
+}
+
+async function cookieHeaderForUrl(win: BrowserWindow, url: string) {
+  return (await win.webContents.session.cookies.get({ url }))
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join("; ")
+}
+
 function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: any) {
   const keyToChangeLower = keyToChange.toLowerCase()
   for (const key of Object.keys(obj)) {
@@ -416,4 +465,11 @@ function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: an
   }
   // Insert at end instead
   obj[keyToChange] = value
+}
+
+function deleteKey(obj: Record<string, any>, keyToDelete: string) {
+  const keyToDeleteLower = keyToDelete.toLowerCase()
+  Object.keys(obj)
+    .filter((key) => key.toLowerCase() === keyToDeleteLower)
+    .forEach((key) => delete obj[key])
 }

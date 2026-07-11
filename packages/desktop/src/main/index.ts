@@ -73,6 +73,7 @@ import {
   registerRendererProtocol,
   setBackgroundColor,
   setDockIcon,
+  setWebRequestAuth,
 } from "./windows"
 import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoTools, deployRipgrep } from "./migrate"
 
@@ -377,6 +378,7 @@ registerIpcHandlers({
   checkUpdate: async () => checkUpdate(),
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
+  setWebRequestAuth: (auth) => setWebRequestAuth(auth),
   // jk-j60099994-replace-with-index-2-start
   // jk-j60099994-replace-with-index-2-end
 })

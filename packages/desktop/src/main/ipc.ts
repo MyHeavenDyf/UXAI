@@ -24,6 +24,7 @@ import type {
   ServerReadyData,
   SqliteMigrationProgress,
   TitlebarTheme,
+  WebRequestAuth,
   WindowConfig,
   WslConfig,
 } from "../preload/types"
@@ -98,6 +99,7 @@ type Deps = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
+  setWebRequestAuth: (auth: WebRequestAuth) => void
   // jk-j60099994-replace-with-ipc-2-start
   // jk-j60099994-replace-with-ipc-2-end
 }
@@ -131,6 +133,9 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("check-update", () => deps.checkUpdate())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
+  ipcMain.handle("set-web-request-auth", (_event: IpcMainInvokeEvent, auth: WebRequestAuth) =>
+    deps.setWebRequestAuth(auth),
+  )
   // jk-j60099994-replace-with-ipc-3-start
   // jk-j60099994-replace-with-ipc-3-end
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
