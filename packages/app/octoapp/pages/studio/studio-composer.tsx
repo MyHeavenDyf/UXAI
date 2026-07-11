@@ -53,6 +53,7 @@ export function StudioComposer(props: {
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
+  onReversePrompt?: () => void
   onCancel?: () => void
   onSubmit: () => void
   onKeyDown: (event: KeyboardEvent) => void
@@ -76,6 +77,39 @@ export function StudioComposer(props: {
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
+  const imageSettingsLabel = createMemo(() => {
+    const isCustom = props.isCustom && props.customWidth > 0 && props.customHeight > 0
+    const ratio = isCustom
+      ? `${props.customWidth}×${props.customHeight}`
+      : props.aspectRatio
+    const iconStyle = () => {
+      if (isCustom) return { "--icon-w": "12px", "--icon-h": "12px" }
+      const item = props.aspectRatio
+      switch (item) {
+        case "1:1": return { "--icon-w": "10.5px", "--icon-h": "10.5px" }
+        case "2:3": return { "--icon-w": "9.32px", "--icon-h": "12.82px" }
+        case "3:2": return { "--icon-w": "12.82px", "--icon-h": "9.32px" }
+        case "3:4": return { "--icon-w": "10.5px", "--icon-h": "11.68px" }
+        case "4:3": return { "--icon-w": "11.68px", "--icon-h": "10.5px" }
+        case "9:16": return { "--icon-w": "9.04px", "--icon-h": "14px" }
+        case "16:9": return { "--icon-w": "14px", "--icon-h": "9.04px" }
+        default: return { "--icon-w": "12px", "--icon-h": "12px" }
+      }
+    }
+    return (
+      <>
+        <Show when={!isCustom}>
+          <span
+            class="studio-composer-icon-tool-ratio-icon"
+            style={iconStyle()}
+          />
+        </Show>
+        <span class="studio-composer-icon-tool-text">{ratio}</span>
+        <span class="studio-composer-icon-tool-sep" />
+        <span class="studio-composer-icon-tool-text">{props.count}</span>
+      </>
+    )
+  })
 
   // Refs for measuring button positions — dropdowns are rendered outside
   // .studio-composer-toolbar-items (which has overflow:hidden) so they
@@ -84,14 +118,121 @@ export function StudioComposer(props: {
   const buttonRefs = new Map<string, HTMLElement>()
   const anchorRefs = new Map<string, HTMLDivElement>()
 
+  // Toolbar overflow detection
+  const [toolbarOverflow, setToolbarOverflow] = createSignal<string[]>([])
+  const [moreMenuOpen, setMoreMenuOpen] = createSignal(false)
+  const moreMenuStyle = (): JSX.CSSProperties => {
+    if (!moreButtonRef) return {}
+    const rect = moreButtonRef.getBoundingClientRect()
+    const menuWidth = 175
+    const left = Math.max(0, Math.min(rect.left, window.innerWidth - menuWidth - 8))
+    return { position: "fixed", bottom: `${window.innerHeight - rect.top + 4}px`, left: `${left}px` }
+  }
+  let toolbarItemsRef!: HTMLDivElement
+  let moreButtonRef!: HTMLButtonElement
+  const itemWidthCache = new Map<string, number>()
+
+  const toolbarItemKeys = createMemo(() => {
+    if (isImageGeneration()) return ["capability", "style", "settings", "reverse", "material"]
+    if (isVideoGeneration()) return ["capability", "settings"]
+    return ["capability"]
+  })
+
+  function checkToolbarOverflow() {
+    if (!toolbarItemsRef) return
+    const containerWidth = toolbarItemsRef.clientWidth
+    const keys = toolbarItemKeys()
+    const moreBtnWidth = 40 // 32px button + 8px gap
+
+    // Cache item widths from DOM
+    const items = toolbarItemsRef.querySelectorAll<HTMLElement>('[data-toolbar-item]')
+    for (const item of items) {
+      const key = item.dataset.toolbarItem
+      if (key && item.offsetWidth > 0) itemWidthCache.set(key, item.offsetWidth)
+    }
+
+    // Calculate total width of all items
+    let totalWidth = 0
+    for (const key of keys) {
+      totalWidth += (itemWidthCache.get(key) ?? 0) + 8 // item + gap
+    }
+    if (totalWidth > 0) totalWidth -= 8 // remove last gap
+    if (totalWidth <= containerWidth) {
+      if (toolbarOverflow().length > 0) setToolbarOverflow([])
+      return
+    }
+
+    // Hide items from the end until remaining + more button fits
+    const overflow: string[] = []
+    let visibleWidth = totalWidth
+    for (let i = keys.length - 1; i >= 2; i--) {
+      const key = keys[i]
+      const w = (itemWidthCache.get(key) ?? 0) + 8
+      visibleWidth -= w
+      overflow.push(key)
+      if (visibleWidth + moreBtnWidth <= containerWidth) break
+    }
+    setToolbarOverflow(overflow)
+  }
+
+  onMount(() => {
+    requestAnimationFrame(() => {
+      checkToolbarOverflow()
+    })
+    const observer = new ResizeObserver(() => checkToolbarOverflow())
+    if (toolbarItemsRef) observer.observe(toolbarItemsRef)
+    onCleanup(() => observer.disconnect())
+  })
+
+  // Close more menu on outside click
+  createEffect(() => {
+    if (!moreMenuOpen()) return
+    const handler = (e: MouseEvent) => {
+      if (moreButtonRef?.contains(e.target as Node)) return
+      if (moreMenuRef?.contains(e.target as Node)) return
+      if ((e.target as HTMLElement)?.closest(".studio-composer-toolbar-more-menu")) return
+      if ((e.target as HTMLElement)?.closest(".studio-composer-dropdown-anchor")) return
+      setMoreMenuOpen(false)
+    }
+    document.addEventListener("pointerdown", handler)
+    onCleanup(() => document.removeEventListener("pointerdown", handler))
+  })
+
+  // Close more menu when any main popup opens from outside the more menu
+  createEffect(() => {
+    const menu = props.openMenu
+    if (menu && !toolbarOverflow().includes(menu)) {
+      // opened from toolbar button, close more menu
+      setMoreMenuOpen(false)
+    }
+  })
+
+  let moreMenuRef!: HTMLDivElement
+
   function positionDropdown(menu: typeof props.openMenu) {
     if (!menu) return
-    const btn = buttonRefs.get(menu)
+    const overflow = toolbarOverflow()
     const anchor = anchorRefs.get(menu)
-    if (!btn || !anchor || !toolbarRef) return
+    if (!anchor || !toolbarRef) return
+
+    if (overflow.includes(menu) && moreMenuRef) {
+      // Position to the right of the more menu, bottom-aligned
+      const menuRect = moreMenuRef.getBoundingClientRect()
+      const toolbarRect = toolbarRef.getBoundingClientRect()
+      anchor.style.left = `${menuRect.right - toolbarRect.left + 1}px`
+      anchor.style.top = "auto"
+      // .studio-menu has bottom:calc(100%+8px), so offset by -8 to align
+      anchor.style.bottom = `${toolbarRect.bottom - menuRect.bottom - 8}px`
+      return
+    }
+
+    const btn = buttonRefs.get(menu)
+    if (!btn) return
     const btnRect = btn.getBoundingClientRect()
-    const toolbarRect = toolbarRef.getBoundingClientRect()
-    anchor.style.left = `${btnRect.left - toolbarRect.left}px`
+    const toolbarRect2 = toolbarRef.getBoundingClientRect()
+    anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+    anchor.style.top = ""
+    anchor.style.bottom = ""
   }
 
   createEffect(() => {
@@ -261,8 +402,8 @@ export function StudioComposer(props: {
         </div>
 
         <div class="studio-composer-toolbar" ref={toolbarRef}>
-          <div class="studio-composer-toolbar-items">
-            <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("capability", el)}>
+          <div class="studio-composer-toolbar-items" ref={toolbarItemsRef!}>
+            <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("capability", el)} data-toolbar-item="capability">
               <ToolButton
                 label={capabilityLabel(props.capability)}
                 active={props.openMenu === "capability"}
@@ -272,7 +413,7 @@ export function StudioComposer(props: {
               />
             </div>
             <Show when={isImageGeneration()}>
-              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style" ref={(el) => buttonRefs.set("style", el)}>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style" ref={(el) => buttonRefs.set("style", el)} data-toolbar-item="style">
                 <ToolButton
                   label={styleModelLabel(props.styleModel)}
                   active={props.openMenu === "style"}
@@ -281,34 +422,127 @@ export function StudioComposer(props: {
                   onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style" ? null : "style")}
                 />
               </div>
-              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("settings", el)}>
-                <IconTool
-                  label="参数"
-                  disabled={isBusy()}
-                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+              <Show when={!toolbarOverflow().includes("settings")}>
+                <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("settings", el)} data-toolbar-item="settings">
+                  <IconTool
+                    label="参数"
+                    children={imageSettingsLabel()}
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                  />
+                </div>
+              </Show>
+              <Show when={!toolbarOverflow().includes("reverse")}>
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                  <IconTool
+                    label="图文反推"
+                    class="studio-composer-icon-reverse"
+                    disabled={isBusy()}
+                    onClick={() => props.onReversePrompt?.()}
+                  />
+                </div>
+              </Show>
+              <Show when={!toolbarOverflow().includes("material")}>
+                <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--material" ref={(el) => buttonRefs.set("material", el)} data-toolbar-item="material">
+                  <IconTool
+                    label="词书"
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
+                  />
+                </div>
+              </Show>
+              <Show when={toolbarOverflow().length > 0}>
+                <button
+                  type="button"
+                  ref={moreButtonRef!}
+                  class="studio-composer-toolbar-more"
+                  onClick={() => setMoreMenuOpen((v) => !v)}
+                  title="更多"
                 />
-              </div>
-              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--material" ref={(el) => buttonRefs.set("material", el)}>
-                <IconTool
-                  label="词书"
-                  disabled={isBusy()}
-                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "material" ? null : "material")}
-                />
-              </div>
+              </Show>
             </Show>
             <Show when={isVideoGeneration()}>
-              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("video-settings", el)}>
-                <IconTool
-                  label="参数"
-                  disabled={isBusy()}
-                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+              <Show when={!toolbarOverflow().includes("settings")}>
+                <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("video-settings", el)} data-toolbar-item="settings">
+                  <IconTool
+                    label="参数"
+                    children={imageSettingsLabel()}
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                  />
+                </div>
+              </Show>
+              <Show when={toolbarOverflow().length > 0}>
+                <button
+                  type="button"
+                  ref={moreButtonRef!}
+                  class="studio-composer-toolbar-more"
+                  onClick={() => setMoreMenuOpen((v) => !v)}
+                  title="更多"
                 />
-              </div>
+              </Show>
             </Show>
           </div>
+          <Show when={moreMenuOpen()}>
+            <div
+              ref={moreMenuRef!}
+              class="studio-composer-toolbar-more-menu"
+              style={moreMenuStyle()}
+              onClick={(e) => e.stopPropagation()}
+            >
+                <Show when={isImageGeneration()}>
+                  <Show when={toolbarOverflow().includes("settings")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: props.openMenu === "settings" }}
+                      onClick={() => props.onOpenMenu("settings")}
+                    >
+                      <img src="/studio/IconParameter.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
+                      <span>图片设置</span>
+                    </button>
+                  </Show>
+                  <Show when={toolbarOverflow().includes("reverse")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      onClick={() => props.onReversePrompt?.()}
+                    >
+                      <span class="studio-composer-toolbar-more-item-icon studio-composer-icon-reverse-icon" />
+                      <span>图文反推</span>
+                    </button>
+                  </Show>
+                  <Show when={toolbarOverflow().includes("material")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: props.openMenu === "material" }}
+                      onClick={() => props.onOpenMenu("material")}
+                    >
+                      <img src="/studio/IconMaterial.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
+                      <span>词书</span>
+                      <svg class="studio-composer-toolbar-more-item-arrow" viewBox="0 0 6 11" width="5.74" height="10.6"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="rgba(0,0,0,0.9)" stroke-width="1"/></svg>
+                    </button>
+                  </Show>
+                </Show>
+                <Show when={isVideoGeneration()}>
+                  <Show when={toolbarOverflow().includes("settings")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: props.openMenu === "settings" }}
+                      onClick={() => props.onOpenMenu("settings")}
+                    >
+                      <img src="/studio/IconParameter.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
+                      <span>图片设置</span>
+                    </button>
+                  </Show>
+                </Show>
+              </div>
+          </Show>
           <Show when={props.openMenu === "capability"}>
             <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("capability", el)}>
               <CapabilityMenu
@@ -408,17 +642,27 @@ function ToolButton(props: { label: string; active?: boolean; disabled?: boolean
   )
 }
 
-function IconTool(props: { label: string; title?: string; disabled?: boolean; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
+function IconTool(props: { label: string; title?: string; children?: JSX.Element; class?: string; disabled?: boolean; onClick?: () => void; onPointerDown?: () => void }): JSX.Element {
+  const hasLabel = () => Boolean(props.children)
+  const iconClass = () => {
+    if (props.class) return props.class
+    return props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"
+  }
   return (
     <button
       type="button"
       onPointerDown={props.onPointerDown}
       onClick={props.onClick}
       disabled={props.disabled}
-      class={`studio-composer-icon-tool ${props.label === "参数" ? "studio-composer-icon-settings" : "studio-composer-icon-material"}`}
+      class={`studio-composer-icon-tool ${iconClass()}`}
+      classList={{ "studio-composer-icon-tool--has-text": hasLabel() }}
       title={props.title ?? props.label}
       aria-label={props.label}
-    />
+    >
+      <Show when={hasLabel()} fallback={null}>
+        <span class="studio-composer-icon-tool-label">{props.children}</span>
+      </Show>
+    </button>
   )
 }
 

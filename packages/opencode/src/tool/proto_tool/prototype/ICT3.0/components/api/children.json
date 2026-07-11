@@ -1,0 +1,7 @@
+{
+  "Tabs": ["TabItem"],
+  "Steps": ["StepItem"],
+  "Table": ["TableRow"],
+  "Collapse": ["CollapseItem"],
+  "Timeline": ["TimelineItem"]
+}

@@ -2,9 +2,9 @@
 // 本地打开共用同一份,避免文件名 / 落点规则漂移到两套(漂移会导致预览读 A、编辑写 B,看不到改动)。
 //
 // - path 源(write 工具产物):文件已在磁盘,直接用 filePath。
-// - uri 源:downloadResourceToTemp 幂等落到 <projectDir>/insight/outputs/<file>(SPEC-INS-014,扁平、撞名加后缀);
+// - uri 源:downloadResourceToTemp 幂等落到 <projectDir>/insight/<sessionId>/outputs/<file>(SPEC-INS-014 v2,扁平、撞名加后缀);
 //   首次下原件、之后复用用户改过的那份(主进程按 tab.id 记内存表,见 desktop/src/main/ipc.ts `result-materialize`)。
-//   无 projectDir → 落 OS 临时目录(persistent=false,重启可能被清)。
+//   无 projectDir / 无 sessionId → 落 OS 临时目录(persistent=false,重启可能被清)。
 // - inline / 缺桌面能力 → 抛错(调用方决定退回 fetch 只读 或 提示无法编辑)。
 //
 // 见 spec insight-markdown-editor.md §3。
@@ -16,6 +16,7 @@ import { defaultFilename, ensureMarkdownExt } from "./local-file"
 export async function ensureLocalMarkdownFile(
   tab: ResultTab,
   projectDir: string,
+  sessionId: string,
 ): Promise<{ path: string; persistent: boolean }> {
   if (tab.source === "path" && tab.filePath) {
     return { path: tab.filePath, persistent: true }
@@ -27,7 +28,7 @@ export async function ensureLocalMarkdownFile(
     }
     const filename = ensureMarkdownExt(defaultFilename(tab))
     const baseDir = projectDir || undefined
-    const localPath = await api.downloadResourceToTemp!(tab.uri, tab.id, filename, baseDir)
+    const localPath = await api.downloadResourceToTemp!(tab.uri, tab.id, filename, baseDir, baseDir ? sessionId : undefined)
     return { path: localPath, persistent: !!baseDir }
   }
   throw new Error("该卡片无可编辑的本地文件(inline 内容)")

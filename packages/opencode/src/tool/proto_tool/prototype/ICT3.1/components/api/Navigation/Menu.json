@@ -1,0 +1,93 @@
+{
+  "name": "Menu",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Menu"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string", 
+          "enum": ["vertical", "horizontal"]
+        },
+        "inlineCollapsed": {
+          "type": "boolean"
+        },
+        "selectedKeys": {
+          "oneOf": [
+            { "type": "array"},
+            { "$ref": "#/$defs/DataBinding" }
+          ]
+        },
+        "openKeys": {
+          "oneOf": [
+            { "type": "array"},
+            { "$ref": "#/$defs/DataBinding" }
+          ]
+        },
+        "items": {
+          "oneOf": [{
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": ["string", "number"]
+                },
+                "icon": {
+                  "type": "string",
+                  "description": "Valid kebab-case Lucide icon matching the context (e.g., 'chevron-right')."
+                },
+                "children": {
+                  "type": "object",
+                  "description": "Sub-nodes array inheriting identical menuNode layout configurations via recursion."
+                }
+              },
+              "required": ["title", "key"]
+              }
+            },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "The segmented options list."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["items"]
+    }
+  },
+  "required": ["id", "component", "props", "children"]
+}

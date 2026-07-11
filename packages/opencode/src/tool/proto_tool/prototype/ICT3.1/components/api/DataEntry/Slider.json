@@ -1,0 +1,77 @@
+{
+  "name": "Slider",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Slider"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": "number" },
+            { "type": "array" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "current value of the slider."
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "range": {
+          "type": "boolean"
+        },
+        "orientation": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"]
+        },
+        "step": {
+          "type": "number"
+        },
+        "input": {
+          "type": "boolean",
+          "description": "Whether to display an Input on the right side of the slider."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        },
+        "marks": {
+          "type": "object"
+        }
+      },
+      "required": ["value"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

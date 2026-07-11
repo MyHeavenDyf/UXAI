@@ -1,0 +1,95 @@
+{
+  "name": "CircleProcessChart",
+  "description": "A circular chart showing percentage progress toward a goal.",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique component cross-reference ID."
+    },
+    "component": {
+      "type": "string",
+      "const": "CircleProcessChart"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "option": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Core data source (required)"
+            },
+            "color":{
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "description": "Item color in hex format (e.g., '#F0F0F0')."
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Stick to default color groups. Override only upon explicit user request."
+            },
+            "title": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "subtext": {
+                  "type": "string"
+                }
+              },
+              "required": ["text"],
+              "description": "Center text configuration for the circleProcess chart"
+            }
+          },
+          "required": ["data"]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component. Mandatory: width (w-) and height (h-) classes must be explicitly defined."
+        }
+      },
+      "required": ["option", "className"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}
