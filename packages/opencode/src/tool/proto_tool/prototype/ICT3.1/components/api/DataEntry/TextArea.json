@@ -1,0 +1,70 @@
+{
+  "name": "TextArea",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "TextArea"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "current value of the TextArea."
+        },
+        "placeholder": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "placeholder of TextArea."
+        },
+        "size": {
+          "type": "string",
+          "enum": ["large", "medium", "small"]
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "autoSize": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["value"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

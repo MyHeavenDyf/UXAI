@@ -1,0 +1,86 @@
+{
+	"name": "Tag",
+	"type": "object",
+	"$defs": {
+		"DataBinding":{
+			"type": "object",
+			"description": "JSON Pointer state reference",
+			"required": ["path"],
+			"properties": {
+				"path": {
+					"type": "string",
+					"description": "A JSON Pointer path to a value in the state",
+					"examples": ["/value", "/form/value"]
+				}
+			}	
+		}
+	},
+	"properties": {
+		"id": {
+			"type": "string",
+			"description": "Unique ID for cross-referencing."
+		},
+		"component": {
+			"type": "string",
+			"const": "Tag"
+		},
+		"props": {
+			"type": "object",
+			"properties": {
+				"value": {
+					"oneOf": [{
+							"type": "string"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "Defines the text content."
+				},
+				"color": {
+					"oneOf": [{
+							"type": "string"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "The component color theme or a custom hex code. Options: 'success', 'processing', 'error', 'default', 'warning', or a valid #HEX value (e.g., #FF5733).",
+					"pattern": "^(success|processing|error|default|warning|#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3}))$"
+				},
+				"icon": {
+					"oneOf": [{
+							"type": "string"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "Valid kebab-case Lucide icon matching the context (e.g., 'chevron-right')"
+				},
+				"size": {
+					"type": "string",
+					"enum": ["large", "medium", "small"]
+				},
+				"variant": {
+					"type": "string",
+					"enum": ["filled", "solid", "outlined"]
+				},
+				"closable": {
+					"type": "boolean",
+					"description": "Whether to display the delete icon."
+				},
+				"closeIcon": {
+					"type": "string",
+					"description": "When closable is set to true, the attribute takes effect,Valid kebab-case Lucide icon matching the context (e.g., 'chevron-right')."
+				},
+				"className": {
+					"type": "string",
+					"description": "Tailwind CSS classes for the component."
+				}
+			},
+			"required": ["value"]
+		}
+	},
+	"required": ["id", "component", "props"]
+}

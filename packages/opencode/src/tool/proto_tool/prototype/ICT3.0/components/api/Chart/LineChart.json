@@ -1,0 +1,128 @@
+{
+  "name": "LineChart",
+  "description": "Line chart component for displaying data trends over time or categories.",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/name",
+            "name",
+            "role"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique component cross-reference ID."
+    },
+    "component": {
+      "type": "string",
+      "const": "LineChart"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "option": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Core data source (required)"
+            },
+            "smooth": {
+              "type": "boolean",
+              "description": "Whether to display as smooth curve"
+            },
+            "color":{
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "description": "Item color in hex format (e.g., '#F0F0F0')."
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                }
+              ],
+              "description": "Stick to default color groups. Override only upon explicit user request."
+            },
+            "step": {
+              "type": "boolean",
+              "description": "Step line configuration - converts line to step chart"
+            },
+            "xAxis": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "string",
+                  "description": "Field name for X-axis dimension mapping"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Setting the X-axis Name"
+                }
+              },
+              "required": ["data"],
+              "description": "X-axis base configuration (required)"
+            },
+            "yAxisTitle": {
+              "type": "string",
+              "description": "MANDATORY: The visible title/label of the Y-axis. This must be a descriptive string (e.g., 'Revenue (USD)', 'Count').",
+              "examples": ["Amount", "Sales Volume"]
+            },
+            "markLine": {
+              "type": "object",
+              "properties": {
+                "top": {
+                  "type": "number",
+                  "description": "Upper threshold line value"
+                },
+                "bottom": {
+                  "type": "number",
+                  "description": "Lower threshold line value"
+                }
+              },
+              "description": "markline configuration for displaying horizontal reference lines"
+            },
+            "area": {
+              "type": "boolean",
+              "description": "Whether to display as area chart"
+            }
+          },
+          "required": ["data", "xAxis", "yAxisTitle"]
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component. Mandatory: width (w-) and height (h-) classes must be explicitly defined."
+        }
+      },
+      "required": ["option", "className"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}

@@ -121,14 +121,33 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
+  /** save image to uploads dir, returns URL path like /history/sessionId/uploads/hash.ext */
+  saveUploadImage: (buffer: ArrayBuffer, sessionId: string) => Promise<string>
+  getUploadsDir: () => Promise<string | null>
+  setUploadsDir: (dir: string) => Promise<void>
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 insight/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
+  getPatternIndex: (category: string, theme?: string) => Promise<Record<string, unknown> | null>
+  getPatternFile: (category: string, filename: string, theme?: string) => Promise<string | null>
+  getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
+  getPatternAssets: (category: string, folderName: string, theme?: string) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
+  getDesignSystems: () => Promise<string[]>
+  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
+  runPixsoBuild: (input: string) => Promise<string>
+  exportZip: (opts: {
+    defaultName: string
+    files?: { path: string; content: string }[]
+    sourceDir?: string
+    comment?: string
+  }) => Promise<string | null>
+  importZip: () => Promise<{ name: string; content: string }[] | null>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 }
