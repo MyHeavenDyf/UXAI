@@ -26,6 +26,7 @@ export type DownloadSavePathInfo = {
   path: string | null
   state: "completed" | "cancelled" | "interrupted"
 }
+
 // jk-j60099994-replace-with-60062650-preload-types-1-start
 export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
