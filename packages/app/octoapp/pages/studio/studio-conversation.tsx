@@ -200,10 +200,8 @@ export function StudioResultCanvas(props: {
       }>
         {(image) => {
           function tabLabelFor(tabImage: StudioImage, index: number): string {
-            const video = isVideoMedia(tabImage)
-            const ext = video ? "mp4" : "png"
             const stored = props.tabLabels?.[tabImage.id]
-            if (stored) return `${stored}.${ext}`
+            if (stored) return stored
             const prompt = props.result?.prompt ?? ""
             const firstLine = prompt.split("\n")[0].trim()
             const cleaned = firstLine
@@ -212,7 +210,7 @@ export function StudioResultCanvas(props: {
               .replace(/^-+|-+$/g, "")
             const prefix = cleaned.length > 20 ? cleaned.slice(0, 20).replace(/-+$/, "") : (cleaned || "image")
             const total = props.result?.images.length ?? 1
-            return total > 1 ? `${prefix}-${index + 1}.${ext}` : `${prefix}.${ext}`
+            return total > 1 ? `${prefix}-${index + 1}` : prefix
           }
           return (
           <>
