@@ -292,6 +292,12 @@
   height: 28px;
 }
 
+.studio-empty-stack .studio-composer-icon-tool.studio-composer-icon-tool--has-text {
+  width: auto;
+  min-width: 28px;
+  height: 28px;
+}
+
 .studio-empty-stack .studio-composer-send {
   width: 36px;
   height: 36px;

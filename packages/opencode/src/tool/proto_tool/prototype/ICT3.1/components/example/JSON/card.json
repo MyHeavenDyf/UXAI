@@ -1,0 +1,16 @@
+{
+	"state": { "title": "今日任务", "description": "完成项目报告并提交", "status": "进行中", "progress": 65 },
+	"rootId": "cardRoot",
+	"elements": [
+		{ "id": "cardRoot", "component": "div", "props": { "className": "p-4 bg-white rounded-lg shadow-sm border border-slate-200" }, "children": ["cardHeader", "cardBody", "cardFooter"] },
+		{ "id": "cardHeader", "component": "div", "props": { "className": "flex justify-between items-center mb-3" }, "children": ["titleText", "statusTag"] },
+		{ "id": "titleText", "component": "span", "props": { "value": { "path": "/title" }, "className": "text-base font-semibold text-slate-800" } },
+		{ "id": "statusTag", "component": "Tag", "props": { "value": { "path": "/status" }, "color": "blue" } },
+		{ "id": "cardBody", "component": "div", "props": { "className": "mb-3" }, "children": ["descText"] },
+		{ "id": "descText", "component": "span", "props": { "value": { "path": "/description" }, "className": "text-sm text-slate-500" } },
+		{ "id": "cardFooter", "component": "div", "props": { "className": "flex items-center gap-2" }, "children": ["progressBar", "progressText"] },
+		{ "id": "progressBar", "component": "Progress", "props": { "percent": { "path": "/progress" }, "showInfo": false, "strokeColor": "#3b82f6" } },
+		{ "id": "progressText", "component": "span", "props": { "value": { "path": "/progress" }, "className": "text-xs text-slate-400 ml-auto" } },
+		{ "id": "actionBtn", "component": "Button", "props": { "value": "查看详情", "type": "primary", "size": "small", "className": "mt-3" } }
+	]
+}

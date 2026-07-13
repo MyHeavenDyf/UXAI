@@ -321,6 +321,15 @@ export const layer: Layer.Layer<
           return input.agent.name === "octo_insight"
         }
 
+        // insight 不放编辑类工具(SPEC-INS-021 §1:edit 归二次生成 ROADMAP D,v1 不放;
+        // write 保留给产物落盘)。不能走 agent 权限层 deny——Permission.disabled 把
+        // edit/write/apply_patch 都映射到 "edit" 权限键(EDIT_TOOLS),deny edit 会连带隐藏 write,
+        // 故在此按 agent 裁剪。副作用:gpt 系模型(下方 usePatch 用 apply_patch 替代 edit/write)
+        // 在 insight 无落盘通道,当前内网 GLM / 外网 Claude 不受影响,接 gpt 系时再单独处理。
+        if ((tool.id === EditTool.id || tool.id === ApplyPatchTool.id) && input.agent.name === "octo_insight") {
+          return false
+        }
+
         const usePatch =
           input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4")
         if (tool.id === ApplyPatchTool.id) return usePatch

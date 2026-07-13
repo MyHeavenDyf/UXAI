@@ -59,11 +59,14 @@ const api: ElectronAPI = {
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
   showItemInFolder: (path) => ipcRenderer.send("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
-  downloadResourceToTemp: (url, namespace, filename, baseDir) =>
-    ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir),
-  // SPEC-INS-014:把源文件拷贝进 <baseDir>/insight/sources/(主进程 fs.copyFile);返回落地路径。
+  downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
+    ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
+  // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/insight/uploads/(预会话落地区,主进程 fs.copyFile);返回落地路径。
   copyFileToWorktree: (srcPath, baseDir, filename) =>
     ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
+  // SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/。
+  movePendingUploadToSession: (srcPath, baseDir, sessionId) =>
+    ipcRenderer.invoke("move-pending-upload-to-session", srcPath, baseDir, sessionId),
   // Electron 32+ 已移除 File.path —— 用 webUtils.getPathForFile 拿拖拽/选取文件的真实本地路径。
   // 这是 Electron 官方推荐的 preload 暴露法(File 对象在此同步解析)。
   getPathForFile: (file) => webUtils.getPathForFile(file),
@@ -88,16 +91,30 @@ const api: ElectronAPI = {
   getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
+  ensureSkillConfig: () => ipcRenderer.invoke("ensure-skill-config"),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
+  saveUploadImage: (buffer, sessionId) => ipcRenderer.invoke("save-upload-image", buffer, sessionId),
+  getUploadsDir: () => ipcRenderer.invoke("get-uploads-dir"),
+  setUploadsDir: (dir) => ipcRenderer.invoke("set-uploads-dir", dir),
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
+  deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),
   cssToTailwind: (cssObject) => ipcRenderer.invoke("css-to-tailwind", cssObject),
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
+  getPatternIndex: (category, theme) => ipcRenderer.invoke("get-pattern-index", category, theme),
+  getPatternFile: (category, filename, theme) => ipcRenderer.invoke("get-pattern-file", category, filename, theme),
+  getPatternPreview: (category, filename, theme) => ipcRenderer.invoke("get-pattern-preview", category, filename, theme),
+  getPatternAssets: (category, folderName, theme) => ipcRenderer.invoke("get-pattern-assets", category, folderName, theme),
+  getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
+  downloadHuiCode: (jsonData) => ipcRenderer.invoke("download-hui-code", jsonData),
+  runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
+  exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
+  importZip: () => ipcRenderer.invoke("import-zip"),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start

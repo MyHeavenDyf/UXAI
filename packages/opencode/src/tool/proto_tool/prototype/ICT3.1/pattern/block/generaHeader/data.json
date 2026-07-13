@@ -1,0 +1,222 @@
+{
+    "state": {
+        "logoImage": "./assets/logo-huawei.svg",
+        "menuItems": [
+            {
+                "title": "资源中心",
+                "key": "1"
+            },
+            {
+                "title": "任务中心",
+                "key": "2"
+            },
+            {
+                "title": "系统任务",
+                "key": "3"
+            }
+        ],
+        "selectedMenuKeys": [
+            "1"
+        ]
+    },
+    "rootId": "headerContainer",
+    "elements": [
+        {
+            "id": "headerContainer",
+            "component": "header",
+            "props": {
+                "className": "flex items-center justify-between h-12 pl-[50px] pr-[42px] bg-surface-container-highest shadow-sm"
+            },
+            "children": [
+                "headerLeftSection",
+                "headerMiddleMenu",
+                "headerRightSection"
+            ]
+        },
+        {
+            "id": "headerLeftSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center"
+            },
+            "children": [
+                "headerLogoImg",
+                "dividerLine",
+                "headerDropIcon",
+                "headerDropdown"
+            ]
+        },
+        {
+            "id": "headerLogoImg",
+            "component": "img",
+            "props": {
+                "src": {
+                    "path": "/logoImage"
+                },
+                "alt": "Logo",
+                "className": "h-8 w-auto"
+            }
+        },
+        {
+            "id": "dividerLine",
+            "component": "div",
+            "props": {
+                "className": "w-px h-6 bg-[#f3f3f3] ml-[25px] mr-[14px]"
+            }
+        },
+        {
+            "id": "headerDropIcon",
+            "component": "Icon",
+            "props": {
+                "name": "layers-2",
+                "className": "w-5 h-5 mr-[8px]"
+            }
+        },
+        {
+            "id": "headerDropdown",
+            "component": "Dropdown",
+            "props": {
+                "placement": "bottomLeft",
+                "trigger": ["click"],
+                "menu": [
+                    {
+                        "label": "系统管理",
+                        "key": "system"
+                    },
+                    {
+                        "label": "个人设置",
+                        "key": "profile"
+                    },
+                    {
+                        "label": "退出登录",
+                        "key": "logout"
+                    }
+                ]
+            },
+            "children": [
+                "headerDropdownTrigger"
+            ]
+        },
+        {
+            "id": "headerDropdownTrigger",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-1 cursor-pointer text-on-surface transition-colors"
+            },
+            "children": [
+               "headerDropdownText",
+                "headerDropdownIcon"
+            ]
+        },
+        {
+            "id": "headerDropdownIcon",
+            "component": "Icon",
+            "props": {
+                "name": "chevron-down",
+                "className": "w-4 h-4"
+            }
+        },
+        {
+            "id": "headerDropdownText",
+            "component": "span",
+            "props": {
+                "value": "下拉菜单文本",
+                "className": ""
+            }
+        },
+        {
+            "id": "headerMiddleMenu",
+            "component": "Menu",
+            "props": {
+                "mode": "horizontal",
+                "selectedKeys": {
+                    "path": "/selectedMenuKeys"
+                },
+                "items": {
+                    "path": "/menuItems"
+                },
+                "className": "flex-1 flex justify-center border-0 bg-transparent"
+            }
+        },
+        {
+            "id": "headerRightSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-6"
+            },
+            "children": [
+                "headerSearchBtn",
+                "headerBellBtn",
+                "headerHelpBtn",
+                "headerHeadphonesBtn",
+                "headerGlobeBtn",
+                "headerMoonBtn",
+                "headerUserBtn"
+            ]
+        },
+        {
+            "id": "headerSearchBtn",
+            "component": "Button",
+            "props": {
+                "icon": "search",
+                "shape": "circle",
+                "size": "large"
+            }
+        },
+        {
+            "id": "headerBellBtn",
+            "component": "Button",
+            "props": {
+                "icon": "bell",
+                "shape": "circle",
+                "size": "large"
+            }
+        },
+        {
+            "id": "headerHelpBtn",
+            "component": "Button",
+            "props": {
+                "icon": "help-circle",
+                "shape": "circle",
+                "size": "large"
+            }
+        },
+        {
+            "id": "headerHeadphonesBtn",
+            "component": "Button",
+            "props": {
+                "icon": "headphones",
+                "shape": "circle",
+                "size": "large"
+            }
+        },
+        {
+            "id": "headerGlobeBtn",
+            "component": "Button",
+            "props": {
+                "icon": "languages",
+                "shape": "circle",
+                "size": "large"
+            }
+        },
+        {
+            "id": "headerMoonBtn",
+            "component": "Button",
+            "props": {
+                "icon": "moon",
+                "shape": "circle",
+                "size": "large"
+            }
+        },
+        {
+            "id": "headerUserBtn",
+            "component": "Button",
+            "props": {
+                "icon": "user",
+                "shape": "circle",
+                "size": "large"
+            }
+        }
+        
+    ]
+}
