@@ -305,6 +305,7 @@ export function ActionBar(props: {
     editing?: boolean
     drawing?: boolean
     commenting?: boolean
+    archiving?: boolean
     focusMode?: boolean
     onRefresh?: () => void
     onModeChange?: () => void
@@ -314,6 +315,7 @@ export function ActionBar(props: {
     onEditToggle?: () => void
     onDrawToggle?: () => void
     onCommentToggle?: () => void
+    onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
   }): JSX.Element {
   async function handleDownload() {
@@ -460,6 +462,18 @@ export function ActionBar(props: {
           >
             <span style={{ "font-size": "13px" }}>💬</span>
             <span>标注</span>
+          </button>
+        )}
+        {showViewport() && props.onArchiveToggle && (
+          <button
+            type="button"
+            class="octo-action-btn"
+            classList={{ "octo-viewport-btn-active": !!props.archiving }}
+            onClick={props.onArchiveToggle}
+            title="归档"
+          >
+            <span style={{ "font-size": "13px" }}>📦</span>
+            <span>归档</span>
           </button>
         )}
         <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>

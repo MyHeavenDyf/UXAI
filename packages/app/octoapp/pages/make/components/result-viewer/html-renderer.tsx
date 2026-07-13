@@ -11,6 +11,9 @@ import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./m
 import { DrawOverlay } from "./draw-overlay"
 import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
+import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
+import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
+import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath } from "../../utils/archive-utils"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -106,7 +109,9 @@ export function HtmlRenderer(props: {
   editing?: boolean
   drawing?: boolean
   commenting?: boolean
+  archiving?: boolean
   onDrawActiveChange?: (active: boolean) => void
+  onResetArchiving?: () => void
   inspectPanel?: boolean
   onInspectTarget?: (target: InspectTarget | null) => void
   onSaveOverrides?: (overrides: Array<{ elementId: string; prop: string; value: string }>) => void
@@ -154,6 +159,9 @@ export function HtmlRenderer(props: {
   const [savedComments, setSavedComments] = createSignal<FileComment[]>([])
   const [commentPanelPosition, setCommentPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [externalClickSignal, setExternalClickSignal] = createSignal(0)
+  const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
+  const [archiveSuccessOpen, setArchiveSuccessOpen] = createSignal(false)
+  const [archiveSuccessPath, setArchiveSuccessPath] = createSignal("")
   
   // Pending style storage for Cancel/Save logic
   let manualEditPendingStyle: { id: string; styles: ManualEditStyles; label: string } | null = null
@@ -214,6 +222,78 @@ export function HtmlRenderer(props: {
     return false
 }
   
+  // Sync archiving prop with dialog state
+  createEffect(() => {
+    setArchiveDialogOpen(props.archiving ?? false)
+  })
+  
+  // Handle archive confirm
+  async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
+    const overlay = document.querySelector('.archive-dialog-overlay') as HTMLElement | null
+    
+    try {
+      if (!iframeRef) {
+        showToast({ title: "归档失败", description: "无法获取页面内容" })
+        return
+      }
+      
+      if (overlay) {
+        overlay.style.visibility = 'hidden'
+      }
+      
+      const screenshotBlob = await capturePageScreenshot(iframeRef)
+      
+      if (overlay) {
+        overlay.style.visibility = 'visible'
+      }
+      
+      const comments = savedComments()
+      const htmlContent = extractHtmlContent(props.content)
+      
+      const zipBlob = await createArchiveZip({
+        comments,
+        screenshotBlob,
+        htmlContent,
+        htmlFileName: getArtifactFilename(props.filePath),
+        htmlFilePath: props.filePath || "",
+        sessionId: props.sessionId || "",
+        projectDir: props.sdkDirectory || ""
+      })
+      
+      const isLoggedIn = !!localStorage.getItem("uiplusToken")
+      
+      if (isLoggedIn) {
+        const pathStr = buildArchivePath({
+          spaceType: data.spaceType,
+          productName: data.productName,
+          versionDeliveryName: data.versionDeliveryName,
+          folderName: data.folderName
+        })
+        setArchiveSuccessPath(pathStr)
+        setArchiveSuccessOpen(true)
+        showToast({ title: "归档成功" })
+      } else {
+        const fileName = `${getArtifactFilename(props.filePath).replace(/\.html?$/i, "")}-archive.zip`
+        const url = URL.createObjectURL(zipBlob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        showToast({ title: "归档完成", description: "ZIP文件已下载" })
+      }
+    } catch (err) {
+      if (overlay) {
+        overlay.style.visibility = 'visible'
+      }
+      console.error("[Archive] Failed:", err)
+      showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+      throw err
+    }
+  }
+  
 // ★ Cache annotated HTML when content changes (ensure element IDs match)
 createEffect(on(() => props.content, () => {
   const html = extractHtmlContent(props.content)
@@ -269,7 +349,7 @@ createEffect(() => {
     if (!props.sdkUrl || !props.sdkDirectory || !props.sessionId) return
     
     try {
-      const commentFilePath = props.commentFilePath || extractCommentFilePath(props.filePath, props.sessionId || '')
+      const commentFilePath = props.commentFilePath || extractCommentFilePath(props.filePath || '', props.sessionId || '')
       const res = await fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(commentFilePath)}`, {
         headers: { ...directoryHeader(props.sdkDirectory) }
       })
@@ -1411,7 +1491,7 @@ onUploadAttachment={(file) => {
                        },
 body: JSON.stringify({
                            sessionId: props.sessionId!,
-                           commentFilePath: props.commentFilePath || extractCommentFilePath(props.filePath, props.sessionId || ''),
+                           commentFilePath: props.commentFilePath || extractCommentFilePath(props.filePath || '', props.sessionId || ''),
                            commentId: existingComment.id,
                           sourceFilePath,
                           filename: file.name,
@@ -1574,11 +1654,29 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
                        console.error('[Comment] Delete error:', err)
                        showToast({ title: "附件删除失败", description: err.message })
                      })
-                   }}
-               />
-             </Show>
-         </DrawOverlay>
-      ) : (
+}}
+                />
+              </Show>
+              <Show when={archiveDialogOpen()}>
+                <ArchiveDialog
+                  open={archiveDialogOpen()}
+                  onClose={() => setArchiveDialogOpen(false)}
+                  onResetArchiving={props.onResetArchiving}
+                  onConfirm={handleArchiveConfirm}
+                  sessionId={props.sessionId || ""}
+                  filePath={props.filePath || ""}
+                  tabTitle={getArtifactFilename(props.filePath)}
+                />
+              </Show>
+              <Show when={archiveSuccessOpen()}>
+                <DialogArchiveSuccess
+                  open={archiveSuccessOpen()}
+                  onClose={() => setArchiveSuccessOpen(false)}
+                  archivePath={archiveSuccessPath()}
+                />
+              </Show>
+          </DrawOverlay>
+       ) : (
         <textarea
           value={extractHtmlContent(props.content)}
           onInput={(e) => props.onContentChange?.(e.currentTarget.value)}

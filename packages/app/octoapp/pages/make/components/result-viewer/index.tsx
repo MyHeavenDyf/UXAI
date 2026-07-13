@@ -97,6 +97,7 @@ export function ResultViewer(props: {
   const [editing, setEditing] = createSignal(false)
   const [drawing, setDrawing] = createSignal(false)
   const [commenting, setCommenting] = createSignal(false)
+  const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -110,6 +111,7 @@ export function ResultViewer(props: {
       setEditing(false)
       setDrawing(false)
       setCommenting(false)
+      setArchiving(false)
     }
   }
 
@@ -244,42 +246,56 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   palette={palette()}
                   onPaletteChange={setPalette}
 inspecting={inspecting()}
-                   onInspectToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextInspecting = !inspecting()
-                     setInspecting(nextInspecting)
-                     tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
-                     if (nextInspecting && editing()) setEditing(false)
-                     if (nextInspecting && drawing()) setDrawing(false)
-                     if (nextInspecting && commenting()) setCommenting(false)
-                   }}
+onInspectToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextInspecting = !inspecting()
+                      setInspecting(nextInspecting)
+                      tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
+                      if (nextInspecting && editing()) setEditing(false)
+                      if (nextInspecting && drawing()) setDrawing(false)
+                      if (nextInspecting && commenting()) setCommenting(false)
+                      if (nextInspecting && archiving()) setArchiving(false)
+                    }}
                    editing={editing()}
-                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextEditing = !editing()
-                     setEditing(nextEditing)
-                     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                     if (nextEditing && inspecting()) setInspecting(false)
-                     if (nextEditing && drawing()) setDrawing(false)
-                     if (nextEditing && commenting()) setCommenting(false)
-                   }}
+onEditToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextEditing = !editing()
+                      setEditing(nextEditing)
+                      tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+                      if (nextEditing && inspecting()) setInspecting(false)
+                      if (nextEditing && drawing()) setDrawing(false)
+                      if (nextEditing && commenting()) setCommenting(false)
+                      if (nextEditing && archiving()) setArchiving(false)
+                    }}
                    drawing={drawing()}
-                   onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextDrawing = !drawing()
-                     setDrawing(nextDrawing)
-                     tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                     if (nextDrawing && inspecting()) setInspecting(false)
-                     if (nextDrawing && editing()) setEditing(false)
-                     if (nextDrawing && commenting()) setCommenting(false)
-                   }}
-                   commenting={commenting()}
-                   onCommentToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextCommenting = !commenting()
-                     setCommenting(nextCommenting)
-                     tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
-                     if (nextCommenting && inspecting()) setInspecting(false)
-                     if (nextCommenting && editing()) setEditing(false)
-                     if (nextCommenting && drawing()) setDrawing(false)
-                   }}
-                  onRefresh={handleRefresh}
+onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextDrawing = !drawing()
+                      setDrawing(nextDrawing)
+                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                      if (nextDrawing && inspecting()) setInspecting(false)
+                      if (nextDrawing && editing()) setEditing(false)
+                      if (nextDrawing && commenting()) setCommenting(false)
+                      if (nextDrawing && archiving()) setArchiving(false)
+                    }}
+commenting={commenting()}
+                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextCommenting = !commenting()
+                      setCommenting(nextCommenting)
+                      tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
+                      if (nextCommenting && inspecting()) setInspecting(false)
+                      if (nextCommenting && editing()) setEditing(false)
+                      if (nextCommenting && drawing()) setDrawing(false)
+                      if (nextCommenting && archiving()) setArchiving(false)
+                    }}
+                    archiving={archiving()}
+                    onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextArchiving = !archiving()
+                      setArchiving(nextArchiving)
+                      tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+                      if (nextArchiving && inspecting()) setInspecting(false)
+                      if (nextArchiving && editing()) setEditing(false)
+                      if (nextArchiving && drawing()) setDrawing(false)
+                      if (nextArchiving && commenting()) setCommenting(false)
+                    }}
+                   onRefresh={handleRefresh}
                   focusMode={props.focusMode}
                   onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
                 />
@@ -306,32 +322,34 @@ inspecting={inspecting()}
                     </Match>
                     <Match when={tabType === "html"}>
 <HtmlRenderer
-                        content={tab.content}
-                        mode={htmlMode()}
-                        viewport={viewport()}
-                        palette={palette()}
-                        inspecting={inspecting()}
-                        editing={editing()}
-                        drawing={drawing()}
-                        commenting={commenting()}
-                        onDrawActiveChange={setDrawing}
-                        inspectPanel={true}
-                        onInspectTarget={setInspectTarget}
-                        onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
-                        refreshKey={refreshKey()}
-                        filePath={tab.filePath}
-                        commentFilePath={tab.commentFilePath}
-                        sessionId={tab.sessionId ?? props.sessionId}
-                        sdkUrl={globalSDK.url}
-                        sdkDirectory={props.sdkDirectory}
-                        onSaveFile={async (content) => {
-                          if (!tab.filePath) return
-                          const html = extractCodeBlock(content, "html")
-                          await saveArtifactContent(tab.filePath, html)
-                        }}
-                        onRefreshNeeded={handleRefresh}
-                      />
+                          content={tab.content}
+                          mode={htmlMode()}
+                          viewport={viewport()}
+                          palette={palette()}
+                          inspecting={inspecting()}
+                          editing={editing()}
+                          drawing={drawing()}
+                          commenting={commenting()}
+                          archiving={archiving()}
+                          onDrawActiveChange={setDrawing}
+                          onResetArchiving={() => setArchiving(false)}
+                          inspectPanel={true}
+                          onInspectTarget={setInspectTarget}
+                          onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
+                          onContentChange={(content) => props.onContentChange?.(tabId, content)}
+                          refreshKey={refreshKey()}
+                          filePath={tab.filePath}
+                          commentFilePath={tab.commentFilePath}
+                          sessionId={tab.sessionId ?? props.sessionId}
+                          sdkUrl={globalSDK.url}
+                          sdkDirectory={props.sdkDirectory}
+                          onSaveFile={async (content) => {
+                            if (!tab.filePath) return
+                            const html = extractCodeBlock(content, "html")
+                            await saveArtifactContent(tab.filePath, html)
+                          }}
+                          onRefreshNeeded={handleRefresh}
+                        />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
