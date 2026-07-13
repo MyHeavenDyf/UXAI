@@ -38,24 +38,24 @@ const FileCommentSchema = Schema.Struct({
 
 const CommentLoadQuery = Schema.Struct({
   sessionId: Schema.String,
-  filePath: Schema.String,
+  commentFilePath: Schema.String,
 })
 
 const CommentSavePayload = Schema.Struct({
   sessionId: Schema.String,
-  filePath: Schema.String,
+  commentFilePath: Schema.String,
   comment: FileCommentSchema,
 })
 
 const CommentDeleteQuery = Schema.Struct({
   sessionId: Schema.String,
-  filePath: Schema.String,
+  commentFilePath: Schema.String,
   commentId: Schema.String,
 })
 
 const CommentAttachmentDeleteQuery = Schema.Struct({
   sessionId: Schema.String,
-  filePath: Schema.String,
+  commentFilePath: Schema.String,
   commentId: Schema.String,
 })
 
@@ -65,7 +65,7 @@ const CommentAttachmentDeleteParams = Schema.Struct({
 
 const CommentAttachmentUploadPayload = Schema.Struct({
   sessionId: Schema.String,
-  filePath: Schema.String,
+  commentFilePath: Schema.String,
   commentId: Schema.String,
   sourceFilePath: Schema.String,
   filename: Schema.String,

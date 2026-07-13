@@ -305,15 +305,15 @@ inspecting={inspecting()}
                       <JsonRenderer content={tab.content} />
                     </Match>
                     <Match when={tabType === "html"}>
-                      <HtmlRenderer
+<HtmlRenderer
                         content={tab.content}
                         mode={htmlMode()}
                         viewport={viewport()}
                         palette={palette()}
-inspecting={inspecting()}
-                         editing={editing()}
-                         drawing={drawing()}
-                         commenting={commenting()}
+                        inspecting={inspecting()}
+                        editing={editing()}
+                        drawing={drawing()}
+                        commenting={commenting()}
                         onDrawActiveChange={setDrawing}
                         inspectPanel={true}
                         onInspectTarget={setInspectTarget}
@@ -321,6 +321,7 @@ inspecting={inspecting()}
                         onContentChange={(content) => props.onContentChange?.(tabId, content)}
                         refreshKey={refreshKey()}
                         filePath={tab.filePath}
+                        commentFilePath={tab.commentFilePath}
                         sessionId={tab.sessionId ?? props.sessionId}
                         sdkUrl={globalSDK.url}
                         sdkDirectory={props.sdkDirectory}

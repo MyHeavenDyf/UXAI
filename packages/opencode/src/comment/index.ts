@@ -57,8 +57,8 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
 
-const getCommentsFilePath = (sessionId: string, artifactFilePath: string, instance: InstanceState.InstanceContext): string => {
-  const artifactFilename = path.basename(artifactFilePath)
+const getCommentsFilePath = (sessionId: string, commentFilePath: string, instance: InstanceState.InstanceContext): string => {
+  const safeFolderName = commentFilePath.replace(/[/\\]/g, "_")
   
   return path.join(
     instance.directory,
@@ -67,13 +67,13 @@ const getCommentsFilePath = (sessionId: string, artifactFilePath: string, instan
     "make",
     sessionId,
     "comment-files",
-    artifactFilename,
+    safeFolderName,
     "comments.json"
   )
 }
 
-const getAttachmentDir = (sessionId: string, artifactFilePath: string, commentId: string, instance: InstanceState.InstanceContext): string => {
-  const artifactFilename = path.basename(artifactFilePath)
+const getAttachmentDir = (sessionId: string, commentFilePath: string, commentId: string, instance: InstanceState.InstanceContext): string => {
+  const safeFolderName = commentFilePath.replace(/[/\\]/g, "_")
   
   return path.join(
     instance.directory,
@@ -82,14 +82,14 @@ const getAttachmentDir = (sessionId: string, artifactFilePath: string, commentId
     "make",
     sessionId,
     "comment-files",
-    artifactFilename,
+    safeFolderName,
     commentId
   )
 }
 
-const load = Effect.fn("Comment.load")(function* (sessionId: string, filePath: string) {
+const load = Effect.fn("Comment.load")(function* (sessionId: string, commentFilePath: string) {
   const instance = yield* InstanceState.context
-  const commentsPath = getCommentsFilePath(sessionId, filePath, instance)
+  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
   
   const exists = yield* fs.exists(commentsPath)
   if (!exists) {
@@ -98,17 +98,25 @@ const load = Effect.fn("Comment.load")(function* (sessionId: string, filePath: s
   }
 
   const content = yield* fs.readFileString(commentsPath)
-  const comments = JSON.parse(content) as FileComment[]
+  const comments = yield* Effect.sync(() => JSON.parse(content) as FileComment[]).pipe(
+    Effect.catch((err) => {
+      log.warn("Failed to parse comments file, resetting", { path: commentsPath, error: String(err) })
+      return Effect.gen(function* () {
+        yield* fs.remove(commentsPath).pipe(Effect.catch(() => Effect.void))
+        return []
+      })
+    })
+  )
   
   log.debug("Loaded comments", { count: comments.length, path: commentsPath })
   return comments
 })
 
-const save = Effect.fn("Comment.save")(function* (sessionId: string, filePath: string, comment: FileComment) {
+const save = Effect.fn("Comment.save")(function* (sessionId: string, commentFilePath: string, comment: FileComment) {
   const instance = yield* InstanceState.context
-  const commentsPath = getCommentsFilePath(sessionId, filePath, instance)
+  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
   
-  const comments = yield* load(sessionId, filePath)
+  const comments = yield* load(sessionId, commentFilePath)
   const mutableComments = [...comments]
   
   const now = Date.now()
@@ -116,29 +124,26 @@ const save = Effect.fn("Comment.save")(function* (sessionId: string, filePath: s
   
   if (index >= 0) {
     mutableComments[index] = { ...comment, updatedAt: now }
-    log.debug("Updated existing comment", { id: comment.id })
   } else {
     mutableComments.push({ ...comment, createdAt: now, updatedAt: now })
-    log.debug("Added new comment", { id: comment.id })
   }
 
   const commentsDir = path.dirname(commentsPath)
   yield* fs.makeDirectory(commentsDir, { recursive: true })
   
   yield* fs.writeFileString(commentsPath, JSON.stringify(mutableComments, null, 2))
-  log.debug("Saved comments file", { path: commentsPath, count: mutableComments.length })
 })
 
-const deleteComment = Effect.fn("Comment.delete")(function* (sessionId: string, filePath: string, commentId: string) {
+const deleteComment = Effect.fn("Comment.delete")(function* (sessionId: string, commentFilePath: string, commentId: string) {
   const instance = yield* InstanceState.context
-  const commentsPath = getCommentsFilePath(sessionId, filePath, instance)
+  const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
   
-  const comments = yield* load(sessionId, filePath)
+  const comments = yield* load(sessionId, commentFilePath)
   const filtered = comments.filter(c => c.id !== commentId)
   
   yield* fs.writeFileString(commentsPath, JSON.stringify(filtered, null, 2))
   
-  const attachmentDir = getAttachmentDir(sessionId, filePath, commentId, instance)
+  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance)
   const attachExists = yield* fs.exists(attachmentDir)
   if (attachExists) {
     yield* fs.remove(attachmentDir, { recursive: true })
@@ -150,12 +155,12 @@ const deleteComment = Effect.fn("Comment.delete")(function* (sessionId: string, 
 
 const uploadAttachment = Effect.fn("Comment.uploadAttachment")(function* (
   sessionId: string,
-  filePath: string,
+  commentFilePath: string,
   commentId: string,
   file: { sourceFilePath: string; filename: string; mime: string; size: number }
 ) {
   const instance = yield* InstanceState.context
-  const attachmentDir = getAttachmentDir(sessionId, filePath, commentId, instance)
+  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance)
   yield* fs.makeDirectory(attachmentDir, { recursive: true })
   
   const attachmentId = crypto.randomUUID()
@@ -176,7 +181,7 @@ const uploadAttachment = Effect.fn("Comment.uploadAttachment")(function* (
     uploadedAt: Date.now()
   }
   
-  const comments = yield* load(sessionId, filePath)
+  const comments = yield* load(sessionId, commentFilePath)
   const mutableComments = [...comments]
   const commentIndex = mutableComments.findIndex(c => c.id === commentId)
   
@@ -186,7 +191,7 @@ const uploadAttachment = Effect.fn("Comment.uploadAttachment")(function* (
     mutableAttachments.push(attachment)
     mutableComments[commentIndex] = { ...comment, attachments: mutableAttachments }
     
-    const commentsPath = getCommentsFilePath(sessionId, filePath, instance)
+    const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
     yield* fs.writeFileString(commentsPath, JSON.stringify(mutableComments, null, 2))
   }
   
@@ -203,12 +208,12 @@ const uploadAttachment = Effect.fn("Comment.uploadAttachment")(function* (
 
 const deleteAttachment = Effect.fn("Comment.deleteAttachment")(function* (
   sessionId: string,
-  filePath: string,
+  commentFilePath: string,
   commentId: string,
   attachmentId: string
 ) {
   const instance = yield* InstanceState.context
-  const attachmentDir = getAttachmentDir(sessionId, filePath, commentId, instance)
+  const attachmentDir = getAttachmentDir(sessionId, commentFilePath, commentId, instance)
   
   const files = yield* fs.readDirectory(attachmentDir)
   const attachmentFile = files.find((f: string) => f.startsWith(attachmentId))
@@ -219,7 +224,7 @@ const deleteAttachment = Effect.fn("Comment.deleteAttachment")(function* (
     log.debug("Deleted attachment file", { path: attachmentPath })
   }
   
-  const comments = yield* load(sessionId, filePath)
+  const comments = yield* load(sessionId, commentFilePath)
   const mutableComments = [...comments]
   const commentIndex = mutableComments.findIndex(c => c.id === commentId)
   
@@ -228,7 +233,7 @@ const deleteAttachment = Effect.fn("Comment.deleteAttachment")(function* (
     const filteredAttachments = (comment.attachments || []).filter((a: CommentAttachment) => a.id !== attachmentId)
     mutableComments[commentIndex] = { ...comment, attachments: filteredAttachments }
     
-    const commentsPath = getCommentsFilePath(sessionId, filePath, instance)
+    const commentsPath = getCommentsFilePath(sessionId, commentFilePath, instance)
     yield* fs.writeFileString(commentsPath, JSON.stringify(mutableComments, null, 2))
   }
   

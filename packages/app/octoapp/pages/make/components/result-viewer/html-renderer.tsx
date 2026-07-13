@@ -2,7 +2,7 @@ import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } 
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
-import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop } from "../../utils/artifact-file-api"
+import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
 import { PreviewOverlay } from "../preview-overlay"
@@ -113,6 +113,7 @@ export function HtmlRenderer(props: {
   onContentChange?: (content: string) => void
   refreshKey?: number
   filePath?: string
+  commentFilePath?: string
   sessionId?: string
   sdkUrl?: string
   sdkDirectory?: string
@@ -268,8 +269,8 @@ createEffect(() => {
     if (!props.sdkUrl || !props.sdkDirectory || !props.sessionId) return
     
     try {
-      const artifactFilename = getArtifactFilename(props.filePath)
-      const res = await fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&filePath=${encodeURIComponent(artifactFilename)}`, {
+      const commentFilePath = props.commentFilePath || extractCommentFilePath(props.filePath, props.sessionId || '')
+      const res = await fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(commentFilePath)}`, {
         headers: { ...directoryHeader(props.sdkDirectory) }
       })
       if (!res.ok) {
@@ -288,8 +289,6 @@ createEffect(() => {
         { type: "od:comment-saved-pins", comments },
         "*"
       )
-      
-      console.log('[Comment] Loaded', comments.length, 'comments for', props.filePath)
     } catch (err) {
       console.error('[Comment] Load failed:', err)
     }
@@ -1185,19 +1184,19 @@ onSave={(note, attachments, pendingFiles) => {
                      const target = commentTarget()
                     
 const comment: FileComment = {
-                       id: existing?.id || `comment-${Date.now()}`,
-                       filePath: getArtifactFilename(props.filePath),
-                       elementId: existing?.elementId || target?.elementId || '',
-                       selector: existing?.selector || target?.selector || '',
-                       label: existing?.label || target?.label || '',
-                       text: existing?.text || target?.text || '',
-                       position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
-                       htmlHint: existing?.htmlHint || target?.htmlHint || '',
-                       note,
-                       attachments,
-                       createdAt: existing?.createdAt || Date.now(),
-                       updatedAt: Date.now(),
-                     }
+                        id: existing?.id || `comment-${Date.now()}`,
+                        filePath: props.filePath || '',
+                        elementId: existing?.elementId || target?.elementId || '',
+                        selector: existing?.selector || target?.selector || '',
+                        label: existing?.label || target?.label || '',
+                        text: existing?.text || target?.text || '',
+                        position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
+                        htmlHint: existing?.htmlHint || target?.htmlHint || '',
+                        note,
+                        attachments,
+                        createdAt: existing?.createdAt || Date.now(),
+                        updatedAt: Date.now(),
+                      }
                     
                     // Save to backend API
                     if (!props.sdkUrl || !props.sdkDirectory) {
@@ -1211,12 +1210,12 @@ fetch(`${props.sdkUrl}/comment/file`, {
                           'Content-Type': 'application/json',
                           ...directoryHeader(props.sdkDirectory)
                         },
-                        body: JSON.stringify({
-                          sessionId: props.sessionId,
-                          filePath: getArtifactFilename(comment.filePath),
-                          comment: {
-                            id: comment.id,
-                            filePath: getArtifactFilename(comment.filePath),
+body: JSON.stringify({
+                            sessionId: props.sessionId,
+                            commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                            comment: {
+                             id: comment.id,
+                             filePath: comment.filePath,
                             elementId: comment.elementId,
                             selector: comment.selector,
                             label: comment.label,
@@ -1256,7 +1255,7 @@ fetch(`${props.sdkUrl}/comment/file`, {
                                 },
                                 body: JSON.stringify({
                                   sessionId: props.sessionId!,
-                                  filePath: getArtifactFilename(comment.filePath),
+                                  commentFilePath: extractCommentFilePath(comment.filePath, props.sessionId || ''),
                                   commentId: comment.id,
                                   sourceFilePath,
                                   filename: file.name,
@@ -1288,12 +1287,12 @@ await fetch(`${props.sdkUrl}/comment/file`, {
                                  'Content-Type': 'application/json',
                                  ...directoryHeader(props.sdkDirectory!)
                                },
-                               body: JSON.stringify({
-                                 sessionId: props.sessionId,
-                                 filePath: getArtifactFilename(comment.filePath),
-                                 comment: {
+body: JSON.stringify({
+                                  sessionId: props.sessionId,
+                                  commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                                  comment: {
                                    ...comment,
-                                   filePath: getArtifactFilename(comment.filePath),
+                                   filePath: comment.filePath,
                                    attachments: allAttachments,
                                    updatedAt: Date.now(),
                                  }
@@ -1319,8 +1318,8 @@ await fetch(`${props.sdkUrl}/comment/file`, {
                         showToast({ title: "评论已保存" })
                       }
                       
-                      // Reload comments to get server-generated ID
-                       fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&filePath=${encodeURIComponent(comment.filePath)}`, {
+// Reload comments to get server-generated ID
+                        fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''))}`, {
                          headers: { ...directoryHeader(props.sdkDirectory!) }
                        })
                         .then(res => res.json())
@@ -1411,14 +1410,14 @@ onUploadAttachment={(file) => {
                          ...directoryHeader(props.sdkDirectory!)
                        },
 body: JSON.stringify({
-                          sessionId: props.sessionId!,
-                          filePath: getArtifactFilename(props.filePath),
-                          commentId: existingComment.id,
-                         sourceFilePath,
-                         filename: file.name,
-                         mime: file.type,
-                         size: file.size,
-                       })
+                           sessionId: props.sessionId!,
+                           commentFilePath: props.commentFilePath || extractCommentFilePath(props.filePath, props.sessionId || ''),
+                           commentId: existingComment.id,
+                          sourceFilePath,
+                          filename: file.name,
+                          mime: file.type,
+                          size: file.size,
+                        })
                      })
                      .then(res => {
                        if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
@@ -1427,31 +1426,31 @@ body: JSON.stringify({
 .then(data => {
                         if (!data.ok || !data.attachment) throw new Error('Upload failed')
                         
-                        const updatedComment = {
-                          ...existingComment,
-                          attachments: [...(existingComment.attachments || []), data.attachment],
-                          updatedAt: Date.now(),
-                        }
-                        
-                        setEditingComment(updatedComment)
-                        
-                        fetch(`${props.sdkUrl}/comment/file`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', ...directoryHeader(props.sdkDirectory!) },
-                          body: JSON.stringify({
-                            sessionId: props.sessionId,
-                            filePath: getArtifactFilename(updatedComment.filePath),
-                            comment: { ...updatedComment, filePath: getArtifactFilename(updatedComment.filePath) }
-                          })
-                        })
-                        .then(res => {
-                          if (!res.ok) throw new Error(`Auto-save failed: ${res.status}`)
-                          return res.json()
-                        })
-                        .then(saveData => {
-                          if (!saveData.ok) throw new Error('Auto-save failed')
-                          
-                          fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&filePath=${encodeURIComponent(getArtifactFilename(updatedComment.filePath))}`, {
+const updatedComment = {
+                           ...existingComment,
+                           attachments: [...(existingComment.attachments || []), data.attachment],
+                           updatedAt: Date.now(),
+                         }
+                         
+                         setEditingComment(updatedComment)
+                         
+                         fetch(`${props.sdkUrl}/comment/file`, {
+                           method: 'POST',
+                           headers: { 'Content-Type': 'application/json', ...directoryHeader(props.sdkDirectory!) },
+                           body: JSON.stringify({
+                             sessionId: props.sessionId,
+                             commentFilePath: props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''),
+                             comment: updatedComment
+                           })
+                         })
+                         .then(res => {
+                           if (!res.ok) throw new Error(`Auto-save failed: ${res.status}`)
+                           return res.json()
+                         })
+                         .then(saveData => {
+                           if (!saveData.ok) throw new Error('Auto-save failed')
+                           
+                           fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''))}`, {
                             headers: { ...directoryHeader(props.sdkDirectory!) }
                           })
                           .then(res => res.json())
@@ -1495,10 +1494,9 @@ console.log('[Comment] Delete attachment request:', {
                       if (!existingComment) {
                         showToast({ title: "删除失败", description: "评论不存在" })
                         return
-                      }
+}
                       
-                      const artifactFilename = getArtifactFilename(props.filePath)
-                      fetch(`${props.sdkUrl}/comment/file/attachment/${attachmentId}?sessionId=${props.sessionId}&filePath=${encodeURIComponent(artifactFilename)}&commentId=${existingComment.id}`, {
+                       fetch(`${props.sdkUrl}/comment/file/attachment/${attachmentId}?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(extractCommentFilePath(props.filePath || '', props.sessionId || ''))}&commentId=${existingComment.id}`, {
                         method: 'DELETE',
                         headers: { ...directoryHeader(props.sdkDirectory!) }
                       })
@@ -1523,22 +1521,22 @@ console.log('[Comment] Delete attachment request:', {
                         
                         setEditingComment(updatedComment)
                         
-                        // Auto-save comment after attachment deletion
-                        fetch(`${props.sdkUrl}/comment/file`, {
-                          method: 'POST',
-                          headers: { 
-                            'Content-Type': 'application/json',
-                            ...directoryHeader(props.sdkDirectory!)
-                          },
-                          body: JSON.stringify({
-                            sessionId: props.sessionId,
-                            filePath: getArtifactFilename(updatedComment.filePath),
-                            comment: {
-                              ...updatedComment,
-                              filePath: getArtifactFilename(updatedComment.filePath),
-                            }
-                          })
-                        })
+// Auto-save comment after attachment deletion
+                         fetch(`${props.sdkUrl}/comment/file`, {
+                           method: 'POST',
+                           headers: { 
+                             'Content-Type': 'application/json',
+                             ...directoryHeader(props.sdkDirectory!)
+                           },
+                           body: JSON.stringify({
+                             sessionId: props.sessionId,
+                             commentFilePath: props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''),
+                             comment: {
+                               ...updatedComment,
+                               filePath: getArtifactFilename(updatedComment.filePath),
+                             }
+                           })
+                         })
                         .then(res => {
                           if (!res.ok) throw new Error(`Auto-save failed: ${res.status}`)
                           return res.json()
@@ -1547,9 +1545,9 @@ console.log('[Comment] Delete attachment request:', {
                            if (!saveData.ok) throw new Error('Auto-save failed')
                            console.log('[Comment] Auto-save after delete success')
                            
-                           fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&filePath=${encodeURIComponent(getArtifactFilename(updatedComment.filePath))}`, {
-                             headers: { ...directoryHeader(props.sdkDirectory!) }
-                           })
+fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''))}`, {
+                              headers: { ...directoryHeader(props.sdkDirectory!) }
+                            })
                            .then(res => res.json())
                            .then(serverData => {
                              const serverComments: FileComment[] = serverData.comments || []

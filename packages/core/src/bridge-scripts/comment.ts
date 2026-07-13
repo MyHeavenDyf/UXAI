@@ -24,6 +24,8 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   let commentEnabled = false
   let hoveredElementId = null
   let savedPins = []
+  let lastUpdateTime = 0
+  let animationFrameId = null
 
   window.addEventListener('message', function(ev) {
     var data = ev && ev.data
@@ -35,12 +37,17 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       if (commentEnabled) {
         document.body.style.cursor = 'pointer'
         window.parent.postMessage({ type: 'od:comment-request-pins' }, '*')
+        updatePinPositionsLoop()
       } else {
         document.body.style.cursor = ''
         hoveredElementId = null
         var activeElements = document.querySelectorAll('[data-od-comment-active]')
         for (var i = 0; i < activeElements.length; i++) {
           activeElements[i].removeAttribute('data-od-comment-active')
+        }
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId)
+          animationFrameId = null
         }
       }
       return
@@ -191,62 +198,108 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   }
 
   function renderSavedPins(comments) {
-    document.querySelectorAll('[data-od-comment-pin]').forEach(function(p) { p.remove() })
-    
+    // 1. 更新现有 pin 的位置或创建新的
     comments.forEach(function(comment) {
-      var pin = document.createElement('div')
-      pin.setAttribute('data-od-comment-pin', comment.id)
+      var existingPin = document.querySelector('[data-od-comment-pin="' + comment.id + '"]')
       
-      var leftPercent = (comment.position.x + comment.position.w) * 100
-      var topPercent = (comment.position.y) * 100
+      var leftPercent, topPercent
       
-      pin.style.cssText = 'position:absolute;left:calc(' + leftPercent + '% - 20px);top:calc(' + topPercent + '% - 20px);width:20px;height:20px;background:#1677ff;border-radius:50%;align-items:center;justify-content:center;color:white;font-size:10px;cursor:pointer;z-index:999;box-shadow:0 2px 4px rgba(0,0,0,0.2);'
-      pin.innerHTML = '💬'
+      var targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
       
-      pin.addEventListener('pointerenter', function(e) {
-        e.stopPropagation()
-        var rect = pin.getBoundingClientRect()
-        window.parent.postMessage({
-          type: 'od:comment-pin-hover',
-          commentId: comment.id,
-          position: {
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height
+      if (targetElement) {
+        var rect = targetElement.getBoundingClientRect()
+        var viewport = document.documentElement.getBoundingClientRect()
+        
+        leftPercent = ((rect.left - viewport.left + rect.width) / viewport.width) * 100
+        topPercent = ((rect.top - viewport.top) / viewport.height) * 100
+      } else {
+        leftPercent = (comment.position.x + comment.position.w) * 100
+        topPercent = (comment.position.y) * 100
+      }
+      
+      if (existingPin) {
+        // pin 已存在，只更新位置
+        existingPin.style.left = 'calc(' + leftPercent + '% - 20px)'
+        existingPin.style.top = 'calc(' + topPercent + '% - 20px)'
+      } else {
+        // 创建新的 pin
+        var pin = document.createElement('div')
+        pin.setAttribute('data-od-comment-pin', comment.id)
+        
+        pin.style.cssText = 'position:absolute;left:calc(' + leftPercent + '% - 20px);top:calc(' + topPercent + '% - 20px);width:20px;height:20px;background:#1677ff;border-radius:50%;align-items:center;justify-content:center;color:white;font-size:10px;cursor:pointer;z-index:999;box-shadow:0 2px 4px rgba(0,0,0,0.2);'
+        pin.innerHTML = '💬'
+        
+        pin.addEventListener('pointerenter', function(e) {
+          e.stopPropagation()
+          var rect = pin.getBoundingClientRect()
+          window.parent.postMessage({
+            type: 'od:comment-pin-hover',
+            commentId: comment.id,
+            position: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height
+            }
+          }, '*')
+        })
+        
+        pin.addEventListener('pointerleave', function(e) {
+          e.stopPropagation()
+          window.parent.postMessage({
+            type: 'od:comment-pin-leave'
+          }, '*')
+        })
+        
+        pin.addEventListener('click', function(e) {
+          e.stopPropagation()
+          
+          var prevActive = document.querySelector('[data-od-comment-active]')
+          if (prevActive) {
+            prevActive.removeAttribute('data-od-comment-active')
           }
-        }, '*')
-      })
-      
-      pin.addEventListener('pointerleave', function(e) {
-        e.stopPropagation()
-        window.parent.postMessage({
-          type: 'od:comment-pin-leave'
-        }, '*')
-      })
-      
-      pin.addEventListener('click', function(e) {
-        e.stopPropagation()
+          
+          var targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
+          if (targetElement) {
+            targetElement.setAttribute('data-od-comment-active', 'true')
+          }
+          
+          window.parent.postMessage({
+            type: 'od:comment-pin-click',
+            commentId: comment.id
+          }, '*')
+        })
         
-        var prevActive = document.querySelector('[data-od-comment-active]')
-        if (prevActive) {
-          prevActive.removeAttribute('data-od-comment-active')
-        }
-        
-        var targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
-        if (targetElement) {
-          targetElement.setAttribute('data-od-comment-active', 'true')
-        }
-        
-        window.parent.postMessage({
-          type: 'od:comment-pin-click',
-          commentId: comment.id
-        }, '*')
-      })
-      
-      document.body.appendChild(pin)
+        document.body.appendChild(pin)
+      }
+    })
+    
+    // 2. 移除不再存在的评论的 pin
+    var currentIds = comments.map(function(c) { return c.id })
+    document.querySelectorAll('[data-od-comment-pin]').forEach(function(p) {
+      var pinId = p.getAttribute('data-od-comment-pin')
+      if (currentIds.indexOf(pinId) === -1) {
+        p.remove()
+      }
     })
   }
+  
+  function updatePinPositionsLoop() {
+    const now = Date.now()
+    if (now - lastUpdateTime >= 60) {
+      lastUpdateTime = now
+      if (commentEnabled && savedPins.length > 0) {
+        renderSavedPins(savedPins)
+      }
+    }
+    animationFrameId = requestAnimationFrame(updatePinPositionsLoop)
+  }
+  
+  window.addEventListener('resize', function() {
+    if (commentEnabled) {
+      renderSavedPins(savedPins)
+    }
+  })
   
   // Request saved comments from parent on load
   setTimeout(function() {
