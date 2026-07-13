@@ -1,0 +1,21 @@
+
+.el-slider {
+  --el-slider-border-radius: 4px;
+  --el-slider-height: 4px;
+  --el-slider-button-size: 16px;
+  --el-slider-button-wrapper-size: 24px;
+  --el-slider-button-wrapper-offset: -10px;
+}
+
+.theme-dark {
+  .el-slider {
+    --el-slider-main-bg-color: var(--primary-500);
+    --el-slider-runway-bg-color: rgb(from var(--neutral-50) r g b / 0.15);
+    .el-slider__button {
+      border-color: var(--primary-300);
+    }
+    .el-slider__marks-text {
+      color: var(--text-default);
+    }
+  }
+}
