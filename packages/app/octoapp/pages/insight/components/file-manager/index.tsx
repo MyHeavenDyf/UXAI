@@ -646,13 +646,13 @@ function FileRow(props: {
   const [imageError, setImageError] = createSignal(false)
 
   // 双击:文件夹 → 进入下一层;文件 → 在标签页中打开(对齐菜单"在标签页中打开"操作项)。
+  // 埋点统一收口在 handleOpenFile,这里不再重复上报 files-open-in-tab。
   const handleDblClick = () => {
     if (props.file.isFolder) {
       props.onNavigateFolder?.(props.file)
       tracker.interaction({ module: "insight", name: "files-navigate-folder" })
     } else {
       props.onOpen(props.file)
-      tracker.interaction({ module: "insight", name: "files-open-in-tab" })
     }
   }
 
