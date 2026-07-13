@@ -91,7 +91,7 @@ async function tableToXlsx(md: string, filename: string) {
 
 type DownloadOption = { label: string; format: string; onClick: () => void }
 
-// 思维导图 → Octo 内网白板导入 JSON:转换后另存为 <base>-Octo白板.json,与「原始格式」的 <base>.json 不撞名。
+// 思维导图 → Octo 内网白板导入 JSON:转换后另存为 <base>_octo.json,与「原始格式」的 <base>.json 不撞名。
 // 内容违约(非导图 shape)理论上到不了这里(仅 mindmap 卡 / 嗅探为导图的 json 卡给此项),兜底给专业文案。
 function downloadOctoWhiteboard(content: string, base: string) {
   const octo = uxrJsonToOctoWhiteboard(stripCodeFence(content), base)
@@ -99,7 +99,7 @@ function downloadOctoWhiteboard(content: string, base: string) {
     showToast({ title: "转换失败", description: "当前内容不是有效的思维导图结构,无法转换为 Octo 白板格式", variant: "error" })
     return
   }
-  downloadBlob(JSON.stringify(octo, null, 2), `${base}-Octo白板.json`, "application/json;charset=utf-8")
+  downloadBlob(JSON.stringify(octo, null, 2), `${base}_octo.json`, "application/json;charset=utf-8")
 }
 
 function octoWhiteboardOption(base: string, content: string): DownloadOption {
