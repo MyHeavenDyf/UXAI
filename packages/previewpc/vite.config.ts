@@ -2,6 +2,8 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import testFilesPlugin from './vite-plugin-test-files'
+import fileProtocolPlugin from './vite-plugin-single-file'
+import previewDataPlugin from './vite-plugin-preview-data'
 import { createReadStream, mkdirSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
@@ -48,11 +50,14 @@ function uploadsPlugin() {
 export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, __dirname + '/..', '')
   return {
+    base: './',
     plugins: [
       tailwindcss(),
       vue(),
       testFilesPlugin(),
       uploadsPlugin(),
+      fileProtocolPlugin(),
+      previewDataPlugin(fileURLToPath(new URL('./src/jsonStorage/data.json', import.meta.url))),
     ],
     resolve: {
       alias: {
@@ -67,6 +72,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: '../previewdist',
+      emptyOutDir: true,
       chunkSizeWarningLimit: 5000,
       rollupOptions: {
         onLog(level, log, handler) {
