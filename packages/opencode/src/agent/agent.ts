@@ -28,6 +28,10 @@ import {
   PROMPT_PROTO_PLANNER_CREATE,
   PROMPT_PROTO_PLANNER_MODIFY,
   PROMPT_PROTO_TRIAGE,
+  PROMPT_PROTO_PATTERN_PAGE,
+  PROMPT_PROTO_PATTERN_BLOCK,
+  PROMPT_PROTO_INTENT_CONFIRM,
+  PROMPT_PROTO_WFRAMES,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -241,7 +245,26 @@ export const layer = Layer.effect(
             description:
               "用研 Agent，从访谈材料中提取结构化洞察。支持多维度分析（关键发现/按提纲聚类/用户画像/评估/思维导图/知识问答）。",
             prompt: PROMPT_OCTO_INSIGHT,
-            permission: Permission.merge(defaults, user),
+            // SPEC-INS-021 §1 工具白名单:deny 即"从模型工具列表隐藏 + 阻断执行"。
+            // 常驻可见集收敛为 extract_document/read/grep/glob/write/task/skill/webfetch/websearch
+            // (+ MCP 查询/终止)。
+            //   - bash/task 是弱模型在 MCP 断连时模拟调用的逃生口(2026-07-07 内网事故),bash 常驻关死;
+            //     task 保留给多文档分治,chip turn 由 buildToolGate 再临时关 task/bash/webfetch
+            //     (双保险,互不替代)。
+            //   - edit/apply_patch 的摘除**不在这里**:Permission.disabled 把 edit/write/apply_patch
+            //     都映射到 "edit" 权限键(EDIT_TOOLS),在权限层 deny edit 会连带隐藏要保留的 write,
+            //     故改在 registry.ts tools() 按 agent 裁剪(与 extract_document 只给 insight 同款模式)。
+            // merge 顺序 defaults → 本 deny → user:用户配置仍可覆盖。
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                bash: "deny",
+                todowrite: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+              }),
+              user,
+            ),
             options: {},
             mode: "primary",
             native: false,
@@ -436,6 +459,46 @@ export const layer = Layer.effect(
             description: "Proto triage agent.",
             prompt: PROMPT_PROTO_TRIAGE,
             permission: Permission.fromConfig({ "*": "deny" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_pattern_page: {
+            name: "proto_pattern_page",
+            description: "Proto page pattern agent.",
+            prompt: PROMPT_PROTO_PATTERN_PAGE,
+            permission: Permission.fromConfig({ "*": "deny"}),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_pattern_block: {
+            name: "proto_pattern_block",
+            description: "Proto block pattern agent.",
+            prompt: PROMPT_PROTO_PATTERN_BLOCK,
+            permission: Permission.fromConfig({ "*": "deny"}),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_intent_confirm: {
+            name: "proto_intent_confirm",
+            description: "Proto intent confirm agent.",
+            prompt: PROMPT_PROTO_INTENT_CONFIRM,
+            permission: Permission.fromConfig({ "*": "deny"}),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_wireframes: {
+            name: "proto_wireframes",
+            description: "Proto wireframes agent.",
+            prompt: PROMPT_PROTO_WFRAMES,
+            permission: Permission.fromConfig({ "*": "deny"}),
             options: {},
             mode: "primary",
             native: false,

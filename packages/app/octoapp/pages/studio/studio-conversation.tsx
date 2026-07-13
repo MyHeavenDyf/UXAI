@@ -7,14 +7,21 @@ import { StudioResultCard } from "./studio-result-card"
 import { isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
 import { STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
+import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
+  sdkUrl: string
+  directory: string
   busy: boolean
+  actionBusy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
+  rebootingGenerationIDs: ReadonlySet<string>
   onCancelGeneration: (generationID: string) => void
+  onEditGeneration: (result: StudioGenerationResult) => void
+  onRebootGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
 }): JSX.Element {
@@ -23,6 +30,21 @@ export function StudioConversation(props: {
       <For each={props.turns}>
         {(turn, index) => (
           <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
+            <Show when={turn.inputImages?.length}>
+              <div class="studio-user-input-images">
+                <For each={turn.inputImages}>
+                  {(image) => (
+                    <Show when={studioInputImageSrc({
+                      url: image.url,
+                      sdkUrl: props.sdkUrl,
+                      directory: props.directory,
+                    })}>
+                      {(src) => <img class="studio-user-input-image" src={src()} alt="" />}
+                    </Show>
+                  )}
+                </For>
+              </div>
+            </Show>
             <div class="studio-user-bubble">
               {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
             </div>
@@ -47,8 +69,12 @@ export function StudioConversation(props: {
                 turn={turn}
                 fallbackCapability={props.result?.capability}
                 busy={props.busy && turn.isLatest}
+                actionBusy={props.actionBusy}
                 cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
+                rebooting={Boolean(turn.result && props.rebootingGenerationIDs.has(turn.result.id))}
                 onCancelGeneration={props.onCancelGeneration}
+                onEditGeneration={props.onEditGeneration}
+                onRebootGeneration={props.onRebootGeneration}
                 onSelectImage={props.onSelectImage}
               />
             </Show>
@@ -57,6 +83,13 @@ export function StudioConversation(props: {
       </For>
     </div>
   )
+}
+
+function studioInputImageSrc(input: { url: string; sdkUrl: string; directory: string }) {
+  if (/^https?:\/\//i.test(input.url) || /^data:image\//i.test(input.url)) return input.url
+  const artifact = getArtifactRelativePath(input.url)
+  if (!artifact) return
+  return getArtifactServeUrl(input.sdkUrl, input.directory, artifact.sessionId, artifact.relativePath)
 }
 
 function sanitizeStudioAssistantText(text?: string) {
@@ -74,6 +107,7 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}
+        poster={props.image.thumbnailUrl}
         class={props.class}
         controls={props.controls}
         muted={!props.controls}
@@ -269,6 +303,7 @@ export function StudioResultCanvas(props: {
                   >
                     <StudioVideoPlayer
                       src={image().remoteUrl ?? image().url}
+                      poster={image().thumbnailUrl}
                       class={`studio-canvas-image ${getImageOrientation(image())}`}
                       mount={props.videoPlayerMount}
                     />
@@ -495,7 +530,7 @@ export function StudioDetails(props: {
         <div class="studio-detail-section-title">生成信息</div>
         <InfoRow label="模型" value={modelLabel()} />
         <Show when={!isEditResult()}>
-          <InfoRow label="比例" value={props.result.aspectRatio} />
+          <InfoRow label="比例" value={props.result.isCustom ? "自定义" : props.result.aspectRatio} />
         </Show>
         <Show when={isVideoResult()}>
           <InfoRow label="类型" value={props.result.videoMode === "first_last_frame" ? "首尾帧生成" : "文生视频"} />

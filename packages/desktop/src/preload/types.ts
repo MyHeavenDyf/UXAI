@@ -19,6 +19,14 @@ export type TitlebarTheme = {
 export type WindowConfig = {
   updaterEnabled: boolean
 }
+
+export type DownloadSavePathInfo = {
+  url: string
+  filename: string
+  path: string | null
+  state: "completed" | "cancelled" | "interrupted"
+}
+
 // jk-j60099994-replace-with-60062650-preload-types-1-start
 export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
@@ -55,6 +63,8 @@ export type ElectronAPI = {
   onSqliteMigrationProgress: (cb: (progress: SqliteMigrationProgress) => void) => () => void
   onMenuCommand: (cb: (id: string) => void) => () => void
   onDeepLink: (cb: (urls: string[]) => void) => () => void
+  /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
+  onDownloadSavePath: (cb: (info: DownloadSavePathInfo) => void) => () => void
 
   openDirectoryPicker: (opts?: {
     multiple?: boolean
@@ -73,9 +83,17 @@ export type ElectronAPI = {
   openPath: (path: string, app?: string) => Promise<void>
   showItemInFolder: (path: string) => void
   downloadResource: (url: string, destPath: string) => Promise<void>
-  downloadResourceToTemp: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
-  /** SPEC-INS-014:拷贝源文件进 <baseDir>/insight/sources/(撞名加后缀);返回落地路径 */
+  downloadResourceToTemp: (
+    url: string,
+    namespace: string,
+    filename: string,
+    baseDir?: string,
+    sessionId?: string,
+  ) => Promise<string>
+  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/insight/uploads/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/ */
+  movePendingUploadToSession: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** Electron 32+ 取拖拽/选取 File 的真实本地路径(File.path 已移除,改用 webUtils.getPathForFile) */
   getPathForFile: (file: File) => string
   readClipboardImage: () => Promise<{ buffer: ArrayBuffer; width: number; height: number } | null>
@@ -105,14 +123,33 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-60062650-preload-types-2-end
   htmlToPdf: (html: string) => Promise<ArrayBuffer>
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
-  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 insight/outputs、旧 .octo/downloads 或临时目录下) */
+  /** save image to uploads dir, returns URL path like /history/sessionId/uploads/hash.ext */
+  saveUploadImage: (buffer: ArrayBuffer, sessionId: string) => Promise<string>
+  getUploadsDir: () => Promise<string | null>
+  setUploadsDir: (dir: string) => Promise<void>
+  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 insight/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
+  getPatternIndex: (category: string, theme?: string) => Promise<Record<string, unknown> | null>
+  getPatternFile: (category: string, filename: string, theme?: string) => Promise<string | null>
+  getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
+  getPatternAssets: (category: string, folderName: string, theme?: string) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
+  getDesignSystems: () => Promise<string[]>
+  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
+  runPixsoBuild: (input: string) => Promise<string>
+  exportZip: (opts: {
+    defaultName: string
+    files?: { path: string; content: string }[]
+    sourceDir?: string
+    comment?: string
+  }) => Promise<string | null>
+  importZip: () => Promise<{ name: string; content: string }[] | null>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 }

@@ -1,0 +1,273 @@
+import { For, Show, createMemo, createSignal, createEffect, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
+import { WireframeTree, type SlotInfo, type SectionSimple } from "./wireframe-tree"
+import type { PatternMatchItem } from "../../utils/pattern-resource"
+import "../../assets/style/preview/wireframe.css"
+
+type SectionDetail = {
+  id: string
+  name: string
+  intent: string
+  function: string
+  elements: string
+  layout: string
+  data?: Record<string, unknown>
+  patternJson?: any
+}
+
+export type WireframeReviewResult = {
+  updatedSectionDetails: SectionDetail[]
+  intentDescription: Record<string, unknown>
+}
+
+export function WireframeReview(props: {
+  planner: Record<string, unknown>
+  intentDescription: Record<string, unknown>
+  userInput: string
+  onConfirm: (result: WireframeReviewResult) => void
+  onMatchPattern?: (sectionId: string, detail: SectionDetail) => Promise<PatternMatchItem[]>
+  onApplyPattern?: (sectionId: string, match: PatternMatchItem) => Promise<any>
+}): JSX.Element {
+  const slots = createMemo(() => (props.planner.slots ?? []) as SlotInfo[])
+  const sections = createMemo(() => (props.intentDescription.sections ?? []) as SectionSimple[])
+  const sectionDetails = createMemo(() => (props.intentDescription.sectionDetailList ?? []) as SectionDetail[])
+
+  const [selectedSectionId, setSelectedSectionId] = createSignal<string>("")
+  const [showDrawer, setShowDrawer] = createSignal(false)
+
+  const [editing, setEditing] = createStore<{ details: SectionDetail[] }>({
+    details: JSON.parse(JSON.stringify(sectionDetails())),
+  })
+
+  const [blockMatches, setBlockMatches] = createSignal<Record<string, PatternMatchItem[]>>({})
+  const [isMatching, setIsMatching] = createSignal(false)
+  const [appliedPatterns, setAppliedPatterns] = createSignal<Record<string, string>>({})
+  const [previewModalUrl, setPreviewModalUrl] = createSignal<string | null>(null)
+
+  const moduleCardRefs = new Map<string, HTMLDivElement>()
+
+  createEffect(() => {
+    const id = selectedSectionId()
+    if (id) {
+      setShowDrawer(true)
+      const el = moduleCardRefs.get(id)
+      if (el) {
+        const list = el.closest(".wireframe-modules-list")
+        if (list) {
+          const card = el as HTMLElement
+          list.scrollTo({ top: card.offsetTop - (list as HTMLElement).offsetTop - 12, behavior: "smooth" })
+        }
+      }
+    } else {
+      setShowDrawer(false)
+    }
+  })
+
+  function closeDrawer() {
+    setShowDrawer(false)
+    setSelectedSectionId("")
+  }
+
+  function handleSelectSection(sectionId: string) {
+    setSelectedSectionId(sectionId)
+  }
+
+  function sectionName(sectionId: string): string {
+    return sections().find((s) => s.id === sectionId)?.name
+      ?? editing.details.find((d) => d.id === sectionId)?.name
+      ?? sectionId
+  }
+
+  function handleField(sectionId: string, field: "intent" | "function" | "elements" | "layout", value: string) {
+    const idx = editing.details.findIndex((d) => d.id === sectionId)
+    if (idx === -1) return
+    setEditing("details", idx, field, value)
+  }
+
+  async function handleBlockMatch() {
+    const sid = selectedSectionId()
+    const detail = editing.details.find(d => d.id === sid)
+    if (!sid || !detail || !props.onMatchPattern) return
+    setIsMatching(true)
+    const matches = await props.onMatchPattern(sid, detail)
+    setBlockMatches(prev => ({ ...prev, [sid]: matches }))
+    setIsMatching(false)
+  }
+
+  async function handleApplyPattern(match: PatternMatchItem) {
+    const sid = selectedSectionId()
+    if (!sid || !props.onApplyPattern) return
+    const patternJson = await props.onApplyPattern(sid, match)
+    if (patternJson) {
+      const idx = editing.details.findIndex(d => d.id === sid)
+      if (idx !== -1) setEditing("details", idx, "patternJson", patternJson)
+    }
+    setAppliedPatterns(prev => ({ ...prev, [sid]: match.pattern.name }))
+  }
+
+  function handleConfirm() {
+    props.onConfirm({
+      updatedSectionDetails: editing.details,
+      intentDescription: { ...props.intentDescription, sectionDetailList: editing.details },
+    })
+    setShowDrawer(false)
+    setSelectedSectionId("")
+  }
+
+  return (
+    <div class="wireframe-review-container">
+      <div class="wireframe-header">
+        <div class="wireframe-header-left">
+          <div class="wireframe-header-content">
+            <div class="wireframe-header-icon">?</div>
+            <div class="wireframe-header-title-content">
+              <div class="wireframe-header-title">线框审查</div>
+              <div class="wireframe-header-subtitle">
+                请确认或修改每个模块的意图，确认后将据此生成最终页面
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="wireframe-header-right">
+          <button class="wireframe-header-confirm-btn"  onClick={handleConfirm}>
+            确认并继续生成
+          </button>
+        </div>
+      </div>
+
+      <div class="wireframe-body">
+        <div class="wireframe-layout-panel">
+          <div class="wireframe-canvas">
+            <WireframeTree
+              planner={props.planner}
+              intentDescription={props.intentDescription}
+              selectedSectionId={selectedSectionId()}
+              onSelectSection={handleSelectSection}
+              sectionDetails={editing.details}
+            />
+          </div>
+        </div>
+
+        <div class="wireframe-drawer" classList={{ open: showDrawer() }}>
+          <div class="wireframe-drawer-header">
+            <button class="wireframe-drawer-close" onClick={closeDrawer}>✕</button>
+          </div>
+          <div class="wireframe-modules-list">
+            <For each={slots()}>
+              {(slot) => {
+                const detail = editing.details.find(d => d.id === slot.section_id)
+                return (
+                  <div
+                    ref={el => { moduleCardRefs.set(slot.section_id, el) }}
+                    class="wireframe-module-card"
+                    classList={{ active: selectedSectionId() === slot.section_id }}
+                  >
+                    <div class="wireframe-module-card-header">
+                      <span class="wireframe-module-card-name">{sectionName(slot.section_id)}</span>
+                    </div>
+                    <Show when={selectedSectionId() === slot.section_id}>
+                      <Show when={detail} fallback={<div class="wireframe-module-empty">该模块暂无详细意图</div>}>
+                        <div class="wireframe-module-fields">
+                          <WireframeField
+                            label="意图"
+                            value={detail!.intent}
+                            onInput={(v) => handleField(slot.section_id, "intent", v)}
+                          />
+                          <WireframeField
+                            label="功能"
+                            value={detail!.function}
+                            onInput={(v) => handleField(slot.section_id, "function", v)}
+                          />
+                          <WireframeField
+                            label="元素"
+                            value={detail!.elements}
+                            onInput={(v) => handleField(slot.section_id, "elements", v)}
+                          />
+                          <WireframeField
+                            label="布局"
+                            value={detail!.layout}
+                            onInput={(v) => handleField(slot.section_id, "layout", v)}
+                          />
+                        </div>
+                      </Show>
+                    </Show>
+                  </div>
+                )
+              }}
+            </For>
+            <Show when={selectedSectionId()}>
+              <div class="wireframe-match-section">
+                <div class="wireframe-match-header">
+                  <span class="wireframe-match-title">模板匹配</span>
+                  <button
+                    class="wireframe-match-btn"
+                    disabled={isMatching()}
+                    onClick={handleBlockMatch}
+                  >
+                    {isMatching() ? "匹配中..." : "匹配"}
+                  </button>
+                </div>
+                <Show when={blockMatches()[selectedSectionId()!]} fallback={<div class="wireframe-match-placeholder">点击"匹配"查找匹配的模块模板</div>}>
+                  <Show
+                    when={blockMatches()[selectedSectionId()!]!.length > 0}
+                    fallback={<div class="wireframe-match-empty">未匹配到</div>}
+                  >
+                    <div class="wireframe-match-list">
+                      <For each={blockMatches()[selectedSectionId()!]!}>
+                        {(match) => {
+                          const isApplied = () => appliedPatterns()[selectedSectionId()!] === match.pattern.name
+                          return (
+                            <div class="wireframe-match-item">
+                              <div class="wireframe-match-item-left">
+                                <Show when={match.previewUrl}>
+                                  <img
+                                    class="wireframe-match-item-preview"
+                                    src={match.previewUrl!}
+                                    alt={match.pattern.name}
+                                    onClick={() => setPreviewModalUrl(match.previewUrl!)}
+                                  />
+                                </Show>
+                                <span class="wireframe-match-item-name">{match.pattern.name}</span>
+                              </div>
+                              <button
+                                class="wireframe-match-item-use-btn"
+                                disabled={isApplied()}
+                                onClick={() => handleApplyPattern(match)}
+                              >
+                                {isApplied() ? "已应用" : "应用"}
+                              </button>
+                            </div>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+                </Show>
+              </div>
+            </Show>
+          </div>
+        </div>
+      </div>
+
+      <Show when={previewModalUrl()}>
+        <div class="wireframe-preview-modal" onClick={() => setPreviewModalUrl(null)}>
+          <img class="wireframe-preview-modal-img" src={previewModalUrl()!} alt="preview" />
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+function WireframeField(props: { label: string; value: string; onInput: (v: string) => void }) {
+  return (
+    <div class="wireframe-field">
+      <label class="wireframe-field-label">{props.label}</label>
+      <textarea
+        class="wireframe-field-input"
+        value={props.value}
+        onInput={(e) => props.onInput(e.currentTarget.value)}
+        rows={3}
+      />
+    </div>
+  )
+}

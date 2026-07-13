@@ -75,6 +75,12 @@
   color: rgb(10, 89, 247);
 }
 
+/* hr 间距收紧：上游 markdown.css 的 40px 是 2.5rem 原值换算(opencode #20839 只统一了单位，数值未变)，
+   在对话气泡里作为分隔符偏大；收紧到 24px，与本文件标题/表格同级间距对齐。不动上游核心，这里按作用域覆盖。 */
+[data-component="session-turn"] [data-component="markdown"] hr {
+  margin: 24px 0;
+}
+
 [data-component="session-turn"] [data-slot="message-part-reasoning"],
 [data-component="session-turn"] [data-component="accordion"],
 [data-component="session-turn"] [data-slot="session-turn-diffs-header"],
@@ -171,28 +177,6 @@
   background: rgba(0,0,0,0.05);
 }
 
-/* ── 预置提示词按钮组(spec: insight-prompt-redesign §3.1.3) ────── */
-
-.octo-preset-bar {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding: 0 2px 16px 2px;      /* 输入框外:不要左右内缩 + 给输入框留 16px 间距 */
-}
-
-.octo-preset-scroll {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;            /* Firefox */
-  -ms-overflow-style: none;         /* IE / Edge legacy */
-  flex: 1;
-  scroll-behavior: smooth;
-}
-.octo-preset-scroll::-webkit-scrollbar {
-  display: none;                    /* Chromium */
-}
-
 /* 输入框 textarea:可滚动但滚动条透明 */
 .octo-input-scroll {
   scrollbar-width: thin;                       /* Firefox */
@@ -205,6 +189,9 @@
 .octo-input-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ── 预置胶囊基础样式(.octo-preset-chip):insight 的预置胶囊行已随 SPEC-INS-017 下线,
+   但 make 页 starter-cards 仍复用该 class,保留。 */
 
 .octo-preset-chip {
   flex-shrink: 0;
@@ -230,33 +217,57 @@
   cursor: not-allowed;
 }
 
-.octo-preset-scroll-left,
-.octo-preset-scroll-right {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
+/* ── 「研究工具」chip(spec: insight-mcp-explicit-entry §1)──────
+   触发钮基础样式用 tailwind 对齐模型选择器(mcp-chip.tsx);此处只放激活态与专属元素。 */
+
+.octo-mcp-chip--active,
+.octo-mcp-chip--active:hover:not(:disabled) {
+  background: var(--octo-brand-a8);
+  color: var(--octo-brand);
+}
+.octo-mcp-chip-x {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+/* 菜单经 Portal 挂 body(fixed):chip 在输入卡片(overflow-hidden)内,就地渲染会被裁剪 */
+.octo-mcp-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 160px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--octo-radius-md, 10px);
   border: 1px solid var(--octo-border-divider);
   background: var(--octo-surface-page);
-  color: var(--octo-text-secondary);
-  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+}
+.octo-mcp-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--octo-text-primary);
+  font-size: 13px;
+  font-family: var(--octo-font);
+  text-align: left;
   cursor: pointer;
 }
-.octo-preset-scroll-left {
-  margin-right: 4px;
-  box-shadow: 6px 0 8px -4px rgba(255, 255, 255, 0.9);
-}
-.octo-preset-scroll-right {
-  margin-left: 4px;
-  box-shadow: -6px 0 8px -4px rgba(255, 255, 255, 0.9);
-}
-.octo-preset-scroll-left:hover,
-.octo-preset-scroll-right:hover {
+.octo-mcp-menu-item:hover {
+  background: var(--octo-brand-a8);
   color: var(--octo-brand);
-  border-color: var(--octo-brand-a25);
+}
+.octo-mcp-menu-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 队列提示条(spec §3.3.4) ──────────────────────────────── */

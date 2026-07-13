@@ -5,7 +5,7 @@
 
 import { computeSkipRanges, FENCE_OPEN_RE, isRealArtifactOpenAt, rangeContains } from "./artifact-markdown-context"
 
-export type ArtifactEvent =
+type ArtifactEvent =
   | { type: "text"; delta: string }
   | { type: "artifact:start"; identifier: string; artifactType: string; title: string }
   | { type: "artifact:chunk"; identifier: string; delta: string }

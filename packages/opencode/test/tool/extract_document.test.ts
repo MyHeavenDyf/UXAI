@@ -88,6 +88,24 @@ describe("extract_document", () => {
     }),
   )
 
+  it.live("txt: 直读并带字数/token 首行(SPEC-INS-021 §3 统一入口)", () =>
+    Effect.gen(function* () {
+      const result = yield* run(path.join(FIXTURES, "sample.txt"))
+      expect(result.output).toContain("访谈纪要:用户反馈搜索入口太深。")
+      expect(result.output).toContain("Second line in English.")
+      expect(result.output.split("\n")[0]).toMatch(/《sample\.txt》抽取完成:共 .+ 字.+约 .+ tokens/)
+      expect(result.title).toBe("提取文档正文:sample.txt")
+    }),
+  )
+
+  it.live("md: 直读原文(不渲染不转换)", () =>
+    Effect.gen(function* () {
+      const result = yield* run(path.join(FIXTURES, "sample.md"))
+      expect(result.output).toContain("# 访谈纪要")
+      expect(result.output).toContain("- Second bullet in English.")
+    }),
+  )
+
   it.live("文件不存在: 返回清晰指引而非抛错", () =>
     Effect.gen(function* () {
       const result = yield* run(path.join(FIXTURES, "nope.docx"))

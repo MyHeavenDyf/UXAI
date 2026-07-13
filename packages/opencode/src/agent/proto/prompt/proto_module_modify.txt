@@ -10,6 +10,7 @@
   - element_id: 当前正在修改的元素element_id
   - origin_modules: 待修改的JSON
   - modification: 修改意见
+  - intentDescription: 更新后的完整页面意图描述。当提供此字段时，需要将修改操作与整体页面意图保持一致，确保修改后的模块服务于更新后的页面目标。
 
 # Objective
   Your mission is to:

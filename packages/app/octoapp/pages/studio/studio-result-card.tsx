@@ -1,7 +1,7 @@
 import { For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
 import { isVideoMedia } from "./studio-shared"
-import type { StudioAspectRatio, StudioCapability, StudioGenerationStatus, StudioImage } from "./types"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
 
 const PORTRAIT_RATIOS: StudioAspectRatio[] = ["2:3", "3:4", "9:16"]
@@ -11,8 +11,12 @@ type StudioResultCardProps = {
   turn: StudioTurnData
   fallbackCapability?: StudioCapability
   busy: boolean
+  actionBusy: boolean
   cancelling: boolean
+  rebooting: boolean
   onCancelGeneration: (generationID: string) => void
+  onEditGeneration: (result: StudioGenerationResult) => void
+  onRebootGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
@@ -23,6 +27,7 @@ function StudioMediaPreview(props: { image: StudioImage }) {
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}
+        poster={props.image.thumbnailUrl}
         class="studio-result-thumb-media"
         muted
         playsinline
@@ -48,6 +53,15 @@ export function StudioResultCard(props: StudioResultCardProps) {
   }
   const generating = () => status() === "queued" || status() === "running"
   const cancellable = () => generating() && props.turn.result?.id.startsWith("studio_gen")
+  const editable = () =>
+    Boolean(props.turn.result) &&
+    !generating() &&
+    (capability() === "image.generate" || capability() === "video.generate")
+  const rebootable = () =>
+    status() === "failed" &&
+    props.turn.result?.provider === "internel" &&
+    Boolean(props.turn.result?.taskId) &&
+    Boolean(props.turn.result?.id.startsWith("studio_gen"))
   const progress = () => {
     if (status() === "succeeded") return 100
     return Math.round(Math.min(100, Math.max(0, props.turn.result?.progress ?? 0)))
@@ -97,36 +111,62 @@ export function StudioResultCard(props: StudioResultCardProps) {
       }}
     >
       <div class="studio-result-progress-header">
-        <div class="studio-result-progress-title">
-          <span class={`studio-result-progress-icon ${capabilityIconClass()}`} />
-          <span>{mediaLabel()}</span>
+        <div class="studio-result-progress-left">
+          <div class="studio-result-progress-title">
+            <span class={`studio-result-progress-icon ${capabilityIconClass()}`} />
+            <span>{mediaLabel()}</span>
+          </div>
+          <span class="studio-result-progress-status" classList={{ invisible: !statusLabel() }}>{statusLabel()}</span>
+          <Show when={generating()}>
+            <>
+              <div
+                class="studio-result-progress-track"
+                role="progressbar"
+                aria-label={`${mediaLabel()}${statusLabel()}`}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={progress()}
+              >
+                <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
+              </div>
+              <span class="studio-result-progress-percent">{progress()}%</span>
+            </>
+          </Show>
         </div>
-        <span class="studio-result-progress-status" classList={{ invisible: !statusLabel() }}>{statusLabel()}</span>
-        <Show when={generating()}>
-          <>
-            <div
-              class="studio-result-progress-track"
-              role="progressbar"
-              aria-label={`${mediaLabel()}${statusLabel()}`}
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow={progress()}
+        <div class="studio-result-progress-actions">
+          <Show when={generating() && cancellable()}>
+            <button
+              type="button"
+              class="studio-result-action studio-result-cancel"
+              disabled={props.cancelling}
+              onClick={() => props.turn.result && props.onCancelGeneration(props.turn.result.id)}
             >
-              <div class="studio-result-progress-fill" style={{ width: `${progress()}%` }} />
-            </div>
-            <span class="studio-result-progress-percent">{progress()}%</span>
-            <Show when={cancellable()}>
+              {props.cancelling ? "取消中..." : "取消生成"}
+            </button>
+          </Show>
+          <Show when={editable() && props.turn.result}>
+            {(result) => (
               <button
                 type="button"
-                class="studio-result-cancel"
-                disabled={props.cancelling}
-                onClick={() => props.turn.result && props.onCancelGeneration(props.turn.result.id)}
+                class="studio-result-action studio-result-edit"
+                disabled={props.actionBusy || props.rebooting}
+                onClick={() => props.onEditGeneration(result())}
               >
-                {props.cancelling ? "取消中..." : "取消生成"}
+                重新编辑
               </button>
-            </Show>
-          </>
-        </Show>
+            )}
+          </Show>
+          <Show when={rebootable()}>
+            <button
+              type="button"
+              class="studio-result-action studio-result-reboot"
+              disabled={props.actionBusy || props.rebooting}
+              onClick={() => props.turn.result && props.onRebootGeneration(props.turn.result.id)}
+            >
+              {props.rebooting ? "重新生成中..." : "重新生成"}
+            </button>
+          </Show>
+        </div>
       </div>
       <Show when={createdAt()}>
         <div class="studio-result-meta">创建时间：{createdAt()}</div>

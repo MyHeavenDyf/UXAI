@@ -1,18 +1,20 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
-import type { VersionEntry } from "../../utils/persist"
+import type { VersionEntry } from "../../utils/version-history"
 
-import { TitleBar } from "./TitleBar"
-import { CanvasView } from "./CanvasView"
-import { PropertyEditorPopup } from "./PropertyEditorPopup"
-import type { ModifyElementData } from "./PropertyEditorPopup"
+import { TitleBar } from "./title-bar"
+import { CanvasView } from "./canvas-view"
+import { PropertyEditorPopup } from "./property-editor-popup"
+import type { ModifyElementData } from "./property-editor-popup"
+import type { A2UIDocument } from "../../utils/a2ui-protocol"
 import "../../assets/style/preview/index.css"
 
 export type PreviewPageAPI = {
   sendToPreview: (data: unknown) => void
   postMessage: (data: unknown) => void
   refresh: () => void
+  setEditingOff: () => void
 }
 
 interface RawRect {
@@ -25,26 +27,38 @@ interface RawRect {
 export function PreviewPage(props: {
   api?: PreviewPageAPI
   pendingData?: unknown
+  sessionId?: string
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
+  onShare?: () => void
   onLivePreview?: () => void
+  onPixsoPreview?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
+  onReorder?: (elementId: string, targetSiblingId: string, position: "before" | "after") => void
 }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
 
-  let canvasRef: { reset: () => void } | undefined
+  let canvasRef: { reset: () => void; setScale: (scale: number) => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
 
-  const TARGET_WIDTH = 1920
-  const TARGET_HEIGHT = 1080
+  const DEVICE_DIMENSIONS: Record<string, [number, number]> = {
+    desktop: [1920, 1080],
+    tablet: [768, 1024],
+    mobile: [375, 667],
+  }
+  const [targetWidth, setTargetWidth] = createSignal(1920)
+  const [targetHeight, setTargetHeight] = createSignal(1080)
 
   createEffect(() => {
-    if (!editing()) setPropertyEditor('show', false)
+    if (!editing()) {
+      setPropertyEditor('show', false)
+      setPickerVisible(false)
+    }
   })
 
   
@@ -55,13 +69,28 @@ export function PreviewPage(props: {
   function handleTitleBarOptionChange(type: "preview" | "device" | "zoom" | "theme", value: string) {
     console.log(`切换类型: ${type}, 选中值: ${value}`)
 
+    if (type === "device") {
+      const dims = DEVICE_DIMENSIONS[value]
+      if (dims) {
+        setTargetWidth(dims[0])
+        setTargetHeight(dims[1])
+        queueMicrotask(() => canvasRef?.reset())
+      }
+      return
+    }
+
     if (type === "preview" && value === "live") {
       props.onLivePreview?.()
       return
     }
 
-    if (type === "zoom" && value === "auto") {
-      canvasRef?.reset()
+    if (type === "preview" && value === "pixso") {
+      props.onPixsoPreview?.()
+      return
+    }
+
+    if (type === "zoom") {
+      canvasRef?.setScale(Number(value) / 100)
     }
 
     if (type === "theme") {
@@ -76,6 +105,29 @@ export function PreviewPage(props: {
     }
     console.log("[preview] sendToPreview posting A2UI_UPDATE")
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
+    if (editing()) sendDragMode(true, data)
+  }
+
+  function buildSiblingMap(data: unknown = props.pendingData): Record<string, string[]> | undefined {
+    const doc = data as A2UIDocument | null
+    if (!doc?.elements) return undefined
+    const map: Record<string, string[]> = {}
+    for (const el of doc.elements) {
+      if (!Array.isArray(el.children)) continue
+      const kids = el.children.filter((kid): kid is string => typeof kid === "string")
+      if (kids.length < 2) continue
+      for (const kid of kids) {
+        map[kid] = kids
+      }
+    }
+    return Object.keys(map).length > 0 ? map : undefined
+  }
+
+  function sendDragMode(enabled: boolean, data: unknown = props.pendingData) {
+    previewIframeRef?.contentWindow?.postMessage(
+      { type: "DRAG_MODE", enabled, siblingMap: enabled ? buildSiblingMap(data) : undefined },
+      "*",
+    )
   }
 
   if (props.api) {
@@ -85,6 +137,14 @@ export function PreviewPage(props: {
       previewIframeRef.contentWindow.postMessage(data, "*")
     }
     props.api.refresh = triggerRefresh
+    props.api.setEditingOff = () => {
+      setEditing(false)
+      previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+      setPropertyEditor('show', false)
+      setPickerVisible(false)
+      setCtxMenu('show', false)
+      unfreezeDomPicker()
+    }
   }
 
   // ==========================================================================
@@ -93,6 +153,17 @@ export function PreviewPage(props: {
   const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
   const [pickerText, setPickerText] = createSignal("")
   const [pickerVisible, setPickerVisible] = createSignal(false)
+  const [pickerDrag, setPickerDrag] = createStore({ x: 0, y: 0 })
+
+  function startPickerDrag(e: MouseEvent) {
+    e.preventDefault()
+    const sx = e.clientX, sy = e.clientY
+    const ox = pickerDrag.x, oy = pickerDrag.y
+    const onMove = (me: MouseEvent) => setPickerDrag({ x: ox + (me.clientX - sx), y: oy + (me.clientY - sy) })
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   const [ctxMenu, setCtxMenu] = createStore({
     show: false, x: 0, y: 0,
@@ -105,7 +176,7 @@ export function PreviewPage(props: {
     const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
     if (!wrapper) return { x: iframeX, y: iframeY }
     const rect = wrapper.getBoundingClientRect()
-    const scale = rect.width / TARGET_WIDTH
+    const scale = rect.width / targetWidth()
     return { x: rect.left + iframeX * scale, y: rect.top + iframeY * scale }
   }
 
@@ -113,24 +184,29 @@ export function PreviewPage(props: {
     previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_UNFREEZE" }, "*")
   }
 
+  function maybeUnfreeze() {
+    if (!propertyEditor.show && !pickerVisible() && !ctxMenu.show) unfreezeDomPicker()
+  }
+
   function hideCtxMenu() { setCtxMenu('show', false) }
 
   function closeCtxMenu() {
     if (!ctxMenu.show) return
     setCtxMenu('show', false)
-    unfreezeDomPicker()
+    maybeUnfreeze()
   }
 
   function closePicker() {
     setPickerVisible(false)
-    unfreezeDomPicker()
+    maybeUnfreeze()
   }
 
   function submitPicker() {
     const text = pickerText().trim()
     if (!text) return
     setPickerVisible(false)
-    unfreezeDomPicker()
+    setPropertyEditor('show', false)
+    maybeUnfreeze()
     props.onPickerSubmit?.(text, pickerDialog.domPickerId)
   }
 
@@ -147,33 +223,62 @@ export function PreviewPage(props: {
     closeCtxMenu()
   }
 
-  function handleSelectArea() {
-    setPickerDialog({ domPickerId: ctxMenu.domPickerId, tagName: ctxMenu.tagName })
-    setPickerText('')
-    setPickerVisible(true)
-    hideCtxMenu()
+  function handleSelectParent() {
+    previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_SELECT_PARENT" }, "*")
   }
 
-  function handleQuickModify() {
+  function openBothPanels(data: {
+    domPickerId: string
+    domPickerComponent?: string
+    domPickerClass?: string
+    elementProps?: string
+    tagName?: string
+    rawRect?: RawRect | null
+  }) {
+    openQuickModify(data)
+    setPickerDialog({ domPickerId: data.domPickerId, tagName: data.tagName ?? '' })
+    setPickerText('')
+    setPickerDrag({ x: 0, y: 0 })
+    setPickerVisible(true)
+    if (ctxMenu.show) {
+      setCtxMenu({
+        domPickerId: data.domPickerId,
+        tagName: data.tagName ?? '',
+        domPickerComponent: data.domPickerComponent ?? '',
+        domPickerClass: data.domPickerClass ?? '',
+        elementProps: data.elementProps ?? '',
+        rawRect: data.rawRect ?? null,
+      })
+    }
+  }
+
+  function openQuickModify(data: {
+    domPickerId: string
+    domPickerComponent?: string
+    domPickerClass?: string
+    elementProps?: string
+    tagName?: string
+    rawRect?: RawRect | null
+  }) {
     const paneRect = previewPageRef?.getBoundingClientRect()
     const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
     const wrapperRect = wrapper?.getBoundingClientRect()
-    const scale = (wrapperRect?.width ?? TARGET_WIDTH) / TARGET_WIDTH
-    const rawRect = ctxMenu.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
+    const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
+    const rawRect = data.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
 
-    const cx = 20
-    const cy = 115
+    const cx = 46
+    const cy = 57
 
     setPropertyEditor('show', false)
     queueMicrotask(() => {
-      const compType = ctxMenu.domPickerComponent || ctxMenu.tagName
-      console.log("[preview] open property editor:", { elementId: ctxMenu.domPickerId, componentType: compType, class: ctxMenu.domPickerClass, props: ctxMenu.elementProps })
+      const compType = data.domPickerComponent || data.tagName || ''
+      console.log("[preview] open property editor:", { elementId: data.domPickerId, componentType: compType, class: data.domPickerClass, props: data.elementProps })
       setPropertyEditor({
         show: true,
-        elementId: ctxMenu.domPickerId,
+        elementId: data.domPickerId,
         componentType: compType,
-        currentClass: ctxMenu.domPickerClass ?? '',
-        elementProps: ctxMenu.elementProps ?? '',
+        currentClass: data.domPickerClass ?? '',
+        elementProps: data.elementProps ?? '',
         clickPoint: { x: cx, y: cy },
         elementRect: {
           top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + rawRect.top * scale,
@@ -182,6 +287,10 @@ export function PreviewPage(props: {
         },
       })
     })
+  }
+
+  function handleQuickModify() {
+    openQuickModify(ctxMenu)
     hideCtxMenu()
   }
 
@@ -194,17 +303,28 @@ export function PreviewPage(props: {
   function handlePropertyConfirm(data: ModifyElementData) {
     if (!data.keepOpen) {
       setPropertyEditor('show', false)
-      unfreezeDomPicker()
+      maybeUnfreeze()
     }
     props.onModifyElement?.(data)
   }
 
   function handlePropertyCancel() {
     setPropertyEditor('show', false)
-    unfreezeDomPicker()
+    maybeUnfreeze()
   }
 
   const handlePickerMessage = (e: MessageEvent) => {
+    if (e.data?.type === "DOM_PICKER_CLOSE_PANELS") {
+      if (ctxMenu.show) {
+        closeCtxMenu()
+        return
+      }
+      setPropertyEditor('show', false)
+      setPickerVisible(false)
+      unfreezeDomPicker()
+      return
+    }
+
     if (e.data?.type === "DOM_PICKER_CLOSE_MENU") {
       if (ctxMenu.show) closeCtxMenu()
       return
@@ -215,6 +335,20 @@ export function PreviewPage(props: {
       setPickerDialog({ domPickerId: domPickerId ?? '', tagName: tagName ?? '' })
       setPickerText('')
       setPickerVisible(true)
+      return
+    }
+
+    if (e.data?.type === "DOM_PICKER_QUICK_FIX") {
+      const { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName, rect } = e.data
+      console.log("[preview] DOM_PICKER_QUICK_FIX:", { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName })
+      openBothPanels({
+        domPickerId: domPickerId ?? '',
+        domPickerComponent: domPickerComponent ?? '',
+        domPickerClass: domPickerClass ?? '',
+        elementProps: elementProps ?? '',
+        tagName: tagName ?? '',
+        rawRect: rect ?? null,
+      })
       return
     }
 
@@ -235,9 +369,18 @@ export function PreviewPage(props: {
 
   const handleIframeMessage = (e: MessageEvent) => {
     handlePickerMessage(e)
-    if (e.data?.type === "A2UI_READY" && props.pendingData) {
-      console.log("[preview] A2UI_READY, re-sending pendingData")
-      sendToPreview(props.pendingData)
+    if (e.data?.type === "A2UI_READY") {
+      if (props.pendingData) {
+        console.log("[preview] A2UI_READY, re-sending pendingData")
+        sendToPreview(props.pendingData)
+      }
+      if (editing()) {
+        previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+        sendDragMode(true, props.pendingData)
+      }
+    }
+    if (e.data?.type === "DRAG_REORDER" && props.onReorder) {
+      props.onReorder(e.data.elementId, e.data.targetSiblingId, e.data.position)
     }
   }
 
@@ -255,13 +398,20 @@ export function PreviewPage(props: {
     }
   }
 
+  function onParentPointerUp(e: PointerEvent) {
+    if (!editing() || e.target === previewIframeRef) return
+    previewIframeRef?.contentWindow?.postMessage({ type: "DRAG_CANCEL" }, "*")
+  }
+
   window.addEventListener("message", handleIframeMessage)
   window.addEventListener("click", onClickOutside)
   window.addEventListener("keydown", onKeyDown)
+  window.addEventListener("pointerup", onParentPointerUp)
   onCleanup(() => {
     window.removeEventListener("message", handleIframeMessage)
     window.removeEventListener("click", onClickOutside)
     window.removeEventListener("keydown", onKeyDown)
+    window.removeEventListener("pointerup", onParentPointerUp)
   })
 
   return (
@@ -273,6 +423,7 @@ export function PreviewPage(props: {
           setCanvasMode(next)
           if (next) {
             setEditing(false)
+            sendDragMode(false)
             previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
           }
         }}
@@ -282,6 +433,7 @@ export function PreviewPage(props: {
           if (previewPageRef?.requestFullscreen) previewPageRef.requestFullscreen()
         }}
         onDownload={props.onDownload}
+        onShare={props.onShare}
         versions={props.versions}
         currentVersionId={props.currentVersionId}
         onSelectVersion={props.onSelectVersion}
@@ -290,7 +442,13 @@ export function PreviewPage(props: {
           const next = !editing()
           setEditing(next)
           previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
-          if (next) setCanvasMode(false)
+          if (next) {
+            setCanvasMode(false)
+            sendDragMode(true)
+            unfreezeDomPicker()
+          } else {
+            sendDragMode(false)
+          }
         }}
         onOptionChange={handleTitleBarOptionChange}
       />
@@ -298,8 +456,8 @@ export function PreviewPage(props: {
       <CanvasView
         ref={(el) => { canvasRef = el }}
         canvasMode={canvasMode()}
-        targetWidth={TARGET_WIDTH}
-        targetHeight={TARGET_HEIGHT}
+        targetWidth={targetWidth()}
+        targetHeight={targetHeight()}
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
@@ -314,9 +472,8 @@ export function PreviewPage(props: {
       <Show when={ctxMenu.show}>
         <div class="dom-picker-ctx-menu" style={{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }}
              onClick={(e) => e.stopPropagation()}>
+          <div class="ctx-menu-item" onClick={handleSelectParent}>选择父容器</div>
           <div class="ctx-menu-item" onClick={handleCopyName}>复制名称</div>
-          <div class="ctx-menu-item" onClick={handleSelectArea}>AI修改</div>
-          <div class="ctx-menu-item" onClick={handleQuickModify}>快速修改</div>
         </div>
       </Show>
 
@@ -326,6 +483,7 @@ export function PreviewPage(props: {
         componentType={propertyEditor.componentType}
         currentClass={propertyEditor.currentClass}
         elementProps={propertyEditor.elementProps}
+        sessionId={props.sessionId}
         elementRect={propertyEditor.elementRect}
         clickPoint={propertyEditor.clickPoint}
         containerSize={{ width: previewPageRef?.clientWidth ?? 0, height: previewPageRef?.clientHeight ?? 0 }}
@@ -335,8 +493,12 @@ export function PreviewPage(props: {
 
       <Show when={pickerVisible()}>
         <div class="picker-overlay" onClick={closePicker}>
-          <div class="picker-dialog" onClick={(e) => e.stopPropagation()}>
-            <div class="picker-header">
+          <div
+            class="picker-dialog"
+            style={{ transform: `translate(${pickerDrag.x}px, ${pickerDrag.y}px)` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div class="picker-header" onMouseDown={startPickerDrag}>
               修改选中区域: {pickerDialog.tagName} ({pickerDialog.domPickerId})
             </div>
             <div class="picker-body">

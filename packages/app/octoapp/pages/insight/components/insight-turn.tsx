@@ -1,7 +1,7 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
-import { useData } from "@opencode-ai/ui/context"
+import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
 import { createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { OutputEntryCard } from "./output-entry-card"
@@ -35,6 +35,29 @@ export type OutputCard = {
 // 详见 docs/specs/ui/output-renderers.md §2。直接在 outputCards memo 内顺序判断,
 // 不再走"按优先级取一个"的旧路径。
 
+// 工具调用过程的显示名映射(SPEC-INS-021 §4):上游 SessionTurn 用 i18n 键取工具标题
+// (message-part.tsx getToolInfo),这里给面向研究员的人话覆盖,不动上游实现——只在本组件
+// 子树内生效,其余键透传外层 i18n。extract_document 是自研工具,title 已在工具侧直接中文化。
+const TOOL_TITLE_OVERRIDES: Record<string, string> = {
+  "ui.tool.read": "读取文件",
+  "ui.tool.grep": "检索内容",
+  "ui.tool.glob": "查找文件",
+  "ui.messagePart.title.write": "写入产物",
+  "ui.tool.agent": "子任务分析",
+  "ui.tool.agent.default": "子任务分析",
+}
+
+function withInsightToolTitles(outer: UiI18n): UiI18n {
+  return {
+    locale: outer.locale,
+    t: (key, params) => {
+      // extract_document 无专属渲染器,走 GenericTool 的「调用了 `<tool>`」模板;此处按参数特例
+      if (key === "ui.basicTool.called" && params?.tool === "extract_document") return "提取文档正文"
+      return TOOL_TITLE_OVERRIDES[key] ?? outer.t(key, params)
+    },
+  }
+}
+
 
 export function InsightTurn(props: {
   sessionID: string
@@ -56,6 +79,7 @@ export function InsightTurn(props: {
   resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
 }): JSX.Element {
   const data = useData()
+  const i18n = useI18n()
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -97,8 +121,12 @@ export function InsightTurn(props: {
   )
 
   // 非图片附件(SPEC-INS-015 ②④):从 synthetic [附件] 清单解析(filename + 本地路径),只取 filename 渲染文件卡片。
+  // 必须按 "[附件]" 头定位:chip turn(SPEC-INS-017)还有 [MCP触发指令] / [MCP声明] 两个 synthetic part,
+  // 拿错 part 会把模板行误解析成文件卡片。
   const inputAttachments = createMemo((): Array<{ filename: string; path: string }> => {
-    const block = turnParts().find((p) => p.type === "text" && p.synthetic && typeof p.text === "string")
+    const block = turnParts().find(
+      (p) => p.type === "text" && p.synthetic && typeof p.text === "string" && p.text.startsWith("[附件]"),
+    )
     if (!block?.text) return []
     return parseUploadedFiles(block.text)
   })
@@ -299,13 +327,16 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
-      <SessionTurn
-        sessionID={props.sessionID}
-        messageID={props.messageID}
-        status={props.status}
-        active={props.active || (props.status.type === "retry" && isLatestTurn())}
-        classes={{ root: "px-3" }}
-      />
+      {/* I18nProvider 薄包一层:仅覆盖工具标题键(TOOL_TITLE_OVERRIDES),把过程展示换成人话 */}
+      <I18nProvider value={withInsightToolTitles(i18n)}>
+        <SessionTurn
+          sessionID={props.sessionID}
+          messageID={props.messageID}
+          status={props.status}
+          active={props.active || (props.status.type === "retry" && isLatestTurn())}
+          classes={{ root: "px-3" }}
+        />
+      </I18nProvider>
 
       <Show when={showGenerating()}>
         <div
