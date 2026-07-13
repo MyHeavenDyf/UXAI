@@ -49,7 +49,7 @@ const registryLayer = ToolRegistry.layer.pipe(
   Layer.provide(Truncate.defaultLayer),
 )
 
-const it = testEffect(Layer.mergeAll(registryLayer, node))
+const it = testEffect(Layer.mergeAll(registryLayer, Agent.defaultLayer, node))
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -189,4 +189,24 @@ describe("tool.registry", () => {
     { timeout: 30_000 },
   )
 
+  // SPEC-INS-021 §1:insight 的编辑类工具在 registry 层按 agent 裁剪(edit/apply_patch 摘除、
+  // write 保留)——不能走权限层 deny,EDIT_TOOLS 共享 "edit" 权限键会连带隐藏 write。
+  it.instance("octo_insight excludes edit/apply_patch but keeps write (SPEC-INS-021 §1)", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const insight = yield* Agent.Service.use((svc) => svc.get("octo_insight"))
+      expect(insight).toBeDefined()
+      const tools = yield* registry.tools({
+        providerID: "anthropic" as Parameters<typeof registry.tools>[0]["providerID"],
+        modelID: "claude-sonnet" as Parameters<typeof registry.tools>[0]["modelID"],
+        agent: insight!,
+      })
+      const ids = tools.map((t) => t.id)
+      expect(ids).not.toContain("edit")
+      expect(ids).not.toContain("apply_patch")
+      expect(ids).toContain("write")
+      expect(ids).toContain("extract_document")
+    }),
+    { timeout: 30_000 },
+  )
 })

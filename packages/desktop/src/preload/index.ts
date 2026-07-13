@@ -91,6 +91,7 @@ const api: ElectronAPI = {
   getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
+  ensureSkillConfig: () => ipcRenderer.invoke("ensure-skill-config"),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),

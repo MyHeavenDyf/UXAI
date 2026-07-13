@@ -1,4 +1,4 @@
-import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioMode } from "./types"
+import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage, StudioMode } from "./types"
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
@@ -32,6 +32,7 @@ export function isStudioGenerationFailure(status: StudioGenerationResult["status
 export type StudioPendingResult = StudioGenerationResult & {
   displayPrompt?: string
   sourceImage?: string
+  inputImages?: StudioInputImage[]
 }
 
 export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"

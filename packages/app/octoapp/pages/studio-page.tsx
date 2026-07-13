@@ -48,6 +48,7 @@ import type {
 import {
   buildStudioConversationContext,
   buildStudioDisplayPrompt,
+  buildStudioInputImages,
   buildStudioTurns,
   parseToolAttachments,
   parseToolImages,
@@ -661,6 +662,7 @@ export default function StudioPage() {
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : pending.status === "succeeded" ? "succeeded" : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : pending.status === "succeeded" ? "完成" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
+          inputImages: pending.inputImages ?? normalized.inputImages,
           result: normalizeResultValue(pending),
         }
       })
@@ -695,6 +697,7 @@ export default function StudioPage() {
               toolTitle: studioGenerationTitle(pending.capability, pending.status),
               toolName: pending.status === "create_failed" ? "内部 · 创建失败" : "内部 · 失败",
               toolRunning: false,
+              inputImages: pending.inputImages ?? latest.inputImages,
               result: normalizeResultValue(pending),
             },
           ])
@@ -710,6 +713,7 @@ export default function StudioPage() {
             toolTitle: studioGenerationTitle(pending.capability, "succeeded"),
             toolName: "内部 · 完成",
             toolRunning: false,
+            inputImages: pending.inputImages ?? latest.inputImages,
             result: normalizeResultValue(pending),
           },
         ])
@@ -726,6 +730,7 @@ export default function StudioPage() {
           toolTitle: studioGenerationTitle(pending.capability, isStudioGenerationFailure(pending.status) ? pending.status : "running"),
           toolName: `内部 · ${pending.status === "create_failed" ? "创建失败" : pending.status === "failed" ? "失败" : "生成中"}`,
           toolRunning: pending.status === "queued" || pending.status === "running",
+          inputImages: pending.inputImages,
           result: normalizeResultValue(pending),
           createdAt: pending.createdAt,
           isLatest: true,
@@ -943,7 +948,7 @@ export default function StudioPage() {
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
@@ -983,7 +988,7 @@ export default function StudioPage() {
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
@@ -2151,6 +2156,95 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
+  function studioImageDataUrlPayload(value: string) {
+    const match = value.match(/^data:([^;,]+);base64,(.*)$/)
+    return {
+      mime: match?.[1] ?? "image/png",
+      content: match?.[2] ?? value,
+    }
+  }
+
+  function studioImageExtension(mime: string) {
+    if (mime === "image/jpeg") return "jpg"
+    if (mime === "image/webp") return "webp"
+    return "png"
+  }
+
+  async function persistStudioImage(input: {
+    sessionID: string
+    role: string
+    dataUrl: string
+  }) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const payload = studioImageDataUrlPayload(input.dataUrl)
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/artifact/upload", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        sessionId: input.sessionID,
+        filename: `${input.role}-${crypto.randomUUID()}.${studioImageExtension(payload.mime)}`,
+        content: payload.content,
+        path: "studio-inputs",
+      }),
+    })
+    if (!response.ok) throw new Error(`Failed to persist Studio image: ${response.statusText}`)
+    return response.json() as Promise<{ path: string }>
+  }
+
+  async function persistStudioGenerationMedia(input: {
+    sessionID: string
+    referenceImages: string[]
+    sourceImage?: string
+    extra?: Record<string, unknown>
+  }) {
+    const persisted = new Map<string, string>()
+    const persist = async (value: string | undefined, role: string) => {
+      if (!value?.startsWith("data:image/")) return value
+      const existing = persisted.get(value)
+      if (existing) return existing
+      const uploaded = await persistStudioImage({
+        sessionID: input.sessionID,
+        role,
+        dataUrl: value,
+      })
+      persisted.set(value, uploaded.path)
+      return uploaded.path
+    }
+    const referenceImages = await Promise.all(
+      input.referenceImages.map((item, index) => persist(item, `reference-${index + 1}`)),
+    )
+    const firstFrame = typeof input.extra?.firstFrame === "string"
+      ? await persist(input.extra.firstFrame, "first-frame")
+      : input.extra?.firstFrame
+    const lastFrame = typeof input.extra?.lastFrame === "string"
+      ? await persist(input.extra.lastFrame, "last-frame")
+      : input.extra?.lastFrame
+    const compositeImage = typeof input.extra?.compositeImage === "string"
+      ? await persist(input.extra.compositeImage, "inpaint-composite")
+      : input.extra?.compositeImage
+    return {
+      referenceImages: referenceImages.filter((item): item is string => Boolean(item)),
+      sourceImage: await persist(input.sourceImage, "source"),
+      extra: {
+        ...(input.extra ?? {}),
+        ...(typeof firstFrame === "string" ? { firstFrame } : {}),
+        ...(typeof lastFrame === "string" ? { lastFrame } : {}),
+        ...(typeof compositeImage === "string" ? { compositeImage } : {}),
+      },
+    }
+  }
+
   async function getStudioGeneration(id: string, signal?: AbortSignal) {
     const current = server.current
     if (!current) throw new Error("No active server.")
@@ -2266,6 +2360,7 @@ export default function StudioPage() {
         sessionID: current?.sessionID ?? generation.sessionID ?? params.id,
         displayPrompt: current?.id === generation.id ? current.displayPrompt ?? generation.displayPrompt : generation.displayPrompt,
         sourceImage: current?.id === generation.id ? current.sourceImage : undefined,
+        inputImages: current?.id === generation.id ? current.inputImages : undefined,
       }))
       setStatus(generation.status)
       const sessionID = generation.sessionID ?? params.id
@@ -2358,6 +2453,25 @@ export default function StudioPage() {
             parts: dataStore.part,
           })
         : ""
+    const generationExtra = {
+      ...(overrides?.extra ?? {}),
+      ...(studioContext ? { studioContext } : {}),
+      ...(nextCapability === "video.generate"
+        ? {
+          videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
+          duration: nextVideoDuration,
+          mode: nextVideoQualityMode,
+          firstFrame: nextVideoFrames.first ?? nextVideoFrames.last,
+          lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
+        }
+        : {}),
+    }
+    const pendingInputImages = buildStudioInputImages({
+      capability: nextCapability,
+      referenceImages,
+      sourceImage: overrides?.sourceImage,
+      extra: generationExtra,
+    })
     setOpenMenu(null)
     setMode("preview")
     setSending(true)
@@ -2379,6 +2493,7 @@ export default function StudioPage() {
       progress: 0,
       createdAt: Date.now(),
       sourceImage: overrides?.sourceImage,
+      inputImages: pendingInputImages,
       ...(nextCapability === "video.generate"
         ? {
             videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
@@ -2405,6 +2520,23 @@ export default function StudioPage() {
       createGenerationController?.abort()
       const controller = new AbortController()
       createGenerationController = controller
+      const persistedMedia = await persistStudioGenerationMedia({
+        sessionID,
+        referenceImages,
+        sourceImage: overrides?.sourceImage,
+        extra: generationExtra,
+      })
+      if (currentToken !== generationToken) return
+      setPendingResult((item) => item ? {
+        ...item,
+        sourceImage: persistedMedia.sourceImage ?? item.sourceImage,
+        inputImages: buildStudioInputImages({
+          capability: nextCapability,
+          referenceImages: persistedMedia.referenceImages,
+          sourceImage: persistedMedia.sourceImage,
+          extra: persistedMedia.extra,
+        }),
+      } : item)
       const generation = await createStudioGeneration({
         sessionID,
         text,
@@ -2417,21 +2549,11 @@ export default function StudioPage() {
         width: nextIsCustom ? nextWidth : undefined,
         height: nextIsCustom ? nextHeight : undefined,
         count: nextCount,
-        referenceImages,
-        sourceImage: overrides?.sourceImage,
+        referenceImages: persistedMedia.referenceImages,
+        sourceImage: persistedMedia.sourceImage,
         extra: {
-          ...(overrides?.extra ?? {}),
-          ...(studioContext ? { studioContext } : {}),
+          ...persistedMedia.extra,
           ...(nextIsCustom ? { width: nextWidth, height: nextHeight } : {}),
-          ...(nextCapability === "video.generate"
-            ? {
-              videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
-              duration: nextVideoDuration,
-              mode: nextVideoQualityMode,
-              firstFrame: nextVideoFrames.first ?? nextVideoFrames.last,
-              lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
-            }
-            : {}),
         },
       }, controller.signal)
       if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
@@ -2442,6 +2564,7 @@ export default function StudioPage() {
         sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
         displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
+        inputImages: current?.inputImages ?? pendingInputImages,
       }))
       setStatus(generation.status)
       // Update thumbnail immediately if generation already succeeded (fast path,
@@ -2529,6 +2652,7 @@ export default function StudioPage() {
                 sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
                 displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
                 sourceImage: current?.sourceImage,
+                inputImages: current?.inputImages,
               }
             })
             setStatus(generation.status)
@@ -3185,6 +3309,8 @@ if (!headerTitle.pendingRename) return
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
+                sdkUrl={globalSDK.url}
+                directory={projectDir()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
                 actionBusy={isActionBusy()}
                 cancellingGenerationIDs={cancellingGenerationIDs()}
