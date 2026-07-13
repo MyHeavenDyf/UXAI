@@ -127,9 +127,9 @@ type ActiveScenario = {
   path: string
   name: string
   project: ProjectOptions | undefined
-  seed: (ctx: ScenarioContext) => Effect.Effect<unknown>
+  seed: (ctx: ScenarioContext) => Effect.Effect<unknown, any, any>
   request: (ctx: ScenarioContext, state: unknown) => RequestSpec
-  expect: (ctx: ScenarioContext, state: unknown, result: CallResult) => Effect.Effect<void>
+  expect: (ctx: ScenarioContext, state: unknown, result: CallResult) => Effect.Effect<void, any, any>
   compare: Comparison
   capture: CaptureMode
   mutates: boolean
@@ -142,7 +142,7 @@ type BuilderState<S> = {
   path: string
   name: string
   project: ProjectOptions | undefined
-  seed: (ctx: ScenarioContext) => Effect.Effect<S>
+  seed: (ctx: ScenarioContext) => Effect.Effect<S, any, any>
   request: (ctx: SeededContext<S>) => RequestSpec
   capture: CaptureMode
   mutates: boolean
@@ -282,7 +282,7 @@ class ScenarioBuilder<S = undefined> {
 
   status(
     status = 200,
-    inspect?: (ctx: SeededContext<S>, result: CallResult) => Effect.Effect<void>,
+    inspect?: (ctx: SeededContext<S>, result: CallResult) => Effect.Effect<void, any, any>,
     compare: Comparison = "status",
   ) {
     return this.done(compare, (ctx, result) =>
@@ -301,7 +301,7 @@ class ScenarioBuilder<S = undefined> {
   /** Assert JSON status/content-type plus optional Effect assertions, e.g. DB side effects. */
   jsonEffect(
     status = 200,
-    inspect?: (body: unknown, ctx: SeededContext<S>) => Effect.Effect<void>,
+    inspect?: (body: unknown, ctx: SeededContext<S>) => Effect.Effect<void, any, any>,
     compare: Comparison = "json",
   ) {
     return this.done(compare, (ctx, result) =>
@@ -324,7 +324,7 @@ class ScenarioBuilder<S = undefined> {
    * Seed typed state before the HTTP request. The returned value becomes `ctx.state`
    * for `.at(...)` and assertions, giving stateful route tests type-safe setup.
    */
-  seeded<Next>(seed: (ctx: ScenarioContext) => Effect.Effect<Next>) {
+  seeded<Next>(seed: (ctx: ScenarioContext) => Effect.Effect<Next, any, any>) {
     const builder = new ScenarioBuilder<Next>(this.state.method, this.state.path, this.state.name)
     Object.assign(builder.state, this.state, { seed })
     return builder
@@ -332,7 +332,7 @@ class ScenarioBuilder<S = undefined> {
 
   private done(
     compare: Comparison,
-    expect: (ctx: SeededContext<S>, result: CallResult) => Effect.Effect<void>,
+    expect: (ctx: SeededContext<S>, result: CallResult) => Effect.Effect<void, any, any>,
   ): ActiveScenario {
     const state = this.state
     return {
@@ -1570,7 +1570,7 @@ function runBackend(backend: "effect" | "legacy", scenario: ActiveScenario) {
   )
 }
 
-function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<unknown>) => Effect.Effect<A, E>) {
+function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<unknown>) => Effect.Effect<A, E, any>) {
   return Effect.acquireRelease(
     Effect.gen(function* () {
       const llm = scenario.project?.llm ? yield* TestLLMServer : undefined
@@ -2005,7 +2005,7 @@ function indent(value: string) {
     .join("\n")
 }
 
-Effect.runPromise(main.pipe(Effect.provide(TestLLMServer.layer), Effect.scoped)).then(
+Effect.runPromise(main.pipe(Effect.provide(TestLLMServer.layer), Effect.scoped) as Effect.Effect<undefined, Error, never>).then(
   () => process.exit(0),
   (error: unknown) => {
     console.error(`${color.red}${message(error)}${color.reset}`)
