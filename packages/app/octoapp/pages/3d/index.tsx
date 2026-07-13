@@ -28,7 +28,7 @@ import create_scene from "./workflow/create_scene"
 import modify_scene_ai from "./workflow/modify_scene_ai"
 import { getModelPreset } from "./modules/preview/components/common/model-presets"
 
-import { appendSceneVersion, loadCurrentSceneState, listSceneVersions, type VersionEntry } from "./utils/persist"
+import { appendSceneVersion, loadCurrentSceneState, listSceneVersions, readOutcome, writeOutcome, type VersionEntry } from "./utils/persist"
 import { rollbackToVersion } from "./utils/history"
 import { detectSceneJson, type SceneDocument } from "./utils/scene-protocol"
 import { ProtoIntroduction } from "./modules/chat/proto_introduction"
@@ -121,6 +121,11 @@ function ThreeDContent() {
         setChildSessionIDs([])
         discoverVersion++
         setSceneDoc(null)
+        // 切换会话先清空右侧 iframe(写空 live-data.json),避免无场景会话残留上一个场景;
+        // 有历史的会话会随后被 sceneDoc effect 写新场景覆盖(queue 串行保证顺序)
+        liveDataWriteQueue = liveDataWriteQueue.then(async () => {
+          if (await writeLiveData(null)) setLiveVersion((v) => v + 1)
+        })
 
         if (id) {
           layout.lastSessionPerTab.setThreeD(id)
@@ -148,6 +153,12 @@ function ThreeDContent() {
               if (params.id !== id) return
               setVersions(versions)
               setCurrentVersionId(current)
+            })
+            // 恢复该会话最新一轮的结论(刷新后「已中止/生成失败」不再变回「已完成」)。
+            // 仅当内存里还没有该会话结论时才用磁盘值(内存值由本次运行内的终态写入,更新)。
+            void readOutcome(dir, id).then((outcome) => {
+              if (params.id !== id || !outcome) return
+              setOutcomeBySession((prev) => (id in prev ? prev : { ...prev, [id]: outcome }))
             })
           }
         }
@@ -251,8 +262,13 @@ function ThreeDContent() {
     return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  // 中止标志:halt 设为 true,handleSubmit 检测后提前退出
+  // 中止瞬态量:halt 置 true 让 isBusy 立即响应、onFinished 守卫跳过半成品;新一轮 submit 置 false。
+  // 它不是「某会话的结论」——结论按 sessionId 独立记录在下面 outcomeBySession,避免跨会话串台。
   const [aborted, setAborted] = createSignal(false)
+  // 每个会话「最新一轮的结论」,按 sessionId 独立记录:切换会话不互相覆盖、不丢。
+  // 取值:aborted=已中止 / failed=生成失败 / completed=生成完成。失败也如实记录,不再误显示「已完成」。
+  const [outcomeBySession, setOutcomeBySession] = createSignal<Record<string, "aborted" | "failed" | "completed">>({})
+  const sessionOutcome = createMemo(() => outcomeBySession()[params.id ?? ""] ?? null)
   const [genStartTime, setGenStartTime] = createSignal(0)
 
   const isBusy = createMemo(() => {
@@ -299,6 +315,13 @@ function ThreeDContent() {
     const home = sdk.directory
     return `${home}/.octo/3d/history`
   })
+
+  /** 记录某会话最新一轮的结论:更新内存 map + 落盘 _outcome.json(刷新/重启后仍能恢复「已中止/生成失败」)。 */
+  function recordOutcome(sid: string, outcome: "aborted" | "failed" | "completed") {
+    setOutcomeBySession((prev) => ({ ...prev, [sid]: outcome }))
+    const dir = sceneHistoryDir()
+    if (dir) void writeOutcome(dir, sid, outcome).catch(() => { })
+  }
 
   const hasContent = () => {
     const id = params.id
@@ -385,8 +408,8 @@ function ThreeDContent() {
     setPrompt("")
     const submitSessionId = params.id
     const mk = activeModelKey()!
+    let sid = submitSessionId
     try {
-      let sid = submitSessionId
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
@@ -397,6 +420,10 @@ function ThreeDContent() {
         navigate(`/3d/${session.id}`)
         sid = session.id
       }
+
+      // sid 是 hoisted 的 let(为 catch 能访问),但 TS 不会在异步闭包(onFinished)里收窄可变 let。
+      // 这里用 const 固定成 string,供 onFinished 内的 recordOutcome / appendSceneVersion 使用。
+      const sessionSid = sid
 
       const existing = sessionInfo()?.title
       if (!existing || existing.startsWith("New session")) {
@@ -416,6 +443,8 @@ function ThreeDContent() {
       const onFinished = async ({ sceneIntent, scenePlanner, sceneJson }: any) => {
         // 中断后不处理结果(避免显示半成品场景 + 误报成功)
         if (aborted()) return
+        // 走到这里 = 该会话最新一轮正常完成 → 记录结论 completed(覆盖此前可能的 aborted/failed)
+        recordOutcome(sessionSid, "completed")
         if (sceneJson) {
           sendToPreview(sceneJson)
           // 直接设 sceneDoc,绕过 detectSceneJson(serialize→parse)的静默失效风险
@@ -425,7 +454,7 @@ function ThreeDContent() {
         setLastPlanner(scenePlanner)
         const dir = sceneHistoryDir()
         if (dir) {
-          const vid = await appendSceneVersion(dir, sid, {
+          const vid = await appendSceneVersion(dir, sessionSid, {
             sceneIntent: sceneIntent ?? null,
             scenePlanner: scenePlanner ?? null,
             sceneJson: sceneJson ?? null,
@@ -457,6 +486,8 @@ function ThreeDContent() {
     } catch (err: unknown) {
       if (aborted() || (err instanceof Error && err.message === "aborted")) return
       console.error("[ThreeDPage] handleSubmit failed", err)
+      // 非中止的失败:记录该会话最新一轮「生成失败」(按 sessionId 独立,切换不丢、不影响其他会话)
+      if (sid) recordOutcome(sid, "failed")
     } finally {
       if (!submitSessionId || params.id === submitSessionId) {
         setSending(false)
@@ -468,6 +499,8 @@ function ThreeDContent() {
     setAborted(true)
     const sid = params.id
     if (!sid) return
+    // 记录该会话最新一轮被中止(按 sessionId 独立,切换会话不丢、不影响其他会话)
+    recordOutcome(sid, "aborted")
     // 无条件 abort 根会话 + 所有子会话(不检查 pending,避免 sync 延迟漏掉正在跑的 agent)
     await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
     for (const childID of childSessionIDs()) {
@@ -560,7 +593,16 @@ function ThreeDContent() {
   /** 把场景写成 preview3d 目录下的 live-data.json(供右侧 iframe / /3d-live 消费)。返回是否成功。
    *  doc 为 null 时写空场景(切换到无历史场景的会话时清空右侧,避免残留上个会话) */
   async function writeLiveData(doc: SceneDocument | null): Promise<boolean> {
-    const data = doc ? enrichModelUrls(doc) : { version: "1", angleUnit: "degree", objects: [] }
+    // 空场景占位也必须是 preview3d 能完整渲染的合法 SceneDocument:
+    // bundle 的 applyLiveData 无条件读 t.camera.type / t.scene.background,
+    // 缺 camera 会抛 "Cannot read properties of undefined (reading 'type')" → iframe 初始加载即崩溃,
+    // 之后 reload-live-data 因场景句柄为空变成 no-op,表现为「创建时报错,强制刷新才出场景」。
+    const data = doc ? enrichModelUrls(doc) : {
+      version: "1", angleUnit: "degree",
+      scene: { background: "#ffffff" },
+      camera: { type: "perspective", position: [4, 3, 6], lookAt: [0, 0, 0], perspective: { fov: 50, near: 0.1, far: 100 } },
+      objects: [],
+    }
     const api = (window as any).api
     const dir = await api?.getPreviewDist3dDir?.()
     if (!dir || !api?.writeFileBuffer) return false
@@ -679,7 +721,8 @@ function ThreeDContent() {
             onDrop={handleDrop}
             onOpenResult={handleOpenResult}
             pipelineBusy={isBusy() || sending()}
-            aborted={aborted()}
+            aborted={sessionOutcome() === "aborted"}
+            failed={sessionOutcome() === "failed"}
             genStartTime={genStartTime()}
             roundMessages={roundMessages()}
             hasPreview={!!sceneDoc() && !isBusy()}

@@ -223,3 +223,46 @@ export async function deleteSceneVersion(
   }
   await writeIndex(dir, sessionId, index)
 }
+
+/** 一次生成的结论(供刷新/重启后恢复「已中止/生成失败」状态,不再误显示「已完成」) */
+export type GenOutcome = "aborted" | "failed" | "completed"
+
+function outcomeFilePath(dir: string, sessionId: string) {
+  return `${dir}/${sessionId}/_outcome.json`
+}
+
+/** 读取某会话最新一轮的结论;无记录返回 null */
+export async function readOutcome(dir: string, sessionId: string): Promise<GenOutcome | null> {
+  const api = getDesktopApi()
+  const path = outcomeFilePath(dir, sessionId)
+  if (api?.readFileBuffer) {
+    try {
+      const buf = await api.readFileBuffer(path)
+      if (!buf) return null
+      const parsed = JSON.parse(new TextDecoder().decode(buf)) as { outcome?: GenOutcome }
+      return parsed.outcome ?? null
+    } catch {
+      return null
+    }
+  }
+  const stored = localStorage.getItem(`${STORAGE_PREFIX}:${sessionId}:outcome`)
+  if (!stored) return null
+  try {
+    return (JSON.parse(stored) as { outcome?: GenOutcome }).outcome ?? null
+  } catch {
+    return null
+  }
+}
+
+/** 写入某会话最新一轮的结论 */
+export async function writeOutcome(dir: string, sessionId: string, outcome: GenOutcome): Promise<void> {
+  const payload = JSON.stringify({ outcome }, null, 2)
+  const api = getDesktopApi()
+  const path = outcomeFilePath(dir, sessionId)
+  if (api?.writeFileBuffer) {
+    const encoder = new TextEncoder()
+    await api.writeFileBuffer(path, encoder.encode(payload).buffer)
+    return
+  }
+  localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}:outcome`, payload)
+}

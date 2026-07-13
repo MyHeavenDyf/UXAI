@@ -6,6 +6,7 @@
 import { For, Show, createEffect, on, createSignal, type JSX } from "solid-js"
 import type { SceneDocument } from "../../utils/scene-protocol"
 import type { VersionEntry } from "../../utils/persist"
+import resultEmptySvg from "../../assets/images/IllustrationResultEmpty.svg?url"
 
 /** 页面加载一次的 cache buster,防 iframe 缓存旧 preview3d(确保拿到带轮询/reload 的新版) */
 const previewCacheBuster = Date.now()
@@ -143,12 +144,20 @@ export function PreviewPage(props: {
         </div>
       </div>
 
-      <div class="flex-1 min-h-0">
+      <div class="flex-1 min-h-0" style={{ position: "relative" }}>
         <iframe
           ref={iframeRef}
           src={`http://127.0.0.1:51857/?data=live-data.json&_=${previewCacheBuster}`}
           style={{ width: "100%", height: "100%", border: "0" }}
         />
+        {/* 无场景(doc 空)时显示空态,覆盖 iframe;iframe 始终不卸载,避免重载 */}
+        <Show when={!props.doc}>
+          <div style={{ position: "absolute", inset: 0, display: "flex", "flex-direction": "column", "align-items": "center", "justify-content": "center", gap: "12px", background: "#ffffff", "text-align": "center", padding: "0 32px", "z-index": 5 }}>
+            <img src={resultEmptySvg} width={80} height={80} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
+            <div style={{ "font-size": "13px", color: "rgba(0,0,0,0.55)" }}>3D 场景将在这里展示</div>
+            <div style={{ "font-size": "12px", color: "rgba(0,0,0,0.35)" }}>在左侧描述需求即可生成</div>
+          </div>
+        </Show>
       </div>
     </div>
   )
