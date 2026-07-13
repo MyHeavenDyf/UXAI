@@ -1,5 +1,5 @@
 import proto_triage from "../agents/proto-triage"
-import proto_module_modify from "../agents/proto-modify/index"
+import proto_modify from "../agents/proto-modify/index"
 import { mergeModules } from "../agents/merge"
 import { saveDebugSnapshot } from "../utils/debug-log"
 import { loadCurrentPatternState } from "../utils/version-history"
@@ -51,7 +51,7 @@ export default async function modify_json_ai(
     ...triage.modify.map((m) => ({ element_id: m.element_id, action: m.action })),
   ]
 
-  const modifyResult = await proto_module_modify({
+  const modifyResult = await proto_modify({
     sdk: inputCtx.sdk,
     sync: inputCtx.sync,
     modelKey: inputCtx.modelKey,

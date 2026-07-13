@@ -47,7 +47,7 @@ type ModuleModifyContext = {
   onSessionCreated?: (childSessionID: string) => void
 }
 
-export default async function proto_module_modify(ctx: ModuleModifyContext): Promise<ModuleModifyResult> {
+export default async function proto_modify(ctx: ModuleModifyContext): Promise<ModuleModifyResult> {
   const {
     sdk,
     sync,
