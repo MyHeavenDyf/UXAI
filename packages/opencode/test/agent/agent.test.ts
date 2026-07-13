@@ -445,6 +445,38 @@ test("default permission includes doom_loop and external_directory as ask", asyn
   })
 })
 
+// SPEC-INS-021 §1:octo_insight 工具白名单(deny = 隐藏 + 阻断,双层生效)
+test("octo_insight denies escape-hatch tools and keeps analysis toolset", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const insight = await load(tmp.path, (svc) => svc.get("octo_insight"))
+      expect(insight).toBeDefined()
+      // deny 清单(edit/apply_patch 不在权限层——EDIT_TOOLS 共享 "edit" 权限键,deny 会连带
+      // 隐藏要保留的 write,改在 registry.ts tools() 按 agent 裁剪;权限层 edit 维持 defaults allow
+      // 以保 write 的执行链路)
+      expect(evalPerm(insight, "bash")).toBe("deny")
+      expect(evalPerm(insight, "edit")).toBe("allow")
+      expect(evalPerm(insight, "todowrite")).toBe("deny")
+      expect(evalPerm(insight, "jimeng_image_generate")).toBe("deny")
+      expect(evalPerm(insight, "internel_image_generate")).toBe("deny")
+      // 保留集(webfetch/websearch 经 2026-07-11 spec 修订保留)
+      expect(evalPerm(insight, "extract_document")).toBe("allow")
+      expect(evalPerm(insight, "read")).toBe("allow")
+      expect(evalPerm(insight, "grep")).toBe("allow")
+      expect(evalPerm(insight, "glob")).toBe("allow")
+      expect(evalPerm(insight, "write")).toBe("allow")
+      expect(evalPerm(insight, "task")).toBe("allow")
+      expect(evalPerm(insight, "skill")).toBe("allow")
+      expect(evalPerm(insight, "webfetch")).toBe("allow")
+      expect(evalPerm(insight, "websearch")).toBe("allow")
+      // 外部目录询问不放宽(SPEC-INS-021 §2)
+      expect(evalPerm(insight, "external_directory")).toBe("ask")
+    },
+  })
+})
+
 test("webfetch is allowed by default", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({
