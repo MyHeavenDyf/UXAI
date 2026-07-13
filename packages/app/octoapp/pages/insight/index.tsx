@@ -281,8 +281,11 @@ function InsightContent() {
     void sdk.client.session
       .get({ sessionID: bootSaved.id })
       .then((r: { data?: unknown }) => {
-        if (r?.data) navigate(`/insight/${bootSaved.id}`, { replace: true })
-        else localStorage.removeItem(LAST_SESSION_KEY) // 已删 → 留首页 + 清记录
+        const session = r?.data as Session | undefined
+        // parentID 有值 = task 子会话:不恢复(SPEC-INS-021 §1 追加)。导航拦截之外的兜底——
+        // 历史遗留记录 / 直接 URL 仍可能把子会话写进 LAST_SESSION_KEY,恢复进去就是"没有记录的对话"。
+        if (session && !session.parentID) navigate(`/insight/${bootSaved.id}`, { replace: true })
+        else localStorage.removeItem(LAST_SESSION_KEY) // 已删/子会话 → 留首页 + 清记录
       })
       .catch(() => { /* 网络/未知错误:不跳,保持首页,记录留待下次 */ })
   })
@@ -784,6 +787,16 @@ function InsightContent() {
   ))
 
   // ── session 操作 ──────────────────────────────────────────
+
+  // task 子会话不是用户级对话(SPEC-INS-021 §1 追加):它不在侧栏列表里,跳进去就是
+  // "没有记录的对话"。所有会话导航入口(task 卡片点击 / href / 刷新恢复)都经此判定拦截,
+  // 过程仍由 turn 内联的 task 卡片透明展示(§4),只是不 fork 出第二个对话入口。
+  function isChildSession(sessionID: string): boolean {
+    const sessions = sync.data.session as Session[]
+    const match = Binary.search(sessions, sessionID, (s) => s.id)
+    const target = match.found ? sessions[match.index] : undefined
+    return !!target?.parentID
+  }
 
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = projectDir()
@@ -1760,8 +1773,17 @@ function InsightContent() {
     <DataProvider
       data={sync.data}
       directory={projectDir() || ""}
-      onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
-      onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
+      onNavigateToSession={(sessionID: string) => {
+        // 子会话导航拦截(SPEC-INS-021 §1 追加,isChildSession 注释详述)
+        if (isChildSession(sessionID)) {
+          console.log("[octo:task] child-session navigation blocked", { sessionID })
+          return
+        }
+        navigate(`/insight/${sessionID}`)
+      }}
+      // 子会话给空串:上游 sessionLink 对 falsy 走路径兜底(/insight 无 /session 段 → 无 href),
+      // 与点击拦截配套,堵住 cmd/中键经 <a href> 绕行的口
+      onSessionHref={(sessionID: string) => (isChildSession(sessionID) ? "" : `/insight/${sessionID}`)}
     >
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
