@@ -507,6 +507,38 @@ export function registerIpcHandlers(deps: Deps) {
     return join(xdgConfig, "octo")
   }
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
+  const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
+
+  /** 从 skills.json 同步生成 skill_config.json */
+  function syncSkillConfig() {
+    try {
+      if (!existsSync(skillsConfigPath)) return
+      const raw = JSON.parse(readFileSync(skillsConfigPath, "utf-8")) as Record<
+        string,
+        { description?: string; import?: boolean; type?: string }
+      >
+
+      const skillMap: Record<string, { description?: string; import?: boolean; type?: string }> = {}
+      const agentMap: Record<string, string[]> = { octo_insight: [], octo_make: [], octo_studio: [] }
+
+      for (const [name, entry] of Object.entries(raw)) {
+        if (entry.import === false) continue
+        skillMap[name] = { description: entry.description, import: entry.import, type: entry.type }
+        const t = entry.type || "common"
+        if (t === "common") {
+          for (const key of Object.keys(agentMap)) {
+            agentMap[key].push(name)
+          }
+        } else if (t in agentMap) {
+          agentMap[t].push(name)
+        }
+      }
+
+      writeFileSync(skillConfigPath, JSON.stringify({ skill: skillMap, agent: agentMap }, null, 2), "utf-8")
+    } catch (err) {
+      console.error("syncSkillConfig failed", err)
+    }
+  }
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-3-start
   // jk-j60099994-replace-with-60062650-main-skills-ipc-3-end
@@ -524,6 +556,7 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       mkdirSync(dirname(skillsConfigPath), { recursive: true })
       writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      syncSkillConfig()
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
@@ -599,12 +632,20 @@ export function registerIpcHandlers(deps: Deps) {
       }
       mkdirSync(dirname(skillsConfigPath), { recursive: true })
       writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      syncSkillConfig()
 
       return { success: true, skillName }
     } catch (err) {
       console.error("add-skill failed", err)
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
+  })
+
+  ipcMain.handle("ensure-skill-config", () => {
+    if (!existsSync(skillsConfigPath)) return
+    if (existsSync(skillConfigPath)) return
+    // 根据 skills.json 构建 skill_config.json
+    syncSkillConfig()
   })
 
   ipcMain.handle("open-skill-folder", async () => {

@@ -7,11 +7,14 @@ import { StudioResultCard } from "./studio-result-card"
 import { isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
 import { STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
+import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
+  sdkUrl: string
+  directory: string
   busy: boolean
   actionBusy: boolean
   cancellingGenerationIDs: ReadonlySet<string>
@@ -27,6 +30,21 @@ export function StudioConversation(props: {
       <For each={props.turns}>
         {(turn, index) => (
           <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
+            <Show when={turn.inputImages?.length}>
+              <div class="studio-user-input-images">
+                <For each={turn.inputImages}>
+                  {(image) => (
+                    <Show when={studioInputImageSrc({
+                      url: image.url,
+                      sdkUrl: props.sdkUrl,
+                      directory: props.directory,
+                    })}>
+                      {(src) => <img class="studio-user-input-image" src={src()} alt="" />}
+                    </Show>
+                  )}
+                </For>
+              </div>
+            </Show>
             <div class="studio-user-bubble">
               {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
             </div>
@@ -65,6 +83,13 @@ export function StudioConversation(props: {
       </For>
     </div>
   )
+}
+
+function studioInputImageSrc(input: { url: string; sdkUrl: string; directory: string }) {
+  if (/^https?:\/\//i.test(input.url) || /^data:image\//i.test(input.url)) return input.url
+  const artifact = getArtifactRelativePath(input.url)
+  if (!artifact) return
+  return getArtifactServeUrl(input.sdkUrl, input.directory, artifact.sessionId, artifact.relativePath)
 }
 
 function sanitizeStudioAssistantText(text?: string) {

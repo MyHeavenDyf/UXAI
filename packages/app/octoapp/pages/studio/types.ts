@@ -31,6 +31,11 @@ export type StudioImage = {
   localPath?: string
 }
 
+export type StudioInputImage = {
+  id: string
+  url: string
+}
+
 export type StudioGenerationRequest = {
   capability: StudioCapability
   prompt: string
