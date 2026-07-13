@@ -112,14 +112,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
         if (activeId) pendingScrollId = activeId
       }
       clearTimeout(refetchTimer)
-      refetchTimer = setTimeout(() => {
-        void refetch().then(() => {
-          if (pendingScrollId) {
-            const id = pendingScrollId
-            pendingScrollId = null
-            scrollToSession(id)
-          }
-        })
+      refetchTimer = setTimeout(async () => {
+        await refetch()
+        if (pendingScrollId) {
+          const id = pendingScrollId
+          pendingScrollId = null
+          scrollToSession(id)
+        }
       }, 1000)
     }
   })
@@ -132,14 +131,13 @@ export function AgentSidebar(props: AgentSidebarProps) {
     if (!activeId) return
     pendingScrollId = activeId
     clearTimeout(refetchTimer)
-    refetchTimer = setTimeout(() => {
-      void refetch().then(() => {
-        if (pendingScrollId) {
-          const id = pendingScrollId
-          pendingScrollId = null
-          scrollToSession(id)
-        }
-      })
+    refetchTimer = setTimeout(async () => {
+      await refetch()
+      if (pendingScrollId) {
+        const id = pendingScrollId
+        pendingScrollId = null
+        scrollToSession(id)
+      }
     }, 500)
   }
   window.addEventListener("octo:session-renamed", handleSessionRenamed)
