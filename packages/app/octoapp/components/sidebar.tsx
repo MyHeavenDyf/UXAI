@@ -120,6 +120,7 @@ const params = useParams()
   const [renamingId, setRenamingId] = createSignal<string | null>(null)
   const [renameDraft, setRenameDraft] = createSignal("")
   let renameInputRef: HTMLInputElement | undefined
+  const [pendingScrollActive, setPendingScrollActive] = createSignal(false)
 
   function startRename(session: Session) {
     setRenamingId(session.id)
@@ -141,6 +142,9 @@ const params = useParams()
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
       if (idx >= 0) setSessionList(idx, "title", session.title)
+    }
+    if (session.id === params.id) {
+      setPendingScrollActive(true)
     }
   }
 
@@ -202,6 +206,19 @@ const params = useParams()
     requestAnimationFrame(() => {
       const el = sessionRefs.get(id)
       if (el) el.scrollIntoView({ block: "nearest" })
+    })
+  })
+  // After rename: if renamed session is the active one, scroll to it after list re-sorts
+  createEffect(() => {
+    if (!pendingScrollActive()) return
+    void sessionList.length
+    requestAnimationFrame(() => {
+      const id = params.id
+      if (id) {
+        const el = sessionRefs.get(id)
+        if (el) el.scrollIntoView({ block: "nearest" })
+      }
+      setPendingScrollActive(false)
     })
   })
 

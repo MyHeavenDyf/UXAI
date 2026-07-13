@@ -37,6 +37,7 @@ import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
+import { Icon } from "@opencode-ai/ui/icon"
 import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
@@ -53,7 +54,10 @@ import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
+import { ResponsiveSidebarLayout } from "@/components/responsive-sidebar-layout"
+import { CollapsedSidebarIcons } from "@/components/collapsed-sidebar-icons"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
+import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-start
@@ -190,72 +194,6 @@ function OctoSidebarLayout(props: ParentProps) {
   )
 }
 
-function MakeSidebarLayout(props: ParentProps) {
-  const layout = useLayout()
-  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
-    Persist.global("make.sidebar.width"),
-    createStore({ width: 296 }),
-  )
-  const sidebarWidth = () => sidebarWidthStore.width
-  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
-
-  function handleSidebarResize(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = sidebarWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
-    const onUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-  }
-
-  return (
-    <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <Show when={!layout.focusMode.get()}>
-        <MakeSidebar width={sidebarWidth()} />
-        <div
-          class="absolute top-0 bottom-0 flex items-center justify-center group"
-          style={{
-            left: `${sidebarWidth() - 10}px`,
-            width: "20px",
-            cursor: "col-resize",
-            "z-index": "10",
-          }}
-          onMouseDown={handleSidebarResize}
-        >
-          <div
-            class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-            style={{
-              width: "12px",
-              height: "36px",
-              "border-radius": "0 10px 10px 0",
-              "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
-              border: "1px solid var(--octo-border-divider)",
-              "border-left": "none",
-              display: "none"
-            }}
-          >
-            <div
-              class="w-[2px] h-[14px] rounded-full ml-[2px]"
-              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-            />
-          </div>
-        </div>
-      </Show>
-      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {props.children}
-      </div>
-    </div>
-  )
-}
-
 function PatternSidebarLayout(props: ParentProps) {
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
     Persist.global("pattern.sidebar.width"),
@@ -319,11 +257,46 @@ function PatternSidebarLayout(props: ParentProps) {
   )
 }
 
+function MakeSidebarLayout(props: ParentProps) {
+  const navigate = useNavigate()
+  const layout = useLayout()
+  return (
+    <ResponsiveSidebarLayout
+      storageKey="make.sidebar.width"
+      sidebar={(w) => <MakeSidebar width={w} />}
+      collapsedIcons={() => (
+        <CollapsedSidebarIcons
+          onConversationClick={() => navigate("/make")}
+          onSkillsClick={() => { layout.sidebarSource.set("make"); navigate("/skills") }}
+        />
+      )}
+      dataAttribute="data-make-area"
+    >
+      {props.children}
+    </ResponsiveSidebarLayout>
+  )
+}
+
 function SkillsSidebarLayout(props: ParentProps) {
   const layout = useLayout()
+  const navigate = useNavigate()
   const source = layout.sidebarSource.get()
   return source === "make"
-    ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
+    ? (
+      <ResponsiveSidebarLayout
+        storageKey="make.sidebar.width"
+        sidebar={(w) => <MakeSidebar width={w} />}
+        collapsedIcons={() => (
+          <CollapsedSidebarIcons
+            onConversationClick={() => navigate("/make")}
+            onSkillsClick={() => { layout.sidebarSource.set("make"); navigate("/skills") }}
+          />
+        )}
+        dataAttribute="data-make-area"
+      >
+        {props.children}
+      </ResponsiveSidebarLayout>
+    )
     : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
 }
 
@@ -369,13 +342,24 @@ function OnboardingLayer() {
     return layout.onboarding.show()
   })
 
-  function handleOnboardingSelect(data: { directory: string }) {
+  const [step, setStep] = createSignal<"project" | "welcome">("project")
+
+  function handleProjectSelect() {
+    setStep("welcome")
+  }
+
+  function handleWelcomeComplete() {
     layout.onboarding.hide()
   }
 
   return (
     <Show when={showOnboarding()}>
-      <DialogProjectOnboarding onSelect={handleOnboardingSelect} />
+      <Show when={step() === "project"}>
+        <DialogProjectOnboarding onSelect={handleProjectSelect} />
+      </Show>
+      <Show when={step() === "welcome"}>
+        <WelcomePage onComplete={handleWelcomeComplete} />
+      </Show>
     </Show>
   )
 }

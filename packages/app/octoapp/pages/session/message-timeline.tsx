@@ -425,6 +425,7 @@ export function MessageTimeline(props: {
         }),
       )
       setTitle("editing", false)
+      window.dispatchEvent(new CustomEvent("octo:session-renamed", { detail: { sessionID: input.id, title: input.title } }))
     },
     onError: (err) => {
       showToast({
@@ -704,7 +705,7 @@ export function MessageTimeline(props: {
             "--sticky-accordion-top": showHeader() ? "48px" : "0px",
           }}
         >
-          <div ref={props.setContentRef} class="min-w-0 w-full">
+          <div ref={props.setContentRef} class="min-w-0 w-full px-4 md:px-5">
             <Show when={showHeader()}>
               <div
                 ref={(el) => {
