@@ -88,6 +88,7 @@ export const CommentApi = HttpApi.make("comment")
         HttpApiEndpoint.get("load", CommentPaths.load, {
           query: CommentLoadQuery,
           success: described(Schema.Struct({ comments: Schema.Array(FileCommentSchema) }), "Comments for file"),
+          error: [HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "comment.load",
@@ -98,6 +99,7 @@ export const CommentApi = HttpApi.make("comment")
         HttpApiEndpoint.post("save", CommentPaths.save, {
           payload: CommentSavePayload,
           success: described(Schema.Struct({ ok: Schema.Boolean }), "Saved"),
+          error: [HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "comment.save",
@@ -108,6 +110,7 @@ export const CommentApi = HttpApi.make("comment")
         HttpApiEndpoint.delete("delete", CommentPaths.delete, {
           query: CommentDeleteQuery,
           success: described(Schema.Struct({ ok: Schema.Boolean }), "Deleted"),
+          error: [HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "comment.delete",
@@ -119,6 +122,7 @@ export const CommentApi = HttpApi.make("comment")
           params: CommentAttachmentDeleteParams,
           query: CommentAttachmentDeleteQuery,
           success: described(Schema.Struct({ ok: Schema.Boolean }), "Deleted"),
+          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "comment.deleteAttachment",
@@ -129,6 +133,7 @@ export const CommentApi = HttpApi.make("comment")
         HttpApiEndpoint.post("uploadAttachment", CommentPaths.attachmentUpload, {
           payload: CommentAttachmentUploadPayload,
           success: described(Schema.Struct({ ok: Schema.Boolean, attachment: Schema.optional(CommentAttachmentSchema) }), "Uploaded"),
+          error: [HttpApiError.BadRequest],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "comment.uploadAttachment",

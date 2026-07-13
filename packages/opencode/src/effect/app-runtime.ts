@@ -95,7 +95,7 @@ export const AppLayer = Layer.mergeAll(
   Truncate.defaultLayer,
   ToolRegistry.defaultLayer,
   Format.defaultLayer,
-  Comment.Service.layer,
+  Comment.defaultLayer,
   Project.defaultLayer,
   Vcs.defaultLayer,
   Workspace.defaultLayer,

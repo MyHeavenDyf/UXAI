@@ -1,8 +1,9 @@
 import { Effect, Schema, Context, Layer } from "effect"
+import type { PlatformError } from "effect/PlatformError"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import path from "path"
 import * as Log from "@opencode-ai/core/util/log"
-import { Instance } from "@/project/instance"
+import { Instance, type InstanceContext } from "@/project/instance"
 import * as InstanceState from "@/effect/instance-state"
 
 const log = Log.create({ service: "comment" })
@@ -43,11 +44,11 @@ export type FileComment = Schema.Schema.Type<typeof FileComment>
 export type CommentPosition = Schema.Schema.Type<typeof CommentPosition>
 
 type Interface = {
-  load: (sessionId: string, filePath: string) => Effect.Effect<FileComment[], never, AppFileSystem.Service>
-  save: (sessionId: string, filePath: string, comment: FileComment) => Effect.Effect<void, never, AppFileSystem.Service>
-  delete: (sessionId: string, filePath: string, commentId: string) => Effect.Effect<void, never, AppFileSystem.Service>
-  uploadAttachment: (sessionId: string, filePath: string, commentId: string, file: { sourceFilePath: string; filename: string; mime: string; size: number }) => Effect.Effect<CommentAttachment, never, AppFileSystem.Service>
-  deleteAttachment: (sessionId: string, filePath: string, commentId: string, attachmentId: string) => Effect.Effect<void, never, AppFileSystem.Service>
+  load: (sessionId: string, filePath: string) => Effect.Effect<FileComment[], PlatformError, AppFileSystem.Service>
+  save: (sessionId: string, filePath: string, comment: FileComment) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
+  delete: (sessionId: string, filePath: string, commentId: string) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
+  uploadAttachment: (sessionId: string, filePath: string, commentId: string, file: { sourceFilePath: string; filename: string; mime: string; size: number }) => Effect.Effect<CommentAttachment, PlatformError, AppFileSystem.Service>
+  deleteAttachment: (sessionId: string, filePath: string, commentId: string, attachmentId: string) => Effect.Effect<void, PlatformError, AppFileSystem.Service>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Comment") {}
@@ -57,7 +58,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
 
-const getCommentsFilePath = (sessionId: string, commentFilePath: string, instance: InstanceState.InstanceContext): string => {
+const getCommentsFilePath = (sessionId: string, commentFilePath: string, instance: InstanceContext): string => {
   const safeFolderName = commentFilePath.replace(/[/\\]/g, "_")
   
   return path.join(
@@ -72,7 +73,7 @@ const getCommentsFilePath = (sessionId: string, commentFilePath: string, instanc
   )
 }
 
-const getAttachmentDir = (sessionId: string, commentFilePath: string, commentId: string, instance: InstanceState.InstanceContext): string => {
+const getAttachmentDir = (sessionId: string, commentFilePath: string, commentId: string, instance: InstanceContext): string => {
   const safeFolderName = commentFilePath.replace(/[/\\]/g, "_")
   
   return path.join(

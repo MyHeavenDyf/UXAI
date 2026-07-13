@@ -101,18 +101,18 @@ type BackendApp = {
 type ScenarioContext = {
   directory: string | undefined
   headers: (extra?: Record<string, string>) => Record<string, string>
-  file: (name: string, content: string) => Effect.Effect<void>
-  session: (input?: { title?: string; parentID?: SessionID }) => Effect.Effect<SessionInfo>
-  sessionGet: (sessionID: SessionID) => Effect.Effect<SessionInfo | undefined>
-  project: () => Effect.Effect<Project.Info>
-  message: (sessionID: SessionID, input?: { text?: string }) => Effect.Effect<MessageSeed>
-  messages: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts[]>
-  todos: (sessionID: SessionID, todos: TodoInfo[]) => Effect.Effect<void>
-  worktree: (input?: { name?: string }) => Effect.Effect<Worktree.Info>
-  worktreeRemove: (directory: string) => Effect.Effect<void>
-  llmText: (value: string) => Effect.Effect<void>
-  llmWait: (count: number) => Effect.Effect<void>
-  tuiRequest: (request: { path: string; body: unknown }) => Effect.Effect<void>
+  file: (name: string, content: string) => Effect.Effect<void, any, any>
+  session: (input?: { title?: string; parentID?: SessionID }) => Effect.Effect<SessionInfo, any, any>
+  sessionGet: (sessionID: SessionID) => Effect.Effect<SessionInfo | undefined, any, any>
+  project: () => Effect.Effect<Project.Info, any, any>
+  message: (sessionID: SessionID, input?: { text?: string }) => Effect.Effect<MessageSeed, any, any>
+  messages: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts[], any, any>
+  todos: (sessionID: SessionID, todos: TodoInfo[]) => Effect.Effect<void, any, any>
+  worktree: (input?: { name?: string }) => Effect.Effect<Worktree.Info, any, any>
+  worktreeRemove: (directory: string) => Effect.Effect<void, any, any>
+  llmText: (value: string) => Effect.Effect<void, any, any>
+  llmWait: (count: number) => Effect.Effect<void, any, any>
+  tuiRequest: (request: { path: string; body: unknown }) => Effect.Effect<void, any, any>
 }
 
 /** Scenario context after `.seeded(...)`; `state` preserves the seed return type in the DSL. */
