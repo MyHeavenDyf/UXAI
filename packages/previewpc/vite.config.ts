@@ -51,13 +51,13 @@ function uploadsPlugin() {
 }
 
 /**
- * 可选依赖 @hui/icon-plus 的 stub 插件
+ * 可选依赖 @hui/icon-plus-vue 的 stub 插件
  * - 包已安装 → 正常解析到 node_modules
  * - 包未安装 → 解析到虚拟 stub（空导出），防止 Vite 编译报错
  * 同时注入 virtual:hui-icon-exists 标志供运行时检测
  */
 function huiIconStubPlugin() {
-  const HUI_PKG = '@hui/icon-plus'
+  const HUI_PKG = '@hui/icon-plus-vue'
   const STUB_ID = '\0virtual:hui-icon-stub'
   const FLAG_ID = 'virtual:hui-icon-exists'
   let exists = false

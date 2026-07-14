@@ -1,5 +1,5 @@
 /**
- * 收集 JSON 数据中所有 icon 引用，调用 API 映射为 @hui/icon-plus 组件名
+ * 收集 JSON 数据中所有 icon 引用，调用 API 映射为 @hui/icon-plus-vue 组件名
  *
  * 收集范围：
  *   A. elements 节点树：

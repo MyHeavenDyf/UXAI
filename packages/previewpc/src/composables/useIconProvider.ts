@@ -11,7 +11,7 @@ export const ICON_PROVIDER_KEY = Symbol('IconProvider')
 
 // ========== 注入类型 ==========
 export interface IconProviderContext {
-  /** 项目是否安装了 @hui/icon-plus 依赖 */
+  /** 项目是否安装了 @hui/icon-plus-vue 依赖 */
   hasHuiIcons: Ref<boolean>
   /** 图标名称映射表 { [a2ui图标名]: IconPlusXxx 组件名 } */
   iconNameMap: Ref<Record<string, string>>
@@ -47,9 +47,9 @@ export function provideIconProvider(): IconProviderContext {
   if (!dependencyChecked) {
     dependencyChecked = true
     if (hasHuiIcons.value) {
-      console.log('[iconProvider] @hui/icon-plus 已检测到')
+      console.log('[iconProvider] @hui/icon-plus-vue 已检测到')
     } else {
-      console.log('[iconProvider] @hui/icon-plus 未安装，使用 lucide 图标')
+      console.log('[iconProvider] @hui/icon-plus-vue 未安装，使用 lucide 图标')
     }
   }
 

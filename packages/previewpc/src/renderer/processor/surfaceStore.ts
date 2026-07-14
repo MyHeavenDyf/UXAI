@@ -50,7 +50,7 @@ export class SurfaceStore {
         const surface = new SurfaceModel(id);
         this.surfaces.set(id, surface)
         this.setImportantClassName(json)
-        // 收集 JSON 中的图标引用并调用 API 映射（当 @hui/icon-plus 存在时）
+        // 收集 JSON 中的图标引用并调用 API 映射（当 @hui/icon-plus-vue 存在时）
         processJsonForIcons(json)
         surface.parserJson(json)
         this.notify(id);
