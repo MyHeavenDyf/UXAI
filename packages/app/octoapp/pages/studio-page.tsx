@@ -214,6 +214,9 @@ export default function StudioPage() {
   const processedAutoAddResults = new Set<string>()
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(false)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
+  const [showFileManager, setShowFileManager] = createSignal(false)
+  const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
+  const [fileManagerGenPending, setFileManagerGenPending] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
@@ -792,10 +795,9 @@ export default function StudioPage() {
     return r2.images.length > 0 ? r2 : undefined
   })
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
-    if (canvasResult()?.images.length) return "succeeded"
-    // isBusy 优先于 result status 检查，避免发送新生成时
-    // 因旧 turn 的 failed result 导致闪现"生成失败"
+    // isBusy 最优先，确保正在生成时显示 loading，而非被旧 result 的缓存图片掩盖
     if (isBusy()) return "running"
+    if (canvasResult()?.images.length) return "succeeded"
     if (status() === "create_failed" || result()?.status === "create_failed") return "create_failed"
     if (status() === "failed" || result()?.status === "failed") return "failed"
     if (result()?.status === "queued") return "queued"
@@ -874,6 +876,7 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
+        setShowFileManager(false)
         setMode("preview")
         return
       }
@@ -888,8 +891,31 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
+        setShowFileManager(false)
         setMode("preview")
       }
+    })
+  }
+
+  function selectFileManagerMedia(input: { resultID: string; imageID: string }) {
+    batch(() => {
+      setShowStudioCanvas(true)
+      setShowFileManager(true)
+      setFileManagerDetailView(true)
+      setSelectedResultId(input.resultID)
+      setSelectedImageId(input.imageID)
+      setDeletedImageIds(new Set<string>())
+      setWorkspaceImage(undefined)
+      setWorkspaceUploadRequested(false)
+      setMode("preview")
+    })
+  }
+
+  function backFromFileManagerDetail() {
+    batch(() => {
+      setFileManagerDetailView(false)
+      setSelectedResultId(undefined)
+      setSelectedImageId(undefined)
     })
   }
 
@@ -903,6 +929,7 @@ export default function StudioPage() {
       setDeletedImageIds(new Set<string>())
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
+      setShowFileManager(false)
       setMode("preview")
     })
   }
@@ -1045,6 +1072,7 @@ export default function StudioPage() {
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
         setShowStudioCanvas(false)
+        setFileManagerDetailView(false)
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(preserveEditorEntry)
         setMode(preserveEditorEntry ? mode() : "preview")
@@ -1622,6 +1650,15 @@ export default function StudioPage() {
   }
 
   function deleteWorkspaceImage() {
+    // 从文件管理详情页进入编辑器的，关闭时恢复文件管理详情视图
+    if (fileManagerDetailView()) {
+      batch(() => {
+        setWorkspaceImage(undefined)
+        setWorkspaceUploadRequested(false)
+        setMode("preview")
+      })
+      return
+    }
     batch(() => {
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(true)
@@ -2476,7 +2513,8 @@ export default function StudioPage() {
     setMode("preview")
     setSending(true)
     setStatus("submitting")
-    if (!overrides?.useRestoredInputs) setSelectedResultId(undefined)
+    if (!overrides?.useRestoredInputs && !fileManagerDetailView()) setSelectedResultId(undefined)
+    if (fileManagerDetailView()) setFileManagerGenPending(true)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
       status: "running",
@@ -2598,6 +2636,33 @@ export default function StudioPage() {
       if (currentToken === generationToken) setSending(false)
     }
   }
+
+  // 文件管理详情页触发生成后：
+  // - 成功：退出文件管理视图 + 创建 tab 并选中（与点击 studio-result-thumb 逻辑完全一致）
+  // - 失败/取消：回到文件管理网格视图
+  createEffect(() => {
+    if (!fileManagerGenPending()) return
+    if (!isBusy()) {
+      setFileManagerGenPending(false)
+      // pendingResult 可能已被 sync effect 清空，优先用它，其次查 displayTurns 最新项
+      const pending = pendingResult()
+      const latestTurn = displayTurns().at(-1)
+      const successResult =
+        (pending?.status === "succeeded" && pending.images.length > 0) ? pending
+        : (latestTurn?.result?.status === "succeeded" && latestTurn.result.images.length > 0) ? latestTurn.result
+        : null
+
+      if (successResult) {
+        batch(() => {
+          setFileManagerDetailView(false)
+          selectStudioImage({ resultID: successResult.id, imageID: successResult.images[0].id })
+        })
+      } else {
+        // 失败或取消：回到文件管理网格
+        backFromFileManagerDetail()
+      }
+    }
+  })
 
   const pollingGenerationID = createMemo(() => {
     const active = pendingResult() ?? studioTurn()?.result
@@ -3423,6 +3488,29 @@ if (!headerTitle.pendingRename) return
               showVideoGeneration={canGenerateVideo()}
               regenerateDisabled={resultRegenerateDisabled(result())}
               actionDisabled={isActionBusy()}
+              showFileManagerTab={true}
+              onFileManagerClick={() => {
+                if (fileManagerDetailView()) {
+                  backFromFileManagerDetail()
+                } else {
+                  setShowFileManager((v) => !v)
+                }
+              }}
+              showFileManager={showFileManager()}
+              fileManagerDetailView={fileManagerDetailView()}
+              onFileManagerBack={backFromFileManagerDetail}
+              onFileManagerSelectMedia={(item: { id: string; turnID: string }) => {
+                const turn = displayTurns().find((t) => t.result?.id === item.turnID || t.id === item.turnID)
+                if (turn?.result) {
+                  selectFileManagerMedia({ resultID: turn.result.id, imageID: item.id })
+                }
+              }}
+              studioCenterWidth={studioCenterWidth()}
+              showStudioCenter={showStudioCenter()}
+              hideFileManagerFilter={studioLeftOverlayOpen()}
+              turns={displayTurns()}
+              canGenerateVideo={canGenerateVideo()}
+              sessionID={params.id}
             >
               <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
@@ -3444,6 +3532,7 @@ if (!headerTitle.pendingRename) return
                           const r = result()
                           batch(() => {
                             setShowStudioCanvas(true)
+                            setShowFileManager(false)
                             if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
                               // 已有 tab → 只切选中
                               setSelectedImageId(id)
