@@ -50,6 +50,7 @@ import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
 
 export function InsightFileManager(props: {
+  refreshKey?: number
   onOpenFile: (file: InsightFileEntry) => void
   onAddToSession?: (file: InsightFile) => void
   onCloseTabsByPath?: (paths: string[]) => void
@@ -62,6 +63,7 @@ export function InsightFileManager(props: {
       {(sessionId) => (
         <FileManagerInner
           sessionId={sessionId}
+          refreshKey={props.refreshKey}
           onOpenFile={props.onOpenFile}
           onAddToSession={props.onAddToSession}
           onCloseTabsByPath={props.onCloseTabsByPath}
@@ -75,6 +77,7 @@ export function InsightFileManager(props: {
 
 function FileManagerInner(props: {
   sessionId: string
+  refreshKey?: number
   onOpenFile: (file: InsightFileEntry) => void
   onAddToSession?: (file: InsightFile) => void
   onCloseTabsByPath?: (paths: string[]) => void
@@ -131,6 +134,10 @@ function FileManagerInner(props: {
       fileStore.setLoading(false)
     }
   }
+
+  // 外部触发刷新(如对话上传文件落地会话目录后,父组件递增 refreshKey)。defer 避免与挂载时的
+  // session/path effect 重复拉取;仅响应后续 refreshKey 变化(对齐 make design-files-panel 的 refreshKey 机制)。
+  createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
   function readFileAsBase64(file: File): Promise<string> {
@@ -517,6 +524,12 @@ function FileTable(props: {
   onNavigateFolder: (folder: InsightFile) => void
 }): JSX.Element {
   const store = () => props.fileStore.store
+  let selectAllRef!: HTMLInputElement
+  // indeterminate 是 DOM 属性(非标准 attribute),ref 回调只在挂载跑一次无法响应;
+  // 用 createEffect 跟踪 somePageSelected() 变化,选中部分行时实时刷新半选状态。
+  createEffect(() => {
+    selectAllRef.indeterminate = props.fileStore.somePageSelected()
+  })
 
   return (
     <table class="w-full text-[14px] leading-[22px]" style={{ "border-collapse": "separate", "border-spacing": "0", "table-layout": "fixed" }}>
@@ -525,8 +538,8 @@ function FileTable(props: {
           <th style={{ width: "48px", "min-width": "48px", "max-width": "48px", padding: "12px 16px", "box-sizing": "border-box", "vertical-align": "middle", "text-align": "left", "border-bottom": "1px solid var(--octo-border-divider)" }}>
             <input
               type="checkbox"
+              ref={selectAllRef}
               checked={props.fileStore.allPageSelected()}
-              ref={(el) => { el.indeterminate = props.fileStore.somePageSelected() }}
               onChange={props.onSelectAllPage}
               style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "accent-color": "var(--octo-brand)", "vertical-align": "middle" }}
             />
@@ -672,6 +685,7 @@ function FileRow(props: {
             checked={props.selected}
             onChange={() => props.store.toggleFileSelection(props.file.path)}
             onClick={(e) => e.stopPropagation()}
+            onDblClick={(e) => e.stopPropagation()}
             style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "vertical-align": "middle", "accent-color": "var(--octo-brand)" }}
           />
         </Show>

@@ -194,7 +194,15 @@ export const ArtifactRoutes = lazy(() =>
           const filePath = c.req.valid("query").path
           const svc = yield* File.Service
           const result = yield* svc.read(filePath)
-          return { content: result.content, mimeType: result.mimeType ?? getMime(filePath) }
+          // File.read 对二进制文件(office/pdf 等)只返回空 content(服务于文本预览,见 File.read);
+          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端据 encoding:"base64" 解码落盘。
+          // 用 type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退。
+          if (result.type === "binary") {
+            const fs = yield* AppFileSystem.Service
+            const bytes = yield* fs.readFile(filePath)
+            return { content: Buffer.from(bytes).toString("base64"), mimeType: result.mimeType ?? getMime(filePath), encoding: "base64" as const }
+          }
+          return { content: result.content, mimeType: result.mimeType ?? getMime(filePath), encoding: result.encoding }
         }),
     )
     .delete(
@@ -532,11 +540,12 @@ function createZipArchive(files: Array<{ filename: string; content: Uint8Array }
     view.setUint16(6, 0, true)
     view.setUint16(8, 0, true)
     view.setUint16(10, 0, true)
-    view.setUint32(12, crc, true)
-    view.setUint32(16, size, true)
-    view.setUint32(20, size, true)
-    view.setUint16(24, filenameBytes.length, true)
-    view.setUint16(26, 0, true)
+    view.setUint16(12, 0, true)
+    view.setUint32(14, crc, true)
+    view.setUint32(18, size, true)
+    view.setUint32(22, size, true)
+    view.setUint16(26, filenameBytes.length, true)
+    view.setUint16(28, 0, true)
     localHeader.set(filenameBytes, 30)
 
     localHeaders.push({ offset, filename: file.filename, size, crc })
@@ -557,16 +566,17 @@ function createZipArchive(files: Array<{ filename: string; content: Uint8Array }
     view.setUint16(8, 0, true)
     view.setUint16(10, 0, true)
     view.setUint16(12, 0, true)
-    view.setUint32(14, entry.crc, true)
-    view.setUint32(18, entry.size, true)
-    view.setUint32(22, entry.size, true)
-    view.setUint16(26, filenameBytes.length, true)
-    view.setUint16(28, 0, true)
+    view.setUint16(14, 0, true)
+    view.setUint32(16, entry.crc, true)
+    view.setUint32(20, entry.size, true)
+    view.setUint32(24, entry.size, true)
+    view.setUint16(28, filenameBytes.length, true)
     view.setUint16(30, 0, true)
     view.setUint16(32, 0, true)
     view.setUint16(34, 0, true)
-    view.setUint32(36, 0, true)
-    view.setUint32(40, entry.offset, true)
+    view.setUint16(36, 0, true)
+    view.setUint32(38, 0, true)
+    view.setUint32(42, entry.offset, true)
     centralHeader.set(filenameBytes, 46)
 
     chunks.push(centralHeader)
