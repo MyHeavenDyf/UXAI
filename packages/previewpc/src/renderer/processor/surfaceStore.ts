@@ -1,5 +1,6 @@
 import { SurfaceModel } from './surfaceModel'
 import type { JsonInput, DataValue } from './type'
+import { processJsonForIcons } from '../../composables/useIconProvider'
 
 // 管理所有surface，配合使用useSyncExternalStore实现精确更新
 export class SurfaceStore {
@@ -14,6 +15,32 @@ export class SurfaceStore {
         this.setSurfSurface(id, json)
     }
 
+    addImportantToClasses(classNameStr: string) {
+        if (!classNameStr) return ''
+        return classNameStr
+        .trim()
+        .split(/\s+/)
+        .map((cls: string) => {
+            if (cls.includes('!')) return cls
+            if (cls.includes(':')) {
+            const lastColonIndex = cls.lastIndexOf(':')
+            return cls.substring(0, lastColonIndex + 1) + '!' + cls.substring(lastColonIndex + 1)
+            }
+            return '!' + cls
+        })
+        .join(' ')
+    }
+    private setImportantClassName(json: JsonInput) {
+        if (Array.isArray(json?.elements)) {
+            json.elements.forEach((item) => {
+                const className = item.props?.className
+                if (item.props && className) {
+                    item.props.className = this.addImportantToClasses(className)
+                }
+            })
+        }
+    }
+
     private setSurfSurface(id: string, json: JsonInput) {
         const oldSurface = this.getSurface(id);
         if (oldSurface) {
@@ -22,6 +49,9 @@ export class SurfaceStore {
         }
         const surface = new SurfaceModel(id);
         this.surfaces.set(id, surface)
+        this.setImportantClassName(json)
+        // 收集 JSON 中的图标引用并调用 API 映射（当 @hui/icon-plus-vue 存在时）
+        processJsonForIcons(json)
         surface.parserJson(json)
         this.notify(id);
     }

@@ -383,6 +383,17 @@ interface ProgressNode extends AnyComponentNode<ResolvedProgress> {
   type: "Progress";
 }
 
+interface ResolvedPagination {
+  current: DynamicNumber;
+  total: DynamicNumber;
+  showTotal?: DynamicBoolean;
+  simple?: DynamicBoolean;
+  className?: string;
+}
+interface PaginationNode extends AnyComponentNode<ResolvedPagination> {
+  type: "Pagination";
+}
+
 interface ResolvedBadge {
   color?: string;
   count?: string | number | DataBinding;
@@ -526,6 +537,7 @@ export type {
   TabsNode,
   ProgressNode,
   BadgeNode,
+  PaginationNode,
   RateNode,
   BreadcrumbNode,
   DropdownNode,

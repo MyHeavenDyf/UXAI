@@ -3,6 +3,7 @@ import type { JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { ResultTab } from "./tab-store"
 import { IconTabClose } from "../../icons"
+import { IconFolder } from "../../icons/design-files-icons"
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -11,6 +12,9 @@ export function TabBar(props: {
   onClose: (id: string) => void
   /** 收起任务面板(保留 tab,仅隐藏容器);未传则不渲染收起按钮 */
   onCollapse?: () => void
+  /** SPEC-INS-014 §10:tabs/files 页面级切换;未传则不渲染"文件管理"pill(向后兼容旧调用点) */
+  viewMode?: "tabs" | "files"
+  onViewModeChange?: (mode: "tabs" | "files") => void
 }): JSX.Element {
   return (
     <div
@@ -23,9 +27,24 @@ export function TabBar(props: {
       {/* tab 列表横向滚动:tab 多了溢出,octo-result-tabs-scroll 提供细横向滚动条作可视提示;
           收起按钮固定在右侧不随滚动 */}
       <div class="octo-result-tabs-scroll flex items-center gap-[8px] flex-1 min-w-0">
+      <Show when={props.onViewModeChange}>
+        <button
+          type="button"
+          class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
+          style={{
+            "border-radius": "16px",
+            background: props.viewMode === "files" ? "var(--octo-surface-selected)" : "transparent",
+            color: props.viewMode === "files" ? "var(--octo-brand)" : "var(--octo-text-secondary)",
+          }}
+          onClick={() => props.onViewModeChange?.("files")}
+        >
+          <IconFolder size={16} />
+          <span class="text-[13px]" style={{ "font-weight": props.viewMode === "files" ? "500" : "400" }}>文件管理</span>
+        </button>
+      </Show>
       <For each={props.tabs}>
         {(tab) => {
-          const isActive = () => tab.id === props.activeId
+          const isActive = () => tab.id === props.activeId && props.viewMode !== "files"
           return (
             <div
               class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
@@ -35,7 +54,10 @@ export function TabBar(props: {
                 background: isActive() ? "var(--octo-surface-selected)" : "transparent",
                 color: isActive() ? "var(--octo-brand)" : "var(--octo-text-secondary)",
               }}
-              onClick={() => props.onActivate(tab.id)}
+              onClick={() => {
+                props.onActivate(tab.id)
+                props.onViewModeChange?.("tabs")
+              }}
             >
               <button
                 type="button"

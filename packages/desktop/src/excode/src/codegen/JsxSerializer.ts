@@ -214,6 +214,29 @@ export class JsxSerializer {
     if (Array.isArray(node.children)) {
       return node.children
         .map((child: any) => {
+          // 字符串 → 直接作为文本输出
+          if (typeof child === 'string') return child;
+
+          // __binding 对象 → 渲染为 JSX 表达式 {accessPath}
+          if (child && typeof child === 'object' && child.__binding) {
+            const isInLoop = (ctx.loopDepth || 0) >= 2;
+            const itemVar = (ctx && ctx.loopVarName) || (isInLoop ? 'subItem' : 'item');
+            if (child.pathType === 'relative') {
+              return `{${itemVar}.${child.path}}`;
+            }
+            return `{${child.accessPath}}`;
+          }
+
+          // __varRef 对象 → 渲染为 {varName}
+          if (child && typeof child === 'object' && child.__varRef) {
+            return `{${child.__varRef}}`;
+          }
+
+          // __rawExpr 对象 → 渲染为 {expr}
+          if (child && typeof child === 'object' && child.__rawExpr) {
+            return `{${child.__rawExpr}}`;
+          }
+
           // __type: 'loop' → 渲染为 JSX 表达式（dataVar || []).map(...)
           // __type: 'renderFn' → 渲染为函数表达式
           if (child && typeof child === 'object' && child.__type === 'loop') {

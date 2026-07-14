@@ -2,7 +2,7 @@ const ATTRIBUTE_NAME = 'data-dom-picker-source'
 const PICKER_ID_ATTR = 'dom-picker-id'
 const PICKER_COMPONENT_ATTR = 'dom-picker-component'
 const OVERLAY_ID = 'dom-picker-overlay'
-const BADGE_ID = 'dom-picker-badge'
+const ACTIVE_ATTR = 'data-dom-picker-active'
 
 function createOverlay() {
   const overlay = document.createElement('div')
@@ -15,42 +15,6 @@ function createOverlay() {
   overlay.style.opacity = '0'
   overlay.style.transition = 'all 0.1s ease-out'
   return overlay
-}
-
-function createBadge() {
-  const badge = document.createElement('div')
-  badge.id = BADGE_ID
-  badge.innerHTML = `<span data-role="tag">dom</span>`
-
-  Object.assign(badge.style, {
-    position: 'fixed',
-    zIndex: '2147483647',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '6px 10px',
-    borderRadius: '3px',
-    background: '#007bff',
-    color: '#eff6ff',
-    boxShadow: '0 10px 30px rgba(0, 123, 255, 0.28)',
-    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-    fontSize: '20px',
-    lineHeight: '1',
-    opacity: '0',
-    pointerEvents: 'none',
-    transition: 'opacity 0.1s ease-out',
-  })
-
-  const tag = badge.querySelector('[data-role="tag"]')
-  Object.assign(tag.style, {
-    maxWidth: '600px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    fontWeight: '700',
-  })
-
-  return badge
 }
 
 function readSourceFromVueInstance(instance) {
@@ -177,41 +141,16 @@ function updateOverlay(overlay, element) {
   overlay.style.height = `${rect.height}px`
 }
 
-function updateBadge(badge, element, location) {
-  if (!element || !location) {
-    badge.style.opacity = '0'
-    badge.dataset.source = ''
-    return
-  }
-
-  const tag = badge.querySelector('[data-role="tag"]')
-  const rect = element.getBoundingClientRect()
-
-  tag.textContent = location
-  badge.dataset.source = location
-  badge.style.opacity = '1'
-  badge.style.left = '8px'
-  badge.style.top = '8px'
-  const badgeRect = badge.getBoundingClientRect()
-  const outsideTop = rect.top - badgeRect.height < 0
-  const top = outsideTop ? rect.top : rect.top - badgeRect.height
-  const left = Math.min(Math.max(0, rect.left), Math.max(0, window.innerWidth - badgeRect.width))
-
-  badge.style.left = `${left}px`
-  badge.style.top = `${Math.max(0, top)}px`
-}
-
 export function installDomPicker(options = {}) {
   const {
     logPrefix = 'dom-picker',
   } = options
 
-  if (typeof window === 'undefined' || document.getElementById(BADGE_ID)) {
+  if (typeof window === 'undefined' || document.getElementById(OVERLAY_ID)) {
     return
   }
 
   const overlay = createOverlay()
-  const badge = createBadge()
 
   let activeElement = null
   let activeLocation = ''
@@ -226,7 +165,6 @@ export function installDomPicker(options = {}) {
     resizeObserver = new ResizeObserver(() => {
       if (!frozen || !activeElement) return
       updateOverlay(overlay, activeElement)
-      updateBadge(badge, activeElement, activeLocation)
     })
   }
 
@@ -238,15 +176,18 @@ export function installDomPicker(options = {}) {
     }
   }
 
+  const applyActiveMarker = () => {
+    document.querySelectorAll(`[${ACTIVE_ATTR}]`).forEach((el) => {
+      el.removeAttribute(ACTIVE_ATTR)
+    })
+    if (frozen && activeElement) {
+      activeElement.setAttribute(ACTIVE_ATTR, '')
+    }
+  }
+
   const resolveMarkedTarget = (target) => {
     if (!(target instanceof Element)) {
       return null
-    }
-
-    if (target.closest(`#${BADGE_ID}`)) {
-      return activeElement && activeLocation
-        ? { element: activeElement, location: activeLocation }
-        : null
     }
 
     const markedElement = target.closest(`[${ATTRIBUTE_NAME}]`)
@@ -275,23 +216,14 @@ export function installDomPicker(options = {}) {
     activeElement = resolvedTarget?.element || null
     activeLocation = resolvedTarget?.location || ''
     updateOverlay(overlay, activeElement)
-
-    if (activeElement && activeLocation) {
-      updateBadge(badge, activeElement, activeLocation)
-    } else {
-      updateBadge(badge, null, '')
-    }
   }
 
   const handleClick = async (event) => {
     if (disabled) return
     if (frozen) {
-      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_MENU' }, '*')
+      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_PANELS' }, '*')
       event.preventDefault()
       event.stopPropagation()
-      return
-    }
-    if (event.target instanceof Element && event.target.closest(`#${BADGE_ID}`)) {
       return
     }
 
@@ -307,10 +239,10 @@ export function installDomPicker(options = {}) {
     frozen = true
     ensureResizeObserver()
     observeActiveElement(element)
+    applyActiveMarker()
     event.preventDefault()
     event.stopPropagation()
 
-    updateBadge(badge, element, location)
     const rect = element.getBoundingClientRect()
     window.parent.postMessage(
       {
@@ -331,14 +263,10 @@ export function installDomPicker(options = {}) {
 
   const handleContextMenu = (event) => {
     if (disabled) return
-    if (frozen) {
-      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_MENU' }, '*')
-      event.preventDefault()
-      event.stopPropagation()
-      return
-    }
 
-    const resolvedTarget = resolveMarkedTarget(event.target)
+    const resolvedTarget = frozen && activeElement && activeLocation
+      ? { element: activeElement, location: activeLocation }
+      : resolveMarkedTarget(event.target)
     if (!resolvedTarget?.element || !resolvedTarget.location) {
       return
     }
@@ -351,6 +279,7 @@ export function installDomPicker(options = {}) {
     frozen = true
     ensureResizeObserver()
     observeActiveElement(resolvedTarget.element)
+    applyActiveMarker()
     lastContextMenuX = event.clientX
     lastContextMenuY = event.clientY
 
@@ -375,12 +304,10 @@ export function installDomPicker(options = {}) {
   const handleScrollOrResize = () => {
     if (disabled) return
     updateOverlay(overlay, activeElement)
-    updateBadge(badge, activeElement, activeLocation)
   }
 
-  document.body.append(overlay, badge)
+  document.body.append(overlay)
   overlay.style.display = 'none'
-  badge.style.display = 'none'
   window.addEventListener('pointermove', handlePointerMove, true)
   window.addEventListener('click', handleClick, true)
   window.addEventListener('contextmenu', handleContextMenu, true)
@@ -394,20 +321,21 @@ export function installDomPicker(options = {}) {
     if (!resolved?.element || !resolved.location) return
     activeElement = resolved.element
     activeLocation = resolved.location
+    frozen = true
+    ensureResizeObserver()
+    observeActiveElement(resolved.element)
+    applyActiveMarker()
     updateOverlay(overlay, activeElement)
-    updateBadge(badge, activeElement, activeLocation)
     const rect = resolved.element.getBoundingClientRect()
     window.parent.postMessage(
       {
-        type: 'DOM_PICKER_CONTEXT_MENU',
+        type: 'DOM_PICKER_QUICK_FIX',
         domPickerId: resolved.location,
         domPickerComponent: resolved.element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: resolved.element.getAttribute('class') || '',
         elementProps: resolved.element.getAttribute('data-element-props') || '',
         tagName: resolved.element.tagName.toLowerCase(),
         rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-        clickX: lastContextMenuX,
-        clickY: lastContextMenuY,
       },
       '*',
     )
@@ -417,16 +345,15 @@ export function installDomPicker(options = {}) {
   window.addEventListener('message', (event) => {
     if (event.data.type === 'DOM_PICKER_UNFREEZE') {
       frozen = false
+      applyActiveMarker()
       if (resizeObserver) resizeObserver.disconnect()
     }
     if (event.data.type === 'DOM_PICKER_TOGGLE') {
       disabled = !event.data.active
       if (disabled) {
         overlay.style.display = 'none'
-        badge.style.display = 'none'
       } else {
         overlay.style.display = ''
-        badge.style.display = 'flex'
       }
     }
     if (event.data.type === 'DOM_PICKER_SELECT_PARENT') {
@@ -450,14 +377,14 @@ export function installDomPicker(options = {}) {
       if (newElement) {
         activeElement = newElement
         observeActiveElement(newElement)
+        applyActiveMarker()
         updateOverlay(overlay, activeElement)
-        updateBadge(badge, activeElement, activeLocation)
       } else {
         frozen = false
         activeElement = null
         activeLocation = ''
+        applyActiveMarker()
         updateOverlay(overlay, null)
-        updateBadge(badge, null, '')
       }
     })
   })

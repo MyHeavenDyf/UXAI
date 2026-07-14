@@ -11,6 +11,7 @@ import {
 import { isTailwindToken, normalizeCssKeys, toHex } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
 import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
+import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
 import {
@@ -815,7 +816,6 @@ export function PropertyEditorPopup(props: {
     }
   })
   onCleanup(() => window.removeEventListener('click', onWindowClick))
-  onCleanup(() => clearTimeout(autoUpdateTimer))
 
   onCleanup(() => clearTimeout(autoUpdateTimer))
 
@@ -1543,10 +1543,8 @@ export function PropertyEditorPopup(props: {
             </Show>
 
             <Show when={isTextElement()}>
-            <div class="flex items-center gap-2 pt-2 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">背景色</label>
-              <input type="color" value={editBgColor()} onInput={(e) => setEditBgColor(e.currentTarget.value)}
-                class="w-5 h-5 rounded cursor-pointer p-0" />
+            <div class="pt-2 border-t -mx-4 px-4 border-[#e5e7eb]">
+              <ColorPicker value={editBgColor()} onChange={setEditBgColor} label="背景色" tokens={BG_COLOR_TOKENS} placeholder="无" />
             </div>
 
             <div class="flex items-center gap-2 pb-2 -mx-4 px-4">
@@ -1596,17 +1594,7 @@ export function PropertyEditorPopup(props: {
                 <DragInput value={editFontSize} setValue={setEditFontSize} setFound={() => { }} found={() => true} placeholder="字号" icon={"S"} />
               </div>
 
-              <div class="flex items-center gap-2">
-                <label class="text-[10px] font-medium text-slate-500 shrink-0">文字色</label>
-                <div class="flex items-center gap-2 flex-1">
-                  <input type="color" value={editTextColor()} onInput={(e) => setEditTextColor(e.currentTarget.value)}
-                    class="w-5 h-5 rounded cursor-pointer p-0" />
-                  <span class="text-[10px] text-slate-400">{editTextColor() || '继承'}</span>
-                  <Show when={editTextColor()}>
-                    <button onClick={() => setEditTextColor('')} class="text-[10px] text-slate-400 hover:text-slate-600 ml-auto">清除</button>
-                  </Show>
-                </div>
-              </div>
+              <ColorPicker value={editTextColor()} onChange={setEditTextColor} label="文字色" tokens={TEXT_COLOR_TOKENS} />
 
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">

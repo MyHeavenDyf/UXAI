@@ -4,7 +4,7 @@ import { ElInput } from "element-plus"
 import type { InputNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { useIconComponentRef } from "../Icon/IconBase"
 import "./Input.less"
 
 defineOptions({ inheritAttrs: false })
@@ -49,6 +49,9 @@ const maxlength = computed(() => resolveValue(properties.maxLength))
 const suffix = computed(() => resolveValue(properties.suffix) as string)
 const prefix = computed(() => resolveValue(properties.prefix) as string)
 
+const resolvedPrefix = useIconComponentRef(prefix, { size: 14 })
+const resolvedSuffix = useIconComponentRef(suffix, { size: 14 })
+
 const initVal = computed(() => resolveValue(properties.value) as string)
 const value = ref(initVal.value)
 watch(
@@ -77,11 +80,11 @@ function change(val: string) {
     :placeholder="placeholder"
     @change="change"
   >
-    <template v-if="prefix" #prefix>
-      <component :is="getLucideIconComponentRef(prefix)" :size="14" />
+    <template v-if="prefix && resolvedPrefix?.component" #prefix>
+      <component :is="resolvedPrefix.component" v-bind="resolvedPrefix.props" />
     </template>
-    <template v-if="suffix" #suffix>
-      <component :is="getLucideIconComponentRef(suffix)" :size="14" />
+    <template v-if="suffix && resolvedSuffix?.component" #suffix>
+      <component :is="resolvedSuffix.component" v-bind="resolvedSuffix.props" />
     </template>
   </ElInput>
 </template>

@@ -44,6 +44,7 @@ export interface BindingInfo {
 export interface MappingDef {
   tag?: string;
   import?: string;
+  importMode?: string;
   binding?: Record<string, BindingInfo>;
   propsMap?: Record<string, string>;
   valueMap?: Record<string, any>;
@@ -168,7 +169,7 @@ export class ComponentRegistry {
    * @param opts.forImport 仅用于 import 收集（不调用 transform 以免副作用）
    * @param opts.rawState 注入到 transform 用于 state 访问
    * @param opts.resolveNode 递归解析器，供 transform 手动解析任意 A2UI 节点
-   * @param opts.iconNameMap A2UI icon name → @hui/icon-plus 组件名映射表（由 ResolveIcons 步骤填充）
+   * @param opts.iconNameMap A2UI icon name → @nce/icon-plus 组件名映射表（由 ResolveIcons 步骤填充）
    * @returns 转换结果（含 stateData/componentData 时携带）
    */
   transform(componentName: string, node: any, opts: any = {}): TransformResult | null {
@@ -191,7 +192,7 @@ export class ComponentRegistry {
       if (opts.forImport) {
         // 静态 tag/import 优先返回（性能优化：避免不必要的 transform 调用）
         if (!def.transform) {
-          return { __nodeType: 'component', tag, import: importPath };
+          return { __nodeType: 'component', tag, import: importPath, importMode: def.importMode };
         }
         // 有自定义 transform 的组件：调用 transform 获取动态 tag/import
         // 注入与正常 transform 相同的 context（iconNameMap 等）
@@ -208,7 +209,7 @@ export class ComponentRegistry {
             __nodeType: 'component',
             tag: (result && result.tag) || tag,
             import: (result && result.import) || importPath,
-            importMode: result && result.importMode,
+            importMode: (result && result.importMode) || def.importMode,
           };
         } catch (err: any) {
           return { __nodeType: 'component', tag, import: importPath };
@@ -253,7 +254,7 @@ export class ComponentRegistry {
         __nodeType: 'component',
         tag: result.tag || tag,
         import: result.import || importPath,
-        importMode: result.importMode,
+        importMode: result.importMode || def.importMode,
         props: finalProps,
         children: result.children !== undefined ? result.children : (node.children || null),
         wrapper: result.wrapper || node.wrapper,

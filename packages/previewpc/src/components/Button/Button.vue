@@ -4,8 +4,7 @@ import { ElButton } from "element-plus"
 import type { ButtonNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { useIconComponentRef } from "../Icon/IconBase"
 import "./Button.less"
 
 type ButtonType = "" | "default" | "primary" | "danger" | "text" | "success" | "warning" | "info"
@@ -74,37 +73,45 @@ const iconName = computed(() => resolveValue(properties?.icon) as string)
 const onlyIcon = computed(() => {
   return !label.value && iconName.value
 })
-// const isIconOnlyCircle = computed(() => {
-//   return onlyIcon.value && shape.value.circle
-// })
 const iconPlacement = computed(() => properties.iconPlacement || "start")
-const iconBindings = computed(() => {
-  let iconColor = "currentColor"
+
+// ---- 异步图标解析 ----
+function resolveIconColorForType(): string {
+  if (!onlyIcon.value) return "currentColor"
+  switch (type.value) {
+    case "primary":  return "var(--icon-primary)"
+    case "success":  return "var(--icon-success)"
+    case "warning":  return "var(--icon-warning)"
+    case "danger":   return "var(--icon-error)"
+    case "default":  return "var(--icon-default)"
+    case "info":     return "var(--icon-default)"
+    default:         return "currentColor"
+  }
+}
+
+function resolveIconSize(): number {
   if (onlyIcon.value) {
-    switch (type.value) {
-      case "primary":
-        iconColor = "var(--icon-primary)"; break;
-      case "success":
-        iconColor = "var(--icon-success)"; break;
-      case "warning":
-        iconColor = "var(--icon-warning)"; break;
-      case "danger":
-        iconColor = "var(--icon-error)"; break;
-      case "default":
-        iconColor = "var(--icon-default)"; break;
-      case "info":
-        iconColor = "var(--icon-default)"; break;
-      default:
-        iconColor = "currentColor"; break;
-    }
-  } 
+    return size.value ? circleIconSizeEnum[size.value] : circleIconSizeEnum.default
+  }
+  return size.value ? iconSizeEnum[size.value] : 16
+}
+
+const iconNameForRef = computed(() => {
+  const name = resolveValue(properties?.icon) as string
+  return name || undefined
+})
+const baseIconRef = useIconComponentRef(iconNameForRef, { strokeWidth: 1 })
+
+const resolvedIcon = computed(() => {
+  if (!baseIconRef.value?.component || !iconName.value) return null
+  const base = baseIconRef.value
+  const isHui = "iconColor" in base.props
+  const colorValue = resolveIconColorForType()
   return {
-    size: onlyIcon.value
-      ? (size.value ? circleIconSizeEnum[size.value] : circleIconSizeEnum.default)
-      : (size.value ? iconSizeEnum[size.value] : 16),
-    color: iconColor,
-    "stroke-width": 1,
-    "absolute-stroke-width": true,
+    component: base.component,
+    props: isHui
+      ? { size: resolveIconSize(), type: base.props.type, iconColor: colorValue }
+      : { size: resolveIconSize(), color: colorValue, "stroke-width": 1 },
   }
 })
 
@@ -136,19 +143,19 @@ const handleClick = () => {
     :size="size"
     :link="isLink" 
     @click="handleClick">
-    <template v-if="iconName">
+    <template v-if="iconName && resolvedIcon">
       <component 
         v-if="iconPlacement === 'start'"
         :class="label ? 'mr-1' : ''"
-        :is="getLucideIconComponentRef(iconName)"
-        v-bind="iconBindings"
+        :is="resolvedIcon.component"
+        v-bind="resolvedIcon.props"
       />
       {{ label }}
       <component
         v-if="iconPlacement === 'end'"
         :class="label ? 'ml-1' : ''"
-        :is="getLucideIconComponentRef(iconName)"
-        v-bind="iconBindings"
+        :is="resolvedIcon.component"
+        v-bind="resolvedIcon.props"
       />
     </template>
     <template v-else>

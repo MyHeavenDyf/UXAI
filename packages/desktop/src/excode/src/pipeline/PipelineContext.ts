@@ -13,7 +13,6 @@
  * config             配置对象
  * registry           ComponentRegistry 实例
  * targetLib          目标组件库名（如 "eview-react"）
- * tailwindAdapter    样式转换适配器实例（{ convert } 接口），由 src/tailwind/ 工厂创建
  *
  * === 数据流字段（按步骤写入）===
  *
@@ -21,7 +20,7 @@
  * resolvedPages[]    ← 步骤 02: 构建树 + 绑定解析结果
  * styleResults[]     ← 步骤 02: 样式转换结果
  * iconNameMap        ← 步骤 03: ResolveIcons 收集的 icon 名称映射表
- *                      A2UI icon name → @hui/icon-plus 组件名
+ *                      A2UI icon name → @nce/icon-plus 组件名
  *                      如 { menu: 'IconPlusIcIctMenu', home: 'IconPlusIcIctHome' }
  * generatedPages[]   ← 步骤 05: 代码生成结果
  * routeResult        ← 步骤 06: 路由文件
@@ -33,13 +32,12 @@ export class PipelineContext {
   config: Record<string, any>;
   registry: ComponentRegistry;
   targetLib: string;
-  tailwindAdapter: any;
   pagesSourceData: any;
   pagesData: any[];
   resolvedPages: any[];
   styleResults: any[];
   /**
-   * icon 名称映射表（A2UI name → @hui/icon-plus 组件名）
+   * icon 名称映射表（A2UI name → @nce/icon-plus 组件名）
    * 由 ResolveIcons 步骤填充，供 Icon.ts 等 mapping transform 查询
    */
   iconNameMap: Record<string, string>;
@@ -57,7 +55,6 @@ export class PipelineContext {
     this.config = config;
     this.registry = registry;
     this.targetLib = config.targetLib || 'eview-react';
-    this.tailwindAdapter = config.tailwindAdapter || null;
 
     // API 模式：直接从内存传入的数据（ReadPages 会优先使用）
     this.pagesSourceData = pagesSourceData;

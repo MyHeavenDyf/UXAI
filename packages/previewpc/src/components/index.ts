@@ -22,6 +22,7 @@ import A2UiTimeline from "./Timeline/Timeline.vue"
 import A2UiTabs from "./Tabs/Tabs.vue"
 
 import A2UiProgress from "./Progress/Progress.vue"
+import A2UiPagination from "./Pagination/Pagination.vue"
 import A2UiBadge from "./Badge/Badge.vue"
 import A2UiRate from "./Rate/Rate.vue"
 import A2UiBreadcrumb from "./Breadcrumb/Breadcrumb.vue"
@@ -82,6 +83,7 @@ const catelog = {
   Timeline: A2UiTimeline,
   Tabs: A2UiTabs,
   Progress: A2UiProgress,
+  Pagination: A2UiPagination,
   Badge: A2UiBadge,
   Rate: A2UiRate,
   Breadcrumb: A2UiBreadcrumb,

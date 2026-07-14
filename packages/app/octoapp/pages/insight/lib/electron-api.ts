@@ -10,9 +10,17 @@ export type DesktopApi = {
   showItemInFolder?: (path: string) => void
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
-  downloadResourceToTemp?: (url: string, namespace: string, filename: string, baseDir?: string) => Promise<string>
-  /** SPEC-INS-014:拷贝源文件进 <baseDir>/insight/sources/(撞名加后缀);返回落地路径 */
+  downloadResourceToTemp?: (
+    url: string,
+    namespace: string,
+    filename: string,
+    baseDir?: string,
+    sessionId?: string,
+  ) => Promise<string>
+  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/insight/uploads/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree?: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/ */
+  movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** 取拖拽/选取 File 的真实本地路径(Electron webUtils.getPathForFile;非桌面端为 undefined) */
   getPathForFile?: (file: File) => string
   /** 覆盖写本地文本文件(markdown 编辑器自动保存;主进程校验路径白名单) */

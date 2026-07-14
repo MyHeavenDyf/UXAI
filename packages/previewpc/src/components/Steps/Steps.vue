@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, ref, watch } from "vue"
+import type { Component } from "vue"
 import { ElSteps, ElStep, type StepsStatus } from "element-plus"
 import type { StepsNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
 import "./Steps.less"
 const statusEnum = {
   wait: "wait",
@@ -53,6 +54,23 @@ const items = computed(() => {
     }
   })
 })
+
+// ---- 异步图标解析 ----
+const resolvedStepIcons = ref<Record<number, { component: Component | null; props: Record<string, any> } | null>>({})
+
+watch(
+  items,
+  async (newItems) => {
+    const map: Record<number, any> = {}
+    await Promise.all(newItems.map(async (item: any, index: number) => {
+      if (item.icon) {
+        map[index] = await getIconComponentRef(item.icon, { size: 16 })
+      }
+    }))
+    resolvedStepIcons.value = map
+  },
+  { immediate: true, deep: true },
+)
 </script>
 
 <template>
@@ -72,8 +90,8 @@ const items = computed(() => {
       :status="item.status as any"
       :class="item.className"
     >
-      <template #icon v-if="item.icon">
-        <component :is="getLucideIconComponentRef(item.icon)" :size="16" />
+      <template #icon v-if="item.icon && resolvedStepIcons[index]">
+        <component :is="resolvedStepIcons[index]?.component" v-bind="resolvedStepIcons[index]?.props ?? {}" />
       </template>
       <template #title>
         <template v-if="typeof item.title === 'string'">{{

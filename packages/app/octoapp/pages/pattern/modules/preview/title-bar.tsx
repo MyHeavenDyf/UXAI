@@ -2,6 +2,7 @@ import { createSignal, onCleanup, For, Show } from "solid-js"
 import {
   IconActionDownload,
   IconActionShare,
+  IconActionAnnotate,
   IconRefresh,
   IconChevronDown,
   IconCanvasHand,
@@ -28,6 +29,8 @@ interface TitleBarProps {
   onFullscreen: () => void
   onDownload?: () => void
   onShare?: () => void
+  onAnnotate?: () => void
+  onText?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -36,6 +39,8 @@ interface TitleBarProps {
   // 容错升级：将这个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
   editing?: boolean
   onToggleEditing?: () => void
+  annotating?: boolean
+  onToggleAnnotating?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -248,7 +253,7 @@ export function TitleBar(props: TitleBarProps) {
           <div class="dropdown-trigger-container">
             <button class="pattern-action-btn" title="历史版本" onClick={() => { setShowHistory(!showHistory()); setOpenPreview(false); setOpenDesktop(false); setOpenZoom(false) }}>
               <IconHistoryClock size={16} />
-              <span>版本</span>
+              <span>历史</span>
             </button>
             <Show when={showHistory()}>
               <div class="history-dropdown-panel">
@@ -285,11 +290,11 @@ export function TitleBar(props: TitleBarProps) {
           {/* 按钮 5：主题切换 */}
           <button 
             class="pattern-action-btn" 
-            title={isDarkMode() ? "切换为白天模式" : "切换为暗黑模式"} 
+            title={isDarkMode() ? "切换为浅色模式" : "切换为深色模式"} 
             onClick={toggleThemeMode}
           >
             {isDarkMode() ? <IconSun size={16} /> : <IconMoon size={16} />}
-            <span>{isDarkMode() ? "白天" : "暗黑"}</span>
+            <span>{isDarkMode() ? "浅色" : "深色"}</span>
           </button>
 
           {/* 下载前的垂直分割线 */}
@@ -305,6 +310,22 @@ export function TitleBar(props: TitleBarProps) {
           <button class="pattern-action-btn" title="下载" onClick={() => props.onDownload?.()}>
             <IconActionDownload size={16} />
             <span>下载</span>
+          </button>
+
+          {/* 按钮 7：标注 */}
+          <button
+            class="pattern-action-btn"
+            classList={{ 'edit-active': !!props.annotating }}
+            title="标注"
+            onClick={() => props.onToggleAnnotating?.()}
+          >
+            <IconActionAnnotate size={16} />
+            <span>标注</span>
+          </button>
+
+          {/* 按钮 8：文本 */}
+          <button class="pattern-text-btn" title="文本" onClick={() => props.onText?.()}>
+            归档
           </button>
         </div>
       </div>

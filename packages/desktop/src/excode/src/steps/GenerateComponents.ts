@@ -479,7 +479,7 @@ export class GenerateComponents extends Step {
           codeGen.children = codeGen.children
             .map((child: any) => {
               if (typeof child === 'string') return child;
-              if (child.__nodeType === 'unresolved') {
+              if (child.__nodeType === 'unresolved' || child.component) {
                 return this._deepResolve(child, registry, cutSlotRoots, rawState, iconNameMap);
               }
               return child;

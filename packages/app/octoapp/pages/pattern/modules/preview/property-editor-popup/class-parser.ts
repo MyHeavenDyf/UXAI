@@ -116,16 +116,20 @@ export function parseClass(cls: string): { classes: string[]; info: ParsedClassI
       const m = c.match(/rounded-bl-\[(\d+)px\]/); if (m) { rbl = Number(m[1]); fRbl = true }
     } else if (c.match(/^rounded-tl-(\S+)/)) {
       const sz: Record<string, number> = { none: 0, sm: 2, md: 6, lg: 8, xl: 12, '2xl': 16, '3xl': 24, full: 999 }
-      rtl = sz[(c.match(/^rounded-tl-(\S+)/) as RegExpMatchArray)[1]]; fRtl = true
+      const key = (c.match(/^rounded-tl-(\S+)/) as RegExpMatchArray)[1]
+      if (key in sz) { rtl = sz[key]; fRtl = true }
     } else if (c.match(/^rounded-tr-(\S+)/)) {
       const sz: Record<string, number> = { none: 0, sm: 2, md: 6, lg: 8, xl: 12, '2xl': 16, '3xl': 24, full: 999 }
-      rtr = sz[(c.match(/^rounded-tr-(\S+)/) as RegExpMatchArray)[1]]; fRtr = true
+      const key = (c.match(/^rounded-tr-(\S+)/) as RegExpMatchArray)[1]
+      if (key in sz) { rtr = sz[key]; fRtr = true }
     } else if (c.match(/^rounded-br-(\S+)/)) {
       const sz: Record<string, number> = { none: 0, sm: 2, md: 6, lg: 8, xl: 12, '2xl': 16, '3xl': 24, full: 999 }
-      rbr = sz[(c.match(/^rounded-br-(\S+)/) as RegExpMatchArray)[1]]; fRbr = true
+      const key = (c.match(/^rounded-br-(\S+)/) as RegExpMatchArray)[1]
+      if (key in sz) { rbr = sz[key]; fRbr = true }
     } else if (c.match(/^rounded-bl-(\S+)/)) {
       const sz: Record<string, number> = { none: 0, sm: 2, md: 6, lg: 8, xl: 12, '2xl': 16, '3xl': 24, full: 999 }
-      rbl = sz[(c.match(/^rounded-bl-(\S+)/) as RegExpMatchArray)[1]]; fRbl = true
+      const key = (c.match(/^rounded-bl-(\S+)/) as RegExpMatchArray)[1]
+      if (key in sz) { rbl = sz[key]; fRbl = true }
     } else if (c.startsWith('rounded-[')) {
       const m = c.match(/rounded-\[(\d+)px\]/)
       if (m) { br = Number(m[1]); fBr = true }
@@ -134,7 +138,7 @@ export function parseClass(cls: string): { classes: string[]; info: ParsedClassI
       const m = c.match(/^rounded-(\S+)/)
       if (m) {
         const sz: Record<string, number> = { none: 0, sm: 2, md: 6, lg: 8, xl: 12, '2xl': 16, '3xl': 24, full: 999 }
-        br = sz[m[1]] ?? 0; fBr = true
+        if (m[1] in sz) { br = sz[m[1]]; fBr = true }
       }
     }
     if (c.startsWith('w-[')) {

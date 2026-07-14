@@ -14,6 +14,7 @@
  */
 ;(function () {
   var ATTR = "dom-picker-id"
+  var ACTIVE_ATTR = "data-dom-picker-active"
   var LONG_PRESS_MS = 300
   var dragMode = false
   var siblingMap = {}
@@ -94,6 +95,11 @@
   function getSibs(el) {
     var mapped = mappedSibs(el)
     return mapped.length > 1 ? mapped : domSibs(el)
+  }
+
+  // 当前 dom-picker 选中（冻结）的元素，只有它可以被拖拽
+  function selectedEl() {
+    return document.querySelector("[" + ACTIVE_ATTR + "]")
   }
 
   function draggable(target) {
@@ -227,7 +233,15 @@
 
   function onDown(e) {
     if (!dragMode || e.button !== 0) return
-    var el = draggable(e.target)
+    // 如果有冻结的选中元素，只允许拖拽它；否则拖拽指针下的任意可拖拽元素
+    var sel = selectedEl()
+    var el
+    if (sel) {
+      if (e.target !== sel && !sel.contains(e.target)) return
+      el = sel
+    } else {
+      el = draggable(e.target)
+    }
     if (!el) return
     e.preventDefault()
     e.stopPropagation()

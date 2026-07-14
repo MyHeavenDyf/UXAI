@@ -15,15 +15,18 @@ const METHOD = "POST"
 // const DEFAULT_GET_PROMPT_TAG_URL = "http://localhost:3000/get_prompt_tags"
 // const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
 // const DEFAULT_GET_HISTORY = "http://localhost:3000/get_history"
+// const DEFAULT_REBOOT_TASK = "http://localhost:3000/reboot_task"
 const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
 const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
 const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancle_task"
 const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
 const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
 const DEFAULT_GET_HISTORY = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_history"
+const DEFAULT_REBOOT_TASK = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/reboot_task"
 const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_CANCEL_TIMEOUT_MS = 15_000
+const DEFAULT_REBOOT_TIMEOUT_MS = 30_000
 
 type JsonRecord = Record<string, unknown>
 type InternalTaskType = "txt2img" | "img2img"
@@ -140,6 +143,11 @@ export type CancelTaskResponse = {
   resp_code?: number
   resp_msg?: string
   result?: boolean
+}
+
+export type RebootTaskResponse = CreateTaskResponse
+export type RebootInternalGenerationResult = {
+  taskId: string
 }
 
 export function isCancelTaskSuccess(response: CancelTaskResponse) {
@@ -558,6 +566,11 @@ function getTaskId(response: CreateTaskResponse): string {
   return String(taskId)
 }
 
+function rebootTaskFailureMessage(response?: RebootTaskResponse) {
+  if (response?.resp_msg?.trim()) return response.resp_msg.trim()
+  return "重新生成失败，请检查网络或稍后再试"
+}
+
 function asStatus(value: unknown): number | string | undefined {
   return typeof value === "number" || typeof value === "string" ? value : undefined
 }
@@ -781,6 +794,65 @@ export async function cancelInternalGeneration(taskId: string): Promise<CancelTa
     )
   }
   return json
+}
+
+export async function rebootInternalGeneration(input: {
+  taskId: string
+  userIdx?: string
+}): Promise<RebootInternalGenerationResult> {
+  const rebootTaskUrl = env("IMAGE_REBOOT_TASK_URL") ?? DEFAULT_REBOOT_TASK
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMsFor("IMAGE_REBOOT_TIMEOUT_MS", DEFAULT_REBOOT_TIMEOUT_MS),
+  )
+  const response = await fetch(rebootTaskUrl, {
+    method: METHOD,
+    headers: internalImageHeaders(),
+    body: JSON.stringify({
+      task_id: input.taskId,
+      user: {
+        idx: input.userIdx ?? env("IMAGE_USER_IDX") ?? DEFAULT_USER_IDX,
+      },
+    }),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "reboot_task network failed.",
+        `taskId=${input.taskId}`,
+        `url=${rebootTaskUrl}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => clearTimeout(timeout))
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "reboot_task failed.",
+        `taskId=${input.taskId}`,
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  const json = parseJson(text) as RebootTaskResponse
+  if (json.resp_code !== undefined && json.resp_code !== 200) {
+    throw new Error(
+      [
+        rebootTaskFailureMessage(json),
+        `taskId=${input.taskId}`,
+        `resp_code=${json.resp_code ?? ""}`,
+        `resp_msg=${json.resp_msg ?? ""}`,
+        `body=${JSON.stringify(json, null, 2)}`,
+      ].join("\n"),
+    )
+  }
+  return {
+    taskId: getTaskId(json),
+  }
 }
 
 function env(name: string) {

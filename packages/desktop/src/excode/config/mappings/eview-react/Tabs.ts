@@ -86,7 +86,7 @@ export default {
   binding: {
     activeKey: {
       changeEvent: 'onClick',
-      valueExtractor: '',
+      valueExtractor: ()=>{},
     },
   },
 

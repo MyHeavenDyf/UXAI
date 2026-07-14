@@ -29,7 +29,7 @@ export class StateStrategy {
   static _walkRefs(node: any, stateRefs: StateRefs): void {
     if (!node) return;
 
-    // 循环数据源绑定
+    // 循环数据源绑定（兼容 _deepResolve 前的 _loopBinding 标记）
     if (node._loopBinding && node._loopBinding.pathType === 'absolute') {
       const { stateKey, bindMode } = node._loopBinding;
       if (stateKey) {
@@ -38,6 +38,22 @@ export class StateStrategy {
           stateRefs.set(stateKey, bindMode);
         }
       }
+    }
+
+    // __type: 'loop' 节点（_deepResolve 转换后的循环节点，此时 _loopBinding 已被消耗）
+    // 从 node.data 中提取 stateKey，作为 readonly 引用
+    if (node.__type === 'loop' && node.data) {
+      if (node.data.__binding && node.data.pathType === 'absolute' && node.data.stateKey) {
+        const existing = stateRefs.get(node.data.stateKey);
+        if (existing !== 'two-way') {
+          stateRefs.set(node.data.stateKey, 'readonly');
+        }
+      }
+      // 递归处理 template body 中的子节点（收集其中的路径绑定）
+      if (node.template && node.template.body) {
+        StateStrategy._walkRefs(node.template.body, stateRefs);
+      }
+      return; // 不再走下面的 props/children 递归
     }
 
     // props 中的绝对绑定

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, h } from "vue"
+import { computed, ref, watch } from "vue"
+import type { Component } from "vue"
 import { ElTimeline, ElTimelineItem } from "element-plus"
 import type { TimelineNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
 import "./Timeline.less"
 
 const modeEnum = {
@@ -32,10 +33,10 @@ const mode = computed(() => {
   return properties.mode ? modeEnum[properties.mode] : "start"
 })
 
-const items = computed(() => {
+const rawItems = computed(() => {
   const children = props.node.properties.children
   if (!children.length) return []
-  return children.map((item: any) => {
+  return children.map((item: any, index: number) => {
     const itemProps = item.properties
 
     const { icon, color, placement, className } = itemProps
@@ -50,8 +51,9 @@ const items = computed(() => {
         ? resolveValue(itemProps.title)
         : itemProps.title
     return {
+      _index: index,
       title: title,
-      icon: iconName ? h(getLucideIconComponentRef(iconName), { size: 16 }) : undefined,
+      iconName: iconName || undefined,
       color,
       placement: placement ? placementEnum[placement as keyof typeof placementEnum] as any : "top",
       className: className,
@@ -59,6 +61,41 @@ const items = computed(() => {
     }
   })
 })
+
+// ---- 异步图标解析 ----
+type ResolvedItem = {
+  title: any
+  icon: Component | undefined
+  color: string
+  placement: "top" | "bottom"
+  className: string
+  content: any
+}
+const resolvedItems = ref<ResolvedItem[]>([])
+
+watch(
+  rawItems,
+  async (raw) => {
+    const results = await Promise.all(
+      raw.map(async (r: any) => {
+        if (!r.iconName) {
+          return { title: r.title, icon: undefined, color: r.color, placement: r.placement, className: r.className, content: r.content }
+        }
+        const refComp = await getIconComponentRef(r.iconName, { size: 16 })
+        return {
+          title: r.title,
+          icon: refComp?.component ?? undefined,
+          color: r.color,
+          placement: r.placement,
+          className: r.className,
+          content: r.content,
+        }
+      }),
+    )
+    resolvedItems.value = results
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -66,11 +103,11 @@ const items = computed(() => {
     :id="id"
     :class="className"
     :mode="mode as any"
-    v-if="items.length"
+    v-if="resolvedItems.length"
     direction="vertical"
   >
     <ElTimelineItem
-      v-for="(item, index) in items"
+      v-for="(item, index) in resolvedItems"
       :key="index"
       :hollow="variant ==='outlined'"
       :icon="item.icon"
