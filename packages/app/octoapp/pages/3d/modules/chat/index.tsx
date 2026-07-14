@@ -33,6 +33,7 @@ function RoundCard(props: {
   versionId: string | null
   onSwitchScene: (versionId: string) => void
   isLatest: boolean
+  failed: boolean
   genStartTime: number
   startTime: number
   endTime?: number
@@ -86,6 +87,12 @@ export function ChatPanel(props: {
   onDrop: (e: DragEvent) => void
   /** 点击消息中的结果卡片回调 */
   onOpenResult: (card: OutputCard) => void
+  /** 主流程是否正在生成 */
+  pipelineBusy: boolean
+  /** 是否被中止 */
+  aborted: boolean
+  /** 是否生成失败 */
+  failed: boolean
   /** 当前生成开始时间(用于最新轮次的计时器,避免 sync 延迟导致叠加) */
   genStartTime: number
   /** 按轮分组的消息 */
@@ -277,6 +284,7 @@ export function ChatPanel(props: {
                           versionId={props.roundCards[ri]?.versionId ?? null}
                           onSwitchScene={props.onSwitchScene}
                           isLatest={ri === props.roundMessages.length - 1}
+                          failed={props.failed}
                           genStartTime={props.genStartTime}
                           startTime={round().startTime}
                           endTime={round().endTime}

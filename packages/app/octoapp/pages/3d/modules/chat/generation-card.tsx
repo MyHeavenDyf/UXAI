@@ -8,6 +8,7 @@ export function GenerationCard(props: {
   generating: boolean
   outcome: GenOutcome
   /** 该轮是否有对应场景版本(完成的卡片可点击切回) */
+  failed?: boolean
   canSwitch: boolean
   onSwitch: () => void
 }): JSX.Element {
