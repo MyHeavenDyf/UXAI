@@ -4,6 +4,8 @@ import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import { useProjectDir } from "@/hooks/use-project-dir"
+import { materializeUriCardToOutputs } from "../utils/local-resource"
 import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
@@ -30,6 +32,10 @@ export type OutputCard = {
   description?: string      // uri 模式来自 resource_link.description,卡片副标题
   createdAt: Date
 }
+
+// eager 落地去重(SPEC-INS-014 v4):记已触发落盘的 uri 卡 id,避免同一卡在 memo 反复重算 / 多 turn 实例
+// 重挂时重复发 IPC(主进程本身按 card.id 幂等,这层只是省无谓 IPC)。card.id 全局唯一(含 messageID)。
+const eagerMaterializedCardIds = new Set<string>()
 
 // 路径 B 嗅探规则:table / mindmap / json / html 互相独立,允许同时命中
 // (典型:内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape → 出双卡)
@@ -332,6 +338,21 @@ export function InsightTurn(props: {
   // 入口卡片(下方紧凑条)作为"附加预览能力",绝不替代对话内容。
   // 业界对照:Claude.ai Artifacts / ChatGPT Canvas / Cursor 均保留对话原貌,不抹掉。
   // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
+
+  // eager 落地(SPEC-INS-014 v4):本 turn 路径 A 的 MCP `uri` 产物卡「出卡即落」进 outputs,不等点开。
+  // (任务产物走 index.tsx 的 taskCards effect;此处覆盖非任务的直接 resource_link。)inline/path 卡不落
+  // (inline 是对话附加预览、path/write 产物由 agent 约定直接写 outputs,前端不搬运)。dedup 跨 turn 实例共享。
+  const eagerProjectDir = useProjectDir()
+  createEffect(() => {
+    const dir = eagerProjectDir()
+    if (!dir || !props.sessionID) return
+    for (const card of outputCards()) {
+      if (card.source !== "uri" || !card.uri) continue
+      if (eagerMaterializedCardIds.has(card.id)) continue
+      eagerMaterializedCardIds.add(card.id)
+      void materializeUriCardToOutputs(card, dir, props.sessionID)
+    }
+  })
 
   return (
     <div class="flex flex-col mb-4">
