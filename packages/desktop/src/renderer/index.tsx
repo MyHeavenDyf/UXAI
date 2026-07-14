@@ -221,10 +221,7 @@ const createPlatform = (): Platform => {
       }
     },
 
-    fetch: (input, init) => {
-      if (input instanceof Request) return fetch(input)
-      return fetch(input, init)
-    },
+    fetch: (input, init) => fetch(input, init),
 
     getWslEnabled: () => isWslEnabled(),
 

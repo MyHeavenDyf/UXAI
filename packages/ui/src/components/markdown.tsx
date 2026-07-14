@@ -61,6 +61,61 @@ function fallback(markdown: string) {
   return escape(markdown).replace(/\r\n?/g, "\n").replace(/\n/g, "<br>")
 }
 
+export function escapeInlineHtml(text: string): string {
+  const parts: Array<{ code: boolean; text: string }> = []
+  let i = 0
+  const len = text.length
+
+  while (i < len) {
+    if (text.slice(i, i + 3) === "```") {
+      let j = i + 3
+      while (j < len && text.slice(j, j + 3) !== "```") j++
+      if (j < len) {
+        parts.push({ code: true, text: text.slice(i, j + 3) })
+        i = j + 3
+        continue
+      }
+    }
+
+    if (text[i] === "`") {
+      let j = i + 1
+      while (j < len && text[j] !== "`") {
+        if (text[j] === "\\") j++
+        j++
+      }
+      if (j < len) {
+        parts.push({ code: true, text: text.slice(i, j + 1) })
+        i = j + 1
+        continue
+      }
+    }
+
+    let nextCode = text.indexOf("`", i)
+    let nextFence = text.indexOf("```", i)
+    if (nextCode === -1) nextCode = len
+    if (nextFence === -1) nextFence = len
+    const next = Math.min(nextCode, nextFence)
+    if (next > i) {
+      parts.push({ code: false, text: text.slice(i, next) })
+      i = next
+      continue
+    }
+    parts.push({ code: false, text: text.slice(i) })
+    break
+  }
+
+  const htmlTagRe = /<[a-zA-Z][a-zA-Z0-9\-]*(?:\s+[a-zA-Z_:][a-zA-Z0-9_:\-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>|<\/[a-zA-Z][a-zA-Z0-9\-]*\s*>/g
+
+  return parts
+    .map((p) => {
+      if (p.code) return p.text
+      return p.text.replace(htmlTagRe, (match) => {
+        return match.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      })
+    })
+    .join("")
+}
+
 type CopyLabels = {
   copy: string
   copied: string
@@ -326,7 +381,8 @@ export function Markdown(
             }
           }
 
-          const next = await Promise.resolve(marked.parse(block.src))
+          const escaped = escapeInlineHtml(block.src)
+          const next = await Promise.resolve(marked.parse(escaped))
           const safe = sanitize(next)
           if (key && hash) touch(key, { hash, html: safe })
           return safe
