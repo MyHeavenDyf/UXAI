@@ -38,7 +38,10 @@ export const SettingsProviders: Component = () => {
 
   const connected = createMemo(() => {
     const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
-    return providers.connected().filter((p) => p.id === "w3" || !disabled.has(p.id))
+    return providers
+      .connected()
+      .filter((p) => p.id === "w3" || !disabled.has(p.id))
+      .sort((a, b) => Number(b.id === "w3") - Number(a.id === "w3"))
   })
 
   const popular = createMemo(() => {
@@ -66,6 +69,7 @@ export const SettingsProviders: Component = () => {
   }
 
   const type = (item: ProviderItem) => {
+    if (item.id === "w3") return language.t("common.default")
     const current = source(item)
     if (current === "env") return language.t("settings.providers.tag.environment")
     if (current === "api") return language.t("provider.connect.method.apiKey")

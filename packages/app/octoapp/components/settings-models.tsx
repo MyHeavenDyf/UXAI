@@ -1,5 +1,5 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
-import { Button } from "@opencode-ai/ui/button"
+// import { Button } from "@opencode-ai/ui/button"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -66,9 +66,14 @@ export const SettingsModels: Component = () => {
           <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold" }}>
             {language.t("settings.models.title")}
           </div>
-          <Button size="small" variant="secondary" disabled={models.remote.loading()} onClick={() => void models.remote.refresh()}>
+          {/* <Button
+            size="small"
+            variant="secondary"
+            disabled={models.remote.loading()}
+            onClick={() => void models.remote.refresh()}
+          >
             {models.remote.loading() ? "刷新中" : "刷新"}
-          </Button>
+          </Button> */}
         </div>
         <div style={{ display: "flex", "align-items": "center", gap: "8px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px", "margin-bottom": "12px" }}>
           <Icon name="magnifying-glass" class="text-icon-weak-base flex-shrink-0" />
