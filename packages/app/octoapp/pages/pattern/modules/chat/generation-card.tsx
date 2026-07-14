@@ -8,6 +8,7 @@ export function GenerationCard(props: {
   error?: string
   needsConfirm: boolean
   confirmText?: { title: string; subtitle: string } | null
+  onRetry?: () => void
 }): JSX.Element {
   const cardState = () => {
     if (props.error) return { title: props.error, subtitle: "生成异常，请重试", badge: "gc-error-badge", badgeText: "失败" } as const
@@ -34,7 +35,12 @@ export function GenerationCard(props: {
             </Show>
           </div>
           <Show when={props.generating && !props.error} fallback={
-            <span class={cardState().badge}>{cardState().badgeText}</span>
+            <div class="flex items-center gap-2">
+              <Show when={props.error && props.onRetry}>
+                <button class="gc-retry-btn" onClick={() => props.onRetry!()}>重试</button>
+              </Show>
+              <span class={cardState().badge}>{cardState().badgeText}</span>
+            </div>
           }>
             <span class="gc-gen-badge">
               <span class="w-1.5 h-1.5 rounded-full animate-pulse gc-pulse-dot" />

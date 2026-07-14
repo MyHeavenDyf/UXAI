@@ -40,6 +40,7 @@ function RoundCard(props: {
   confirmText?: { title: string; subtitle: string } | null
   pauseMs: number
   pauseStartedAt?: number
+  onRetry?: () => void
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
   const generating = () => isLatest() && props.pipelineBusy && !props.needsConfirm
@@ -54,6 +55,7 @@ function RoundCard(props: {
         error={props.error}
         needsConfirm={props.needsConfirm}
         confirmText={props.confirmText}
+        onRetry={props.onRetry}
       />
       <Show when={done() || generating() || props.needsConfirm}>
         <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} pauseMs={props.pauseMs} pauseStartedAt={props.pauseStartedAt} />
@@ -103,6 +105,8 @@ export function ChatPanel(props: {
   onDeleteSession: (id: string) => Promise<void>
   /** 标题修改后通知父组件更新 */
   onTitleChanged: (title: string) => void
+  /** 重试失败的 pipeline */
+  onRetry?: () => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -327,6 +331,7 @@ export function ChatPanel(props: {
                           confirmText={props.confirmText}
                           pauseMs={props.pauseMs}
                           pauseStartedAt={props.pauseStartedAt}
+                          onRetry={props.onRetry}
                         />
                       </>
                     )}
