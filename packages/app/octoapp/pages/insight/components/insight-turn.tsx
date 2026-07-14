@@ -1,9 +1,11 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
-import { useData } from "@opencode-ai/ui/context"
-import { createMemo, For, Show } from "solid-js"
+import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
+import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import { useProjectDir } from "@/hooks/use-project-dir"
+import { materializeUriCardToOutputs } from "../utils/local-resource"
 import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
@@ -30,10 +32,37 @@ export type OutputCard = {
   createdAt: Date
 }
 
+// eager 落地去重(SPEC-INS-014 v4):记已触发落盘的 uri 卡 id,避免同一卡在 memo 反复重算 / 多 turn 实例
+// 重挂时重复发 IPC(主进程本身按 card.id 幂等,这层只是省无谓 IPC)。card.id 全局唯一(含 messageID)。
+const eagerMaterializedCardIds = new Set<string>()
+
 // 路径 B 嗅探规则:table / mindmap / json / html 互相独立,允许同时命中
 // (典型:内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape → 出双卡)
 // 详见 docs/specs/ui/output-renderers.md §2。直接在 outputCards memo 内顺序判断,
 // 不再走"按优先级取一个"的旧路径。
+
+// 工具调用过程的显示名映射(SPEC-INS-021 §4):上游 SessionTurn 用 i18n 键取工具标题
+// (message-part.tsx getToolInfo),这里给面向研究员的人话覆盖,不动上游实现——只在本组件
+// 子树内生效,其余键透传外层 i18n。extract_document 是自研工具,title 已在工具侧直接中文化。
+const TOOL_TITLE_OVERRIDES: Record<string, string> = {
+  "ui.tool.read": "读取文件",
+  "ui.tool.grep": "检索内容",
+  "ui.tool.glob": "查找文件",
+  "ui.messagePart.title.write": "写入产物",
+  "ui.tool.agent": "子任务分析",
+  "ui.tool.agent.default": "子任务分析",
+}
+
+function withInsightToolTitles(outer: UiI18n): UiI18n {
+  return {
+    locale: outer.locale,
+    t: (key, params) => {
+      // extract_document 无专属渲染器,走 GenericTool 的「调用了 `<tool>`」模板;此处按参数特例
+      if (key === "ui.basicTool.called" && params?.tool === "extract_document") return "提取文档正文"
+      return TOOL_TITLE_OVERRIDES[key] ?? outer.t(key, params)
+    },
+  }
+}
 
 
 export function InsightTurn(props: {
@@ -56,6 +85,7 @@ export function InsightTurn(props: {
   resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
 }): JSX.Element {
   const data = useData()
+  const i18n = useI18n()
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -277,6 +307,21 @@ export function InsightTurn(props: {
   // 业界对照:Claude.ai Artifacts / ChatGPT Canvas / Cursor 均保留对话原貌,不抹掉。
   // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
 
+  // eager 落地(SPEC-INS-014 v4):本 turn 路径 A 的 MCP `uri` 产物卡「出卡即落」进 outputs,不等点开。
+  // (任务产物走 index.tsx 的 taskCards effect;此处覆盖非任务的直接 resource_link。)inline/path 卡不落
+  // (inline 是对话附加预览、path/write 产物由 agent 约定直接写 outputs,前端不搬运)。dedup 跨 turn 实例共享。
+  const eagerProjectDir = useProjectDir()
+  createEffect(() => {
+    const dir = eagerProjectDir()
+    if (!dir || !props.sessionID) return
+    for (const card of outputCards()) {
+      if (card.source !== "uri" || !card.uri) continue
+      if (eagerMaterializedCardIds.has(card.id)) continue
+      eagerMaterializedCardIds.add(card.id)
+      void materializeUriCardToOutputs(card, dir, props.sessionID)
+    }
+  })
+
   return (
     <div class="flex flex-col mb-4">
       {/* 用户附件(贴合用户气泡上方,右对齐)——非图片走文件卡片,图片走缩略图,替代在气泡里暴露裸路径/URL */}
@@ -303,13 +348,16 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
-      <SessionTurn
-        sessionID={props.sessionID}
-        messageID={props.messageID}
-        status={props.status}
-        active={props.active || (props.status.type === "retry" && isLatestTurn())}
-        classes={{ root: "px-3" }}
-      />
+      {/* I18nProvider 薄包一层:仅覆盖工具标题键(TOOL_TITLE_OVERRIDES),把过程展示换成人话 */}
+      <I18nProvider value={withInsightToolTitles(i18n)}>
+        <SessionTurn
+          sessionID={props.sessionID}
+          messageID={props.messageID}
+          status={props.status}
+          active={props.active || (props.status.type === "retry" && isLatestTurn())}
+          classes={{ root: "px-3" }}
+        />
+      </I18nProvider>
 
       <Show when={showGenerating()}>
         <div

@@ -978,7 +978,7 @@ export const dict = {
   "designFiles.uploadFile": "上传文件",
   "designFiles.uploadFolder": "上传文件夹",
   "designFiles.uploadFileAction": "上传文件",
-  "designFiles.emptyHint": "暂无内容，点击上传新增文件吧",
+  "designFiles.emptyHint": "点击上传或拖入本地文件，统一管理会话文件",
 
   "designFiles.download": "下载",
   "designFiles.batchDelete": "删除",

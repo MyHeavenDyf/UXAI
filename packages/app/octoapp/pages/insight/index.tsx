@@ -37,9 +37,11 @@ import { InsightSidebar } from "./sidebar"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
+import { InsightPermissionDock } from "./components/permission-dock"
 import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { materializeUriCardToOutputs } from "./utils/local-resource"
 import { PRESET_PROMPTS } from "./store/preset-prompts"
 import {
   buildChipDeclaration,
@@ -280,8 +282,11 @@ function InsightContent() {
     void sdk.client.session
       .get({ sessionID: bootSaved.id })
       .then((r: { data?: unknown }) => {
-        if (r?.data) navigate(`/insight/${bootSaved.id}`, { replace: true })
-        else localStorage.removeItem(LAST_SESSION_KEY) // 已删 → 留首页 + 清记录
+        const session = r?.data as Session | undefined
+        // parentID 有值 = task 子会话:不恢复(SPEC-INS-021 §1 追加)。导航拦截之外的兜底——
+        // 历史遗留记录 / 直接 URL 仍可能把子会话写进 LAST_SESSION_KEY,恢复进去就是"没有记录的对话"。
+        if (session && !session.parentID) navigate(`/insight/${bootSaved.id}`, { replace: true })
+        else localStorage.removeItem(LAST_SESSION_KEY) // 已删/子会话 → 留首页 + 清记录
       })
       .catch(() => { /* 网络/未知错误:不跳,保持首页,记录留待下次 */ })
   })
@@ -783,6 +788,16 @@ function InsightContent() {
   ))
 
   // ── session 操作 ──────────────────────────────────────────
+
+  // task 子会话不是用户级对话(SPEC-INS-021 §1 追加):它不在侧栏列表里,跳进去就是
+  // "没有记录的对话"。所有会话导航入口(task 卡片点击 / href / 刷新恢复)都经此判定拦截,
+  // 过程仍由 turn 内联的 task 卡片透明展示(§4),只是不 fork 出第二个对话入口。
+  function isChildSession(sessionID: string): boolean {
+    const sessions = sync.data.session as Session[]
+    const match = Binary.search(sessions, sessionID, (s) => s.id)
+    const target = match.found ? sessions[match.index] : undefined
+    return !!target?.parentID
+  }
 
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = projectDir()
@@ -1663,6 +1678,27 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  // ── eager 落地(SPEC-INS-014 v4):completed 任务的 MCP 产物「出卡即落」进 outputs,不等用户点开 ──
+  // 文件管理「生成文件」段列的是 outputs 磁盘真实文件;此前 uri 产物只在点开渲染时才(部分)落盘,
+  // 导致「生成了但没点开」的产物(典型:思维导图 json)在文件管理查无此文件。这里在 taskCards 拿到
+  // completed 产物 links 时就落盘,与 UI 是否打开解耦。inline / path 卡不在此列(见 v4:inline 不落盘;
+  // path/write 产物由 agent 提示词约定直接写 outputs,前端不搬运)。
+  const eagerMaterializedCardIds = new Set<string>()
+  createEffect(() => {
+    const dir = projectDir()
+    const sid = params.id
+    if (!dir || !sid) return
+    for (const card of taskCards().values()) {
+      if (card.status !== "completed") continue
+      for (const oc of buildOutputCardsFromTask(card)) {
+        if (oc.source !== "uri" || !oc.uri) continue
+        if (eagerMaterializedCardIds.has(oc.id)) continue
+        eagerMaterializedCardIds.add(oc.id)
+        void materializeUriCardToOutputs(oc, dir, sid)
+      }
+    }
+  })
+
   // ── 兑现「查看结果」:上面的查询返回真实产物后,把 pendingOpen 的那张任务结果打开并激活 ──
   createEffect(() => {
     const tid = pendingOpenTaskId()
@@ -1759,8 +1795,17 @@ function InsightContent() {
     <DataProvider
       data={sync.data}
       directory={projectDir() || ""}
-      onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
-      onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
+      onNavigateToSession={(sessionID: string) => {
+        // 子会话导航拦截(SPEC-INS-021 §1 追加,isChildSession 注释详述)
+        if (isChildSession(sessionID)) {
+          console.log("[octo:task] child-session navigation blocked", { sessionID })
+          return
+        }
+        navigate(`/insight/${sessionID}`)
+      }}
+      // 子会话给空串:上游 sessionLink 对 falsy 走路径兜底(/insight 无 /session 段 → 无 href),
+      // 与点击拦截配套,堵住 cmd/中键经 <a href> 绕行的口
+      onSessionHref={(sessionID: string) => (isChildSession(sessionID) ? "" : `/insight/${sessionID}`)}
     >
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
@@ -2007,6 +2052,9 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
+                {/* 权限询问 Dock(SPEC-INS-021 §2):如读取工作区以外的文件需用户确认,
+                    否则服务端 ask 阻塞、界面停在「正在探索」(spec §0.2 贴路径卡死) */}
+                <InsightPermissionDock sessionID={params.id} />
                 {/* 队列提示条:busy 时点了发送会先入队,FIFO 多条逐行列出 (SPEC-INS-007 §3.3.4) */}
                 <Show when={queue().length > 0}>
                   <div class="octo-queue-banner">

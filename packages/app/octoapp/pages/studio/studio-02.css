@@ -1218,3 +1218,34 @@
   background: rgba(0, 0, 0, 0.1);
   border: none;
 }
+
+/* ── Delete dialog ────────── */
+.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+  overflow: hidden;
+}
+
+.delete-dialog .flex.flex-col.gap-4 {
+  overflow: hidden;
+}
+
+.delete-dialog .flex.flex-col.gap-4 > .flex.flex-col.gap-1 {
+  max-height: 200px;
+  overflow-y: auto;
+  padding-right: 8px;
+  margin-right: -8px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.delete-dialog .flex.flex-col.gap-4 > .flex.flex-col.gap-1::-webkit-scrollbar {
+  width: 4px;
+}
+
+.delete-dialog .flex.flex-col.gap-4 > .flex.flex-col.gap-1::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: #e5e5e5;
+}
+
+.delete-dialog .flex.flex-col.gap-4 > .flex.flex-col.gap-1::-webkit-scrollbar-track {
+  background: transparent;
+}

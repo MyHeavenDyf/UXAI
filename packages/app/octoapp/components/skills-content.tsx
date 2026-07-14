@@ -106,10 +106,12 @@ export function SkillsContent(): JSX.Element {
 
   async function loadConfig() {
     // jk-j60099994-replace-with-60062650-components-skills-content-4-start
-    const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
+    const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig>; ensureSkillConfig?: () => Promise<void> } }).api
     // jk-j60099994-replace-with-60062650-components-skills-content-4-end
     if (api?.getSkillsConfig) {
       try {
+        // 确保 skill_config.json 存在（不存在时从 skills.json 构建）
+        await api.ensureSkillConfig?.()
         const data = await api.getSkillsConfig()
         setConfig(data)
       } catch (err) {
