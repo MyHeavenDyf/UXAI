@@ -10,6 +10,9 @@ import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
+const INPUT_IMAGE_PREVIEW_SIZE = 125
+const INPUT_IMAGE_PREVIEW_GAP = 10
+
 export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
@@ -24,65 +27,122 @@ export function StudioConversation(props: {
   onRebootGeneration: (generationID: string) => void
   onSelectImage: (input: { resultID: string; imageID: string }) => void
   onOpenEditor: (capability: StudioCapability) => void
+  onUseInputImage: (url: string) => void
 }): JSX.Element {
+  const [inputImagePreview, setInputImagePreview] = createSignal<{
+    src: string
+    left: number
+    top: number
+  }>()
+
   return (
-    <div class="studio-conversation">
-      <For each={props.turns}>
-        {(turn, index) => (
-          <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
-            <Show when={turn.inputImages?.length}>
-              <div class="studio-user-input-images">
-                <For each={turn.inputImages}>
-                  {(image) => (
-                    <Show when={studioInputImageSrc({
-                      url: image.url,
-                      sdkUrl: props.sdkUrl,
-                      directory: props.directory,
-                    })}>
-                      {(src) => <img class="studio-user-input-image" src={src()} alt="" />}
-                    </Show>
-                  )}
-                </For>
-              </div>
-            </Show>
-            <div class="studio-user-bubble">
-              {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
-            </div>
-            <Show when={turn.editCapability} fallback={
-              <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
-                {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+    <>
+      <div class="studio-conversation">
+        <For each={props.turns}>
+          {(turn, index) => (
+            <div class="studio-conversation-turn" classList={{ separated: index() > 0 }}>
+              <Show when={turn.inputImages?.length}>
+                <div class="studio-user-input-images">
+                  <For each={turn.inputImages}>
+                    {(image) => (
+                      <Show when={studioInputImageSrc({
+                        url: image.url,
+                        sdkUrl: props.sdkUrl,
+                        directory: props.directory,
+                      })}>
+                        {(src) => (
+                          <button
+                            type="button"
+                            class="studio-user-input-image-button"
+                            onMouseEnter={(event) => setInputImagePreview({
+                              src: src(),
+                              ...inputImagePreviewPosition(event.currentTarget.getBoundingClientRect()),
+                            })}
+                            onMouseLeave={() => setInputImagePreview(undefined)}
+                            onFocus={(event) => setInputImagePreview({
+                              src: src(),
+                              ...inputImagePreviewPosition(event.currentTarget.getBoundingClientRect()),
+                            })}
+                            onBlur={() => setInputImagePreview(undefined)}
+                            onClick={() => props.onUseInputImage(src())}
+                          >
+                            <img class="studio-user-input-image" src={src()} alt="" />
+                          </button>
+                        )}
+                      </Show>
+                    )}
+                  </For>
+                </div>
               </Show>
-            }>
-              {(editCapability) => (
-                <button
-                  type="button"
-                  class="studio-assistant-editor-link"
-                  onClick={() => props.onOpenEditor(editCapability())}
-                >
-                  点击前往编辑区
-                  <img src="/studio/stutdio_arrow_right.png" alt="" class="studio-editor-link-arrow" />
-                </button>
-              )}
-            </Show>
-            <Show when={!turn.editCapability}>
-              <StudioResultCard
-                turn={turn}
-                fallbackCapability={props.result?.capability}
-                busy={props.busy && turn.isLatest}
-                actionBusy={props.actionBusy}
-                cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
-                rebooting={Boolean(turn.result && props.rebootingGenerationIDs.has(turn.result.id))}
-                onCancelGeneration={props.onCancelGeneration}
-                onEditGeneration={props.onEditGeneration}
-                onRebootGeneration={props.onRebootGeneration}
-                onSelectImage={props.onSelectImage}
-              />
-            </Show>
-          </div>
-        )}
-      </For>
-    </div>
+              <div class="studio-user-bubble">
+                {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
+              </div>
+              <Show when={turn.editCapability} fallback={
+                <Show when={sanitizeStudioAssistantText(turn.assistantText)}>
+                  {(assistantText) => <div class="studio-assistant-copy">{assistantText()}</div>}
+                </Show>
+              }>
+                {(editCapability) => (
+                  <button
+                    type="button"
+                    class="studio-assistant-editor-link"
+                    onClick={() => props.onOpenEditor(editCapability())}
+                  >
+                    点击前往编辑区
+                    <img src="/studio/stutdio_arrow_right.png" alt="" class="studio-editor-link-arrow" />
+                  </button>
+                )}
+              </Show>
+              <Show when={!turn.editCapability}>
+                <StudioResultCard
+                  turn={turn}
+                  fallbackCapability={props.result?.capability}
+                  busy={props.busy && turn.isLatest}
+                  actionBusy={props.actionBusy}
+                  cancelling={Boolean(turn.result && props.cancellingGenerationIDs.has(turn.result.id))}
+                  rebooting={Boolean(turn.result && props.rebootingGenerationIDs.has(turn.result.id))}
+                  onCancelGeneration={props.onCancelGeneration}
+                  onEditGeneration={props.onEditGeneration}
+                  onRebootGeneration={props.onRebootGeneration}
+                  onSelectImage={props.onSelectImage}
+                />
+              </Show>
+            </div>
+          )}
+        </For>
+      </div>
+      <Portal>
+        <Show when={inputImagePreview()}>
+          {(preview) => (
+            <img
+              class="studio-user-input-image-preview"
+              src={preview().src}
+              alt=""
+              style={{
+                left: `${preview().left}px`,
+                top: `${preview().top}px`,
+              }}
+            />
+          )}
+        </Show>
+      </Portal>
+    </>
   )
+}
+
+function inputImagePreviewPosition(rect: DOMRect) {
+  const margin = 8
+  const leftCandidate = rect.left + rect.width / 2 - INPUT_IMAGE_PREVIEW_SIZE / 2
+  const right = window.innerWidth - margin - INPUT_IMAGE_PREVIEW_SIZE
+  const left = Math.min(Math.max(margin, leftCandidate), Math.max(margin, right))
+  const above = rect.top - INPUT_IMAGE_PREVIEW_GAP - INPUT_IMAGE_PREVIEW_SIZE
+  if (above >= margin) return { left, top: above }
+  const below = rect.bottom + INPUT_IMAGE_PREVIEW_GAP
+  const bottom = window.innerHeight - margin - INPUT_IMAGE_PREVIEW_SIZE
+  return {
+    left,
+    top: Math.min(Math.max(margin, below), Math.max(margin, bottom)),
+  }
 }
 
 function studioInputImageSrc(input: { url: string; sdkUrl: string; directory: string }) {
@@ -303,7 +363,6 @@ export function StudioResultCanvas(props: {
                   >
                     <StudioVideoPlayer
                       src={image().remoteUrl ?? image().url}
-                      poster={image().thumbnailUrl}
                       class={`studio-canvas-image ${getImageOrientation(image())}`}
                       mount={props.videoPlayerMount}
                     />

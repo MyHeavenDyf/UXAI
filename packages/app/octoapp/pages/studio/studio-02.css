@@ -1002,9 +1002,20 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
   margin-left: auto;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.studio-user-input-image-button {
+  width: 80px;
+  height: 80px;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: copy;
 }
 
 .studio-user-input-image {
@@ -1014,6 +1025,23 @@
   object-fit: cover;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.04);
+}
+
+.studio-user-input-image-button:hover .studio-user-input-image {
+  filter: brightness(0.96);
+}
+
+.studio-user-input-image-preview {
+  position: fixed;
+  z-index: 1000;
+  width: 125px;
+  height: 125px;
+  display: block;
+  object-fit: cover;
+  border-radius: 12.5px;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
 }
 
 .studio-user-bubble {

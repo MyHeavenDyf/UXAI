@@ -1376,10 +1376,31 @@ export default function StudioPage() {
     return resolveImageUrlDataUrl(image.remoteUrl ?? image.url)
   }
 
-  async function validateVideoFrame(file: File) {
-    if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
-    if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
-    const asset = await readStudioAsset(file)
+  function dataUrlByteSize(dataUrl: string) {
+    const content = dataUrl.match(/^data:[^;,]+;base64,(.*)$/)?.[1]
+    if (!content) return new Blob([dataUrl]).size
+    const padding = content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0
+    return Math.floor(content.length * 3 / 4) - padding
+  }
+
+  function mimeFromDataUrl(dataUrl: string) {
+    return dataUrl.match(/^data:([^;,]+);base64,/)?.[1] ?? "image/png"
+  }
+
+  async function inputImageAssetFromUrl(url: string) {
+    const dataUrl = await resolveImageUrlDataUrl(url)
+    const mime = mimeFromDataUrl(dataUrl)
+    return {
+      id: crypto.randomUUID(),
+      name: `reference-image.${studioImageExtension(mime)}`,
+      mime,
+      dataUrl,
+    }
+  }
+
+  async function validateVideoFrameAsset(asset: StudioAsset) {
+    if (!asset.mime.startsWith("image/")) throw new Error("请上传图片文件。")
+    if (dataUrlByteSize(asset.dataUrl) > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
     await new Promise<void>((resolve, reject) => {
       const image = new Image()
       image.onload = () => {
@@ -1398,6 +1419,13 @@ export default function StudioPage() {
       image.onerror = () => reject(new Error("无法读取图片尺寸。"))
       image.src = asset.dataUrl
     })
+  }
+
+  async function validateVideoFrame(file: File) {
+    if (!file.type.startsWith("image/")) throw new Error("请上传图片文件。")
+    if (file.size > 10 * 1024 * 1024) throw new Error("图片不能超过 10MB。")
+    const asset = await readStudioAsset(file)
+    await validateVideoFrameAsset(asset)
     return asset
   }
 
@@ -1439,6 +1467,70 @@ export default function StudioPage() {
   function selectStyleModel(value: string) {
     setStyleModel(value)
     setAssets((items) => items.slice(0, referenceImageLimit(value)))
+  }
+
+  async function addReferenceAsset(asset: StudioAsset) {
+    const limit = maxReferenceImages()
+    if (limit !== 1 && assets().length >= limit) {
+      showToast({
+        title: "上传失败",
+        description: `最多上传 ${limit} 张参考图。`,
+      })
+      return
+    }
+    const isJimeng = imageTool() === "jimeng"
+    const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
+    const ext = studioImageExtension(asset.mime)
+    if (!allowedExts.includes(ext)) {
+      showToast({
+        title: "上传失败",
+        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
+      })
+      return
+    }
+    const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
+    const maxSizeLabel = isJimeng ? "15MB" : "8MB"
+    if (dataUrlByteSize(asset.dataUrl) > maxSize) {
+      showToast({
+        title: "上传失败",
+        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
+      })
+      return
+    }
+    const dimensions = await readStudioAssetDimensions(asset)
+    if (dimensions.width > 7500 || dimensions.height > 7500) {
+      showToast({
+        title: "上传失败",
+        description: "图片最大尺寸不能超过 7500px。",
+      })
+      return
+    }
+    tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: 1 }) })
+    setAssets((current) => limit === 1 ? [asset] : [...current, asset].slice(0, limit))
+    autoSetAspectRatioFromDimensions(dimensions.width, dimensions.height)
+  }
+
+  function nextVideoFrameSlot() {
+    if (!videoFrames.first) return "first"
+    if (!videoFrames.last) return "last"
+    return "last"
+  }
+
+  async function addVideoFrameAsset(asset: StudioAsset) {
+    await validateVideoFrameAsset(asset)
+    setVideoFrames(nextVideoFrameSlot(), asset)
+  }
+
+  function useConversationInputImage(url: string) {
+    if (capability() !== "image.generate" && capability() !== "video.generate") return
+    inputImageAssetFromUrl(url)
+      .then((asset) => capability() === "video.generate" ? addVideoFrameAsset(asset) : addReferenceAsset(asset))
+      .catch((error) => {
+        showToast({
+          title: "上传失败",
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   function addAssets(files: File[]) {
@@ -3285,6 +3377,7 @@ if (!headerTitle.pendingRename) return
                 onRebootGeneration={(generationID) => void rebootStudioGeneration(generationID)}
                 onSelectImage={selectStudioImage}
                 onOpenEditor={openEditorEntry}
+                onUseInputImage={useConversationInputImage}
               />
             </Show>
           </ScrollView>
