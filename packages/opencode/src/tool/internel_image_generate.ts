@@ -1,3 +1,4 @@
+import { readFile, stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, Schema } from "effect"
@@ -1225,14 +1226,24 @@ function localImagePath(value: string) {
   return resolved
 }
 
+function imageMimeFromPath(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === ".png") return "image/png"
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg"
+  if (ext === ".webp") return "image/webp"
+  if (ext === ".gif") return "image/gif"
+  if (ext === ".avif") return "image/avif"
+  return undefined
+}
+
 async function readLocalImageDataUrl(value: string) {
   const filePath = localImagePath(value)
   if (!filePath) return undefined
-  const file = Bun.file(filePath)
-  if (!(await file.exists())) throw new Error(`Studio image file does not exist: ${filePath}`)
-  const mime = file.type || "image/png"
-  if (!mime.startsWith("image/")) throw new Error(`Studio local file is not an image. content-type=${mime}`)
-  return `data:${mime};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`
+  const file = await stat(filePath).catch(() => undefined)
+  if (!file?.isFile()) throw new Error(`Studio image file does not exist: ${filePath}`)
+  const mime = imageMimeFromPath(filePath)
+  if (!mime) throw new Error(`Studio local file is not an image. path=${filePath}`)
+  return `data:${mime};base64,${Buffer.from(await readFile(filePath)).toString("base64")}`
 }
 
 async function resolveImageInputDataUrl(value: string) {
