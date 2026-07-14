@@ -110,7 +110,7 @@ const resolvedIcon = computed(() => {
   return {
     component: base.component,
     props: isHui
-      ? { size: resolveIconSize(), type: base.props.type, iconColor: colorValue }
+      ? { size: resolveIconSize(), type: base.props.type, iconColor: [colorValue] }
       : { size: resolveIconSize(), color: colorValue, "stroke-width": 1 },
   }
 })

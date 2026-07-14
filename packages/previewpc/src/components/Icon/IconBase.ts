@@ -101,19 +101,29 @@ export async function getHuiIconComponentRef(name: string): Promise<Component | 
   // 命中缓存
   const cached = huiIconCache.get(huiComponentName)
   if (cached) return cached
-  if (!hasHuiIcons.value) return null
 
   try {
-    // 可选依赖 @hui/icon-plus-vue，可能不存在，由 Vite 插件 huiIconStubPlugin 提供虚拟桩模块
-    const mod = await import('@hui/icon-plus-vue')
-    const component = (mod as any)[huiComponentName]
+    // 按需加载单个图标组件，避免加载整个 @hui/icon-plus-vue 包
+    const mod = await import(`@hui/icon-plus-vue/icons/${huiComponentName}`)
+    const component = mod.default ?? (mod as any)[huiComponentName]
     if (component) {
       const raw = markRaw(component as Component)
       huiIconCache.set(huiComponentName, raw)
       return raw
     }
-  } catch (err) {
-    console.warn(`[IconBase] 动态导入 hui 图标失败: ${huiComponentName}`, err)
+  } catch {
+    // 单个导入失败时回退到全量导入（兼容子路径不支持的包结构）
+    try {
+      const fullMod = await import('@hui/icon-plus-vue')
+      const component = (fullMod as any)[huiComponentName]
+      if (component) {
+        const raw = markRaw(component as Component)
+        huiIconCache.set(huiComponentName, raw)
+        return raw
+      }
+    } catch (err) {
+      console.warn(`[IconBase] 动态导入 hui 图标失败: ${huiComponentName}`, err)
+    }
   }
 
   return null

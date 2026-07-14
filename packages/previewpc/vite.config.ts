@@ -29,13 +29,14 @@ function huiIconStubPlugin() {
   return {
     name: 'hui-icon-stub',
     resolveId(id: string) {
-      if (id === '@hui/icon-plus-vue') {
+      if (id === '@hui/icon-plus-vue' || id.startsWith('@hui/icon-plus-vue/')) {
         if (huiExists) return null // 真实包存在，交给默认解析
-        return '\0virtual:hui-icon-stub'
+        // 顶层和子路径统一返回虚拟桩模块
+        return '\0virtual:hui-icon-stub' + (id === '@hui/icon-plus-vue' ? '' : '/' + id.slice('@hui/icon-plus-vue/'.length))
       }
     },
     load(id: string) {
-      if (id === '\0virtual:hui-icon-stub') {
+      if (id.startsWith('\0virtual:hui-icon-stub')) {
         return 'export default {}'
       }
     },
