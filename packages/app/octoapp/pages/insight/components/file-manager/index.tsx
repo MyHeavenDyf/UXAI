@@ -524,6 +524,12 @@ function FileTable(props: {
   onNavigateFolder: (folder: InsightFile) => void
 }): JSX.Element {
   const store = () => props.fileStore.store
+  let selectAllRef!: HTMLInputElement
+  // indeterminate 是 DOM 属性(非标准 attribute),ref 回调只在挂载跑一次无法响应;
+  // 用 createEffect 跟踪 somePageSelected() 变化,选中部分行时实时刷新半选状态。
+  createEffect(() => {
+    selectAllRef.indeterminate = props.fileStore.somePageSelected()
+  })
 
   return (
     <table class="w-full text-[14px] leading-[22px]" style={{ "border-collapse": "separate", "border-spacing": "0", "table-layout": "fixed" }}>
@@ -532,8 +538,8 @@ function FileTable(props: {
           <th style={{ width: "48px", "min-width": "48px", "max-width": "48px", padding: "12px 16px", "box-sizing": "border-box", "vertical-align": "middle", "text-align": "left", "border-bottom": "1px solid var(--octo-border-divider)" }}>
             <input
               type="checkbox"
+              ref={selectAllRef}
               checked={props.fileStore.allPageSelected()}
-              ref={(el) => { el.indeterminate = props.fileStore.somePageSelected() }}
               onChange={props.onSelectAllPage}
               style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "accent-color": "var(--octo-brand)", "vertical-align": "middle" }}
             />
