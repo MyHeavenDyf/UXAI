@@ -1,6 +1,7 @@
 import { ref, provide, inject } from 'vue'
 import { SurfaceStore } from '../processor/surfaceStore'
 import type { JsonInput, DataValue, A2UIClientEventMessage } from '../processor/type'
+import { processJsonForIcons, hasHuiIcons } from '../../composables/useIconProvider'
 
 export interface A2UIActionsProps {
     createSurface: (id: string, json: JsonInput) => void;
@@ -23,15 +24,32 @@ export interface A2UIContextProps extends A2UIActionsProps {
 
 const A2UI_CONTEXT_KEY = Symbol('A2UIContext')
 
+/** 图标解析超时（ms），超时后降级为 lucide */
+const ICON_RESOLVE_TIMEOUT = 60000
+
 export function provideA2UI(onAction?: (message: A2UIClientEventMessage) => void): A2UIContextProps {
     const store = new SurfaceStore()
     const onActionRef = ref(onAction ?? null)
 
     const actions: A2UIActionsProps = {
-        createSurface: (id: string, json: JsonInput) => {
+        createSurface: async (id: string, json: JsonInput) => {
+            // 等待图标映射完成再渲染，避免先 lucide 后 hui 的闪烁
+            if (hasHuiIcons.value) {
+                await Promise.race([
+                    processJsonForIcons(json),
+                    new Promise<void>((resolve) => setTimeout(resolve, ICON_RESOLVE_TIMEOUT)),
+                ])
+            }
             store.createSurface(id, json);
         },
-        updateSurface: (id: string, json: JsonInput) => {
+        updateSurface: async (id: string, json: JsonInput) => {
+            // 等待图标映射完成再渲染
+            if (hasHuiIcons.value) {
+                await Promise.race([
+                    processJsonForIcons(json),
+                    new Promise<void>((resolve) => setTimeout(resolve, ICON_RESOLVE_TIMEOUT)),
+                ])
+            }
             store.updateSurface(id, json);
         },
         setData: (

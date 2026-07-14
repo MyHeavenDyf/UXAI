@@ -101,10 +101,11 @@ export async function getHuiIconComponentRef(name: string): Promise<Component | 
   // 命中缓存
   const cached = huiIconCache.get(huiComponentName)
   if (cached) return cached
+  if (!hasHuiIcons.value) return null
 
   try {
-    // 可选依赖 @hui/icon-plus-vue，可能不存在，由 try-catch 处理
-    const mod = await import(/* @vite-ignore */ '@hui/icon-plus-vue')
+    // 可选依赖 @hui/icon-plus-vue，可能不存在，由 Vite 插件 huiIconStubPlugin 提供虚拟桩模块
+    const mod = await import('@hui/icon-plus-vue')
     const component = (mod as any)[huiComponentName]
     if (component) {
       const raw = markRaw(component as Component)

@@ -11,7 +11,7 @@
  *      5. 递归遍历 state 中所有对象/数组，收集任意 `icon` 字段的字符串值
  */
 
-const ICON_API_URL = 'https://octo-beta.hdesign.huawei.com/iconPlus/getIconInfo'
+const ICON_API_URL = '/iconPlus/getIconInfo'
 const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate'
 const MAX_STATE_DEPTH = 20
 

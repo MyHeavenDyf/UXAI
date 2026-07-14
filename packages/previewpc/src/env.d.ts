@@ -58,10 +58,4 @@ declare module '@hui/icon-plus-vue' {
   export default iconPlus
   export {}
 }
-
-// ===== virtual:hui-icon-exists 类型声明（由 vite huiIconStubPlugin 注入） =====
-declare module 'virtual:hui-icon-exists' {
-  export const hasHuiIcons: boolean
-  const _default: boolean
-  export default _default
-}
+declare const __HAS_ICONPLUS__: boolean
