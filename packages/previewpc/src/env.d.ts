@@ -51,18 +51,5 @@ declare module 'd3' {
   export * from 'd3'
 }
 
-// ===== 可选依赖 @hui/icon-plus-vue 类型声明 =====
-declare module '@hui/icon-plus-vue' {
-  import type { Component } from 'vue'
-  const iconPlus: Record<string, Component>
-  export default iconPlus
-  export {}
-}
-
-// 单个图标组件按需导入类型
-declare module '@hui/icon-plus-vue/icons/*' {
-  import type { Component } from 'vue'
-  const component: Component
-  export default component
-}
+// ===== 可选依赖 @hui/icon-plus-vue =====
 declare const __HAS_ICONPLUS__: boolean

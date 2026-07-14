@@ -20,29 +20,6 @@ const MIME: Record<string, string> = {
   ".bmp": "image/bmp",
 }
 
-/**
- * 当 @hui/icon-plus-vue 未安装时，提供虚拟桩模块避免 Vite 编译时报错
- * 运行时 hasHuiIcons.value=false 不会执行 import，桩模块不会被实际使用
- */
-function huiIconStubPlugin() {
-  const huiExists = existsSync(resolve(__dirname, 'node_modules/@hui/icon-plus-vue'))
-  return {
-    name: 'hui-icon-stub',
-    resolveId(id: string) {
-      if (id === '@hui/icon-plus-vue' || id.startsWith('@hui/icon-plus-vue/')) {
-        if (huiExists) return null // 真实包存在，交给默认解析
-        // 顶层和子路径统一返回虚拟桩模块
-        return '\0virtual:hui-icon-stub' + (id === '@hui/icon-plus-vue' ? '' : '/' + id.slice('@hui/icon-plus-vue/'.length))
-      }
-    },
-    load(id: string) {
-      if (id.startsWith('\0virtual:hui-icon-stub')) {
-        return 'export default {}'
-      }
-    },
-  }
-}
-
 function uploadsPlugin() {
   const uploadsDir = process.env.OCTO_UPLOADS_DIR || join(resolve(__dirname, ".."), ".octo", "design", "history")
   mkdirSync(uploadsDir, { recursive: true })
@@ -84,17 +61,12 @@ export default defineConfig(({ mode }) => {
       uploadsPlugin(),
       fileProtocolPlugin(),
       previewDataPlugin(fileURLToPath(new URL('./src/jsonStorage/data.json', import.meta.url))),
-      huiIconStubPlugin(),
     ],
     define: {
       // 检查 node_modules 中是否存在@hui/icon-plus-vue，注入为布尔值
       __HAS_ICONPLUS__: JSON.stringify(
         existsSync(resolve(__dirname, 'node_modules/@hui/icon-plus-vue'))
       ),
-    },
-    optimizeDeps: {
-      // 排除可选依赖，防止 Vite 预打包时尝试解析不存在的包
-      exclude: ['@hui/icon-plus-vue'],
     },
     resolve: {
       alias: {

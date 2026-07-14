@@ -2,7 +2,7 @@ import { ref, provide, inject, type Ref } from 'vue'
 import type { Component } from 'vue'
 import { resolveAllIcons } from '../utils/resolveIcons'
 
-// 由 vite 插件 huiIconStubPlugin 注入的编译期常量
+// 编译期常量 __HAS_ICONPLUS__，由 Vite define 注入
 // 包已安装 → true；未安装 → false
 
 // ========== 注入键 ==========
