@@ -87,6 +87,7 @@ const toPascalCase = (str: string) => {
     .join("")
 }
 
+const huiIconModules = import.meta.glob("../../../node_modules/@hui/icon-plus-vue/icons/*.js")
 /**
  * 获取 hui 图标组件引用（动态 import + 缓存）
  * @param name - A2UI 图标名称（如 "activity"、"x"）
@@ -102,10 +103,16 @@ export async function getHuiIconComponentRef(name: string): Promise<Component | 
   const cached = huiIconCache.get(huiComponentName)
   if (cached) return cached
 
+  const modulePath = `../../../node_modules/@hui/icon-plus-vue/icons/${huiComponentName}.js`
+  const loadModule = huiIconModules[modulePath]
+  if (!loadModule) {
+    return null
+  }
   try {
     // 按需加载单个图标组件，避免加载整个 @hui/icon-plus-vue 包
-    const mod = await import(`@hui/icon-plus-vue/icons/${huiComponentName}`)
-    const component = mod.default ?? (mod as any)[huiComponentName]
+      const mod = (await loadModule()) as {default?:Component}
+      const component = mod.default ?? (mod as any)[huiComponentName]
+
     if (component) {
       const raw = markRaw(component as Component)
       huiIconCache.set(huiComponentName, raw)
