@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
@@ -780,6 +780,7 @@ function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (v
 
 function getModelResolutionKey(styleModel: string): string {
   if (styleModel === "hdesign") return "hdesign"
+  if (styleModel === "seedream-5-lite") return "2k"
   if (styleModel.includes("2k")) return "2k"
   if (styleModel.includes("3k")) return "3k"
   if (styleModel.includes("4k")) return "4k"
@@ -855,7 +856,7 @@ function ImageSettings(props: {
     props.onIsCustom(true)
   }
 
-  const isJimeng = () => getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen"
+  const isJimeng = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
   const JIMENG_AREA_MIN = 2560 * 1440
   const JIMENG_AREA_MAX = Math.round(3072 * 3072 * 1.1025)
   const sizeWarnText = () => {
@@ -863,6 +864,45 @@ function ImageSettings(props: {
     if (isJimeng()) return `宽高乘积范围 ${JIMENG_AREA_MIN.toLocaleString()} ~ ${JIMENG_AREA_MAX.toLocaleString()}，宽高比 1:16 ~ 16:1`
     return "请输入有效数值250px ~ 2500px"
   }
+
+  // 防抖取值：输入停止 600ms 后才更新用于校验的宽高
+  const [debouncedW, setDebouncedW] = createSignal(width())
+  const [debouncedH, setDebouncedH] = createSignal(height())
+  let sizeDebounceTimer: ReturnType<typeof setTimeout> | undefined
+  createEffect(() => {
+    const w = width()
+    const h = height()
+    clearTimeout(sizeDebounceTimer)
+    sizeDebounceTimer = setTimeout(() => {
+      batch(() => {
+        setDebouncedW(w)
+        setDebouncedH(h)
+      })
+    }, 600)
+  })
+  onCleanup(() => clearTimeout(sizeDebounceTimer))
+
+  const sizeLimit = () => props.styleModel === "qwen" ? { min: 250, max: 1664 } : { min: 250, max: 2500 }
+
+  // 用防抖后的值做校验
+  const needsWarn = createMemo(() => {
+    if (!isCustom()) return false
+    const w = debouncedW()
+    const h = debouncedH()
+    if (isJimeng()) {
+      if (w === 0 && h === 0) return false
+      if (w === 0 || h === 0) return false
+      const area = w * h
+      if (area < JIMENG_AREA_MIN || area > JIMENG_AREA_MAX) return true
+      const ratio = w / h
+      if (ratio < 1 / 16 || ratio > 16) return true
+      return false
+    }
+    const { min, max } = sizeLimit()
+    if (w === 0 && h === 0) return false
+    if ((w > 0 && (w < min || w > max)) || (h > 0 && (h < min || h > max))) return true
+    return false
+  })
 
   function handleWidthInput(e: { currentTarget: HTMLInputElement }) {
     e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
@@ -924,8 +964,6 @@ function ImageSettings(props: {
     props.onCustomWidth(w)
     props.onCustomHeight(h)
   }
-
-  const sizeLimit = () => props.styleModel === "qwen" ? { min: 250, max: 1664 } : { min: 250, max: 2500 }
 
   function selectRatio(r: StudioAspectRatio) {
     setIsCustom(false)
@@ -1000,8 +1038,8 @@ function ImageSettings(props: {
       </div>
       <div class="studio-image-settings-label" style={{ "margin-top": "16px" }}>
         尺寸
-        <span class="studio-image-settings-size-warn" title={sizeWarnText()} />
-        <span class="studio-image-settings-size-warn-text">{sizeWarnText()}</span>
+        <span class="studio-image-settings-size-warn" title={sizeWarnText()} style={{ visibility: needsWarn() ? "visible" : "hidden" }} />
+        <span class="studio-image-settings-size-warn-text" style={{ visibility: needsWarn() ? "visible" : "hidden" }}>{sizeWarnText()}</span>
       </div>
       <div class="studio-image-settings-size">
         <div class="studio-image-settings-size-input">
