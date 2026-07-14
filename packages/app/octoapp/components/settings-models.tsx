@@ -1,10 +1,11 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
+// import { Button } from "@opencode-ai/ui/button"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { type Component, For, Show } from "solid-js"
+import { createMemo, type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { popularProviders } from "@/hooks/use-providers"
@@ -34,9 +35,10 @@ const ListEmptyState: Component<{ message: string; filter: string }> = (props) =
 export const SettingsModels: Component = () => {
   const language = useLanguage()
   const models = useModels()
+  const modelItems = createMemo(() => models.list())
 
   const list = useFilteredList<ModelItem>({
-    items: (_filter) => models.list(),
+    items: (_filter) => modelItems(),
     key: (x) => `${x.provider.id}:${x.id}`,
     filterKeys: ["provider.name", "name", "id"],
     sortBy: (a, b) => a.name.localeCompare(b.name),
@@ -60,8 +62,18 @@ export const SettingsModels: Component = () => {
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
       <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 12px), transparent);">
-        <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
-          {language.t("settings.models.title")}
+        <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", gap: "8px", padding: "12px 0" }}>
+          <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold" }}>
+            {language.t("settings.models.title")}
+          </div>
+          {/* <Button
+            size="small"
+            variant="secondary"
+            disabled={models.remote.loading()}
+            onClick={() => void models.remote.refresh()}
+          >
+            {models.remote.loading() ? "刷新中" : "刷新"}
+          </Button> */}
         </div>
         <div style={{ display: "flex", "align-items": "center", gap: "8px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px", "margin-bottom": "12px" }}>
           <Icon name="magnifying-glass" class="text-icon-weak-base flex-shrink-0" />
@@ -85,7 +97,7 @@ export const SettingsModels: Component = () => {
 
       <div class="flex flex-col gap-8">
         <Show
-          when={!list.grouped.loading}
+          when={models.remote.api() !== undefined}
           fallback={
             <ListLoadingState label={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`} />
           }

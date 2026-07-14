@@ -27,6 +27,9 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
   const [filterOpen, setFilterOpen] = createSignal(false)
 
   const hasSelection = createMemo(() => props.fileStore.store.selected.size > 0)
+  const deletableCount = createMemo(() => props.fileStore.selectedUploadedFiles().length)
+  const selectedGeneratedCount = createMemo(() => props.fileStore.store.selected.size - deletableCount())
+  const canDelete = createMemo(() => deletableCount() > 0 && selectedGeneratedCount() === 0)
 
   const filterButtonText = createMemo(() => {
     const filterSize = props.fileStore.store.kindFilter.size
@@ -233,9 +236,16 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           </button>
           <button
             type="button"
-            onClick={props.onBatchDelete}
-            class="flex items-center gap-1 px-2 py-1 rounded transition-colors text-text-diff-delete-base cursor-pointer"
-            style={{ "font-size": "14px", "line-height": "22px" }}
+            onClick={canDelete() ? props.onBatchDelete : undefined}
+            disabled={!canDelete()}
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+            style={{ 
+              "font-size": "14px", 
+              "line-height": "22px",
+              color: canDelete() ? undefined : "#C9C9C9",
+              cursor: canDelete() ? "pointer" : "not-allowed"
+            }}
+            title={!canDelete() ? "当前仅支持删除上传文件" : undefined}
           >
             <span>{language.t("designFiles.batchDelete")}</span>
           </button>
