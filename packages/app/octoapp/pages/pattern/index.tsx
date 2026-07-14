@@ -31,7 +31,7 @@ import { groupRounds } from "./utils/round-messages"
 import { createSplitDrag } from "./utils/drag-split"
 import { exportZip } from "./utils/preview-handler/zip"
 import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify-json-quick'
-import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
+import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleCodeToHtml as codeToHtmlHandler, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
 import { PatternMatchPage } from "./modules/preview/pattern-match-page"
@@ -1101,6 +1101,14 @@ function PatternContent() {
     await pixsoPreview(pendingPreviewData()[sid] ?? null)
   }
 
+  // 页面捕获转 HTML
+  async function handleCodeToHtml() {
+    const sid = params.id
+    if (!sid) return
+    tracker.interaction({ module: "prototype", name: "code-to-html" })
+    await codeToHtmlHandler(pendingPreviewData()[sid] ?? null)
+  }
+
   const inputDisabled = () => {
     const sid = params.id
     return (sid ? sending() || isBusy() : false) || !activeModelKey() || (sid ? (!!isPlanReview()[sid] || !!showPatternMatch()[sid] || intentConfirm()[sid] != null) : false)
@@ -1197,6 +1205,7 @@ function PatternContent() {
                         onReorder={handleReorder}
                         onLivePreview={handleLivePreview}
                         onPixsoPreview={handlePixsoPreview}
+                        onCodeToHtml={handleCodeToHtml}
                         versions={versions()[params.id!] ?? []}
                         currentVersionId={currentVersionId()[params.id!] ?? null}
                         onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
