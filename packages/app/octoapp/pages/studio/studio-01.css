@@ -121,6 +121,7 @@
   min-height: 0;
   display: flex;
   position: relative;
+  z-index: 1;
   background: #fff;
 }
 

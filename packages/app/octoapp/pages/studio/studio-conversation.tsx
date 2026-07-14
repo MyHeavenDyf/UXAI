@@ -8,6 +8,7 @@ import { isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-
 import { STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
+import { StudioFileManager } from "./studio-file-manager"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
@@ -201,10 +202,28 @@ export function StudioResultCanvas(props: {
   showVideoGeneration: boolean
   regenerateDisabled: boolean
   actionDisabled: boolean
+  showFileManagerTab?: boolean
+  onFileManagerClick?: () => void
+  showFileManager?: boolean
+  fileManagerDetailView?: boolean
+  onFileManagerBack?: () => void
+  onFileManagerSelectMedia?: (item: { id: string; turnID: string; width?: number; height?: number; aspectRatio?: string }) => void
+  studioCenterWidth?: number
+  showStudioCenter?: boolean
+  hideFileManagerFilter?: boolean
+  turns?: StudioTurnData[]
+  canGenerateVideo?: boolean
+  sessionID?: string
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
+  // 文件管理详情页生成中时隐藏图片和 canvas stage，展示 loading fallback
+  const fileManagerLoading = createMemo(() =>
+    props.fileManagerDetailView &&
+    (props.status === "queued" || props.status === "running" || props.status === "submitting"),
+  )
+  const showImage = createMemo(() => fileManagerLoading() ? undefined : props.image)
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
@@ -240,7 +259,7 @@ export function StudioResultCanvas(props: {
 
   return (
     <>
-      <Show when={props.image} fallback={
+      <Show when={showImage()} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
           <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
             <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
@@ -275,6 +294,19 @@ export function StudioResultCanvas(props: {
           return (
           <>
             <div class="studio-canvas-header">
+              <Show when={props.showFileManagerTab}>
+                <span
+                  class="studio-canvas-tab studio-canvas-tab-locked"
+                  classList={{ active: props.showFileManager }}
+                  onClick={() => props.onFileManagerClick?.()}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ "margin-right": "4px", "flex-shrink": "0" }} aria-hidden="true">
+                    <path d="M13.6 4.80021C13.5022 4.19132 13.2245 3.68465 12.7667 3.28021C12.3089 2.87576 11.7645 2.67354 11.1333 2.67354L5.95334 2.67354C5.84667 2.48243 5.69112 2.3291 5.48667 2.21354C5.28667 2.10243 5.07334 2.04688 4.84667 2.04688L2.89334 2.04688C2.4889 2.04688 2.11556 2.1491 1.77334 2.35354C1.43556 2.55354 1.16667 2.82465 0.966673 3.16688C0.771118 3.5091 0.67334 3.88243 0.67334 4.28687L0.67334 11.7135C0.67334 12.118 0.771118 12.4935 0.966673 12.8402C1.16667 13.1869 1.43556 13.458 1.77334 13.6535C2.11556 13.8535 2.4889 13.9535 2.89334 13.9535L13.1067 13.9535C13.5111 13.9535 13.8844 13.8535 14.2267 13.6535C14.5645 13.458 14.8333 13.1869 15.0333 12.8402C15.2289 12.4935 15.3267 12.118 15.3267 11.7135L15.3267 6.97354C15.3267 6.45354 15.1645 5.99132 14.84 5.58688C14.5156 5.17799 14.1022 4.91576 13.6 4.80021ZM7.37334 4.75354C7.34223 4.75354 7.31112 4.74687 7.28001 4.73354C7.2489 4.72465 7.22001 4.7091 7.19334 4.68688C7.16667 4.66465 7.14223 4.63799 7.12001 4.60687L6.56001 3.68021L11.1333 3.68021C11.4756 3.68021 11.7778 3.77799 12.04 3.97354C12.3022 4.17354 12.4756 4.43354 12.56 4.75354L7.37334 4.75354ZM14.32 11.7135C14.32 12.0558 14.2 12.3491 13.96 12.5935C13.72 12.838 13.4289 12.9602 13.0867 12.9602L2.89334 12.9602C2.55556 12.9602 2.26667 12.838 2.02667 12.5935C1.78667 12.3491 1.66667 12.0558 1.66667 11.7135L1.66667 4.28687C1.66667 3.94465 1.78667 3.65354 2.02667 3.41354C2.26667 3.17354 2.55556 3.05354 2.89334 3.05354L4.84667 3.05354C4.90001 3.05354 4.95112 3.06687 5.00001 3.09354C5.0489 3.12021 5.08445 3.15576 5.10667 3.20021L6.27334 5.12021C6.38001 5.31132 6.53334 5.46243 6.73334 5.57354C6.93778 5.6891 7.15112 5.74688 7.37334 5.74688L13.1067 5.74688C13.4445 5.74688 13.7333 5.86688 13.9733 6.10688C14.2133 6.34688 14.3333 6.63576 14.3333 6.97354L14.32 11.7135Z" fill="currentColor" fill-rule="nonzero" />
+                  </svg>
+                  <span class="studio-canvas-label-text">文件管理</span>
+                </span>
+                <span class="studio-canvas-tab-divider" />
+              </Show>
               <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
                   const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : [props.result!.images[0]]
@@ -319,9 +351,9 @@ export function StudioResultCanvas(props: {
                   return (
                     <span
                       class="studio-canvas-tab"
-                      classList={{ active: (props.tabImages && props.tabImages.length > 0)
+                      classList={{ active: !props.showFileManager && ((props.tabImages && props.tabImages.length > 0)
                         ? (props.result?.images.some((img) => img.id === tabImage.id) ?? false)
-                        : tabImage.id === (props.selectedImageId ?? tabSource[0]?.id)
+                        : tabImage.id === (props.selectedImageId ?? tabSource[0]?.id))
                       }}
                       onClick={() => props.onSelectImage!(tabImage.id)}
                     >
@@ -353,7 +385,31 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
+              <Show when={props.showFileManager && !props.fileManagerDetailView}>
+                <StudioFileManager
+                  studioCenterWidth={props.studioCenterWidth}
+                  showStudioCenter={props.showStudioCenter}
+                  hideFilter={props.hideFileManagerFilter}
+                  turns={props.turns}
+                  canGenerateVideo={props.canGenerateVideo}
+                  onSelectMedia={props.onFileManagerSelectMedia}
+                  sessionID={props.sessionID}
+                />
+              </Show>
+              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
               <div ref={setCanvasStageRef} class="studio-canvas-stage">
+                <Show when={props.showFileManager && props.fileManagerDetailView}>
+                  <button
+                    type="button"
+                    class="studio-file-manager-back-btn"
+                    onClick={() => props.onFileManagerBack?.()}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "margin-right": "4px", "flex-shrink": "0" }}>
+                      <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span>返回</span>
+                  </button>
+                </Show>
                 <div class="studio-canvas-image-wrapper">
                   <Show
                     when={isVideoMedia(image())}
@@ -454,6 +510,7 @@ export function StudioResultCanvas(props: {
                 </div>
               </div>
               {props.children}
+              </Show>
             </div>
           </>
           )
