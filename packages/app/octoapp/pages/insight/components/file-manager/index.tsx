@@ -685,6 +685,7 @@ function FileRow(props: {
             checked={props.selected}
             onChange={() => props.store.toggleFileSelection(props.file.path)}
             onClick={(e) => e.stopPropagation()}
+            onDblClick={(e) => e.stopPropagation()}
             style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "vertical-align": "middle", "accent-color": "var(--octo-brand)" }}
           />
         </Show>
