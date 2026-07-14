@@ -186,6 +186,8 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
   async function saveRename(session: Session) {
     const draft = renameDraft().trim()
     if (!draft || !session.id) { setRenamingId(null); return }
+    // 名字没变 → 不调 update,避免刷新 time.updated 导致该会话被排到最新(位置应保持不变)
+    if (draft === (sessionTitle(session.title) || "无标题")) { setRenamingId(null); return }
     const idx = sessionList.findIndex((s) => s.id === session.id)
     if (idx >= 0) setSessionList(idx, "title", draft)
     setRenamingId(null)
@@ -330,6 +332,7 @@ export function ThreeDSidebar(props: { width: number }): JSX.Element {
                               e.preventDefault()
                               setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: hasMessages() })
                             }}
+                            onDblClick={() => startRename(session)}
                             class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
                             style={{
                               height: "36px",

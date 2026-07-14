@@ -119,6 +119,7 @@ function ThreeDContent() {
           setGenStartTime(0)
         }
         setChildSessionIDs([])
+        setGenerations([])
         discoverVersion++
         setSceneDoc(null)
         // 切换会话先清空右侧 iframe(写空 live-data.json),避免无场景会话残留上一个场景;
@@ -205,11 +206,45 @@ function ThreeDContent() {
     const allRootMsgs = (sync.data.message[id] ?? []) as Message[]
     const rootUserMsgs = allRootMsgs.filter((m) => m.role === "user")
     const childIDs = childSessionIDs()
-    if (childIDs.length === 0 && rootUserMsgs.length === 0) return []
+    if (childIDs.length === 0 && rootUserMsgs.length === 0 && generations().length === 0) return []
 
     type Item = { sessionID: string; messageID: string; time: number }
     type Round = { startTime: number; endTime?: number; modelID?: string; items: Item[] }
 
+    // 本次运行内:以 generation 为轮次锚点(修复 create 流程合并轮次、导致中止态丢失的问题)
+    const gens = generations()
+    if (gens.length > 0) {
+      return gens.map((gen, gi): Round => {
+        const nextStart = gi < gens.length - 1 ? gens[gi + 1].startTime : Number.POSITIVE_INFINITY
+        const items: Item[] = []
+        let startTime = gen.startTime
+        let endTime: number | undefined
+        let modelID: string | undefined
+        const track = (m: Message) => {
+          const t = m.time as { created: number; completed?: number }
+          if (t.created < startTime) startTime = t.created
+          if (typeof t.completed === "number" && (!endTime || t.completed > endTime)) endTime = t.completed
+          if (m.role === "assistant" && (m as any).modelID) modelID = (m as any).modelID
+        }
+        // 根会话落在本轮时间窗的用户消息(modify 的 triage 走根会话)
+        for (const m of rootUserMsgs) {
+          const t = m.time?.created ?? 0
+          if (t >= gen.startTime && t < nextStart) { items.push({ sessionID: id, messageID: m.id, time: t }); track(m) }
+        }
+        // 本轮创建的子会话消息(create / modify 的 agent 子会话)
+        for (const cid of gen.childIds) {
+          for (const m of (sync.data.message[cid] ?? []) as Message[]) {
+            if (m.role === "user") items.push({ sessionID: cid, messageID: m.id, time: m.time?.created ?? 0 })
+            track(m)
+          }
+        }
+        items.sort((a, b) => a.time - b.time)
+        if (!endTime && nextStart !== Infinity) endTime = nextStart
+        return { startTime, endTime, modelID, items }
+      })
+    }
+
+    // 历史会话 / 刷新后(无内存 generation):退回按根用户消息划分的原逻辑
     const roundStarts: number[] = []
     const firstRootTime = rootUserMsgs.length > 0 ? (rootUserMsgs[0].time?.created ?? Infinity) : Infinity
     const hasEarlyChildren = childIDs.some((cid) => {
@@ -269,6 +304,20 @@ function ThreeDContent() {
   // 取值:aborted=已中止 / failed=生成失败 / completed=生成完成。失败也如实记录,不再误显示「已完成」。
   const [outcomeBySession, setOutcomeBySession] = createSignal<Record<string, "aborted" | "failed" | "completed">>({})
   const sessionOutcome = createMemo(() => outcomeBySession()[params.id ?? ""] ?? null)
+  // 每次生成(create/modify)记一条 generation,作为「轮次」的真实来源。
+  // 动机:create 流程只 prompt 子会话、不给根会话留用户消息,导致按根消息划分的 roundMessages
+  // 把多次 create 合并成一轮,已中止/失败状态无处附着。改用 generation 作锚点后每次生成独立成轮。
+  type Generation = {
+    id: string
+    prompt: string
+    startTime: number
+    childIds: string[]
+    outcome: "completed" | "aborted" | "failed" | null
+    versionId: string | null
+  }
+  const [generations, setGenerations] = createSignal<Generation[]>([])
+  const touchLastGen = (fn: (g: Generation) => Generation) =>
+    setGenerations((prev) => (prev.length ? prev.map((g, i) => (i === prev.length - 1 ? fn(g) : g)) : prev))
   const [genStartTime, setGenStartTime] = createSignal(0)
 
   const isBusy = createMemo(() => {
@@ -308,6 +357,56 @@ function ThreeDContent() {
   const [liveVersion, setLiveVersion] = createSignal(0)
   const [versions, setVersions] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
+
+  // 每轮对应的场景版本 id:用时间窗 [本轮开始, 下一轮开始) 匹配 version.createdAt。
+  // 无匹配 = 该轮未产出场景(中止/失败)。供"点击完成的卡片切回该轮场景"使用。
+  const roundVersions = createMemo(() => {
+    const rounds = roundMessages()
+    const vers = versions()
+    return rounds.map((r, i) => {
+      const start = r.startTime
+      const end = i < rounds.length - 1 ? rounds[i + 1].startTime : Number.POSITIVE_INFINITY
+      let match: string | null = null
+      for (const v of vers) if (v.createdAt >= start && v.createdAt < end) match = v.id
+      return match
+    })
+  })
+
+  // 每轮卡片状态(按轮独立):generating / outcome / versionId。
+  // outcome 推断:有版本→completed;最新轮无版本看 sessionOutcome(aborted/failed);历史轮无版本→aborted(保留中止态)。
+  // 这样"已中止"在新轮/切换后仍保留,完成的卡片可点击切回该轮场景。
+  const roundCards = createMemo(() => {
+    const gens = generations()
+    const sOutcome = sessionOutcome()
+    const busy = isBusy() || sending()
+    // 本次运行内:直接从 generation 派生(与 roundMessages 的 generation 分支对齐,index 一致)
+    if (gens.length > 0) {
+      const n = gens.length
+      return gens.map((g, i) => {
+        const isLatest = i === n - 1
+        const generating = isLatest && busy && g.outcome === null
+        let outcome: "completed" | "aborted" | "failed"
+        if (g.outcome) outcome = g.outcome
+        else if (isLatest && sOutcome === "failed") outcome = "failed"
+        else if (isLatest && sOutcome === "aborted") outcome = "aborted"
+        else outcome = "completed"
+        return { generating, outcome, versionId: g.versionId, prompt: g.prompt }
+      })
+    }
+    // 历史会话 / 刷新后(无内存 generation):按版本推断(原逻辑)
+    const rounds = roundMessages()
+    const rVers = roundVersions()
+    return rounds.map((_, i) => {
+      const isLatest = i === rounds.length - 1
+      const versionId = rVers[i] ?? null
+      const generating = isLatest && busy
+      let outcome: "completed" | "aborted" | "failed"
+      if (versionId) outcome = "completed"
+      else if (isLatest && sOutcome === "failed") outcome = "failed"
+      else outcome = "aborted"
+      return { generating, outcome, versionId, prompt: undefined }
+    })
+  })
   const [isModifying, setIsModifying] = createSignal(false)
 
   // 历史文件存储目录
@@ -425,6 +524,9 @@ function ThreeDContent() {
       // 这里用 const 固定成 string,供 onFinished 内的 recordOutcome / appendSceneVersion 使用。
       const sessionSid = sid
 
+      // 记一条 generation 作为本轮锚点(轮次 / 卡片状态都从它派生)
+      setGenerations((prev) => [...prev, { id: crypto.randomUUID(), prompt: text, startTime: Date.now(), childIds: [], outcome: null, versionId: null }])
+
       const existing = sessionInfo()?.title
       if (!existing || existing.startsWith("New session")) {
         await sdk.client.session.update({ sessionID: sid, title: text.slice(0, 60) }).catch(() => { })
@@ -436,7 +538,10 @@ function ThreeDContent() {
         modelKey: mk,
         rootSession: sid,
         userInput: text,
-        onSessionCreated: (childID: string) => setChildSessionIDs((prev) => [...prev, childID]),
+        onSessionCreated: (childID: string) => {
+          setChildSessionIDs((prev) => [...prev, childID])
+          touchLastGen((g) => ({ ...g, childIds: [...g.childIds, childID] }))
+        },
       }
 
       // 生成完成回调:推送预览 + 落盘历史
@@ -445,6 +550,7 @@ function ThreeDContent() {
         if (aborted()) return
         // 走到这里 = 该会话最新一轮正常完成 → 记录结论 completed(覆盖此前可能的 aborted/failed)
         recordOutcome(sessionSid, "completed")
+        touchLastGen((g) => ({ ...g, outcome: "completed" }))
         if (sceneJson) {
           sendToPreview(sceneJson)
           // 直接设 sceneDoc,绕过 detectSceneJson(serialize→parse)的静默失效风险
@@ -461,6 +567,7 @@ function ThreeDContent() {
           }, text.slice(0, 80))
           setVersions((prev) => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }])
           setCurrentVersionId(vid)
+          touchLastGen((g) => ({ ...g, versionId: vid }))
         }
       }
 
@@ -487,7 +594,10 @@ function ThreeDContent() {
       if (aborted() || (err instanceof Error && err.message === "aborted")) return
       console.error("[ThreeDPage] handleSubmit failed", err)
       // 非中止的失败:记录该会话最新一轮「生成失败」(按 sessionId 独立,切换不丢、不影响其他会话)
-      if (sid) recordOutcome(sid, "failed")
+      if (sid) {
+        recordOutcome(sid, "failed")
+        touchLastGen((g) => ({ ...g, outcome: "failed" }))
+      }
     } finally {
       if (!submitSessionId || params.id === submitSessionId) {
         setSending(false)
@@ -501,6 +611,7 @@ function ThreeDContent() {
     if (!sid) return
     // 记录该会话最新一轮被中止(按 sessionId 独立,切换会话不丢、不影响其他会话)
     recordOutcome(sid, "aborted")
+    touchLastGen((g) => ({ ...g, outcome: "aborted" }))
     // 无条件 abort 根会话 + 所有子会话(不检查 pending,避免 sync 延迟漏掉正在跑的 agent)
     await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
     for (const childID of childSessionIDs()) {
@@ -720,13 +831,10 @@ function ThreeDContent() {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onOpenResult={handleOpenResult}
-            pipelineBusy={isBusy() || sending()}
-            aborted={sessionOutcome() === "aborted"}
-            failed={sessionOutcome() === "failed"}
             genStartTime={genStartTime()}
             roundMessages={roundMessages()}
-            hasPreview={!!sceneDoc() && !isBusy()}
-            onOpenPreview={handleOpenPreview}
+            roundCards={roundCards()}
+            onSwitchScene={(vid) => void handleSelectVersion(vid)}
             onDeleteSession={deleteSession}
             onTitleChanged={() => void refetchSession()}
           />

@@ -16,7 +16,8 @@ import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
 import { AttachmentBar, type Attachment } from "./attachment_bar"
 import { InsightTurn, type OutputCard } from "./insight-turn"
-import { GenerationCard } from "./generation-card"
+import { UserInputCard } from "./user-input-card"
+import { GenerationCard, type GenOutcome } from "./generation-card"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto_introduction"
 import { ChartInput, type ChartInputProps } from "./chart_input"
@@ -26,34 +27,32 @@ import "../../assets/style/chat/index.css"
 type AutoScrollApi = ReturnType<typeof createAutoScroll>
 
 function RoundCard(props: {
-  roundIndex: number
-  totalRounds: number
-  pipelineBusy: boolean
-  aborted: boolean
-  failed: boolean
+  generating: boolean
+  outcome: GenOutcome
+  /** 该轮对应的场景版本 id(完成可点击切回);null = 无场景(中止/失败) */
+  versionId: string | null
+  onSwitchScene: (versionId: string) => void
+  isLatest: boolean
   genStartTime: number
-  hasPreview: boolean
   startTime: number
   endTime?: number
-  onOpenPreview: () => void
   /** 该轮 assistant 用的模型 ID,显示在用时上方 */
   modelID?: string
 }): JSX.Element {
-  const isLatest = () => props.roundIndex === props.totalRounds - 1
-  const generating = () => isLatest() && props.pipelineBusy
-  const done = () => !isLatest() || !props.pipelineBusy
   return (
     <>
       <GenerationCard
-        generating={generating()}
-        aborted={isLatest() && props.aborted}
-        failed={isLatest() && props.failed}
-        canPreview={done() && !(isLatest() && (props.aborted || props.failed))}
-        onOpenPreview={props.onOpenPreview}
+        generating={props.generating}
+        outcome={props.outcome}
+        canSwitch={!!props.versionId}
+        onSwitch={() => props.versionId && props.onSwitchScene(props.versionId)}
       />
-      <Show when={done() || generating()}>
-        <TurnDuration startTime={isLatest() && props.genStartTime > 0 ? props.genStartTime : props.startTime} endTime={props.endTime} active={generating()} modelID={props.modelID} />
-      </Show>
+      <TurnDuration
+        startTime={props.isLatest && props.genStartTime > 0 ? props.genStartTime : props.startTime}
+        endTime={props.endTime}
+        active={props.generating}
+        modelID={props.modelID}
+      />
     </>
   )
 }
@@ -87,20 +86,14 @@ export function ChatPanel(props: {
   onDrop: (e: DragEvent) => void
   /** 点击消息中的结果卡片回调 */
   onOpenResult: (card: OutputCard) => void
-  /** 主流程是否正在生成 */
-  pipelineBusy: boolean
-  /** 是否被中止 */
-  aborted: boolean
-  /** 是否生成失败 */
-  failed: boolean
   /** 当前生成开始时间(用于最新轮次的计时器,避免 sync 延迟导致叠加) */
   genStartTime: number
   /** 按轮分组的消息 */
   roundMessages: { startTime: number; endTime?: number; modelID?: string; items: { sessionID: string; messageID: string }[] }[]
-  /** 是否有可预览内容 */
-  hasPreview: boolean
-  /** 点击预览回调 */
-  onOpenPreview: () => void
+  /** 每轮卡片状态(与 roundMessages 对齐):generating / outcome / versionId / prompt */
+  roundCards: { generating: boolean; outcome: GenOutcome; versionId: string | null; prompt?: string }[]
+  /** 点击某轮「生成完成」卡片 → 切换到该轮场景(同历史版本) */
+  onSwitchScene: (versionId: string) => void
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
   /** 标题修改后通知父组件刷新 */
@@ -264,6 +257,10 @@ export function ChatPanel(props: {
                   <Index each={props.roundMessages}>
                     {(round, ri) => (
                       <>
+                        {/* 该轮没有任何消息落库(如:还没产出就中止)→ 用 generation.prompt 补一张用户输入,避免只剩用时 */}
+                        <Show when={round().items.length === 0 && props.roundCards[ri]?.prompt}>
+                          <UserInputCard text={props.roundCards[ri]?.prompt ?? ""} />
+                        </Show>
                         <For each={round().items}>
                           {(item) => (
                             <InsightTurn
@@ -275,17 +272,15 @@ export function ChatPanel(props: {
                           )}
                         </For>
                         <RoundCard
-                          roundIndex={ri}
-                          totalRounds={props.roundMessages.length}
-                          pipelineBusy={props.pipelineBusy}
-                          aborted={props.aborted}
-                          failed={props.failed}
+                          generating={props.roundCards[ri]?.generating ?? false}
+                          outcome={props.roundCards[ri]?.outcome ?? "completed"}
+                          versionId={props.roundCards[ri]?.versionId ?? null}
+                          onSwitchScene={props.onSwitchScene}
+                          isLatest={ri === props.roundMessages.length - 1}
                           genStartTime={props.genStartTime}
-                          hasPreview={props.hasPreview}
                           startTime={round().startTime}
                           endTime={round().endTime}
                           modelID={round().modelID}
-                          onOpenPreview={props.onOpenPreview}
                         />
                       </>
                     )}
