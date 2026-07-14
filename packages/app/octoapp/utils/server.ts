@@ -36,7 +36,7 @@ export function createSdkForServer({
       const headers = new Headers(input instanceof Request ? input.headers : undefined)
       new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
       Object.entries(modelsApiHeaders()).forEach(([key, value]) => headers.set(key, value))
-      return fetcher(input, { ...init, headers })
+      return fetcher(new Request(input, { ...init, headers }))
     },
     {
       preconnect: (...args: Parameters<typeof fetch.preconnect>) => fetcher.preconnect(...args),
