@@ -38,7 +38,7 @@ export const SettingsProviders: Component = () => {
 
   const connected = createMemo(() => {
     const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
-    return providers.connected().filter((p) => !disabled.has(p.id))
+    return providers.connected().filter((p) => p.id === "w3" || !disabled.has(p.id))
   })
 
   const popular = createMemo(() => {
@@ -201,7 +201,7 @@ export const SettingsProviders: Component = () => {
                         </Show>
                       </div>
                     </Show>
-                    <Show when={item.id !== "opencode"}>
+                    <Show when={item.id !== "opencode" && item.id !== "w3"}>
                     <Show
                       when={canDisconnect(item)}
                       fallback={
