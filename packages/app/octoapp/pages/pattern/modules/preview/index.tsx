@@ -45,6 +45,7 @@ export function PreviewPage(props: {
   let canvasRef: { reset: () => void; setScale: (scale: number) => void } | undefined
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
+  const [annotating, setAnnotating] = createSignal(false)
 
   const DEVICE_DIMENSIONS: Record<string, [number, number]> = {
     desktop: [1920, 1080],
@@ -451,6 +452,8 @@ export function PreviewPage(props: {
           }
         }}
         onOptionChange={handleTitleBarOptionChange}
+        annotating={annotating()}
+        onToggleAnnotating={() => setAnnotating(!annotating())}
       />
 
       <CanvasView

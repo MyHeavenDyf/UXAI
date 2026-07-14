@@ -2,6 +2,7 @@ import { createSignal, onCleanup, For, Show } from "solid-js"
 import {
   IconActionDownload,
   IconActionShare,
+  IconActionAnnotate,
   IconRefresh,
   IconChevronDown,
   IconCanvasHand,
@@ -28,6 +29,8 @@ interface TitleBarProps {
   onFullscreen: () => void
   onDownload?: () => void
   onShare?: () => void
+  onAnnotate?: () => void
+  onText?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -36,6 +39,8 @@ interface TitleBarProps {
   // 容错升级：将这个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
   editing?: boolean
   onToggleEditing?: () => void
+  annotating?: boolean
+  onToggleAnnotating?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -305,6 +310,22 @@ export function TitleBar(props: TitleBarProps) {
           <button class="pattern-action-btn" title="下载" onClick={() => props.onDownload?.()}>
             <IconActionDownload size={16} />
             <span>下载</span>
+          </button>
+
+          {/* 按钮 7：标注 */}
+          <button
+            class="pattern-action-btn"
+            classList={{ 'edit-active': !!props.annotating }}
+            title="标注"
+            onClick={() => props.onToggleAnnotating?.()}
+          >
+            <IconActionAnnotate size={16} />
+            <span>标注</span>
+          </button>
+
+          {/* 按钮 8：文本 */}
+          <button class="pattern-text-btn" title="文本" onClick={() => props.onText?.()}>
+            归档
           </button>
         </div>
       </div>
