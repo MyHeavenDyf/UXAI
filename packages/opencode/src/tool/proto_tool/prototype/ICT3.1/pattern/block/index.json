@@ -1,0 +1,40 @@
+{
+  "blocks": [
+    {
+      "name": "收缩侧边导航栏",
+      "intent": "在有限的空间内保持导航功能的可访问性，通过图标化展示核心业务模块，并支持展开恢复，优化工作区的显示面积。",
+      "function": "以紧凑的图标形式展示所有业务模块（数据分析、用户、订单、商品、财务、内容、营销、系统、工具、帮助）；支持点击触发弹出式菜单或展开动作；提供底部控制按钮以恢复侧边栏展开状态。",
+      "layout": "精简的垂直导航布局，固定宽度（48px），内部采用垂直堆叠排列，菜单处于折叠（Collapse）模式，底部设有固定的操作区域。",
+      "elements": "图标化的垂直折叠菜单（Navigation.Menu，开启 inlineCollapsed）；各业务模块图标（Lucide图标）；底部展开控制按钮（Navigation.Button）。",
+      "path": "./collapseSideBar/data.json",
+      "preview": "./collapseSideBar/preview.png"
+    },
+    {
+      "name": "展开侧边导航栏",
+      "intent": "提供应用的全功能分类索引，通过层级折叠菜单管理不同业务模块，支持快速定位与切换，并包含底部收缩/折叠辅助操作。",
+      "function": "支持多级导航目录展示（包含数据分析、用户管理、订单管理、商品管理、财务管理、内容管理、营销推广、系统设置、工具、帮助中心）；支持菜单项的展开与收缩；提供底部收缩控制按钮。",
+      "layout": "固定宽度的垂直导航布局，放置于页面左侧，内部采用弹性列布局（flex-col），菜单区域支持纵向滚动，底部包含固定的控制功能区。",
+      "elements": "纵向折叠菜单（Navigation.Menu，嵌套 Sub-menu）；各业务模块图标（Lucide图标）；底部收缩/折叠按钮（Navigation.Button）。",
+      "path": "./expandSideBar/data.json",
+      "preview": "./expandSideBar/preview.png"
+    },
+    {
+      "name": "通用头部导航栏",
+      "intent": "构建企业级应用的全局导航框架，通过中心化菜单实现核心业务切换，并集成搜索、通知、多语言、主题切换及个人中心等功能，提升交互效率。",
+      "function": "展示品牌Logo；提供层级菜单导航（资源中心、任务中心、系统任务）；包含搜索、消息提醒、帮助中心、客服支持、语言切换、主题切换及用户账户入口。",
+      "layout": "固定的顶部水平布局，使用弹性盒子（flex）实现空间分配：左侧放置Logo及功能导航入口，中间放置业务菜单，右侧紧凑排列功能按钮组。",
+      "elements": "Logo图标（img）；层级下拉菜单（Navigation.Dropdown）；水平菜单（Navigation.Menu）；功能按钮组（Navigation.Button，包含搜索、铃铛、问号、耳机、地球、月亮、用户图标，Lucide图标集）。",
+      "path": "./generaHeader/data.json",
+      "preview": "./generaHeader/preview.png"
+    },
+    {
+      "name": "iMaster头部导航栏",
+      "intent": "作为平台的主导航与全局控制中心，提供侧边菜单触发、核心业务跳转、常用功能快捷入口及用户会话管理，确保高效的平台操作体验。",
+      "function": "展示平台Logo及名称；提供工作台与大屏的导航跳转；集成开局、资源、任务、系统等常用业务快捷链接；支持主题切换、语言设置、历史记录、帮助中心及个人账户信息展示。",
+      "layout": "固定的顶部水平布局，左侧为菜单按钮、Logo及平台名称，中间包含主导航菜单，右侧为快捷链接组及功能图标集（包含用户头像与名称）。",
+      "elements": "侧边栏菜单触发按钮（Icon）；品牌Logo（img）及平台名称（span）；水平导航菜单（Navigation.Menu）；快捷文字链接（span）；功能图标组（主题、语言、历史、帮助、用户，Lucide图标集）；用户头像（img）及账户名称（span）。",
+      "path": "./iMasterHeader/data.json",
+      "preview": "./iMasterHeader/preview.png"
+    }
+  ]
+}

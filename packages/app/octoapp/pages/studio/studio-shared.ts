@@ -1,4 +1,4 @@
-import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioMode } from "./types"
+import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage, StudioMode } from "./types"
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
@@ -11,6 +11,7 @@ export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
 ])
 export const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 130_000
 export const STUDIO_GENERATION_CANCEL_TIMEOUT_MS = 20_000
+export const STUDIO_GENERATION_REBOOT_TIMEOUT_MS = 30_000
 export const STUDIO_GENERATION_STATUS_INTERVAL_MS = 7_500
 
 export function isStudioGenerationStatusRegression(
@@ -31,6 +32,7 @@ export function isStudioGenerationFailure(status: StudioGenerationResult["status
 export type StudioPendingResult = StudioGenerationResult & {
   displayPrompt?: string
   sourceImage?: string
+  inputImages?: StudioInputImage[]
 }
 
 export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"

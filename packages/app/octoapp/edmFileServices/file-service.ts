@@ -59,12 +59,15 @@ export type UploadCallbacks = {
 }
 
 export type DownloadItem = {
+  name: string
+  size: number
   docId: string
   docVersion?: string
 }
 
 export type DownloadCallbacks = {
-  onProgress: (taskId: string, progress: number) => void
+  onInit?: (taskId: string, zipName: string) => void
+  onProgress?: (taskId: string, progress: number) => void
   onFinish?: (taskId: string, data: unknown) => void
   onError?: (taskId: string, data: ServiceError) => void
 }
@@ -81,5 +84,11 @@ export const FileService = {
     },
     edit: (deliverableId: number) => {
         console.log("Editing deliverable with ID:", deliverableId);
+    },
+    cancelUpload: (taskId: string, index: number) => {
+        console.log("Cancelling task with ID:", taskId, index);
+    },
+    cancelDownload: (taskId: string) => {
+        console.log("Cancelling download task with ID:", taskId);
     }
 }

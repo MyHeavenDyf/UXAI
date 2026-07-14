@@ -9,6 +9,13 @@ export type DesktopApi = {
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   getPathForFile?: (file: File) => string
+  /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
+  onDownloadSavePath?: (cb: (info: {
+    url: string
+    filename: string
+    path: string | null
+    state: "completed" | "cancelled" | "interrupted"
+  }) => void) => () => void
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

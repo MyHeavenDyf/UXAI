@@ -800,7 +800,7 @@ export const layer = Layer.effect(
       s.status[name] = { status: "disabled" }
     })
 
-    const tools = Effect.fn("MCP.tools")(function* () {
+    const tools = Effect.fn("MCP.tools")(function* (skipPreflight?: boolean) {
       const result: Record<string, Tool> = {}
       let s = yield* InstanceState.get(state)
 
@@ -818,11 +818,15 @@ export const layer = Layer.effect(
       }
 
       // 方案 D2: agent 启动前对 remote client 做 ping 健康检查
-      // 静默 TCP 丢包时 SDK 不会触发 onerror/onclose，主动 ping 兜底
-      const preflightBridge = yield* EffectBridge.make()
-      yield* Reconnect.verifyAndReconnectIfNeeded(preflightBridge, reconnectCtx)
-      // preflight 可能触发重连导致 s.clients 变化，重新拿一次
-      s = yield* InstanceState.get(state)
+      // 静默 TCP 丢包时 SDK 不会触发 onerror/onclose，主动 ping 兜底。
+      // toolsForAgent 会用自己的 scope preflight（verifyAndReconnectForAgent），
+      // 通过 skipPreflight=true 跳过这里的全量检查避免重复。
+      if (!skipPreflight) {
+        const preflightBridge = yield* EffectBridge.make()
+        yield* Reconnect.verifyAndReconnectIfNeeded(preflightBridge, reconnectCtx)
+        // preflight 可能触发重连导致 s.clients 变化，重新拿一次
+        s = yield* InstanceState.get(state)
+      }
 
       const connectedClients = Object.entries(s.clients).filter(
         ([clientName]) => s.status[clientName]?.status === "connected",
@@ -896,7 +900,12 @@ export const layer = Layer.effect(
 
     const toolsForAgent = Effect.fn("MCP.toolsForAgent")(
       function* (agentMcp: string[] | undefined, customServerNames: string[]) {
-        const allTools = yield* tools()
+        // 只对当前 agent 相关的 remote server 做 preflight 健康检查，
+        // 避免每次 tools() 都检查所有 remote server 导致频繁握手压垮服务器。
+        const preflightBridge = yield* EffectBridge.make()
+        yield* Reconnect.verifyAndReconnectForAgent(preflightBridge, reconnectCtx, agentMcp, customServerNames)
+        // preflight 可能触发重连导致 s.clients 变化，tools() 内部会重新拿 state
+        const allTools = yield* tools(true)
         const allToolCount = Object.keys(allTools).length
         // Only agents with explicit mcp field see builtin MCP tools
         if (!agentMcp || agentMcp.length === 0) {

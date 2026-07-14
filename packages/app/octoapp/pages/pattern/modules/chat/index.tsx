@@ -1,5 +1,5 @@
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
-import { For, Index, Show, createMemo, type JSX } from "solid-js"
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -14,14 +14,16 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
-import { AttachmentBar, type Attachment } from "./attachment_bar"
-import { InsightTurn, type OutputCard } from "./insight-turn"
+import { tracker } from "@/utils/tracker"
+import { AttachmentBar, type Attachment } from "./attachment-bar"
+import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
 import { TurnDuration } from "./turn-duration"
-import { ProtoIntroduction } from "./proto_introduction"
-import { ChartInput, type ChartInputProps } from "./chart_input"
+import { ProtoIntroduction } from "./proto-introduction"
+import { ChartInput, type ChartInputProps } from "./chart-input"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { ProtoTabSwitcher, type TabKey } from "./proto-tab-switcher"
+import type { Round } from "../../utils/round-messages"
 import "../../assets/style/chat/index.css"
 
 type AutoScrollApi = ReturnType<typeof createAutoScroll>
@@ -30,23 +32,31 @@ function RoundCard(props: {
   roundIndex: number
   totalRounds: number
   pipelineBusy: boolean
-  hasPreview: boolean
+  cancelled: boolean
   startTime: number
   endTime?: number
-  onOpenPreview: () => void
+  error?: string
+  needsConfirm: boolean
+  confirmText?: { title: string; subtitle: string } | null
+  pauseMs: number
+  pauseStartedAt?: number
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
-  const generating = () => isLatest() && props.pipelineBusy
-  const done = () => !isLatest() || !props.pipelineBusy
+  const generating = () => isLatest() && props.pipelineBusy && !props.needsConfirm
+  const done = () => !isLatest() || (!props.pipelineBusy && !props.needsConfirm)
+  const cancelled = () => !props.error && done() && (props.cancelled || (isLatest() && props.endTime === undefined))
   return (
     <>
       <GenerationCard
         generating={generating()}
-        canPreview={done()}
-        onOpenPreview={props.onOpenPreview}
+        canPreview={done() && !cancelled() && !props.error}
+        cancelled={cancelled()}
+        error={props.error}
+        needsConfirm={props.needsConfirm}
+        confirmText={props.confirmText}
       />
-      <Show when={done() || generating()}>
-        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} />
+      <Show when={done() || generating() || props.needsConfirm}>
+        <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} pauseMs={props.pauseMs} pauseStartedAt={props.pauseStartedAt} />
       </Show>
     </>
   )
@@ -55,6 +65,8 @@ function RoundCard(props: {
 export function ChatPanel(props: {
   /** 是否有对话内容（控制空态/对话态切换） */
   hasContent: boolean
+  /** 当前 session 消息是否已加载完成 */
+  sessionMessagesLoaded: boolean
   /** 是否正在生成中 */
   isBusy: boolean
   /** 当前会话信息 */
@@ -79,20 +91,18 @@ export function ChatPanel(props: {
   onDragLeave: () => void
   /** 拖拽释放回调 */
   onDrop: (e: DragEvent) => void
-  /** 点击消息中的结果卡片回调 */
-  onOpenResult: (card: OutputCard) => void
   /** 主流程是否正在生成 */
   pipelineBusy: boolean
   /** 按轮分组的消息 */
-  roundMessages: { startTime: number; endTime?: number; items: { sessionID: string; messageID: string }[] }[]
-  /** 是否有可预览内容 */
-  hasPreview: boolean
-  /** 点击预览回调 */
-  onOpenPreview: () => void
+  roundMessages: Round[]
+  needsConfirm: boolean
+  confirmText: { title: string; subtitle: string } | null
+  pauseMs: number
+  pauseStartedAt?: number
   /** 删除会话回调 */
   onDeleteSession: (id: string) => Promise<void>
-  /** 标题修改后通知父组件刷新 */
-  onTitleChanged: () => void
+  /** 标题修改后通知父组件更新 */
+  onTitleChanged: (title: string) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -121,7 +131,8 @@ export function ChatPanel(props: {
     if (!draft) { setTitleState("editing", false); return }
     try {
       await sdk.client.session.update({ sessionID: id, title: draft })
-      props.onTitleChanged()
+      tracker.interaction({ module: "prototype", name: "rename-session" })
+      props.onTitleChanged(draft)
     } catch (err) {
       showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
     }
@@ -142,6 +153,20 @@ export function ChatPanel(props: {
 
   const [state, setState] = createStore<{ activeTab: TabKey }>({ activeTab: "fullpage" })
 
+  // ── 会话进度条动画状态 ──
+  const [timeoutDone, setTimeoutDone] = createSignal(true)
+  const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
+    if (props.pipelineBusy) return "showing"
+    if (prev === "showing" || !timeoutDone()) return "hiding"
+    return "hidden"
+  })
+  createEffect(() => {
+    if (workingStatus() !== "hiding") return
+    setTimeoutDone(false)
+    const id = setTimeout(() => setTimeoutDone(true), 260)
+    onCleanup(() => clearTimeout(id))
+  })
+
   return (
     <div
       class="flex flex-col overflow-hidden"
@@ -154,10 +179,20 @@ export function ChatPanel(props: {
       onDrop={props.onDrop}
     >
       <Show when={props.hasContent}>
-        <div
-          class="shrink-0 flex items-center justify-between"
-          style={{ padding: "12px 24px", background: "#fff" }}
-        >
+        <div class="session-progress-wrap">
+          <Show when={workingStatus() !== "hidden"}>
+            <div
+              data-component="session-progress"
+              data-state={workingStatus()}
+              aria-hidden="true"
+            >
+              <div data-component="session-progress-bar" />
+            </div>
+          </Show>
+          <div
+            class="shrink-0 flex items-center justify-between"
+            style={{ padding: "12px 24px", background: "#fff" }}
+          >
           <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
             <Show when={props.isBusy}>
               <div class="shrink-0">
@@ -203,8 +238,17 @@ export function ChatPanel(props: {
               aria-label={language.t("common.moreOptions")}
             />
             <DropdownMenu.Portal>
-              <DropdownMenu.Content style={{ "min-width": "104px" }}>
-                <DropdownMenu.Item onSelect={() => { setTitleState("menuOpen", false); openTitleEditor() }}>
+              <DropdownMenu.Content
+                style={{ "min-width": "104px" }}
+                onCloseAutoFocus={(event) => {
+                  if (titleState.pendingRename) {
+                    event.preventDefault()
+                    setTitleState("pendingRename", false)
+                    openTitleEditor()
+                  }
+                }}
+              >
+                <DropdownMenu.Item onSelect={() => setTitleState({ pendingRename: true, menuOpen: false })}>
                   <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator />
@@ -215,19 +259,23 @@ export function ChatPanel(props: {
             </DropdownMenu.Portal>
           </DropdownMenu>
         </div>
+        </div>
       </Show>
 
       <Show when={props.hasContent} fallback={
-        <div class="flex-1 flex flex-col items-center justify-center min-h-0">
-          <ProtoIntroduction />
-          <div class="w-full max-w-[800px] px-8">
-            <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
-            {/* <div class="proto-tab-btns">
-              <ProtoTabSwitcher activeTab={state.activeTab} onChange={(tab) => setState("activeTab", tab)} />
-            </div> */}
-            <ChartInput {...props.inputProps} rows={undefined} />
+        <Show when={props.sessionMessagesLoaded} fallback={
+          <div class="flex-1 flex items-center justify-center min-h-0">
+            <div class="octo-spinner" />
           </div>
-        </div>
+        }>
+          <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+            <ProtoIntroduction />
+            <div class="w-full max-w-[800px] px-8">
+              <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
+              <ChartInput {...props.inputProps} rows={undefined} />
+            </div>
+          </div>
+        </Show>
       }>
         <ScrollView
           class="flex-1 min-h-0"
@@ -248,7 +296,7 @@ export function ChatPanel(props: {
                           sessionID={(msg as any)._sessionID ?? sid}
                           messageID={msg.id}
                           status={props.sessionStatus}
-                          onOpenResult={props.onOpenResult}
+                          pipelineBusy={props.pipelineBusy}
                         />
                       )}
                     </For>
@@ -263,7 +311,7 @@ export function ChatPanel(props: {
                               sessionID={item.sessionID}
                               messageID={item.messageID}
                               status={props.sessionStatus}
-                              onOpenResult={props.onOpenResult}
+                              pipelineBusy={props.pipelineBusy}
                             />
                           )}
                         </For>
@@ -271,10 +319,14 @@ export function ChatPanel(props: {
                           roundIndex={ri}
                           totalRounds={props.roundMessages.length}
                           pipelineBusy={props.pipelineBusy}
-                          hasPreview={props.hasPreview}
+                          cancelled={round().cancelled}
                           startTime={round().startTime}
                           endTime={round().endTime}
-                          onOpenPreview={props.onOpenPreview}
+                          error={round().error}
+                          needsConfirm={props.needsConfirm}
+                          confirmText={props.confirmText}
+                          pauseMs={props.pauseMs}
+                          pauseStartedAt={props.pauseStartedAt}
                         />
                       </>
                     )}

@@ -16,6 +16,12 @@ import type {
   ArtifactReadErrors,
   ArtifactReadResponses,
   ArtifactRenameResponses,
+  ArtifactServeErrors,
+  ArtifactServeResponses,
+  ArtifactUploadErrors,
+  ArtifactUploadFolderErrors,
+  ArtifactUploadFolderResponses,
+  ArtifactUploadResponses,
   Auth as Auth3,
   AuthRemoveErrors,
   AuthRemoveResponses,
@@ -185,6 +191,8 @@ import type {
   StudioGenerationsCreateResponses,
   StudioGenerationsGetErrors,
   StudioGenerationsGetResponses,
+  StudioGenerationsRebootErrors,
+  StudioGenerationsRebootResponses,
   StudioPermissionsCheckErrors,
   StudioPermissionsCheckResponses,
   StudioPromptTagsListErrors,
@@ -629,13 +637,16 @@ export class Artifact extends HeyApiClient {
   /**
    * List artifacts
    *
-   * List all artifact files in .octo/artifacts/make/<sessionId> directory.
+   * List artifact files and folders. 'category=generated' returns root files (excluding upload-files); 'category=uploaded' returns files in upload-files directory. Use 'path' to navigate subfolders within the category root.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters: {
       directory?: string
       workspace?: string
       sessionId: string
+      category?: "generated" | "uploaded"
+      path?: string
+      recursive?: "true" | "false"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -647,6 +658,9 @@ export class Artifact extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "sessionId" },
+            { in: "query", key: "category" },
+            { in: "query", key: "path" },
+            { in: "query", key: "recursive" },
           ],
         },
       ],
@@ -832,6 +846,133 @@ export class Artifact extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Upload artifact
+   *
+   * Upload a file to the artifact directory. Auto-renames if file exists. Use 'path' to upload to a subfolder.
+   */
+  public upload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      filename?: string
+      content?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "content" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ArtifactUploadResponses, ArtifactUploadErrors, ThrowOnError>({
+      url: "/artifact/upload",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Upload folder
+   *
+   * Upload a folder with all its contents to the artifact directory. Preserves directory structure.
+   */
+  public uploadFolder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      folderName?: string
+      files?: Array<{
+        relativePath: string
+        content: string
+      }>
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "folderName" },
+            { in: "body", key: "files" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      ArtifactUploadFolderResponses,
+      ArtifactUploadFolderErrors,
+      ThrowOnError
+    >({
+      url: "/artifact/upload-folder",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Serve artifact file
+   *
+   * Serve artifact file with bridge scripts injected for HTML files. Used for iframe preview with relative path support.
+   */
+  public serve<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ArtifactServeResponses, ArtifactServeErrors, ThrowOnError>({
+      url: "/artifact/serve",
+      ...options,
+      ...params,
     })
   }
 }
@@ -5266,6 +5407,42 @@ export class Generations extends HeyApiClient {
       ThrowOnError
     >({
       url: "/studio/generations/{generationID}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Reboot Studio generation
+   *
+   * Reboots a failed asynchronous Studio generation with an existing provider task id.
+   */
+  public reboot<ThrowOnError extends boolean = false>(
+    parameters: {
+      generationID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "generationID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioGenerationsRebootResponses,
+      StudioGenerationsRebootErrors,
+      ThrowOnError
+    >({
+      url: "/studio/generations/{generationID}/reboot",
       ...options,
       ...params,
     })
