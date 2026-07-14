@@ -75,9 +75,9 @@ export function mapShapeToHuiType(
  * - 其他原样透传（如 red, var(--x)）
  * - 未设置/空 → undefined（hui 自行处理默认色含 hover）
  */
-export function mapColorToHuiColor(color: string | undefined): string | undefined {
+export function mapColorToHuiColor(color: string | undefined): string[] | undefined {
   if (!color) return undefined
-  return SEMANTIC_COLOR_MAP[color] || color
+  return [SEMANTIC_COLOR_MAP[color] || color]
 }
 
 const toPascalCase = (str: string) => {
