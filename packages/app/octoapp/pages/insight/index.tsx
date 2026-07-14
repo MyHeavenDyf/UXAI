@@ -599,6 +599,10 @@ function InsightContent() {
   // 不必等第一个产物 tab 打开(Make 模块同款默认)。
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
 
+  // 文件管理表格外部刷新触发:对话上传文件落地会话目录(insight/<sid>/uploads/)后递增,
+  // 驱动 ResultViewer → InsightFileManager 的 refreshKey effect 重拉文件列表(对齐 make 模块的 filesRefreshKey)。
+  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
   // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009;v2 常驻可见改动见 SPEC-INS-014 §10) ────
   // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
   // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
@@ -925,6 +929,9 @@ function InsightContent() {
       }
     }
     const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
+
+    // 文件已落地 insight/<sessionId>/uploads/:通知文件管理表格重拉,避免后续上传不刷新(挂载只刷一次的回归)。
+    if (movedPaths.size > 0) setFilesRefreshKey(k => k + 1)
 
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
@@ -2222,6 +2229,7 @@ function InsightContent() {
             onAddToSession={addInsightFileToSession}
             onCloseTabsByPath={closeTabsByPath}
             onRemoveAttachmentsByPath={removeAttachmentsByPath}
+            refreshKey={filesRefreshKey()}
           />
         </Show>
         </div>

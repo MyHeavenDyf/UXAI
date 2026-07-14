@@ -50,6 +50,7 @@ import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
 
 export function InsightFileManager(props: {
+  refreshKey?: number
   onOpenFile: (file: InsightFileEntry) => void
   onAddToSession?: (file: InsightFile) => void
   onCloseTabsByPath?: (paths: string[]) => void
@@ -62,6 +63,7 @@ export function InsightFileManager(props: {
       {(sessionId) => (
         <FileManagerInner
           sessionId={sessionId}
+          refreshKey={props.refreshKey}
           onOpenFile={props.onOpenFile}
           onAddToSession={props.onAddToSession}
           onCloseTabsByPath={props.onCloseTabsByPath}
@@ -75,6 +77,7 @@ export function InsightFileManager(props: {
 
 function FileManagerInner(props: {
   sessionId: string
+  refreshKey?: number
   onOpenFile: (file: InsightFileEntry) => void
   onAddToSession?: (file: InsightFile) => void
   onCloseTabsByPath?: (paths: string[]) => void
@@ -131,6 +134,10 @@ function FileManagerInner(props: {
       fileStore.setLoading(false)
     }
   }
+
+  // 外部触发刷新(如对话上传文件落地会话目录后,父组件递增 refreshKey)。defer 避免与挂载时的
+  // session/path effect 重复拉取;仅响应后续 refreshKey 变化(对齐 make design-files-panel 的 refreshKey 机制)。
+  createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
   function readFileAsBase64(file: File): Promise<string> {
