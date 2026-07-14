@@ -194,9 +194,10 @@ export const ArtifactRoutes = lazy(() =>
           const filePath = c.req.valid("query").path
           const svc = yield* File.Service
           const result = yield* svc.read(filePath)
-          // File.read 对二进制文件(office/pdf 等)只返回空 content(服务于文本预览);
-          // 下载需原始字节:空 content 回退 fs.readFile + base64,前端据 encoding:"base64" 解码落盘。
-          if (!result.content) {
+          // File.read 对二进制文件(office/pdf 等)只返回空 content(服务于文本预览,见 File.read);
+          // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端据 encoding:"base64" 解码落盘。
+          // 用 type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退。
+          if (result.type === "binary") {
             const fs = yield* AppFileSystem.Service
             const bytes = yield* fs.readFile(filePath)
             return { content: Buffer.from(bytes).toString("base64"), mimeType: result.mimeType ?? getMime(filePath), encoding: "base64" as const }

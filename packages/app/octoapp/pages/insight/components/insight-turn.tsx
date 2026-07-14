@@ -15,7 +15,6 @@ import { readTaskInfo, type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
-import { getDesktopApi } from "../lib/electron-api"
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
 
@@ -84,8 +83,6 @@ export function InsightTurn(props: {
    * 这里据 task_id 换回最初那批文件,保证每次查询回答下方挂的都是同一批产物(spec: task-card.md 重复查询不重生成)。
    */
   resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
-  /** 项目目录(主动落盘生成文件到 insight/<sessionId>/outputs/ 用;空则跳过) */
-  projectDir?: string
   /** 生成文件落盘后通知刷新文件管理表格 */
   onFilesRefresh?: () => void
 }): JSX.Element {
@@ -307,50 +304,29 @@ export function InsightTurn(props: {
     return cards
   })
 
-  // 主动落盘:URI 源生成卡(MCP resource_link)出现时,立即 downloadResourceToTemp 到
-  // insight/<sessionId>/outputs/,使文件管理表格"生成文件"段可见(对齐 make 的 autoSaveArtifact)。
-  // downloadResourceToTemp 幂等(同 namespace 复用已落盘文件),与打开 tab 时的下载共用 card.id 命名空间,不重复下载。
-  // path 源(write 工具产物)已在磁盘跳过;inline 源(HTML/mindmap 自由文本嗅探)不入 outputs。
-  const autoSavedCards = new Set<string>()
-  createEffect(() => {
-    const cards = outputCards()
-    if (!props.projectDir) return
-    for (const card of cards) {
-      if (autoSavedCards.has(card.id)) continue
-      autoSavedCards.add(card.id)
-      // path 源(write 工具产物):文件已在磁盘,无需下载,只通知文件管理表格刷新即可拉到。
-      if (card.source === "path") {
-        props.onFilesRefresh?.()
-        continue
-      }
-      // uri 源(MCP resource_link):downloadResourceToTemp 落盘到 insight/<sessionId>/outputs/。
-      if (card.source !== "uri" || !card.uri) continue
-      const api = getDesktopApi()
-      if (typeof api?.downloadResourceToTemp !== "function") continue
-      const filename = card.fileName || card.title || `result-${card.id}`
-      void api.downloadResourceToTemp!(card.uri, card.id, filename, props.projectDir, props.sessionID)
-        .then(() => props.onFilesRefresh?.())
-        .catch((err) => console.error("[octo:card] auto-save-uri failed", { cardId: card.id, uri: card.uri, err }))
-    }
-  })
-
   // 对话区永远保留 opencode <Markdown> 原渲染(含 shiki 代码高亮 / markdown 表格 / 复制按钮)。
   // 入口卡片(下方紧凑条)作为"附加预览能力",绝不替代对话内容。
   // 业界对照:Claude.ai Artifacts / ChatGPT Canvas / Cursor 均保留对话原貌,不抹掉。
   // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
 
-  // eager 落地(SPEC-INS-014 v4):本 turn 路径 A 的 MCP `uri` 产物卡「出卡即落」进 outputs,不等点开。
-  // (任务产物走 index.tsx 的 taskCards effect;此处覆盖非任务的直接 resource_link。)inline/path 卡不落
-  // (inline 是对话附加预览、path/write 产物由 agent 约定直接写 outputs,前端不搬运)。dedup 跨 turn 实例共享。
+  // eager 落地(SPEC-INS-014 v4):本 turn 路径 A 的 MCP `uri` 产物卡「出卡即落」进 outputs,不等点开;
+  // path 源(write 工具产物)已在磁盘,只需通知文件管理表格刷新即可拉到(对齐 make 的 autoSaveArtifact)。
+  // (任务产物走 index.tsx 的 taskCards effect;此处覆盖非任务的直接 resource_link。)inline 卡不落
+  // (对话附加预览,前端不搬运)。dedup 跨 turn 实例共享,card.id 全局唯一(含 messageID)。
   const eagerProjectDir = useProjectDir()
   createEffect(() => {
     const dir = eagerProjectDir()
-    if (!dir || !props.sessionID) return
     for (const card of outputCards()) {
-      if (card.source !== "uri" || !card.uri) continue
       if (eagerMaterializedCardIds.has(card.id)) continue
+      if (card.source === "path") {
+        eagerMaterializedCardIds.add(card.id)
+        props.onFilesRefresh?.()
+        continue
+      }
+      if (card.source !== "uri" || !card.uri) continue
+      if (!dir || !props.sessionID) continue
       eagerMaterializedCardIds.add(card.id)
-      void materializeUriCardToOutputs(card, dir, props.sessionID)
+      void materializeUriCardToOutputs(card, dir, props.sessionID).then(() => props.onFilesRefresh?.())
     }
   })
 
