@@ -2,7 +2,7 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
-import { createMemo, For, Show } from "solid-js"
+import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
@@ -13,6 +13,7 @@ import { readTaskInfo, type TaskCardEntry } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
+import { getDesktopApi } from "../lib/electron-api"
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
 
@@ -77,6 +78,10 @@ export function InsightTurn(props: {
    * 这里据 task_id 换回最初那批文件,保证每次查询回答下方挂的都是同一批产物(spec: task-card.md 重复查询不重生成)。
    */
   resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
+  /** 项目目录(主动落盘生成文件到 insight/<sessionId>/outputs/ 用;空则跳过) */
+  projectDir?: string
+  /** 生成文件落盘后通知刷新文件管理表格 */
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -294,6 +299,33 @@ export function InsightTurn(props: {
       })
     }
     return cards
+  })
+
+  // 主动落盘:URI 源生成卡(MCP resource_link)出现时,立即 downloadResourceToTemp 到
+  // insight/<sessionId>/outputs/,使文件管理表格"生成文件"段可见(对齐 make 的 autoSaveArtifact)。
+  // downloadResourceToTemp 幂等(同 namespace 复用已落盘文件),与打开 tab 时的下载共用 card.id 命名空间,不重复下载。
+  // path 源(write 工具产物)已在磁盘跳过;inline 源(HTML/mindmap 自由文本嗅探)不入 outputs。
+  const autoSavedCards = new Set<string>()
+  createEffect(() => {
+    const cards = outputCards()
+    if (!props.projectDir) return
+    for (const card of cards) {
+      if (autoSavedCards.has(card.id)) continue
+      autoSavedCards.add(card.id)
+      // path 源(write 工具产物):文件已在磁盘,无需下载,只通知文件管理表格刷新即可拉到。
+      if (card.source === "path") {
+        props.onFilesRefresh?.()
+        continue
+      }
+      // uri 源(MCP resource_link):downloadResourceToTemp 落盘到 insight/<sessionId>/outputs/。
+      if (card.source !== "uri" || !card.uri) continue
+      const api = getDesktopApi()
+      if (typeof api?.downloadResourceToTemp !== "function") continue
+      const filename = card.fileName || card.title || `result-${card.id}`
+      void api.downloadResourceToTemp!(card.uri, card.id, filename, props.projectDir, props.sessionID)
+        .then(() => props.onFilesRefresh?.())
+        .catch((err) => console.error("[octo:card] auto-save-uri failed", { cardId: card.id, uri: card.uri, err }))
+    }
   })
 
   // 对话区永远保留 opencode <Markdown> 原渲染(含 shiki 代码高亮 / markdown 表格 / 复制按钮)。
