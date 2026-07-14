@@ -29,6 +29,25 @@ function getArtifactFilename(filePath: string | undefined): string {
   return parts[parts.length - 1] || ''
 }
 
+// Helper: Get commenter info from localStorage.userInfo
+function getCommenterInfo(): { commenterName: string; commenterAccount: string; commenterAvatar: string } {
+  try {
+    const userInfoStr = localStorage.getItem("userInfo")
+    if (!userInfoStr) {
+      return { commenterName: "用户名", commenterAccount: "", commenterAvatar: "" }
+    }
+    const obj = JSON.parse(userInfoStr)
+    const nickName = obj.nickName || "用户名"
+    const account = obj.account || ""
+    const avatarUrl = account
+      ? `https://octo.hdesign.huawei.com/w3lab/rest/yellowpage/face/${account.replace(/[^\d]/g, '')}/120?ts=${Date.now()}`
+      : ""
+    return { commenterName: nickName, commenterAccount: account, commenterAvatar: avatarUrl }
+  } catch {
+    return { commenterName: "用户名", commenterAccount: "", commenterAvatar: "" }
+  }
+}
+
 // History management for Undo/Redo
 interface HistoryState {
   html: string
@@ -157,6 +176,16 @@ export function HtmlRenderer(props: {
   } | null>(null)
   const [editingComment, setEditingComment] = createSignal<FileComment | null>(null)
   const [savedComments, setSavedComments] = createSignal<FileComment[]>([])
+  const [commentReadOnly, setCommentReadOnly] = createSignal(false)
+  const sortedComments = createMemo(() => {
+    const all = savedComments()
+    return [...all].sort((a, b) => a.createdAt - b.createdAt)
+  })
+  const currentCommentIndex = createMemo(() => {
+    const comment = editingComment()
+    if (!comment) return -1
+    return sortedComments().findIndex(c => c.id === comment.id)
+  })
   const [commentPanelPosition, setCommentPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [externalClickSignal, setExternalClickSignal] = createSignal(0)
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
@@ -834,6 +863,7 @@ createEffect(() => {
         hoverPoint: d.hoverPoint,
       })
       setEditingComment(null)
+      setCommentReadOnly(false)
       setCommentHoverTarget(null)
     }
 
@@ -842,6 +872,7 @@ createEffect(() => {
       const comment = savedComments().find(c => c.id === commentId)
       if (comment) {
         setEditingComment(comment)
+        setCommentReadOnly(true)
         const bounds = iframeRef?.getBoundingClientRect()
         setCommentTarget({
           elementId: comment.elementId,
@@ -863,6 +894,53 @@ createEffect(() => {
   window.addEventListener("message", handleMessage)
   onCleanup(() => window.removeEventListener("message", handleMessage))
 })
+
+  // Switch to previous/next pin in sorted order
+  const switchToPrevPin = () => {
+    const sorted = sortedComments()
+    const idx = currentCommentIndex()
+    if (idx <= 0) return
+    const prevComment = sorted[idx - 1]
+    setEditingComment(prevComment)
+    setCommentReadOnly(true)
+    const bounds = iframeRef?.getBoundingClientRect()
+    setCommentTarget({
+      elementId: prevComment.elementId,
+      tag: prevComment.elementId.split('-')[0] || 'div',
+      selector: prevComment.selector,
+      text: prevComment.text,
+      position: prevComment.position,
+      htmlHint: prevComment.htmlHint,
+      label: prevComment.label,
+      hoverPoint: {
+        x: prevComment.position.x * (bounds?.width || 800),
+        y: prevComment.position.y * (bounds?.height || 600)
+      },
+    })
+  }
+
+  const switchToNextPin = () => {
+    const sorted = sortedComments()
+    const idx = currentCommentIndex()
+    if (idx < 0 || idx >= sorted.length - 1) return
+    const nextComment = sorted[idx + 1]
+    setEditingComment(nextComment)
+    setCommentReadOnly(true)
+    const bounds = iframeRef?.getBoundingClientRect()
+    setCommentTarget({
+      elementId: nextComment.elementId,
+      tag: nextComment.elementId.split('-')[0] || 'div',
+      selector: nextComment.selector,
+      text: nextComment.text,
+      position: nextComment.position,
+      htmlHint: nextComment.htmlHint,
+      label: nextComment.label,
+      hoverPoint: {
+        x: nextComment.position.x * (bounds?.width || 800),
+        y: nextComment.position.y * (bounds?.height || 600)
+      },
+    })
+  }
 
   // Send edit-mode toggle to iframe
   createEffect(() => {
@@ -1257,26 +1335,39 @@ onFloatingPositionChange={setEditPanelPosition}
                     htmlHint: commentTarget()!.htmlHint,
                     hoverPoint: commentTarget()!.hoverPoint,
                   }}
- comment={editingComment()}
- externalClickSignal={externalClickSignal()}
+comment={editingComment()}
+  externalClickSignal={externalClickSignal()}
+  allComments={sortedComments()}
+  readOnly={commentReadOnly()}
+  onPrevPin={switchToPrevPin}
+  onNextPin={switchToNextPin}
 onSave={(note, attachments, pendingFiles) => {
-                     const existing = editingComment()
-                     const target = commentTarget()
-                    
+                      const existing = editingComment()
+                      const target = commentTarget()
+                     
+                      const commenterInfo = existing ? {
+                        commenterName: existing.commenterName,
+                        commenterAccount: existing.commenterAccount,
+                        commenterAvatar: existing.commenterAvatar,
+                      } : getCommenterInfo()
+
 const comment: FileComment = {
-                        id: existing?.id || `comment-${Date.now()}`,
-                        filePath: props.filePath || '',
-                        elementId: existing?.elementId || target?.elementId || '',
-                        selector: existing?.selector || target?.selector || '',
-                        label: existing?.label || target?.label || '',
-                        text: existing?.text || target?.text || '',
-                        position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
-                        htmlHint: existing?.htmlHint || target?.htmlHint || '',
-                        note,
-                        attachments,
-                        createdAt: existing?.createdAt || Date.now(),
-                        updatedAt: Date.now(),
-                      }
+                         id: existing?.id || `comment-${Date.now()}`,
+                         filePath: props.filePath || '',
+                         elementId: existing?.elementId || target?.elementId || '',
+                         selector: existing?.selector || target?.selector || '',
+                         label: existing?.label || target?.label || '',
+                         text: existing?.text || target?.text || '',
+                         position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
+                         htmlHint: existing?.htmlHint || target?.htmlHint || '',
+                         note,
+                         attachments,
+                         createdAt: existing?.createdAt || Date.now(),
+                         updatedAt: Date.now(),
+                         commenterName: commenterInfo.commenterName,
+                         commenterAccount: commenterInfo.commenterAccount,
+                         commenterAvatar: commenterInfo.commenterAvatar,
+                       }
                     
                     // Save to backend API
                     if (!props.sdkUrl || !props.sdkDirectory) {
@@ -1291,23 +1382,26 @@ fetch(`${props.sdkUrl}/comment/file`, {
                           ...directoryHeader(props.sdkDirectory)
                         },
 body: JSON.stringify({
-                            sessionId: props.sessionId,
-                            commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
-                            comment: {
-                             id: comment.id,
-                             filePath: comment.filePath,
-                            elementId: comment.elementId,
-                            selector: comment.selector,
-                            label: comment.label,
-                            text: comment.text,
-                            position: comment.position,
-                            htmlHint: comment.htmlHint,
-                            note: comment.note,
-                            attachments: comment.attachments || [],
-                            createdAt: comment.createdAt,
-                            updatedAt: comment.updatedAt,
-                          }
-                        })
+                             sessionId: props.sessionId,
+                             commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                             comment: {
+                              id: comment.id,
+                              filePath: comment.filePath,
+                             elementId: comment.elementId,
+                             selector: comment.selector,
+                             label: comment.label,
+                             text: comment.text,
+                             position: comment.position,
+                             htmlHint: comment.htmlHint,
+                             note: comment.note,
+                             attachments: comment.attachments || [],
+                             createdAt: comment.createdAt,
+                             updatedAt: comment.updatedAt,
+                             commenterName: comment.commenterName,
+                             commenterAccount: comment.commenterAccount,
+                             commenterAvatar: comment.commenterAvatar,
+                           }
+                         })
                       })
                      .then(res => {
                        console.log('[Comment] First save response status:', res.status)
