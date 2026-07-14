@@ -50,3 +50,18 @@ declare module 'd3' {
   export default d3
   export * from 'd3'
 }
+
+// ===== 可选依赖 @hui/icon-plus 类型声明 =====
+declare module '@hui/icon-plus' {
+  import type { Component } from 'vue'
+  const iconPlus: Record<string, Component>
+  export default iconPlus
+  export {}
+}
+
+// ===== virtual:hui-icon-exists 类型声明（由 vite huiIconStubPlugin 注入） =====
+declare module 'virtual:hui-icon-exists' {
+  export const hasHuiIcons: boolean
+  const _default: boolean
+  export default _default
+}

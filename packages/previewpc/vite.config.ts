@@ -8,6 +8,9 @@ import { createReadStream, mkdirSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import { fileURLToPath,URL } from 'url'
+import { createRequire } from 'node:module'
+
+const _require = createRequire(import.meta.url)
 
 const MIME: Record<string, string> = {
   ".png": "image/png",
@@ -47,6 +50,46 @@ function uploadsPlugin() {
   }
 }
 
+/**
+ * 可选依赖 @hui/icon-plus 的 stub 插件
+ * - 包已安装 → 正常解析到 node_modules
+ * - 包未安装 → 解析到虚拟 stub（空导出），防止 Vite 编译报错
+ * 同时注入 virtual:hui-icon-exists 标志供运行时检测
+ */
+function huiIconStubPlugin() {
+  const HUI_PKG = '@hui/icon-plus'
+  const STUB_ID = '\0virtual:hui-icon-stub'
+  const FLAG_ID = 'virtual:hui-icon-exists'
+  let exists = false
+
+  return {
+    name: 'hui-icon-stub',
+    resolveId(id: string) {
+      if (id === HUI_PKG) {
+        try {
+          _require.resolve(HUI_PKG)
+          exists = true
+          return null // 包存在，走默认解析到 node_modules
+        } catch {
+          exists = false
+          return STUB_ID // 包不存在，使用 stub
+        }
+      }
+      if (id === FLAG_ID) return FLAG_ID
+      return null
+    },
+    load(id: string) {
+      if (id === STUB_ID) {
+        return 'export default {}; export {}'
+      }
+      if (id === FLAG_ID) {
+        return `export const hasHuiIcons = ${exists}; export default ${exists}`
+      }
+      return null
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, __dirname + '/..', '')
   return {
@@ -56,6 +99,7 @@ export default defineConfig(({ mode }) => {
       vue(),
       testFilesPlugin(),
       uploadsPlugin(),
+      huiIconStubPlugin(),
       fileProtocolPlugin(),
       previewDataPlugin(fileURLToPath(new URL('./src/jsonStorage/data.json', import.meta.url))),
     ],

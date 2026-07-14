@@ -2,7 +2,8 @@
 import { computed, ref, watch } from "vue"
 import { ElTag } from "element-plus"
 
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
+import type { Component } from "vue"
 import type { TagNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
@@ -90,6 +91,16 @@ const closable = computed(() => properties?.closable)
 const iconName = computed(() => resolveValue(properties?.icon) as string)
 const iconSize = computed(() => (size.value ? iconSizeEnum[size.value as keyof typeof iconSizeEnum] : 12))
 
+const resolvedIcon = ref<{ component: Component | null; props: Record<string, any> } | null>(null)
+watch(
+  [iconName, iconSize],
+  async ([name, sz]) => {
+    if (!name) { resolvedIcon.value = null; return }
+    resolvedIcon.value = await getIconComponentRef(name, { size: sz })
+  },
+  { immediate: true },
+)
+
 const effect = computed(() => {
   const variant = resolveValue(properties?.variant as any) as string
   return variant ? effectEnum[variant as keyof typeof effectEnum] : "light"
@@ -146,11 +157,11 @@ watch(
     :color="color"
     :style="styles"
   >
-    <template v-if="iconName">
+    <template v-if="iconName && resolvedIcon?.component">
       <span :class="label ? 'mr-1' : ''">
         <component
-          :is="getLucideIconComponentRef(iconName)"
-          :size="iconSize"
+          :is="resolvedIcon.component"
+          v-bind="resolvedIcon.props"
         />
       </span>
     </template>

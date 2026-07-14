@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
+import type { Component } from "vue"
 import { ElTree } from "element-plus"
 import type { TreeNodeNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
-import type { Component } from "vue"
+import { getIconComponentRef } from "../Icon/IconBase"
 import "./Tree.less"
 
 interface TreeNodeData {
@@ -13,6 +13,13 @@ interface TreeNodeData {
   id: string
   icon?: Component
   children?: TreeNodeData[]
+}
+
+interface RawNode {
+  label: string
+  id: string
+  iconName?: string
+  children?: RawNode[]
 }
 
 const props = defineProps<A2UIComponentProps<TreeNodeNode>>()
@@ -60,24 +67,21 @@ const defaultSelectedKeys = computed(() => {
   return []
 })
 
-function transformNode(node: any): TreeNodeData {
-  const iconComponent = node.icon
-    ? getLucideIconComponentRef(node.icon)
-    : undefined
+function toRawNode(node: any): RawNode {
   const children = node.children
     ? Array.isArray(node.children)
-      ? node.children.map(transformNode)
+      ? node.children.map(toRawNode)
       : []
     : undefined
   return {
     label: node.title ?? "",
     id: node.key,
-    icon: iconComponent,
+    iconName: node.icon || undefined,
     ...(children ? { children } : {}),
   }
 }
 
-const treeData = computed<TreeNodeData[]>(() => {
+const rawTreeData = computed<RawNode[]>(() => {
   const raw = properties.options
   let opts: any[] = []
   if (Array.isArray(raw)) {
@@ -86,7 +90,42 @@ const treeData = computed<TreeNodeData[]>(() => {
     const resolved = resolveValue(raw) as any
     opts = Array.isArray(resolved) ? resolved : []
   }
-  return opts.map(transformNode)
+  return opts.map(toRawNode)
+})
+
+// ---- 异步图标解析 ----
+async function resolveIcons(nodes: RawNode[]): Promise<TreeNodeData[]> {
+  return Promise.all(
+    nodes.map(async (node) => {
+      let icon: Component | undefined
+      if (node.iconName) {
+        const refComp = await getIconComponentRef(node.iconName, { size: 14 })
+        icon = refComp?.component ?? undefined
+      }
+      return {
+        label: node.label,
+        id: node.id,
+        icon,
+        ...(node.children ? { children: await resolveIcons(node.children) } : {}),
+      }
+    }),
+  )
+}
+
+const treeData = ref<TreeNodeData[]>([])
+
+watch(
+  rawTreeData,
+  async (raw) => {
+    treeData.value = await resolveIcons(raw)
+  },
+  { immediate: true, deep: true },
+)
+
+// ---- 展开/折叠图标 ----
+const expandIcon = ref<Component>()
+getIconComponentRef("chevron-right").then((r) => {
+  expandIcon.value = r?.component ?? undefined
 })
 
 const treeRef = ref<InstanceType<typeof ElTree>>()
@@ -116,7 +155,7 @@ const handleNodeClick = (data: TreeNodeData) => {
     :data="treeData"
     node-key="id"
     label="label"
-    :icon="getLucideIconComponentRef('chevron-right')"
+    :icon="expandIcon"
     :show-checkbox="checkable"
     :default-expanded-keys="defaultExpandedKeys"
     :highlight-current="!checkable"

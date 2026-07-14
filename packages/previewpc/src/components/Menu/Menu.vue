@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, defineComponent, h } from "vue"
+import { computed, defineComponent, h, ref, watch } from "vue"
+import type { Component } from "vue"
 import { ElMenu, ElMenuItem, ElSubMenu } from "element-plus"
 import type { MenuNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
 import "./Menu.less"
 
 interface MenuItemData {
@@ -55,6 +56,33 @@ const selectedKeys = computed<string[]>(() => {
 const mode = computed(() => (resolveValue(properties.mode) as string) || "vertical")
 const inlineCollapsed = computed(() => (resolveValue(properties.inlineCollapsed) as boolean) || false)
 
+// ---- 异步图标解析 ----
+type ResolvedIcon = { component: Component | null; props: Record<string, any> } | null
+const resolvedIcons = ref<Record<string | number, ResolvedIcon>>({})
+
+watch(
+  items,
+  async (newItems) => {
+    const map: Record<string | number, ResolvedIcon> = {}
+
+    async function collect(items: MenuItemData[]) {
+      const promises = items.map(async (item) => {
+        if (item.icon) {
+          map[item.key] = await getIconComponentRef(item.icon, { size: 16, strokeWidth: 2 })
+        } else {
+          map[item.key] = null
+        }
+        if (item.children) await collect(item.children)
+      })
+      await Promise.all(promises)
+    }
+
+    await collect(newItems)
+    resolvedIcons.value = { ...map }
+  },
+  { immediate: true, deep: true },
+)
+
 const handleSelect = (_key: string) => {
 }
 
@@ -70,10 +98,10 @@ const MenuItemNode = defineComponent({
   setup(props) {
     return () => {
       const item = props.item
-      const iconComponent = item.icon
-        ? h(getLucideIconComponentRef(item.icon), {
-            size: 16,
-            strokeWidth: 2,
+      const resolved = resolvedIcons.value[item.key]
+      const iconComponent = resolved?.component
+        ? h(resolved.component, {
+            ...resolved.props,
             class: inlineCollapsed.value ? '' : 'mr-3'
           })
         : null

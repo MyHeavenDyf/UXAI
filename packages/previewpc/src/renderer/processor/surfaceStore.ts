@@ -1,5 +1,6 @@
 import { SurfaceModel } from './surfaceModel'
 import type { JsonInput, DataValue } from './type'
+import { processJsonForIcons } from '../../composables/useIconProvider'
 
 // 管理所有surface，配合使用useSyncExternalStore实现精确更新
 export class SurfaceStore {
@@ -7,12 +8,10 @@ export class SurfaceStore {
     private subscribers: Map<string, Set<() => void>> = new Map();
 
     createSurface(id: string, json: JsonInput) {
-        this.setImportantClassName(json)
         this.setSurfSurface(id, json)
     }
 
     updateSurface(id: string, json: JsonInput) {
-        this.setImportantClassName(json)
         this.setSurfSurface(id, json)
     }
 
@@ -50,6 +49,9 @@ export class SurfaceStore {
         }
         const surface = new SurfaceModel(id);
         this.surfaces.set(id, surface)
+        this.setImportantClassName(json)
+        // 收集 JSON 中的图标引用并调用 API 映射（当 @hui/icon-plus 存在时）
+        processJsonForIcons(json)
         surface.parserJson(json)
         this.notify(id);
     }

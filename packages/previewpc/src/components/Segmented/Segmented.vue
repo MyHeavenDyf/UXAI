@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import { ElSegmented } from "element-plus"
 import type { SegmentedNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
 import "./Segmented.less"
 
 const sizeEnum: Record<string, "" | "small" | "large" | "default" | undefined> = {
@@ -35,16 +35,31 @@ const normalizedOptions = computed(() => {
     if (typeof item === "string" || typeof item === "number") {
       return { label: String(item), value: item }
     }
-    const iconComponent = item.icon
-      ? getLucideIconComponentRef(item.icon)
-      : undefined
     return {
       label: item.label ?? String(item.value),
       value: item.value,
-      icon: iconComponent,
+      iconName: item.icon as string | undefined,
     }
   })
 })
+
+// ---- 异步图标解析 ----
+const resolvedOptions = ref<any[]>([])
+
+watch(
+  normalizedOptions,
+  async (opts) => {
+    const results = await Promise.all(
+      opts.map(async (opt: any) => {
+        if (!opt.iconName) return { label: opt.label, value: opt.value, icon: undefined }
+        const ref = await getIconComponentRef(opt.iconName)
+        return { label: opt.label, value: opt.value, icon: ref?.component ?? undefined }
+      }),
+    )
+    resolvedOptions.value = results
+  },
+  { immediate: true },
+)
 
 
 const initvalue = computed(() => {
@@ -75,7 +90,7 @@ const handleChange = (val: string | number) => {
     :id="id"
     :class="className"
     v-model="currentValue"
-    :options="normalizedOptions"
+    :options="resolvedOptions"
     :direction
     :size="size"
     :block="block"

@@ -5,7 +5,7 @@ import type { SwitchNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import "./Switch.less"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { useIconComponentRef } from "../Icon/IconBase"
 
 const sizeEnum = {
   medium: "default",
@@ -25,14 +25,15 @@ const size = computed(() => {
 
 const checkedChildren = computed(() => properties.checkedChildren)
 const unCheckedChildren = computed(() => properties.unCheckedChildren)
-const checkedChildrenIcon = computed(() =>{
-  const iconname = resolveValue(properties.checkedChildrenIcon) as string
-  return iconname ? getLucideIconComponentRef(iconname) : null
-})
-const unCheckedChildrenIcon = computed(() =>{
-  const iconname = resolveValue(properties.unCheckedChildrenIcon) as string
-  return iconname ? getLucideIconComponentRef(iconname) : null
-})
+
+// ---- 异步图标解析 ----
+const checkedIconName = computed(() => resolveValue(properties.checkedChildrenIcon) as string | undefined)
+const checkedIconRef = useIconComponentRef(checkedIconName)
+const checkedChildrenIcon = computed(() => checkedIconRef.value?.component ?? null)
+
+const uncheckedIconName = computed(() => resolveValue(properties.unCheckedChildrenIcon) as string | undefined)
+const uncheckedIconRef = useIconComponentRef(uncheckedIconName)
+const unCheckedChildrenIcon = computed(() => uncheckedIconRef.value?.component ?? null)
 
 const initVal = computed(() => resolveValue(properties.value) as boolean)
 const value = ref(initVal.value)
