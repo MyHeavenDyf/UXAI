@@ -200,6 +200,25 @@ function ThreeDContent() {
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
+  // 每个会话「最新一轮的结论」,按 sessionId 独立记录:切换会话不互相覆盖、不丢。
+  // 取值:aborted=已中止 / failed=生成失败 / completed=生成完成。失败也如实记录,不再误显示「已完成」。
+  const [outcomeBySession, setOutcomeBySession] = createSignal<Record<string, "aborted" | "failed" | "completed">>({})
+  const sessionOutcome = createMemo(() => outcomeBySession()[params.id ?? ""] ?? null)
+  // 每次生成(create/modify)记一条 generation,作为「轮次」的真实来源。必须在 roundMessages 之前声明
+  // (后者立即求值并读取 generations())。动机:create 不给根会话留用户消息 → 按根消息划分会把多次 create
+  // 合并成一轮、中止态无处附着;改用 generation 作锚点后每次生成独立成轮。
+  type Generation = {
+    id: string
+    prompt: string
+    startTime: number
+    childIds: string[]
+    outcome: "completed" | "aborted" | "failed" | null
+    versionId: string | null
+  }
+  const [generations, setGenerations] = createSignal<Generation[]>([])
+  const touchLastGen = (fn: (g: Generation) => Generation) =>
+    setGenerations((prev) => (prev.length ? prev.map((g, i) => (i === prev.length - 1 ? fn(g) : g)) : prev))
+
   const roundMessages = createMemo(() => {
     const id = params.id
     if (!id) return []
@@ -530,6 +549,9 @@ function ThreeDContent() {
       const onFinished = async ({ sceneIntent, scenePlanner, sceneJson }: any) => {
         // 中断后不处理结果(避免显示半成品场景 + 误报成功)
         if (aborted()) return
+        // 走到这里 = 本轮正常完成 → 记录结论 completed(覆盖此前可能的 aborted/failed)
+        recordOutcome(sessionSid, "completed")
+        touchLastGen((g) => ({ ...g, outcome: "completed" }))
         if (sceneJson) {
           sendToPreview(sceneJson)
           // 直接设 sceneDoc,绕过 detectSceneJson(serialize→parse)的静默失效风险
@@ -572,6 +594,11 @@ function ThreeDContent() {
     } catch (err: unknown) {
       if (aborted() || (err instanceof Error && err.message === "aborted")) return
       console.error("[ThreeDPage] handleSubmit failed", err)
+      // 非中止的失败 → 记录本轮「生成失败」
+      if (sid) {
+        recordOutcome(sid, "failed")
+        touchLastGen((g) => ({ ...g, outcome: "failed" }))
+      }
     } finally {
       if (!submitSessionId || params.id === submitSessionId) {
         setSending(false)
@@ -583,6 +610,9 @@ function ThreeDContent() {
     setAborted(true)
     const sid = params.id
     if (!sid) return
+    // 记录本轮被中止(按 sessionId 独立 + 按轮独立),否则卡片会兜底成「生成完成」
+    recordOutcome(sid, "aborted")
+    touchLastGen((g) => ({ ...g, outcome: "aborted" }))
     // 无条件 abort 根会话 + 所有子会话(不检查 pending,避免 sync 延迟漏掉正在跑的 agent)
     await sdk.client.session.abort({ sessionID: sid }).catch(() => { })
     for (const childID of childSessionIDs()) {
@@ -802,8 +832,6 @@ function ThreeDContent() {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onOpenResult={handleOpenResult}
-            pipelineBusy={isBusy() || sending()}
-            aborted={aborted()}
             genStartTime={genStartTime()}
             roundMessages={roundMessages()}
             roundCards={roundCards()}
