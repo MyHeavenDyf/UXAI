@@ -13,6 +13,17 @@ import { getDesktopApi } from "../lib/electron-api"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { defaultFilename, ensureMarkdownExt } from "./local-file"
 
+// eager 落盘产出的本地副本路径(card.id → outputs 下的绝对路径)。
+// 用途:uri 卡与「文件管理打开的同一文件」本是磁盘同一份,但两者去重键不相交
+// (uri 卡有 uri 无 filePath、文件管理卡有 filePath 无 uri),不登记就会开出两个 tab。
+// openTab 据此给已落盘的 uri 卡补上 filePath,让 (filePath,type) 去重同时覆盖两个入口。
+const materializedPaths = new Map<string, string>()
+
+/** 查 uri 卡 eager 落盘后的本地副本路径;未落盘(或落在 OS 临时目录)返回 undefined。 */
+export function materializedLocalPath(cardId: string): string | undefined {
+  return materializedPaths.get(cardId)
+}
+
 export async function ensureLocalMarkdownFile(
   tab: ResultTab,
   projectDir: string,
@@ -59,6 +70,8 @@ export async function materializeUriCardToOutputs(
   const filename = card.type === "markdown" ? ensureMarkdownExt(base) : base
   try {
     const localPath = await api.downloadResourceToTemp!(card.uri, card.id, filename, projectDir, sessionId)
+    // 登记本地副本路径:openTab 据此给 uri 卡补 filePath,与「文件管理打开同一文件」去重到同一个 tab。
+    materializedPaths.set(card.id, localPath)
     // 客户端触发侧日志(主进程落地本身另打 [octo:worktree] result-materialize);两者配对定位「出卡了没落盘」。
     console.log("[octo:resource] eager-materialize", { cardId: card.id, type: card.type, filename, sessionId, localPath })
   } catch (err) {

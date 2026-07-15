@@ -1,5 +1,25 @@
 import { createSignal } from "solid-js"
 import type { OutputCard } from "../insight-turn"
+import { materializedLocalPath } from "../../utils/local-resource"
+
+/** 路径比较用:统一分隔符(主进程返回的 Windows 路径与前端拼接的写法可能不一致)。 */
+function samePath(a?: string, b?: string): boolean {
+  if (!a || !b) return false
+  return a.replace(/\\/g, "/") === b.replace(/\\/g, "/")
+}
+
+/**
+ * tab 当前对应的本地文件路径。
+ *
+ * uri tab 的 filePath 只在「开 tab 那一刻已落盘完成」时才填得上,但 eager 落盘是异步的
+ * (downloadResourceToTemp 要把整个文件下完):几十 MB 的 xlsx 下载期间用户点开卡片,
+ * 开出来的 uri tab 就没有 filePath。故这里**每次去重都重查注册表**,而不是只信 tab 上
+ * 那份创建时的快照——否则「卡片一出现就点开(慢文件) → 稍后从文件管理打开同一文件」必然双开。
+ */
+function tabLocalPath(t: ResultTab): string | undefined {
+  if (t.filePath) return t.filePath
+  return t.source === "uri" ? materializedLocalPath(t.id) : undefined
+}
 
 export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
 
@@ -37,11 +57,18 @@ export function createTabStore() {
   // 返回「去重后实际生效的 tab id」:命中已有 tab 时返回已有 id,新建时返回 card.id。
   // 调用方据此激活真实存在的 tab —— 不能假定 card.id 一定进了 tabs(可能被 (uri,type) 去重掉),
   // 否则用 card.id 去 activate 会指向不存在的 tab,导致 activeTab() 为 null、右侧栏只剩标签栏空白。
-  function openTab(card: OutputCard): string {
+  function openTab(incoming: OutputCard): string {
+    // uri 卡若已 eager 落盘,补上本地副本路径:对话区卡片与「文件管理打开的同一文件」本是磁盘同一份,
+    // 但前者只有 uri、后者只有 filePath,去重键不相交 → 不补就会开出两个 tab(同文件双开)。
+    // 补后两个入口都带 filePath,由下方 (filePath,type) 去重收敛到同一个 tab。
+    // source 保持 "uri" 不变 —— 渲染路由 / FileFallback 的 isPath() 都按 source 判定,不受影响。
+    const localPath = incoming.source === "uri" ? materializedLocalPath(incoming.id) : undefined
+    const card: OutputCard = localPath ? { ...incoming, filePath: localPath } : incoming
     // 去重优先级(spec: task-card.md §3.5 入口冗余 ≠ tab 重复):
     //   1. (uri, type) 复合命中 → 激活(多入口指向同一产物 + 同一渲染视图)
-    //   2. id 命中 → 激活(inline 模式 / 同入口重复点击)
-    //   3. 都不命中 → 新建
+    //   2. (filePath, type) 复合命中 → 激活(同一本地文件;含 uri 卡 ↔ 文件管理卡跨入口)
+    //   3. id 命中 → 激活(inline 模式 / 同入口重复点击)
+    //   4. 都不命中 → 新建
     // 同一 URI 不同 type 可并存(典型场景:mindmap JSON 文件既可走 json 高亮预览,
     // 也可走 mindmap 思维导图渲染——两个 tab 互不冲突)。
     const current = tabs()
@@ -58,9 +85,11 @@ export function createTabStore() {
         return byUriAndType.id
       }
     }
-    // path 模式去重:(filePath, type) 复合命中 → 激活(同一本地文件 + 同一渲染视图)
+    // (filePath, type) 去重:write 产物重复点开,以及「对话区 uri 卡 ↔ 文件管理同一文件」跨入口。
+    // 比较用 tabLocalPath():已开的 uri tab 可能开在落盘完成之前(慢文件),filePath 是空的,
+    // 要回查注册表才认得出它就是这个本地文件。
     if (card.filePath) {
-      const byPathAndType = current.find((t) => t.filePath === card.filePath && t.type === card.type)
+      const byPathAndType = current.find((t) => samePath(tabLocalPath(t), card.filePath) && t.type === card.type)
       if (byPathAndType) {
         console.log("[octo:tab] dedupe-by-path-and-type", {
           existingTabId: byPathAndType.id,
