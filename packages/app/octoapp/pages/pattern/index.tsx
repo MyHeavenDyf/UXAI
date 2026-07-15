@@ -22,8 +22,9 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment-bar"
 import { create_intent_confirm, create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create-json'
 import modify_json_ai from './workflow/modify-json-ai'
-import { appendPatternVersion, updatePatternVersion, loadCurrentPatternState, listPatternVersions, type VersionEntry } from "./utils/version-history"
-import { saveReviewCheckpoint, loadReviewCheckpoint, clearReviewCheckpoint } from "./utils/review-checkpoint"
+import { appendPatternVersion, updatePatternVersion, listPatternVersions, type VersionEntry } from "./utils/version-history"
+import { saveCheckpoint, loadCheckpoint, clearCheckpoint } from "./checkpoint/checkpoint"
+import { restoreSession } from "./checkpoint/session-restore"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
@@ -44,7 +45,6 @@ import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
-import { saveIntentConfirmCheckpoint, loadIntentConfirmCheckpoint, clearIntentConfirmCheckpoint } from "./utils/intent-checkpoint"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { createReorderHandler } from "./utils/reorder"
@@ -175,39 +175,49 @@ function PatternContent() {
               const savedTheme = await loadTheme(dir, id)
               if (params.id !== id) return
               setSelectedDesignSystem(savedTheme ?? "ICT3.1")
-              // 意图确认数据读取
-              const checkpoint = await loadIntentConfirmCheckpoint(dir, id)
+
+              const result = await restoreSession(dir, id)
+              debugger
               if (params.id !== id) return
-              if (checkpoint) {
-                sessionMap.set(setUserInput, id, checkpoint.userInput)
-                sessionMap.set(setIntentConfirm, id, { options: checkpoint.options, current_step: "intent_confirm" })
-                return
-              }
-              // 线框审查数据读取
-              const reviewCkpt = await loadReviewCheckpoint(dir, id)
-              if (params.id !== id) return
-              if (reviewCkpt) {
-                sessionMap.set(setLastPlanner, id, reviewCkpt.planner)
-                sessionMap.set(setLastIntent, id, reviewCkpt.intentDescription)
-                const matches= reviewCkpt.pattern
-                sessionMap.set(setPatternMatches, id, matches)
-                sessionMap.set(setUserInput, id, reviewCkpt.userInput)
-                if (matches?.length > 0) {
-                  sessionMap.set(setShowPatternMatch, id, true)
-                } else {
-                  sessionMap.set(setIsPlanReview, id, true)
+
+              switch (result.type) {
+                case "pipeline_error": {
+                  setSessionErrors(prev => ({ ...prev, [id]: "生成异常，请重试" }))
+                  return
                 }
-                return
-              }
-              // 已完成状态数据读取
-              const state = await loadCurrentPatternState(dir, id)
-              if (!state || params.id !== id) return
-              if (state.lastIntent) sessionMap.set(setLastIntent, id, state.lastIntent)
-              if (state.lastPlanner) sessionMap.set(setLastPlanner, id, state.lastPlanner)
-              if (state.lastModules.length > 0) {
-                sessionMap.set(setLastModules, id, state.lastModules)
-                const a2uiJSON = state.mergedA2UI
-                if (a2uiJSON) sendToPreview(a2uiJSON)
+                case "intent_confirm": {
+                  debugger
+                  const ckpt = result.checkpoint
+                  sessionMap.set(setUserInput, id, ckpt.userInput)
+                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  return
+                }
+                case "planner_create": {
+                  const ckpt = result.checkpoint
+                  sessionMap.set(setLastPlanner, id, ckpt.planner ?? null)
+                  sessionMap.set(setLastIntent, id, ckpt.intentResult?.intent_description ?? null)
+                  const matches = ckpt.patternPageResult?.matches ?? []
+                  sessionMap.set(setPatternMatches, id, matches)
+                  sessionMap.set(setUserInput, id, ckpt.userInput)
+                  if (matches.length > 0) {
+                    sessionMap.set(setShowPatternMatch, id, true)
+                  } else {
+                    sessionMap.set(setIsPlanReview, id, true)
+                  }
+                  return
+                }
+                case "completed": {
+                  const state = result.state
+                  if (state.lastIntent) sessionMap.set(setLastIntent, id, state.lastIntent)
+                  if (state.lastPlanner) sessionMap.set(setLastPlanner, id, state.lastPlanner)
+                  if (state.lastModules.length > 0) {
+                    sessionMap.set(setLastModules, id, state.lastModules)
+                    if (state.mergedA2UI) sendToPreview(state.mergedA2UI)
+                  }
+                  return
+                }
+                case "empty":
+                  return
               }
             }()
             // 版本列表独立并行加载
@@ -477,6 +487,98 @@ function PatternContent() {
     }
   }
 
+  // 重试：从 checkpoint 恢复断点续传
+  async function handleRetry() {
+    const sid = params.id
+    if (!sid) return
+    const mk = activeModelKey()
+    if (!mk) return
+    const dir = patternHistoryDir()
+    if (!dir) return
+
+    const ckpt = await loadCheckpoint(dir, sid)
+    if (!ckpt) {
+      showToast({ title: "无断点记录", description: "未找到可恢复的进度，请重新生成" })
+      return
+    }
+
+    setSessionErrors(prev => { const n = { ...prev }; delete n[sid]; return n })
+    await clearProtoError(dir, sid)
+    setSendingSids(prev => new Set(prev).add(sid))
+
+    const ds = ckpt.designSystem || "ICT3.1"
+    const text = ckpt.userInput
+    const intentCtx: ProtoCreateJsonInput = {
+      sdk,
+      sync,
+      modelKey: mk,
+      rootSession: sid,
+      userInput: text,
+      extra: { designSystem: ds } as Record<string, unknown>,
+      checkpointDir: dir,
+      onSessionCreated: (childID: string) => {
+        if (params.id !== sid) return
+        setChildSessionIDs(prev => [...prev, childID])
+      },
+    }
+
+    try {
+      if (ckpt.stage === "modules_create" && ckpt.planner) {
+        // Stage 2 失败，从模块生成重试
+        sessionMap.set(setIsGeneratingReview, sid, true)
+        const planner = ckpt.planner
+        const intent = ckpt.intentResult?.intent_description ?? {}
+        const onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
+          if (dir) {
+            await updatePatternVersion(dir, sid, { lastModules: modulesJson, mergedA2UI: pageJson })
+            void saveDebugSnapshot(dir, sid, "modules", { lastIntent: pageIntent, lastPlanner: layoutPlanner, lastModules: modulesJson, mergedA2UI: pageJson, summary: text.slice(0, 80) })
+            clearDebugLog()
+          }
+          sessionMap.set(setLastIntent, sid, pageIntent)
+          sessionMap.set(setLastPlanner, sid, layoutPlanner)
+          sessionMap.set(setLastModules, sid, modulesJson)
+          sessionMap.set(setIsGeneratingReview, sid, false)
+          sessionMap.set(setIsPlanReview, sid, false)
+          if (params.id === sid && pageJson) sendToPreview(pageJson)
+        }
+        await create_modules_json(intentCtx, planner, intent, onFinshed)
+      } else {
+        // Stage 1 失败，从 planner 生成重试
+        sessionMap.set(setIsGenerating, sid, true)
+        const new_planner = await create_planner_json(intentCtx)
+        void saveDebugSnapshot(dir, sid, "planner")
+        const partialDir = patternHistoryDir()
+        if (partialDir) {
+          const vid = await appendPatternVersion(partialDir, sid, {
+            lastIntent: new_planner.intent.intent_description,
+            lastPlanner: new_planner.planner.layout_planner,
+            lastModules: [],
+          }, text.slice(0, 80))
+          sessionMap.update(setVersions, sid, prev => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }], [])
+          sessionMap.set(setCurrentVersionId, sid, vid)
+        }
+        if (params.id !== sid) return
+        sessionMap.set(setLastPlanner, sid, new_planner.planner.layout_planner)
+        sessionMap.set(setLastIntent, sid, new_planner.intent.intent_description)
+        sessionMap.set(setPatternMatches, sid, new_planner.patternPageResult.matches)
+        sessionMap.set(setUserInput, sid, text)
+        if (new_planner.patternPageResult.matches?.length > 0) {
+          sessionMap.set(setShowPatternMatch, sid, true)
+        } else {
+          sessionMap.set(setIsPlanReview, sid, true)
+        }
+        startPause(sid)
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "aborted") return
+      await handleWorkflowError(err, sid, "handleRetry")
+    } finally {
+      setSendingSids(prev => { const n = new Set(prev); n.delete(sid); return n })
+      sessionMap.set(setIsGenerating, sid, false)
+      sessionMap.set(setIsGeneratingReview, sid, false)
+    }
+  }
+
   const { chatWidth, focusMode, setFocusMode, onDividerMouseDown } = createSplitDrag()
 
   const autoScroll = createAutoScroll({ working: isBusy })
@@ -580,6 +682,7 @@ function PatternContent() {
       const startDir = patternHistoryDir()
       if (startDir) {
         void clearProtoError(startDir, sid!)
+        void clearCheckpoint(startDir, sid!)
         void saveTheme(startDir, sid!, selectedDesignSystem())
       }
 
@@ -592,6 +695,7 @@ function PatternContent() {
         rootSession: sid,
         userInput: text,
         extra: { designSystem: ds },
+        checkpointDir: patternHistoryDir() ?? undefined,
         onSessionCreated: (childID: string) => {
           if (params.id !== sid) return
           setChildSessionIDs((prev) => [...prev, childID])
@@ -674,11 +778,13 @@ function PatternContent() {
           startPause(sid!)
           const confirmDir = patternHistoryDir()
           if (confirmDir) {
-            await saveIntentConfirmCheckpoint(confirmDir, sid!, {
-              options: confirmResult.options,
+            await saveCheckpoint(confirmDir, sid!, {
+              stage: "intent_confirm",
               userInput: text,
+              designSystem: ds,
               rootSessionId: sid!,
               createdAt: Date.now(),
+              options: confirmResult.options,
             })
           }
           return
@@ -704,13 +810,15 @@ function PatternContent() {
         // 持久化线框审查检查点
         const userDir = patternHistoryDir()
         if (userDir) {
-          await saveReviewCheckpoint(userDir, sid, {
-            pattern: new_planner.patternPageResult.matches,
-            planner: new_planner.planner.layout_planner,
-            intentDescription: new_planner.intent.intent_description,
+          await saveCheckpoint(userDir, sid, {
+            stage: "planner_create",
             userInput: text,
+            designSystem: ds,
             rootSessionId: sid,
             createdAt: Date.now(),
+            patternPageResult: { matches: new_planner.patternPageResult.matches },
+            intentResult: { intent_description: new_planner.intent.intent_description },
+            planner: new_planner.planner.layout_planner,
           })
         }
 
@@ -767,7 +875,7 @@ function PatternContent() {
 
     const dir = patternHistoryDir()
     if (dir) {
-      await clearReviewCheckpoint(dir, sid)
+      await clearCheckpoint(dir, sid)
       await updatePatternVersion(dir, sid, {
         lastModules: patchedModules,
         mergedA2UI: patchedA2UI,
@@ -803,9 +911,16 @@ function PatternContent() {
     // 把设计师编辑后的意图合并回 lastIntent
     sessionMap.set(setLastIntent, sid, result.intentDescription)
 
-    // 删除检查点（阶段 2 启动后不再需要回退到审查）
+    // 更新 checkpoint：写入编辑后的 intent，stage 推进到 modules_create
     const ckptDir = patternHistoryDir()
-    if (ckptDir) await clearReviewCheckpoint(ckptDir, sid)
+    if (ckptDir) {
+      const ckpt = await loadCheckpoint(ckptDir, sid)
+      if (ckpt) {
+        ckpt.intentResult = { intent_description: result.intentDescription }
+        ckpt.stage = "modules_create"
+        await saveCheckpoint(ckptDir, sid, ckpt)
+      }
+    }
 
     tracker.interaction({ module: "prototype", name: "confirm-review" })
 
@@ -820,6 +935,7 @@ function PatternContent() {
       rootSession: sid,
       userInput: text,
       extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
+      checkpointDir: patternHistoryDir() ?? undefined,
       onSessionCreated: (childID: string) => {
         if (params.id !== sid) return
         setChildSessionIDs((prev) => [...prev, childID])
@@ -875,8 +991,6 @@ function PatternContent() {
     if (!mk) return
     const text = userInput()[sid] ?? ""
     const enrichedText = text + enrichedInput
-    const ckptDir = patternHistoryDir()
-    if (ckptDir) await clearIntentConfirmCheckpoint(ckptDir, sid)
     setSendingSids((prev) => new Set(prev).add(sid))
     endPause(sid)
     sessionMap.set(setIsGenerating, sid, true)
@@ -888,6 +1002,7 @@ function PatternContent() {
         rootSession: sid,
         userInput: enrichedText,
         extra: { designSystem: selectedDesignSystem() },
+        checkpointDir: patternHistoryDir() ?? undefined,
         onSessionCreated: (childID: string) => {
           setChildSessionIDs((prev) => [...prev, childID])
         },
@@ -910,13 +1025,15 @@ function PatternContent() {
       }
       const userDir = patternHistoryDir()
       if (userDir) {
-        await saveReviewCheckpoint(userDir, sid, {
-          pattern: new_planner.patternPageResult.matches,
-          planner: new_planner.planner.layout_planner,
-          intentDescription: new_planner.intent.intent_description,
+        await saveCheckpoint(userDir, sid, {
+          stage: "planner_create",
           userInput: enrichedText,
+          designSystem: selectedDesignSystem(),
           rootSessionId: sid,
           createdAt: Date.now(),
+          patternPageResult: { matches: new_planner.patternPageResult.matches },
+          intentResult: { intent_description: new_planner.intent.intent_description },
+          planner: new_planner.planner.layout_planner,
         })
       }
       sessionMap.set(setIntentConfirm, sid!, null)
@@ -976,7 +1093,10 @@ function PatternContent() {
     endPause(sid)
     setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
     const haltDir = patternHistoryDir()
-    if (haltDir) void clearProtoError(haltDir, sid)
+    if (haltDir) {
+      void clearProtoError(haltDir, sid)
+      void clearCheckpoint(haltDir, sid)
+    }
   }
 
   // 监听对话框回车键
@@ -1171,6 +1291,7 @@ function PatternContent() {
             pauseStartedAt={pauseStart()[params.id!]}
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
+            onRetry={handleRetry}
           />
         </Show>
 

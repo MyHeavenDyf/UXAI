@@ -35,12 +35,11 @@ export function GenerationCard(props: {
             </Show>
           </div>
           <Show when={props.generating && !props.error} fallback={
-            <div class="flex items-center gap-2">
-              <Show when={props.error && props.onRetry}>
-                <button class="gc-retry-btn" onClick={() => props.onRetry!()}>重试</button>
-              </Show>
+            <Show when={props.error && props.onRetry} fallback={
               <span class={cardState().badge}>{cardState().badgeText}</span>
-            </div>
+            }>
+              <button class="gc-retry-btn" onClick={() => props.onRetry!()}>重试</button>
+            </Show>
           }>
             <span class="gc-gen-badge">
               <span class="w-1.5 h-1.5 rounded-full animate-pulse gc-pulse-dot" />

@@ -61,9 +61,10 @@ export async function handleLivePreview(previewData: unknown): Promise<void> {
   }
 
   const jsonStr = typeof previewData === "string" ? previewData : JSON.stringify(previewData)
-  const buffer = new TextEncoder().encode(jsonStr).buffer
-  await desktopApi.writeFileBuffer(`${dir}/live-data.json`, buffer)
-  window.open("http://127.0.0.1:51856?fetch=live-data.json")
+  const jsContent = `window.__A2UI_DATA__ = ${jsonStr};`
+  const buffer = new TextEncoder().encode(jsContent).buffer
+  await desktopApi.writeFileBuffer(`${dir}/data.js`, buffer)
+  window.open("http://127.0.0.1:51856")
 }
 
 // Pixso 预览

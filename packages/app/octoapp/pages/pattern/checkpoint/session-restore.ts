@@ -19,6 +19,7 @@ export async function restoreSession(
   sessionId: string,
 ): Promise<RestoreResult> {
   const ckpt = await loadCheckpoint(dir, sessionId)
+  debugger
   if (ckpt) {
     switch (ckpt.stage) {
       case "intent_confirm":
