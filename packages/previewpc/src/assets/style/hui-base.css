@@ -324,6 +324,9 @@
    --el-input-hover-border-color: var(--el-border-color-hover);
    --el-input-height: 32px;
 }
+.el-input__wrapper {
+  padding: 1px 12px;
+}
 
 .el-popper {
   --el-popper-bg-color-light: var(--el-bg-color-overlay);

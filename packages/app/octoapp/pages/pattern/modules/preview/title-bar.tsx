@@ -47,7 +47,8 @@ export function TitleBar(props: TitleBarProps) {
   // === 下拉菜单数据源控制 ===
   const previewOptions: DropdownItem[] = [
     { label: "实时预览", value: "live" },
-    { label: "Pixso预览", value: "pixso" }
+    { label: "Pixso预览", value: "pixso" },
+    { label: "代码转Pixso(测试)", value: "capture" }
   ]
 
   const deviceOptions: DropdownItem[] = [

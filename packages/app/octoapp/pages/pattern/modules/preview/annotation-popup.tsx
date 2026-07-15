@@ -19,6 +19,7 @@ interface AnnotationPopupProps {
   target: AnnotationTarget
   author: string
   annotations: Annotation[]
+  active?: boolean
   onSend: (text: string, attachments: string[]) => void
   onClose: () => void
 }
@@ -29,6 +30,7 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
   let fileInputRef: HTMLInputElement | undefined
 
   const authorInitial = props.author.charAt(0).toUpperCase() || "U"
+  const strokeColor = props.active ? "#0A59F7" : "rgba(0,0,0,0.1)"
 
   function handleSend() {
     const trimmed = text().trim()
@@ -60,16 +62,39 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
 
   return (
     <>
-      {/* 紫色圆形头像 — 定位在元素右上角 */}
+      {/* 标注图标 logo — 定位在元素右上角，内含紫色圆与首字母 */}
       <div
         class="annotation-badge"
         style={{
-          top: props.target.elementRect.top - 12 + "px",
-          left: props.target.elementRect.left + props.target.elementRect.width - 12 + "px",
+          top: props.target.elementRect.top - 28 + "px",
+          left: props.target.elementRect.left + props.target.elementRect.width - 14 + "px",
         }}
         title={props.author}
       >
-        {authorInitial}
+        <svg viewBox="0 0 24 24" width="28" height="28" class="annotation-badge-icon">
+          <g transform="rotate(45 12 12)">
+            <path
+              d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"
+              fill="#ffffff"
+              stroke={strokeColor}
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+            <circle cx="12" cy="10" r="7" fill="#7B1AFF" />
+          </g>
+          <text
+            x="13.4"
+            y="10.6"
+            text-anchor="middle"
+            dominant-baseline="central"
+            fill="#ffffff"
+            font-size="7"
+            font-weight="700"
+            font-family="inherit"
+          >
+            {authorInitial}
+          </text>
+        </svg>
       </div>
 
       {/* 高亮框 — 标注目标元素 */}
@@ -83,12 +108,12 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
         }}
       />
 
-      {/* 标注弹框 — 紧跟在紫色头像右侧 */}
+      {/* 标注弹框 — 紧跟在标注图标右侧 */}
       <div
         class="annotation-popup"
         style={{
-          top: props.target.elementRect.top - 20 + "px",
-          left: props.target.elementRect.left + props.target.elementRect.width + 20 + "px",
+          top: props.target.elementRect.top - 28 + "px",
+          left: props.target.elementRect.left + props.target.elementRect.width + 28 + "px",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -153,9 +178,12 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
               style={{ display: "none" }}
               onChange={handleFileSelect}
             />
-            <button class="annotation-upload-btn" title="上传文件" onClick={() => fileInputRef?.click()}>
+            <button class="annotation-upload-btn" title="日志" onClick={() => fileInputRef?.click()}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="8" y1="13" x2="16" y2="13" />
+                <line x1="8" y1="17" x2="13" y2="17" />
               </svg>
             </button>
             <button class="annotation-send-btn" title="发送" onClick={handleSend}>

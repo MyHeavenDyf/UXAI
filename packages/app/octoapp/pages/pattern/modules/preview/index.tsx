@@ -34,6 +34,7 @@ export function PreviewPage(props: {
   onShare?: () => void
   onLivePreview?: () => void
   onPixsoPreview?: () => void
+  onCodeToHtml?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -87,6 +88,11 @@ export function PreviewPage(props: {
 
     if (type === "preview" && value === "pixso") {
       props.onPixsoPreview?.()
+      return
+    }
+
+    if (type === "preview" && value === "capture") {
+      props.onCodeToHtml?.()
       return
     }
 

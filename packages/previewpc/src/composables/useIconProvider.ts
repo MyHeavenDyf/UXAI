@@ -2,9 +2,8 @@ import { ref, provide, inject, type Ref } from 'vue'
 import type { Component } from 'vue'
 import { resolveAllIcons } from '../utils/resolveIcons'
 
-// 由 vite 插件 huiIconStubPlugin 注入的编译期常量
+// 编译期常量 __HAS_ICONPLUS__，由 Vite define 注入
 // 包已安装 → true；未安装 → false
-import { hasHuiIcons as huiExists } from 'virtual:hui-icon-exists'
 
 // ========== 注入键 ==========
 export const ICON_PROVIDER_KEY = Symbol('IconProvider')
@@ -24,7 +23,7 @@ export interface IconProviderContext {
 // ========== 模块级响应式状态（全局单例） ==========
 // 注意：导出供非组件环境（如 IconBase.ts）直接使用
 // Vue 组件内应通过 useIconProvider() inject 获取，但拿到的是同一组对象
-export const hasHuiIcons = ref(huiExists)
+export const hasHuiIcons = ref(__HAS_ICONPLUS__ ?? false)
 export const iconNameMap = ref<Record<string, string>>({})
 export const resolving = ref(false)
 

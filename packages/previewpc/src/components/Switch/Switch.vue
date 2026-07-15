@@ -35,7 +35,7 @@ const uncheckedIconName = computed(() => resolveValue(properties.unCheckedChildr
 const uncheckedIconRef = useIconComponentRef(uncheckedIconName)
 const unCheckedChildrenIcon = computed(() => uncheckedIconRef.value?.component ?? null)
 
-const initVal = computed(() => resolveValue(properties.value) as boolean)
+const initVal = computed(() => resolveValue(properties.value) as boolean ?? false)
 const value = ref(initVal.value)
 watch(
   () => initVal.value,
