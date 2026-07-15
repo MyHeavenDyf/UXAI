@@ -1,4 +1,5 @@
-import { Show, For, Match, Switch, type JSX } from "solid-js"
+import { Show, For, Match, Switch, createEffect, createSignal, onCleanup, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
@@ -74,6 +75,48 @@ export type SessionListItemProps = {
 export function SessionListItem(props: SessionListItemProps) {
   const notification = useNotification()
   const isRenaming = () => props.renamingId === props.session.id
+  const title = () => sessionTitle(props.session.title) || "无标题"
+
+  const [isTruncated, setIsTruncated] = createSignal(false)
+  let titleRef: HTMLSpanElement | undefined
+  let titleResizeObserver: ResizeObserver | undefined
+  const checkTruncation = () => {
+    if (titleRef) setIsTruncated(titleRef.scrollWidth > titleRef.clientWidth)
+  }
+  createEffect(() => {
+    void title()
+    queueMicrotask(() => checkTruncation())
+  })
+  onCleanup(() => titleResizeObserver?.disconnect())
+
+  const [showTooltip, setShowTooltip] = createSignal(false)
+  let tooltipTimeout: ReturnType<typeof setTimeout> | undefined
+  let tooltipRef!: HTMLDivElement
+  const [tooltipStyle, setTooltipStyle] = createSignal<JSX.CSSProperties>({})
+  const updateTooltipPos = () => {
+    if (!titleRef) return
+    const rect = titleRef.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.bottom
+    const style: JSX.CSSProperties = { left: `${rect.left}px` }
+    if (spaceBelow >= 130 || spaceBelow >= rect.top) {
+      style.top = `${rect.bottom + 4}px`
+    } else {
+      style.bottom = `${window.innerHeight - rect.top + 4}px`
+    }
+    setTooltipStyle(style)
+  }
+  const enterTrigger = () => {
+    if (!isTruncated()) return
+    clearTimeout(tooltipTimeout)
+    updateTooltipPos()
+    tooltipTimeout = setTimeout(() => setShowTooltip(true), 500)
+  }
+  const leaveTrigger = () => {
+    clearTimeout(tooltipTimeout)
+    setShowTooltip(false)
+  }
+  const enterTooltip = () => clearTimeout(tooltipTimeout)
+  const leaveTooltip = () => setShowTooltip(false)
 
   return (
     <Show
@@ -115,6 +158,8 @@ export function SessionListItem(props: SessionListItemProps) {
           props.onClick?.()
         }}
         onContextMenu={(e) => { e.preventDefault(); props.onContextMenu?.(e) }}
+        onMouseEnter={enterTrigger}
+        onMouseLeave={leaveTrigger}
         class="w-full text-left rounded-[8px] text-[12px] leading-[20px] transition-colors flex items-center relative"
         style={{
           height: "36px",
@@ -139,8 +184,32 @@ export function SessionListItem(props: SessionListItemProps) {
           />
         </Show>
         <SessionStatusIndicator session={props.session} />
-        <span class="flex-1 min-w-0 truncate">{sessionTitle(props.session.title) || "无标题"}</span>
+        <span
+          ref={(el) => {
+            titleRef = el
+            titleResizeObserver?.disconnect()
+            titleResizeObserver = new ResizeObserver(() => checkTruncation())
+            titleResizeObserver.observe(el)
+            queueMicrotask(() => checkTruncation())
+          }}
+          class="flex-1 min-w-0 truncate"
+        >
+          {title()}
+        </span>
       </button>
+      <Show when={showTooltip()}>
+        <Portal>
+          <div
+            ref={tooltipRef!}
+            style={tooltipStyle()}
+            onMouseEnter={enterTooltip}
+            onMouseLeave={leaveTooltip}
+            class="studio-custom-tooltip fixed z-[1000]"
+          >
+            {title()}
+          </div>
+        </Portal>
+      </Show>
     </Show>
   )
 }
