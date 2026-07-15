@@ -1,3 +1,4 @@
+import { readFile, stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, Schema } from "effect"
@@ -12,26 +13,26 @@ import type {
 import { Instance } from "@/project/instance"
 
 const METHOD = "POST"
-// const DEFAULT_CREATE_TASK_URL = "http://localhost:3000/create_task"
-// const DEFAULT_QUERY_TASK_BASE_URL = "http://localhost:3000/query_task"
-// const DEFAULT_CANCEL_TASK_URL = "http://localhost:3000/cancel_task"
-// const DEFAULT_GET_PROMPT_TAG_URL = "http://localhost:3000/get_prompt_tags"
-// const DEFAULT_CHECK_PERMISSION_URL = "http://localhost:3000/check_permissions"
-// const DEFAULT_GET_HISTORY = "http://localhost:3000/get_history"
-// const DEFAULT_REBOOT_TASK = "http://localhost:3000/reboot_task"
-const DEFAULT_CREATE_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task"
-const DEFAULT_QUERY_TASK_BASE_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task"
-const DEFAULT_CANCEL_TASK_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancle_task"
-const DEFAULT_GET_PROMPT_TAG_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags"
-const DEFAULT_CHECK_PERMISSION_URL = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions"
-const DEFAULT_GET_HISTORY = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_history"
-const DEFAULT_REBOOT_TASK = "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/reboot_task"
 const DEFAULT_USER_IDX = ""
 const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_CANCEL_TIMEOUT_MS = 15_000
 const DEFAULT_REBOOT_TIMEOUT_MS = 30_000
 
 type JsonRecord = Record<string, unknown>
+type ImportMetaWithEnv = ImportMeta & {
+  env?: {
+    OCTO_CHANNEL?: string
+  }
+}
+type InternalImageEndpointPreset = {
+  createTaskUrl: string
+  queryTaskBaseUrl: string
+  cancelTaskUrl: string
+  getPromptTagUrl: string
+  checkPermissionUrl: string
+  getHistoryUrl: string
+  rebootTaskUrl: string
+}
 type InternalTaskType = "txt2img" | "img2img"
 type InternalToolAction = "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
 type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
@@ -53,6 +54,58 @@ type InternalStyleConfig = {
   }>
   mode: string
 }
+
+/*
+  local为本地调试mock接口，beta为测试接口，prod为生产
+  本地运行可在启动命令后面加:beta :prod来切换环境接口
+*/
+const LOCAL_IMAGE_ENDPOINTS = {
+  createTaskUrl: "http://localhost:3000/create_task",
+  queryTaskBaseUrl: "http://localhost:3000/query_task",
+  cancelTaskUrl: "http://localhost:3000/cancel_task",
+  getPromptTagUrl: "http://localhost:3000/get_prompt_tags",
+  checkPermissionUrl: "http://localhost:3000/check_permissions",
+  getHistoryUrl: "http://localhost:3000/get_history",
+  rebootTaskUrl: "http://localhost:3000/reboot_task",
+} satisfies InternalImageEndpointPreset
+
+const BETA_IMAGE_ENDPOINTS = {
+  createTaskUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/create_task",
+  queryTaskBaseUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/query_task",
+  cancelTaskUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/cancle_task",
+  getPromptTagUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/get_prompt_tags",
+  checkPermissionUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/auth/auth/check_permissions",
+  getHistoryUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/get_history",
+  rebootTaskUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/reboot_task",
+} satisfies InternalImageEndpointPreset
+
+const PROD_IMAGE_ENDPOINTS = {
+  createTaskUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/create_task",
+  queryTaskBaseUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/query_task",
+  cancelTaskUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/cancle_task",
+  getPromptTagUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_prompt_tags",
+  checkPermissionUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions",
+  getHistoryUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_history",
+  rebootTaskUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/reboot_task",
+} satisfies InternalImageEndpointPreset
+
+function octoChannel() {
+  return (import.meta as ImportMetaWithEnv).env?.OCTO_CHANNEL ?? process.env.OCTO_CHANNEL ?? "prod"
+}
+
+function internalImageEndpoints() {
+  if (octoChannel() === "prod") return PROD_IMAGE_ENDPOINTS
+  if (octoChannel() === "beta") return BETA_IMAGE_ENDPOINTS
+  return LOCAL_IMAGE_ENDPOINTS
+}
+
+const DEFAULT_CREATE_TASK_URL = internalImageEndpoints().createTaskUrl
+const DEFAULT_QUERY_TASK_BASE_URL = internalImageEndpoints().queryTaskBaseUrl
+const DEFAULT_CANCEL_TASK_URL = internalImageEndpoints().cancelTaskUrl
+const DEFAULT_GET_PROMPT_TAG_URL = internalImageEndpoints().getPromptTagUrl
+const DEFAULT_CHECK_PERMISSION_URL = internalImageEndpoints().checkPermissionUrl
+const DEFAULT_GET_HISTORY = internalImageEndpoints().getHistoryUrl
+const DEFAULT_REBOOT_TASK = internalImageEndpoints().rebootTaskUrl
 
 type CreateTaskResponse = {
   resp_code?: number
@@ -1173,14 +1226,24 @@ function localImagePath(value: string) {
   return resolved
 }
 
+function imageMimeFromPath(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === ".png") return "image/png"
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg"
+  if (ext === ".webp") return "image/webp"
+  if (ext === ".gif") return "image/gif"
+  if (ext === ".avif") return "image/avif"
+  return undefined
+}
+
 async function readLocalImageDataUrl(value: string) {
   const filePath = localImagePath(value)
   if (!filePath) return undefined
-  const file = Bun.file(filePath)
-  if (!(await file.exists())) throw new Error(`Studio image file does not exist: ${filePath}`)
-  const mime = file.type || "image/png"
-  if (!mime.startsWith("image/")) throw new Error(`Studio local file is not an image. content-type=${mime}`)
-  return `data:${mime};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`
+  const file = await stat(filePath).catch(() => undefined)
+  if (!file?.isFile()) throw new Error(`Studio image file does not exist: ${filePath}`)
+  const mime = imageMimeFromPath(filePath)
+  if (!mime) throw new Error(`Studio local file is not an image. path=${filePath}`)
+  return `data:${mime};base64,${Buffer.from(await readFile(filePath)).toString("base64")}`
 }
 
 async function resolveImageInputDataUrl(value: string) {
