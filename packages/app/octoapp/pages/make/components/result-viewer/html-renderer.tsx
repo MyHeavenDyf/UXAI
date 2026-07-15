@@ -917,6 +917,10 @@ createEffect(() => {
         y: prevComment.position.y * (bounds?.height || 600)
       },
     })
+    iframeRef?.contentWindow?.postMessage({
+      type: 'od:comment-set-active',
+      elementId: prevComment.elementId
+    }, '*')
   }
 
   const switchToNextPin = () => {
@@ -940,6 +944,10 @@ createEffect(() => {
         y: nextComment.position.y * (bounds?.height || 600)
       },
     })
+    iframeRef?.contentWindow?.postMessage({
+      type: 'od:comment-set-active',
+      elementId: nextComment.elementId
+    }, '*')
   }
 
   // Send edit-mode toggle to iframe

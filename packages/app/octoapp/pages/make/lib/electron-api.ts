@@ -7,6 +7,7 @@ export type DesktopApi = {
   downloadResourceToTemp?: (url: string, namespace: string, filename: string) => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   getPathForFile?: (file: File) => string
   /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */

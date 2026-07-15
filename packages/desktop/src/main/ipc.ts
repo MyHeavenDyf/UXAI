@@ -436,6 +436,34 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  ipcMain.handle("list-directory", async (_event: IpcMainInvokeEvent, dirPath: string) => {
+    const results: Array<{ path: string; type: 'file' | 'directory'; size?: number }> = []
+    
+    if (!existsSync(dirPath)) return results
+    
+    function walk(currentPath: string, basePath: string) {
+      const entries = readdirSync(currentPath, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = join(currentPath, entry.name)
+        const relativePath = fullPath.slice(basePath.length).replace(/^[\/\\]/, '')
+        
+        if (entry.isDirectory()) {
+          walk(fullPath, basePath)
+        } else {
+          const stat = statSync(fullPath)
+          results.push({ 
+            path: relativePath, 
+            type: 'file',
+            size: stat.size
+          })
+        }
+      }
+    }
+    
+    walk(dirPath, dirPath)
+    return results
+  })
+
   ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       await unlink(path)

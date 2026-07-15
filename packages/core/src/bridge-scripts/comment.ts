@@ -66,6 +66,17 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       }
       return
     }
+    
+    if (data.type === 'od:comment-set-active') {
+      var prevActive = document.querySelector('[data-od-comment-active]')
+      if (prevActive) prevActive.removeAttribute('data-od-comment-active')
+      
+      if (data.elementId) {
+        var targetElement = document.querySelector('[data-od-id="' + data.elementId + '"]')
+        if (targetElement) targetElement.setAttribute('data-od-comment-active', 'true')
+      }
+      return
+    }
   })
 
   document.addEventListener('click', function(ev) {
@@ -219,14 +230,14 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       
       if (existingPin) {
         // pin 已存在，只更新位置
-        existingPin.style.left = 'calc(' + leftPercent + '% - 20px)'
+        existingPin.style.left = leftPercent + '%'
         existingPin.style.top = 'calc(' + topPercent + '% - 20px)'
       } else {
         // 创建新的 pin
         var pin = document.createElement('div')
         pin.setAttribute('data-od-comment-pin', comment.id)
         
-        pin.style.cssText = 'position:absolute;left:calc(' + leftPercent + '% - 20px);top:calc(' + topPercent + '% - 20px);width:20px;height:20px;background:#1677ff;border-radius:50%;align-items:center;justify-content:center;color:white;font-size:10px;cursor:pointer;z-index:999;box-shadow:0 2px 4px rgba(0,0,0,0.2);'
+        pin.style.cssText = 'position:absolute;left:' + leftPercent + '%;top:calc(' + topPercent + '% - 20px);width:20px;height:20px;background:#1677ff;border-radius:50%;align-items:center;justify-content:center;color:white;font-size:10px;cursor:pointer;z-index:999;box-shadow:0 2px 4px rgba(0,0,0,0.2);'
         pin.innerHTML = '💬'
         
         pin.addEventListener('pointerenter', function(e) {

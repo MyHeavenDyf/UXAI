@@ -150,6 +150,7 @@ export type ElectronAPI = {
     comment?: string
   }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
+  listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 }

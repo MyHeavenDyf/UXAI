@@ -113,6 +113,24 @@ async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
+function checkHasRelativeRefs(html: string): boolean {
+  const attrRegex = /(?:href|src)=["'](?!https?:|data:|#|[\/\\])[^"']+["']/i
+  const cssRegex = /url\(["']?(?!https?:|data:|#)[^"')]+["']?\)/i
+  return attrRegex.test(html) || cssRegex.test(html)
+}
+
+function dirname(path: string): string {
+  const normalized = path.replace(/\\/g, '/')
+  const idx = normalized.lastIndexOf('/')
+  return idx >= 0 ? normalized.slice(0, idx) : path
+}
+
+function basename(path: string): string {
+  const normalized = path.replace(/\\/g, '/')
+  const idx = normalized.lastIndexOf('/')
+  return idx >= 0 ? normalized.slice(idx + 1) : path
+}
+
 export async function createArchiveZip(options: CreateArchiveZipOptions): Promise<Blob> {
   const zip = new JSZip()
 
@@ -129,6 +147,38 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.file("preview/index.html", options.htmlContent)
 
   const api = getDesktopApi()
+  
+  // 检查是否有相对路径引用，如果有则复制同目录下所有文件
+  if (api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
+    const hasRelativeRefs = checkHasRelativeRefs(options.htmlContent)
+    
+    if (hasRelativeRefs) {
+      const htmlDir = dirname(options.htmlFilePath)
+      const htmlFileName = basename(options.htmlFilePath)
+      
+      try {
+        const files = await api.listDirectory(htmlDir)
+        
+        for (const file of files) {
+          if (file.type === 'file' && file.path !== htmlFileName) {
+            try {
+              const absolutePath = joinPath(htmlDir, file.path)
+              const buffer = await api.readFileBuffer(absolutePath)
+              if (buffer) {
+                zip.file(`preview/${file.path}`, new Uint8Array(buffer))
+              }
+            } catch (err) {
+              console.warn(`[Archive] Failed to read referenced file:`, file.path, err)
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Archive] Failed to list directory:', err)
+      }
+    }
+  }
+
+  // 处理评论附件
   if (api?.readFileBuffer && options.projectDir) {
     for (const comment of options.comments) {
       if (comment.attachments && comment.attachments.length > 0) {
