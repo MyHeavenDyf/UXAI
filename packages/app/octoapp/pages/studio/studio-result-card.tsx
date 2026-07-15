@@ -27,7 +27,6 @@ function StudioMediaPreview(props: { image: StudioImage }) {
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}
-        poster={props.image.thumbnailUrl}
         class="studio-result-thumb-media"
         muted
         playsinline

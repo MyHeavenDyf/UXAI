@@ -41,6 +41,7 @@ import { InsightPermissionDock } from "./components/permission-dock"
 import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { materializeUriCardToOutputs } from "./utils/local-resource"
 import { PRESET_PROMPTS } from "./store/preset-prompts"
 import {
   buildChipDeclaration,
@@ -1676,6 +1677,27 @@ function InsightContent() {
     tabStore.activate(openedIds[0])
     focusResultTabs()
   }
+
+  // ── eager 落地(SPEC-INS-014 v4):completed 任务的 MCP 产物「出卡即落」进 outputs,不等用户点开 ──
+  // 文件管理「生成文件」段列的是 outputs 磁盘真实文件;此前 uri 产物只在点开渲染时才(部分)落盘,
+  // 导致「生成了但没点开」的产物(典型:思维导图 json)在文件管理查无此文件。这里在 taskCards 拿到
+  // completed 产物 links 时就落盘,与 UI 是否打开解耦。inline / path 卡不在此列(见 v4:inline 不落盘;
+  // path/write 产物由 agent 提示词约定直接写 outputs,前端不搬运)。
+  const eagerMaterializedCardIds = new Set<string>()
+  createEffect(() => {
+    const dir = projectDir()
+    const sid = params.id
+    if (!dir || !sid) return
+    for (const card of taskCards().values()) {
+      if (card.status !== "completed") continue
+      for (const oc of buildOutputCardsFromTask(card)) {
+        if (oc.source !== "uri" || !oc.uri) continue
+        if (eagerMaterializedCardIds.has(oc.id)) continue
+        eagerMaterializedCardIds.add(oc.id)
+        void materializeUriCardToOutputs(oc, dir, sid)
+      }
+    }
+  })
 
   // ── 兑现「查看结果」:上面的查询返回真实产物后,把 pendingOpen 的那张任务结果打开并激活 ──
   createEffect(() => {
