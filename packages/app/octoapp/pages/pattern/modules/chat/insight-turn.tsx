@@ -185,7 +185,6 @@ export function InsightTurn(props: {
     if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "分析用户需求"
     if (text.endsWith("请开始意图扩展。")) return "意图扩展"
     if (text.startsWith("请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：")) return "布局规划"
-    if (text.startsWith("[用户修改请求]: ===============")) return "模块生成"
     if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "模块生成"
     if (text.startsWith("请根据以下内容，修改外壳布局并指定下一步细化模块")) return "细化模块"
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
