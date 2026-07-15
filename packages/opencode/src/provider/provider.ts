@@ -19,7 +19,7 @@ import { iife } from "@/util/iife"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context, Schema, Types } from "effect"
+import { Effect, Layer, Context, Option, Schema, Types } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -29,7 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
-import { modelsApiProviderUrl } from "@/plugin/model-headers"
+import { loadModelsApi, modelsApiProviderUrl, modelsApiSource } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 
@@ -1504,6 +1504,31 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
   }
 }
 
+function modelFromRemoteApi(api: Record<string, unknown>, provider: Info, modelID: ModelID) {
+  const remoteProvider = api[provider.id]
+  if (!isRecord(remoteProvider)) return
+  const models = remoteProvider.models
+  if (!isRecord(models) && !Array.isArray(models)) return
+  const values = Array.isArray(models) ? models : Object.values(models)
+  const direct = Array.isArray(models) ? undefined : models[modelID]
+  const raw = direct ?? values.find((item) => isRecord(item) && item.id === modelID)
+  const model = Option.getOrUndefined(Schema.decodeUnknownOption(ModelsDev.Model)(raw))
+  if (!model) return
+  return fromModelsDevModel(
+    {
+      id: typeof remoteProvider.id === "string" ? remoteProvider.id : provider.id,
+      name: typeof remoteProvider.name === "string" ? remoteProvider.name : provider.name,
+      env: Array.isArray(remoteProvider.env)
+        ? remoteProvider.env.filter((item): item is string => typeof item === "string")
+        : provider.env,
+      npm: typeof remoteProvider.npm === "string" ? remoteProvider.npm : undefined,
+      api: typeof remoteProvider.api === "string" ? remoteProvider.api : undefined,
+      models: { [model.id]: model },
+    },
+    model,
+  )
+}
+
 export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
   const models: Record<string, Model> = {}
   for (const [key, model] of Object.entries(provider.models)) {
@@ -2269,6 +2294,11 @@ const layer: Layer.Layer<
       }
 
       const info = provider.models[modelID]
+      if (modelsApiSource() === "http") {
+        const api = yield* Effect.promise(() => loadModelsApi(!info))
+        const remote = api ? modelFromRemoteApi(api, provider, modelID) : undefined
+        if (remote) return remote
+      }
       if (!info) {
         const available = Object.keys(provider.models)
         const matches = fuzzysort.go(modelID, available, { limit: 3, threshold: -10000 })
@@ -2287,7 +2317,7 @@ const layer: Layer.Layer<
           : undefined
       const remoteApi =
         model.providerID === "w3" ? yield* Effect.promise(() => modelsApiProviderUrl("w3")) : undefined
-      const key = `${model.providerID}/${model.id}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
+      const key = `${model.providerID}/${model.id}/${model.api.npm}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
       if (s.models.has(key)) return s.models.get(key)!
 
       return yield* Effect.promise(async () => {

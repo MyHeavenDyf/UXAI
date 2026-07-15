@@ -81,9 +81,9 @@ function apiModels(value: unknown): Record<string, unknown> {
     .find((providers) => Object.keys(providers).length > 0) ?? {}
 }
 
-async function loadApi() {
+async function loadApi(force = false) {
   if (!modelsApi || modelsApi.source !== "http" || !modelsApi.url) return
-  if (cache && cache.expires > Date.now()) return cache.api
+  if (!force && cache && cache.expires > Date.now()) return cache.api
   if (loading) return loading
 
   loading = fetch(modelsApi.url, {
@@ -97,6 +97,14 @@ async function loadApi() {
   const api = await loading
   if (api) cache = { api, expires: Date.now() + CACHE_DURATION }
   return api
+}
+
+export function modelsApiSource() {
+  return modelsApi?.source
+}
+
+export function loadModelsApi(force = false) {
+  return loadApi(force)
 }
 
 export async function modelsApiProviderUrl(providerID: string) {
