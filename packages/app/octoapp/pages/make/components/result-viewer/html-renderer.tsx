@@ -1536,7 +1536,7 @@ body: JSON.stringify({
                    }
                    
 // Delete from backend API
-                    fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&filePath=${encodeURIComponent(props.filePath || '')}&commentId=${commentId}`, { 
+                     fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(props.filePath || '', props.sessionId || ''))}&commentId=${commentId}`, {
                       method: 'DELETE',
                       headers: { ...directoryHeader(props.sdkDirectory) }
                     })
