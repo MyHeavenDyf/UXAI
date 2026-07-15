@@ -75,9 +75,9 @@ export function mapShapeToHuiType(
  * - 其他原样透传（如 red, var(--x)）
  * - 未设置/空 → undefined（hui 自行处理默认色含 hover）
  */
-export function mapColorToHuiColor(color: string | undefined): string | undefined {
+export function mapColorToHuiColor(color: string | undefined): string[] | undefined {
   if (!color) return undefined
-  return SEMANTIC_COLOR_MAP[color] || color
+  return [SEMANTIC_COLOR_MAP[color] || color]
 }
 
 const toPascalCase = (str: string) => {
@@ -87,6 +87,7 @@ const toPascalCase = (str: string) => {
     .join("")
 }
 
+const huiIconModules = import.meta.glob("../../../node_modules/@hui/icon-plus-vue/icons/*.js")
 /**
  * 获取 hui 图标组件引用（动态 import + 缓存）
  * @param name - A2UI 图标名称（如 "activity"、"x"）
@@ -102,10 +103,16 @@ export async function getHuiIconComponentRef(name: string): Promise<Component | 
   const cached = huiIconCache.get(huiComponentName)
   if (cached) return cached
 
+  const modulePath = `../../../node_modules/@hui/icon-plus-vue/icons/${huiComponentName}.js`
+  const loadModule = huiIconModules[modulePath]
+  if (!loadModule) {
+    return null
+  }
   try {
-    // 可选依赖 @hui/icon-plus-vue，可能不存在，由 try-catch 处理
-    const mod = await import(/* @vite-ignore */ '@hui/icon-plus-vue')
-    const component = (mod as any)[huiComponentName]
+    // 按需加载单个图标组件，避免加载整个 @hui/icon-plus-vue 包
+    const mod = (await loadModule()) as { default?: Component }
+    const component = mod.default ?? (mod as any)[huiComponentName]
+
     if (component) {
       const raw = markRaw(component as Component)
       huiIconCache.set(huiComponentName, raw)

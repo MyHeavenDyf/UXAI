@@ -65,7 +65,6 @@ export async function handleLivePreview(previewData: unknown): Promise<void> {
   await desktopApi.writeFileBuffer(`${dir}/live-data.json`, buffer)
   window.open("http://127.0.0.1:51856?fetch=live-data.json")
 }
-
 // Pixso 预览
 const [pixsoLoading, setPixsoLoading] = createSignal(false)
 export { pixsoLoading }
@@ -83,6 +82,7 @@ export async function handlePixsoPreview(previewData: unknown): Promise<void> {
   }
 
   const jsonStr = typeof previewData === "string" ? previewData : JSON.stringify(previewData ?? "")
+
   const buildPromise = desktopApi.runPixsoBuild(jsonStr)
 
   showPromiseToast(buildPromise, {
@@ -98,6 +98,47 @@ export async function handlePixsoPreview(previewData: unknown): Promise<void> {
     await buildPromise
   } catch {
     // showPromiseToast 已处理错误提示
+  } finally {
+    setPixsoLoading(false)
+  }
+}
+
+// 页面资源捕获:写入 A2UI 数据 → 隐藏窗口渲染 → 拦截全部网络资源 → 生成单文件 HTML 供 Pixso 导入。
+export async function handleCodeToHtml(previewData: unknown): Promise<void> {
+  if (pixsoLoading()) return
+  setPixsoLoading(true)
+
+  const desktopApi = getDesktopApi()
+
+  if (!desktopApi?.codeToHtml || !desktopApi?.writeFileBuffer || !desktopApi?.getPreviewDistDir) {
+    showToast({ title: "当前环境不支持页面捕获" })
+    setPixsoLoading(false)
+    return
+  }
+
+  try {
+    // 1. 写入 A2UI 数据为 live-data.json
+    const dir = await desktopApi.getPreviewDistDir()
+    const jsonStr = typeof previewData === "string" ? previewData : JSON.stringify(previewData ?? "")
+    const buffer = new TextEncoder().encode(jsonStr).buffer
+    await desktopApi.writeFileBuffer(`${dir}/live-data.json`, buffer)
+
+    // 2. 捕获页面
+    const { html, resourceCount } = await desktopApi.codeToHtml({
+      url: "http://127.0.0.1:51856?fetch=live-data.json",
+    })
+
+    // 3. 弹保存对话框,用户选位置保存单文件 HTML
+    const savePath = await desktopApi.saveFilePicker?.({ title: "保存页面", defaultPath: `capture-${Date.now()}.html` })
+    if (savePath) {
+      const htmlBuffer = new TextEncoder().encode(html).buffer
+      await desktopApi.writeFileBuffer(savePath, htmlBuffer)
+      showToast({ title: `已保存: ${resourceCount} 个资源内联, ${(html.length / 1024).toFixed(0)}KB` })
+    } else {
+      showToast({ title: "已取消保存" })
+    }
+  } catch (err) {
+    showToast({ title: `操作失败: ${err instanceof Error ? err.message : String(err)}` })
   } finally {
     setPixsoLoading(false)
   }

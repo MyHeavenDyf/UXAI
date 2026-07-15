@@ -141,13 +141,9 @@ export type ElectronAPI = {
   getDesignSystems: () => Promise<string[]>
   downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
-  exportZip: (opts: {
-    defaultName: string
-    files?: { path: string; content: string }[]
-    sourceDir?: string
-    comment?: string
-  }) => Promise<string | null>
+  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; comment?: string }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
+  codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 }
