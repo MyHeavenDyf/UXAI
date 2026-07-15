@@ -19,7 +19,7 @@ import { iife } from "@/util/iife"
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context, Option, Schema, Types } from "effect"
+import { Effect, Layer, Context, Schema, Types } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -1504,39 +1504,140 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
   }
 }
 
+function modelFromRemoteApi(providerID: ProviderID, provider: Record<string, unknown>, key: string, value: unknown) {
+  if (!isRecord(value)) return
+  const capabilities = isRecord(value.capabilities) ? value.capabilities : {}
+  const input = isRecord(capabilities.input) ? capabilities.input : {}
+  const output = isRecord(capabilities.output) ? capabilities.output : {}
+  const modalities = isRecord(value.modalities) ? value.modalities : {}
+  const inputModalities = Array.isArray(modalities.input) ? modalities.input : []
+  const outputModalities = Array.isArray(modalities.output) ? modalities.output : []
+  const api = isRecord(value.api) ? value.api : {}
+  const modelProvider = isRecord(value.provider) ? value.provider : {}
+  const limit = isRecord(value.limit) ? value.limit : {}
+  const remoteCost = isRecord(value.cost) ? value.cost : {}
+  const cacheCost = isRecord(remoteCost.cache) ? remoteCost.cache : {}
+  const boolean = (primary: unknown, fallback: unknown, defaultValue = false) =>
+    typeof primary === "boolean" ? primary : typeof fallback === "boolean" ? fallback : defaultValue
+  const number = (primary: unknown, fallback = 0) => (typeof primary === "number" ? primary : fallback)
+  const modality = (source: Record<string, unknown>, name: string, values: unknown[], defaultValue = false) =>
+    typeof source[name] === "boolean" ? source[name] : values.includes(name) || defaultValue
+  const interleaved: Model["capabilities"]["interleaved"] = (() => {
+    if (typeof capabilities.interleaved === "boolean") return capabilities.interleaved
+    if (isRecord(capabilities.interleaved)) {
+      const field = capabilities.interleaved.field
+      if (field === "reasoning_content" || field === "reasoning_details") return { field }
+    }
+    if (typeof value.interleaved === "boolean") return value.interleaved
+    if (isRecord(value.interleaved)) {
+      const field = value.interleaved.field
+      if (field === "reasoning_content" || field === "reasoning_details") return { field }
+    }
+    return false
+  })()
+  const id = typeof value.id === "string" && value.id ? value.id : key
+  const variants = isRecord(value.variants)
+    ? Object.fromEntries(
+        Object.entries(value.variants).filter((entry): entry is [string, Record<string, unknown>] =>
+          isRecord(entry[1]),
+        ),
+      )
+    : undefined
+  const model: Model = {
+    id: ModelID.make(id),
+    providerID,
+    api: {
+      id: typeof api.id === "string" ? api.id : id,
+      url:
+        typeof modelProvider.api === "string"
+          ? modelProvider.api
+          : typeof api.url === "string"
+            ? api.url
+            : typeof provider.api === "string"
+              ? provider.api
+              : "",
+      npm:
+        typeof modelProvider.npm === "string"
+          ? modelProvider.npm
+          : typeof api.npm === "string"
+            ? api.npm
+            : typeof provider.npm === "string"
+              ? provider.npm
+              : "@ai-sdk/openai-compatible",
+    },
+    name: typeof value.name === "string" && value.name ? value.name : id,
+    family: typeof value.family === "string" ? value.family : undefined,
+    capabilities: {
+      temperature: boolean(capabilities.temperature, value.temperature),
+      reasoning: boolean(capabilities.reasoning, value.reasoning),
+      attachment: boolean(capabilities.attachment, value.attachment),
+      toolcall: boolean(capabilities.toolcall, value.tool_call),
+      input: {
+        text: modality(input, "text", inputModalities, true),
+        audio: modality(input, "audio", inputModalities),
+        image: modality(input, "image", inputModalities),
+        video: modality(input, "video", inputModalities),
+        pdf: modality(input, "pdf", inputModalities),
+      },
+      output: {
+        text: modality(output, "text", outputModalities, true),
+        audio: modality(output, "audio", outputModalities),
+        image: modality(output, "image", outputModalities),
+        video: modality(output, "video", outputModalities),
+        pdf: modality(output, "pdf", outputModalities),
+      },
+      interleaved,
+    },
+    cost: {
+      input: number(remoteCost.input),
+      output: number(remoteCost.output),
+      cache: {
+        read: number(cacheCost.read, number(remoteCost.cache_read)),
+        write: number(cacheCost.write, number(remoteCost.cache_write)),
+      },
+    },
+    limit: {
+      context: number(limit.context),
+      input: typeof limit.input === "number" ? limit.input : undefined,
+      output: number(limit.output),
+    },
+    status:
+      value.status === "alpha" || value.status === "beta" || value.status === "deprecated" ? value.status : "active",
+    options: isRecord(value.options) ? value.options : {},
+    headers: isRecord(value.headers)
+      ? Object.fromEntries(
+          Object.entries(value.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+        )
+      : {},
+    release_date: typeof value.release_date === "string" ? value.release_date : "",
+    variants,
+  }
+  if (variants) return model
+  return { ...model, variants: mapValues(ProviderTransform.variants(model), (variant) => variant) }
+}
+
 function providerFromRemoteApi(providerID: ProviderID, value: unknown, existing?: Info) {
   const remoteProvider = value
   if (!isRecord(remoteProvider)) return
   const input = remoteProvider.models
   if (!isRecord(input) && !Array.isArray(input)) return
   const models = Object.fromEntries(
-    Object.values(input).flatMap((raw) => {
-      const model = Option.getOrUndefined(
-        Schema.decodeUnknownOption(ModelsDev.Model)(
-          isRecord(raw) && raw.status === "active" ? { ...raw, status: undefined } : raw,
-        ),
-      )
+    Object.entries(input).flatMap(([key, value]) => {
+      const model = modelFromRemoteApi(providerID, remoteProvider, key, value)
       return model ? [[model.id, model] as const] : []
     }),
   )
   if (Object.keys(models).length === 0) return
-  const parsed = fromModelsDevProvider(
-    {
-      id: typeof remoteProvider.id === "string" ? remoteProvider.id : providerID,
-      name: typeof remoteProvider.name === "string" ? remoteProvider.name : existing?.name ?? providerID,
-      env: Array.isArray(remoteProvider.env)
-        ? remoteProvider.env.filter((item): item is string => typeof item === "string")
-        : existing?.env ?? [],
-      npm: typeof remoteProvider.npm === "string" ? remoteProvider.npm : undefined,
-      api: typeof remoteProvider.api === "string" ? remoteProvider.api : undefined,
-      models,
-    },
-  )
   return {
-    ...parsed,
-    source: existing?.source ?? parsed.source,
+    id: providerID,
+    source: existing?.source ?? "custom",
+    name: typeof remoteProvider.name === "string" ? remoteProvider.name : existing?.name ?? providerID,
+    env: Array.isArray(remoteProvider.env)
+      ? remoteProvider.env.filter((item): item is string => typeof item === "string")
+      : existing?.env ?? [],
     key: existing?.key,
-    options: existing?.options ?? parsed.options,
+    options: existing?.options ?? {},
+    models,
   }
 }
 
@@ -1956,7 +2057,12 @@ const layer: Layer.Layer<
         const id = ProviderID.make(isRecord(value) && typeof value.id === "string" ? value.id : key)
         if (disabled.has(id) && id !== "w3") continue
         const remote = providerFromRemoteApi(id, value, s.providers[id])
-        if (remote) s.providers[id] = remote
+        if (!remote) {
+          log.warn("remote provider has no usable models", { providerID: id })
+          continue
+        }
+        s.providers[id] = remote
+        log.info("remote provider synced", { providerID: id, modelsCount: Object.keys(remote.models).length })
       }
     })
 
