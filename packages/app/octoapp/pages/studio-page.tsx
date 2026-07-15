@@ -2398,6 +2398,10 @@ export default function StudioPage() {
         displayPrompt: current?.id === generation.id ? current.displayPrompt ?? generation.displayPrompt : generation.displayPrompt,
         sourceImage: current?.id === generation.id ? current.sourceImage : undefined,
         inputImages: current?.id === generation.id ? current.inputImages : undefined,
+        // Preserve custom size fields from current state — API response may not include them
+        ...(current?.isCustom ? { isCustom: current.isCustom } : {}),
+        ...(current?.width ? { width: current.width } : {}),
+        ...(current?.height ? { height: current.height } : {}),
       }))
       setStatus(generation.status)
       const sessionID = generation.sessionID ?? params.id
@@ -2603,6 +2607,10 @@ export default function StudioPage() {
         displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
         inputImages: current?.inputImages ?? pendingInputImages,
+        // Preserve custom size fields from current state — API response may not include them
+        ...(current?.isCustom ? { isCustom: current.isCustom } : {}),
+        ...(current?.width ? { width: current.width } : {}),
+        ...(current?.height ? { height: current.height } : {}),
       }))
       setStatus(generation.status)
       // Update thumbnail immediately if generation already succeeded (fast path,
@@ -2718,6 +2726,10 @@ export default function StudioPage() {
                 displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
                 sourceImage: current?.sourceImage,
                 inputImages: current?.inputImages,
+                // Preserve custom size fields from current state — API response may not include them
+                ...(current?.isCustom ? { isCustom: current.isCustom } : {}),
+                ...(current?.width ? { width: current.width } : {}),
+                ...(current?.height ? { height: current.height } : {}),
               }
             })
             setStatus(generation.status)

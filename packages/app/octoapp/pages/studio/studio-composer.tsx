@@ -980,6 +980,21 @@ function ImageSettings(props: {
     setHeight(props.customHeight || 0)
     props.onIsCustom(true)
   }
+
+  // 弹框关闭或隐藏时，如果自定义尺寸为空，则重置为预设比例模式，
+  // 确保下次打开弹框时默认选中上次选中的预设比例
+  onCleanup(() => {
+    if (isCustom()) {
+      const w = width()
+      const h = height()
+      if (w === 0 || h === 0) {
+        props.onIsCustom(false)
+        props.onCustomWidth(0)
+        props.onCustomHeight(0)
+      }
+    }
+  })
+
   return (
     <div class="studio-menu studio-image-settings-menu">
       <div class="studio-image-settings-title">图片设置</div>
