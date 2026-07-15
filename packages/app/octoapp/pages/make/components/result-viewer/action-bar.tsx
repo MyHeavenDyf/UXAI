@@ -460,7 +460,9 @@ export function ActionBar(props: {
             onClick={props.onCommentToggle}
             title="标注元素"
           >
-            <span style={{ "font-size": "13px" }}>💬</span>
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 18L2 10C2 5.58172 5.58172 2 10 2C14.4183 2 18 5.58172 18 10C18 14.4183 14.4183 18 10 18L2 18Z" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.25" />
+            </svg>
             <span>标注</span>
           </button>
         )}
@@ -472,7 +474,6 @@ export function ActionBar(props: {
             onClick={props.onArchiveToggle}
             title="归档"
           >
-            <span style={{ "font-size": "13px" }}>📦</span>
             <span>归档</span>
           </button>
         )}

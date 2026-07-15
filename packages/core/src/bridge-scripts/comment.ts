@@ -231,14 +231,22 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       if (existingPin) {
         // pin 已存在，只更新位置
         existingPin.style.left = leftPercent + '%'
-        existingPin.style.top = 'calc(' + topPercent + '% - 20px)'
+        existingPin.style.top = 'calc(' + topPercent + '% - 40px)'
       } else {
         // 创建新的 pin
         var pin = document.createElement('div')
         pin.setAttribute('data-od-comment-pin', comment.id)
         
-        pin.style.cssText = 'position:absolute;left:' + leftPercent + '%;top:calc(' + topPercent + '% - 20px);width:20px;height:20px;background:#1677ff;border-radius:50%;align-items:center;justify-content:center;color:white;font-size:10px;cursor:pointer;z-index:999;box-shadow:0 2px 4px rgba(0,0,0,0.2);'
-        pin.innerHTML = '💬'
+        pin.style.cssText = 'position:absolute;left:' + leftPercent + '%;top:calc(' + topPercent + '% - 40px);width:40px;height:40px;background:#fff;border:1.5px solid #0a59f7;border-radius:999px 999px 999px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:999;box-sizing:border-box;box-shadow:0 2px 8px rgba(0,0,0,0.15);'
+        
+        if (comment.commenterAvatar) {
+          pin.innerHTML = '<img src="' + comment.commenterAvatar + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;display:block;" />'
+        } else {
+          var fallback = document.createElement('div')
+          fallback.style.cssText = 'width:32px;height:32px;border-radius:50%;background:#0a59f7;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600;'
+          fallback.textContent = (comment.commenterName || '用户').charAt(0)
+          pin.appendChild(fallback)
+        }
         
         pin.addEventListener('pointerenter', function(e) {
           e.stopPropagation()

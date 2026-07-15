@@ -1,6 +1,7 @@
 import { JSX, createSignal, createMemo, createEffect, on, onCleanup, Show, For } from "solid-js"
-import { truncateFilenameWithExt, formatFileSize } from "../../utils/truncate-filename"
-import { IconFileOther } from "../../icons/file-type-icons"
+import { truncateFilenameForDisplay, formatFileSize } from "../../utils/truncate-filename"
+import { getFileIcon } from "../../icons/file-type-icons"
+import { IconSendDefault, IconSendActive, IconAnnotationAttach, IconCloseCancel, IconDeleteAnnotation } from "../../icons/annotation-icons"
 import "./comment-popover.css"
 
 export interface CommentAttachment {
@@ -92,6 +93,8 @@ export function CommentPopover(props: {
   const commenterAvatar = () => props.comment?.commenterAvatar || ""
   const commentTime = () => props.comment?.createdAt ? formatCommentTime(props.comment.createdAt) : ""
 
+  const hasContent = createMemo(() => Boolean(note().trim()) || pendingFiles().length > 0 || attachments().length > 0)
+
   createEffect(on(
     () => props.externalClickSignal,
     () => {
@@ -123,6 +126,8 @@ export function CommentPopover(props: {
       if (target.tagName === 'IFRAME') return
       
       if (target.closest('.comment-popover-attachment-delete')) return
+      if (target.closest('.comment-input-send-btn')) return
+      if (target.closest('.comment-input-attach-btn')) return
       
       const popover = target.closest('.comment-popover')
       
@@ -161,8 +166,9 @@ export function CommentPopover(props: {
     input.value = ""
   }
 
-  const handleSave = (e: MouseEvent) => {
+  const handleSend = (e: MouseEvent) => {
     e.stopPropagation()
+    if (!hasContent()) return
     props.onSave(note(), attachments(), pendingFiles())
     props.onClose()
   }
@@ -183,12 +189,15 @@ export function CommentPopover(props: {
   const left = createMemo(() => props.target!.hoverPoint?.x || props.target!.position.x * iframeWidth + 20)
   const top = createMemo(() => props.target!.hoverPoint?.y || props.target!.position.y * iframeHeight + 20)
 
+  const hasFiles = createMemo(() => pendingFiles().length + attachments().length >= 2)
+
   return (
-    <div class={`comment-popover ${isShaking() ? 'comment-popover-shake' : ''}`} style={{ left: `${left()}px`, top: `${top()}px` }}>
-      <div class="comment-popover-header">
-        <Show when={props.readOnly && sortedComments().length > 1} fallback={
-          <span class="comment-popover-label">{props.target.label}</span>
-        }>
+    <div
+      class={`comment-popover ${isShaking() ? 'comment-popover-shake' : ''} ${props.readOnly ? 'comment-detail-view' : ''}`}
+      style={{ left: `${left()}px`, top: `${top()}px`, width: hasFiles() ? '468px' : '320px' }}
+    >
+      <Show when={props.readOnly}>
+        <div class="comment-popover-header">
           <div class="comment-popover-switcher">
             <button
               type="button"
@@ -198,11 +207,10 @@ export function CommentPopover(props: {
               onClick={(e) => { e.stopPropagation(); if (canGoPrev()) props.onPrevPin?.() }}
               title="上一条评论"
             >
-              ‹
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none" style={{ transform: "rotate(90deg)" }}>
+                <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor"/>
+              </svg>
             </button>
-            <span class="comment-popover-switcher-label">
-              {currentIndex() + 1}/{sortedComments().length}
-            </span>
             <button
               type="button"
               class="comment-popover-switcher-btn"
@@ -211,158 +219,91 @@ export function CommentPopover(props: {
               onClick={(e) => { e.stopPropagation(); if (canGoNext()) props.onNextPin?.() }}
               title="下一条评论"
             >
-              ›
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none" style={{ transform: "rotate(-90deg)" }}>
+                <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor"/>
+              </svg>
             </button>
           </div>
-        </Show>
-        <button class="comment-popover-close" onClick={(e) => { e.stopPropagation(); props.onClose() }}>×</button>
-      </div>
-
-      <div class="comment-popover-info">
-        <div class="comment-popover-selector">{props.target.selector}</div>
-      </div>
-
-      <Show when={props.readOnly}>
-        <div class="comment-popover-author">
-          <div class="comment-popover-avatar">
-            <Show when={commenterAvatar()} fallback={
-              <span class="comment-popover-avatar-default">{commenterName().charAt(0)}</span>
-            }>
-              <img src={commenterAvatar()} alt={commenterName()} />
+          <div class="comment-popover-header-right">
+            <Show when={!confirmDelete()}>
+              <button class="comment-popover-action-btn" onClick={handleDelete} title="删除">
+                <IconDeleteAnnotation size={16} />
+              </button>
             </Show>
+            <Show when={confirmDelete()}>
+              <button class="comment-btn-confirm-delete" onClick={handleDelete}>确认删除</button>
+              <button class="comment-btn-cancel-delete" onClick={(e) => { e.stopPropagation(); setConfirmDelete(false) }}>取消</button>
+            </Show>
+            <button class="comment-popover-action-btn" onClick={(e) => { e.stopPropagation(); props.onClose() }} title="关闭">
+              <IconCloseCancel size={16} />
+            </button>
           </div>
-          <span class="comment-popover-author-name">{commenterName()}</span>
-          <span class="comment-popover-author-time">{commentTime()}</span>
         </div>
       </Show>
 
       <Show when={props.readOnly}>
-        <Show when={note()}>
-          <div class="comment-popover-note-readonly">{note()}</div>
-        </Show>
-      </Show>
+        <div class="comment-detail-content-wrapper">
+          <div class="comment-popover-author">
+            <div class="comment-popover-avatar">
+              <Show when={commenterAvatar()} fallback={
+                <span class="comment-popover-avatar-default">{commenterName().charAt(0)}</span>
+              }>
+                <img src={commenterAvatar()} alt={commenterName()} />
+              </Show>
+            </div>
+            <span class="comment-popover-author-name">{commenterName()}</span>
+            <span class="comment-popover-author-time">{commentTime()}</span>
+          </div>
 
-      <Show when={!props.readOnly}>
-        <textarea
-          class="comment-popover-note"
-          value={note()}
-          onInput={(e) => {
-            setNote(e.currentTarget.value)
-            setExternalClickCount(0)
-          }}
-          placeholder="添加评论..."
-          rows={3}
-        />
-      </Show>
-
-      <div class="comment-popover-attachments">
-        <div class="comment-popover-attachments-header">
-          <span>附件 ({attachments().length + pendingFiles().length})</span>
-          <Show when={!props.readOnly && props.comment}>
-            <label class="comment-popover-attachment-add-btn">
-              + 添加文件
-              <input
-                type="file"
-                multiple
-                accept="*/*"
-                onChange={handleFileInput}
-                style={{ display: "none" }}
-              />
-            </label>
+          <Show when={note()}>
+            <div class="comment-popover-note-readonly">{note()}</div>
           </Show>
         </div>
+      </Show>
 
-        <Show when={pendingFiles().length > 0 || attachments().length > 0}>
-          <div class="comment-popover-attachments-grid">
-            <For each={pendingFiles()}>
-              {(file) => (
-                <div class="comment-popover-attachment-item pending">
-                  <div class="comment-popover-attachment-icon">
-                    <IconFileOther size={24} />
-                  </div>
-                  <span class="comment-popover-attachment-name">
-                    {truncateFilenameWithExt(file.name)}
-                  </span>
-                  <Show when={!props.readOnly}>
-                    <button
-                      class="comment-popover-attachment-delete"
-                      onClick={(e) => { 
-                        e.stopPropagation()
-                        setPendingFiles(prev => prev.filter(f => f !== file))
-                      }}
-                      title="删除"
-                    >
-                      ×
-                    </button>
-                  </Show>
-                </div>
-              )}
-            </For>
-            
-            <For each={attachments()}>
-              {(att) => (
-                <div class="comment-popover-attachment-item">
-                  <div class="comment-popover-attachment-icon">
-                    <IconFileOther size={24} />
-                  </div>
-                  <span class="comment-popover-attachment-name">
-                    {truncateFilenameWithExt(att.filename)}
-                  </span>
-                  <Show when={!props.readOnly}>
-                    <button
-                      class="comment-popover-attachment-delete"
-                      onClick={(e) => { e.stopPropagation(); props.onDeleteAttachment?.(att.id) }}
-                      title="删除"
-                    >
-                      ×
-                    </button>
-                  </Show>
-                </div>
-              )}
-            </For>
+      <Show when={props.readOnly}>
+        <Show when={attachments().length > 0}>
+          <div class="comment-popover-attachments-readonly">
+            <div class="comment-popover-attachments-grid">
+              <For each={attachments()}>
+                {(att) => {
+                  const FileIcon = getFileIcon(att.filename.endsWith('.docx') || att.filename.endsWith('.doc') ? 'document' : 'binary', att.filename)
+                  return (
+                    <div class="comment-popover-attachment-item">
+                      <div class="comment-popover-attachment-icon">
+                        <FileIcon size={20} />
+                      </div>
+                      <span class="comment-popover-attachment-name">
+                        {truncateFilenameForDisplay(att.filename)}
+                      </span>
+                    </div>
+                  )
+                }}
+              </For>
+            </div>
           </div>
         </Show>
-      </div>
-
-      <Show when={props.readOnly && props.comment}>
-        <div class="comment-popover-actions">
-          <Show when={!confirmDelete()}>
-            <button class="comment-btn-delete" onClick={handleDelete}>
-              删除
-            </button>
-          </Show>
-          <Show when={confirmDelete()}>
-            <button class="comment-btn-confirm-delete" onClick={handleDelete}>
-              确认删除
-            </button>
-            <button class="comment-btn-cancel-delete" onClick={(e) => { e.stopPropagation(); setConfirmDelete(false) }}>
-              取消
-            </button>
-          </Show>
-        </div>
       </Show>
 
-      <Show when={!props.readOnly}>
-        <div class="comment-popover-actions">
-          <Show when={props.comment && !confirmDelete()}>
-            <button class="comment-btn-delete" onClick={handleDelete}>
-              删除
-            </button>
-          </Show>
-
-          <Show when={confirmDelete()}>
-            <button class="comment-btn-confirm-delete" onClick={handleDelete}>
-              确认删除
-            </button>
-            <button class="comment-btn-cancel-delete" onClick={(e) => { e.stopPropagation(); setConfirmDelete(false) }}>
-              取消
-            </button>
-          </Show>
-
-          <Show when={!confirmDelete()}>
-            <Show when={!props.comment}>
-              <label class="comment-btn-add-file">
-                + 添加文件
+      <Show when={props.readOnly}>
+        <div class="comment-popover-reply">
+          <div class="comment-popover-reply-avatar">
+            <span class="comment-popover-avatar-default">U</span>
+          </div>
+          <div class="comment-popover-reply-input">
+            <input
+              type="text"
+              class="comment-popover-reply-text"
+              placeholder="请在此处回复"
+              value={note()}
+              onInput={(e) => {
+                setNote(e.currentTarget.value)
+                setExternalClickCount(0)
+              }}
+            />
+            <div class="comment-popover-reply-actions">
+              <label class="comment-popover-reply-icon" title="添加附件">
+                <IconAnnotationAttach size={16} />
                 <input
                   type="file"
                   multiple
@@ -371,16 +312,107 @@ export function CommentPopover(props: {
                   style={{ display: "none" }}
                 />
               </label>
-            </Show>
-            <Show when={props.comment}>
-              <button class="comment-btn-cancel" onClick={(e) => { e.stopPropagation(); props.onClose() }}>
-                取消
+              <button
+                class="comment-popover-reply-icon comment-popover-send-btn"
+                classList={{ "comment-popover-send-active": hasContent() }}
+                onClick={handleSend}
+                disabled={!hasContent()}
+              >
+                <Show when={hasContent()} fallback={<IconSendDefault size={16} />}>
+                  <IconSendActive size={16} />
+                </Show>
               </button>
-            </Show>
-            <button class="comment-btn-save" onClick={handleSave}>
-              保存
-            </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={!props.readOnly}>
+        <div class="comment-input-field" classList={{ "comment-input-field-with-content": hasContent() }}>
+          <textarea
+            class="comment-input-text"
+            value={note()}
+            onInput={(e) => {
+              setNote(e.currentTarget.value)
+              setExternalClickCount(0)
+            }}
+            placeholder="请在此处添加备注"
+            rows={1}
+          />
+
+          <Show when={pendingFiles().length > 0 || attachments().length > 0}>
+            <div class="comment-input-files" classList={{ "comment-input-files-single": pendingFiles().length + attachments().length === 1 }}>
+              <For each={pendingFiles()}>
+                {(file) => {
+                  const FileIcon = getFileIcon(file.name.endsWith('.docx') || file.name.endsWith('.doc') ? 'document' : 'binary', file.name)
+                  return (
+                    <div class="comment-input-file" classList={{ "comment-input-file-single": pendingFiles().length + attachments().length === 1 }}>
+                      <div class="comment-input-file-icon">
+                        <FileIcon size={20} />
+                      </div>
+                      <span class="comment-input-file-name" title={file.name}>
+                        {truncateFilenameForDisplay(file.name)}
+                      </span>
+                      <button
+                        class="comment-input-file-x"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPendingFiles(prev => prev.filter(f => f !== file))
+                        }}
+                      >
+                        <IconCloseCancel size={10} />
+                      </button>
+                    </div>
+                  )
+                }}
+              </For>
+
+              <For each={attachments()}>
+                {(att) => {
+                  const FileIcon = getFileIcon(att.filename.endsWith('.docx') || att.filename.endsWith('.doc') ? 'document' : 'binary', att.filename)
+                  return (
+                    <div class="comment-input-file" classList={{ "comment-input-file-single": pendingFiles().length + attachments().length === 1 }}>
+                      <div class="comment-input-file-icon">
+                        <FileIcon size={20} />
+                      </div>
+                      <span class="comment-input-file-name" title={att.filename}>
+                        {truncateFilenameForDisplay(att.filename)}
+                      </span>
+                      <button
+                        class="comment-input-file-x"
+                        onClick={(e) => { e.stopPropagation(); props.onDeleteAttachment?.(att.id) }}
+                      >
+                        <IconCloseCancel size={10} />
+                      </button>
+                    </div>
+                  )
+                }}
+              </For>
+            </div>
           </Show>
+
+          <div class="comment-input-icons">
+            <label class="comment-input-icon-btn" title="添加附件" style={{ display: "none" }}>
+              <IconAnnotationAttach size={16} />
+              <input
+                type="file"
+                multiple
+                accept="*/*"
+                onChange={handleFileInput}
+                style={{ display: "none" }}
+              />
+            </label>
+            <button
+              class="comment-input-icon-btn comment-input-send-btn"
+              classList={{ "comment-input-send-active": hasContent() }}
+              onClick={handleSend}
+              disabled={!hasContent()}
+            >
+              <Show when={hasContent()} fallback={<IconSendDefault size={16} />}>
+                <IconSendActive size={28} />
+              </Show>
+            </button>
+          </div>
         </div>
       </Show>
     </div>
