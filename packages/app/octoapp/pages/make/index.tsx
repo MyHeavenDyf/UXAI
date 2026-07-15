@@ -2003,7 +2003,7 @@ if (dsId) {
                       <div class="slash-popover">
                         <div class="slash-popover-head">
                           <span class="slash-popover-title">命令</span>
-                          <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                          <span class="slash-popover-hint">Esc 关闭</span>
                         </div>
                         <For each={filteredSlash()}>
                           {(cmd, i) => {
@@ -2038,7 +2038,7 @@ if (dsId) {
                           <Show when={skillsLoading()}>
                             <span class="slash-popover-loading">加载中...</span>
                           </Show>
-                          <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                          <span class="slash-popover-hint">Esc 关闭</span>
                         </div>
                         <div class="slash-popover-body">
                           <Show when={!skillsLoading() && filteredSkills().length === 0}>
@@ -2312,7 +2312,7 @@ if (dsId) {
                     <div class="slash-popover">
                       <div class="slash-popover-head">
                         <span class="slash-popover-title">命令</span>
-                        <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        <span class="slash-popover-hint">Esc 关闭</span>
                       </div>
                       <For each={filteredSlash()}>
                         {(cmd, i) => {
@@ -2347,7 +2347,7 @@ if (dsId) {
                         <Show when={skillsLoading()}>
                           <span class="slash-popover-loading">加载中...</span>
                         </Show>
-                        <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        <span class="slash-popover-hint">Esc 关闭</span>
                       </div>
                       <div class="slash-popover-body">
                         <Show when={!skillsLoading() && filteredSkills().length === 0}>
