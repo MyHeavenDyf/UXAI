@@ -411,10 +411,11 @@ function buildResult(input: {
   const requestRecord = toolRequest(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
+  const extra = recordField(inputRecord, "extra")
   const size = recordField(inputRecord, "target_size")
-  const width = size ? numberField(size, "width") : numberField(inputRecord, "width")
-  const height = size ? numberField(size, "height") : numberField(inputRecord, "height")
-  const isCustom = Boolean(inputRecord?.isCustom) || Boolean(width && height)
+  const width = size ? numberField(size, "width") : numberField(inputRecord, "width") ?? numberField(extra, "width")
+  const height = size ? numberField(size, "height") : numberField(inputRecord, "height") ?? numberField(extra, "height")
+  const isCustom = Boolean(inputRecord?.isCustom) || Boolean(extra?.isCustom) || Boolean(width && height)
   const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const prompt = stringField(inputRecord, "effectivePrompt") ??
     stringField(inputRecord, "refinedPrompt") ??
