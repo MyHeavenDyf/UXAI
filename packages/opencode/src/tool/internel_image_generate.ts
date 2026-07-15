@@ -32,6 +32,7 @@ type InternalImageEndpointPreset = {
   checkPermissionUrl: string
   getHistoryUrl: string
   rebootTaskUrl: string
+  promptGenUrl: string
 }
 type InternalTaskType = "txt2img" | "img2img"
 type InternalToolAction = "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
@@ -67,6 +68,7 @@ const LOCAL_IMAGE_ENDPOINTS = {
   checkPermissionUrl: "http://localhost:3000/check_permissions",
   getHistoryUrl: "http://localhost:3000/get_history",
   rebootTaskUrl: "http://localhost:3000/reboot_task",
+  promptGenUrl: "http://localhost:3000/prompt_gen",
 } satisfies InternalImageEndpointPreset
 
 const BETA_IMAGE_ENDPOINTS = {
@@ -77,6 +79,7 @@ const BETA_IMAGE_ENDPOINTS = {
   checkPermissionUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/auth/auth/check_permissions",
   getHistoryUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/get_history",
   rebootTaskUrl: "https://octoai-api-test.ucd.huawei.com/octoai-web-api/test/aiImageGeneration/reboot_task",
+  promptGenUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/prompt_gen",
 } satisfies InternalImageEndpointPreset
 
 const PROD_IMAGE_ENDPOINTS = {
@@ -87,6 +90,7 @@ const PROD_IMAGE_ENDPOINTS = {
   checkPermissionUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/auth/auth/check_permissions",
   getHistoryUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/get_history",
   rebootTaskUrl: "https://octoai-api.ucd.huawei.com/octoai-web-api/prod/aiImageGeneration/reboot_task",
+  promptGenUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/prompt_gen",
 } satisfies InternalImageEndpointPreset
 
 function octoChannel() {
@@ -106,6 +110,7 @@ const DEFAULT_GET_PROMPT_TAG_URL = internalImageEndpoints().getPromptTagUrl
 const DEFAULT_CHECK_PERMISSION_URL = internalImageEndpoints().checkPermissionUrl
 const DEFAULT_GET_HISTORY = internalImageEndpoints().getHistoryUrl
 const DEFAULT_REBOOT_TASK = internalImageEndpoints().rebootTaskUrl
+const DEFAULT_PROMPT_GEN = internalImageEndpoints().promptGenUrl
 
 type CreateTaskResponse = {
   resp_code?: number
@@ -204,6 +209,15 @@ export type CancelTaskResponse = {
 export type RebootTaskResponse = CreateTaskResponse
 export type RebootInternalGenerationResult = {
   taskId: string
+}
+export type PromptGenResponse = {
+  resp_code?: number
+  resp_msg?: string
+  result?: {
+    en?: string
+    zh?: string
+  }
+  [key: string]: unknown
 }
 
 export function isCancelTaskSuccess(response: CancelTaskResponse) {
@@ -350,6 +364,41 @@ export async function checkStudioPermission(userIdx?: string): Promise<unknown> 
   const result = parseJson(text)
   console.log("[studio.permission] response", result)
   return result
+}
+
+export async function generatePromptFromImage(input: { base64img: string }): Promise<PromptGenResponse> {
+  const url = env("IMAGE_PROMPT_GEN_URL") ?? DEFAULT_PROMPT_GEN
+  if (!url) throw new Error("prompt_gen url is not configured.")
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  const response = await fetch(url, {
+    method: METHOD,
+    headers: internalImageHeaders(),
+    body: JSON.stringify({ base64img: input.base64img }),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "prompt_gen network failed.",
+        `url=${url}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => {
+    clearTimeout(timeout)
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "prompt_gen failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  return parseJson(text) as PromptGenResponse
 }
 
 export function resolveReferenceImages(input: Pick<ImageGenerateInput, "referenceImages" | "sourceImage">) {

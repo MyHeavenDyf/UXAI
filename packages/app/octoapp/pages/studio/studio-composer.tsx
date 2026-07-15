@@ -358,6 +358,21 @@ export function StudioComposer(props: {
                     />
                   </Show>
                 </div>
+                <Show when={referenceAssets().length > 0 && canAddReferenceAsset() && !referenceExpanded()}>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      props.onPickFile()
+                    }}
+                    disabled={isBusy()}
+                    class="studio-composer-ref-upload-float"
+                    aria-label="继续上传参考图"
+                    title="继续上传参考图"
+                  >
+                    <img src="/studio/studio_mask.svg" alt="" />
+                  </button>
+                </Show>
               </Show>
             </div>
           </Show>
