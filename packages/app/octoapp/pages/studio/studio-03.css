@@ -692,7 +692,7 @@
 
 .studio-filter-dialog {
   width: 648px;
-  height: 360px;
+  height: auto;
   padding: 20px 24px;
   box-sizing: border-box;
   background: #fff;
