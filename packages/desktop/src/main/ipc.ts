@@ -508,6 +508,7 @@ export function registerIpcHandlers(deps: Deps) {
   }
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
   const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
+  const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
 
   /** 从 skills.json 同步生成 skill_config.json */
   function syncSkillConfig() {
@@ -560,6 +561,44 @@ export function registerIpcHandlers(deps: Deps) {
     } catch (err) {
       console.error("set-skills-config failed", err)
       throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  ipcMain.handle("get-skill-config", () => {
+    try {
+      if (!existsSync(skillConfigPath)) return {}
+      return JSON.parse(readFileSync(skillConfigPath, "utf-8"))
+    } catch {
+      return {}
+    }
+  })
+
+  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.error("set-skill-config failed", err)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  ipcMain.handle("get-assets-config", () => {
+    try {
+      if (!existsSync(assetsConfigPath)) return {}
+      return JSON.parse(readFileSync(assetsConfigPath, "utf-8"))
+    } catch {
+      return {}
+    }
+  })
+
+  ipcMain.handle("set-assets-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(assetsConfigPath), { recursive: true })
+      writeFileSync(assetsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.error("set-assets-config failed", err)
+      throw new Error(`Failed to save assets config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
