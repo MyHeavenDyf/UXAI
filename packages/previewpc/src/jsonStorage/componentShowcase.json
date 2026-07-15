@@ -429,7 +429,6 @@
         "buttonCardTitle",
         "buttonRowColors",
         "buttonRowSizes",
-        "buttonRowShapes",
         "buttonRowTypes",
         "buttonRowIcons"
       ]
@@ -563,64 +562,7 @@
         "size": "small"
       }
     },
-    {
-      "id": "buttonRowShapes",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "buttonRowShapesLabel",
-        "buttonRowShapesContent"
-      ]
-    },
-    {
-      "id": "buttonRowShapesLabel",
-      "component": "span",
-      "props": {
-        "value": "形状变体",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "buttonRowShapesContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3 flex-wrap"
-      },
-      "children": [
-        "btnShapeDefault",
-        "btnShapeRound",
-        "btnShapeCircle"
-      ]
-    },
-    {
-      "id": "btnShapeDefault",
-      "component": "Button",
-      "props": {
-        "value": "默认形状",
-        "color": "primary",
-        "shape": "default"
-      }
-    },
-    {
-      "id": "btnShapeRound",
-      "component": "Button",
-      "props": {
-        "value": "圆角按钮",
-        "color": "primary",
-        "shape": "round"
-      }
-    },
-    {
-      "id": "btnShapeCircle",
-      "component": "Button",
-      "props": {
-        "icon": "search",
-        "color": "primary",
-        "shape": "circle"
-      }
-    },
+
     {
       "id": "buttonRowTypes",
       "component": "div",
@@ -696,7 +638,8 @@
       "children": [
         "btnIconStart",
         "btnIconEnd",
-        "btnIconOnly"
+        "btnIconOnly",
+        "btnShapeCircle"
       ]
     },
     {
@@ -723,8 +666,18 @@
       "id": "btnIconOnly",
       "component": "Button",
       "props": {
-        "icon": "plus",
+        "icon": "search",
         "color": "primary"
+      }
+    },
+    {
+      "id": "btnShapeCircle",
+      "component": "Button",
+      "props": {
+        "icon": "search",
+        "color": "primary",
+        "shape": "circle",
+        "size": "small"
       }
     },
     {
@@ -763,9 +716,9 @@
       "children": [
         "tagCardTitle",
         "tagRowDefault",
-        "tagRowTypes",
         "tagRowSizes",
         "tagRowIcons",
+        "tagRowTypes",
         "tagRowColors",
         "tagRowDarkColors"
       ]
@@ -1453,10 +1406,9 @@
     },
     {
       "id": "badgeCountBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "消息",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1472,10 +1424,9 @@
     },
     {
       "id": "badgeOverflowBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "通知",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1491,10 +1442,9 @@
     },
     {
       "id": "badgeZeroBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "邮件",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1539,10 +1489,9 @@
     },
     {
       "id": "badgeDotBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "新功能",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1571,9 +1520,9 @@
         "className": "flex items-center gap-6 flex-wrap"
       },
       "children": [
-        "badgeStatusSuccess",
-        "badgeStatusProcessing",
         "badgeStatusError",
+        "badgeStatusProcessing",
+        "badgeStatusSuccess",
         "badgeStatusWarning",
         "badgeStatusDefault"
       ]
@@ -1591,10 +1540,9 @@
     },
     {
       "id": "badgeStatusSuccessText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "成功",
-        "className": "text-sm text-on-surface"
+        "className":"bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1610,10 +1558,9 @@
     },
     {
       "id": "badgeStatusProcessingText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "进行中",
-        "className": "text-sm text-on-surface"
+        "className":"bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1629,10 +1576,9 @@
     },
     {
       "id": "badgeStatusErrorText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "错误",
-        "className": "text-sm text-on-surface"
+        "className":"bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1648,10 +1594,9 @@
     },
     {
       "id": "badgeStatusWarningText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "警告",
-        "className": "text-sm text-on-surface"
+        "className":"bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1667,10 +1612,9 @@
     },
     {
       "id": "badgeStatusDefaultText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "默认",
-        "className": "text-sm text-on-surface"
+        "className":"bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -4863,8 +4807,7 @@
           },
           {
             "title": "年龄",
-            "dataIndex": "age",
-            "align": "center"
+            "dataIndex": "age"
           },
           {
             "title": "部门",
@@ -5004,7 +4947,6 @@
           {
             "title": "年龄",
             "dataIndex": "age",
-            "align": "center",
             "minWidth": 80
           },
           {
