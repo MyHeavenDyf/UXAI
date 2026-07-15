@@ -65,7 +65,7 @@ import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/sen
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
-import { pathToLocalUrl } from "./utils/insight-file-api"
+import { mimeForName, pathToLocalUrl } from "./utils/insight-file-api"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
@@ -659,7 +659,18 @@ function InsightContent() {
   // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
   function openFileFromManager(file: InsightFileEntry) {
     const type = extToOutputType(file.name)
-    tabStore.openTab({ id: crypto.randomUUID(), title: file.name, type, source: "path", filePath: file.path, createdAt: new Date() })
+    // fileName / mimeType 必须带上:FileFallback 的类型图标按这两者派生(fileTypeIconUrl),
+    // 缺失会让 xlsx/docx 等一律落到「其他」兜底图标(title 只用于标签页文案,不参与图标)。
+    tabStore.openTab({
+      id: crypto.randomUUID(),
+      title: file.name,
+      type,
+      source: "path",
+      filePath: file.path,
+      fileName: file.name,
+      mimeType: mimeForName(file.name),
+      createdAt: new Date(),
+    })
     focusResultTabs()
   }
 
@@ -1703,14 +1714,18 @@ function InsightContent() {
   createEffect(() => {
     const dir = projectDir()
     const sid = params.id
+    // taskCards() 必须先读:早退在它之前会让 Solid 追踪不到该依赖,后续任务产物到达时 effect 不重跑
+    // (与 insight-turn outputCards memo 里 parts 先读同一个道理)。
+    const cards = [...taskCards().values()]
     if (!dir || !sid) return
-    for (const card of taskCards().values()) {
+    for (const card of cards) {
       if (card.status !== "completed") continue
       for (const oc of buildOutputCardsFromTask(card)) {
         if (oc.source !== "uri" || !oc.uri) continue
         if (eagerMaterializedCardIds.has(oc.id)) continue
         eagerMaterializedCardIds.add(oc.id)
-        void materializeUriCardToOutputs(oc, dir, sid)
+        // 落盘后通知文件管理表格重拉:否则任务产物进了 outputs 目录,列表仍要手动切面板才看得到。
+        void materializeUriCardToOutputs(oc, dir, sid).then(() => setFilesRefreshKey((k) => k + 1))
       }
     }
   })
