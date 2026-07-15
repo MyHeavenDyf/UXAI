@@ -84,6 +84,7 @@ type FileManagerMedia = {
   height?: number
   aspectRatio?: string
   capability?: string
+  duration?: string
   createdAt: number
 }
 
@@ -133,6 +134,7 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
         height: image.height ?? turn.result?.height,
         aspectRatio: turn.result?.aspectRatio,
         capability: turn.result?.capability ?? turn.editCapability,
+        duration: turn.result?.duration,
         createdAt: turn.createdAt,
       })
     }
@@ -474,9 +476,13 @@ export function StudioFileManager(props: {
                                 }}
                               />
                               <span class="studio-file-manager-media-video-badge">
-                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                                  <path d="M3 2.5L10 6L3 9.5V2.5Z" fill="white" />
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                                  <rect x="0.5" y="2.5" width="9" height="9" rx="1.5" stroke="white" stroke-width="1" fill="none" />
+                                  <path d="M13 4.5L13 9.5Q13 10.5 12.5 10.4L10 8.5L10 5.5L12.5 3.6Q13 3.5 13 4.5Z" stroke="white" stroke-width="1" fill="none" stroke-linejoin="round" />
                                 </svg>
+                                <Show when={item.duration}>
+                                  <span class="studio-file-manager-media-video-badge-text">{item.duration}s</span>
+                                </Show>
                               </span>
                             </div>
                           </Show>
