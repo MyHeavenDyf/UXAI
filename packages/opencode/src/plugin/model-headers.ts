@@ -2,8 +2,13 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 
 const CACHE_DURATION = 60_000
 let modelsApi: { source: "http" | "local"; url?: string; w3Api?: string; token?: string } | undefined
-let cache: { api: Record<string, unknown>; expires: number } | undefined
-let loading: Promise<Record<string, unknown> | undefined> | undefined
+let cache: { key: string; api: Record<string, unknown>; expires: number } | undefined
+let loading: { key: string; promise: Promise<Record<string, unknown> | undefined> } | undefined
+
+function modelsApiKey(input = modelsApi) {
+  if (!input) return ""
+  return JSON.stringify([input.source, input.url, input.w3Api, input.token])
+}
 
 export function configureModelsApi(input: { source?: string; url?: string; w3Api?: string; token?: string }) {
   const source = input.source === "local" ? "local" : "http"
@@ -85,19 +90,20 @@ function apiModels(value: unknown): Record<string, unknown> {
 
 async function loadApi(force = false) {
   if (!modelsApi || modelsApi.source !== "http" || !modelsApi.url) return
-  if (!force && cache && cache.expires > Date.now()) return cache.api
-  if (loading) return loading
+  const current = { ...modelsApi, url: modelsApi.url }
+  const key = modelsApiKey(current)
+  if (!force && cache?.key === key && cache.expires > Date.now()) return cache.api
+  if (loading?.key === key) return loading.promise
 
-  loading = fetch(modelsApi.url, {
-    headers: modelsApi.token ? { uiplustoken: modelsApi.token } : {},
+  const promise = fetch(current.url, {
+    headers: current.token ? { uiplustoken: current.token } : {},
   })
     .then(async (response) => (response.ok ? apiModels(await response.json()) : undefined))
     .catch(() => undefined)
-    .finally(() => {
-      loading = undefined
-    })
-  const api = await loading
-  if (api) cache = { api, expires: Date.now() + CACHE_DURATION }
+  loading = { key, promise }
+  const api = await promise
+  if (api && modelsApiKey() === key) cache = { key, api, expires: Date.now() + CACHE_DURATION }
+  if (loading?.key === key) loading = undefined
   return api
 }
 
