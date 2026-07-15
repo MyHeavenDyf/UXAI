@@ -890,9 +890,8 @@ function ImageSettings(props: {
     if (!isCustom()) return false
     const w = debouncedW()
     const h = debouncedH()
+    if (w === 0 || h === 0) return false
     if (isJimeng()) {
-      if (w === 0 && h === 0) return false
-      if (w === 0 || h === 0) return false
       const area = w * h
       if (area < JIMENG_AREA_MIN || area > JIMENG_AREA_MAX) return true
       const ratio = w / h
@@ -900,13 +899,12 @@ function ImageSettings(props: {
       return false
     }
     const { min, max } = sizeLimit()
-    if (w === 0 && h === 0) return false
-    if ((w > 0 && (w < min || w > max)) || (h > 0 && (h < min || h > max))) return true
+    if (w < min || w > max || h < min || h > max) return true
     return false
   })
 
   function handleWidthInput(e: { currentTarget: HTMLInputElement }) {
-    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
     setWidth(val)
     if (isCustom()) props.onCustomWidth(val)
@@ -914,7 +912,7 @@ function ImageSettings(props: {
   }
 
   function handleHeightInput(e: { currentTarget: HTMLInputElement }) {
-    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
     setHeight(val)
     if (isCustom()) props.onCustomHeight(val)
