@@ -2,72 +2,222 @@ import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import type { ArtifactFileKind } from "../utils/artifact-file-api"
 import { getFileIcon } from "../icons/file-type-icons"
+import { Spinner } from "@opencode-ai/ui/spinner"
+
+export type AttachmentStatus = "uploading" | "done" | "error"
+export type AttachmentSource = "external" | "local"
 
 export type Attachment = {
   id: string
   filename: string
   mime: string
-  dataUrl: string
+  size: number
+  status: AttachmentStatus
+  source: AttachmentSource
+  url?: string
+  previewUrl?: string
+  dataUrl?: string
   path?: string
   kind?: ArtifactFileKind
+  error?: string
+  retriable?: boolean
 }
 
-/** 单行横向滚动附件栏，放在输入框白卡片内部、文本输入框上方 */
+const SPIN_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315]
+
+function UploadSpinner(): JSX.Element {
+  return (
+    <svg viewBox="0 0 12 12" width="12" height="12" fill="none" class="octo-att-spin" aria-hidden="true">
+      {SPIN_ANGLES.map((deg, i) => {
+        const rad = (deg - 90) * Math.PI / 180
+        return (
+          <line
+            x1={6 + 3.1 * Math.cos(rad)}
+            y1={6 + 3.1 * Math.sin(rad)}
+            x2={6 + 5.0 * Math.cos(rad)}
+            y2={6 + 5.0 * Math.sin(rad)}
+            stroke="white"
+            stroke-width="1.2"
+            stroke-linecap="round"
+            opacity={1 - i * 0.1}
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
+function ExclamationCircleIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 10 10" width="10" height="10" fill="none" aria-hidden="true" style={{ "flex-shrink": "0" }}>
+      <circle cx="5" cy="5" r="4.45" stroke="rgb(224,33,40)" stroke-width="0.65" />
+      <path d="M5 2.7v3.1" stroke="rgb(224,33,40)" stroke-width="0.9" stroke-linecap="round" />
+      <circle cx="5" cy="7.15" r="0.55" fill="rgb(224,33,40)" />
+    </svg>
+  )
+}
+
+function XMarkIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="rgba(0,0,0,0.6)" stroke-width="1.4" stroke-linecap="round" />
+    </svg>
+  )
+}
+
+function AttachmentChip(props: {
+  att: Attachment
+  onRemove: (id: string) => void
+  onRetry?: (id: string) => void
+}): JSX.Element {
+  const isUploading = () => props.att.status === "uploading"
+  const isError = () => props.att.status === "error"
+  const isImage = () => props.att.mime.startsWith("image/") || props.att.kind === "image" || props.att.kind === "svg"
+  const kind = () => props.att.kind ?? kindFromMime(props.att.mime)
+
+  return (
+    <div
+      class="flex items-center shrink-0"
+      style={{
+        height: isError() ? "56px" : "40px",
+        padding: "0 12px",
+        "border-radius": "8px",
+        background: "#f3f3f3",
+        gap: "8px",
+        position: "relative",
+      }}
+    >
+      <div style={{ position: "relative", width: "24px", height: "24px", "flex-shrink": "0" }}>
+        <Show when={props.att.previewUrl && isImage()}>
+          <img
+            src={props.att.previewUrl}
+            width={24}
+            height={24}
+            alt=""
+            aria-hidden="true"
+            style={{
+              display: "block",
+              width: "24px",
+              height: "24px",
+              "object-fit": "cover",
+              "border-radius": "4px",
+            }}
+          />
+        </Show>
+        <Show when={!props.att.previewUrl || !isImage()}>
+          {getFileIcon(kind(), props.att.filename)({ size: 24 })}
+        </Show>
+        <Show when={isUploading()}>
+          <div
+            style={{
+              position: "absolute",
+              inset: "0",
+              background: "rgba(0,0,0,0.4)",
+              "border-radius": "4px",
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "center",
+            }}
+          >
+            <UploadSpinner />
+          </div>
+        </Show>
+      </div>
+
+      <div style={{ flex: "1", "min-width": "0", display: "flex", "flex-direction": "column", gap: "2px" }}>
+        <span
+          title={props.att.filename}
+          class="whitespace-nowrap"
+          style={{
+            "font-size": "14px",
+            "line-height": "22px",
+            color: "rgba(0, 0, 0, 0.9)",
+            overflow: "hidden",
+            "text-overflow": "ellipsis",
+          }}
+        >
+          {props.att.filename}
+        </span>
+        <Show when={isError()}>
+          <div style={{ display: "flex", "align-items": "center", gap: "4px", height: "18px" }}>
+            <ExclamationCircleIcon />
+            <span
+              title={props.att.error ?? "上传失败"}
+              style={{
+                "font-size": "11px",
+                color: "rgb(224,33,40)",
+                "white-space": "nowrap",
+                overflow: "hidden",
+                "text-overflow": "ellipsis",
+                flex: "1",
+                "min-width": "0",
+              }}
+            >
+              {props.att.error ?? "上传失败"}
+            </span>
+            <Show when={props.att.retriable && props.onRetry}>
+              <button
+                type="button"
+                onClick={() => props.onRetry?.(props.att.id)}
+                style={{
+                  "font-size": "11px",
+                  color: "rgb(10,89,247)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "0",
+                  "flex-shrink": "0",
+                  "text-decoration": "underline",
+                }}
+              >
+                重试
+              </button>
+            </Show>
+          </div>
+        </Show>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => props.onRemove(props.att.id)}
+        class="attachment-close-btn flex items-center justify-center shrink-0"
+        style={{
+          width: "16px",
+          height: "16px",
+          cursor: "pointer",
+          background: "transparent",
+          border: "none",
+          padding: "0",
+          color: "rgba(0, 0, 0, 0.6)",
+          position: "absolute",
+          right: "12px",
+          top: isError() ? "20px" : "12px",
+        }}
+        title="移除"
+      >
+        <XMarkIcon />
+      </button>
+    </div>
+  )
+}
+
 export function AttachmentBar(props: {
   attachments: Attachment[]
   onRemove: (id: string) => void
+  onRetry?: (id: string) => void
 }): JSX.Element {
   return (
     <Show when={props.attachments.length > 0}>
       <div class="px-4 pt-3">
         <div class="flex items-center gap-2 overflow-x-auto flex-nowrap">
           <For each={props.attachments}>
-            {(att) => {
-              const kind = att.kind ?? kindFromMime(att.mime)
-              const FileIcon = getFileIcon(kind, att.filename)
-              return (
-                <div
-                  class="flex items-center shrink-0"
-                  style={{
-                    height: "40px",
-                    padding: "0 12px",
-                    "border-radius": "8px",
-                    background: "#f3f3f3",
-                    gap: "8px",
-                  }}
-                >
-                  <FileIcon size={24} />
-                  <span
-                    class="whitespace-nowrap"
-                    style={{
-                      "font-size": "14px",
-                      "line-height": "22px",
-                      color: "rgba(0, 0, 0, 0.9)",
-                    }}
-                  >
-                    {att.filename}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => props.onRemove(att.id)}
-                    class="attachment-close-btn flex items-center justify-center shrink-0"
-                    style={{
-                      width: "16px",
-                      height: "16px",
-                      cursor: "pointer",
-                      background: "transparent",
-                      border: "none",
-                      padding: "0",
-                      color: "rgba(0, 0, 0, 0.6)",
-                    }}
-                  >
-                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12.8681 3.81199C12.9557 3.71205 12.9995 3.59963 12.9995 3.4747C12.9995 3.34978 12.9557 3.24152 12.8681 3.14991C12.7763 3.04997 12.6658 3 12.5364 3C12.4071 3 12.2965 3.04997 12.2048 3.14991L7.99951 7.34728L3.79426 3.14991C3.70247 3.04997 3.59192 3 3.46259 3C3.33326 3 3.21854 3.04997 3.11841 3.14991C3.03914 3.24152 2.99951 3.34978 2.99951 3.4747C2.99951 3.59963 3.03914 3.71205 3.11841 3.81199L7.33618 8.00937L3.11841 12.1943C3.03914 12.2942 2.99951 12.4087 2.99951 12.5378C2.99951 12.6669 3.03914 12.7772 3.11841 12.8688C3.21854 12.9479 3.33326 12.9896 3.46259 12.9938C3.59192 12.9979 3.70247 12.9563 3.79426 12.8688L7.99951 8.67146L12.2048 12.8688C12.2965 12.9563 12.4071 13 12.5364 13C12.6658 13 12.7763 12.9563 12.8681 12.8688C12.9557 12.7772 12.9995 12.6669 12.9995 12.5378C12.9995 12.4087 12.9557 12.2942 12.8681 12.1943L8.66284 8.00937L12.8681 3.81199Z" fill="currentColor" fill-opacity="0.6" fill-rule="nonzero" />
-                    </svg>
-                  </button>
-                </div>
-              )
-            }}
+            {(att) => (
+              <AttachmentChip
+                att={att}
+                onRemove={props.onRemove}
+                onRetry={props.onRetry}
+              />
+            )}
           </For>
         </div>
       </div>

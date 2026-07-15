@@ -12,6 +12,7 @@ import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../ut
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
+import { parseUploadedFiles } from "../../insight/lib/upload"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -552,9 +553,30 @@ export function InsightTurn(props: {
     return raw.trim()
   })
 
-  const userAttachments = createMemo(() => {
+  // FilePart entries (images with S3 URL)
+  const userFileParts = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
     return parts.filter((p) => p.type === "file") as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
+  })
+
+  // Synthetic [附件] manifest (local file references)
+  const userInputManifest = createMemo((): Array<{ filename: string; path: string }> => {
+    const parts = partStore?.[props.messageID] ?? []
+    const block = parts.find(
+      (p) => p.type === "text" && (p as { synthetic?: boolean }).synthetic && typeof (p as { text?: string }).text === "string" && (p as { text?: string }).text!.startsWith("[附件]")
+    )
+    if (!block) return []
+    return parseUploadedFiles((block as { text: string }).text)
+  })
+
+  // Merged attachments for display
+  const userAttachments = createMemo(() => {
+    const files = userFileParts()
+    const locals = userInputManifest()
+    return [
+      ...files.map(f => ({ filename: f.filename ?? "file", url: f.url as string | undefined, mime: f.mime, isLocal: false })),
+      ...locals.map(l => ({ filename: l.filename, url: undefined as string | undefined, mime: "application/octet-stream", isLocal: true })),
+    ]
   })
 
   // Collect ALL assistant messages between this user message and the next user message.
@@ -1213,14 +1235,20 @@ const stateStatus = state.status as string | undefined
                       "max-width": "200px",
                     }}
                   >
-                    <Show when={att.mime?.startsWith("image/")}>
+                    <Show when={att.url && att.mime?.startsWith("image/")}>
                       <img
                         src={att.url}
-                        alt={att.filename || "attachment"}
+                        alt={att.filename}
                         style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
                       />
                     </Show>
-                    <span class="truncate">{att.filename || "attachment"}</span>
+                    <Show when={!att.url || !att.mime?.startsWith("image/")}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" style={{ "flex-shrink": "0" }}>
+                        <path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.6L13.4 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M13 2v6h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </Show>
+                    <span class="truncate">{att.filename}</span>
                   </div>
                 )}
               </For>
