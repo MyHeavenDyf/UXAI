@@ -2060,7 +2060,6 @@ function InsightContent() {
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
                         resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
-                        projectDir={projectDir()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                       />
                     )}
