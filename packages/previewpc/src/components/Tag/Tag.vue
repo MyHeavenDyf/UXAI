@@ -19,25 +19,57 @@ const sizeEnum = {
 
 const iconSizeEnum = {
   large: 16,
-  default:14,
+  default: 14,
   small: 12,
 }
 
 const effectEnum = {
   filled: "light",
   solid: "dark",
-  outlined: "plain",
+  outlined: "dark"
+  // outlined: "plain",
 }
 
 const typeEnum = {
+  primary: "primary",
   success: "success",
-  processing: "primary",
-  error: "danger",
-  default: "info", 
+  info: "info",
   warning: "warning",
+  error: "danger",
+  processing: "processing",
+  default: "default",
 }
-const types = ["success", "processing", "error", "default", "warning"]
+const types = ["success", "processing", "error", "warning", "primary", "info", "default"]
 
+
+const colorsFilledTags = [
+  { text: '#1f55b5', bg: 'rgb(from #d0d8fd r g b / 0.5)' },
+  { text: '#036142', bg: 'rgb(from #bcf2db r g b / 0.6)' },
+  { text: '#614500', bg: 'rgb(from #fde55c r g b / 0.6)' },
+  { text: '#954304', bg: '#fde2bd' },
+  { text: '#c7000b', bg: '#fee7e8' },
+  { text: '#393939', bg: 'rgb(from #191919 r g b / 0.05)' },
+  { text: '#281675', bg: 'rgb(from #d5d3fd r g b / 0.6)' },
+  { text: '#9f1c8d', bg: '#fde6fc' },
+  { text: '#036142', bg: '#dff4cc' },
+  { text: '#c40054', bg: '#fee5f2' },
+  { text: '#094c57', bg: 'rgb(from #1c94a4 r g b / 0.15)' },
+  { text: '#8a2ebc', bg: 'rgb(from #e8cffe r g b / 0.6)' },
+  { text: '#004ea8', bg: '#e6f2fd' },
+  { text: '#8ca3fa', bg: 'rgb(from #668cf7 r g b / 0.15)', isDark: true },
+  { text: '#36c18d', bg: 'rgb(from #09aa71 r g b / 0.15)', isDark: true },
+  { text: '#fcc800', bg: 'rgb(from #fde55c r g b / 0.15)', isDark: true },
+  { text: '#f69e39', bg: 'rgb(from #f4840c r g b / 0.15)', isDark: true },
+  { text: '#e7434a', bg: 'rgb(from #ee696f r g b / 0.15)', isDark: true },
+  { text: '#aeaeae', bg: 'rgb(from #aeaeae r g b / 0.15)', isDark: true },
+  { text: '#a89ff9', bg: 'rgb(from #a89ff9 r g b / 0.15)', isDark: true },
+  { text: '#eb74df', bg: 'rgb(from #eb74df r g b / 0.15)', isDark: true },
+  { text: '#36c18d', bg: 'rgb(from #87c859 r g b / 0.15)', isDark: true },
+  { text: '#f470ab', bg: 'rgb(from #f470ab r g b / 0.15)', isDark: true },
+  { text: '#55ccd9', bg: 'rgb(from #2cb8c9 r g b / 0.15)', isDark: true },
+  { text: '#cb8efb', bg: 'rgb(from #cb8efb r g b / 0.15)', isDark: true },
+  { text: '#5ca2e9', bg: 'rgb(from #5ca2e9 r g b / 0.15)', isDark: true },
+]
 /**
  * 根据背景色计算文字颜色（支持单词、Hex、RGB、HSL 等所有合法 CSS）
  * @param {String} color - 传入的背景颜色
@@ -102,6 +134,7 @@ watch(
 )
 
 const effect = computed(() => {
+  if (type.value === "default") return "light"
   const variant = resolveValue(properties?.variant as any) as string
   return variant ? effectEnum[variant as keyof typeof effectEnum] : "light"
 })
@@ -110,8 +143,9 @@ const type = ref<string | undefined>(undefined)
 const color = ref("")
 const styles = ref<Record<string, string>>({})
 watch(
-  () => properties?.color,
-  (curColor) => {
+  [() => properties?.color,()=>isDark.value],
+  ([curColor, curDark]) => {
+    
     if (!curColor) return false
     const newColor = resolveValue(curColor) as string
     // 组件内的类型色
@@ -120,23 +154,19 @@ watch(
       return false
     }
     // 自定义颜色
-   
-    if (effect.value === "plain") {
-      styles.value = {
-        "--el-tag-bg-color": isDark.value ? "var(--surface-default)" : "#fff",
-        "--el-tag-border-color": newColor,
-        "--el-tag-text-color": newColor,
-      }
-    } else if (effect.value === "dark") {
+    // 按规范修改outlined(plain)和solid(dark)一致
+    if (effect.value === "plain" || effect.value === "dark") {
       styles.value = {
         "--el-tag-bg-color": newColor,
-        "--el-tag-border-color": newColor,
+        "--el-tag-border-color": "transparent",
         "--el-tag-text-color": getContrastColor(newColor),
       }
     } else {
+      const presetObj = colorsFilledTags.find(item => !!item.isDark === curDark && item.text === newColor)
+      const bgColor = presetObj?.bg ?? `color-mix(in oklch, ${newColor} 10%, white)`
       styles.value = {
-        "--el-tag-bg-color": `color-mix(in oklch, ${newColor} 10%, white)`,
-        "--el-tag-border-color": `color-mix(in oklch, ${newColor} 20%, white)`,
+        "--el-tag-bg-color": bgColor,
+        "--el-tag-border-color": "transparent",
         "--el-tag-text-color": newColor,
       }
     }
@@ -146,23 +176,19 @@ watch(
 </script>
 
 <template>
-  <ElTag
-    v-show="label !== ''"
-    :id="id"
-    :class="className"
-    :size="size as any"
-    :closable="closable"
-    :effect="effect as any"
-    :type="type as any"
-    :color="color"
-    :style="styles"
-  >
+  <ElTag 
+  v-show="label !== ''" 
+  :id="id" 
+  :class="[className, (type ==='default' || type==='processing') ? `el-tag--${type}`:'']" 
+  :size="size as any" 
+  :closable="closable"
+  :effect="effect as any" 
+  :type="(type ==='default' || type==='processing') ? undefined : type as any" 
+  :color="color" 
+  :style="styles">
     <template v-if="iconName && resolvedIcon?.component">
       <span :class="label ? 'mr-1' : ''">
-        <component
-          :is="resolvedIcon.component"
-          v-bind="resolvedIcon.props"
-        />
+        <component :is="resolvedIcon.component" v-bind="resolvedIcon.props" />
       </span>
     </template>
     {{ label }}
