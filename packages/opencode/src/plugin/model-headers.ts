@@ -72,7 +72,9 @@ function apiModels(value: unknown): Record<string, unknown> {
   if (!isRecord(input)) return {}
 
   const direct = Object.fromEntries(
-    Object.entries(input).filter(([, provider]) => isRecord(provider) && isRecord(provider.models)),
+    Object.entries(input).filter(
+      ([, provider]) => isRecord(provider) && (isRecord(provider.models) || Array.isArray(provider.models)),
+    ),
   )
   if (Object.keys(direct).length > 0) return direct
 

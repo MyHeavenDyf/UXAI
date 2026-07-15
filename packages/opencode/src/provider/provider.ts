@@ -1504,29 +1504,40 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
   }
 }
 
-function modelFromRemoteApi(api: Record<string, unknown>, provider: Info, modelID: ModelID) {
-  const remoteProvider = api[provider.id]
+function providerFromRemoteApi(providerID: ProviderID, value: unknown, existing?: Info) {
+  const remoteProvider = value
   if (!isRecord(remoteProvider)) return
-  const models = remoteProvider.models
-  if (!isRecord(models) && !Array.isArray(models)) return
-  const values = Array.isArray(models) ? models : Object.values(models)
-  const direct = Array.isArray(models) ? undefined : models[modelID]
-  const raw = direct ?? values.find((item) => isRecord(item) && item.id === modelID)
-  const model = Option.getOrUndefined(Schema.decodeUnknownOption(ModelsDev.Model)(raw))
-  if (!model) return
-  return fromModelsDevModel(
+  const input = remoteProvider.models
+  if (!isRecord(input) && !Array.isArray(input)) return
+  const models = Object.fromEntries(
+    Object.values(input).flatMap((raw) => {
+      const model = Option.getOrUndefined(
+        Schema.decodeUnknownOption(ModelsDev.Model)(
+          isRecord(raw) && raw.status === "active" ? { ...raw, status: undefined } : raw,
+        ),
+      )
+      return model ? [[model.id, model] as const] : []
+    }),
+  )
+  if (Object.keys(models).length === 0) return
+  const parsed = fromModelsDevProvider(
     {
-      id: typeof remoteProvider.id === "string" ? remoteProvider.id : provider.id,
-      name: typeof remoteProvider.name === "string" ? remoteProvider.name : provider.name,
+      id: typeof remoteProvider.id === "string" ? remoteProvider.id : providerID,
+      name: typeof remoteProvider.name === "string" ? remoteProvider.name : existing?.name ?? providerID,
       env: Array.isArray(remoteProvider.env)
         ? remoteProvider.env.filter((item): item is string => typeof item === "string")
-        : provider.env,
+        : existing?.env ?? [],
       npm: typeof remoteProvider.npm === "string" ? remoteProvider.npm : undefined,
       api: typeof remoteProvider.api === "string" ? remoteProvider.api : undefined,
-      models: { [model.id]: model },
+      models,
     },
-    model,
   )
+  return {
+    ...parsed,
+    source: existing?.source ?? parsed.source,
+    key: existing?.key,
+    options: existing?.options ?? parsed.options,
+  }
 }
 
 export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
@@ -1935,7 +1946,25 @@ const layer: Layer.Layer<
       }),
     )
 
-    const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
+    const syncRemoteProviders = Effect.fn("Provider.syncRemoteProviders")(function* (s: State, force = false) {
+      if (modelsApiSource() !== "http") return
+      const api = yield* Effect.promise(() => loadModelsApi(force))
+      if (!api) return
+      const cfg = yield* config.get()
+      const disabled = new Set(cfg.disabled_providers ?? [])
+      for (const [key, value] of Object.entries(api)) {
+        const id = ProviderID.make(isRecord(value) && typeof value.id === "string" ? value.id : key)
+        if (disabled.has(id) && id !== "w3") continue
+        const remote = providerFromRemoteApi(id, value, s.providers[id])
+        if (remote) s.providers[id] = remote
+      }
+    })
+
+    const list = Effect.fn("Provider.list")(function* () {
+      const s = yield* InstanceState.get(state)
+      yield* syncRemoteProviders(s)
+      return s.providers
+    })
 
     async function resolveSDK(
       model: Model,
@@ -2280,13 +2309,20 @@ const layer: Layer.Layer<
       }
     }
 
-    const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderID) =>
-      InstanceState.use(state, (s) => s.providers[providerID]),
-    )
+    const getProvider = Effect.fn("Provider.getProvider")(function* (providerID: ProviderID) {
+      const s = yield* InstanceState.get(state)
+      yield* syncRemoteProviders(s)
+      return s.providers[providerID]
+    })
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderID, modelID: ModelID) {
       const s = yield* InstanceState.get(state)
-      const provider = s.providers[providerID]
+      yield* syncRemoteProviders(s)
+      let provider = s.providers[providerID]
+      if (modelsApiSource() === "http" && !provider?.models[modelID]) {
+        yield* syncRemoteProviders(s, true)
+        provider = s.providers[providerID]
+      }
       if (!provider) {
         const available = Object.keys(s.providers)
         const matches = fuzzysort.go(providerID, available, { limit: 3, threshold: -10000 })
@@ -2294,11 +2330,6 @@ const layer: Layer.Layer<
       }
 
       const info = provider.models[modelID]
-      if (modelsApiSource() === "http") {
-        const api = yield* Effect.promise(() => loadModelsApi(!info))
-        const remote = api ? modelFromRemoteApi(api, provider, modelID) : undefined
-        if (remote) return remote
-      }
       if (!info) {
         const available = Object.keys(provider.models)
         const matches = fuzzysort.go(modelID, available, { limit: 3, threshold: -10000 })
