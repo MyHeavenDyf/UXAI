@@ -402,6 +402,8 @@ registerIpcHandlers({
   setBackgroundColor: (color) => setBackgroundColor(color),
   // jk-j60099994-replace-with-index-2-start
   // jk-j60099994-replace-with-index-2-end
+  // jk-j60099994-replace-with-60062650-desktop-main-index-1-start
+  // jk-j60099994-replace-with-60062650-desktop-main-index-1-end
 })
 
 async function killSidecar() {
