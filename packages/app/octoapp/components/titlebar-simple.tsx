@@ -84,7 +84,9 @@ export function TitlebarSimple() {
     if (path === "/pattern" || path.startsWith("/pattern/")) return "pattern"
     if (path === "/skills") {
       const source = layout.sidebarSource.get()
-      return source === "make" ? "make" : "cowork"
+      if (source === "make") return "make"
+      if (source === "pattern") return "pattern"
+      return "cowork"
     }
     const dirMatch = path.match(/^\/[^/]+/)
     if (!dirMatch) return undefined

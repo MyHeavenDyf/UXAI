@@ -324,6 +324,8 @@ function SkillsSidebarLayout(props: ParentProps) {
   const source = layout.sidebarSource.get()
   return source === "make"
     ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
+    : source === "pattern"
+    ? <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
     : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
 }
 

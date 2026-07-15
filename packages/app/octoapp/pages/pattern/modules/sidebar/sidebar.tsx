@@ -14,8 +14,9 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
+import { useLayout } from "@/context/layout"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconSettings } from "@/pages/_shell/icons"
+import { IconSettings, IconSkill } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
 import { importPatternZip } from "../../utils/preview-handler/zip"
 import { getDesktopApi } from "../../utils/desktop-api"
@@ -40,6 +41,8 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
+  const isSkillsPath = () => location.pathname === "/skills"
+  const layout = useLayout()
   const dialog = useDialog()
   const notification = useNotification()
 
@@ -448,6 +451,28 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
             </div>
           </Show>
         </div>
+      </div>
+
+      <div class="shrink-0 flex flex-col gap-[2px] px-[12px] pt-[12px]">
+        <button
+          type="button"
+          title="技能库"
+          class="w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]"
+          style={{
+            height: "36px",
+            background: isSkillsPath() ? "var(--surface-base-interactive-active)" : "transparent",
+            color: isSkillsPath() ? "var(--text-interactive-base)" : "var(--text-strong)",
+            "font-weight": isSkillsPath() ? "500" : "400",
+          }}
+          onClick={() => { layout.sidebarSource.set("pattern"); navigate("/skills") }}
+          onMouseEnter={(e) => { if (!isSkillsPath()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+          onMouseLeave={(e) => { if (!isSkillsPath()) e.currentTarget.style.background = "transparent" }}
+        >
+          <span class="flex items-center justify-center shrink-0">
+            <IconSkill size={16} />
+          </span>
+          <span class="truncate">技能库</span>
+        </button>
       </div>
 
       <div class="shrink-0 px-[12px] pb-[24px]">
