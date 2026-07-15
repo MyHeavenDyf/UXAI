@@ -1190,6 +1190,7 @@ function PatternContent() {
                         api={previewApi}
                         pendingData={pendingPreviewData()[params.id!] ?? null}
                         sessionId={params.id}
+                        dir={sdk.directory}
                         onModifyElement={handleModifyElement}
                         onPickerSubmit={handlePickerSubmit}
                         onDownload={handleDownload}

@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 
 export interface Annotation {
   id: string
@@ -20,13 +21,14 @@ interface AnnotationPopupProps {
   author: string
   annotations: Annotation[]
   active?: boolean
-  onSend: (text: string, attachments: string[]) => void
+  onSend: (text: string, attachments: File[]) => void
   onClose: () => void
 }
 
 export function AnnotationPopup(props: AnnotationPopupProps) {
   const [text, setText] = createSignal("")
-  const [attachments, setAttachments] = createSignal<string[]>([])
+  const [attachments, setAttachments] = createSignal<File[]>([])
+  const [drag, setDrag] = createStore({ x: 0, y: 0 })
   let fileInputRef: HTMLInputElement | undefined
 
   const authorInitial = props.author.charAt(0).toUpperCase() || "U"
@@ -43,8 +45,7 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
   function handleFileSelect(e: Event) {
     const input = e.target as HTMLInputElement
     if (input.files) {
-      const names = Array.from(input.files).map((f) => f.name)
-      setAttachments([...attachments(), ...names])
+      setAttachments([...attachments(), ...Array.from(input.files)])
     }
     input.value = ""
   }
@@ -98,15 +99,17 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
       </div>
 
       {/* 高亮框 — 标注目标元素 */}
-      <div
-        class="annotation-highlight"
-        style={{
-          top: props.target.elementRect.top + "px",
-          left: props.target.elementRect.left + "px",
-          width: props.target.elementRect.width + "px",
-          height: props.target.elementRect.height + "px",
-        }}
-      />
+        <div
+          class="annotation-highlight annotation-highlight-active"
+          style={{
+            top: props.target.elementRect.top + "px",
+            left: props.target.elementRect.left + "px",
+            width: props.target.elementRect.width + "px",
+            height: props.target.elementRect.height + "px",
+            border: '2px solid #007bff',
+            background: 'rgba(0, 123, 255, 0.08)',
+          }}
+        />
 
       {/* 标注弹框 — 紧跟在标注图标右侧 */}
       <div
@@ -160,7 +163,7 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
               <For each={attachments()}>
                 {(file, i) => (
                   <span class="annotation-attachment-tag">
-                    {file}
+                    {file.name}
                     <button class="annotation-attachment-remove" onClick={() => removeAttachment(i())}>
                       x
                     </button>

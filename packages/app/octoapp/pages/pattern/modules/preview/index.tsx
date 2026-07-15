@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/version-history"
@@ -6,8 +6,12 @@ import type { VersionEntry } from "../../utils/version-history"
 import { TitleBar } from "./title-bar"
 import { CanvasView } from "./canvas-view"
 import { PropertyEditorPopup } from "./property-editor-popup"
+import { AnnotationPopup, type AnnotationTarget } from "./annotation-popup"
 import type { ModifyElementData } from "./property-editor-popup"
 import type { A2UIDocument } from "../../utils/a2ui-protocol"
+import { loadAnnotations, saveAnnotations, saveAttachment, type AnnotationRecord } from "../../utils/annotation-persist"
+import { getDesktopApi } from "../../utils/desktop-api"
+import { type Annotation } from "./annotation-popup"
 import "../../assets/style/preview/index.css"
 
 export type PreviewPageAPI = {
@@ -28,6 +32,7 @@ export function PreviewPage(props: {
   api?: PreviewPageAPI
   pendingData?: unknown
   sessionId?: string
+  dir?: string
   onPickerSubmit?: (text: string, domPickerId: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
@@ -42,10 +47,165 @@ export function PreviewPage(props: {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
 
-  let canvasRef: { reset: () => void; setScale: (scale: number) => void } | undefined
+  let canvasRef: { reset: () => void; setScale: (scale: number) => void; viewportElement: () => HTMLDivElement | undefined } | undefined
+
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
   const [annotating, setAnnotating] = createSignal(false)
+  const [annotations, setAnnotations] = createStore<Array<AnnotationRecord & {
+    pos: { top: number; left: number; width: number; height: number } | null
+  }>>([])
+
+  const [annotationPopup, setAnnotationPopup] = createStore({
+    show: false,
+    target: null as AnnotationTarget | null,
+    rawRect: null as RawRect | null,
+  })
+
+  const visibleAnnotationData = createMemo(() => {
+    const popupSelector = annotationPopup.show ? annotationPopup.target?.elementId : null
+    return annotations.reduce<Array<{ selector: string; pos: { top: number; left: number; width: number; height: number }; originalIndex: number }>>((acc, a, i) => {
+      if (a.pos && a.selector !== popupSelector) acc.push({ selector: a.selector, pos: a.pos, originalIndex: i })
+      return acc
+    }, [])
+  })
+
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+  let loadSeq = 0
+
+  createEffect(() => {
+    if (!props.dir || !props.sessionId) return
+    const vid = props.currentVersionId || props.versions?.[0]?.id || "current"
+    if (!vid) return
+    const seq = ++loadSeq
+    console.log("[preview] loadAnnotations", { vid, currentVersionId: props.currentVersionId, latestVersion: props.versions?.[0]?.id })
+    loadAnnotations(props.dir, props.sessionId, vid).then((data) => {
+      if (seq !== loadSeq) return
+      console.log("[preview] loadAnnotations result", vid, data.length)
+      setAnnotations(data.map((a) => ({ ...a, pos: null })))
+    })
+  })
+
+  function persistAnnotations() {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      if (!props.dir || !props.sessionId) return
+      const vid = props.currentVersionId || props.versions?.[0]?.id || "current"
+      const records: AnnotationRecord[] = annotations.map(({ pos: _, ...rest }) => rest)
+      saveAnnotations(props.dir, props.sessionId, vid, records)
+    }, 500)
+  }
+
+  let rafId: number | null = null
+  let debugOnce = false
+
+  createEffect(() => {
+    const shouldRun = annotations.length > 0 || (annotationPopup.show && annotationPopup.rawRect)
+    if (shouldRun && rafId === null) {
+      const loop = () => {
+        rafId = requestAnimationFrame(loop)
+        const canvasEl = canvasRef?.viewportElement()
+        const canvasRect = canvasEl?.getBoundingClientRect()
+        const paneRect = previewPageRef?.getBoundingClientRect()
+        const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
+        const wrapperRect = wrapper?.getBoundingClientRect()
+        const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
+        if (!debugOnce && annotations.length > 0) {
+          debugOnce = true
+          const r0 = annotations[0].rawRect
+          console.log("[preview] rAF first frame", {
+            hasCanvasEl: !!canvasEl,
+            canvasRect,
+            hasWrapper: !!wrapper,
+            wrapperRect,
+            scale,
+            rawRect0: r0,
+            firstPos: r0 ? {
+              top: (wrapperRect?.top ?? 0) - (canvasRect?.top ?? 0) + r0.top * scale,
+              left: (wrapperRect?.left ?? 0) - (canvasRect?.left ?? 0) + r0.left * scale,
+              width: r0.width * scale,
+              height: r0.height * scale,
+            } : null,
+          })
+        }
+        if (annotationPopup.show && annotationPopup.rawRect) {
+          const r = annotationPopup.rawRect!
+          setAnnotationPopup('target', 'elementRect', {
+            top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + r.top * scale,
+            left: (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0) + r.left * scale,
+            width: r.width * scale,
+            height: r.height * scale,
+          })
+        }
+        for (let i = 0; i < annotations.length; i++) {
+          const r = annotations[i].rawRect
+          if (!r) continue
+          setAnnotations(i, 'pos', {
+            top: (wrapperRect?.top ?? 0) - (canvasRect?.top ?? 0) + r.top * scale,
+            left: (wrapperRect?.left ?? 0) - (canvasRect?.left ?? 0) + r.left * scale,
+            width: r.width * scale,
+            height: r.height * scale,
+          })
+        }
+      }
+      rafId = requestAnimationFrame(loop)
+    }
+    if (!shouldRun && rafId !== null) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
+  })
+
+  onCleanup(() => {
+    if (rafId !== null) cancelAnimationFrame(rafId)
+  })
+
+  async function handleAnnotationSend(text: string, files: File[]) {
+    const id = crypto.randomUUID()
+    const attachments: Array<{ fileName: string; id: string }> = []
+    for (const file of files) {
+      const buf = await file.arrayBuffer()
+      const result = await saveAttachment(props.dir!, props.sessionId!, id, file.name, buf)
+      attachments.push(result)
+    }
+    const record = {
+      id, note: text, selector: annotationPopup.target!.elementId,
+      attachments, time: Date.now(),
+      rawRect: annotationPopup.rawRect!,
+      pos: null,
+    }
+    setAnnotations([...annotations, record])
+    persistAnnotations()
+  }
+
+  function handleAnnotationClose() {
+    setAnnotationPopup({ show: false, target: null, rawRect: null })
+    if (annotating()) {
+      previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+    }
+  }
+
+  function openAnnotationFor(selector: string) {
+    const anno = annotations.find((a) => a.selector === selector)
+    if (!anno?.pos) return
+    const paneRect = previewPageRef?.getBoundingClientRect()
+    const canvasRect = canvasRef?.viewportElement()?.getBoundingClientRect()
+    const offsetY = (canvasRect?.top ?? 0) - (paneRect?.top ?? 0)
+    const offsetX = (canvasRect?.left ?? 0) - (paneRect?.left ?? 0)
+    setAnnotationPopup({
+      show: true,
+      rawRect: anno.rawRect,
+      target: { elementId: selector, elementRect: {
+        top: anno.pos.top + offsetY,
+        left: anno.pos.left + offsetX,
+        width: anno.pos.width,
+        height: anno.pos.height,
+      }},
+    })
+    previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+    unfreezeDomPicker()
+  }
 
   const DEVICE_DIMENSIONS: Record<string, [number, number]> = {
     desktop: [1920, 1080],
@@ -342,6 +502,27 @@ export function PreviewPage(props: {
     if (e.data?.type === "DOM_PICKER_QUICK_FIX") {
       const { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName, rect } = e.data
       console.log("[preview] DOM_PICKER_QUICK_FIX:", { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName })
+      if (annotating()) {
+        const r = (rect ?? { top: 0, left: 0, width: 0, height: 0 }) as RawRect
+        const paneRect = previewPageRef?.getBoundingClientRect()
+        const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
+        const wrapperRect = wrapper?.getBoundingClientRect()
+        const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
+        setAnnotationPopup({
+          show: true,
+          rawRect: r,
+          target: {
+            elementId: domPickerId ?? '',
+            elementRect: {
+              top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + r.top * scale,
+              left: (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0) + r.left * scale,
+              width: r.width * scale,
+              height: r.height * scale,
+            },
+          },
+        })
+        return
+      }
       openBothPanels({
         domPickerId: domPickerId ?? '',
         domPickerComponent: domPickerComponent ?? '',
@@ -354,6 +535,7 @@ export function PreviewPage(props: {
     }
 
     if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
+    if (annotating()) return
     if (ctxMenu.show) { closeCtxMenu(); return }
     const { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName, rect, clickX, clickY } = e.data
     console.log("[preview] DOM_PICKER_CONTEXT_MENU:", { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName })
@@ -386,6 +568,9 @@ export function PreviewPage(props: {
   }
 
   function onClickOutside(e: MouseEvent) {
+    if (annotationPopup.show && !(e.target as HTMLElement).closest('.annotation-popup') && !(e.target as HTMLElement).closest('.annotation-badge') && !(e.target as HTMLElement).closest('.annotation-highlight')) {
+      handleAnnotationClose()
+    }
     if (ctxMenu.show && !(e.target as HTMLElement).closest('.dom-picker-ctx-menu')) {
       closeCtxMenu()
     }
@@ -393,6 +578,7 @@ export function PreviewPage(props: {
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      if (annotationPopup.show) { handleAnnotationClose(); return }
       if (ctxMenu.show) { closeCtxMenu(); return }
       if (propertyEditor.show) { handlePropertyCancel(); return }
       if (pickerVisible()) { closePicker(); return }
@@ -424,6 +610,7 @@ export function PreviewPage(props: {
           setCanvasMode(next)
           if (next) {
             setEditing(false)
+            setAnnotating(false)
             sendDragMode(false)
             previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
           }
@@ -444,6 +631,7 @@ export function PreviewPage(props: {
           setEditing(next)
           previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
           if (next) {
+            setAnnotating(false)
             setCanvasMode(false)
             sendDragMode(true)
             unfreezeDomPicker()
@@ -453,7 +641,21 @@ export function PreviewPage(props: {
         }}
         onOptionChange={handleTitleBarOptionChange}
         annotating={annotating()}
-        onToggleAnnotating={() => setAnnotating(!annotating())}
+        onToggleAnnotating={() => {
+          const next = !annotating()
+          setAnnotating(next)
+          if (next) {
+            setEditing(false)
+            setCanvasMode(false)
+            sendDragMode(false)
+            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+            unfreezeDomPicker()
+          } else {
+            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+            unfreezeDomPicker()
+            setAnnotationPopup({ show: false, target: null, rawRect: null })
+          }
+        }}
       />
 
       <CanvasView
@@ -461,6 +663,38 @@ export function PreviewPage(props: {
         canvasMode={canvasMode()}
         targetWidth={targetWidth()}
         targetHeight={targetHeight()}
+        overlay={
+          <>
+            <Show when={visibleAnnotationData().length > 0}>
+              <For each={visibleAnnotationData()}>
+                {(item) => (
+                  <div
+                    class="annotation-badge"
+                    style={{
+                      top: item.pos.top - 28 + "px",
+                      left: item.pos.left + item.pos.width - 14 + "px",
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openAnnotationFor(item.selector)
+                    }}
+                    title={item.selector}
+                  >
+                    <svg viewBox="0 0 24 24" width="28" height="28" class="annotation-badge-icon">
+                      <g transform="rotate(45 12 12)">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="#ffffff" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" stroke-linejoin="round" />
+                        <circle cx="12" cy="10" r="7" fill="#7B1AFF" />
+                      </g>
+                      <text x="13.4" y="10.6" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="7" font-weight="700" font-family="inherit">
+                        用
+                      </text>
+                    </svg>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </>
+        }
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
@@ -493,6 +727,26 @@ export function PreviewPage(props: {
         onConfirm={handlePropertyConfirm}
         onCancel={handlePropertyCancel}
       />
+
+      <Show when={annotationPopup.show && annotationPopup.target}>
+        <AnnotationPopup
+          target={annotationPopup.target!}
+          author="用户"
+          annotations={annotations
+            .filter((a) => a.selector === annotationPopup.target!.elementId)
+            .map((a): Annotation => ({
+              id: a.id,
+              elementId: a.selector,
+              author: "用户",
+              authorInitial: "用",
+              text: a.note,
+              attachments: a.attachments.map((att) => att.fileName),
+              createdAt: a.time,
+            }))}
+          onSend={handleAnnotationSend}
+          onClose={handleAnnotationClose}
+        />
+      </Show>
 
       <Show when={pickerVisible()}>
         <div class="picker-overlay" onClick={closePicker}>
