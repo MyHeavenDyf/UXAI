@@ -866,8 +866,8 @@ return (
                   }
                 }}
                 onStyleChange={(id, styles, label) => {
-                  // Store to pending (waiting for Save button)
-                  const mergedStyles = { ...editDraft().styles, ...styles }
+                  const baseStyles = manualEditPendingStyle?.styles ?? editDraft().styles
+                  const mergedStyles = { ...baseStyles, ...styles }
                   manualEditPendingStyle = { id, styles: mergedStyles, label }
                   
                   // Send preview to iframe

@@ -1744,8 +1744,11 @@ if (dsId) {
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
     
+    // URL 类型：跳过文件推断和加载
+    const isUrl = card.filePath?.match(/^https?:\/\//i)
+    
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
-    if (!card.filePath && projectDir() && params.id) {
+    if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
         const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!)
@@ -1762,10 +1765,10 @@ if (dsId) {
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab（local-file 或 html），直接激活
+    // ★ Step 0: 如果已有匹配的 tab，直接激活
     if (card.filePath) {
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "local-file") return t.absoluteFilePath === card.filePath
+        if (t.type === "html" && isUrl) return t.filePath === card.filePath
         if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
         if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
         return false
@@ -1777,7 +1780,7 @@ if (dsId) {
     }
     
     // ★ Step 1: 从文件加载内容（编辑已保存到文件）
-    if (card.filePath) {
+    if (card.filePath && !isUrl) {
       const skipContentLoad = ["image", "video", "audio", "pdf", "svg"].includes(card.type)
       if (!skipContentLoad) {
         try {
@@ -1805,7 +1808,7 @@ if (dsId) {
     
     if (tab) {
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
-      if (shouldPersist) {
+      if (shouldPersist && !isUrl) {
         await persistTabChanges(tab, {
           sessionId: params.id!,
           projectDir: projectDir(),
@@ -1818,31 +1821,48 @@ if (dsId) {
     }
   }
 
+  function inferOutputType(filePath: string): OutputCardType {
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+    if (ext === 'html' || ext === 'htm') return 'html'
+    if (ext === 'svg') return 'svg'
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'].includes(ext)) return 'image'
+    if (ext === 'pdf') return 'pdf'
+    if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) return 'video'
+    if (['mp3', 'wav', 'ogg', 'flac', 'm4a'].includes(ext)) return 'audio'
+    if (ext === 'md' || ext === 'markdown') return 'markdown'
+    if (ext === 'json') return 'json'
+    if (['ts', 'tsx', 'js', 'jsx', 'css', 'scss', 'less', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h'].includes(ext)) return 'code-snippet'
+    return 'text'
+  }
+
   function handleOpenLocalFile(filePath: string) {
-    // Check if it's a URL
+    const dir = projectDir()
+
+    // URL 处理
     if (/^https?:\/\//i.test(filePath)) {
+      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
       let title: string
       try {
         const url = new URL(filePath)
         const pathSegments = url.pathname.split('/').filter(Boolean)
-        const lastSegment = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : ''
-        title = lastSegment ? `${url.host}/${lastSegment}` : url.host
+        title = pathSegments.length > 0 ? `${url.host}/${pathSegments[pathSegments.length - 1]}` : url.host
       } catch {
         title = filePath
       }
 
-      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
-      tabStore.openLocalFileTab({
+      handleOpenResult({
         id: tabId,
         title,
-        absoluteFilePath: filePath,
+        type: 'html',
+        content: '',
+        filePath,
         createdAt: new Date(),
       })
       tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
       return
     }
 
-    const dir = projectDir()
+    // 本地文件处理
     const normalizedPath = filePath.replace(/\\/g, '/')
     const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
 
@@ -1861,14 +1881,17 @@ if (dsId) {
     absolutePath = absolutePath.replace(/\/+/g, '/')
 
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
+    const type = inferOutputType(filePath)
 
-    tabStore.openLocalFileTab({
+    handleOpenResult({
       id: tabId,
       title: filePath.split(/[/\\]/).pop() ?? filePath,
-      absoluteFilePath: absolutePath,
+      type,
+      content: '',
+      filePath: absolutePath,
       createdAt: new Date(),
     })
-    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local" }) })
+    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
   }
 
   /** Handle `/skills <name>` command: inject skill name into prompt */
