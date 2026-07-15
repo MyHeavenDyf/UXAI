@@ -434,7 +434,7 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse" style="display:none">
                   <IconTool
                     label="图文反推"
                     class="studio-composer-icon-reverse"
@@ -509,6 +509,7 @@ export function StudioComposer(props: {
                     <button
                       type="button"
                       class="studio-composer-toolbar-more-item"
+                      style="display:none"
                       onClick={() => props.onReversePrompt?.()}
                     >
                       <span class="studio-composer-toolbar-more-item-icon studio-composer-icon-reverse-icon" />
