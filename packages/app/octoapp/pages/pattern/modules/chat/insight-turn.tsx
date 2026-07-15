@@ -198,7 +198,7 @@ export function InsightTurn(props: {
     || userText().startsWith("[用户修改请求]:")
   )
 
-  // 提取 reasoning 内容
+  // 提取 reasoning 内容（包括 DeepSeek 的 <think> 标签）
   const reasoningTexts = createMemo(() => {
     const parts = assistantParts()
     const texts: string[] = []
@@ -210,6 +210,14 @@ export function InsightTurn(props: {
         const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
         const reasoning = state?.reasoning as string | undefined
         if (reasoning) texts.push(reasoning)
+      }
+      // DeepSeek 等模型将思考过程放在 text 部分的 <think> 标签中
+      if (p.type === "text" && (p as { text?: string }).text) {
+        const raw = (p as { text: string }).text
+        const thinkMatches = raw.matchAll(/<think>([\s\S]*?)(<\/think>|$)/g)
+        for (const m of thinkMatches) {
+          if (m[1]?.trim()) texts.push(m[1])
+        }
       }
     }
     return texts
@@ -250,16 +258,18 @@ export function InsightTurn(props: {
   const hasError = createMemo(() => toolCalls().some((c) => c.status === "error"))
   const fileOpsEntries = createMemo(() => deriveFileOps(toolCalls()))
 
-  // ── NEW: prose text (stripped of artifacts) ──
+  // ── NEW: prose text (stripped of artifacts and <think> tags) ──
   const proseText = createMemo(() => {
     const parts = assistantParts()
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
+    // 去除 DeepSeek 等模型的 <think> 标签内容
+    const cleanText = textPart.text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "")
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(cleanText)) {
       if (ev.type === "text") prose += ev.delta
     }
     const trimmed = prose.trim()
@@ -278,9 +288,10 @@ export function InsightTurn(props: {
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return false
+    const cleanText = textPart.text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "")
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(cleanText)) {
       if (ev.type === "text") prose += ev.delta
     }
     return prose.trim().startsWith("{") || prose.trim().startsWith("[")
@@ -502,10 +513,7 @@ export function InsightTurn(props: {
               </div>
               <Show when={!assistantGenerating() && hasError()} fallback={
                 <Show when={assistantGenerating()} fallback={
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="#2E7D32" stroke-width="2" />
-                    <path d="M8 12L11 15L16 9" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
+                  <span class="gc-done-badge">完成</span>
                 }>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
                     <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
