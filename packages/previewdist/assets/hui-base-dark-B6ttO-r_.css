@@ -319,7 +319,9 @@
   --el-input-bg-color: transparent;
   --el-input-height: 32px;
 }
-
+.el-input__wrapper {
+  padding: 1px 12px;
+}
 
 .el-popper {
   --el-popper-bg-color-light: var(--neutral-700);
