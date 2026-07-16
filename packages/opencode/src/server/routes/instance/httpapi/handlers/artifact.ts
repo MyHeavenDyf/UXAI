@@ -110,11 +110,12 @@ function createZipArchive(entries: Array<{ filename: string; content: Uint8Array
     view.setUint16(6, 0, true)
     view.setUint16(8, 0, true)
     view.setUint16(10, 0, true)
-    view.setUint32(12, crc, true)
-    view.setUint32(16, compressedSize, true)
-    view.setUint32(20, uncompressedSize, true)
-    view.setUint16(24, filenameBytes.length, true)
-    view.setUint16(26, 0, true)
+    view.setUint16(12, 0, true)
+    view.setUint32(14, crc, true)
+    view.setUint32(18, compressedSize, true)
+    view.setUint32(22, uncompressedSize, true)
+    view.setUint16(26, filenameBytes.length, true)
+    view.setUint16(28, 0, true)
     localHeader.set(filenameBytes, 30)
     localFileHeaders.push(localHeader)
     localFileHeaders.push(content)
@@ -128,15 +129,17 @@ function createZipArchive(entries: Array<{ filename: string; content: Uint8Array
     cview.setUint16(8, 0, true)
     cview.setUint16(10, 0, true)
     cview.setUint16(12, 0, true)
-    cview.setUint32(14, crc, true)
-    cview.setUint32(18, compressedSize, true)
-    cview.setUint32(22, uncompressedSize, true)
-    cview.setUint16(26, filenameBytes.length, true)
-    cview.setUint16(28, 0, true)
+    cview.setUint16(14, 0, true)
+    cview.setUint32(16, crc, true)
+    cview.setUint32(20, compressedSize, true)
+    cview.setUint32(24, uncompressedSize, true)
+    cview.setUint16(28, filenameBytes.length, true)
     cview.setUint16(30, 0, true)
     cview.setUint16(32, 0, true)
     cview.setUint16(34, 0, true)
-    cview.setUint32(36, offset - localHeader.length - content.length, true)
+    cview.setUint16(36, 0, true)
+    cview.setUint32(38, 0, true)
+    cview.setUint32(42, offset - localHeader.length - content.length, true)
     centralHeader.set(filenameBytes, 46)
     centralDirectory.push(centralHeader)
   }
@@ -317,6 +320,19 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         Effect.mapError(() => new HttpApiError.NotFound({})),
       )
       // 增加encoding字段到返回值，前端用此判断返回文件编码
+      // File.read 对二进制文件(office/pdf/video 等)只返回空 content(服务于文本预览,见 File.read);
+      // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端据 encoding:"base64" 解码落盘。
+      // 用 type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退。
+      if (result.type === "binary") {
+        const bytes = yield* fs.readFile(filePath).pipe(
+          Effect.mapError(() => new HttpApiError.NotFound({})),
+        )
+        return {
+          content: Buffer.from(bytes).toString("base64"),
+          mimeType: result.mimeType ?? getMime(filePath),
+          encoding: "base64" as const,
+        }
+      }
       return {
         content: result.content,
         mimeType: result.mimeType ?? getMime(filePath),

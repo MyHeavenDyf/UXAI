@@ -32,8 +32,8 @@ export async function persistTabChanges(
   options.snapshotStore.save(tab)
   options.refreshSnapshots()
   
-  // 2. Write to file system (if tab has filePath)
-  if (tab.filePath && options.sdkDirectory) {
+  // 2. Write to file system (if tab has filePath and content)
+  if (tab.filePath && options.sdkDirectory && tab.content) {
     try {
       await fetch(`${options.sdkUrl}/file/content`, {
         method: "PUT",

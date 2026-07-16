@@ -41,6 +41,7 @@ import { InsightPermissionDock } from "./components/permission-dock"
 import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
+import { materializeUriCardToOutputs } from "./utils/local-resource"
 import { PRESET_PROMPTS } from "./store/preset-prompts"
 import {
   buildChipDeclaration,
@@ -64,7 +65,7 @@ import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/sen
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
-import { pathToLocalUrl } from "./utils/insight-file-api"
+import { mimeForName, pathToLocalUrl } from "./utils/insight-file-api"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
@@ -599,6 +600,10 @@ function InsightContent() {
   // 不必等第一个产物 tab 打开(Make 模块同款默认)。
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
 
+  // 文件管理表格外部刷新触发:对话上传文件落地会话目录(insight/<sid>/uploads/)后递增,
+  // 驱动 ResultViewer → InsightFileManager 的 refreshKey effect 重拉文件列表(对齐 make 模块的 filesRefreshKey)。
+  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
   // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009;v2 常驻可见改动见 SPEC-INS-014 §10) ────
   // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
   // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
@@ -654,7 +659,18 @@ function InsightContent() {
   // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
   function openFileFromManager(file: InsightFileEntry) {
     const type = extToOutputType(file.name)
-    tabStore.openTab({ id: crypto.randomUUID(), title: file.name, type, source: "path", filePath: file.path, createdAt: new Date() })
+    // fileName / mimeType 必须带上:FileFallback 的类型图标按这两者派生(fileTypeIconUrl),
+    // 缺失会让 xlsx/docx 等一律落到「其他」兜底图标(title 只用于标签页文案,不参与图标)。
+    tabStore.openTab({
+      id: crypto.randomUUID(),
+      title: file.name,
+      type,
+      source: "path",
+      filePath: file.path,
+      fileName: file.name,
+      mimeType: mimeForName(file.name),
+      createdAt: new Date(),
+    })
     focusResultTabs()
   }
 
@@ -926,6 +942,9 @@ function InsightContent() {
     }
     const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
 
+    // 文件已落地 insight/<sessionId>/uploads/:通知文件管理表格重拉,避免后续上传不刷新(挂载只刷一次的回归)。
+    if (movedPaths.size > 0) setFilesRefreshKey(k => k + 1)
+
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
     const uploadBlock = formatUploadsForPrompt(
@@ -934,6 +953,15 @@ function InsightContent() {
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
+    // [输出目录]:synthetic 提示模型把"生成/导出文档"的 write 产物落到 insight/<sessionId>/outputs/,
+    // 使其出现在文件管理"生成文件"段(模型无此提示时只回文本,文件管理表格看不到)。
+    {
+      const baseDir = projectDir()
+      if (baseDir) {
+        const outputsDir = `${baseDir.replace(/\\/g, "/")}/insight/${sessionId}/outputs/`
+        parts.push({ type: "text", text: `[输出目录] 生成/导出文档时,用 write 工具写入此目录:${outputsDir}`, synthetic: true })
+      }
+    }
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
     // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
     // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
@@ -1677,6 +1705,31 @@ function InsightContent() {
     focusResultTabs()
   }
 
+  // ── eager 落地(SPEC-INS-014 v4):completed 任务的 MCP 产物「出卡即落」进 outputs,不等用户点开 ──
+  // 文件管理「生成文件」段列的是 outputs 磁盘真实文件;此前 uri 产物只在点开渲染时才(部分)落盘,
+  // 导致「生成了但没点开」的产物(典型:思维导图 json)在文件管理查无此文件。这里在 taskCards 拿到
+  // completed 产物 links 时就落盘,与 UI 是否打开解耦。inline / path 卡不在此列(见 v4:inline 不落盘;
+  // path/write 产物由 agent 提示词约定直接写 outputs,前端不搬运)。
+  const eagerMaterializedCardIds = new Set<string>()
+  createEffect(() => {
+    const dir = projectDir()
+    const sid = params.id
+    // taskCards() 必须先读:早退在它之前会让 Solid 追踪不到该依赖,后续任务产物到达时 effect 不重跑
+    // (与 insight-turn outputCards memo 里 parts 先读同一个道理)。
+    const cards = [...taskCards().values()]
+    if (!dir || !sid) return
+    for (const card of cards) {
+      if (card.status !== "completed") continue
+      for (const oc of buildOutputCardsFromTask(card)) {
+        if (oc.source !== "uri" || !oc.uri) continue
+        if (eagerMaterializedCardIds.has(oc.id)) continue
+        eagerMaterializedCardIds.add(oc.id)
+        // 落盘后通知文件管理表格重拉:否则任务产物进了 outputs 目录,列表仍要手动切面板才看得到。
+        void materializeUriCardToOutputs(oc, dir, sid).then(() => setFilesRefreshKey((k) => k + 1))
+      }
+    }
+  })
+
   // ── 兑现「查看结果」:上面的查询返回真实产物后,把 pendingOpen 的那张任务结果打开并激活 ──
   createEffect(() => {
     const tid = pendingOpenTaskId()
@@ -2022,6 +2075,7 @@ function InsightContent() {
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
                         resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
+                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                       />
                     )}
                   </For>
@@ -2222,6 +2276,7 @@ function InsightContent() {
             onAddToSession={addInsightFileToSession}
             onCloseTabsByPath={closeTabsByPath}
             onRemoveAttachmentsByPath={removeAttachmentsByPath}
+            refreshKey={filesRefreshKey()}
           />
         </Show>
         </div>

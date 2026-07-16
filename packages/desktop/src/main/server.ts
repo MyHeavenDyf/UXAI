@@ -5,6 +5,7 @@ import type { Details } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv, mergeShellEnv } from "./shell-env"
 import { getStore } from "./store"
+import type { DesktopStorage } from "./storage"
 import type { SqliteMigrationProgress } from "../preload/types"
 
 export type WslConfig = { enabled: boolean }
@@ -25,6 +26,7 @@ const SIDECAR_STOP_TIMEOUT = 6_000
 
 type SpawnLocalServerOptions = {
   needsMigration: boolean
+  storage: DesktopStorage
   userDataPath: string
   onSqliteProgress?: (progress: SqliteMigrationProgress) => void
   onStdout?: (message: string) => void
@@ -165,6 +167,7 @@ export async function spawnLocalServer(
       hostname,
       port,
       password,
+      storage: options.storage,
       userDataPath: options.userDataPath,
       needsMigration: options.needsMigration,
     })

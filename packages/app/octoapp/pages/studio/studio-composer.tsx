@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
@@ -358,6 +358,21 @@ export function StudioComposer(props: {
                     />
                   </Show>
                 </div>
+                <Show when={referenceAssets().length > 0 && canAddReferenceAsset() && !referenceExpanded()}>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      props.onPickFile()
+                    }}
+                    disabled={isBusy()}
+                    class="studio-composer-ref-upload-float"
+                    aria-label="继续上传参考图"
+                    title="继续上传参考图"
+                  >
+                    <img src="/studio/studio_mask.svg" alt="" />
+                  </button>
+                </Show>
               </Show>
             </div>
           </Show>
@@ -434,7 +449,7 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse" style="display:none">
                   <IconTool
                     label="图文反推"
                     class="studio-composer-icon-reverse"
@@ -509,6 +524,7 @@ export function StudioComposer(props: {
                     <button
                       type="button"
                       class="studio-composer-toolbar-more-item"
+                      style="display:none"
                       onClick={() => props.onReversePrompt?.()}
                     >
                       <span class="studio-composer-toolbar-more-item-icon studio-composer-icon-reverse-icon" />
@@ -780,6 +796,7 @@ function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (v
 
 function getModelResolutionKey(styleModel: string): string {
   if (styleModel === "hdesign") return "hdesign"
+  if (styleModel === "seedream-5-lite") return "2k"
   if (styleModel.includes("2k")) return "2k"
   if (styleModel.includes("3k")) return "3k"
   if (styleModel.includes("4k")) return "4k"
@@ -855,7 +872,7 @@ function ImageSettings(props: {
     props.onIsCustom(true)
   }
 
-  const isJimeng = () => getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen"
+  const isJimeng = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
   const JIMENG_AREA_MIN = 2560 * 1440
   const JIMENG_AREA_MAX = Math.round(3072 * 3072 * 1.1025)
   const sizeWarnText = () => {
@@ -864,8 +881,45 @@ function ImageSettings(props: {
     return "请输入有效数值250px ~ 2500px"
   }
 
+  // 防抖取值：输入停止 600ms 后才更新用于校验的宽高
+  const [debouncedW, setDebouncedW] = createSignal(width())
+  const [debouncedH, setDebouncedH] = createSignal(height())
+  let sizeDebounceTimer: ReturnType<typeof setTimeout> | undefined
+  createEffect(() => {
+    const w = width()
+    const h = height()
+    clearTimeout(sizeDebounceTimer)
+    sizeDebounceTimer = setTimeout(() => {
+      batch(() => {
+        setDebouncedW(w)
+        setDebouncedH(h)
+      })
+    }, 600)
+  })
+  onCleanup(() => clearTimeout(sizeDebounceTimer))
+
+  const sizeLimit = () => props.styleModel === "qwen" ? { min: 250, max: 1664 } : { min: 250, max: 2500 }
+
+  // 用防抖后的值做校验
+  const needsWarn = createMemo(() => {
+    if (!isCustom()) return false
+    const w = debouncedW()
+    const h = debouncedH()
+    if (w === 0 || h === 0) return false
+    if (isJimeng()) {
+      const area = w * h
+      if (area < JIMENG_AREA_MIN || area > JIMENG_AREA_MAX) return true
+      const ratio = w / h
+      if (ratio < 1 / 16 || ratio > 16) return true
+      return false
+    }
+    const { min, max } = sizeLimit()
+    if (w < min || w > max || h < min || h > max) return true
+    return false
+  })
+
   function handleWidthInput(e: { currentTarget: HTMLInputElement }) {
-    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
     setWidth(val)
     if (isCustom()) props.onCustomWidth(val)
@@ -873,7 +927,7 @@ function ImageSettings(props: {
   }
 
   function handleHeightInput(e: { currentTarget: HTMLInputElement }) {
-    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
     setHeight(val)
     if (isCustom()) props.onCustomHeight(val)
@@ -925,8 +979,6 @@ function ImageSettings(props: {
     props.onCustomHeight(h)
   }
 
-  const sizeLimit = () => props.styleModel === "qwen" ? { min: 250, max: 1664 } : { min: 250, max: 2500 }
-
   function selectRatio(r: StudioAspectRatio) {
     setIsCustom(false)
     props.onIsCustom(false)
@@ -941,6 +993,21 @@ function ImageSettings(props: {
     setHeight(props.customHeight || 0)
     props.onIsCustom(true)
   }
+
+  // 弹框关闭或隐藏时，如果自定义尺寸为空，则重置为预设比例模式，
+  // 确保下次打开弹框时默认选中上次选中的预设比例
+  onCleanup(() => {
+    if (isCustom()) {
+      const w = width()
+      const h = height()
+      if (w === 0 || h === 0) {
+        props.onIsCustom(false)
+        props.onCustomWidth(0)
+        props.onCustomHeight(0)
+      }
+    }
+  })
+
   return (
     <div class="studio-menu studio-image-settings-menu">
       <div class="studio-image-settings-title">图片设置</div>
@@ -1000,8 +1067,8 @@ function ImageSettings(props: {
       </div>
       <div class="studio-image-settings-label" style={{ "margin-top": "16px" }}>
         尺寸
-        <span class="studio-image-settings-size-warn" title={sizeWarnText()} />
-        <span class="studio-image-settings-size-warn-text">{sizeWarnText()}</span>
+        <span class="studio-image-settings-size-warn" title={sizeWarnText()} style={{ visibility: needsWarn() ? "visible" : "hidden" }} />
+        <span class="studio-image-settings-size-warn-text" style={{ visibility: needsWarn() ? "visible" : "hidden" }}>{sizeWarnText()}</span>
       </div>
       <div class="studio-image-settings-size">
         <div class="studio-image-settings-size-input">
