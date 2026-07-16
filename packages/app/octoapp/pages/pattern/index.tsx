@@ -501,7 +501,6 @@ function PatternContent() {
       showToast({ title: "无断点记录", description: "未找到可恢复的进度，请重新生成" })
       return
     }
-
     setSessionErrors(prev => { const n = { ...prev }; delete n[sid]; return n })
     await clearProtoError(dir, sid)
     setSendingSids(prev => new Set(prev).add(sid))

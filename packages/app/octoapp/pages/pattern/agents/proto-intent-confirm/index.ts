@@ -43,7 +43,6 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
     throw new Error("----- Intent Confirm did not return valid JSON -----")
   }
-  throw new Error("----- 测试：create_intent_confirm 手动报错 -----")
   const returnValue: IntentConfirmResult = {
     options: json as Record<string, IntentConfirmDimension>,
     current_step: "intent_confirm",

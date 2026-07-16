@@ -43,7 +43,6 @@ export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
     rootSessionId: inputCtx.rootSession,
     createdAt: Date.now(),
   })
-  debugger
   const result = await proto_intent_confirm(inputCtx)
   // agent 成功且有 options 时，更新 checkpoint 补上 options
   if (Object.keys(result.options).length > 0) {
@@ -67,6 +66,12 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   let checkpoint: Checkpoint | null = null
   if (inputCtx.checkpointDir) {
     checkpoint = await loadCheckpoint(inputCtx.checkpointDir, sid)
+    // 推进 stage：从 intent_confirm 过渡到 pattern_page，防止 pattern_page 报错时倒退
+    if (checkpoint) {
+      checkpoint.stage = "pattern_page"
+      checkpoint.userInput = inputCtx.userInput
+      await saveCheckpoint(inputCtx.checkpointDir, sid, checkpoint)
+    }
   }
   // 步骤 1：pattern_page
   let patternPageResult: { matches: any[] }
@@ -77,15 +82,9 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
     patternPageResult = await proto_pattern_page(inputCtx)
   }
 
-  if (inputCtx.checkpointDir) {
-    checkpoint = {
-      stage: "pattern_page",
-      userInput: inputCtx.userInput,
-      designSystem: theme,
-      rootSessionId: sid,
-      createdAt: Date.now(),
-      patternPageResult: { matches: patternPageResult.matches },
-    }
+  if (inputCtx.checkpointDir && checkpoint) {
+    checkpoint.patternPageResult = { matches: patternPageResult.matches }
+    checkpoint.stage = "pattern_page"
     await saveCheckpoint(inputCtx.checkpointDir, sid, checkpoint)
   }
 
@@ -142,7 +141,6 @@ export async function create_modules_json(
 ) {
   const sid = inputCtx.rootSession
   const slots = planner.slots as Array<any>
-  debugger
   let moduleCheckpoints: Record<string, ModuleCheckpoint> = {}
   let checkpoint: Checkpoint | null = null
   if (inputCtx.checkpointDir) {
