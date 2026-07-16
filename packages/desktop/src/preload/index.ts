@@ -88,8 +88,8 @@ const api: ElectronAPI = {
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
-  getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
+  getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
   ensureSkillConfig: () => ipcRenderer.invoke("ensure-skill-config"),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),

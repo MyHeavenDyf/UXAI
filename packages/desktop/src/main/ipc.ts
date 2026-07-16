@@ -633,6 +633,8 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
+
   ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
     try {
       const skillDir = join(getOctoConfigPath(), "skill", skillName)
@@ -666,7 +668,6 @@ export function registerIpcHandlers(deps: Deps) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
-  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
 
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
