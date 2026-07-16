@@ -131,6 +131,8 @@ type Deps = {
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
   // jk-j60099994-replace-with-ipc-2-end
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-6-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-6-end
 }
 
 function addZipComment(zipPath: string, comment: string) {
@@ -650,15 +652,16 @@ export function registerIpcHandlers(deps: Deps) {
         return { success: false, error: "同名 skill 已存在" }
       }
 
-      cpSync(sourcePath, destDir, { recursive: true })
-
       // Update skills.json with type: "common"
       const skillMdPath = join(destDir, "SKILL.md")
       if (!existsSync(skillMdPath)) {
         return { success: false, error: "所选文件夹中未找到 SKILL.md" }
       }
-      const config = existsSync(skillsConfigPath)
-        ? JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
+
+      cpSync(sourcePath, destDir, { recursive: true })
+      
+      const config = existsSync(skillConfigPath)
+        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))?.skill
         : {}
       const content = readFileSync(skillMdPath, "utf-8")
       const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
@@ -669,9 +672,13 @@ export function registerIpcHandlers(deps: Deps) {
         import: true,
         type: "common",
       }
+      const configJson = existsSync(skillConfigPath)
+        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))
+        : {}
+      configJson['skill'] = config
       mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
-      syncSkillConfig()
+      writeFileSync(skillsConfigPath, JSON.stringify(configJson, null, 2), "utf-8")
+      // syncSkillConfig()
 
       return { success: true, skillName }
     } catch (err) {
