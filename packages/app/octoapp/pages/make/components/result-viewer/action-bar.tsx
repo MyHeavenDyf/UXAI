@@ -448,7 +448,7 @@ export function ActionBar(props: {
             <span>下载</span>
           </button>
         </Show>
-        <Show when={props.tab.type !== "html" && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
+        <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>
           <button
             type="button"
             class="octo-action-btn"
