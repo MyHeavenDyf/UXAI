@@ -69,8 +69,8 @@ export function ResultViewer(props: {
   onContentChange?: (id: string, content: string) => void
   sessionId?: string
   onOpenArtifact?: (card: OutputCard) => void
-  viewMode: "tabs" | "files"
-  onViewModeChange: (mode: "tabs" | "files") => void
+  viewMode: "tabs" | "files" | "plan"
+  onViewModeChange: (mode: "tabs" | "files" | "plan") => void
   onAddArtifactToSession?: (file: ArtifactFile) => void
   onRemoveAttachmentsByPath?: (paths: string[]) => void
   onRenameTabByPath?: (oldPath: string, newPath: string, newTitle: string) => void
@@ -83,6 +83,8 @@ export function ResultViewer(props: {
   isPlanConfirmed?: () => boolean
   filesRefreshKey?: number
   onFilesRefresh?: () => void
+  /** 设计规划内容 (plan 模式使用) */
+  planCard?: OutputCard | null
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -196,7 +198,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <Show when={props.tabs.length > 0 || props.viewMode === "files"} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0 || props.viewMode === "files" || props.viewMode === "plan"} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
@@ -204,6 +206,8 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
           onClose={props.onClose}
           viewMode={props.viewMode}
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
+          showPlanEntry={!!props.planCard}
+          planConfirmed={props.isPlanConfirmed?.()}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
@@ -218,6 +222,37 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
               onFilesRefresh={props.onFilesRefresh}
             />
           )}
+        </Show>
+
+        {/* plan 模式 — 直接渲染设计规划内容,不创建 tab */}
+        <Show when={props.viewMode === "plan" && props.planCard}>
+          {(plan) => (
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={plan().content}
+                title={plan().title}
+                artifactIdentifier={plan().artifactIdentifier}
+                confirmed={props.isPlanConfirmed?.() ?? false}
+                onConfirm={() => props.onConfirmPlan?.(plan().artifactIdentifier)}
+                onAdjust={() => props.onAdjustPlan?.()}
+                onContentChange={(content) => {
+                  if (props.onContentChange && plan().id) {
+                    props.onContentChange(plan().id, content)
+                  }
+                }}
+              />
+            </div>
+          )}
+        </Show>
+
+        {/* plan 模式 — 等待子 agent 生成设计规划时显示加载状态 */}
+        <Show when={props.viewMode === "plan" && !props.planCard}>
+          <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+            <div class="flex items-center gap-2">
+              <span class="i-svg-spinners-clock size-5" />
+              <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划子 agent 正在生成中...</span>
+            </div>
+          </div>
         </Show>
 
         <Show when={props.viewMode === "tabs"}>

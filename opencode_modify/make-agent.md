@@ -64,6 +64,38 @@ Make agent 从通用英文提示演进为中文 `<artifact>` 标签格式，支�
 - 新增「防循环」规则：用户已选 `[skip-plan]` 后，本会话内 agent 不再发 sentinel，直接生成 HTML（除非用户明确要求"先规划"）
 - 配套前端改动（在 packages/app，非本目录）：新建 `plan-entry-banner.tsx` 引导横条，scanner 加 `isPlanIntentResolved` 函数推断 sentinel 是否已被响应
 
+### 强化 sentinel 输出可靠性（2026-07-13）
+
+- `src/agent/prompt/octo_make.txt`：重写「工作流程」章节，从「规则说明」改为「回复模板 + 违规案例」格式
+- 原因：agent 有时跳过 `[design-plan-intent]` sentinel，直接输出自然语言或 HTML artifact，导致 banner 不显示
+- 改动：
+  1. 新增「回复模板」：明确要求回复必须以 `[design-plan-intent]` 开头（判断为生成时）或纯文字（非生成时）
+  2. 新增「违规案例」：列出 5 种常见违规模式（以"我来帮你生成"开头、以"好的"开头、sentinel 后有额外文字等）
+  3. 工作流从 4 步改为 5 步，sentinel 必须是回复的**第一个词**，前面不能有任何文字/空格/换行
+  4. 移除"复杂需求才触发"的语义，改为"任何生成需求都触发"（第 1 步判断为生成 → 立刻发 sentinel）
+
+### 修复子 agent 不输出 design-plan artifact（2026-07-13）
+
+- `src/agent/prompt/octo_make_plan.txt`：重写「工作流程」和「能力边界」章节
+- 原因：子 agent `octo_make_plan` 收到 prompt 后先调用 `read` 工具读工作目录（触发权限弹窗），然后输出文字说明但未输出 `<artifact>` 标签，导致 `planCard` 检测不到设计文档，用户看不到确认按钮
+- 改动：
+  1. 新增「核心规则」章节：要求回复必须以 `<artifact type="text/design-plan">` 开头直接输出文档
+  2. 新增「回复模板」：明确 artifact 格式，禁止在 artifact 前输出任何文字
+  3. 工作流改为"直接输出 → 等待反馈 → 用户确认"三步
+  4. 工具调用（read/websearch）只能在输出初始 artifact 之后的迭代阶段使用
+  5. 权限保持 `read: "ask"`、`websearch: "allow"` 不变
+
+### 强化子 agent 强制输出 artifact 规则（2026-07-13）
+
+- `src/agent/prompt/octo_make_plan.txt`：将"强制规则"提升到 prompt 最前面，文档结构模板放到后面
+- 原因：之前的 prompt 中"直接输出"指令被 70 行文档结构模板淹没，agent 优先调用 read 工具而非直接输出 artifact
+- 改动：
+  1. 新增「强制规则（必须遵守）」章节作为 prompt 第一段，明确 4 条硬性约束
+  2. 规则 1：第一次回复必须以 `<artifact type="text/design-plan">` 开头
+  3. 规则 2：输出 artifact 之后才允许调用 read/websearch 工具
+  4. 规则 3：用户确认前保持等待
+  5. 规则 4：禁止第一次回复调用工具或输出说明文字
+
 ### 允许 write 工具但约束到 artifact 目录（2026-06-30）
 
 - `src/agent/prompt/octo_make.txt`：放宽三处对 write 工具的硬性禁止（第 6、29、173 行），改为条件允许——默认仍用 `<artifact>` 标签；仅当用户明确要求用 write 工具时才允许，且写入路径必须限定在 `.octo/artifacts/make/<sessionId>/` 目录内。

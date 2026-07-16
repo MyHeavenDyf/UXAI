@@ -64,8 +64,8 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
-import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
+import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
@@ -332,12 +332,12 @@ function MakeContent() {
 
 const sessionMessagesLoaded = createMemo(() => {
     const id = params.id
-    return !id || sync.data.message[id] !== undefined
+    return !id || sync.data.message?.[id] !== undefined
   })
 
   createEffect(
     on(
-      () => [params.id, sync.data.message[params.id ?? ""] === undefined] as const,
+      () => [params.id, sync.data.message?.[params.id ?? ""] === undefined] as const,
       ([id, missing], prev) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
@@ -345,6 +345,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
 
         setSending(false)
+        setComposing(false)
         setDeltaLog([])
 
         if (sendingNavigation) {
@@ -493,6 +494,37 @@ const sessionMessagesLoaded = createMemo(() => {
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
 
+  const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
+
+  /** 当前活跃的设计规划子 session ID（存在时表示正在规划阶段） */
+  const [activePlanSessionId, setActivePlanSessionId] = createSignal<string | null>(null)
+  /** plan session 所属的主 session ID，用于 handleSubmit 校验（防止 session 切换后 planSid 污染） */
+  const [planParentSessionId, setPlanParentSessionId] = createSignal<string | null>(null)
+  /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
+  const _planChildSessionCache: Record<string, string> = {}
+
+  /**
+   * 跨重启恢复：从 API 全量拉取 session 列表，找到当前主 session 的 octo_make_plan 子 session。
+   * sync.data.session 只包含根 session（roots:true），子 session 不会出现在里面，
+   * 所以需要额外从 API 拉取全量 session 列表来检测。
+   */
+  const [hasChildPlanSession, setHasChildPlanSession] = createSignal(false)
+  async function detectChildPlanSession(sid: string): Promise<string | null> {
+    if (!sdk.directory) return null
+    try {
+      const res = await sdk.client.session.list({ directory: sdk.directory })
+      const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
+      const child = sessions.find((s: any) => s.parentID === sid && s.agent === "octo_make_plan" && !s.time?.archived)
+      if (child) {
+        setHasChildPlanSession(true)
+        return child.id
+      }
+    } catch {
+      // 静默失败
+    }
+    return null
+  }
+
   /** 加载子会话数据 */
   async function ensureChildSession(subSessionID: string) {
     if (!subSessionID || loadedChildSessions.has(subSessionID)) return
@@ -515,9 +547,17 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   const userMessages = createMemo((): Message[] => {
-    const id = params.id
-    if (!id) return []
-    return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+    const sid = params.id
+    if (!sid) return []
+    // 始终包含主 session 的消息
+    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
+    // plan 模式时额外追加子 session 的用户消息
+    const planSid = activePlanSessionId()
+    if (resultViewMode() === "plan" && planSid) {
+      const childMsgs = ((sync.data.message?.[planSid] ?? []) as Message[]).filter((m) => m.role === "user")
+      return [...mainMsgs, ...childMsgs]
+    }
+    return mainMsgs
   })
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
@@ -553,7 +593,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (isBusy()) {
       const id = params.id
       if (id) {
-        const messages = (sync.data.message[id] ?? []) as Message[]
+        const messages = (sync.data.message?.[id] ?? []) as Message[]
         const pending = [...messages].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
         if (pending) {
           const start = pending.time.created
@@ -900,7 +940,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
-  const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
+  const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
@@ -909,21 +949,20 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
-  // 方案 artifact 从消息流中提取,但不再自动打开右侧 ResultViewer tab。
-  // 而是显示为输入框上方的横条,用户点击后才把 plan 放进 ResultViewer。
-  // 确认状态也从消息流推断:方案之后出现 [confirm-plan] 或 HTML artifact 即视为已确认。
+  // 方案 artifact 从子 session 的消息流中提取（如果存在子 session），
+  // 否则回退到主 session（兼容旧流程）。
   const planCard = createMemo(() => {
-    const sid = params.id
-    if (!sid) return null
-    return scanDesignPlanFromMessages(sync.data.message[sid], sync.data.part, sid)
+    const planSid = activePlanSessionId() || params.id
+    if (!planSid) return null
+    return scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
   })
 
   const planConfirmed = createMemo(() => {
-    const sid = params.id
-    if (!sid) return false
+    const planSid = activePlanSessionId() || params.id
+    if (!planSid) return false
     const ident = planCard()?.artifactIdentifier
     if (!ident) return false
-    return isPlanConfirmed(sync.data.message[sid], sync.data.part, ident)
+    return isPlanConfirmed(sync.data.message?.[planSid], sync.data.part, ident)
   })
 
   // 乐观锁:用户点 [确认开始生成] 后立即永久 disable,直到 planConfirmed 翻为 true 或 session 切换。
@@ -931,17 +970,26 @@ const sessionMessagesLoaded = createMemo(() => {
   const [optimisticConfirmed, setOptimisticConfirmed] = createSignal(false)
   const planButtonDisabled = createMemo(() => planConfirmed() || optimisticConfirmed())
 
+  // Phase 2 异步检测子 session 期间阻止 banner 闪现（跨重启恢复时的过渡状态）
+  const [phase2Pending, setPhase2Pending] = createSignal(false)
+
   // 切换 session 时复位乐观锁,允许新 session 重新走方案流程
   createEffect(on(() => params.id, () => setOptimisticConfirmed(false), { defer: true }))
+  // 当新的 plan 出现(identifier 变化)时复位确认乐观锁,允许用户再次确认新方案
+  createEffect(on(() => planCard()?.artifactIdentifier, (id, prev) => {
+    if (id && id !== prev) {
+      setOptimisticConfirmed(false)
+    }
+  }, { defer: true }))
 
-  /** 用户点击 [确认开始生成] → 自动发送隐藏指令 */
+  /** 用户点击 [确认开始生成] → 向子 session 发送确认指令 */
   function handleConfirmPlan(identifier?: string) {
-    const sid = params.id
-    if (!sid) return
+    const planSid = activePlanSessionId()
+    if (!planSid) return
     if (planButtonDisabled()) return   // 防重复
     setOptimisticConfirmed(true)
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
-    sendMessage(sid, cmd).catch((err) => {
+    sendMessage(planSid, cmd).catch((err) => {
       console.error("[MakePage] confirm plan failed", err)
       // 发送失败时回滚乐观锁,允许重试
       setOptimisticConfirmed(false)
@@ -954,31 +1002,135 @@ const sessionMessagesLoaded = createMemo(() => {
     requestAnimationFrame(() => textareaRef?.focus())
   }
 
+  /** 用户点击 [结束子agent] → 归档子 session + 中止运行 + 清理状态,切回 tabs 模式 */
+  function handleEndPlan() {
+    const currentChildId = activePlanSessionId()
+    if (currentChildId) {
+      // 中止子 session 正在运行的 agent
+      sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
+      // 归档子 session,使其不被 session.list() 检测到,跨重启不再进入 plan 模式
+      sdk.client.session.update({ sessionID: currentChildId, time: { archived: Date.now() } }).catch(() => {})
+    }
+    const endedSid = params.id
+    setActivePlanSessionId(null)
+    setPlanParentSessionId(null)
+    setHasChildPlanSession(false)
+    setResultViewMode("tabs")
+    setSending(false)
+    // 清除缓存，防止下次进入时误恢复
+    if (endedSid) {
+      localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
+      delete _planChildSessionCache[endedSid]
+    }
+    // 记录当前主 session 的设计规划已被用户结束,防止 banner 再次弹出
+    setPlanEndedForSession(params.id ?? null)
+  }
+
   // ── 设计规划阶段引导(plan entry banner)─────────────────────
-  // agent 输出 [design-plan-intent] sentinel 但用户尚未响应、且还没有 plan artifact 时,
+  // agent 输出 [design-plan-intent] sentinel 但用户尚未响应时,
   // 显示 PlanEntryBanner 让用户决定是否进入规划阶段。
   const planIntentPending = createMemo(() => {
     const sid = params.id
     if (!sid) return false
-    if (planCard() != null) return false   // plan artifact 已存在 → 让 PlanBanner 接手
-    return !isPlanIntentResolved(sync.data.message[sid], sync.data.part)
+    // Phase 2 异步检测子 session 期间阻止 banner 闪现
+    if (phase2Pending()) return false
+    // 如果已存在活跃的规划子 session（切回时恢复的），不显示 banner
+    if (activePlanSessionId()) return false
+    // 如果已存在 octo_make_plan 子 session（跨重启恢复），不显示 banner
+    if (hasChildPlanSession()) return false
+    // 如果用户已结束该 session 的设计规划,不显示 banner
+    if (planEndedForSession() === sid) return false
+    // 如果 localStorage 中有缓存的子 session ID，不显示 banner（跨重启恢复）
+    if (localStorage.getItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid)) return false
+    // 如果 session 切换缓存中有该 session 的规划子 session，不显示 banner
+    if (_planChildSessionCache[sid]) return false
+    return !isPlanIntentResolved(sync.data.message?.[sid], sync.data.part)
   })
 
   // 乐观锁:用户点 [进入]/[直接执行] 后立即隐藏 banner,等消息流回灌确认。
   // 避免 sendMessage 飞行期间用户连点重复发送。
   const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
-  createEffect(on(() => params.id, () => setOptimisticIntentResolved(false), { defer: true }))
+  // 记录用户已点击"结束"的 session,防止 banner 再次出现
+  const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
+  createEffect(on(() => params.id, () => {
+    setOptimisticIntentResolved(false)
+  }, { defer: true }))
+  // 当消息流中出现新的 sentinel 时自动复位乐观锁,允许用户再次选择。
+  // 否则同一个 session 内第二次生成的时乐观锁仍是 true,banner 不会显示。
+  createEffect(on(() => planIntentPending(), (pending) => {
+    if (pending) setOptimisticIntentResolved(false)
+  }, { defer: true }))
 
-  /** 用户点 [进入] → 发送 [enter-plan],agent 据此输出设计方案 artifact */
-  function handleEnterPlan() {
+  /** 用户点 [进入] → 创建子 session (octo_make_plan),启动设计规划流程 */
+  async function handleEnterPlan() {
     const sid = params.id
     if (!sid) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
-    sendMessage(sid, "[enter-plan]").catch((err) => {
+
+    try {
+      const dir = sdk.directory
+      if (!dir) throw new Error("No directory")
+
+      // 1. 获取用户最近的输入作为初始 prompt
+      // 注意: sync.data.part 中的 text 可能包含 [Artifact Folder] 等系统注入前缀,
+      // 需要从原始消息中提取用户的实际输入。
+      const userMsgs = userMessages()
+      const lastUserMsg = userMsgs[userMsgs.length - 1]
+      const rawText = lastUserMsg
+        ? (sync.data.part[lastUserMsg.id] ?? [])
+            .filter((p: any) => p.type === "text")
+            .map((p: any) => p.text)
+            .join("\n")
+        : ""
+      // 去掉[Artifact Folder]等系统注入前缀:取最后一个"---\n"之后的内容
+      const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
+      const initialPrompt = userInput
+        ? `请根据以下用户需求输出设计策略文档：\n\n${userInput}`
+        : "请分析当前会话上下文，输出一份完整的设计策略文档。"
+
+      // 2. 创建子 session
+      const result = await sdk.client.session.create({
+        directory: dir,
+        parentID: sid,
+        agent: "octo_make_plan",
+      })
+      const childSession = result.data as Session | undefined
+      if (!childSession) throw new Error("Failed to create plan session")
+
+      // 3. 注册子 session（先注册再 sync，让消息列表能尽快读到子 session 数据）
+      loadedChildSessions.add(childSession.id)
+      setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
+      setActivePlanSessionId(childSession.id)
+      // 缓存子 session 信息到 localStorage（跨重启恢复）+ cache（跨 session 切换恢复）
+      localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid, childSession.id)
+      _planChildSessionCache[sid] = childSession.id
+      setPlanParentSessionId(sid)
+
+      // 4. 切换到 plan 模式（此时子 session 还没有消息，但 UI 已就绪）
+      setResultViewMode("plan")
+
+      // 5. 同步子 session 数据并发送 prompt（async，不阻塞 UI）
+      sync.session.sync(childSession.id).catch((err: any) => {
+        console.warn("[MakePage] sync child session failed", err)
+      })
+
+      const modelKey = activeModelKey()
+      if (modelKey) {
+        sdk.client.session.prompt({
+          sessionID: childSession.id,
+          agent: "octo_make_plan",
+          model: modelKey,
+          parts: [{ type: "text", text: initialPrompt }],
+        }).catch((err: any) => {
+          console.error("[MakePage] prompt child agent failed", err)
+          setOptimisticIntentResolved(false)
+        })
+      }
+    } catch (err) {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
-    })
+    }
   }
 
   /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
@@ -997,25 +1149,95 @@ const sessionMessagesLoaded = createMemo(() => {
   const autoScroll = createAutoScroll({ working: isBusy })
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
-  createEffect(on(() => params.id, () => {
-    tabStore.reset()
-    setResultViewMode("files")
-    setMentionState(null)
-    setSlashState(null)
-  }, { defer: true }))
+  // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
+  createEffect(on(
+    () => [params.id, sync.data.session] as const,
+    ([newSid, allSessions], prev) => {
+      const prevSid = prev?.[0] ?? null
+      // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
+      if (!newSid) {
+        if (prevSid) {
+          setActivePlanSessionId(null)
+          setHasChildPlanSession(false)
+          setResultViewMode("files")
+          setPhase2Pending(false)
+        }
+        return
+      }
+      tabStore.reset()
+      // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
+      // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
+      if (newSid !== prevSid) {
+        // 缓存前一个 session 的规划子 session，切回时立即恢复
+        if (prevSid && activePlanSessionId()) {
+          _planChildSessionCache[prevSid] = activePlanSessionId()!
+          localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + prevSid, activePlanSessionId()!)
+        }
+        setActivePlanSessionId(null)
+        setHasChildPlanSession(false)
+        setResultViewMode("files")
+        setPhase2Pending(false)
+      }
+      // 尝试恢复当前主 session 的设计规划子 session
+      let restoredPlanSid: string | null = null
+      // 从 session 切换缓存中恢复（即时恢复，无需等 Phase 2 异步）
+      if (newSid && _planChildSessionCache[newSid]) {
+        restoredPlanSid = _planChildSessionCache[newSid]
+      }
+      // 第一阶段：从 sync.data.session 同步扫描（同会话内切换生效）
+      // 只恢复非归档的活跃子 session
+      if (allSessions) {
+        for (const s of allSessions) {
+          if ((s as any).parentID === newSid && (s as any).agent === "octo_make_plan" && !(s as any).time?.archived) {
+            loadedChildSessions.add(s.id)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(s.id); return next })
+            sync.session.sync(s.id).catch(() => {})
+            restoredPlanSid = s.id
+            break
+          }
+        }
+      }
+      if (restoredPlanSid) {
+        if (!loadedChildSessions.has(restoredPlanSid)) {
+          loadedChildSessions.add(restoredPlanSid)
+          setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
+          sync.session.sync(restoredPlanSid).catch(() => {})
+        }
+        setActivePlanSessionId(restoredPlanSid)
+        setHasChildPlanSession(true)
+        // 有子 session 就直接进入 plan 模式,无论 planCard 是否存在
+        setResultViewMode("plan")
+      }
+      setMentionState(null)
+      setSlashState(null)
 
-  // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
+      // 第二阶段：同步扫描未找到时,异步从 API 全量拉取检测子 session（跨重启恢复）
+      if (!restoredPlanSid) {
+        setPhase2Pending(true)  // 阻止 async 间隙中 banner 闪现
+        const capturedSid = newSid
+        detectChildPlanSession(newSid).then((childId) => {
+          setPhase2Pending(false)
+          // 防护: childId 为空 / 已被其他路径设置 / params.id 已切换(竞态) 时跳过
+          if (!childId || activePlanSessionId() || params.id !== capturedSid) return
+          loadedChildSessions.add(childId)
+          setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
+          sync.session.sync(childId).catch(() => {})
+          setActivePlanSessionId(childId)
+          setHasChildPlanSession(true)
+          // 有子 session 就直接进入 plan 模式,不需要等 sync 完成再判断
+          setResultViewMode("plan")
+        })
+      }
+    },
+  ))
+
+    // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
   // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
   // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
 
-  /** 用户点击 plan 横条 → 打开右侧 ResultViewer 显示 plan tab
-   *  优先用 snapshot 版本(用户可能编辑过);没有 snapshot 才用消息流版本 */
+  /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
-    const card = planCard()
-    if (!card) return
-    const edited = snapshotStore.restoreLatestByTabId(card.id)
-    const restored = edited ? tabToOutputCard(edited) : null
-    tabStore.openTab(restored ?? card)
+    setResultViewMode("plan")
   }
 
   /** 处理 ResultViewer 内容编辑保存 */
@@ -1211,7 +1433,7 @@ const sessionMessagesLoaded = createMemo(() => {
       })
       await sdk.client.session.prompt({
         sessionID: sessionId,
-        agent: "octo_make",
+        agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts: [textPart, ...fileParts],
       })
@@ -1225,10 +1447,12 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
     const text = prompt().trim()
+    console.log("[MakePage] handleSubmit guard check:", { text: !!text, sending: sending(), activeModelKey: activeModelKey(), resultViewMode: resultViewMode(), paramsId: params.id, activePlanSid: activePlanSessionId() })
     if (!text || sending() || !activeModelKey()) return
     setSending(true)
     setPrompt("")
-    const submitSessionId = params.id
+    const planSid = resultViewMode() === "plan" && planParentSessionId() === params.id ? activePlanSessionId() : null
+    const submitSessionId = planSid || params.id
     try {
       let sid = submitSessionId
       if (!sid) {
@@ -2216,12 +2440,44 @@ if (dsId) {
                 onMouseUp={autoScroll.handleInteraction}
               >
                 <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
-                  <For each={userMessages()}>
+                    {/* 进入设计规划子 agent 的提示卡片 */}
+                    <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
+                      <div
+                        class="flex items-center justify-between gap-2 px-4 py-2 mx-3 rounded-lg mb-2"
+                        style="background: rgba(10, 89, 247, 0.08); border: 1px solid rgba(10, 89, 247, 0.2);"
+                      >
+                        <div class="flex items-center gap-2">
+                          <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" style="color: #0a59f7;">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.3" />
+                            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+                            </path>
+                          </svg>
+                          <span style="font-size: 13px; color: #0a59f7; font-weight: 500;">
+                            已进入设计规划子 agent — 你可以在此对话中持续修改设计方案
+                          </span>
+                        </div>
+                        <button
+                          onClick={handleEndPlan}
+                          class="shrink-0 px-2 py-0.5 rounded text-[12px] font-medium transition-colors"
+                          style="color: #0a59f7; background: transparent; border: 1px solid rgba(10, 89, 247, 0.3); cursor: pointer;"
+                          onMouseEnter={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = "rgba(10, 89, 247, 0.12)"
+                          }}
+                          onMouseLeave={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = "transparent"
+                          }}
+                        >
+                          结束
+                        </button>
+                      </div>
+                    </Show>
+                    <For each={userMessages()}>
                     {(msg) => (
                       <InsightTurn
-                        sessionID={params.id!}
+                        sessionID={msg.sessionID || params.id!}
                         messageID={msg.id}
-                        status={sessionStatus()}
+                        status={sync.data.session_status[msg.sessionID] ?? sessionStatus()}
                         active={isBusy()}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
@@ -2247,17 +2503,22 @@ if (dsId) {
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
 
-                {/* Plan entry banner - agent 想进规划阶段,请用户确认。先于 PlanBanner 显示。 */}
+                {/* Plan entry banner - sentinel 阶段:让用户选择是否进入设计规划 */}
                 <Show when={planIntentPending() && !optimisticIntentResolved()}>
-                  <PlanEntryBanner onEnter={handleEnterPlan} onSkip={handleSkipPlan} />
+                  <PlanEntryBanner
+                    onEnter={handleEnterPlan}
+                    onSkip={handleSkipPlan}
+                  />
                 </Show>
 
-                {/* Plan banner - 设计方案横条(在输入框上方)。点击才打开右侧 ResultViewer */}
-                <PlanBanner
-                  plan={planCard()}
-                  confirmed={planConfirmed()}
-                  onView={handleViewPlan}
-                />
+                {/* Plan banner - 设计方案已确认横条。只在确认后才显示 */}
+                <Show when={planCard() && planConfirmed()}>
+                  <PlanBanner
+                    plan={planCard()}
+                    confirmed={true}
+                    onView={handleViewPlan}
+                  />
+                </Show>
 
                 {/* Permission dock - 权限授权 UI */}
                 <Show when={permissionRequest()} keyed>
@@ -2436,6 +2697,8 @@ if (dsId) {
                     ref={textareaRef}
                     value={prompt()}
                     onInput={handleInput}
+                    onCompositionStart={handleCompositionStart}
+                    onCompositionEnd={handleCompositionEnd}
                     onKeyDown={handleKeyDown}
                     placeholder="输入指令，按 Enter 发送…"
                     rows={3}
@@ -2592,6 +2855,7 @@ if (dsId) {
                 isPlanConfirmed={planButtonDisabled}
                 filesRefreshKey={filesRefreshKey()}
                 onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                planCard={planCard()}
               />
             </div>
             <Show when={showVersionPanel()}>
