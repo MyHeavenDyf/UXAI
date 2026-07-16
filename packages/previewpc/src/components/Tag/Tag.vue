@@ -98,7 +98,7 @@ const getContrastColor = (color: string) => {
   // 2. 使用 YIQ 亮度公式
   const yiq = (r * 299 + g * 587 + b * 114) / 1000
   // 3. 偏向白色文字的阈值设定
-  return yiq >= 180 ? "#000000" : "#FFFFFF"
+  return yiq >= 196 ? "#000000" : "#FFFFFF"
 }
 
 const props = defineProps<A2UIComponentProps<TagNode>>()

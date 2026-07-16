@@ -718,6 +718,7 @@
         "tagRowDefault",
         "tagRowSizes",
         "tagRowIcons",
+        "tagRowTypes2.0",
         "tagRowTypes",
         "tagRowColors",
         "tagRowDarkColors"
@@ -768,6 +769,106 @@
         "color": "default"
       }
     },
+
+    {
+      "id": "tagRowTypes2.0",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowTypesLabel2.0",
+        "tagRowTypesContent2.0"
+      ]
+    },
+    {
+      "id": "tagRowTypesLabel2.0",
+      "component": "span",
+      "props": {
+        "value": "2.0告警色(color)",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowTypesContent2.0",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagPrimary2.0",
+        "tagSuccess2.0",
+        "tagError2.0",
+        "tagProcessing2.0",
+        "tagWarning2.0",
+        "tagInfo2.0",
+        "tagSuccess2.0_Dark"
+      ]
+    },
+    {
+      "id": "tagPrimary2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "计划中",
+        "color": "#4eaff5"
+      }
+    },
+    {
+      "id": "tagSuccess2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "已完成(明亮主题)",
+        "color": "#5ccbb1"
+      }
+    },
+    {
+      "id": "tagSuccess2.0_Dark",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "已完成(暗黑主题)",
+        "color": "#51b59e"
+      }
+    },
+    {
+      "id": "tagError2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "发生错误",
+        "color": "#e54545"
+      }
+    },
+    {
+      "id": "tagProcessing2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "进行中",
+        "color": "#ff8000"
+      }
+    },
+    {
+      "id": "tagWarning2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "待开始",
+        "color": "#ffbb33"
+      }
+    },
+    {
+      "id": "tagInfo2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "关机",
+        "color": "#999999"
+      }
+    },
+
     {
       "id": "tagRowTypes",
       "component": "div",

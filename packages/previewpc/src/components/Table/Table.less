@@ -37,10 +37,18 @@
   }
 }
 
-.el-table .cell {
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
+.el-table {
+   .cell {
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+  }
+  .el-table-column--selection,
+  .el-table__expand-column {
+    .cell {
+      padding: 0 16px;
+    }
+  }
 }
 
 .el-table .el-table__cell {

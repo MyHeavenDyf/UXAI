@@ -228,7 +228,7 @@ const tableData = computed(() => {
         </template>
       </ElTableColumn>
     </ElTable>
-    <div v-if="showPagination" class="flex w-full justify-end mt-4">
+    <div v-if="showPagination" class="flex w-full justify-end mt-3">
       <ElPagination
         background
         v-model:current-page="page"
