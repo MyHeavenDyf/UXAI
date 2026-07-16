@@ -889,6 +889,8 @@ function ImageSettings(props: {
     }
     setIsCustom(true)
     props.onIsCustom(true)
+    props.onCustomWidth(w)
+    props.onCustomHeight(h)
   }
 
   const isJimeng = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
@@ -896,7 +898,7 @@ function ImageSettings(props: {
   const JIMENG_AREA_MAX = Math.round(3072 * 3072 * 1.1025)
   const sizeWarnText = () => {
     if (props.styleModel === "qwen") return "请输入有效数值250px ~ 1664px"
-    if (isJimeng()) return `宽高乘积范围 ${JIMENG_AREA_MIN.toLocaleString()} ~ ${JIMENG_AREA_MAX.toLocaleString()}，宽高比 1:16 ~ 16:1`
+    if (isJimeng()) return "支持宽高乘积在 [2560×1440, 3072×3072×1.1025]，宽高比 1:16 ~ 16:1"
     return "请输入有效数值250px ~ 2500px"
   }
 
