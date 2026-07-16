@@ -442,6 +442,11 @@ function createGlobalSync() {
       queryClient.invalidateQueries({ queryKey: ["config"] })
       queryClient.invalidateQueries({ queryKey: [null, "providers"] })
     },
+    refreshProviders: () =>
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[1] === "providers",
+        refetchType: "active",
+      }),
     project: projectApi,
     todo: {
       set: setSessionTodo,

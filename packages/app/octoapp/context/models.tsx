@@ -4,7 +4,7 @@ import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
-import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
   modelsApiListForProviders,
@@ -35,10 +35,10 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   name: "Models",
   init: () => {
     const providers = useProviders()
-    const globalSDK = useGlobalSDK()
+    const globalSync = useGlobalSync()
     const loadApiModels = async () => {
       const models = await fetchModelsApi()
-      await globalSDK.client.provider.list()
+      await globalSync.refreshProviders()
       return models
     }
     const [apiModels, { mutate: setApiModels }] = createResource(loadApiModels)
@@ -59,7 +59,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     }
     onCleanup(
       registerModelsApiRefresh(async (models) => {
-        await globalSDK.client.provider.list()
+        await globalSync.refreshProviders()
         setApiModels(models)
       }),
     )
