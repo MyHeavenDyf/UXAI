@@ -1,9 +1,16 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
+import * as Log from "@opencode-ai/core/util/log"
 
 const CACHE_DURATION = 60_000
+const log = Log.create({ service: "models-api" })
 let modelsApi: { source: "http" | "local"; url?: string; w3Api?: string; token?: string } | undefined
-let cache: { api: Record<string, unknown>; expires: number } | undefined
-let loading: Promise<Record<string, unknown> | undefined> | undefined
+let cache: { key: string; api: Record<string, unknown>; expires: number } | undefined
+let loading: { key: string; promise: Promise<Record<string, unknown> | undefined> } | undefined
+
+function modelsApiKey(input = modelsApi) {
+  if (!input) return ""
+  return JSON.stringify([input.source, input.url, input.w3Api, input.token])
+}
 
 export function configureModelsApi(input: { source?: string; url?: string; w3Api?: string; token?: string }) {
   const source = input.source === "local" ? "local" : "http"
@@ -72,7 +79,9 @@ function apiModels(value: unknown): Record<string, unknown> {
   if (!isRecord(input)) return {}
 
   const direct = Object.fromEntries(
-    Object.entries(input).filter(([, provider]) => isRecord(provider) && isRecord(provider.models)),
+    Object.entries(input).filter(
+      ([, provider]) => isRecord(provider) && (isRecord(provider.models) || Array.isArray(provider.models)),
+    ),
   )
   if (Object.keys(direct).length > 0) return direct
 
@@ -81,22 +90,45 @@ function apiModels(value: unknown): Record<string, unknown> {
     .find((providers) => Object.keys(providers).length > 0) ?? {}
 }
 
-async function loadApi() {
+async function loadApi(force = false) {
   if (!modelsApi || modelsApi.source !== "http" || !modelsApi.url) return
-  if (cache && cache.expires > Date.now()) return cache.api
-  if (loading) return loading
+  const current = { ...modelsApi, url: modelsApi.url }
+  const key = modelsApiKey(current)
+  if (!force && cache?.key === key && cache.expires > Date.now()) return cache.api
+  if (loading?.key === key) return loading.promise
 
-  loading = fetch(modelsApi.url, {
-    headers: modelsApi.token ? { uiplustoken: modelsApi.token } : {},
+  const promise = fetch(current.url, {
+    headers: current.token ? { uiplustoken: current.token } : {},
   })
-    .then(async (response) => (response.ok ? apiModels(await response.json()) : undefined))
-    .catch(() => undefined)
-    .finally(() => {
-      loading = undefined
+    .then(async (response) => {
+      if (!response.ok) {
+        log.warn("request failed", { url: current.url, status: response.status, statusText: response.statusText })
+        return
+      }
+      const api = apiModels(await response.json())
+      log.info("request completed", { url: current.url, providers: Object.keys(api).length })
+      return api
     })
-  const api = await loading
-  if (api) cache = { api, expires: Date.now() + CACHE_DURATION }
+    .catch((error: unknown) => {
+      log.error("request error", {
+        url: current.url,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    })
+  loading = { key, promise }
+  const api = await promise
+  if (api && modelsApiKey() === key) cache = { key, api, expires: Date.now() + CACHE_DURATION }
+  if (loading?.key === key) loading = undefined
   return api
+}
+
+export function modelsApiSource() {
+  return modelsApi?.source
+}
+
+export function loadModelsApi(force = false) {
+  return loadApi(force)
 }
 
 export async function modelsApiProviderUrl(providerID: string) {
