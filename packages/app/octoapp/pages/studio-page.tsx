@@ -1520,6 +1520,23 @@ export default function StudioPage() {
   }
 
   function selectStyleModel(value: string) {
+    // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
+    const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
+    const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
+    if (prevIsSeedream !== nextIsSeedream) {
+      setIsCustomStore(false)
+      setCustomWidth(0)
+      setCustomHeight(0)
+    } else if (isCustomStore()) {
+      // 非 Seedream 模型间切换时，根据新模型的临界值钳位自定义尺寸
+      const prevIsQwen = styleModel() === "qwen"
+      const nextIsQwen = value === "qwen"
+      if (!prevIsQwen && nextIsQwen) {
+        // 从其他模型切到千问：钳位到千问上限 1664
+        setCustomWidth(Math.min(customWidth(), 1664))
+        setCustomHeight(Math.min(customHeight(), 1664))
+      }
+    }
     setStyleModel(value)
     setAssets((items) => items.slice(0, referenceImageLimit(value)))
   }
