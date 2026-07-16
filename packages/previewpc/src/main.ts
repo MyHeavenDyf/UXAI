@@ -16,6 +16,9 @@ initDefaultCatlog()
 initTheme()
 if (window && window.self !== window.top) {
   installVueDomPicker()
+  window.addEventListener('click', () => {
+    window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_PANELS' }, '*')
+  })
 }
 
 // 监听来自 chat-project 的主题切换消息
@@ -25,7 +28,6 @@ window.addEventListener('message', (event) => {
     toggleTheme()
   }
 })
-
 
 const app = createApp(App)
 

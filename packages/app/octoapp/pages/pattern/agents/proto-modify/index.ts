@@ -97,7 +97,7 @@ function buildHumanMessage(input: ModuleModifyInput): string {
     : []
 
   const lines = [
-    `[用户修改请求]: ===============`,
+    `[用户的修改请求]: ===============`,
     input.audit_feedback,
     ``,
     `[JSON数据为:] ===============`,
