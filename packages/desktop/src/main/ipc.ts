@@ -277,7 +277,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
-    const res = await fetch(url)
+    const res = await net.fetch(url)
     if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
     const buf = Buffer.from(await res.arrayBuffer())
     await mkdir(dirname(destPath), { recursive: true })
@@ -362,7 +362,7 @@ export function registerIpcHandlers(deps: Deps) {
           : join(app.getPath("temp"), "octo")
       await ensureWorktreeDir(dir)
       const destPath = collisionFreePath(dir, safeName)
-      const res = await fetch(url)
+      const res = await net.fetch(url)
       if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
       const buf = Buffer.from(await res.arrayBuffer())
       await writeFile(destPath, buf)
