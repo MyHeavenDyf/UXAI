@@ -279,7 +279,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   }}
                   onRefresh={handleRefresh}
                   focusMode={props.focusMode}
-                  onFocusModeToggle={tabType !== "html" && tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
+                  onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
                 />
                 </Show>
                 <div class="flex-1 min-h-0 overflow-hidden">

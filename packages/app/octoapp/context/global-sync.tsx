@@ -336,6 +336,9 @@ function createGlobalSync() {
     const event = e.details
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
+    // jk-j60099994-replace-with-60062650-global-sync-1-start
+    // jk-j60099994-replace-with-60062650-global-sync-1-end
+
     if (directory === "global") {
       applyGlobalEvent({
         event,

@@ -84,6 +84,7 @@ type FileManagerMedia = {
   height?: number
   aspectRatio?: string
   capability?: string
+  duration?: string
   createdAt: number
 }
 
@@ -133,6 +134,7 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
         height: image.height ?? turn.result?.height,
         aspectRatio: turn.result?.aspectRatio,
         capability: turn.result?.capability ?? turn.editCapability,
+        duration: turn.result?.duration,
         createdAt: turn.createdAt,
       })
     }
@@ -474,9 +476,13 @@ export function StudioFileManager(props: {
                                 }}
                               />
                               <span class="studio-file-manager-media-video-badge">
-                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                                  <path d="M3 2.5L10 6L3 9.5V2.5Z" fill="white" />
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                                  <rect x="0.5" y="2.5" width="9" height="9" rx="1.5" stroke="white" stroke-width="1" fill="none" />
+                                  <path d="M13 4.5L13 9.5Q13 10.5 12.5 10.4L10 8.5L10 5.5L12.5 3.6Q13 3.5 13 4.5Z" stroke="white" stroke-width="1" fill="none" stroke-linejoin="round" />
                                 </svg>
+                                <Show when={item.duration}>
+                                  <span class="studio-file-manager-media-video-badge-text">{item.duration}s</span>
+                                </Show>
                               </span>
                             </div>
                           </Show>
@@ -504,25 +510,28 @@ export function StudioFileManager(props: {
                 </button>
               </div>
               <div class="studio-filter-dialog-body">
-                <div class="studio-filter-section">
-                  <div class="studio-filter-section-title">来源</div>
-                  <div class="studio-filter-section-options">
-                    <For each={SOURCE_OPTIONS}>
-                      {(label) => {
-                        const disabled =
-                          (!props.canGenerateVideo && label === "视频生成") ||
-                          (activeFilter() === "image" && label === "视频生成") ||
-                          (activeFilter() === "video" && label !== "视频生成")
-                        return (
-                        <label class="studio-filter-checkbox" classList={{ disabled }}>
-                          <input type="checkbox" checked={sourceFilter.state().has(label)} disabled={disabled} onChange={() => sourceFilter.toggle(label)} />
-                          <span class="studio-filter-checkbox-label">{label}</span>
-                        </label>
-                        )
-                      }}
-                    </For>
+                <Show when={activeFilter() !== "video"}>
+                  <div class="studio-filter-section">
+                    <div class="studio-filter-section-title">来源</div>
+                    <div class="studio-filter-section-options">
+                      <For each={SOURCE_OPTIONS}>
+                        {(label) => {
+                          const isVideoSource = label === "视频生成"
+                          const shouldHide =
+                            (!props.canGenerateVideo && isVideoSource) ||
+                            (activeFilter() === "image" && isVideoSource)
+                          if (shouldHide) return null
+                          return (
+                          <label class="studio-filter-checkbox">
+                            <input type="checkbox" checked={sourceFilter.state().has(label)} onChange={() => sourceFilter.toggle(label)} />
+                            <span class="studio-filter-checkbox-label">{label}</span>
+                          </label>
+                          )
+                        }}
+                      </For>
+                    </div>
                   </div>
-                </div>
+                </Show>
                 <div class="studio-filter-section">
                   <div class="studio-filter-section-title">比例</div>
                   <div class="studio-filter-section-options">
@@ -536,23 +545,22 @@ export function StudioFileManager(props: {
                     </For>
                   </div>
                 </div>
-                <div class="studio-filter-section">
-                  <div class="studio-filter-section-title">尺寸</div>
-                  <div class="studio-filter-section-options">
-                    <For each={SIZE_OPTIONS}>
-                      {(item) => {
-                        const disabled = activeFilter() === "video"
-                        return (
-                        <label class="studio-filter-checkbox" classList={{ disabled }}>
-                          <input type="checkbox" checked={sizeFilter.state().has(item.label)} disabled={disabled} onChange={() => sizeFilter.toggle(item.label)} />
+                <Show when={activeFilter() !== "video"}>
+                  <div class="studio-filter-section">
+                    <div class="studio-filter-section-title">尺寸</div>
+                    <div class="studio-filter-section-options">
+                      <For each={SIZE_OPTIONS}>
+                        {(item) => (
+                        <label class="studio-filter-checkbox">
+                          <input type="checkbox" checked={sizeFilter.state().has(item.label)} onChange={() => sizeFilter.toggle(item.label)} />
                           <span class="studio-filter-checkbox-label">{item.label}</span>
                           <span class="studio-filter-checkbox-desc">{item.desc}</span>
                         </label>
-                        )
-                      }}
-                    </For>
+                        )}
+                      </For>
+                    </div>
                   </div>
-                </div>
+                </Show>
               </div>
               <div class="studio-filter-dialog-footer">
                 <button type="button" class="studio-filter-btn studio-filter-btn-reset" onClick={handleReset}>重置</button>
