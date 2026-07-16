@@ -1562,7 +1562,7 @@ export default function Page() {
   const queueEnabled = createMemo(() => {
     const id = params.id
     if (!id) return false
-    return settings.general.followup() === "queue" && busy(id) && !composer.blocked() && !isChildSession()
+    return busy(id) && !composer.blocked() && !isChildSession()
   })
 
   const followupText = (item: FollowupDraft) => {
@@ -1623,6 +1623,12 @@ export default function Page() {
     const id = params.id
     if (!id) return
     setFollowup("edit", id, undefined)
+  }
+
+  const removeQueued = (index: number) => {
+    const sessionID = params.id
+    if (!sessionID) return
+    setFollowup("items", sessionID, (items) => (items ?? []).filter((_, i) => i !== index))
   }
 
   const halt = (sessionID: string) =>
@@ -1951,9 +1957,10 @@ export default function Page() {
                           if (!id) return
                           setFollowup("paused", id, true)
                         },
-                    onSend: (id) => {
-                      void sendFollowup(params.id!, id, { manual: true })
-                    },
+                        onRemove: removeQueued,
+                        onSend: (id) => {
+                          void sendFollowup(params.id!, id, { manual: true })
+                        },
                         onEdit: editFollowup,
                         onEditLoaded: clearFollowupEdit,
                       }

@@ -1617,6 +1617,12 @@ export default function Page() {
     setFollowup("edit", id, undefined)
   }
 
+  const removeQueued = (index: number) => {
+    const sessionID = params.id
+    if (!sessionID) return
+    setFollowup("items", sessionID, (items) => (items ?? []).filter((_, i) => i !== index))
+  }
+
   const halt = (sessionID: string) =>
     busy(sessionID) ? sdk.client.session.abort({ sessionID }).catch(() => {}) : Promise.resolve()
 
@@ -1912,6 +1918,7 @@ export default function Page() {
                       if (!id) return
                       setFollowup("paused", id, true)
                     },
+                    onRemove: removeQueued,
                     onSend: (id) => {
                       void sendFollowup(params.id!, id, { manual: true })
                     },

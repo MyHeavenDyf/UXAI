@@ -2208,8 +2208,9 @@ if (dsId) {
              </Show>
            }>
               {/* 消息列表 */}
+              <div class="relative flex-1 min-h-0">
               <ScrollView
-                class="flex-1 min-h-0"
+                class="h-full"
                 style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
@@ -2243,6 +2244,14 @@ if (dsId) {
                   </For>
                 </div>
               </ScrollView>
+              <div
+                class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+                style={{
+                  height: "24px",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+                }}
+              />
+              </div>
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
