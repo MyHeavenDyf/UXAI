@@ -12,7 +12,7 @@ const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?la
 export function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={80} height={80} alt="" style={{ "flex-shrink": "0" }} />
       <div class="studio-intro-copy">
         <div class="studio-intro-title">Octo Studio</div>
         <div class="studio-intro-subtitle">一键创意落地，让视觉生产力触手可及</div>
@@ -172,7 +172,14 @@ export function StudioComposer(props: {
       overflow.push(key)
       if (visibleWidth + moreBtnWidth <= containerWidth) break
     }
-    setToolbarOverflow(overflow)
+    if (overflow.filter(k => (itemWidthCache.get(k) ?? 0) > 0).length <= 1) {
+      if (toolbarOverflow().length > 0) setToolbarOverflow([])
+      return
+    }
+    const current = toolbarOverflow()
+    if (overflow.length !== current.length || !overflow.every((k, i) => k === current[i])) {
+      setToolbarOverflow(overflow)
+    }
   }
 
   onMount(() => {
@@ -182,6 +189,18 @@ export function StudioComposer(props: {
     const observer = new ResizeObserver(() => checkToolbarOverflow())
     if (toolbarItemsRef) observer.observe(toolbarItemsRef)
     onCleanup(() => observer.disconnect())
+  })
+
+  createEffect(() => {
+    props.styleModel
+    props.customWidth
+    props.customHeight
+    props.isCustom
+    props.aspectRatio
+    props.count
+    props.capability
+    toolbarOverflow()
+    requestAnimationFrame(() => checkToolbarOverflow())
   })
 
   // Close more menu on outside click
@@ -1149,7 +1168,7 @@ function VideoSettings(props: {
               classList={{ active: item === props.count }}
               aria-pressed={item === props.count}
             >
-              {item}个
+              {item}条
             </button>
           )}
         </For>
