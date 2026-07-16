@@ -543,6 +543,19 @@ function PatternContent() {
         }
         await create_modules_json(intentCtx, planner, intent, onFinshed)
       } else {
+        if (ckpt.stage === "intent_confirm") {
+          // intent_confirm 报错，先重跑意图确认
+          const confirmResult = await create_intent_confirm(intentCtx)
+          if (Object.keys(confirmResult.options).length > 0) {
+            // 需要用户确认，显示 IntentConfirmReview
+            sessionMap.set(setUserInput, sid, text)
+            sessionMap.set(setIntentConfirm, sid, confirmResult)
+            startPause(sid)
+            return
+          }
+          // 无需确认，继续走 planner
+        }
+
         // Stage 1 失败，从 planner 生成重试
         sessionMap.set(setIsGenerating, sid, true)
         const new_planner = await create_planner_json(intentCtx)
@@ -776,17 +789,6 @@ function PatternContent() {
           if (sid) sessionMap.set(setUserInput, sid!, text)
           if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
           startPause(sid!)
-          const confirmDir = patternHistoryDir()
-          if (confirmDir) {
-            await saveCheckpoint(confirmDir, sid!, {
-              stage: "intent_confirm",
-              userInput: text,
-              designSystem: ds,
-              rootSessionId: sid!,
-              createdAt: Date.now(),
-              options: confirmResult.options,
-            })
-          }
           return
         }
 

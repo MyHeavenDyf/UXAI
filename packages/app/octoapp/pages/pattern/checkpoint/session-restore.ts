@@ -19,11 +19,14 @@ export async function restoreSession(
   sessionId: string,
 ): Promise<RestoreResult> {
   const ckpt = await loadCheckpoint(dir, sessionId)
-  debugger
   if (ckpt) {
     switch (ckpt.stage) {
       case "intent_confirm":
-        return { type: "intent_confirm", checkpoint: ckpt }
+        // options 为空说明 agent 还没跑完或报错了，归为 pipeline_error
+        if (ckpt.options && Object.keys(ckpt.options).length > 0) {
+          return { type: "intent_confirm", checkpoint: ckpt }
+        }
+        return { type: "pipeline_error", checkpoint: ckpt }
       case "planner_create":
         return { type: "planner_create", checkpoint: ckpt }
       case "pattern_page":

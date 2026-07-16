@@ -27,14 +27,36 @@ export type ProtoCreateJsonInput = {
   userInput: string
   // 额外补充信息，透传到工具 ctx.extra 的数据
   extra?: Record<string, unknown>
+  // 历史文件保存地址
+  checkpointDir: string
   // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
-  checkpointDir?: string
 }
 
 // 阶段 1：意图确认（返回缺失维度的选项清单，由前端渲染 UI 暂停等待用户）
 export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
-  return await proto_intent_confirm(inputCtx)
+  // 调 intent_confirm 前先存 userInput，保证即使报错也能重试
+  await saveCheckpoint(inputCtx.checkpointDir, inputCtx.rootSession, {
+    stage: "intent_confirm",
+    userInput: inputCtx.userInput,
+    designSystem: inputCtx.extra?.designSystem as string,
+    rootSessionId: inputCtx.rootSession,
+    createdAt: Date.now(),
+  })
+  debugger
+  const result = await proto_intent_confirm(inputCtx)
+  // agent 成功且有 options 时，更新 checkpoint 补上 options
+  if (Object.keys(result.options).length > 0) {
+    await saveCheckpoint(inputCtx.checkpointDir, inputCtx.rootSession, {
+      stage: "intent_confirm",
+      userInput: inputCtx.userInput,
+      designSystem: inputCtx.extra?.designSystem as string,
+      rootSessionId: inputCtx.rootSession,
+      createdAt: Date.now(),
+      options: result.options,
+    })
+  }
+  return result
 }
 
 // 阶段 2：页面级 Pattern 匹配 + 意图扩展 + 布局规划（生成到此为止，等待设计师审查）
