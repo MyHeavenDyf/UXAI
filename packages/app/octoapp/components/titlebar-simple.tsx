@@ -14,13 +14,14 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
 
-type TabType = "chat" | "make" | "cowork" | "studio" | "pattern"
+type TabType = "chat" | "make" | "cowork" | "studio" | "pattern" | "3d"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "chat", label: "Chat" },
   { key: "cowork", label: "Insight" },
   { key: "make", label: "Design" },
   { key: "pattern", label: "Prototype" },
+  { key: "3d", label: "3D" },
   { key: "studio", label: "Studio" },
 ]
 
@@ -82,6 +83,7 @@ export function TitlebarSimple() {
     if (path === "/cowork" || path.startsWith("/insight")) return "cowork"
     if (path === "/" || path === "/make" || path.startsWith("/make/")) return "make"
     if (path === "/pattern" || path.startsWith("/pattern/")) return "pattern"
+    if (path === "/3d" || path.startsWith("/3d/")) return "3d"
     if (path === "/skills") {
       const source = layout.sidebarSource.get()
       return source === "make" ? "make" : "cowork"
@@ -134,6 +136,16 @@ export function TitlebarSimple() {
         navigate(`/pattern/${pattern.id}`)
       } else {
         navigate("/pattern")
+      }
+      return
+    }
+
+    if (tab === "3d") {
+      const threed = layout.lastSessionPerTab.threedimension()
+      if (threed?.id) {
+        navigate(`/3d/${threed.id}`)
+      } else {
+        navigate("/3d")
       }
       return
     }

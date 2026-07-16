@@ -1,0 +1,78 @@
+# 3D 页面 ↔ dev_pattern 同步状态
+# 唯一事实源：记录"上次同步到哪、下次从哪开始"。每次同步后更新。
+# 详见 3D_PAGE_DESIGN.md §4（长期同步机制）。
+
+last_synced_commit: 40177fd038fccc8004b7d77588c34d5a6c8239f2   # 上次同步到的 dev_pattern commit
+last_synced_date: 2026-07-10
+sync_round: 0                                                  # 同步轮次，每次同步 +1
+
+# 已确认的迁移性映射（pattern 文件 → 3D 处理策略），跨轮次累积，避免每次重新评估
+# transferability: common(✅套用) | skip(❌2D专属) | partial(⚠️借流程换语义)
+file_mapping:
+  pages/pattern/index.tsx:
+    target: pages/3d/index.tsx
+    transferability: partial
+    notes: "Provider 链 + 状态机骨架直接套，渲染目标 A2UI→SceneConfig；3D 专属覆写较多"
+  pages/pattern/modules/chat/index.tsx:
+    target: pages/3d/modules/chat/index.tsx
+    transferability: common
+    notes: "对话面板通用，套用时换 3D 专属 prompt"
+  pages/pattern/modules/preview/index.tsx:
+    target: pages/3d/modules/preview/index.tsx
+    transferability: partial
+    notes: "iframe+postMessage 骨架套，DOM_PICKER_*/A2UI_* 协议换成 SCENE_*；3D 专属覆写"
+  pages/pattern/modules/preview/canvas-view.tsx:
+    target: pages/3d/modules/preview/canvas-view.tsx
+    transferability: skip
+    notes: "2D 画布缩放/平移，3D 用 OrbitControls 在 iframe 内，宿主不需要"
+  pages/pattern/modules/preview/title-bar.tsx:
+    target: pages/3d/modules/preview/title-bar.tsx
+    transferability: partial
+    notes: "导出/版本按钮套用，device 切换去掉，主题保留"
+  pages/pattern/modules/preview/property-editor-popup/:
+    transferability: skip
+    notes: "DOM 属性编辑 2D 专属，3D 用 SCENE_PICK + 3D 属性弹窗重写"
+  pages/pattern/utils/a2ui-protocol.ts:
+    target: pages/3d/utils/scene-config.ts
+    transferability: partial
+    notes: "结构借，schema 换成 SceneConfig；3D 专属覆写"
+  pages/pattern/utils/version-history.ts:
+    target: pages/3d/utils/version-history.ts
+    transferability: common
+    notes: "版本历史机制通用，目录前缀改 octo:pattern:3d:，路径改 .octo/design-3d/history"
+  pages/pattern/utils/preview-handler/index.ts:
+    target: pages/3d/utils/preview-handler/index.ts
+    transferability: partial
+    notes: "导出/实时预览结构借，A2UI→SceneConfig；Pixso 预览 3D 不适用去掉"
+  pages/pattern/utils/desktop-api.ts:
+    target: pages/3d/utils/desktop-api.ts
+    transferability: common
+    notes: "DesktopApi IPC 接口通用，复用"
+  pages/pattern/workflow/create-json.ts:
+    target: pages/3d/workflow/create-scene.ts
+    transferability: partial
+    notes: "工作流编排结构借，agent/schema 换 3D 语义"
+  pages/pattern/agents/:
+    transferability: partial
+    notes: "agent 结构借，意图/规划/生成换成 3D 版本（场景规划/物体生成/合并）"
+
+# 永久跳过清单（这些 pattern 文件永不迁移，避免每次评估）
+always_skip:
+  - "pages/pattern/**/dom-picker*"        # DOM 选择器，2D 专属
+  - "pages/pattern/**/drag-bridge*"       # 拖拽重排序，2D+DOM 专属
+  - "pages/pattern/**/*device-switch*"    # 设备切换（手机/平板），3D 无此概念
+  - "pages/pattern/**/*design-system*"    # 设计系统选择器，2D 专属
+
+# 同步历史（最近 5 轮摘要，详情见 git log --grep='3D-SYNC'）
+history:
+  - { round: 0, date: 2026-07-10, commit: 40177fd03, files: 0, note: "初始基线，未同步" }
+  - { round: 1, date: 2026-07-13, commit: 40177fd03, files: 30+, note: "阶段2 落地：克隆 pattern 对话流（agents/workflow/utils/chat/preview）+ 后端注册 8 个 scene_3d_* agent。非同步迁移，是原创实现，故 last_synced_commit 未推进" }
+  - { round: 2, date: 2026-07-14, commit: 40177fd03, files: 5, note: "阶段2 端到端验证+修bug：生成/审查/渲染闭环通过✓；修了 merge 旧物体丢弃、3D 侧栏 Scene3DSidebar、chart-input 高度、sendToPreview iframe 时序。遗留：修改流加物体后原有物体仍可能消失（merge parentId链归属），见 memory/3d-modify-objects-lost.md，已落盘待验证" }
+
+# 遗留问题（未解决，下次会话优先确认）
+known_issues:
+  - id: modify-objects-lost
+    status: 已落盘修复待验证
+    file: packages/app/octoapp/pages/3d/agents/merge.ts
+    desc: "修改流加物体后原有物体消失。根因：merge 判断旧物体归属分区时只匹配第一层 parentId，孙物体丢失。已改成沿 parentId 链递归向上找 slot.element_id。验证未完成。"
+    verify: "生成桌子→加小球→加长桌→加两棵树，看 sendToPreview payload objects 数是否累积、ids 是否含 tblz* 物体"

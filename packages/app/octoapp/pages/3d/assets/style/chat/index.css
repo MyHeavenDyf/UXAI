@@ -1,0 +1,12 @@
+.title {
+  font-size: 14px;
+  line-height: 22p;
+  line-height: 22px;
+  font-weight: 600;
+  color: "#191919";
+}
+
+.chat-content {
+  padding: 24px;
+  background: "#fff";
+}

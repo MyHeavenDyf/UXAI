@@ -1,0 +1,241 @@
+# SceneConfig JSON Protocol
+
+## 1. 全局结构
+
+SceneConfig 是单个 JSON 对象，包含以下顶层字段：
+
+| Key | Type | Purpose |
+| :--- | :--- | :--- |
+| `version` | String | 协议版本，固定 `"1.0"` |
+| `angleUnit` | String | 角度单位 `"deg"` 或 `"rad"`。`rotation` 数组用此单位 |
+| `scene` | Object | 场景背景与环境光配置 |
+| `camera` | Object | 相机配置 |
+| `lights` | Array | 灯光列表 |
+| `objects` | Array | 3D 对象平铺列表（靠 `parentId` 引用挂载） |
+
+**输出顺序约束**：`version` → `angleUnit` → `scene` → `camera` → `lights` → `objects`。
+
+## 2. scene 字段
+
+```json
+"scene": {
+  "background": "#87CEEB",
+  "environment": { "preset": "studio", "intensity": 1 },
+  "fog": { "type": "linear", "color": "#cccccc", "near": 10, "far": 100 }
+}
+```
+- `background`: 十六进制颜色字符串，场景背景色。
+- `environment`: PMREM 环境贴图（IBL），`preset` 可选 `"studio"`/`"room"`/`"city"`/`"sunset"`/`"dawn"`/`"night"`/`"warehouse"`，`intensity` 0~2。
+- `fog`: 雾效，`type` 固定 `"linear"`，`near`/`far` 控制起止距离。
+
+## 3. camera 字段
+
+```json
+"camera": {
+  "type": "perspective",
+  "position": [15, 12, 18],
+  "lookAt": [0, 0, 0],
+  "perspective": { "fov": 50, "near": 0.1, "far": 1000 }
+}
+```
+- `type`: `"perspective"` 或 `"orthographic"`。
+- `position`: `[x, y, z]` 相机位置。
+- `lookAt`: `[x, y, z]` 相机注视点。
+- `perspective`: 透视相机参数 `fov`(视场角)/`near`/`far`。
+- `orthographic`: 正交相机参数 `left`/`right`/`top`/`bottom`/`near`/`far`。
+
+## 4. lights 数组
+
+每个 light 对象：
+
+| type | 必需字段 | 可选字段 |
+| :--- | :--- | :--- |
+| `ambient` | `intensity` | `color` |
+| `hemisphere` | `intensity` | `skyColor`, `groundColor`, `position` |
+| `directional` | `intensity` | `color`, `position`, `target`, `castShadow`, `shadow` |
+
+- `intensity`: 灯光强度 0~3。
+- `color`/`skyColor`/`groundColor`: 十六进制颜色。
+- `position`/`target`: `[x, y, z]`。
+- `castShadow`: 布尔，directional 专用。
+- `shadow`: `{ mapSize: 2048, camera: { near, far, left, right, top, bottom } }`。
+
+示例：
+```json
+"lights": [
+  { "type": "ambient", "intensity": 0.6 },
+  { "type": "directional", "intensity": 1.2, "position": [10, 20, 8], "castShadow": true,
+    "shadow": { "mapSize": 2048, "camera": { "near": 0.5, "far": 50, "left": -30, "right": 30, "top": 30, "bottom": -30 } } }
+]
+```
+
+## 5. objects 数组（核心）
+
+`objects` 是**平铺列表**，每个对象靠 `parentId` 引用父级，不嵌套。
+
+```json
+"objects": [
+  { "id": "ground-1", "type": "mesh", "parentId": null,
+    "geometry": { "type": "plane", "params": { "width": 20, "height": 20 } },
+    "material": { "type": "standard", "color": "#3a3a5c", "roughness": 0.9 },
+    "position": [0, 0, 0], "rotation": [-90, 0, 0], "receiveShadow": true },
+  { "id": "box-1", "type": "mesh", "parentId": null,
+    "geometry": { "type": "box", "params": { "width": 1.5, "height": 1.5, "depth": 1.5 } },
+    "material": { "type": "standard", "color": "#e94560" },
+    "position": [0, 0.75, 0], "castShadow": true, "receiveShadow": true },
+  { "id": "group-1", "type": "group", "parentId": null, "position": [5, 0, 0] },
+  { "id": "child-1", "type": "mesh", "parentId": "group-1",
+    "geometry": { "type": "sphere", "params": { "radius": 0.5 } },
+    "material": { "type": "standard", "color": "#ff8800" } }
+]
+```
+
+### object 字段
+
+| 字段 | 类型 | 必需 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `id` | String | 是 | 全局唯一 ID，`[zone][role][type]` 驼峰命名，如 `groundPlane`/`mainBox`/`lightGroup` |
+| `type` | String | 是 | `"group"` / `"mesh"` / `"component"` / `"glb"` / `"model"` |
+| `parentId` | String\|null | 是 | 父对象 id；`null` 表示挂到场景根；非 null 必须指向已存在的对象 id |
+| `position` | [x,y,z] | 否 | 世界/局部位置（米） |
+| `rotation` | [x,y,z] | 否 | 旋转，单位由 `angleUnit` 决定 |
+| `scale` | [x,y,z] | 否 | 缩放，默认 [1,1,1] |
+| `geometry` | Object | mesh 必需 | 几何体定义（见 §6） |
+| `material` | Object | mesh 可选 | 材质定义（见 §7） |
+| `component` | Object | component 必需 | 内置组件或 3d-components（见 §8） |
+| `src` | String | glb/model 必需 | 模型资源引用（见 §9） |
+| `castShadow` | Boolean | 否 | 是否投射阴影 |
+| `receiveShadow` | Boolean | 否 | 是否接收阴影 |
+
+### objects 关键约束
+- **平铺不嵌套**：不要把子对象写在父对象的 children 里，全部平铺在 `objects` 数组，靠 `parentId` 引用。
+- **父先于子**：父对象必须在数组中出现在子对象之前。
+- **ID 唯一**：每个 `id` 全局唯一，禁止重复。
+- **ID 命名规范**：`[zone][role][type]` 驼峰，如 `mainBox`/`groundPlane`/`roofGroup`。禁止 `box1`/`obj2` 等无语义命名。
+- **parentId 必须存在**：`parentId` 非 null 时，必须指向 `objects` 中已存在的 id。
+- `group` 类型对象作为容器，可被其他对象通过 `parentId` 挂载，实现层级。
+
+## 6. geometry 字段
+
+`geometry: { "type": "<几何体>", "params": { ... } }`
+
+| type | params | 用途 |
+| :--- | :--- | :--- |
+| `box` | `width`, `height`, `depth` (默认 1) | 立方体/长方体 |
+| `plane` | `width`, `height` (默认 1) | 平面（地面/墙面，常配 rotation [-90,0,0] 平铺） |
+| `sphere` | `radius`(默认 1), `widthSegments`(默认 32), `heightSegments`(默认 16) | 球体 |
+| `cylinder` | `radiusTop`(默认 1), `radiusBottom`(默认 1), `height`(默认 1), `radialSegments`(默认 32) | 圆柱/圆台 |
+| `cone` | `radius`(默认 1), `height`(默认 1), `radialSegments`(默认 16) | 圆锥 |
+| `torus` | `innerRadius`(默认 1), `outerRadius`(默认 2), `radialSegments`(默认 12), `thetaSegments`(默认 64), `arc`(默认 6.28) | 圆环 |
+| `circle` | `radius`(默认 1), `segments`(默认 32) | 圆面 |
+| `ring` | `innerRadius`(默认 0.5), `outerRadius`(默认 1), `thetaSegments`(默认 64) | 圆环面 |
+| `text` | `text`, `size`(默认 1) | 文字（ASCII 立体，中文贴图） |
+
+示例：
+```json
+{ "type": "cylinder", "params": { "radiusTop": 0.3, "radiusBottom": 0.4, "height": 2, "radialSegments": 24 } }
+{ "type": "sphere", "params": { "radius": 0.8, "widthSegments": 24, "heightSegments": 16 } }
+```
+
+## 7. material 字段
+
+`material: { "type": "<材质>", "color": "#hex", ... }`
+
+| type | 常用参数 | 用途 |
+| :--- | :--- | :--- |
+| `standard` | `color`, `roughness`(0~1), `metalness`(0~1) | PBR 标准材质，最常用 |
+| `basic` | `color` | 不受光照影响的纯色 |
+| `phong` | `color` | 高光材质 |
+| `physical` | `color`, `roughness`, `metalness`, `transmission`(0~1), `ior`, `thickness`, `clearcoat` | 物理材质（玻璃/透明物体用 transmission） |
+
+通用可选：`transparent`(布尔), `opacity`(0~1), `map`(纹理 src 引用)。
+
+示例：
+```json
+{ "type": "standard", "color": "#4a90d9", "roughness": 0.6, "metalness": 0.1 }
+{ "type": "physical", "color": "#ffffff", "transmission": 0.9, "roughness": 0, "ior": 1.5 }
+{ "type": "standard", "color": "#000000", "transparent": true, "opacity": 0.3 }
+```
+
+## 8. component 字段（内置组件）
+
+`component: { "type": "<内置组件名>", "params": { ... } }`
+
+type 为 `"component"` 的 object 使用。内置组件类型（15 个，场景化预制件）：
+
+| type | 用途 |
+| :--- | :--- |
+| `desk` | 工位/办公桌 |
+| `cabinet` | 机柜 |
+| `rack` | 货架 |
+| `container` | 集装箱 |
+| `pallet` | 托盘 |
+| `shelf`/`bookshelf` | 书架 |
+| `bin` | 料箱 |
+| `conveyor` | 传送带 |
+| `crane` | 起重机 |
+| `forklift` | 叉车 |
+| `dock` | 月台 |
+| `press` | 压机 |
+| `partition` | 隔断 |
+| `signage` | 标识牌 |
+| `showcase` | 展示柜 |
+
+> 内置组件 params 较少，通常只需尺寸/颜色。如不确定参数，优先用 `mesh`+几何体拼装。
+
+## 9. src 字段（模型资源）
+
+`type` 为 `"glb"` 或 `"model"` 时用 `src` 引用外部模型。前缀路由：
+
+| 前缀 | 含义 | 示例 |
+| :--- | :--- | :--- |
+| `asset:` | 本地资源（3d-templete 内置 GLB） | `"asset:windmill"` |
+| `http(s)://` | 远程模型（按扩展名选 loader） | `"https://example.com/car.glb"` |
+| `hunyuan:` | 混元生成（本次占位） | `"hunyuan:风力发电机"` |
+
+> 阶段约束：本次生成场景**优先用 mesh+几何体**，仅在明确需要复杂模型时用 `src`。`hunyuan:` 前缀本次未接入，生成会导致回落 mesh + 警告。
+
+## 10. 完整示例（操场场景）
+
+```json
+{
+  "version": "1.0",
+  "angleUnit": "deg",
+  "scene": {
+    "background": "#87CEEB",
+    "environment": { "preset": "studio", "intensity": 0.8 }
+  },
+  "camera": {
+    "type": "perspective",
+    "position": [15, 12, 18],
+    "lookAt": [0, 0, 0],
+    "perspective": { "fov": 50, "near": 0.1, "far": 1000 }
+  },
+  "lights": [
+    { "type": "ambient", "intensity": 0.6 },
+    { "type": "directional", "intensity": 1.2, "position": [10, 20, 8], "castShadow": true,
+      "shadow": { "mapSize": 2048, "camera": { "near": 0.5, "far": 50, "left": -30, "right": 30, "top": 30, "bottom": -30 } } }
+  ],
+  "objects": [
+    { "id": "groundField", "type": "mesh", "parentId": null,
+      "geometry": { "type": "plane", "params": { "width": 40, "height": 40 } },
+      "material": { "type": "standard", "color": "#4a7c4a", "roughness": 0.9 },
+      "position": [0, 0, 0], "rotation": [-90, 0, 0], "receiveShadow": true },
+    { "id": "runwayGroup", "type": "group", "parentId": null, "position": [0, 0.01, 0] },
+    { "id": "runway", "type": "mesh", "parentId": "runwayGroup",
+      "geometry": { "type": "plane", "params": { "width": 2, "height": 30 } },
+      "material": { "type": "standard", "color": "#c0392b", "roughness": 0.7 },
+      "rotation": [-90, 0, 0], "receiveShadow": true }
+  ]
+}
+```
+
+## 11. 核心约束
+
+1. **纯 JSON 输出**：无解释、无 markdown 代码块、无自然语言。只输出原始 JSON 对象。
+2. **平铺 + parentId**：objects 数组平铺，靠 parentId 挂载，禁止嵌套。
+3. **父先于子**：父对象在数组中先于子对象出现。
+4. **ID 语义化唯一**：`[zone][role][type]` 驼峰命名，全局唯一。
+5. **单位对齐**：`angleUnit` 声明后，所有 `rotation` 用该单位。position/scale 用米。
+6. **阴影一致**：投射阴影的物体 `castShadow:true`，接收阴影的面（地面/墙面）`receiveShadow:true`，directional 灯光 `castShadow:true`。
+7. **几何体兜底**：优先用 mesh+内置几何体拼装场景。复杂模型才用 component/src。

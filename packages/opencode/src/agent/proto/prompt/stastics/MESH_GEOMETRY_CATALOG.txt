@@ -1,0 +1,91 @@
+# 3D 场景拼装指南与几何体目录（Mesh Geometry Catalog）
+
+> 本文件指导如何用原生几何体（mesh + geometry）拼装各类 3D 物体。SceneConfig 的完整字段定义见 **SceneConfig JSON Protocol**。
+
+## 1. 几何体速查表
+
+| geometry.type | params | 典型尺寸（米） | 典型用途 |
+| :--- | :--- | :--- | :--- |
+| `box` | width, height, depth | 建筑物 5×4×5 / 桌面 2×0.1×1 | 墙体/建筑/箱子/桌面 |
+| `plane` | width, height | 地面 40×40 / 墙面 8×4 | 地面/墙面/顶面（配 rotation） |
+| `sphere` | radius, widthSegments, heightSegments | 树冠 1.5 / 球体 0.8 | 树/球/球形设备 |
+| `cylinder` | radiusTop, radiusBottom, height, radialSegments | 树干 0.2×3 / 柱子 0.3×4 | 树干/柱/管道/圆台 |
+| `cone` | radius, height, radialSegments | 树冠(锥) 1.5×3 / 屋顶 | 锥形屋顶/松树冠 |
+| `torus` | innerRadius, outerRadius | 跑道环 5/6 | 环形/轮胎 |
+| `circle` | radius, segments | 地面圆 5 | 圆形地台 |
+| `ring` | innerRadius, outerRadius | 标识环 | 圆环面 |
+| `text` | text, size | 文字 | 标签 |
+
+## 2. 材质速查表
+
+| material.type | 关键参数 | 适用场景 |
+| :--- | :--- | :--- |
+| `standard` | color, roughness, metalness | 绝大多数物体（PBR） |
+| `basic` | color | 不受光照的纯色（标签/发光体） |
+| `phong` | color | 高光物体 |
+| `physical` | color, transmission, ior, clearcoat | 玻璃/透明/车漆 |
+
+**roughness/metalness 调参指南**：
+- 金属（栏杆/机器）：metalness 0.8~1.0, roughness 0.3~0.5
+- 木材（桌/柜）：metalness 0, roughness 0.7~0.9
+- 石材/地面：metalness 0, roughness 0.8~1.0
+- 塑料：metalness 0, roughness 0.4~0.6
+- 玻璃：transmission 0.9, roughness 0~0.1, ior 1.5, transparent:true
+
+## 3. group 用法（层级与空间分区）
+
+`type:"group"` 的对象是容器，不渲染自身，子对象通过 `parentId` 挂载其下。用途：
+- **空间分区**：把同区域的物体归入一个 group，便于整体移动/管理。
+- **组合体**：把一个复杂物体（如"树"=树干+树冠）归入一个 group。
+
+```json
+{ "id": "treeGroup", "type": "group", "parentId": null, "position": [5, 0, 3] },
+{ "id": "treeTrunk", "type": "mesh", "parentId": "treeGroup",
+  "geometry": { "type": "cylinder", "params": { "radiusTop": 0.15, "radiusBottom": 0.25, "height": 3 } },
+  "material": { "type": "standard", "color": "#6b4f2a", "roughness": 0.9 },
+  "position": [0, 1.5, 0] },
+{ "id": "treeCrown", "type": "mesh", "parentId": "treeGroup",
+  "geometry": { "type": "sphere", "params": { "radius": 1.5, "widthSegments": 16, "heightSegments": 12 } },
+  "material": { "type": "standard", "color": "#3d7a3d", "roughness": 0.8 },
+  "position": [0, 3.5, 0] }
+```
+
+## 4. 常见物体拼装配方
+
+| 物体 | 几何体组合 | 备注 |
+| :--- | :--- | :--- |
+| 树（阔叶） | group + cylinder(树干) + sphere(树冠) | 树冠在树干顶部 |
+| 树（松树） | group + cylinder(树干) + cone(树冠) ×1~3 层 | 多层锥体堆叠 |
+| 建筑 | box(主体) + box(屋顶) 或 cone(尖顶) | 窗户可用小 box 贴面 |
+| 桌子 | box(桌面) + 4×cylinder/box(桌腿) | 桌腿 position 四角 |
+| 椅子 | box(座面) + box(靠背) + 4×box(腿) | |
+| 围墙 | plane(墙面) + 重复 | 多段 plane 拼接 |
+| 跑道 | plane(红色) 叠在 plane(绿色地面) 之上 | y 略高防 z-fighting |
+| 路灯 | cylinder(杆) + sphere(灯泡，basic 材质发光) | |
+| 汽车 | group + box(车身) + box(车顶) + 4×cylinder(车轮，rotation [0,0,90]) | 车轮侧躺 |
+| 风车 | group + cylinder(塔) + box(叶片) ×3~4 | 叶片绕塔旋转 |
+| 标签 | text 或 plane+canvas | 用 basic 材质 |
+| 设备/机器 | box 主体 + box/cylinder 细节 | 金属材质 |
+
+## 5. 空间布局原则
+
+- **地面优先**：场景必须有地面（plane + rotation [-90,0,0] + receiveShadow:true），其他物体放地面之上（y > 0）。
+- **坐标系**：x 轴(东西)、y 轴(上下)、z 轴(南北)。position y=0 通常在地面上。
+- **避免重叠 z-fighting**：两个同 y 平面会闪烁，叠层时 y 略错开（如 0.01）。
+- **尺寸合理**：场景级地面 30~60 米，建筑 5~10 米，人 1.7 米，桌 0.8 米。保持比例一致。
+- **分区放置**：用 group 分区（如左侧建筑区、右侧绿化区、中央广场），子物体 position 相对 group。
+
+## 6. 阴影配置约定
+
+要让场景有阴影：
+1. directional 灯光设 `castShadow:true` + `shadow` 相机范围覆盖场景。
+2. 投影物体（建筑/树/设备）设 `castShadow:true`。
+3. 接收面（地面/桌面）设 `receiveShadow:true`。
+
+## 7. 生成质量要求
+
+- **丰富度**：一个场景至少 8~20 个物体，不要只放一两个。用 group 组织同类。
+- **真实感**：颜色用真实色（草地 #4a7c4a、混凝土 #b0b0b0、木材 #8b6f47），避免纯红绿蓝。
+- **层级**：复杂物体拆成 group + 多个 mesh，不要用单个巨大 box 塞所有内容。
+- **材料语义**：金属用 metalness>0.5，哑光用 roughness>0.7，玻璃用 physical+transmission。
+- **ID 语义**：`groundField`/`mainBuilding`/`treeGroup`/`runwayPath`，禁止 `box1`/`mesh2`。

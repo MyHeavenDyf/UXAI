@@ -57,6 +57,7 @@ type LastSessionPerTab = {
   chat: Record<string, string>
   studio: Record<string, string>
   pattern?: { id: string }
+  threedimension?: { id: string }
   lastChatDir?: string
 }
 
@@ -280,6 +281,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       chat: {},
       studio: {},
       pattern: undefined,
+      threedimension: undefined,
       lastChatDir: undefined,
     })
 
@@ -602,6 +604,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         pattern: createMemo(() => lastSessionPerTab.pattern),
         setPattern(id: string) {
           setLastSession("pattern", { id })
+        },
+        threedimension: createMemo(() => lastSessionPerTab.threedimension),
+        setThreedimension(id: string) {
+          setLastSession("threedimension", { id })
         },
         chat: (dir: string) => lastSessionPerTab.chat[dir],
         setChat(dir: string, id: string) {

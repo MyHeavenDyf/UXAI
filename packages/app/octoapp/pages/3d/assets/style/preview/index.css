@@ -1,0 +1,57 @@
+@import "./ContextMenu.css";
+@import "./PropertyEditorPopup.css";
+
+/* ==========================================================================
+   1. 基础容器与大页面布局
+   ========================================================================== */
+.preview-container {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-color: #f3f4f6; /* 主背景灰色 */
+  box-sizing: border-box;
+}
+
+/* 修改选中区域弹窗 — 定位在 preview 容器内 */
+.picker-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.picker-dialog {
+  position: absolute;
+  bottom: 10%;
+  z-index: 100;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  width: 560px;
+  max-width: 90%;
+  pointer-events: auto;
+}
+
+.picker-header {
+  padding: 16px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  padding-bottom: 0px;
+  cursor: grab;
+  user-select: none;
+}
+
+.picker-header:active {
+  cursor: grabbing;
+}
+
+.picker-body {
+  padding: 16px 20px;
+}

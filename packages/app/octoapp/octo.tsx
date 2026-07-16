@@ -53,6 +53,7 @@ import { OctoSidebar } from "@/pages/_shell/sidebar"
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
+import { Scene3DSidebar } from "@/pages/3d/modules/sidebar/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
@@ -63,6 +64,7 @@ const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
+const Scene3DPage = lazy(() => import("@/pages/3d"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
 const loadSession = () => import("@/pages/session")
@@ -256,9 +258,9 @@ function MakeSidebarLayout(props: ParentProps) {
   )
 }
 
-function PatternSidebarLayout(props: ParentProps) {
+function SidebarShell(props: ParentProps<{ widthKey: string; sidebar: (w: number) => JSX.Element }>) {
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
-    Persist.global("pattern.sidebar.width"),
+    Persist.global(props.widthKey),
     createStore({ width: 296 }),
   )
   const sidebarWidth = () => sidebarWidthStore.width
@@ -283,7 +285,7 @@ function PatternSidebarLayout(props: ParentProps) {
 
   return (
     <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <PatternSidebar width={sidebarWidth()} />
+      {props.sidebar(sidebarWidth())}
       <div
         class="absolute top-0 bottom-0 flex items-center justify-center group"
         style={{
@@ -317,6 +319,14 @@ function PatternSidebarLayout(props: ParentProps) {
       </div>
     </div>
   )
+}
+
+function PatternSidebarLayout(props: ParentProps) {
+  return <SidebarShell widthKey="pattern.sidebar.width" sidebar={(w) => <PatternSidebar width={w} />}>{props.children}</SidebarShell>
+}
+
+function Scene3DSidebarLayout(props: ParentProps) {
+  return <SidebarShell widthKey="scene3d.sidebar.width" sidebar={(w) => <Scene3DSidebar width={w} />}>{props.children}</SidebarShell>
 }
 
 function SkillsSidebarLayout(props: ParentProps) {
@@ -411,6 +421,12 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return p === "/pattern" || p.startsWith("/pattern/")
   }
 
+  const is3dPage = () => {
+    const p = location.pathname
+    return p === "/3d" || p.startsWith("/3d/")
+  }
+
+  // 阶段2：3D 页套专属 SidebarLayout（按 scene_3d_triage 过滤会话历史）
   const isSkillsPage = () => {
     return location.pathname === "/skills"
   }
@@ -436,10 +452,14 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <Show when={isPatternPage()}>
                       <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
                     </Show>
+                    <Show when={is3dPage()}>
+                      <Scene3DSidebarLayout>{props.children}</Scene3DSidebarLayout>
+                    </Show>
                     <Show when={isSkillsPage()}>
                       <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
                     </Show>
-                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
+                    {/* 3D 页阶段0 走默认分支（不套侧栏，全屏 iframe）；阶段2 接对话历史时加专属 SidebarLayout */}
+                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !is3dPage() && !isSkillsPage()}>
                       {props.appChildren}
                       {props.children}
                     </Show>
@@ -645,6 +665,7 @@ export function AppInterface(props: {
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />
+                  <Route path="/3d/:id?" component={Scene3DPage} />
                   <Route path="/skills" component={SkillsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={ChatIndexRoute} />
