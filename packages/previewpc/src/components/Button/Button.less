@@ -9,6 +9,7 @@
   --el-button-active-text-color: var(--el-text-color-primary);
   --el-button-active-border-color: var(--border-primary);
   --el-button-active-bg-color: var(--el-fill-color-blank);
+  --el-button-hover-link-text-color: var(--primary-400);
 }
 
 .el-button--primary {
@@ -18,7 +19,7 @@
   --el-button-border-color: var(--el-color-primary);
   --el-button-active-color: var(--el-color-white);
   --el-button-hover-text-color: var(--el-color-white);
-  --el-button-hover-link-text-color: var(--primary-200);
+  --el-button-hover-link-text-color: var(--primary-400);
   --el-button-hover-bg-color: var(--primary-400);
   --el-button-hover-border-color: var(--primary-400);
   --el-button-active-bg-color: var(--primary-600);
@@ -31,19 +32,19 @@
 .el-button--danger {
   --el-button-active-text-color: var(--el-color-white);
   --el-button-text-color: var(--el-color-white);
-  --el-button-bg-color: var(--el-color-danger);
-  --el-button-border-color: var(--el-color-danger);
+  --el-button-bg-color: var(--error-500);
+  --el-button-border-color: var(--error-500);
 
   --el-button-active-color: var(--el-color-danger-dark-2);
   --el-button-hover-text-color: var(--el-color-white);
   --el-button-hover-link-text-color: var(--el-color-danger-light-5);
-  --el-button-hover-bg-color: var(--el-color-danger-light-3);
-  --el-button-hover-border-color: var(--el-color-danger-light-3);
-  --el-button-active-bg-color: var(--el-color-danger-dark-2);
-  --el-button-active-border-color: var(--el-color-danger-dark-2);
+  --el-button-hover-bg-color: var(--error-400);
+  --el-button-hover-border-color: var(--error-400);
+  --el-button-active-bg-color: var(--error-600);
+  --el-button-active-border-color: var(--error-600);
   --el-button-disabled-text-color: var(--el-color-white);
-  --el-button-disabled-bg-color: var(--el-color-danger-light-5);
-  --el-button-disabled-border-color: var(--el-color-danger-light-5);
+  --el-button-disabled-bg-color: var(--error-100);
+  --el-button-disabled-border-color: var(--error-100);
 }
 
 .el-button--success {
@@ -137,6 +138,9 @@
   line-height: 22px;
   padding: 0px;
   border: none;
+  &:not(.is-disabled):active {
+    color: var(--primary-600);
+  }
 }
 
 
@@ -177,19 +181,19 @@
   .el-button--danger {
     --el-button-active-text-color: var(--el-color-white);
     --el-button-text-color: var(--el-color-white);
-    --el-button-bg-color: var(--el-color-danger);
-    --el-button-border-color: var(--el-color-danger);
+    --el-button-bg-color: var(--error-400);
+    --el-button-border-color: var(--error-400);
 
     --el-button-active-color: var(--el-color-danger-dark-2);
     --el-button-hover-text-color: var(--el-color-white);
     --el-button-hover-link-text-color: var(--el-color-danger-light-5);
-    --el-button-hover-bg-color: var(--el-color-danger-light-3);
-    --el-button-hover-border-color: var(--el-color-danger-light-3);
-    --el-button-active-bg-color: var(--el-color-danger-dark-2);
-    --el-button-active-border-color: var(--el-color-danger-dark-2);
+    --el-button-hover-bg-color: var(--error-300);
+    --el-button-hover-border-color: var(--error-300);
+    --el-button-active-bg-color: var(--error-500);
+    --el-button-active-border-color: var(--error-500);
     --el-button-disabled-text-color: var(--el-color-white);
-    --el-button-disabled-bg-color: var(--el-color-danger-light-5);
-    --el-button-disabled-border-color: var(--el-color-danger-light-5);
+    --el-button-disabled-bg-color: var(--error-800);
+    --el-button-disabled-border-color: var(--error-800);
   }
 
   .el-button--success {
@@ -228,4 +232,10 @@
     --el-button-disabled-border-color: var(--el-color-warning-light-5);
   }
 
+  .el-button.is-link {
+    color: var(--primary-300);
+    &:not(.is-disabled):active {
+      color: var(--primary-400);
+    }
+  }
 }

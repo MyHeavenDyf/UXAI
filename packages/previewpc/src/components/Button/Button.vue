@@ -6,6 +6,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { useIconComponentRef } from "../Icon/IconBase"
 import "./Button.less"
+import { useTheme } from "../../composables/useTheme"
 
 type ButtonType = "" | "default" | "primary" | "danger" | "text" | "success" | "warning" | "info"
 type ButtonSize = "" | "large" | "small" | "default" | undefined
@@ -41,6 +42,7 @@ const types = [
   undefined,
 ]
 
+const { isDark } = useTheme()
 const props = defineProps<A2UIComponentProps<ButtonNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
@@ -110,7 +112,11 @@ const resolvedIcon = computed(() => {
   return {
     component: base.component,
     props: isHui
-      ? { size: resolveIconSize(), type: base.props.type, iconColor: [colorValue] }
+      ? { iconSize: resolveIconSize(),
+         type: base.props.type,
+          iconColor: [colorValue],
+          hoverColor: onlyIcon.value ? [isDark.value ? 'var(--primary-200)' : 'var(--primary-400)'] : undefined,
+        }
       : { size: resolveIconSize(), color: colorValue, "stroke-width": 1 },
   }
 })
