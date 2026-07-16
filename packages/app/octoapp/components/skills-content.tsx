@@ -5,7 +5,11 @@ import { showToast } from "@opencode-ai/ui/toast"
 // jk-j60099994-replace-with-60062650-components-skills-content-1-start
 type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-components-skills-content-1-end
-type SkillsConfig = { meta?: object; skill?: object; agent?: object}
+type SkillsConfig = {
+  meta?: Record<string, unknown>
+  skill?: Record<string, SkillConfigEntry>
+  agent?: Record<string, string[]>
+}
 
 const AGENT_INFO: Record<string, { label: string; subtitle: string }> = {
   octo_insight: { label: "Octo Insight", subtitle: "用户研究" },
@@ -83,7 +87,7 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-2-end
 
   const groupedSkills = createMemo(() => {
-    const cfg = config()
+    const cfg = config().skill ?? {}
     const groups: Record<string, { skills: string[]; label: string; subtitle: string }> = {}
 
     for (const [name, entry] of Object.entries(cfg)) {
@@ -142,7 +146,13 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-6-end
 
   function toggleSkill(skillName: string, value: boolean) {
-    const updated = { ...config(), [skillName]: { ...config()[skillName], import: value } }
+    const updated = {
+      ...config(),
+      skill: {
+        ...config().skill,
+        [skillName]: { ...config().skill?.[skillName], import: value },
+      },
+    }
     setConfig(updated)
     const api = (window as unknown as { api?: { setSkillsConfig?: (c: SkillsConfig) => Promise<void> } }).api
     api?.setSkillsConfig?.(updated)?.then?.(() => {
@@ -258,8 +268,8 @@ export function SkillsContent(): JSX.Element {
                         {(skillName) => (
                           <SkillRow
                             name={skillName}
-                            description={config()[skillName]?.description ?? ""}
-                            enabled={config()[skillName]?.import !== false}
+                            description={config().skill?.[skillName]?.description ?? ""}
+                            enabled={config().skill?.[skillName]?.import !== false}
                             onToggle={(v) => toggleSkill(skillName, v)}
                           />
                         )}
