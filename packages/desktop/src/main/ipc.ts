@@ -103,9 +103,12 @@ function isInsightSessionWorktreePath(resolved: string): boolean {
   return i !== -1 && i + 2 < segs.length && (segs[i + 2] === "uploads" || segs[i + 2] === "outputs")
 }
 
-// 产物落地幂等(spec §2/§4.2):同一张卡(namespace=tab.id)首次 materialize 后记下其
+// 产物落地幂等(spec §2/§4.2):同一个资源(namespace=资源 URI)首次 materialize 后记下其
 // outputs 本地路径,本会话内稳定 —— 后续预览/编辑/打开都命中这份(含用户改动),绝不 re-fetch。
 // 用主进程内存表替代旧的 `.octo/downloads/<id>/` 目录分桶,使 outputs 扁平、显性。
+// namespace 必须是资源身份(URI)而非卡片身份(tab.id/card.id):同一份产物会被多张卡引用
+// (任务卡 vs「查询结果」turn 的路径 A 卡),按卡片 id 记会让同一 URI 各落一份、第二份撞名成
+// `xxx (2)`,且每查询一次多一份。调用方约定见 app 侧 utils/local-resource.ts 文件头。
 // 跨重启该表清空 → 同名产物会按 §3.3 加后缀新建(少见边界,spec 接受)。
 const materializedByNamespace = new Map<string, string>()
 

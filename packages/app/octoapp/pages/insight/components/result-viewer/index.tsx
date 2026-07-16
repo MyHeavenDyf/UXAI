@@ -497,13 +497,14 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const fname = defaultFilename()
     console.log("[octo:office] download-start", {
       uri: props.tab.uri,
-      namespace: props.tab.id,
+      namespace: props.tab.uri,
       filename: fname,
       mime: props.tab.mimeType,
       mode: "to-temp",
     })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined, params.id)
+      // 幂等键传 uri(资源身份),不传 tab.id —— 见 utils/local-resource.ts 文件头。
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.uri, fname, projectDir() || undefined, params.id)
       console.log("[octo:office] download-ok", { localPath })
       console.log("[octo:office] open-path", { localPath })
       // shell.openPath 返回值约定: 空字符串 = 成功,非空 = 错误说明。
@@ -592,9 +593,10 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const api = getDesktopApi()!
     setRevealBusy(true)
     const fname = defaultFilename()
-    console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.id, filename: fname })
+    console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.uri, filename: fname })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined, params.id)
+      // 幂等键传 uri(资源身份),不传 tab.id —— 见 utils/local-resource.ts 文件头。
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.uri, fname, projectDir() || undefined, params.id)
       console.log("[octo:office] reveal-show", { localPath })
       api.showItemInFolder!(localPath)
     } catch (err) {
