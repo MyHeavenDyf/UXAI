@@ -1,7 +1,5 @@
-// Pipeline API 请求模块 — 内网/外网双路径:
-//   内网(Electron + VITE_OCTO_BASE_URL 有值): 通过 IPC → 主进程 net.fetch 直连真实接口(绕过 CORS)
-//   外网(Web app 或 host 空): 浏览器 fetch → Vite mock/proxy 拦截
-import { showToast } from "@opencode-ai/ui/toast"
+// Pipeline API 请求模块 — 浏览器 fetch 直连后端:
+//   host 取自 VITE_OCTO_BASE_URL; 空值时走相对路径(由 Vite mock/proxy 拦截)
 import type { Domain, DomainInfoByProduct, Product, ProductLine, SearchResult, Version, UploadDeliverableBody } from "./types"
 
 // 后端路径前缀注册表 — 新增路径时在此添加即可, 各接口函数通过 prefix 参数引用
@@ -11,16 +9,20 @@ const API_PREFIXES = {
 }
 
 // 统一解析后端响应格式: { errorCode:200, content } 或 { data:{ errorCode:200, content } }
+// 出错仅 console.error 并返回 null, 不抛异常/不弹 toast, 避免传播到 ErrorBoundary 进入报错页面阻断流程
 function parseResponse<T>(data: any): T {
   const inner = data?.data ?? data
-  if (!inner) throw new Error("Empty response")
+  if (!inner) {
+    console.error("Empty response")
+    return null as T
+  }
   if (inner.errorCode === 400 || inner.errorCode === 1417) {
     (window as any).openLogin?.()
     return null as T
   }
   if (inner.errorCode === 200) return inner.content as T
-  showToast({ title: inner.errorMessage ?? "" })
-  throw new Error(inner.errorMessage ?? "Unknown error")
+  console.error(inner.errorMessage ?? "Unknown error")
+  return null as T
 }
 
 function buildQueryString(query: Record<string, any>): string {
@@ -38,32 +40,20 @@ type ApiFetchOptions = {
   prefix?: string
 }
 
-// 通用请求 — body 为 JSON(application/json), 内网走 IPC
+// 通用请求 — body 为 JSON(application/json), 浏览器 fetch 直连后端
 async function apiFetch<T>(options: ApiFetchOptions): Promise<T> {
   const { path, method = "GET", query = {}, body, prefix = API_PREFIXES.pipeline } = options
   const relativeUrl = prefix + path + buildQueryString(query)
-  const uiplusToken = localStorage.getItem("uiplusToken") ?? ""
   const headers: Record<string, string> = {}
-  if (uiplusToken) headers.uiplustoken = uiplusToken
   if (body) headers["content-type"] = "application/json"
 
   const host = (import.meta.env.VITE_OCTO_BASE_URL as string) ?? ""
-  const ipcApi = (window as any).api?.pipelineRequest
-  const useIpc = ipcApi && host
-
-  if (useIpc) {
-    try {
-      const data = await ipcApi(host + relativeUrl, method, uiplusToken, body, headers)
-      return parseResponse<T>(data)
-    } catch (error) {
-      console.error(`Failed to ${method} ${host}${relativeUrl}:`, error)
+  try {
+    const res = await fetch(host + relativeUrl, { method, headers, body: body ? JSON.stringify(body) : undefined })
+    if (!res.ok) {
+      console.error(`Failed to ${method} ${relativeUrl}: HTTP ${res.status} ${res.statusText}`)
       return null as T
     }
-  }
-
-  try {
-    const res = await fetch(host ? host + relativeUrl : relativeUrl, { method, headers, body: body ? JSON.stringify(body) : undefined })
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
     return parseResponse<T>(await res.json())
   } catch (error) {
     console.error(`Failed to ${method} ${relativeUrl}:`, error)
