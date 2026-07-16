@@ -2,12 +2,16 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, getGeneration, rebootGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, getGeneration, rebootGeneration } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 
 const StudioPermissionInput = z.object({
   uid: z.string().optional(),
+})
+
+const StudioPromptGenInput = z.object({
+  base64img: z.string().min(1),
 })
 
 const StudioGenerationInput = z.object({
@@ -67,6 +71,23 @@ export const StudioRoutes = lazy(() =>
       },
     )
     .post(
+      "/prompt-gen",
+      describeRoute({
+        summary: "Generate prompt from reference image",
+        description: "Returns generated prompt text from the internal image prompt generation API.",
+        operationId: "studio.prompt-gen.create",
+        responses: {
+          200: {
+            description: "Prompt generation result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("json", StudioPromptGenInput),
+      async (c) => c.json(await createPromptGen(c.req.valid("json"))),
+    )
+    .post(
       "/permissions/check",
       describeRoute({
         summary: "Check Studio permission",
@@ -101,40 +122,40 @@ export const StudioRoutes = lazy(() =>
       async (c) => c.json(await createEditorEntry(c.req.valid("json"))),
     )
     .post(
-    "/generations",
-    describeRoute({
-      summary: "Create Studio image generation",
-      description: "Generate images using the built-in Studio image generation tool.",
-      operationId: "studio.generations.create",
-      responses: {
-        202: {
-          description: "Studio generation accepted",
-          content: {
-            "application/json": {
-              schema: resolver(z.unknown()),
+      "/generations",
+      describeRoute({
+        summary: "Create Studio image generation",
+        description: "Generate images using the built-in Studio image generation tool.",
+        operationId: "studio.generations.create",
+        responses: {
+          202: {
+            description: "Studio generation accepted",
+            content: {
+              "application/json": {
+                schema: resolver(z.unknown()),
+              },
             },
           },
+          ...errors(400),
         },
-        ...errors(400),
+      }),
+      validator("json", StudioGenerationInput),
+      async (c) => {
+        const input = c.req.valid("json")
+        console.log("[studio.route] POST /studio/generations", {
+          sessionID: input.sessionID,
+          capability: input.capability,
+          prompt: input.prompt,
+          styleModel: input.styleModel,
+          aspectRatio: input.aspectRatio,
+          count: input.count,
+          imageTool: input.imageTool,
+          referenceImageCount: input.referenceImages?.length ?? 0,
+          hasSourceImage: Boolean(input.sourceImage),
+        })
+        return c.json(await createGeneration(input), 202)
       },
-    }),
-    validator("json", StudioGenerationInput),
-    async (c) => {
-      const input = c.req.valid("json")
-      console.log("[studio.route] POST /studio/generations", {
-        sessionID: input.sessionID,
-        capability: input.capability,
-        prompt: input.prompt,
-        styleModel: input.styleModel,
-        aspectRatio: input.aspectRatio,
-        count: input.count,
-        imageTool: input.imageTool,
-        referenceImageCount: input.referenceImages?.length ?? 0,
-        hasSourceImage: Boolean(input.sourceImage),
-      })
-      return c.json(await createGeneration(input), 202)
-    },
-  )
+    )
   .post("/generations/:generationID/cancel", async (c) => c.json(await cancelGeneration(c.req.param("generationID"))))
   .post("/generations/:generationID/reboot", async (c) => c.json(await rebootGeneration(c.req.param("generationID"))))
   .get("/generations/:generationID", async (c) => c.json(await getGeneration(c.req.param("generationID")))),

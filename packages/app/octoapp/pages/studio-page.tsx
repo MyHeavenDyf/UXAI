@@ -95,6 +95,15 @@ type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint"
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
 
+type StudioPromptGenResponse = {
+  resp_code?: number
+  resp_msg?: string
+  result?: {
+    en?: string
+    zh?: string
+  }
+}
+
 type StudioGenerationOverrides = {
   capability?: StudioCapability
   prompt?: string
@@ -202,6 +211,8 @@ export default function StudioPage() {
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
   const [videoFrames, setVideoFrames] = createStore<{ first?: StudioAsset; last?: StudioAsset }>({})
+  let reversePromptRunning = false
+  let reversePromptController: AbortController | undefined
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
   const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
@@ -228,6 +239,7 @@ export default function StudioPage() {
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
+  onCleanup(() => reversePromptController?.abort())
   const [draftVideoRiskConfirmed, setDraftVideoRiskConfirmed] = createSignal(false)
   const [wordBook] = createResource(
     () => server.current,
@@ -2302,6 +2314,77 @@ export default function StudioPage() {
     return JSON.parse(bodyText) as StudioGenerationResult
   }
 
+  async function generatePromptFromReferenceImage(base64img: string, signal?: AbortSignal) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/prompt-gen", current.http.url), {
+      method: "POST",
+      headers,
+      signal,
+      body: JSON.stringify({ base64img }),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    const result = JSON.parse(bodyText) as StudioPromptGenResponse
+    if (result.resp_code !== 200) throw new Error(result.resp_msg?.trim() || "提示词生成失败")
+    const zh = result.result?.zh?.trim()
+    if (!zh) throw new Error("提示词生成结果为空")
+    return zh
+  }
+
+  async function handleReversePrompt() {
+    const asset = assets()[0]
+    if (!asset) {
+      showFloatingNotice("warning", "请先上传参考图")
+      return
+    }
+    if (reversePromptRunning) return
+
+    tracker.interaction({ module: "studio", name: "reverse-prompt-click" })
+    reversePromptRunning = true
+    const controller = new AbortController()
+    reversePromptController = controller
+    const dismissNotice = showFloatingNotice({
+      type: "info",
+      message: "提示词正在生成中",
+      icon: "loading",
+      duration: 0,
+      action: {
+        label: "取消",
+        onClick: () => {
+          reversePromptController?.abort()
+          reversePromptRunning = false
+          dismissNotice()
+        },
+      },
+    })
+
+    try {
+      const zh = await generatePromptFromReferenceImage(asset.dataUrl, controller.signal)
+      if (controller.signal.aborted || !reversePromptRunning) return
+      setPrompt(zh)
+      dismissNotice()
+      showFloatingNotice("success", "反推结果已置入画板")
+    } catch (error) {
+      if (controller.signal.aborted || !reversePromptRunning) return
+      dismissNotice()
+      showFloatingNotice("error", error instanceof Error ? error.message : String(error))
+    } finally {
+      if (reversePromptController === controller) reversePromptController = undefined
+      if (!controller.signal.aborted) reversePromptRunning = false
+    }
+  }
+
   function studioImageDataUrlPayload(value: string) {
     const match = value.match(/^data:([^;,]+);base64,(.*)$/)
     return {
@@ -3371,10 +3454,7 @@ export default function StudioPage() {
                   onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
                   onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
                   onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
-                  onReversePrompt={() => {
-                    tracker.interaction({ module: "studio", name: "reverse-prompt" })
-                    showToast({ title: "图文反推", description: "功能开发中" })
-                  }}
+                  onReversePrompt={() => void handleReversePrompt()}
                 />
             </div>
           </div>
@@ -3555,9 +3635,7 @@ if (!headerTitle.pendingRename) return
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
             onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
-            onReversePrompt={() => {
-              showToast({ title: "图文反推", description: "功能开发中" })
-            }}
+            onReversePrompt={() => void handleReversePrompt()}
           />
         </section>
         </Show>
