@@ -121,6 +121,7 @@
   min-height: 0;
   display: flex;
   position: relative;
+  z-index: 1;
   background: #fff;
 }
 
@@ -444,6 +445,33 @@
   width: 52px;
   height: 64px;
   background: url("/studio/IconAdd.svg") center / 52px 64px no-repeat;
+}
+
+.studio-composer-ref-upload-float {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  z-index: 15;
+}
+
+.studio-composer-ref-upload-float img {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.studio-composer-ref-upload-float:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .studio-composer-ref-slot.filled .studio-composer-ref-btn {

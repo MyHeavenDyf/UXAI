@@ -55,7 +55,8 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { directoryHeader } from "@/utils/headers"
-import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
+import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
@@ -363,40 +364,51 @@ const sessionMessagesLoaded = createMemo(() => {
     const handleAnnotation = async (e: Event) => {
       const detail = (e as CustomEvent<AnnotationEventDetail>).detail
       
-      // Convert File to Attachment (synchronously)
       if (detail.file) {
         const file = detail.file
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.readAsDataURL(file)
-        })
+        const id = crypto.randomUUID()
+        const previewUrl = URL.createObjectURL(file)
+        filesById.set(id, file)
         
-        const att: Attachment = {
-          id: crypto.randomUUID(),
+        setAttachments(prev => [...prev, {
+          id,
           filename: file.name,
           mime: 'image/png',
-          dataUrl
-        }
-        setAttachments(prev => [...prev, att])
+          size: file.size,
+          status: 'uploading',
+          source: 'external',
+          previewUrl
+        }])
+        
+        uploadFile(file)
+          .then(result => {
+            setAttachments(prev => prev.map(a => 
+              a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+            ))
+          })
+          .catch(err => {
+            const message = err instanceof UploadError ? err.message : '上传失败'
+            setAttachments(prev => prev.map(a =>
+              a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+            ))
+          })
       }
       
-      // Build message text (note only)
       const messageText = detail.note || ""
       
-      // Send immediately if requested and not busy
       if (detail.action === 'send' && !sending()) {
         const sessionId = params.id
         if (sessionId) {
-          await sendMessage(sessionId, messageText)
-          
-          // Clear attachments after send
-          setAttachments([])
-          setPrompt("")
+          await new Promise(resolve => setTimeout(resolve, 100))
+          const att = attachments().find(a => a.id === filesById.keys().next().value)
+          if (att?.status === 'done' || attachments().length === 0) {
+            await sendMessage(sessionId, messageText)
+            setAttachments([])
+            setPrompt("")
+          }
         }
       }
       
-      // Acknowledge success
       if (detail.ack) {
         detail.ack({ ok: true })
       }
@@ -601,6 +613,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  const filesById = new Map<string, File>()
+  const maxAttachments = () => attachments().length >= 5
   let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
@@ -1076,12 +1090,21 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string) {
     try {
-      const fileParts: FilePartInput[] = attachments().map((a) => ({
+      const done = attachments().filter(a => a.status === "done")
+      
+      // 本地文件 → [附件] 清单
+      const localFiles = done.filter(a => a.source === "local" && a.path)
+      const localManifest = localFiles.map(a => ({ filename: a.filename, path: a.path! }))
+      
+      // 外部文件 → FilePart
+      const externalFiles = done.filter(a => a.source === "external")
+      const fileParts: FilePartInput[] = externalFiles.map(a => ({
         type: "file",
         mime: a.mime,
         filename: a.filename,
-        url: a.dataUrl,
+        url: a.url ?? a.dataUrl!,
       }))
+      
       let promptText = text
 
       const loadedSkills = skillToolCalls()
@@ -1199,6 +1222,12 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
+      
+      // 本地文件清单 (synthetic)
+      const manifestPart = localManifest.length > 0 
+        ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
+        : null
+      
       const modelKey = activeModelKey()
       if (!modelKey) {
         setAttachments([])
@@ -1207,13 +1236,21 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({
         module: "design",
         name: "send-message",
-        extend: JSON.stringify({ hasAttachment: fileParts.length > 0, designSystem: dsId ?? null }),
+        extend: JSON.stringify({ 
+          hasAttachment: fileParts.length > 0 || localManifest.length > 0, 
+          designSystem: dsId ?? null 
+        }),
       })
+      
+      const parts: Array<TextPartInput | FilePartInput> = [textPart]
+      if (manifestPart) parts.push(manifestPart)
+      parts.push(...fileParts)
+      
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
-        parts: [textPart, ...fileParts],
+        parts,
       })
       setAttachments([])
     } catch (err) {
@@ -1507,44 +1544,29 @@ if (dsId) {
     })
   }
 
-  /** Add artifact file to session attachments (独立函数，不依赖 mentionState) */
-  async function addArtifactToSession(file: ArtifactFile) {
-    // Check if already added
+  /** Add artifact file to session attachments (仅记录路径，不发内容) */
+  function addArtifactToSession(file: ArtifactFile) {
     if (attachments().some(a => a.path === file.path)) {
       showToast({ title: "已添加", description: file.name })
       return
     }
 
-    // Check attachment limit
     if (maxAttachments()) {
       showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
       return
     }
 
-    // Load file content
-    try {
-      const content = await fetchArtifactContent(globalSDK.url, sdk.directory ?? "", file.path)
-      const mime = getMimeForKind(file.kind)
-      const dataUrl = (file.kind === "image" || file.kind === "svg")
-        ? `data:${mime};base64,${content.content}`
-        : `data:${mime};base64,${btoa(unescape(encodeURIComponent(content.content)))}`
-
-      setAttachments(prev => [...prev, {
-        id: crypto.randomUUID(),
-        filename: file.name,
-        mime,
-        dataUrl,
-        path: file.path,
-        kind: file.kind,
-      }])
-      showToast({ title: "已添加附件", description: file.name })
-    } catch (err) {
-      showToast({
-        title: "添加失败",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "error",
-      })
-    }
+    setAttachments(prev => [...prev, {
+      id: crypto.randomUUID(),
+      filename: file.name,
+      mime: file.mime || getMimeForKind(file.kind),
+      size: file.size,
+      status: 'done',
+      source: 'local',
+      path: file.path,
+      kind: file.kind,
+    }])
+    showToast({ title: "已添加附件", description: file.name })
   }
 
   function getMimeForKind(kind: ArtifactFileKind): string {
@@ -1569,89 +1591,164 @@ if (dsId) {
 
   let fileInputRef!: HTMLInputElement
 
-  /** 添加文件附件（最多 5 个） */
-  function addAttachments(files: File[]) {
+  function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
     const slots = 5 - attachments().length
+    if (files.length > slots) {
+      showToast({ title: "最多添加5个附件" })
+    }
     const toAdd = files.slice(0, slots)
     for (const file of toAdd) {
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string
-        setAttachments((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            filename: file.name,
-            mime: file.type || "application/octet-stream",
-            dataUrl,
-          },
-        ])
+      tracker.interaction({ 
+        module: "design", 
+        name: "add-attachment", 
+        extend: JSON.stringify({ method, filename: file.name }) 
+      })
+      
+      if (isImageFile(file.name)) {
+        addImageAttachment(file)
+      } else {
+        addDataUrlAttachment(file)
       }
-      reader.readAsDataURL(file)
-    }
-    if (toAdd.length > 0) {
-      tracker.interaction({ module: "design", name: "add-attachment", extend: JSON.stringify({ count: toAdd.length }) })
     }
   }
 
-  /** 移除附件 */
+  async function addImageAttachment(file: File) {
+    const id = crypto.randomUUID()
+    const previewUrl = URL.createObjectURL(file)
+    filesById.set(id, file)
+    
+    setAttachments(prev => [...prev, {
+      id,
+      filename: file.name,
+      mime: file.type || 'image/png',
+      size: file.size,
+      status: 'uploading',
+      source: 'external',
+      previewUrl
+    }])
+    
+    try {
+      const result = await uploadFile(file)
+      setAttachments(prev => prev.map(a => 
+        a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+      ))
+    } catch (err) {
+      const message = err instanceof UploadError ? err.message : '上传失败'
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+      ))
+    }
+  }
+
+  function addDataUrlAttachment(file: File) {
+    const id = crypto.randomUUID()
+    filesById.set(id, file)
+    
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setAttachments(prev => [...prev, {
+        id,
+        filename: file.name,
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+        status: 'done',
+        source: 'external',
+        dataUrl: ev.target?.result as string
+      }])
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function handlePaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter(item => item.kind === "file")
+      .map(item => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    e.preventDefault()
+    handleAddFiles(files, "paste")
+  }
+
+  function retryUpload(id: string) {
+    const file = filesById.get(id)
+    const att = attachments().find(a => a.id === id)
+    if (!file || !att) return
+    
+    setAttachments(prev => prev.map(a => 
+      a.id === id ? { ...a, status: 'uploading' as const, error: undefined } : a
+    ))
+    
+    uploadFile(file)
+      .then(result => {
+        setAttachments(prev => prev.map(a => 
+          a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+        ))
+      })
+      .catch(err => {
+        const message = err instanceof UploadError ? err.message : '上传失败'
+        setAttachments(prev => prev.map(a =>
+          a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+        ))
+      })
+  }
+
   function removeAttachment(id: string) {
-    setAttachments((prev) => prev.filter((a) => a.id !== id))
+    const att = attachments().find(a => a.id === id)
+    if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl)
+    filesById.delete(id)
+    setAttachments(prev => prev.filter(a => a.id !== id))
   }
 
-  /** 根据文件路径移除附件（用于删除文件时清理） */
   function removeAttachmentsByPath(paths: string[]) {
     const normalizedPaths = new Set(paths.map(p => p.replace(/\\/g, "/")))
-    setAttachments((prev) => prev.filter((a) => {
+    setAttachments(prev => prev.filter(a => {
       if (!a.path) return true
       return !normalizedPaths.has(a.path.replace(/\\/g, "/"))
     }))
   }
 
-  /** 根据文件路径重命名附件（用于重命名文件时更新） */
   function renameAttachmentPath(oldPath: string, newPath: string, newFilename: string) {
     const normalizedOld = oldPath.replace(/\\/g, "/")
-    setAttachments((prev) => prev.map((a) => {
+    setAttachments(prev => prev.map(a => {
       if (!a.path || a.path.replace(/\\/g, "/") !== normalizedOld) return a
       return { ...a, path: newPath, filename: newFilename }
     }))
   }
 
-  /** 文件选择回调 */
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
-      addAttachments(Array.from(input.files))
+      handleAddFiles(Array.from(input.files), "picker")
       input.value = ""
     }
   }
 
-  /** 拖拽悬停 */
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
-  /** 拖拽离开 */
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
-  /** 拖拽放置 → 添加文件附件 */
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length > 0) addAttachments(files)
+    if (files.length > 0) handleAddFiles(files, "drop")
   }
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
     
+    // URL 类型：跳过文件推断和加载
+    const isUrl = card.filePath?.match(/^https?:\/\//i)
+    
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
-    if (!card.filePath && projectDir() && params.id) {
+    if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
         const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!)
@@ -1668,10 +1765,10 @@ if (dsId) {
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab（local-file 或 html），直接激活
+    // ★ Step 0: 如果已有匹配的 tab，直接激活
     if (card.filePath) {
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "local-file") return t.absoluteFilePath === card.filePath
+        if (t.type === "html" && isUrl) return t.filePath === card.filePath
         if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
         if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
         return false
@@ -1683,7 +1780,7 @@ if (dsId) {
     }
     
     // ★ Step 1: 从文件加载内容（编辑已保存到文件）
-    if (card.filePath) {
+    if (card.filePath && !isUrl) {
       const skipContentLoad = ["image", "video", "audio", "pdf", "svg"].includes(card.type)
       if (!skipContentLoad) {
         try {
@@ -1711,7 +1808,7 @@ if (dsId) {
     
     if (tab) {
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
-      if (shouldPersist) {
+      if (shouldPersist && !isUrl && tab.content) {
         await persistTabChanges(tab, {
           sessionId: params.id!,
           projectDir: projectDir(),
@@ -1724,31 +1821,48 @@ if (dsId) {
     }
   }
 
+  function inferOutputType(filePath: string): OutputCardType {
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+    if (ext === 'html' || ext === 'htm') return 'html'
+    if (ext === 'svg') return 'svg'
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'].includes(ext)) return 'image'
+    if (ext === 'pdf') return 'pdf'
+    if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) return 'video'
+    if (['mp3', 'wav', 'ogg', 'flac', 'm4a'].includes(ext)) return 'audio'
+    if (ext === 'md' || ext === 'markdown') return 'markdown'
+    if (ext === 'json') return 'json'
+    if (['ts', 'tsx', 'js', 'jsx', 'css', 'scss', 'less', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h'].includes(ext)) return 'code-snippet'
+    return 'text'
+  }
+
   function handleOpenLocalFile(filePath: string) {
-    // Check if it's a URL
+    const dir = projectDir()
+
+    // URL 处理
     if (/^https?:\/\//i.test(filePath)) {
+      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
       let title: string
       try {
         const url = new URL(filePath)
         const pathSegments = url.pathname.split('/').filter(Boolean)
-        const lastSegment = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : ''
-        title = lastSegment ? `${url.host}/${lastSegment}` : url.host
+        title = pathSegments.length > 0 ? `${url.host}/${pathSegments[pathSegments.length - 1]}` : url.host
       } catch {
         title = filePath
       }
 
-      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
-      tabStore.openLocalFileTab({
+      handleOpenResult({
         id: tabId,
         title,
-        absoluteFilePath: filePath,
+        type: 'html',
+        content: '',
+        filePath,
         createdAt: new Date(),
       })
       tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
       return
     }
 
-    const dir = projectDir()
+    // 本地文件处理
     const normalizedPath = filePath.replace(/\\/g, '/')
     const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
 
@@ -1767,14 +1881,17 @@ if (dsId) {
     absolutePath = absolutePath.replace(/\/+/g, '/')
 
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
+    const type = inferOutputType(filePath)
 
-    tabStore.openLocalFileTab({
+    handleOpenResult({
       id: tabId,
       title: filePath.split(/[/\\]/).pop() ?? filePath,
-      absoluteFilePath: absolutePath,
+      type,
+      content: '',
+      filePath: absolutePath,
       createdAt: new Date(),
     })
-    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local" }) })
+    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
   }
 
   /** Handle `/skills <name>` command: inject skill name into prompt */
@@ -1843,7 +1960,6 @@ if (dsId) {
   }
 
   const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
-  const maxAttachments = () => attachments().length >= 5
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -2121,12 +2237,14 @@ if (dsId) {
                     <AttachmentBar
                       attachments={attachments()}
                       onRemove={removeAttachment}
+                      onRetry={retryUpload}
                     />
 
                     <textarea
                       ref={textareaRef}
                       value={prompt()}
                       onInput={handleInput}
+                      onPaste={handlePaste}
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
@@ -2430,12 +2548,14 @@ if (dsId) {
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
+                    onRetry={retryUpload}
                   />
 
                   <textarea
                     ref={textareaRef}
                     value={prompt()}
                     onInput={handleInput}
+                    onPaste={handlePaste}
                     onKeyDown={handleKeyDown}
                     placeholder="输入指令，按 Enter 发送…"
                     rows={3}

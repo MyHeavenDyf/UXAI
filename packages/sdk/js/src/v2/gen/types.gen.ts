@@ -23,6 +23,7 @@ export type Event =
   | EventSessionError
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventSkillUsed
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -795,6 +796,7 @@ export type GlobalEvent = {
     | EventSessionError
     | EventInstallationUpdated
     | EventInstallationUpdateAvailable
+    | EventSkillUsed
     | EventQuestionAsked
     | EventQuestionReplied
     | EventQuestionRejected
@@ -2431,6 +2433,14 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
+  }
+}
+
+export type EventSkillUsed = {
+  id: string
+  type: "skill.used"
+  properties: {
+    skillName: string
   }
 }
 
@@ -5773,6 +5783,9 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    extra?: {
+      [key: string]: unknown
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -6108,6 +6121,9 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    extra?: {
+      [key: string]: unknown
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -7219,6 +7235,34 @@ export type StudioPermissionsCheckResponses = {
   200: unknown
 }
 
+export type StudioPromptGenCreateData = {
+  body?: {
+    base64img: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-gen"
+}
+
+export type StudioPromptGenCreateErrors = {
+  /**
+   * StudioGenerationError
+   */
+  400: StudioGenerationError
+}
+
+export type StudioPromptGenCreateError = StudioPromptGenCreateErrors[keyof StudioPromptGenCreateErrors]
+
+export type StudioPromptGenCreateResponses = {
+  /**
+   * Prompt generation result
+   */
+  200: unknown
+}
+
 export type StudioGenerationsCreateData = {
   body?: {
     sessionID?: string
@@ -7605,6 +7649,128 @@ export type InsightSessionsListResponses = {
 }
 
 export type InsightSessionsListResponse = InsightSessionsListResponses[keyof InsightSessionsListResponses]
+
+export type InsightFilesListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    category: "uploads" | "outputs"
+    path?: string
+  }
+  url: "/insight/files"
+}
+
+export type InsightFilesListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesListError = InsightFilesListErrors[keyof InsightFilesListErrors]
+
+export type InsightFilesListResponses = {
+  /**
+   * Insight session files
+   */
+  200: {
+    files: Array<{
+      name: string
+      path: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      isFolder: boolean
+      relativePath: string
+    }>
+  }
+}
+
+export type InsightFilesListResponse = InsightFilesListResponses[keyof InsightFilesListResponses]
+
+export type InsightFilesUploadData = {
+  body?: {
+    sessionId: string
+    filename: string
+    content: string
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/upload"
+}
+
+export type InsightFilesUploadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesUploadError = InsightFilesUploadErrors[keyof InsightFilesUploadErrors]
+
+export type InsightFilesUploadResponses = {
+  /**
+   * Uploaded insight file
+   */
+  200: {
+    name: string
+    path: string
+    size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    isFolder: boolean
+    relativePath: string
+  }
+}
+
+export type InsightFilesUploadResponse = InsightFilesUploadResponses[keyof InsightFilesUploadResponses]
+
+export type InsightFilesUploadFolderData = {
+  body?: {
+    sessionId: string
+    folderName: string
+    files: Array<{
+      relativePath: string
+      content: string
+    }>
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/upload-folder"
+}
+
+export type InsightFilesUploadFolderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesUploadFolderError = InsightFilesUploadFolderErrors[keyof InsightFilesUploadFolderErrors]
+
+export type InsightFilesUploadFolderResponses = {
+  /**
+   * Uploaded insight folder
+   */
+  200: {
+    name: string
+    path: string
+    fileCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type InsightFilesUploadFolderResponse =
+  InsightFilesUploadFolderResponses[keyof InsightFilesUploadFolderResponses]
 
 export type PtyConnectData = {
   body?: never
