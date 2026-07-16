@@ -459,6 +459,7 @@ createEffect(() => {
   createEffect(on(() => props.mode, async (mode) => {
     // Electron 环境不需要自动保存（local:// 直接读取文件）
     if (isElectronDesktop()) return
+    if (!props.content?.trim()) return
     if (mode === "preview" && shouldUseServeUrl() && props.onSaveFile) {
       try {
         await props.onSaveFile(props.content)
