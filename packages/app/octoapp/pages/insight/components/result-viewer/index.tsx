@@ -57,6 +57,7 @@ export function ResultViewer(props: {
   onCloseTabsByPath?: (paths: string[]) => void
   onRemoveAttachmentsByPath?: (paths: string[]) => void
   onFilesRefresh?: () => void
+  refreshKey?: number
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
   const projectDir = useProjectDir()
@@ -85,6 +86,7 @@ export function ResultViewer(props: {
         />
         <Show when={props.viewMode === "files"}>
           <InsightFileManager
+            refreshKey={props.refreshKey}
             onOpenFile={props.onOpenLocalFile}
             onAddToSession={props.onAddToSession}
             onCloseTabsByPath={props.onCloseTabsByPath}

@@ -24,11 +24,16 @@ export const StudioPaths = {
   generationReboot: `${root}/generations/:generationID/reboot`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
+  promptGen: `${root}/prompt-gen`,
   permission: `${root}/permissions/check`,
 } as const
 
 export const StudioPermissionPayload = Schema.Struct({
   uid: Schema.optional(Schema.String),
+})
+
+export const StudioPromptGenPayload = Schema.Struct({
+  base64img: Schema.String,
 })
 
 export const StudioGenerationPayload = Schema.Struct({
@@ -149,6 +154,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.permissions.check",
             summary: "Check Studio permission",
             description: "Checks whether the current user can access the internal Studio entry.",
+          }),
+        ),
+        HttpApiEndpoint.post("createPromptGen", StudioPaths.promptGen, {
+          payload: StudioPromptGenPayload,
+          success: described(Schema.Unknown, "Prompt generation result"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.prompt-gen.create",
+            summary: "Generate prompt from reference image",
+            description: "Returns generated prompt text from the internal image prompt generation API.",
           }),
         ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {

@@ -59,6 +59,9 @@ import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
+// jk-j60099994-replace-with-60062650-octo-1-start
+// jk-j60099994-replace-with-60062650-octo-1-end
+
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
@@ -476,9 +479,13 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
                 <DialogProvider>
                   {/* jk-j60099994-replace-with-octo-2-start */}
                   {/* jk-j60099994-replace-with-octo-2-end */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-end */}
                   <MarkedProvider>
                     <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
                   </MarkedProvider>
+                  {/* jk-j60099994-replace-with-60062650-octo-3-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-3-end */}
                   {/* jk-j60099994-replace-with-octo-3-start */}
                   {/* jk-j60099994-replace-with-octo-3-end */}
                 </DialogProvider>

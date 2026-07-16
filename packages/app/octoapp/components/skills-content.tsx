@@ -5,7 +5,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 // jk-j60099994-replace-with-60062650-components-skills-content-1-start
 type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-components-skills-content-1-end
-type SkillsConfig = Record<string, SkillConfigEntry>
+type SkillsConfig = { meta?: object; skill?: object; agent?: object}
 
 const AGENT_INFO: Record<string, { label: string; subtitle: string }> = {
   octo_insight: { label: "Octo Insight", subtitle: "用户研究" },
@@ -106,13 +106,13 @@ export function SkillsContent(): JSX.Element {
 
   async function loadConfig() {
     // jk-j60099994-replace-with-60062650-components-skills-content-4-start
-    const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig>; ensureSkillConfig?: () => Promise<void> } }).api
+    const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillsConfig>; ensureSkillConfig?: () => Promise<void> } }).api
     // jk-j60099994-replace-with-60062650-components-skills-content-4-end
-    if (api?.getSkillsConfig) {
+    if (api?.getSkillConfig) {
       try {
         // 确保 skill_config.json 存在（不存在时从 skills.json 构建）
         await api.ensureSkillConfig?.()
-        const data = await api.getSkillsConfig()
+        const data = await api.getSkillConfig()
         setConfig(data)
       } catch (err) {
         console.error("[SkillsContent] getSkillsConfig failed", err)

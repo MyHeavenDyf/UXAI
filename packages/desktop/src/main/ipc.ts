@@ -131,6 +131,8 @@ type Deps = {
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
   // jk-j60099994-replace-with-ipc-2-end
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-6-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-6-end
 }
 
 function addZipComment(zipPath: string, comment: string) {
@@ -508,6 +510,7 @@ export function registerIpcHandlers(deps: Deps) {
   }
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
   const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
+  const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
 
   /** 从 skills.json 同步生成 skill_config.json */
   function syncSkillConfig() {
@@ -563,6 +566,44 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  ipcMain.handle("get-skill-config", () => {
+    try {
+      if (!existsSync(skillConfigPath)) return {}
+      return JSON.parse(readFileSync(skillConfigPath, "utf-8"))
+    } catch {
+      return {}
+    }
+  })
+
+  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.error("set-skill-config failed", err)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  ipcMain.handle("get-assets-config", () => {
+    try {
+      if (!existsSync(assetsConfigPath)) return {}
+      return JSON.parse(readFileSync(assetsConfigPath, "utf-8"))
+    } catch {
+      return {}
+    }
+  })
+
+  ipcMain.handle("set-assets-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(assetsConfigPath), { recursive: true })
+      writeFileSync(assetsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.error("set-assets-config failed", err)
+      throw new Error(`Failed to save assets config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
   ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
     try {
@@ -611,15 +652,16 @@ export function registerIpcHandlers(deps: Deps) {
         return { success: false, error: "同名 skill 已存在" }
       }
 
-      cpSync(sourcePath, destDir, { recursive: true })
-
       // Update skills.json with type: "common"
       const skillMdPath = join(destDir, "SKILL.md")
       if (!existsSync(skillMdPath)) {
         return { success: false, error: "所选文件夹中未找到 SKILL.md" }
       }
-      const config = existsSync(skillsConfigPath)
-        ? JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
+
+      cpSync(sourcePath, destDir, { recursive: true })
+      
+      const config = existsSync(skillConfigPath)
+        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))?.skill
         : {}
       const content = readFileSync(skillMdPath, "utf-8")
       const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
@@ -630,9 +672,13 @@ export function registerIpcHandlers(deps: Deps) {
         import: true,
         type: "common",
       }
+      const configJson = existsSync(skillConfigPath)
+        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))
+        : {}
+      configJson['skill'] = config
       mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
-      syncSkillConfig()
+      writeFileSync(skillsConfigPath, JSON.stringify(configJson, null, 2), "utf-8")
+      // syncSkillConfig()
 
       return { success: true, skillName }
     } catch (err) {
