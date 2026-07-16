@@ -60,7 +60,7 @@ let persistedSelections: PersistedSelections = {
 }
 
 const MOCK_PRODUCT_TREE: ProductTreeData = {
-  domain: [
+  domains: [
     { id: 377, name: "终端BG", parentId: 0, sort: 0, industryId: 4 },
     { id: 308, name: "质量与流程IT修改该", parentId: 0, sort: 2, industryId: 3 },
     { id: 293, name: "华为云", parentId: 0, sort: 3, industryId: 2 },
@@ -182,8 +182,6 @@ const MOCK_SEARCH_RESULTS: DeliverableItem[] = [
 const getBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
 const isLoggedIn = () => !!localStorage.getItem("uiplusToken")
 const getAuthHeaders = () => ({
-  "Content-Type": "application/json",
-  "uiplustoken": localStorage.getItem("uiplusToken") || ""
 })
 
 interface Props {
@@ -236,7 +234,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       const data = await res.json()
       if (data?.content) {
         const tree: ProductTreeData = {
-          domain: data.content.domain || [],
+          domains: data.content.domains || [],
           subDomains: data.content.subDomains || [],
           products: data.content.products || []
         }

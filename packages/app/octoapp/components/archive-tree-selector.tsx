@@ -41,7 +41,7 @@ export interface NestedTreeNode {
 }
 
 export interface ProductTreeData {
-  domain: DomainNode[]
+  domains: DomainNode[]
   subDomains: SubDomainNode[]
   products: ProductNode[]
 }
@@ -78,7 +78,7 @@ function buildProductTree(data: ProductTreeData): InternalTreeNode[] {
   const subDomainChildren = new Map<number, SubDomainNode[]>()
   const productChildren = new Map<number, ProductNode[]>()
 
-  data.domain.forEach(d => domainMap.set(d.id, d))
+  data.domains.forEach(d => domainMap.set(d.id, d))
   data.subDomains.forEach(s => {
     subDomainMap.set(s.id, s)
     const arr = subDomainChildren.get(s.parentId) || []
@@ -127,7 +127,7 @@ function buildProductTree(data: ProductTreeData): InternalTreeNode[] {
 
   const roots: InternalTreeNode[] = []
 
-  data.domain
+  data.domains
     .sort((a, b) => a.sort - b.sort)
     .forEach(d => {
       const childSubDomains = subDomainChildren.get(d.id) || []
@@ -200,7 +200,7 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
 
   const tree = createMemo(() => {
     const data = props.data
-    if (data && 'domain' in data && 'subDomains' in data && 'products' in data) {
+    if (data && 'domains' in data && 'subDomains' in data && 'products' in data) {
       return buildProductTree(data as ProductTreeData)
     }
     if (Array.isArray(data) && data.length > 0 && 'label' in data[0]) {
