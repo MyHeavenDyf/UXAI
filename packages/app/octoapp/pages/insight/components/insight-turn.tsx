@@ -83,6 +83,8 @@ export function InsightTurn(props: {
    * 这里据 task_id 换回最初那批文件,保证每次查询回答下方挂的都是同一批产物(spec: task-card.md 重复查询不重生成)。
    */
   resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
+  /** 生成文件落盘后通知刷新文件管理表格 */
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -307,18 +309,24 @@ export function InsightTurn(props: {
   // 业界对照:Claude.ai Artifacts / ChatGPT Canvas / Cursor 均保留对话原貌,不抹掉。
   // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
 
-  // eager 落地(SPEC-INS-014 v4):本 turn 路径 A 的 MCP `uri` 产物卡「出卡即落」进 outputs,不等点开。
-  // (任务产物走 index.tsx 的 taskCards effect;此处覆盖非任务的直接 resource_link。)inline/path 卡不落
-  // (inline 是对话附加预览、path/write 产物由 agent 约定直接写 outputs,前端不搬运)。dedup 跨 turn 实例共享。
+  // eager 落地(SPEC-INS-014 v4):本 turn 路径 A 的 MCP `uri` 产物卡「出卡即落」进 outputs,不等点开;
+  // path 源(write 工具产物)已在磁盘,只需通知文件管理表格刷新即可拉到(对齐 make 的 autoSaveArtifact)。
+  // (任务产物走 index.tsx 的 taskCards effect;此处覆盖非任务的直接 resource_link。)inline 卡不落
+  // (对话附加预览,前端不搬运)。dedup 跨 turn 实例共享,card.id 全局唯一(含 messageID)。
   const eagerProjectDir = useProjectDir()
   createEffect(() => {
     const dir = eagerProjectDir()
-    if (!dir || !props.sessionID) return
     for (const card of outputCards()) {
-      if (card.source !== "uri" || !card.uri) continue
       if (eagerMaterializedCardIds.has(card.id)) continue
+      if (card.source === "path") {
+        eagerMaterializedCardIds.add(card.id)
+        props.onFilesRefresh?.()
+        continue
+      }
+      if (card.source !== "uri" || !card.uri) continue
+      if (!dir || !props.sessionID) continue
       eagerMaterializedCardIds.add(card.id)
-      void materializeUriCardToOutputs(card, dir, props.sessionID)
+      void materializeUriCardToOutputs(card, dir, props.sessionID).then(() => props.onFilesRefresh?.())
     }
   })
 

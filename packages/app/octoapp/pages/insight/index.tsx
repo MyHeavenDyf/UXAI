@@ -600,6 +600,10 @@ function InsightContent() {
   // 不必等第一个产物 tab 打开(Make 模块同款默认)。
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
 
+  // 文件管理表格外部刷新触发:对话上传文件落地会话目录(insight/<sid>/uploads/)后递增,
+  // 驱动 ResultViewer → InsightFileManager 的 refreshKey effect 重拉文件列表(对齐 make 模块的 filesRefreshKey)。
+  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
   // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009;v2 常驻可见改动见 SPEC-INS-014 §10) ────
   // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
   // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
@@ -927,6 +931,9 @@ function InsightContent() {
     }
     const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
 
+    // 文件已落地 insight/<sessionId>/uploads/:通知文件管理表格重拉,避免后续上传不刷新(挂载只刷一次的回归)。
+    if (movedPaths.size > 0) setFilesRefreshKey(k => k + 1)
+
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
     const uploadBlock = formatUploadsForPrompt(
@@ -935,6 +942,15 @@ function InsightContent() {
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
+    // [输出目录]:synthetic 提示模型把"生成/导出文档"的 write 产物落到 insight/<sessionId>/outputs/,
+    // 使其出现在文件管理"生成文件"段(模型无此提示时只回文本,文件管理表格看不到)。
+    {
+      const baseDir = projectDir()
+      if (baseDir) {
+        const outputsDir = `${baseDir.replace(/\\/g, "/")}/insight/${sessionId}/outputs/`
+        parts.push({ type: "text", text: `[输出目录] 生成/导出文档时,用 write 工具写入此目录:${outputsDir}`, synthetic: true })
+      }
+    }
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
     // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
     // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
@@ -2044,6 +2060,7 @@ function InsightContent() {
                         onTaskStop={handleTaskStop}
                         onTaskOpenResult={handleTaskOpenResult}
                         resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
+                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                       />
                     )}
                   </For>
@@ -2244,6 +2261,7 @@ function InsightContent() {
             onAddToSession={addInsightFileToSession}
             onCloseTabsByPath={closeTabsByPath}
             onRemoveAttachmentsByPath={removeAttachmentsByPath}
+            refreshKey={filesRefreshKey()}
           />
         </Show>
         </div>

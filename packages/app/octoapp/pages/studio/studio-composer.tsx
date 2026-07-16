@@ -449,7 +449,7 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse" style="display:none">
                   <IconTool
                     label="图文反推"
                     class="studio-composer-icon-reverse"
@@ -524,6 +524,7 @@ export function StudioComposer(props: {
                     <button
                       type="button"
                       class="studio-composer-toolbar-more-item"
+                      style="display:none"
                       onClick={() => props.onReversePrompt?.()}
                     >
                       <span class="studio-composer-toolbar-more-item-icon studio-composer-icon-reverse-icon" />
@@ -904,9 +905,8 @@ function ImageSettings(props: {
     if (!isCustom()) return false
     const w = debouncedW()
     const h = debouncedH()
+    if (w === 0 || h === 0) return false
     if (isJimeng()) {
-      if (w === 0 && h === 0) return false
-      if (w === 0 || h === 0) return false
       const area = w * h
       if (area < JIMENG_AREA_MIN || area > JIMENG_AREA_MAX) return true
       const ratio = w / h
@@ -914,13 +914,12 @@ function ImageSettings(props: {
       return false
     }
     const { min, max } = sizeLimit()
-    if (w === 0 && h === 0) return false
-    if ((w > 0 && (w < min || w > max)) || (h > 0 && (h < min || h > max))) return true
+    if (w < min || w > max || h < min || h > max) return true
     return false
   })
 
   function handleWidthInput(e: { currentTarget: HTMLInputElement }) {
-    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
     setWidth(val)
     if (isCustom()) props.onCustomWidth(val)
@@ -928,7 +927,7 @@ function ImageSettings(props: {
   }
 
   function handleHeightInput(e: { currentTarget: HTMLInputElement }) {
-    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "")
+    e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
     setHeight(val)
     if (isCustom()) props.onCustomHeight(val)
@@ -994,6 +993,21 @@ function ImageSettings(props: {
     setHeight(props.customHeight || 0)
     props.onIsCustom(true)
   }
+
+  // 弹框关闭或隐藏时，如果自定义尺寸为空，则重置为预设比例模式，
+  // 确保下次打开弹框时默认选中上次选中的预设比例
+  onCleanup(() => {
+    if (isCustom()) {
+      const w = width()
+      const h = height()
+      if (w === 0 || h === 0) {
+        props.onIsCustom(false)
+        props.onCustomWidth(0)
+        props.onCustomHeight(0)
+      }
+    }
+  })
+
   return (
     <div class="studio-menu studio-image-settings-menu">
       <div class="studio-image-settings-title">图片设置</div>
