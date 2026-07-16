@@ -26,8 +26,8 @@ const elInputRef = ref<InstanceType<typeof ElInput>>()
 onMounted(() => {
   const wrapper = (elInputRef.value as any)?.$el
   if (wrapper instanceof HTMLElement) {
-    if (attrs['dom-picker-id'] != null)
-      wrapper.setAttribute('dom-picker-id', String(attrs['dom-picker-id']))
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
     if (attrs['dom-picker-component'] != null)
       wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
     if (attrs['data-element-props'] != null)

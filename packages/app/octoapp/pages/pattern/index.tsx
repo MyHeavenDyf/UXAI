@@ -380,9 +380,9 @@ function PatternContent() {
   const sessionMessagesLoaded = () => !params.id || sessionSynced()
 
   // 从预览页选中元素后触发的修改回调
-  function handlePickerSubmit(text: string, domPickerId: string) {
-    setPrompt(`[选中元素: ${domPickerId}] ${text}`)
-    void handleSubmit()
+  function handlePickerSubmit(text: string, id: string) {
+    setPrompt(`[选中元素: ${id}] ${text}`)
+    handleSubmit()
   }
 
   const handleReorder = createReorderHandler({

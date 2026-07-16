@@ -14,17 +14,17 @@ export type AnnotationRecord = {
 
 const STORAGE_PREFIX = "octo:pattern:annotations"
 
-function annotationsFilePath(dir: string, sessionId: string, versionId: string) {
-  return `${dir}/.octo/design/history/${sessionId}/${versionId}.annotations.json`
+function annotationsFilePath(dir: string, sessionId: string) {
+  return `${dir}/.octo/design/history/${sessionId}/annotations/annotations.json`
 }
 
-function attachmentPath(dir: string, sessionId: string, annotationId: string, filename: string) {
-  return `${dir}/.octo/design/history/${sessionId}/annotations/${annotationId}/${filename}`
+function attachmentPath(dir: string, sessionId: string, savedName: string) {
+  return `${dir}/.octo/design/history/${sessionId}/annotations/uploads/${savedName}`
 }
 
-export async function loadAnnotations(dir: string, sessionId: string, versionId: string): Promise<AnnotationRecord[]> {
+export async function loadAnnotations(dir: string, sessionId: string): Promise<AnnotationRecord[]> {
   const api = getDesktopApi()
-  const path = annotationsFilePath(dir, sessionId, versionId)
+  const path = annotationsFilePath(dir, sessionId)
 
   if (api?.readFileBuffer) {
     try {
@@ -34,23 +34,30 @@ export async function loadAnnotations(dir: string, sessionId: string, versionId:
     } catch { return [] }
   }
 
-  const stored = localStorage.getItem(`${STORAGE_PREFIX}:${sessionId}:${versionId}`)
+  const stored = localStorage.getItem(`${STORAGE_PREFIX}:${sessionId}`)
   if (!stored) return []
   try { return JSON.parse(stored) as AnnotationRecord[] }
   catch { return [] }
 }
 
-export async function saveAnnotations(dir: string, sessionId: string, versionId: string, records: AnnotationRecord[]): Promise<void> {
+export async function saveAnnotations(dir: string, sessionId: string, records: AnnotationRecord[]): Promise<void> {
   const payload = JSON.stringify(records, null, 2)
   const api = getDesktopApi()
-  const path = annotationsFilePath(dir, sessionId, versionId)
+  const path = annotationsFilePath(dir, sessionId)
+  console.log("[annotation-persist] saveAnnotations", { path, records: records.length, hasApi: !!api, hasWriteFileBuffer: !!api?.writeFileBuffer })
 
   if (api?.writeFileBuffer) {
     const encoder = new TextEncoder()
-    await api.writeFileBuffer(path, encoder.encode(payload).buffer)
+    try {
+      await api.writeFileBuffer(path, encoder.encode(payload).buffer)
+      console.log("[annotation-persist] writeFileBuffer success", path)
+    } catch (e) {
+      console.error("[annotation-persist] writeFileBuffer failed", path, e)
+    }
     return
   }
-  localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}:${versionId}`, payload)
+  console.log("[annotation-persist] no writeFileBuffer, using localStorage")
+  localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}`, payload)
 }
 
 export async function saveAttachment(
@@ -60,7 +67,7 @@ export async function saveAttachment(
   const ext = fileName.includes(".") ? fileName.slice(fileName.lastIndexOf(".")) : ""
   const savedName = `${crypto.randomUUID()}${ext}`
   const api = getDesktopApi()
-  const path = attachmentPath(dir, sessionId, annotationId, savedName)
+  const path = attachmentPath(dir, sessionId, savedName)
 
   if (api?.writeFileBuffer) await api.writeFileBuffer(path, buffer)
   return { fileName, id: savedName }

@@ -9,11 +9,11 @@
  *   parent -> iframe:  { type: "DRAG_MODE", enabled: true|false, siblingMap?: Record<string,string[]> }
  *   iframe -> parent:  { type: "DRAG_REORDER", elementId, targetSiblingId, position: "before"|"after" }
  *
- * Uses the A2UI renderer's `dom-picker-id` attribute (= A2UI element id)
+ * Uses the A2UI renderer's `id` attribute (= A2UI element id)
  * which is always present on every rendered element.
  */
 ;(function () {
-  var ATTR = "dom-picker-id"
+  var ATTR = "id"
   var ACTIVE_ATTR = "data-dom-picker-active"
   var LONG_PRESS_MS = 300
   var dragMode = false

@@ -1228,6 +1228,18 @@ export function PropertyEditorPopup(props: {
 
         <div class="popup-body px-4 pb-2 flex flex-col gap-2">
 
+          <Show when={isTextElement()}>
+            <div class="flex gap-2 mt-2 flex-col">
+              <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">文本内容</label>
+              <div class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] w-full min-w-0">
+                <input value={editText()}
+                  onInput={(e) => setEditText(e.currentTarget.value)}
+                  type="text" placeholder="输入文本..."
+                  class="flex-1 min-w-0 bg-transparent outline-none text-[11px] px-2 h-full border-0 shadow-none" />
+              </div>
+            </div>
+          </Show>
+
           <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
             <div class="grid gap-2 py-2 min-w-0">
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
