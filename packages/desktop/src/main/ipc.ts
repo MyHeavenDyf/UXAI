@@ -9,6 +9,7 @@ import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
+import log from "electron-log/main.js"
 
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-start
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-end
@@ -101,6 +102,15 @@ function isInsightSessionWorktreePath(resolved: string): boolean {
   const segs = resolved.split(sep)
   const i = segs.lastIndexOf("insight")
   return i !== -1 && i + 2 < segs.length && (segs[i + 2] === "uploads" || segs[i + 2] === "outputs")
+}
+
+// 网络错误可读化:fetch 把真实原因(DNS / TLS / 代理 / 连接被拒)藏在 error.cause 链里,
+// IPC 序列化只保留顶层 message("fetch failed")——展开整条 cause 链拼进 message,
+// 让渲染端错误提示与 main.log 都能看到可定位的原因,而不是四个字母查到死。
+function describeNetworkError(err: unknown): string {
+  const parts: string[] = []
+  for (let cur: unknown = err; cur instanceof Error; cur = cur.cause) parts.push(cur.message)
+  return parts.length > 0 ? parts.join(" ← ") : String(err)
 }
 
 // 产物落地幂等(spec §2/§4.2):同一个资源(namespace=资源 URI)首次 materialize 后记下其
@@ -282,8 +292,17 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    // net.fetch 走 Chromium 网络栈(系统代理/PAC、系统证书),与渲染端/浏览器行为一致;
+    // Node/undici fetch 只认启动时的环境变量代理,内网"浏览器可达、直连不通"的机器上必挂。
+    const res = await net.fetch(url).catch((err: unknown) => {
+      const reason = describeNetworkError(err)
+      log.error("[octo:worktree] download-resource failed", { url, reason })
+      throw new Error(`下载失败: ${reason} (${url})`)
+    })
+    if (!res.ok) {
+      log.error("[octo:worktree] download-resource failed", { url, status: res.status, statusText: res.statusText })
+      throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    }
     const buf = Buffer.from(await res.arrayBuffer())
     await mkdir(dirname(destPath), { recursive: true })
     await writeFile(destPath, buf)
@@ -367,8 +386,23 @@ export function registerIpcHandlers(deps: Deps) {
           : join(app.getPath("temp"), "octo")
       await ensureWorktreeDir(dir)
       const destPath = collisionFreePath(dir, safeName)
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      // net.fetch 走 Chromium 网络栈,理由同 download-resource;失败落 main.log(electron-log),
+      // 裸 console.log 进不了 main.log,内网远程排障只有这份文件可看。
+      const res = await net.fetch(url).catch((err: unknown) => {
+        const reason = describeNetworkError(err)
+        log.error("[octo:worktree] result-materialize-failed", { url, filename: safeName, sessionId, reason })
+        throw new Error(`下载失败: ${reason} (${url})`)
+      })
+      if (!res.ok) {
+        log.error("[octo:worktree] result-materialize-failed", {
+          url,
+          filename: safeName,
+          sessionId,
+          status: res.status,
+          statusText: res.statusText,
+        })
+        throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      }
       const buf = Buffer.from(await res.arrayBuffer())
       await writeFile(destPath, buf)
       materializedByNamespace.set(namespace, destPath)
