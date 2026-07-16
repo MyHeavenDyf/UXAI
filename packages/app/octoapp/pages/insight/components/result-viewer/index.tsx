@@ -96,15 +96,18 @@ export function ResultViewer(props: {
         </Show>
         <Show when={props.viewMode === "tabs" && activeTab()}>
           {(tab) => (
-            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <ActionBar
-                tab={tab()}
-                viewMode={tab().viewMode ?? "preview"}
-                onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
-                onEdit={() => setEditingId(tab().id)}
-              />
-              <div class="flex-1 overflow-hidden">
-                <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
+            <div class="flex flex-col flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
+              {/* 文件预览区域(ActionBar+TabBody)min-width 800px;窄屏时整体横向滚动,与文件管理区域一致 */}
+              <div class="flex flex-col flex-1 min-h-0" style={{ "min-width": "800px" }}>
+                <ActionBar
+                  tab={tab()}
+                  viewMode={tab().viewMode ?? "preview"}
+                  onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
+                  onEdit={() => setEditingId(tab().id)}
+                />
+                <div class="flex-1 overflow-hidden">
+                  <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
+                </div>
               </div>
             </div>
           )}

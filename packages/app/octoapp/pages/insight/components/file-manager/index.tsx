@@ -407,7 +407,7 @@ function FileManagerInner(props: {
   return (
     <div class="flex h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
       <div
-        class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
+        class="flex flex-col flex-1 min-w-0 overflow-x-auto overflow-y-hidden relative"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -438,6 +438,8 @@ function FileManagerInner(props: {
           </div>
         </Show>
 
+        {/* 整个文件管理区域(工具栏+面包屑+表格)min-width 800px;窄屏时外层 overflow-x-auto 整体横向滚动 */}
+        <div class="flex flex-col flex-1 min-h-0" style={{ "min-width": "800px" }}>
         <Show when={hasAnyFiles()}>
           <FileManagerToolbar
             fileStore={fileStore}
@@ -506,6 +508,7 @@ function FileManagerInner(props: {
             </div>
           </Match>
         </Switch>
+        </div>
       </div>
     </div>
   )
