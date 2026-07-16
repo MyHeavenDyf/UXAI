@@ -1808,7 +1808,7 @@ if (dsId) {
     
     if (tab) {
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
-      if (shouldPersist && !isUrl) {
+      if (shouldPersist && !isUrl && tab.content) {
         await persistTabChanges(tab, {
           sessionId: params.id!,
           projectDir: projectDir(),

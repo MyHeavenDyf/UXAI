@@ -124,7 +124,7 @@ function AttachmentChip(props: {
         </Show>
       </div>
 
-      <div style={{ flex: "1", "min-width": "0", display: "flex", "flex-direction": "column", gap: "2px" }}>
+      <div style={{ flex: "1", "min-width": "0", display: "flex", "flex-direction": "column", gap: "2px", "padding-right": "24px" }}>
         <span
           title={props.att.filename}
           class="whitespace-nowrap"
