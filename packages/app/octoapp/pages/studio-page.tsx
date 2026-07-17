@@ -328,6 +328,10 @@ export default function StudioPage() {
     createStore({ width: 468 }),
   )
   const [studioCenterWidth, setStudioCenterWidth] = createSignal(studioCenterStore.width)
+  const [studioViewPref, setStudioViewPref] = persisted(
+    Persist.global("studio.view.preference"),
+    createStore({ mode: "file-manager" as "canvas" | "file-manager" }),
+  )
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
     sessionID: () => params.id,
     globalSDK,
@@ -891,6 +895,7 @@ export default function StudioPage() {
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
         setShowFileManager(false)
+        setStudioViewPref("mode", "canvas")
         setMode("preview")
         return
       }
@@ -906,6 +911,7 @@ export default function StudioPage() {
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
         setShowFileManager(false)
+        setStudioViewPref("mode", "canvas")
         setMode("preview")
       }
     })
@@ -942,6 +948,7 @@ export default function StudioPage() {
       setWorkspaceUploadRequested(false)
       setFileManagerDetailView(false)
       setShowFileManager(false)
+      setStudioViewPref("mode", "canvas")
       setMode("preview")
     })
   }
@@ -974,6 +981,7 @@ export default function StudioPage() {
         setShowStudioCanvas(true)
         setShowFileManager(true)
         setFileManagerDetailView(false)
+        setStudioViewPref("mode", "file-manager")
       }
     })
   }
@@ -1086,8 +1094,9 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
+        const prefFileManager = studioViewPref.mode === "file-manager"
         setShowStudioCanvas(true)
-        setShowFileManager(true)
+        setShowFileManager(prefFileManager)
         setFileManagerDetailView(false)
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(preserveEditorEntry)
@@ -3687,6 +3696,7 @@ if (!headerTitle.pendingRename) return
                   // fallback 模式（无 tabs）：切换到文件管理
                   setShowFileManager(true)
                   setFileManagerDetailView(false)
+                  setStudioViewPref("mode", "file-manager")
                   const allIds = result()?.images.map((img) => img.id) ?? []
                   setDeletedImageIds(new Set(allIds))
                   setSelectedImageId(undefined)
@@ -3710,7 +3720,11 @@ if (!headerTitle.pendingRename) return
                 } else if (canvasTabImages().length === 0) {
                   // 无图片 tab，保持在文件管理，不切换
                 } else {
-                  setShowFileManager((v) => !v)
+                  setShowFileManager((v) => {
+                    const next = !v
+                    setStudioViewPref("mode", next ? "file-manager" : "canvas")
+                    return next
+                  })
                 }
               }}
               showFileManager={showFileManager()}
