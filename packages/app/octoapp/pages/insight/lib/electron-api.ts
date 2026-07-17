@@ -2,7 +2,7 @@
 // 不做全局 Window.api 接口增强 — 上游 app.tsx 已声明 Window.api,
 // 接口合并会因 setTitlebar 之外字段不一致而 TS2717 报错。
 // 走 helper 强转的方式取 api,类型安全在 helper 内闭环。
-// 真实实现见 packages/desktop-electron/src/preload/index.ts。
+// 真实实现见 packages/desktop/src/preload/index.ts;内网壳对接清单见 octo-agent 文档仓 docs/intranet-handoff.md §4。
 
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
