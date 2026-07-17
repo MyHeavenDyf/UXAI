@@ -39,6 +39,7 @@ import { PatternMatchPage } from "./modules/preview/pattern-match-page"
 import type { PatternMatchItem } from "./utils/pattern-resource"
 import { readPatternFile, readPatternAssets, readPatternPreview, saveUploadImage, replacePatternAssetPaths } from "./utils/pattern-resource"
 import proto_pattern_block from "./agents/proto_pattern_block"
+import proto_replanner from "./agents/proto-replanner"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
@@ -1196,7 +1197,41 @@ function PatternContent() {
     const sid = params.id
     if (!sid) return
     tracker.interaction({ module: "prototype", name: "download-result" })
-    await download({ planner: lastPlanner()[sid] ?? null, mergedA2UI: pendingPreviewData()[sid] ?? null })
+    const mk = activeModelKey()
+    if (!mk) {
+      showToast({ title: "请先选择模型" })
+      return
+    }
+    const mergedA2UI = pendingPreviewData()[sid] as Record<string, unknown> | null
+    if (!mergedA2UI) {
+      showToast({ title: "暂无可下载的内容" })
+      return
+    }
+
+    // 独立流程：重新生成 planner 后下载，不影响主流程数据
+    let planner: Record<string, unknown> | null = null
+    let replannerSessionId: string | undefined
+    try {
+      const result = await proto_replanner({
+        sdk,
+        sync,
+        modelKey: mk,
+        rootSession: sid,
+        finalA2UIJson: mergedA2UI,
+        onSessionCreated: (childID: string) => { replannerSessionId = childID },
+      })
+      planner = result as unknown as Record<string, unknown>
+    } catch (err) {
+      console.error("[PatternPage] proto_replanner failed", err)
+      if (err instanceof Error && err.message === "aborted") return
+      const error = classifyAIError(err)
+      showToast({ title: error.title || "重新生成失败" })
+      return
+    } finally {
+      if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
+    }
+
+    await download({ planner, mergedA2UI })
   }
 
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
