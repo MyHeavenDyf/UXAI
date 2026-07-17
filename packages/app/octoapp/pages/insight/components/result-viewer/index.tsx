@@ -445,7 +445,7 @@ function PathErrorFallback(props: {
 // spec: docs/specs/ui/output-renderers.md §6.A,决策: ADR-009。
 //
 // 返回桌面壳缺失的 API 方法名列表(便于 toast 给用户精确报错 + 知会开发团队补壳)。
-// SOT: packages/app/src/pages/insight/lib/electron-api.ts;handoff 同步清单见 docs/intranet-handoff.md §1.6。
+// SOT: ../../lib/electron-api.ts 的 DesktopApi;handoff 同步清单见 octo-agent 文档仓 docs/intranet-handoff.md §4。
 type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder"
 function missingDesktopApi(required: ApiKey[]): string[] {
   const api = getDesktopApi()
