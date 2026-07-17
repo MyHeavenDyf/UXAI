@@ -37,6 +37,11 @@ export interface SceneConfigObject3D {
   src?: string
   castShadow?: boolean
   receiveShadow?: boolean
+  /** 标记为分区容器（zone）。由 mergeSceneObjects 据 planner.slots.element_id 注入，
+   *  作为 zone 身份的权威来源传给渲染端（liveDataLoader），用以标 __logicalRoot 支撑
+   *  编辑态「整体」选中。支持嵌套分区（某 zone 挂在另一 zone 下）。
+   *  无此标记时渲染端回落到「root 直接子=zone」启发式（兼容旧场景/示例）。 */
+  __zone?: boolean
 }
 export interface SceneConfigLight {
   type: "ambient" | "hemisphere" | "directional"

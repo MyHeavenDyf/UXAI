@@ -55,7 +55,14 @@ export function mergeSceneObjects(
   oldSceneObjects: SceneConfigObject3D[] = [],
 ): SceneConfig {
   // 1. shellObjects：planner.elements（分区 group 容器 + 结构 group）
-  const shellObjects: SceneConfigObject3D[] = (planner.elements ?? []).map((e) => ({ ...e }))
+  //    注入 __zone 标记到 slot.element_id 对应的 group：zone 身份权威源 = planner.slots，
+  //    传给渲染端 liveDataLoader 标 __logicalRoot（编辑态「整体」选中）。支持嵌套分区
+  //    （如 tableAndPropsZone 挂在 platformAndGroundZone 下，两者都是 zone）。
+  const zoneElementIds = new Set((planner.slots ?? []).map((s) => s.element_id))
+  const shellObjects: SceneConfigObject3D[] = (planner.elements ?? []).map((e) => ({
+    ...e,
+    ...(zoneElementIds.has(e.id) ? { __zone: true } : {}),
+  }))
 
   // 2. 计算 modify 场景下哪些 slot 的旧物体要被替换/保留
   const slotsByOp = new Map<string, "create" | "modify" | "none">()
