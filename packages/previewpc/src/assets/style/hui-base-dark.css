@@ -239,7 +239,7 @@
   --el-font-size-medium: var(--font-size-lg);
   /*  (默认正文) */
   --el-font-size-base: var(--font-size-md);
-  --el-font-size-small: var(--font-size-sm);
+  --el-font-size-small: var(--font-size-base);
   --el-font-size-extra-small: var(--font-size-xs);
 
   /* 字体家族 */

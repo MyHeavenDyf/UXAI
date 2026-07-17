@@ -86,6 +86,165 @@
   --error-900: #350305;
   --error-950: #000000;
 
+  /* brand */
+  --brand-5: #E6F2FD;
+  --brand-10: #B8D9F9;
+  --brand-20: #8ABEF3;
+  --brand-30: #5CA2E9;
+  --brand-40: #2E86DE;
+  --brand-50: #0067D1;
+  --brand-60: #004EA8;
+  --brand-70: #003D83;
+  --brand-80: #002E6A;
+  --brand-90: #00214B;
+
+  /* gray */
+   --gray-0: #FFFFFF;
+   --gray-5: #F3F3F3;
+   --gray-10: #DFDFDF;
+   --gray-20: #C9C9C9; 
+   --gray-30: #AEAEAE;
+   --gray-40: #939393;
+   --gray-50: #777777;
+   --gray-60: #595959;
+   --gray-70: #393939;
+   --gray-80: #2A2A2A;
+   --gray-90: #191919;
+   --gray-100: #000000;
+
+   /* red */
+   --red-5: #FEE7E8;
+   --red-10: #FABDC1;
+   --red-20: #F59297;
+   --red-30: #EE696F;
+   --red-40: #E7434A;
+   --red-50: #E02128;
+   --red-60: #C7000B;
+   --red-70: #850F12;
+   --red-80: #59080A;
+   --red-90: #350305;
+
+   /* rose */
+   --rose-5: #FEE5F2;
+   --rose-10: #FCC3E0;
+   --rose-20: #F99AC7;
+   --rose-30: #F470AB;
+   --rose-40: #ED448A;
+   --rose-50: #E61866;
+   --rose-60: #C40054;
+   --rose-70: #811439;
+   --rose-80: #540D24;
+   --rose-90: #330614;
+
+   /* orange */
+   --orange-5: #FEF5E8;
+   --orange-10: #FDE2BD;
+   --orange-20: #FCCE92;
+   --orange-30: #F9B766;
+   --orange-40: #F69E39;
+   --orange-50: #F4840C;
+   --orange-60: #C76207;
+   --orange-70: #954304;
+   --orange-80: #642802;
+   --orange-90: #3D1601;
+
+   /* yellow */
+   --yellow-5: #FEFCE0;
+   --yellow-10: #FEF8B8;
+   --yellow-20: #FEF08A;
+   --yellow-30: #FDE55C;
+   --yellow-40: #FCD72E;
+   --yellow-50: #FCC800;
+   --yellow-60: #D19F00;
+   --yellow-70: #9E7400;
+   --yellow-80: #614500;
+   --yellow-90: #2E1F00;
+
+   /* green */
+   --green-5: #F2FBE9;
+   --green-10: #DFF4CC;
+   --green-20: #C6E9A8;
+   --green-30: #A8DB81;
+   --green-40: #87C859;
+   --green-50: #62B42E;
+   --green-60: #488E20;
+   --green-70: #316614;
+   --green-80: #1B3E0A;
+   --green-90: #0C2004;
+
+   /* mint */
+   --mint-5: #E7FBF2;
+   --mint-10: #BCF2DB;
+   --mint-20: #8FE5C2;
+   --mint-30: #63D5A8;
+   --mint-40: #36C18D;
+   --mint-50: #09AA71;
+   --mint-60: #058358;
+   --mint-70: #036142;
+   --mint-80: #02422E;
+   --mint-90: #00291D;
+
+   /* cyan */
+   --cyan-5: #E8FCFD;
+   --cyan-10: #C9F6F9;
+   --cyan-20: #A4ECF1;
+   --cyan-30: #7DDFE7;
+   --cyan-40: #55CCD9;
+   --cyan-50: #2CB8C9;
+   --cyan-60: #1C94A4;
+   --cyan-70: #127180;
+   --cyan-80: #094C57;
+   --cyan-90: #04282F;
+
+   /* blue */
+   --blue-5: #EEF3FE;
+   --blue-10: #D0D8FD;
+   --blue-20: #B0BFFD;
+   --blue-30: #8CA3FA;
+   --blue-40: #668CF7;
+   --blue-50: #2070F3;
+   --blue-60: #1F55B5;
+   --blue-70: #1B3F86;
+   --blue-80: #112857;
+   --blue-90: #081635;
+
+   /* indigo */
+   --indigo-5: #EEEEFE;
+   --indigo-10: #D5D3FD;
+   --indigo-20: #BFB9FA;
+   --indigo-30: #A89FF9;
+   --indigo-40: #8E81F4;
+   --indigo-50: #715AFB;
+   --indigo-60: #5531EB;
+   --indigo-70: #3F21B5;
+   --indigo-80: #281675;
+   --indigo-90: #160B48;
+
+   /* purple */
+   --purple-5: #F7EDFE;
+   --purple-10: #E8CFFE;
+   --purple-20: #D9B1FD;
+   --purple-30: #CB8EFB;
+   --purple-40: #BF68FA;
+   --purple-50: #B62BF7;
+   --purple-60: #8A21BC;
+   --purple-70: #651B8B;
+   --purple-80: #41125A;
+   --purple-90: #260937;
+
+   /* pink */
+   --pink-5: #FDE6FC;
+   --pink-10: #F9C5F6;
+   --pink-20: #F39DEC;
+   --pink-30: #EB74DF;
+   --pink-40: #E049CE;
+   --pink-50: #D41DBC;
+   --pink-60: #9F1C8D;
+   --pink-70: #751868;
+   --pink-80: #4C0F43;
+   --pink-90: #2E0728;
+
+
 
   /* ==========================================================================
      3. 尺寸与形状变量 (Sizes & Shapes)
@@ -106,19 +265,22 @@
   --font-family: 'HarmonyOS Sans', 'Microsoft YaHei', Arial, 'PingFang SC', 'San Francisco', sans-serif;
 
   /* Font Size */
-  --font-size-xs: 10px;
-  --font-size-sm: 12px;
+  --font-size-sm: 10px;
+  --font-size-base: 12px;
   --font-size-md: 14px;
   --font-size-lg: 16px;
   --font-size-xl: 18px;
   --font-size-2xl: 20px;
   --font-size-3xl: 24px;
   --font-size-4xl: 28px;
-  --font-size-5xl: 36px;
-  --font-size-6xl: 48px;
-  --font-size-7xl: 60px;
-  --font-size-8xl: 72px;
-  --font-size-9xl: 96px;
+  --font-size-5xl: 30px;
+  --font-size-6xl: 32px;
+  --font-size-7xl: 36px;
+  --font-size-8xl: 40px;
+  --font-size-12xl: 48px;
+  --font-size-16xl: 56px;
+  --font-size-18xl: 60px;
+  --font-size-24xl: 72px;
 
   /* Line Height */
   --line-height-xs: 1.8;
@@ -135,11 +297,22 @@
   --line-height-8xl: 1.2;
   --line-height-9xl: 1.2;
 
+  --line-height-none: 1;
+  --line-height-tight: 1.25;
+  --line-height-snug: 1.375;
+  --line-height-base: 1.5;
+  --line-height-relaxed: 1.625;
+  --line-height-loose: 2;
+
   /* Font Weight */
   --font-weight-light: 300;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-bold: 700;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
 
   /* ==========================================================================
      5. 间距 (Spacing)
