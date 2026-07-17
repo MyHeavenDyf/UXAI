@@ -278,6 +278,7 @@ function MakeSidebarLayout(props: ParentProps) {
         />
       )}
       dataAttribute="data-make-area"
+      focusMode={layout.focusMode.get()}
     >
       {props.children}
     </ResponsiveSidebarLayout>
@@ -286,24 +287,9 @@ function MakeSidebarLayout(props: ParentProps) {
 
 function SkillsSidebarLayout(props: ParentProps) {
   const layout = useLayout()
-  const navigate = useNavigate()
   const source = layout.sidebarSource.get()
   return source === "make"
-    ? (
-      <ResponsiveSidebarLayout
-        storageKey="make.sidebar.width"
-        sidebar={(w) => <MakeSidebar width={w} />}
-        collapsedIcons={() => (
-          <CollapsedSidebarIcons
-            onConversationClick={() => navigate("/make")}
-            onSkillsClick={() => { layout.sidebarSource.set("make"); navigate("/skills") }}
-          />
-        )}
-        dataAttribute="data-make-area"
-      >
-        {props.children}
-      </ResponsiveSidebarLayout>
-    )
+    ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
     : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
 }
 
