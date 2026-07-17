@@ -11,6 +11,8 @@ export type DesktopApi = {
   showItemInFolder?: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
+  /** 覆盖写本地二进制文件(文件管理面板「下载」:saveFilePicker 选路径后落盘) */
+  writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
   downloadResourceToTemp?: (
     url: string,
     namespace: string,
