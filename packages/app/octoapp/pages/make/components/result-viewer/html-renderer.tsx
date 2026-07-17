@@ -13,7 +13,7 @@ import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
-import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath } from "../../utils/archive-utils"
+import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion } from "../../utils/archive-utils"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -290,6 +290,17 @@ export function HtmlRenderer(props: {
       const isLoggedIn = !!localStorage.getItem("uiplusToken")
       
       if (isLoggedIn) {
+        const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
+        
+        if (data.isOverwrite && data.existingDeliverableId && data.existingDocId) {
+          await uploadCover(data.existingDeliverableId, screenshotBlob)
+          await uploadVersion(data.existingDocId, zipBlob)
+        } else {
+          const newDeliverable = await createDeliverable(data.teamId, fileName)
+          await uploadCover(newDeliverable.deliverableId, screenshotBlob)
+          await uploadVersion(newDeliverable.uniqueId, zipBlob)
+        }
+        
         const pathStr = buildArchivePath({
           spaceType: data.spaceType,
           productName: data.productName,

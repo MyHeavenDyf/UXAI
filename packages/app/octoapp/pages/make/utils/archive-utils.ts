@@ -240,3 +240,74 @@ export function buildArchivePath(data: {
   if (data.folderName) parts.push(data.folderName)
   return parts.join(" - ")
 }
+
+const getArchiveBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
+
+const getArchiveAuthHeaders = () => ({
+  "uiplustoken": localStorage.getItem("uiplusToken") || ""
+})
+
+export interface CreateDeliverableResult {
+  deliverableId: number
+  uniqueId: string
+}
+
+export async function createDeliverable(teamId: number, fileName: string): Promise<CreateDeliverableResult> {
+  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentSErver/designAget/createDeliverable`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getArchiveAuthHeaders()
+    },
+    body: JSON.stringify({
+      teamId,
+      fileName: fileName.replace(/\.html?$/i, "")
+    })
+  })
+  
+  if (!res.ok) {
+    throw new Error(`createDeliverable failed: ${res.status}`)
+  }
+  
+  const data = await res.json()
+  if (!data?.content) {
+    throw new Error("createDeliverable returned no content")
+  }
+  
+  return {
+    deliverableId: data.content.deliverableId || data.content.id,
+    uniqueId: data.content.uniqueId || data.content.docId
+  }
+}
+
+export async function uploadCover(deliverableId: number, file: Blob): Promise<void> {
+  const formData = new FormData()
+  formData.append("file", file, "screenshot.jpg")
+  formData.append("deliverableId", String(deliverableId))
+  
+  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/workflow/deliverable/uploadCover`, {
+    method: "POST",
+    headers: getArchiveAuthHeaders(),
+    body: formData
+  })
+  
+  if (!res.ok) {
+    throw new Error(`uploadCover failed: ${res.status}`)
+  }
+}
+
+export async function uploadVersion(uniqueId: string, file: Blob): Promise<void> {
+  const formData = new FormData()
+  formData.append("file", file, "archive.zip")
+  formData.append("uniqueId", uniqueId)
+  
+  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentSErver/designAget/uploadVersion`, {
+    method: "POST",
+    headers: getArchiveAuthHeaders(),
+    body: formData
+  })
+  
+  if (!res.ok) {
+    throw new Error(`uploadVersion failed: ${res.status}`)
+  }
+}
