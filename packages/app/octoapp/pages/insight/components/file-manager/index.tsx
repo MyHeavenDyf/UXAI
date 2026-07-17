@@ -428,6 +428,9 @@ function FileManagerInner(props: {
           onChange={(e) => { if (e.currentTarget.files) { void handleFolderUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
         />
 
+        {/* 整个文件管理区域(工具栏+面包屑+表格)min-width 800px;窄屏时外层 overflow-x-auto 整体横向滚动。
+            overlay 置于 800px 包裹层内(relative),避免横向滚动后 overlay 锚定可视宽度导致右侧漏遮罩。 */}
+        <div class="flex flex-col flex-1 min-h-0 relative" style={{ "min-width": "800px" }}>
         <Show when={isDragOver()}>
           <div
             class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
@@ -437,9 +440,6 @@ function FileManagerInner(props: {
             <span class="text-[16px]" style={{ color: "var(--octo-text-primary)", "line-height": "24px", "margin-top": "12px" }}>释放鼠标上传文件</span>
           </div>
         </Show>
-
-        {/* 整个文件管理区域(工具栏+面包屑+表格)min-width 800px;窄屏时外层 overflow-x-auto 整体横向滚动 */}
-        <div class="flex flex-col flex-1 min-h-0" style={{ "min-width": "800px" }}>
         <Show when={hasAnyFiles()}>
           <FileManagerToolbar
             fileStore={fileStore}
