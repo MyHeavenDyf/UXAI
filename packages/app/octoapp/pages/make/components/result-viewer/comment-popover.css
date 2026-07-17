@@ -648,3 +648,49 @@
 .comment-detail-view .comment-popover-send-active:hover {
   background: #094fd3;
 }
+
+/* ========== Edit Mode (double-click to edit) ========== */
+.comment-edit-container {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 12px;
+  margin-top: 8px;
+  margin-left: 32px;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+.comment-edit-container .comment-input-text {
+  flex: none;
+  max-height: 66px;
+  min-height: 0;
+  padding: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+.comment-edit-container .comment-input-text::-webkit-scrollbar {
+  width: 4px;
+}
+
+.comment-edit-container .comment-input-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.comment-edit-container .comment-input-text::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.comment-edit-container .comment-input-text::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.comment-edit-container .comment-input-icons {
+  padding: 0;
+  margin-top: 16px;
+}
+
+.comment-edit-container .comment-input-icons::before {
+  display: none;
+}
