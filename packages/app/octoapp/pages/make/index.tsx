@@ -82,6 +82,7 @@ import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-s
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
+import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
 
 export default function MakePage() {
@@ -502,6 +503,28 @@ const sessionMessagesLoaded = createMemo(() => {
   const [planParentSessionId, setPlanParentSessionId] = createSignal<string | null>(null)
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
+
+  /** 两步走工作流：当前阶段 */
+  const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
+
+  /** 策略表单数据（从子 agent artifact 中扫描 + 用户手动编辑） */
+  const [manualStrategyFormData, setManualStrategyFormData] = createSignal<Partial<StrategyFormData>>({})
+
+  const strategyFormData = createMemo(() => {
+    const planSid = activePlanSessionId()
+    if (!planSid) {
+      return { ...EMPTY_STRATEGY_FORM }
+    }
+
+    const messages = sync.data.message?.[planSid]
+    const parts = sync.data.part
+
+    const scanned = scanStrategyFields(messages, parts)
+
+    const manual = manualStrategyFormData()
+    const result = { ...EMPTY_STRATEGY_FORM, ...scanned, ...manual }
+    return result
+  })
 
   /**
    * 跨重启恢复：从 API 全量拉取 session 列表，找到当前主 session 的 octo_make_plan 子 session。
@@ -982,7 +1005,19 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }, { defer: true }))
 
-  /** 用户点击 [确认开始生成] → 向子 session 发送确认指令 */
+  /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
+  function handleGenerateStrategy() {
+    const planSid = activePlanSessionId()
+    if (!planSid) return
+    const data = strategyFormData()
+    const prompt = `[strategy-complete]\n\n以下是已填写的设计策略信息：\n\n## 设计需求\n- 需求背景：${data.需求背景 || "（未填写）"}\n- 设计目标：${data.设计目标 || "（未填写）"}\n- 设计方法：${data.设计方法 || "（未填写）"}\n- 其他：${data.其他 || "（未填写）"}\n\n## 洞察&研究\n- 用户画像：${data.用户画像 || "（未填写）"}\n- 用户旅程：${data.用户旅程 || "（未填写）"}\n- 研究报告：${data.研究报告 || "（未填写）"}\n\n请根据以上信息输出完整的设计策略文档。`
+    sendMessage(planSid, prompt).catch((err) => {
+      console.error("[MakePage] generate strategy failed", err)
+    })
+    setPlanPhase("generate")
+  }
+
+  /** 用户点击 [确认开始生成] → 向子 session 发送确认指令，然后结束子 agent 回到主 agent */
   function handleConfirmPlan(identifier?: string) {
     const planSid = activePlanSessionId()
     if (!planSid) return
@@ -994,6 +1029,23 @@ const sessionMessagesLoaded = createMemo(() => {
       // 发送失败时回滚乐观锁,允许重试
       setOptimisticConfirmed(false)
     })
+    // 确认后结束子 agent 状态，清理缓存，切回 tabs 模式
+    const endedSid = params.id
+    if (endedSid) {
+      localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
+      delete _planChildSessionCache[endedSid]
+    }
+    if (planSid) {
+      loadedChildSessions.delete(planSid)
+      setChildSessionIDs((prev) => { const next = new Set(prev); next.delete(planSid); return next })
+    }
+    setPlanEndedForSession(params.id ?? null)
+    setActivePlanSessionId(null)
+    setPlanParentSessionId(null)
+    setHasChildPlanSession(false)
+    setManualStrategyFormData({})
+    setResultViewMode("tabs")
+    setPlanPhase("strategy")
   }
 
   /** 用户点击 [调整方案] → 焦点切到输入框,预填引导文字 */
@@ -1010,12 +1062,16 @@ const sessionMessagesLoaded = createMemo(() => {
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
       // 归档子 session,使其不被 session.list() 检测到,跨重启不再进入 plan 模式
       sdk.client.session.update({ sessionID: currentChildId, time: { archived: Date.now() } }).catch(() => {})
+      loadedChildSessions.delete(currentChildId)
+      setChildSessionIDs((prev) => { const next = new Set(prev); next.delete(currentChildId); return next })
     }
     const endedSid = params.id
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
+    setManualStrategyFormData({})
     setResultViewMode("tabs")
+    setPlanPhase("strategy")
     setSending(false)
     // 清除缓存，防止下次进入时误恢复
     if (endedSid) {
@@ -1086,8 +1142,8 @@ const sessionMessagesLoaded = createMemo(() => {
       // 去掉[Artifact Folder]等系统注入前缀:取最后一个"---\n"之后的内容
       const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
       const initialPrompt = userInput
-        ? `请根据以下用户需求输出设计策略文档：\n\n${userInput}`
-        : "请分析当前会话上下文，输出一份完整的设计策略文档。"
+        ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\n\n${userInput}`
+        : "请分析当前会话上下文，提取有用信息填写到策略表单字段中。"
 
       // 2. 创建子 session
       const result = await sdk.client.session.create({
@@ -1109,6 +1165,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
       // 4. 切换到 plan 模式（此时子 session 还没有消息，但 UI 已就绪）
       setResultViewMode("plan")
+      setPlanPhase("strategy")
+      setManualStrategyFormData({})
 
       // 5. 同步子 session 数据并发送 prompt（async，不阻塞 UI）
       sync.session.sync(childSession.id).catch((err: any) => {
@@ -1160,6 +1218,8 @@ const sessionMessagesLoaded = createMemo(() => {
           setActivePlanSessionId(null)
           setHasChildPlanSession(false)
           setResultViewMode("files")
+          setPlanPhase("strategy")
+          setManualStrategyFormData({})
           setPhase2Pending(false)
         }
         return
@@ -1176,6 +1236,8 @@ const sessionMessagesLoaded = createMemo(() => {
         setActivePlanSessionId(null)
         setHasChildPlanSession(false)
         setResultViewMode("files")
+        setPlanPhase("strategy")
+        setManualStrategyFormData({})
         setPhase2Pending(false)
       }
       // 尝试恢复当前主 session 的设计规划子 session
@@ -2856,6 +2918,13 @@ if (dsId) {
                 filesRefreshKey={filesRefreshKey()}
                 onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                 planCard={planCard()}
+                planPhase={planPhase()}
+                strategyFormData={strategyFormData()}
+                onStrategyFieldChange={(field, value) => {
+                  setManualStrategyFormData((prev) => ({ ...prev, [field]: value }))
+                }}
+                onGenerateStrategy={handleGenerateStrategy}
+                isGenerating={false}
               />
             </div>
             <Show when={showVersionPanel()}>

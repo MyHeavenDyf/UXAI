@@ -14,7 +14,7 @@ import type { Message } from "@opencode-ai/sdk/v2/client"
 import type { OutputCard } from "../components/insight-turn"
 import { createArtifactParser } from "./artifact-parser"
 
-type TextPartLike = { type: string; text?: string }
+export type TextPartLike = { type: string; text?: string }
 
 /** Build a stable, unique tab ID for a design-plan artifact within a session. */
 export function planTabId(sessionID: string, identifier: string): string {

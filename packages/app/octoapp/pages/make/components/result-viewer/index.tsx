@@ -17,6 +17,8 @@ import { AudioRenderer } from "./audio-renderer"
 import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
+import { StrategyFormRenderer } from "./strategy-form-renderer"
+import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
@@ -85,6 +87,16 @@ export function ResultViewer(props: {
   onFilesRefresh?: () => void
   /** 设计规划内容 (plan 模式使用) */
   planCard?: OutputCard | null
+  /** 两步走工作流：当前阶段 */
+  planPhase?: "strategy" | "generate"
+  /** 策略表单数据 */
+  strategyFormData?: StrategyFormData
+  /** 策略表单字段变更回调 */
+  onStrategyFieldChange?: (field: keyof StrategyFormData, value: string) => void
+  /** 策略生成按钮回调 */
+  onGenerateStrategy?: () => void
+  /** 策略是否正在生成中 */
+  isGenerating?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const activeTab = createMemo(() =>
@@ -206,7 +218,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
           onClose={props.onClose}
           viewMode={props.viewMode}
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
-          showPlanEntry={!!props.planCard}
+          showPlanEntry={!!props.planCard || props.planPhase === "strategy"}
           planConfirmed={props.isPlanConfirmed?.()}
         />
 
@@ -224,8 +236,23 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
           )}
         </Show>
 
-        {/* plan 模式 — 直接渲染设计规划内容,不创建 tab */}
-        <Show when={props.viewMode === "plan" && props.planCard}>
+        {/* plan 模式 — 策略准备阶段 */}
+        <Show when={props.viewMode === "plan" && props.planPhase === "strategy"}>
+          <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <StrategyFormRenderer
+              formData={props.strategyFormData ?? {
+                需求背景: "", 设计目标: "", 设计方法: "", 其他: "",
+                用户画像: "", 用户旅程: "", 研究报告: "",
+              }}
+              onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
+              onGenerate={() => props.onGenerateStrategy?.()}
+              isGenerating={props.isGenerating}
+            />
+          </div>
+        </Show>
+
+        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染 */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && props.planCard}>
           {(plan) => (
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <DesignPlanRenderer
@@ -245,8 +272,8 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
           )}
         </Show>
 
-        {/* plan 模式 — 等待子 agent 生成设计规划时显示加载状态 */}
-        <Show when={props.viewMode === "plan" && !props.planCard}>
+        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard}>
           <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
             <div class="flex items-center gap-2">
               <span class="i-svg-spinners-clock size-5" />
