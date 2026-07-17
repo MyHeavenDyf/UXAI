@@ -349,6 +349,7 @@ commenting={commenting()}
                             await saveArtifactContent(tab.filePath, html)
                           }}
                           onRefreshNeeded={handleRefresh}
+                          tabTitle={tab.title}
                         />
                     </Match>
                     <Match when={tabType === "deck"}>

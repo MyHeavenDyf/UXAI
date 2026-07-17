@@ -143,6 +143,7 @@ export function HtmlRenderer(props: {
   sdkDirectory?: string
   onSaveFile?: (content: string) => Promise<void>
   onRefreshNeeded?: () => void
+  tabTitle?: string
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
@@ -1121,6 +1122,7 @@ return (
           active={props.drawing ?? false}
           onActiveChange={props.onDrawActiveChange}
           sendDisabled={false}
+          tabContext={props.tabTitle ? { title: props.tabTitle, filePath: props.filePath } : undefined}
         >
           {isResponsive() ? (
             <div
