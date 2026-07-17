@@ -2040,7 +2040,7 @@ function InsightContent() {
                 <ScrollView
                   class="h-full"
                   style={{ background: "var(--octo-surface-page)", padding: "0 12px" }}
-                  ref={(el) => {
+                  viewportRef={(el) => {
                     scrollContainerEl = el
                     autoScroll.scrollRef(el)
                   }}
