@@ -258,6 +258,7 @@ export function HtmlRenderer(props: {
   // Handle archive confirm
   async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
     const overlay = document.querySelector('.archive-dialog-overlay') as HTMLElement | null
+    const collisionOverlay = document.querySelector('.archive-collision-overlay') as HTMLElement | null
     
     try {
       if (!iframeRef) {
@@ -267,6 +268,9 @@ export function HtmlRenderer(props: {
       
       if (overlay) {
         overlay.style.visibility = 'hidden'
+      }
+      if (collisionOverlay) {
+        collisionOverlay.style.visibility = 'hidden'
       }
       
       const screenshotBlob = await capturePageScreenshot(iframeRef)
@@ -293,13 +297,19 @@ export function HtmlRenderer(props: {
       if (isLoggedIn) {
         const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
         
+        let uploadResult: { success: boolean }
+        
         if (data.isOverwrite && data.existingDeliverableId && data.existingDocId) {
           await uploadCover(data.existingDeliverableId, screenshotBlob)
-          await uploadVersion(data.existingDocId, zipBlob)
+          uploadResult = await uploadVersion(data.existingDocId, zipBlob)
         } else {
           const newDeliverable = await createDeliverable(data.teamId, fileName)
           await uploadCover(newDeliverable.deliverableId, screenshotBlob)
-          await uploadVersion(newDeliverable.uniqueId, zipBlob)
+          uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
+        }
+        
+        if (!uploadResult.success) {
+          throw new Error("归档上传失败")
         }
         
         const pathStr = buildArchivePath({
@@ -326,6 +336,9 @@ export function HtmlRenderer(props: {
     } catch (err) {
       if (overlay) {
         overlay.style.visibility = 'visible'
+      }
+      if (collisionOverlay) {
+        collisionOverlay.style.visibility = 'visible'
       }
       console.error("[Archive] Failed:", err)
       showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })

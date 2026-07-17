@@ -307,12 +307,16 @@ export function ArchiveDialog(props: Props): JSX.Element {
     }
     try {
       const res = await fetch(
-        `${getBaseUrl()}/main/rest.root/workflow/deliverable/search?teamId=${teamId}&docTypeList=22&searchKeys=&pageNum=1&pageSize=6666`,
+        `${getBaseUrl()}/main/rest.root/workflow/deliverable/search?teamId=${teamId}&docTypeList=22&searchKeys=&pageNum=1&pageSize=1000`,
         { headers: getAuthHeaders() }
       )
       const data = await res.json()
       if (data?.content?.data) {
-        setDeliverables(data.content.data)
+        const transformed = data.content.data.map((item: DeliverableItem) => ({
+          ...item,
+          coverUrl: `${getBaseUrl()}/pipeline${item.coverUrl}`
+        }))
+        setDeliverables(transformed)
       }
     } catch (err) {
       console.error("[Archive] Failed to fetch deliverables:", err)

@@ -270,6 +270,9 @@ export async function createDeliverable(teamId: number, fileName: string): Promi
   }
   
   const data = await res.json()
+  if (data?.errorCode === 401) {
+    throw new Error("无该文件夹权限")
+  }
   if (!data?.content) {
     throw new Error("createDeliverable returned no content")
   }
@@ -287,7 +290,7 @@ export async function uploadCover(deliverableId: number, file: Blob): Promise<vo
   
   const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/workflow/deliverable/uploadCover`, {
     method: "POST",
-    headers: getArchiveAuthHeaders(),
+    headers: {},
     body: formData
   })
   
@@ -296,18 +299,22 @@ export async function uploadCover(deliverableId: number, file: Blob): Promise<vo
   }
 }
 
-export async function uploadVersion(uniqueId: string, file: Blob): Promise<void> {
+export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ success: boolean }> {
   const formData = new FormData()
   formData.append("file", file, "archive.zip")
   formData.append("uniqueId", uniqueId)
+  formData.append("fileSource", 'Design')
   
   const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentServer/designAgent/uploadVersion`, {
     method: "POST",
-    headers: {"Content-Type": "multipart/form-data"},
+    headers: {},
     body: formData
   })
   
   if (!res.ok) {
     throw new Error(`uploadVersion failed: ${res.status}`)
   }
+  
+  const data = await res.json()
+  return { success: data?.success ?? false }
 }
