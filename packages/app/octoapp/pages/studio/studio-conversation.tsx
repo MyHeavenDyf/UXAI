@@ -213,16 +213,20 @@ export function StudioResultCanvas(props: {
   turns?: StudioTurnData[]
   canGenerateVideo?: boolean
   sessionID?: string
+  fileManagerGenPending?: boolean
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
   // 文件管理详情页生成中时隐藏图片和 canvas stage，展示 loading fallback
   const fileManagerLoading = createMemo(() =>
-    props.fileManagerDetailView &&
-    (props.status === "queued" || props.status === "running" || props.status === "submitting"),
+    props.fileManagerDetailView && props.fileManagerGenPending,
   )
-  const showImage = createMemo(() => fileManagerLoading() ? undefined : props.image)
+  const showImage = createMemo(() => {
+    if (fileManagerLoading()) return undefined
+    if (props.showFileManager) return props.image ?? ({} as StudioImage)
+    return props.image
+  })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
@@ -258,7 +262,7 @@ export function StudioResultCanvas(props: {
 
   return (
     <>
-      <Show when={showImage()} fallback={
+      <Show when={showImage() || props.showFileManager} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
           <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
             <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
@@ -304,11 +308,13 @@ export function StudioResultCanvas(props: {
                   </svg>
                   <span class="studio-canvas-label-text">文件管理</span>
                 </span>
-                <span class="studio-canvas-tab-divider" />
+                <Show when={(props.tabImages && props.tabImages.length > 0) || (!props.showFileManager && props.onSelectImage && props.result?.images && props.result.images.length > 0)}>
+                  <span class="studio-canvas-tab-divider" />
+                </Show>
               </Show>
-              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
+              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager && props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
-                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : [props.result!.images[0]]
+                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager ? [props.result!.images[0]] : [])
                   const [isTabTruncated, setIsTabTruncated] = createSignal(false)
                   let tabLabelRef!: HTMLSpanElement
                   let tabResizeObserver: ResizeObserver | undefined
@@ -396,19 +402,22 @@ export function StudioResultCanvas(props: {
                 />
               </Show>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
-              <div ref={setCanvasStageRef} class="studio-canvas-stage">
+                <div style="display:flex;flex-direction:column;flex:1;min-height:0;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
-                  <button
-                    type="button"
-                    class="studio-file-manager-back-btn"
-                    onClick={() => props.onFileManagerBack?.()}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "margin-right": "4px", "flex-shrink": "0" }}>
-                      <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                    <span>返回</span>
-                  </button>
+                  <div class="studio-file-manager-back-bar">
+                    <button
+                      type="button"
+                      class="studio-file-manager-back-btn"
+                      onClick={() => props.onFileManagerBack?.()}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "flex-shrink": "0" }}>
+                        <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                      <span>返回</span>
+                    </button>
+                  </div>
                 </Show>
+              <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
                   <Show
                     when={isVideoMedia(image())}
@@ -507,6 +516,7 @@ export function StudioResultCanvas(props: {
                     <span>下载</span>
                   </button>
                 </div>
+              </div>
               </div>
               {props.children}
               </Show>
