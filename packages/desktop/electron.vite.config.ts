@@ -158,6 +158,8 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.VITE_OCTO_MODELS_API_URL": JSON.stringify(env.VITE_OCTO_MODELS_API_URL ?? ""),
         // jk-j60099994-replace-with-electron-vite-config-2-start
         // jk-j60099994-replace-with-electron-vite-config-2-end
+        // jk-j60099994-replace-with-60062650-electron-vite-config-1-start
+        // jk-j60099994-replace-with-60062650-electron-vite-config-1-end
       },
       build: {
         sourcemap: true,
