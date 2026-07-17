@@ -71,8 +71,12 @@ history:
 
 # 遗留问题（未解决，下次会话优先确认）
 known_issues:
-  - id: modify-objects-lost
-    status: 已落盘修复待验证
-    file: packages/app/octoapp/pages/3d/agents/merge.ts
-    desc: "修改流加物体后原有物体消失。根因：merge 判断旧物体归属分区时只匹配第一层 parentId，孙物体丢失。已改成沿 parentId 链递归向上找 slot.element_id。验证未完成。"
-    verify: "生成桌子→加小球→加长桌→加两棵树，看 sendToPreview payload objects 数是否累积、ids 是否含 tblz* 物体"
+  - id: modify-flow-correctness
+    status: 阶段4已系统修复（代码落地+typecheck过），待运行时验证
+    files:
+      - packages/app/octoapp/pages/3d/workflow/modify-scene-ai.ts   # element_id 重映射 + findPrevModuleObjects 收集整棵子树
+      - packages/app/octoapp/pages/3d/agents/merge.ts               # modify 分区 REPLACE（只保留 none 分区）+ 诊断
+      - packages/app/octoapp/pages/3d/modules/preview/index.tsx     # onPatch 回调
+      - packages/app/octoapp/pages/3d/index.tsx                     # handleScenePatch 回写 lastSceneObjects + 防抖落盘
+    desc: "修改流三簇症状：①加物体丢原有 ②删单个物体删不掉（删整分区OK）③手动编辑复位/恢复编辑前。根因A：modify 分区 merge 原 UNION 但 module_modify 按契约返回完整分区→应 REPLACE（改了）；element_id 漂移致 none 分区旧物误丢（重映射修）。根因B：手动 patch 不回写 lastSceneObjects/磁盘（onPatch+防抖落盘修）。"
+    verify: "加球→加树→加长桌 sendToPreview 单调增；删单棵树 merge log merged 下降；挪树→删另一棵树被挪树位置保留；挪球切走切回在新位置"

@@ -13,6 +13,7 @@ import scene_3d_module_create from "../agents/scene-module-create"
 import { mergeSceneObjects, type SceneModuleResult, type ScenePlanner } from "../agents/merge"
 import type { SceneConfig } from "../utils/scene-config"
 import { saveDebugSnapshot } from "../utils/debug-log"
+import { withModuleRetry } from "../utils/module-retry"
 
 export type SceneCreateInput = {
   // 公共sdk
@@ -68,33 +69,38 @@ export async function create_modules_json(
   inputCtx: SceneCreateInput,
   planner: ScenePlanner,
   intent: Record<string, unknown>,
-  onFinished: (finalJson: { sceneIntent: any; layoutPlanner: any; modulesJson: SceneModuleResult[]; sceneConfig: SceneConfig }) => Promise<void>,
+  onFinished: (finalJson: { sceneIntent: any; layoutPlanner: any; modulesJson: SceneModuleResult[]; sceneConfig: SceneConfig; skipped?: string[] }) => Promise<void>,
 ) {
   const historyD = historyDir(inputCtx.sdk)
-  // 并行生成各分区物体
+  // 并行生成各分区物体（每个分区独立容错：重试一次，仍失败则跳过，不让单个分区拖垮整次生成）
   const slots = (planner.slots ?? []) as Array<{
     section_id: string
     element_id: string
     id_prefix: string
   }>
-  const modules: SceneModuleResult[] = await Promise.all(
+  const modulesRaw = await Promise.all(
     slots.map((slot) =>
-      scene_3d_module_create({
-        ...inputCtx,
-        idPrefix: slot.id_prefix,
-        sectionId: slot.section_id,
-        elementId: slot.element_id,
-        layoutPlanner: planner,
-        intentDescription: intent,
-      }),
+      withModuleRetry(`分区 ${slot.section_id}`, () =>
+        scene_3d_module_create({
+          ...inputCtx,
+          idPrefix: slot.id_prefix,
+          sectionId: slot.section_id,
+          elementId: slot.element_id,
+          layoutPlanner: planner,
+          intentDescription: intent,
+        }),
+      ),
     ),
   )
+  const modules = modulesRaw.filter(Boolean) as SceneModuleResult[]
+  const skipped = slots.map((slot, i) => (modulesRaw[i] === null ? slot.section_id : null)).filter((s): s is string => !!s)
 
-  // 合并完整 SceneConfig
+  // 合并完整 SceneConfig（跳过的分区在 shell 里保留空 group，无物体）
   const merged = mergeSceneObjects(planner, modules)
   void saveDebugSnapshot(historyD, inputCtx.rootSession, "create_modules_merged", {
     modulesJson: modules,
     sceneConfig: merged,
+    extra: skipped.length ? { skipped } : undefined,
   })
 
   await onFinished({
@@ -106,5 +112,7 @@ export async function create_modules_json(
     modulesJson: modules,
     // 完整场景的 SceneConfig
     sceneConfig: merged,
+    // 生成失败被跳过的分区 section_id（UI 提示用户可再 modify 补齐）
+    skipped: skipped.length ? skipped : undefined,
   })
 }

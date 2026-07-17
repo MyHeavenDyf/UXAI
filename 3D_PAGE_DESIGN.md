@@ -521,6 +521,40 @@ export function bindPostMessageHost(handle: Scene3DHandle, picker: ScenePicker) 
   - octoapp：`modules/preview/property-editor-popup/`（3D 版弹窗：Transform + 完整材质 + 几何参数，本地 NumberField 不跨页 import pattern）；`modules/preview/index.tsx`（PreviewPage3D 自包含：编辑态按钮 + SCENE_PICK→弹窗 + sendPatch/sendPickMode/sendFlyTo + 本地 objectsById 同步）；`utils/scene-config.ts` 增 ScenePatch 类型。
 - ⚠️ 已知遗留（非本次引入）：3d-templete `npm run build`（vue-tsc）因 3d-components 源码的未用变量 lint（BaseGroup/BitmapText/Html/Outlines/Wireframe/HeatMesh，TS 验证为死代码）失败——仅影响 previewdist3d 生产构建路径（已推迟），运行时 `vite dev` 不受影响。previewdist3d 落地时一并清理这些 lint（或在 3d-components tsconfig 加 noUnusedLocals 统一治理）。
 
+**阶段4：修复 modify 流物体异常（加物体丢 / 删不掉 / 手动编辑复位）** ✅ 代码落地 + typecheck 过（2026-07-16）；运行时验证待手动跑
+- 背景：修改流多症状——①加物体后原有物体消失（桌子 31→加球 11）；②删单个物体删不掉（删一棵树计数不掉，但删整个分区成功）；③手动挪动物体后，下次 agent 操作"复位"+ 切走切回"恢复编辑前"。跨多轮未根治。
+- 根因 A（加物体丢 + 删不掉，汇聚到 modify 分区 merge 语义）：
+  - `scene_3d_planner_modify` 的 LLM 会重新生成 element_id（不可控，prompt L45 要求保持但无效）。漂移后 `merge.ts` 的 `resolveZoneOp` 沿旧物体 parentId 链走到旧分区根（parentId:null）返回 undefined → none 分区旧物被整体丢弃（"加物体丢原有"）。
+  - `scene_3d_module_modify` 契约是**返回分区完整物体清单**（prompt "输出完整的该分区全部物体...数量自检原有数+1"）。故 module 输出 = 分区最终态，merge 必须用它**整体替换**该分区旧物。但原实现是 UNION（保留 modify 旧物 + module 覆盖同 id）→ 被删的物体从旧集复活（"删不掉"）、改名物体重复。
+- 根因 B（手动编辑复位）：属性编辑器 `sendPatch` 只 post 给 iframe + 更新 PreviewPage3D 本地 objectsById，**不回写 lastSceneObjects/磁盘** → 下次 agent 从编辑前 lastSceneObjects 重生成（复位）、切走切回从磁盘读编辑前（恢复编辑前）。
+- 修复：
+  1. **element_id 重映射**（`pages/3d/workflow/modify-scene-ai.ts`）：planner_modify 后用 section_id（稳定主键）建 `eidRemap`（旧→新 element_id），把旧物体 parentId 改写到新 id 再传 merge；id 稳定时 no-op。
+  2. **modify 分区 merge = REPLACE**（`pages/3d/agents/merge.ts`）：keptOld 只保留 operation==="none" 的分区；modify/create 分区旧物丢弃，由 module 输出整体替换。**推翻早先"modify 也保留旧物"——那是错的（删不掉/重复）**。
+  3. **findPrevModuleObjects 收集整棵子树**（`modify-scene-ai.ts`）：递归收分区全部后代给 module_modify（它要逐个保留未改动后代），否则 REPLACE 整代丢失嵌套物体。
+  4. **手动编辑回写 + 防抖落盘**（`modules/preview/index.tsx` 加 onPatch 回调 + `pages/3d/index.tsx` handleScenePatch）：patch 即时更新 lastSceneObjects（内存，agent 立即读到）+ 800ms 防抖 `updateSceneVersion` 落盘。**坑**：不能更新 pendingPreviewData（变化触发重建 objectsById effect 关属性弹窗）。agent run 前 `clearPatchPersistTimer`。
+  5. **诊断日志**：merge 打印 `old/shell/keptOld/module/merged/valid`；漂移 warn eidRemap；快照加 `extra:{eidRemap, slots}`。
+- 验证：`packages/app` `bun run typecheck` exit 0。运行时验证待手动：①加球→加树→加长桌 sendToPreview 单调增（已验 20→21→27→34）；②删单棵树 merge log merged 下降；③挪树→删另一棵树，被挪树位置保留；④挪球→切走切回在新位置。详情见 memory/3d-modify-objects-lost.md。
+- 设计要点：modify 流正确性的关键在读懂 module_modify 契约（完整分区 → REPLACE）。修复做在编排层（modify-scene-ai.ts 持有新旧 planner）+ merge 语义层，不依赖 LLM 行为可控。section_id 是比 element_id 更安全的基础假设。REPLACE 依赖 module_modify 严守"输出完整分区"（prompt 已强制）。
+
+**功能：编辑态「整体/部件」双粒度选中** ✅ 代码落地 + typecheck 过（2026-07-16）；运行时验证待手动跑
+- 需求：编辑态点选时支持两种模式——①整体（一棵树=树干+树冠作为一个整体，整体位移/缩放/旋转）；②部件（叶子，现状）。
+- 实现（跨两工程，5 文件）：
+  1. **liveDataLoader 标记**（`3d-templete/src/3d/utils/liveDataLoader.ts`）：两遍构建后按 parentId 图标记 `userData.__zone`（root 的直接子=分区 group）和 `userData.__logicalRoot`（zone 的直接子=用户视角的"一个整体"，如 enviTree1/enviFloor）。纯图计算，零运行时风险。
+  2. **picker 粒度解析**（`3d-templete/src/3d/interaction/picker.ts`）：加 `granularity:'part'|'whole'` + `setGranularity`。`pickAt` 沿父子链：part 模式取首个 `__id`（叶子）；whole 模式取最近的 `__logicalRoot` 祖先（整体），无则回落叶子。高亮（BoxHelper）随解析对象——整体模式下包围盒包住整棵树。
+  3. **新消息 SCENE_PICK_GRANULARITY**（`postMessage-host.ts` + `embed.vue`）：宿主→iframe `{granularity:'part'|'whole'}` → `picker.setGranularity`。
+  4. **octoapp UI**（`pages/3d/modules/preview/index.tsx`）：编辑态右上工具条加「部件｜整体」分段开关，默认部件（=现状）。`switchGranularity` 发消息；`toggleEditMode` 进入编辑态时重申当前粒度（picker 每次渲染新建、默认 part）。
+- 关键设计：编辑 group 的 transform 时 Three.js 自动把父变换传给子节点 → 整体一起动；属性弹窗对 group 只显 Transform（`isMesh()` gating 材质/几何）。整体选中后改 position/scale/rotation 即整体变换。**坑**：picker 每次 SCENE_UPDATE 重建（createScene3D），粒度会重置为 part，故进入编辑态必须重发 SCENE_PICK_GRANULARITY。
+- 验证：octoapp tsgo exit 0；3d-templete vue-tsc 仅 8 个既有 3d-components noUnusedLocals 错（非本次引入），本次 4 文件零错。运行时待验：进编辑态→切"整体"→点树干/树冠→应选中 enviTree1 整棵（包围盒包整树）→改位置整棵移动。
+
+**功能：分区生成容错（单分区失败不拖垮整次生成）** ✅ 代码落地 + typecheck 过（2026-07-17）
+- 背景：操场 4 分区并行生成，其中 1 个 `scene_3d_module_create` 返回空串（length=0，LLM 瞬态故障）→ extractJson null → 抛 "did not return valid JSON" → Promise.all 整体失败，整次生成崩。LLM 偶发返回空/坏 JSON 是已知故障模式，不应让单分区拖垮全局。
+- 修复（`pages/3d/utils/module-retry.ts` + create-scene.ts + modify-scene-ai.ts + index.tsx）：
+  - `withModuleRetry(label, fn)`：重试一次（瞬态故障常见），仍失败返回 null。
+  - create 流：每分区用 withModuleRetry 包裹；失败分区跳过（shell 保留空 group，无物体），modules 过滤 null。`skipped: string[]` 经 onFinished 回传。
+  - modify 流：create 分区失败同上跳过；**modify 分区失败回落用旧物体填充**（关键：merge 对 modify 分区是 REPLACE，若不兜底会整分区丢失旧物体）。failed modify 不计入 skipped（已保留旧物，无数据丢失）。
+  - UI：onFinished 收到 `skipped` 时 toast「N 个分区生成失败已跳过，可重新生成或继续对话补齐」。
+- 不变量：**module 生成（create/modify）必须用 withModuleRetry 包裹，不能裸 Promise.all 抛出**——否则单分区瞬态故障会让整次生成崩。重构时勿退回。
+
 **风险点：**
 - 跨源 iframe：配 vite CORS + 移除 X-Frame-Options/CSP frame-ancestors（embed.vue 必须可被 octoapp 域加载）。
 - SolidJS ≠ Vue：pattern 的 DOM picker/drag-reorder 是 2D+SolidJS 专属，3D 用 Raycaster 在 3d-templete 侧产生，不移植。

@@ -63,11 +63,12 @@ export function mergeSceneObjects(
     slotsByOp.set(s.element_id, (s.operation ?? "create") as "create" | "modify" | "none")
   }
 
-  // 3. 保留旧物体：operation==="none" 和 "modify" 的 slot 的旧物体都保留。
-  //    none：分区未变动，原样保留。
-  //    modify：分区有改动，但 agent 通常只返回改动部分（不重输出全部），所以保留旧物体，
-  //           再用 moduleResults 里同 id 的新物体覆盖、新 id 的追加（见第 5 步）。
-  //    create：新分区，无旧物体，不保留。
+  // 3. 保留旧物体：只保留 operation==="none" 的分区旧物体。
+  //    none：分区未变动，无 agent 重生成，原样保留其旧物体。
+  //    modify：分区有改动，module_modify 按契约返回该分区【完整】物体清单（含未改动的原物体，
+  //           见 scene_3d_module_modify.txt "输出完整的该分区全部物体"）。旧物体会被 module 输出整体替换 ——
+  //           若再保留旧物，被删除的物体会从旧集复活（删除失效，且改名物体会重复）。故 modify 分区旧物体一律不保留。
+  //    create：新分区，无旧物体。
   //    归属判断：沿 parentId 链向上查找，直到命中某 slot.element_id，取其 operation。
   //    （孙物体 parentId 指向子 group，非 element_id 本身，需递归向上找分区根。）
   const keptOldObjects: SceneConfigObject3D[] = []
@@ -94,10 +95,11 @@ export function mergeSceneObjects(
   for (const obj of oldSceneObjects) {
     if (shellIdSet.has(obj.id)) continue // shell 物体由 planner 提供，不保留旧版
     const op = resolveZoneOp(obj)
-    if (op === "none" || op === "modify") {
+    if (op === "none") {
       keptOldObjects.push(obj)
     }
-    // create/undefined 的旧物体丢弃
+    // modify / create / undefined 的旧物体一律丢弃：
+    //   modify 由 module 输出整体替换；create 无旧物；undefined 是归属不明的孤立旧物。
   }
 
   // 4. moduleObjects：各分区新物体（modify 场景下可能是增量，只含改动+新增）
@@ -108,13 +110,15 @@ export function mergeSceneObjects(
     }
   }
 
-  // 5. 合并：shell + 保留旧物体 + 新物体，按 id 去重（新物体覆盖同 id 旧物）
-  //    modify 场景下 module 可能只返回增量（改动+新增），旧物体已在 keptOldObjects，
-  //    此处按 id 去重：module 物体优先（覆盖旧版），keptOld 中未被覆盖的保留。
-  //    顺序保证父先于子（shell 先、旧物次、新物最后）。
+  // 5. 合并：shell + 新物体（modify/create 分区的完整输出）+ 保留旧物体（none 分区），按 id 去重。
+  //    modify 分区旧物体已在第 3 步剔除，此处由 moduleObjects 整体替换（含删除/改名/新增语义）；
+  //    none 分区旧物体在 keptOldObjects 原样保留。moduleObjects 排在 keptOldObjects 前以确保
+  //    万一同 id 冲突时新物体优先（正常无冲突，分区 id_prefix 不同）。
+  //    渲染端（3d-templete liveDataLoader）两遍构建（先建 nodeMap 再按 parentId 挂载），
+  //    数组顺序不影响最终父子关系，故无需保证"父先于子"。
   const seen = new Set<string>()
   const merged: SceneConfigObject3D[] = []
-  for (const obj of [...shellObjects, ...keptOldObjects, ...moduleObjects]) {
+  for (const obj of [...shellObjects, ...moduleObjects, ...keptOldObjects]) {
     if (seen.has(obj.id)) continue
     seen.add(obj.id)
     merged.push(obj)
@@ -129,6 +133,13 @@ export function mergeSceneObjects(
     }
     return true
   })
+
+  // 诊断汇总：验证 modify 流物体累积时用（对照 sendToPreview payload 的 objects 数）。
+  if (oldSceneObjects.length > 0) {
+    console.log(
+      `[mergeSceneObjects] old=${oldSceneObjects.length} shell=${shellObjects.length} keptOld=${keptOldObjects.length} module=${moduleObjects.length} → merged=${merged.length} valid=${validObjects.length}`,
+    )
+  }
 
   // 6. 组装完整 SceneConfig：camera/lights/scene 取 planner，objects 用合并结果
   const sceneConfig: SceneConfig = {

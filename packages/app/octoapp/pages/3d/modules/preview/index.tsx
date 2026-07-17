@@ -32,11 +32,15 @@ export function PreviewPage3D(props: {
   previewSrc: string
   sessionId?: string
   onReady?: () => void
+  /** 编辑器产生增量补丁时回调父组件（用于回写 authoritative state + 持久化，避免编辑丢失） */
+  onPatch?: (patch: ScenePatch) => void
 }) {
   let iframeRef: HTMLIFrameElement | undefined
 
   // ── 编辑态 / 拾取 / 本地物体表 ──
   const [editMode, setEditMode] = createSignal(false)
+  /** 选中粒度：'part'(部件，默认) | 'whole'(整体，如整棵树/整张桌) */
+  const [pickGranularity, setPickGranularity] = createSignal<"part" | "whole">("part")
   const [pickedObj, setPickedObj] = createSignal<SceneConfigObject3D | null>(null)
   /** id → SceneConfigObject3D：从 pendingData 同步，patch 时本地更新，保证连续编辑基于最新 def */
   const [objectsById, setObjectsById] = createSignal<Map<string, SceneConfigObject3D>>(new Map())
@@ -55,9 +59,13 @@ export function PreviewPage3D(props: {
   function sendPatch(patch: ScenePatch): void {
     post({ type: "SCENE_PATCH", payload: patch })
     applyPatchToLocal(patch)
+    props.onPatch?.(patch)
   }
   function sendPickMode(enabled: boolean): void {
     post({ type: "SCENE_PICK_MODE", enabled })
+  }
+  function sendPickGranularity(mode: "part" | "whole"): void {
+    post({ type: "SCENE_PICK_GRANULARITY", granularity: mode })
   }
   function sendFlyTo(targetId: string): void {
     post({ type: "SCENE_FLY_TO", targetId })
@@ -103,7 +111,15 @@ export function PreviewPage3D(props: {
     const next = !editMode()
     setEditMode(next)
     sendPickMode(next)
+    // picker 每次渲染新建、默认 'part'，进入编辑态时需重申当前粒度
+    if (next) sendPickGranularity(pickGranularity())
     if (!next) setPickedObj(null)
+  }
+
+  function switchGranularity(mode: "part" | "whole"): void {
+    if (pickGranularity() === mode) return
+    setPickGranularity(mode)
+    if (editMode()) sendPickGranularity(mode)
   }
 
   function handlePick(info: { id?: string }): void {
@@ -164,7 +180,7 @@ export function PreviewPage3D(props: {
         style={{ width: "100%", height: "100%", border: "none" }}
       />
 
-      {/* 顶部工具条：编辑/拾取切换 + 聚焦选中物（对齐 Pattern .preview-action-btn 玻璃白按钮） */}
+      {/* 顶部工具条：编辑/拾取切换 + 选中粒度 + 聚焦选中物（对齐 Pattern .preview-action-btn 玻璃白按钮） */}
       <div class="absolute top-2 right-2 flex items-center gap-1.5 z-10" style={{ "pointer-events": "auto" }}>
         <Show when={pickedObj()}>
           <button
@@ -175,6 +191,33 @@ export function PreviewPage3D(props: {
           >
             聚焦
           </button>
+        </Show>
+        {/* 选中粒度：部件|整体（仅编辑态显示） */}
+        <Show when={editMode()}>
+          <div class="flex items-center rounded-md overflow-hidden" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)" }}>
+            <button
+              class="px-2 h-6 text-[11px] leading-none transition-colors"
+              style={{
+                background: pickGranularity() === "part" ? "var(--octo-brand, #3d99ff)" : "transparent",
+                color: pickGranularity() === "part" ? "#fff" : "rgba(255,255,255,0.7)",
+              }}
+              onClick={() => switchGranularity("part")}
+              title="选中单个部件（树干/树冠）"
+            >
+              部件
+            </button>
+            <button
+              class="px-2 h-6 text-[11px] leading-none transition-colors"
+              style={{
+                background: pickGranularity() === "whole" ? "var(--octo-brand, #3d99ff)" : "transparent",
+                color: pickGranularity() === "whole" ? "#fff" : "rgba(255,255,255,0.7)",
+              }}
+              onClick={() => switchGranularity("whole")}
+              title="选中一个整体（整棵树/整张桌），整体变换"
+            >
+              整体
+            </button>
+          </div>
         </Show>
         <button
           class="preview-action-btn"
@@ -213,7 +256,7 @@ export function PreviewPage3D(props: {
 
       <Show when={editMode()}>
         <div class="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/50 text-white/70 text-[11px] px-3 py-1">
-          编辑模式：点击物体编辑属性，拖拽旋转视角
+          编辑模式：点击物体编辑属性，拖拽旋转视角 · 右上「部件/整体」切换选中粒度
         </div>
       </Show>
     </div>

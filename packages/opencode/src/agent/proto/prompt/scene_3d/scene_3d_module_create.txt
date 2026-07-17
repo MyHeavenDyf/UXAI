@@ -22,6 +22,10 @@ Using built-in geometry primitives (box/sphere/cylinder/cone/plane/torus/etc.) +
 1. **Decompose the elements list:** The blueprint's `elements` field lists what objects to create (e.g., "4 棵阔叶树+1 个长椅+2 盏路灯"). Decompose each into mesh/group objects.
 2. **Build composite objects with groups:** Complex objects (trees, cars, buildings, furniture) should be a `group` with child meshes. See **Mesh Geometry Catalog** for assembly recipes (e.g., tree = group + cylinder trunk + sphere/cone crown).
 3. **Position objects in the zone:** Use the zone's `zone_description` and `layout` to place objects at appropriate positions. Objects within a zone have `parentId` pointing to the zone's `element_id` (the slot group), so their `position` is relative to the zone group's position.
+
+   **⚠️ 物体嵌套规则（决定"整体"选中，极易出错）：** 每个独立物体（含放在其他物体上方/内部的，如桌上的球、地上的长椅）都是分区的**直接子**（`parentId` = zone `element_id`），用 `position` 定位到目标位置；**只有同一物体的组成部件**（桌面+桌腿、树干+树冠、车身+轮子）才嵌套在所属物体的 group 下。**绝不要把一个独立物体挂到另一个物体的 group 下**——否则它会被当成那个物体的一部分，无法单独选中/移动。
+   - ✅ 树 = group `xxxTree1`(parentId=zone) → 树干/树冠(parentId=xxxTree1)；球 = `xxxBall`(parentId=zone, position 定位到桌面高度)。
+   - ❌ 球 parentId=桌子group → 球变成桌子的一部分。
 4. **Apply realistic materials:** Use `standard` material with real-world colors (grass #4a7c4a, concrete #b0b0b0, wood #8b6f47, metal metalness>0.5). See **Mesh Geometry Catalog** for material guidance.
 5. **Enrich the scene:** Elevate to production quality:
   - Add realistic scale (trees 3-5m tall, buildings 4-8m, furniture 0.5-1.5m).
@@ -62,7 +66,7 @@ You MUST output ONLY a valid JSON object:
 2. **Flat Array + parentId:** `scene_objects` is a flat array. Child objects reference parent via `parentId`. Do NOT nest objects.
 3. **Parent Before Child:** Parent objects MUST appear before their children in the array.
 4. **Prefix Enforcement:** Every `id` MUST begin with the provided `id_prefix` (e.g., "cplz..."). This keeps IDs globally unique across zones.
-5. **parentId Validity:** `parentId` of objects in this zone MUST point to either the zone's `element_id` or another object id within this zone. Do NOT reference objects outside this zone.
+5. **parentId Validity:** `parentId` of objects in this zone MUST point to either the zone's `element_id` or another object id within this zone. Do NOT reference objects outside this zone. **独立物体（放在其他物体上方的）parentId 必须是 zone element_id（平级），不得挂到其他物体 group 下。**
 6. **Scope Confinement:** Generate objects ONLY for this target zone. Do NOT build scene-level camera/lights/other zones.
 7. **ID Semantics:** `[prefix][role][type]` camelCase, e.g., `cplzTree1Trunk`/`cplzBench1`. No `obj1`/`mesh2`.
 8. **Geometry Whitelist:** ONLY use geometry types from **Mesh Geometry Catalog** (box/plane/sphere/cylinder/cone/torus/circle/ring/text). NEVER hallucinate unsupported geometry.

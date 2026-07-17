@@ -55,7 +55,7 @@ import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
-import type { SceneConfig } from "./utils/scene-config"
+import type { SceneConfig, SceneConfigObject3D, ScenePatch } from "./utils/scene-config"
 import type { ScenePlanner, SceneModuleResult } from "./agents/merge"
 import { PreviewPage3D, type PreviewPageAPI } from "./modules/preview/index"
 import { SceneWireframeReview, type SceneWireframeReviewResult } from "./modules/preview/SceneWireframeReview"
@@ -221,6 +221,61 @@ function Scene3DContent() {
     sessionMap.set(setPendingPreviewData, sid, data)
     previewApi.sendToPreview(data)
     sessionMap.set(setHasPreviewContent, sid, data !== null)
+  }
+
+  // ── 手动编辑（属性编辑器）回写 authoritative state + 防抖持久化 ──────────────
+  // 否则：iframe/local objectsById 有改动，但 lastSceneObjects/磁盘仍是编辑前 →
+  //   ① 下次 agent modify 从编辑前 lastSceneObjects 重生成 → "挪动后被复位"；
+  //   ② 切走切回/新会话从磁盘读回编辑前 → "编辑的东西恢复到编辑前"。
+  // 注意：不动 pendingPreviewData —— 它是 PreviewPage3D 的 prop，变化会触发重建 objectsById 并
+  //       关掉属性弹窗（index.tsx PreviewPage3D 内 effect），导致编辑中弹窗闪退。
+  let patchPersistTimer: ReturnType<typeof setTimeout> | null = null
+
+  function applyPatchToObjects(objects: SceneConfigObject3D[], patch: ScenePatch): SceneConfigObject3D[] {
+    const byId = new Map<string, SceneConfigObject3D>()
+    for (const o of objects) if (o.id) byId.set(o.id, o)
+    for (const o of patch.objects?.upsert ?? []) if (o.id) byId.set(o.id, o)
+    for (const id of patch.objects?.remove ?? []) byId.delete(id)
+    return [...byId.values()]
+  }
+
+  function flushPatchPersist(sid: string): void {
+    patchPersistTimer = null
+    if (params.id !== sid) return
+    const dir = sceneHistoryDir()
+    if (!dir) return
+    const objects = (lastSceneObjects()[sid] ?? []) as unknown as SceneConfigObject3D[]
+    const planner = lastPlanner()[sid] as ScenePlanner | null | undefined
+    const cfg: SceneConfig = {
+      version: "1.0",
+      angleUnit: "deg",
+      scene: (planner as any)?.scene ?? { background: "#1a1a2e" },
+      camera: (planner as any)?.camera ?? { type: "perspective", position: [10, 8, 12], lookAt: [0, 0, 0], perspective: { fov: 50, near: 0.1, far: 1000 } },
+      lights: (planner as any)?.lights ?? [{ type: "ambient", intensity: 0.6 }],
+      objects,
+    }
+    void updateSceneVersion(dir, sid, {
+      lastSceneObjects: objects as unknown as SceneModuleResult[],
+      mergedSceneConfig: cfg as unknown as Record<string, unknown>,
+    })
+  }
+
+  function handleScenePatch(patch: ScenePatch): void {
+    const sid = params.id
+    if (!sid) return
+    // 内存 authoritative state 立即更新：下次 agent run 基于编辑后状态（防"复位"）。
+    const prevObjects = (lastSceneObjects()[sid] ?? []) as unknown as SceneConfigObject3D[]
+    sessionMap.set(setLastSceneObjects, sid, applyPatchToObjects(prevObjects, patch) as unknown as SceneModuleResult[])
+    // 防抖落盘：属性编辑器拖拽时每 mousemove 一个 patch，避免每帧写盘。
+    if (patchPersistTimer) clearTimeout(patchPersistTimer)
+    patchPersistTimer = setTimeout(() => flushPatchPersist(sid), 800)
+  }
+
+  function clearPatchPersistTimer(): void {
+    if (patchPersistTimer) {
+      clearTimeout(patchPersistTimer)
+      patchPersistTimer = null
+    }
   }
 
   // session 切换：清理 → 重置 → 异步加载 → 恢复
@@ -412,6 +467,9 @@ function Scene3DContent() {
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
+    // agent run 前清掉待落盘的编辑防抖：编辑已在 lastSceneObjects（内存）即时生效，
+    // agent 会读到编辑后状态；此处只需避免残留定时器把编辑前状态写进 agent 新增的版本。
+    clearPatchPersistTimer()
     console.log("[Scene3D] 开始生成场景:", text)
     const submitSessionId = params.id
     setPrompt("")
@@ -452,7 +510,10 @@ function Scene3DContent() {
 
       logStartSession(sid, text)
 
-      const onFinshed = async ({ sceneIntent, layoutPlanner, modulesJson, sceneConfig }: any) => {
+      const onFinshed = async ({ sceneIntent, layoutPlanner, modulesJson, sceneConfig, skipped }: any) => {
+        if (skipped?.length) {
+          showToast({ title: `${skipped.length} 个分区生成失败已跳过`, description: `可重新生成或继续对话补齐：${skipped.join("、")}` })
+        }
         // lastSceneObjects 存 merge 后的完整 objects（不是仅新分区的 modulesJson），
         // 否则下次 modify 时丢失之前累积的物体。
         const mergedObjects = (sceneConfig?.objects ?? []) as SceneModuleResult[]
@@ -608,7 +669,10 @@ function Scene3DContent() {
       },
     }
 
-    const onFinshed = async ({ sceneIntent, layoutPlanner, modulesJson, sceneConfig }: any) => {
+    const onFinshed = async ({ sceneIntent, layoutPlanner, modulesJson, sceneConfig, skipped }: any) => {
+      if (skipped?.length) {
+        showToast({ title: `${skipped.length} 个分区生成失败已跳过`, description: `可重新生成或继续对话补齐：${skipped.join("、")}` })
+      }
       const mergedObjects = (sceneConfig?.objects ?? []) as SceneModuleResult[]
       const dir = sceneHistoryDir()
       if (dir) {
@@ -818,6 +882,7 @@ function Scene3DContent() {
                       pendingData={pendingPreviewData()[params.id!] ?? null}
                       previewSrc={PREVIEW_SRC}
                       onReady={() => setEmbedReady(true)}
+                      onPatch={handleScenePatch}
                     />
                   </Show>
                 }>
