@@ -153,7 +153,7 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
             style={{
               position: "absolute",
               inset: "0",
-              "z-index": "100",
+              "z-index": "30",
               background: "rgba(0, 0, 0, 0.2)",
             }}
             onClick={() => responsive.closeDrawer()}
@@ -165,7 +165,7 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
               left: "0",
               bottom: "0",
               width: `${responsive.sidebarWidth()}px`,
-              "z-index": "101",
+              "z-index": "31",
               background: collapsedBg,
               "border-right": "1px solid var(--border-weak-base)",
               overflow: "hidden",

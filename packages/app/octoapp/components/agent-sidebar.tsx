@@ -194,12 +194,12 @@ export function AgentSidebar(props: AgentSidebarProps) {
     visibility: "hidden",
   })
 
-  let contextMenuRef: HTMLDivElement | undefined
+  const [contextMenuRef, setContextMenuRef] = createSignal<HTMLDivElement | undefined>(undefined)
 
   createEffect(() => {
     if (contextMenu.show && contextMenu.session) {
       requestAnimationFrame(() => {
-        const menu = contextMenuRef
+        const menu = contextMenuRef()
         if (!menu) return
         const menuHeight = menu.offsetHeight
         const menuWidth = menu.offsetWidth
@@ -225,6 +225,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   function closeContextMenu() {
     setContextMenu("show", false)
+    setMenuStyle({ left: "0px", top: "0px", visibility: "hidden" })
   }
 
   // ── Rename ──
@@ -345,6 +346,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           navigate(props.buildSessionRoute(s))
         }}
         onSessionContextMenu={(s, e) => {
+          if (renamingId()) setRenamingId(null)
           const hasMessages = s.time.updated > s.time.created
           setContextMenu({ show: true, x: e.clientX, y: e.clientY, session: s, hasMessages })
         }}
@@ -362,14 +364,26 @@ export function AgentSidebar(props: AgentSidebarProps) {
         <Portal>
           <div
             class="fixed inset-0 z-50"
-            onContextMenu={(e) => e.preventDefault()}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+                const sessionEl = el.closest('[data-session-id]')
+                if (!sessionEl) continue
+                const session = sessionList.find(s => s.id === sessionEl.getAttribute('data-session-id'))
+                if (!session) continue
+                if (renamingId()) setRenamingId(null)
+                setContextMenu({ show: true, x: e.clientX, y: e.clientY, session, hasMessages: session.time.updated > session.time.created })
+                return
+              }
+              closeContextMenu()
+            }}
             onClick={closeContextMenu}
             onKeyDown={(e) => { if (e.key === "Escape") closeContextMenu() }}
             tabIndex={-1}
             ref={(el) => { requestAnimationFrame(() => el?.focus()) }}
           >
             <div
-              ref={(el) => { contextMenuRef = el }}
+              ref={setContextMenuRef}
               data-component="dropdown-menu-content"
               style={{
                 position: "absolute",
