@@ -11,7 +11,6 @@ import { useSessionKey } from "@/pages/session/session-layout"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { SessionQuestionDock } from "@/pages/session/composer/session-question-dock"
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
-import { QueueBanner } from "@/components/queue-banner"
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
@@ -34,7 +33,6 @@ export function SessionComposerRegion(props: {
     edit?: { id: string; prompt: FollowupDraft["prompt"]; context: FollowupDraft["context"] }
     onQueue: (draft: FollowupDraft) => void
     onAbort: () => void
-    onRemove: (index: number) => void
     onSend: (id: string) => void
     onEdit: (id: string) => void
     onEditLoaded: () => void
@@ -241,9 +239,11 @@ export function SessionComposerRegion(props: {
               }}
             >
               <Show when={props.followup?.items.length}>
-                <QueueBanner
+                <SessionFollowupDock
                   items={props.followup!.items}
-                  onRemove={props.followup!.onRemove}
+                  sending={props.followup!.sending}
+                  onSend={props.followup!.onSend}
+                  onEdit={props.followup!.onEdit}
                 />
               </Show>
               <Show
