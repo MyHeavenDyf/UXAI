@@ -187,7 +187,13 @@ function PathTabBody(props: {
   return (
     <Show
       when={!resource.error}
-      fallback={<PathErrorFallback tab={props.tab} error={resource.error} onRetry={() => refetch()} />}
+      fallback={
+        // refetch 期间 error 不清空(Solid resource 语义),不包 loading 态错误页会纹丝不动,
+        // 用户分不清「没点上」还是「又失败了」。三个 TabBody 的错误兜底同此。
+        <Show when={!resource.loading} fallback={<ResourceLoading />}>
+          <PathErrorFallback tab={props.tab} error={resource.error} onRetry={() => refetch()} />
+        </Show>
+      }
     >
       <Show when={!resource.loading} fallback={<ResourceLoading />}>
         <TabContent tab={{ ...props.tab, content: resource() ?? "" }} />
@@ -216,14 +222,16 @@ function UriTabBody(props: {
     <Show
       when={!resource.error}
       fallback={
-        <ResourceErrorFallback
-          tab={props.tab}
-          error={resource.error}
-          onRetry={() => {
-            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
-            void refetch()
-          }}
-        />
+        <Show when={!resource.loading} fallback={<ResourceLoading />}>
+          <ResourceErrorFallback
+            tab={props.tab}
+            error={resource.error}
+            onRetry={() => {
+              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+              void refetch()
+            }}
+          />
+        </Show>
       }
     >
       <Show when={!resource.loading} fallback={<ResourceLoading />}>
@@ -271,14 +279,16 @@ function UriMarkdownTabBody(props: {
     <Show
       when={!resource.error}
       fallback={
-        <ResourceErrorFallback
-          tab={props.tab}
-          error={resource.error}
-          onRetry={() => {
-            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
-            void refetch()
-          }}
-        />
+        <Show when={!resource.loading} fallback={<ResourceLoading />}>
+          <ResourceErrorFallback
+            tab={props.tab}
+            error={resource.error}
+            onRetry={() => {
+              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+              void refetch()
+            }}
+          />
+        </Show>
       }
     >
       <Show when={!resource.loading} fallback={<ResourceLoading />}>
@@ -384,7 +394,15 @@ function ResourceErrorFallback(props: {
         <Show when={props.tab.uri}>
           <button
             type="button"
-            onClick={() => navigator.clipboard.writeText(props.tab.uri!).catch(console.error)}
+            onClick={() =>
+              navigator.clipboard.writeText(props.tab.uri!).then(
+                () => showToast({ description: "已复制到剪贴板", variant: "success", duration: 2000 }),
+                (err) => {
+                  console.error("[octo:resource] copy-link-failed", { err })
+                  showToast({ title: "复制失败", description: "请重试或手动选择文本复制", variant: "error" })
+                },
+              )
+            }
             class="px-3 py-1 text-xs rounded"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
           >
