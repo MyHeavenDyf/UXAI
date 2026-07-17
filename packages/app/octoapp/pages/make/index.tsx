@@ -398,11 +398,12 @@ const sessionMessagesLoaded = createMemo(() => {
       
       if (detail.action === 'send' && !sending()) {
         const sessionId = params.id
-        if (sessionId) {
+        const modelKey = activeModelKey()
+        if (sessionId && modelKey) {
           await new Promise(resolve => setTimeout(resolve, 100))
           const att = attachments().find(a => a.id === filesById.keys().next().value)
           if (att?.status === 'done' || attachments().length === 0) {
-            await sendMessage(sessionId, messageText)
+            await sendMessage(sessionId, messageText, modelKey)
             setAttachments([])
             setPrompt("")
           }
