@@ -287,9 +287,23 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
-  ipcMain.on("show-item-in-folder", (_event: IpcMainEvent, path: string) => {
-    shell.showItemInFolder(path)
-  })
+  // shell.showItemInFolder 返回 void,路径不存在时静默 no-op —— 用户从磁盘改名/移走文件后
+  // 点「打开所在文件夹」会毫无反应。故这里先探路径再定位,把结果回传给渲染端。
+  // 约定为「返回结果对象、永不 throw」(与 open-path 透传 shell.openPath 错误串同源):
+  // 老调用方不 await 也拿不到 rejected promise,不会退化成 unhandled rejection。
+  ipcMain.handle(
+    "show-item-in-folder",
+    async (_event: IpcMainInvokeEvent, path: string): Promise<{ ok: boolean; reason?: "not-found" }> => {
+      try {
+        await lstat(path)
+      } catch {
+        log.warn("[octo:path] show-item-in-folder target missing", { path })
+        return { ok: false, reason: "not-found" }
+      }
+      shell.showItemInFolder(path)
+      return { ok: true }
+    },
+  )
 
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
     // net.fetch 走 Chromium 网络栈(系统代理/PAC、系统证书),与渲染端/浏览器行为一致;

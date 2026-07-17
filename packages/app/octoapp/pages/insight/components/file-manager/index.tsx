@@ -391,7 +391,7 @@ function FileManagerInner(props: {
     tracker.interaction({ module: "insight", name: "files-add-to-session" })
   }
   function handleOpenInExplorer(file: InsightFile) {
-    revealFileInFolder(file.path)
+    void revealFileInFolder(file.path)
     tracker.interaction({ module: "insight", name: "files-open-in-explorer" })
   }
 

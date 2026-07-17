@@ -43,19 +43,17 @@ function sanitizeFilename(name: string): string {
 // uri md 卡「文件夹」:SPEC-INS-014 v2 后 uri md 产物落在可见的 insight/<sessionId>/outputs,
 // 先命中/落地本地工作副本(与预览、编辑同一份),再在文件管理器定位。
 async function revealUriLocal(tab: ResultTab, dir: string, sessionId: string) {
-  const api = getDesktopApi()
-  if (typeof api?.showItemInFolder !== "function") {
-    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
-    return
-  }
+  let path: string
   try {
-    const { path } = await ensureLocalMarkdownFile(tab, dir, sessionId)
-    console.log("[octo:office] reveal-show", { localPath: path })
-    api.showItemInFolder(path)
+    path = (await ensureLocalMarkdownFile(tab, dir, sessionId)).path
   } catch (err) {
     console.error("[octo:office] reveal-failed", { uri: tab.uri, err })
     showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+    return
   }
+  console.log("[octo:office] reveal-show", { localPath: path })
+  // 落地成功不代表还在:本地工作副本也可能被用户从磁盘移走,故定位仍走带存在性校验的共享实现。
+  await revealFileInFolder(path)
 }
 
 // uri 源「另存为」:始终从 url 重新拉 MCP 原始版本(不取本地工作副本/编辑后内容),
@@ -241,7 +239,7 @@ export function ActionBar(props: {
               方便用 Typora / VSCode 等原生应用打开编辑。见 output-renderers.md §2.6.8。 */}
           <Show when={props.tab.source === "path" && props.tab.filePath}>
             <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openFileLocally(props.tab.filePath!)} />
-            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => revealFileInFolder(props.tab.filePath!)} />
+            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
           </Show>
           <Show when={canEdit()}>
             <ActionBtn

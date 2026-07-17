@@ -7,7 +7,8 @@
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
-  showItemInFolder?: (path: string) => void
+  /** 在系统文件管理器中定位;文件不存在(被改名/移走)时返回 { ok: false, reason: "not-found" },约定永不 throw */
+  showItemInFolder?: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   downloadResource?: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp?: (
