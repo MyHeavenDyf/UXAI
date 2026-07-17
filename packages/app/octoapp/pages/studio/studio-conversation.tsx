@@ -168,7 +168,6 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}
-        poster={props.image.thumbnailUrl}
         class={props.class}
         controls={props.controls}
         muted={!props.controls}

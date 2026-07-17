@@ -77,6 +77,11 @@ export function StudioComposer(props: {
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
+  const resizeInput = () => {
+    if (!inputRef) return
+    inputRef.style.height = "auto"
+    inputRef.style.height = `${Math.min(inputRef.scrollHeight, 180)}px`
+  }
   const [lastValidCustomLabel, setLastValidCustomLabel] = createSignal("")
   const isJimengModel = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
   // 弹框打开时锁定 toolbar 显示值，关闭后才同步
@@ -225,6 +230,7 @@ export function StudioComposer(props: {
   onMount(() => {
     requestAnimationFrame(() => {
       checkToolbarOverflow()
+      resizeInput()
     })
     const observer = new ResizeObserver(() => checkToolbarOverflow())
     if (toolbarItemsRef) observer.observe(toolbarItemsRef)
@@ -232,6 +238,8 @@ export function StudioComposer(props: {
   })
 
   createEffect(() => {
+    props.prompt
+    queueMicrotask(resizeInput)
     props.styleModel
     props.customWidth
     props.customHeight
@@ -439,7 +447,10 @@ export function StudioComposer(props: {
             <textarea
               ref={inputRef}
               value={props.prompt}
-              onInput={(event) => props.onPrompt(event.currentTarget.value)}
+              onInput={(event) => {
+                props.onPrompt(event.currentTarget.value)
+                resizeInput()
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && isImeComposing(event)) return
                 props.onKeyDown(event)
@@ -508,7 +519,7 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse" style="display:none">
+	                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
                   <IconTool
                     label="图文反推"
                     class="studio-composer-icon-reverse"
@@ -583,7 +594,6 @@ export function StudioComposer(props: {
                     <button
                       type="button"
                       class="studio-composer-toolbar-more-item"
-                      style="display:none"
                       onClick={() => props.onReversePrompt?.()}
                     >
                       <span class="studio-composer-toolbar-more-item-icon studio-composer-icon-reverse-icon" />

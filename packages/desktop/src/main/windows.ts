@@ -142,6 +142,8 @@ export function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
+      webSecurity: false
     },
   })
 
@@ -241,6 +243,8 @@ export function createLoadingWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
+      webSecurity: false
     },
   })
 
