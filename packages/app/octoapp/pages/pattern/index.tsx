@@ -39,7 +39,7 @@ import { PatternMatchPage } from "./modules/preview/pattern-match-page"
 import type { PatternMatchItem } from "./utils/pattern-resource"
 import { readPatternFile, readPatternAssets, readPatternPreview, saveUploadImage, replacePatternAssetPaths } from "./utils/pattern-resource"
 import proto_pattern_block from "./agents/proto_pattern_block"
-import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
+import { type IntentConfirmAnswers } from "./modules/chat/intent-confirm-card"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
@@ -171,6 +171,8 @@ function PatternContent() {
           if (dir) {
             void async function() {
               if (params.id !== id) return
+              // pipeline 正在运行时跳过 restore，内存状态已正确
+              if (sendingSids().has(id)) return
               // 读取该会话持久化的设计系统主题
               const savedTheme = await loadTheme(dir, id)
               if (params.id !== id) return
@@ -365,7 +367,7 @@ function PatternContent() {
   const confirmText = createMemo<{ title: string; subtitle: string } | null>(() => {
     const id = params.id
     if (!id) return null
-    if (intentConfirm()[id]) return { title: "意图分析完成", subtitle: "请在右侧进一步确认需求" }
+    if (intentConfirm()[id]) return { title: "意图分析完成", subtitle: "请在下方确认需求" }
     if (isPlanReview()[id] || showPatternMatch()[id]) return { title: "线框审查", subtitle: "请在右侧进一步确认需求" }
     return null
   })
@@ -546,7 +548,7 @@ function PatternContent() {
           // intent_confirm 报错，先重跑意图确认
           const confirmResult = await create_intent_confirm(intentCtx)
           if (Object.keys(confirmResult.options).length > 0) {
-            // 需要用户确认，显示 IntentConfirmReview
+            // 需要用户确认，在 CHAT 中显示确认卡片
             sessionMap.set(setUserInput, sid, text)
             sessionMap.set(setIntentConfirm, sid, confirmResult)
             startPause(sid)
@@ -992,6 +994,7 @@ function PatternContent() {
     if (!mk) return
     const text = userInput()[sid] ?? ""
     const enrichedText = text + enrichedInput
+    sessionMap.set(setIntentConfirm, sid, null)
     setSendingSids((prev) => new Set(prev).add(sid))
     endPause(sid)
     sessionMap.set(setIsGenerating, sid, true)
@@ -1301,6 +1304,8 @@ function PatternContent() {
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
             onRetry={handleRetry}
+            intentConfirmResult={intentConfirm()[params.id!] ?? null}
+            onConfirmIntent={handleConfirmIntent}
           />
         </Show>
 
@@ -1374,15 +1379,7 @@ function PatternContent() {
                 />
               </Show>
             }>
-              <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                <IntentConfirmReview
-                  result={intentConfirm()[params.id!]!}
-                  onConfirm={handleConfirmIntent}
-                />
-                <Show when={!!isGenerating()[params.id!]}>
-                  <PatternGenerating />
-                </Show>
-              </div>
+              <PatternPreviewEmpty />
             </Show>
             <Show when={!!isModifying()[params.id!]}>
               <div class="change-content">

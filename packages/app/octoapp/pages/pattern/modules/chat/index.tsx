@@ -18,6 +18,8 @@ import { tracker } from "@/utils/tracker"
 import { AttachmentBar, type Attachment } from "./attachment-bar"
 import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
+import { IntentConfirmCard, type IntentConfirmAnswers } from "./intent-confirm-card"
+import type { IntentConfirmResult } from "../../agents/proto-intent-confirm"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto-introduction"
 import { ChartInput, type ChartInputProps } from "./chart-input"
@@ -107,6 +109,8 @@ export function ChatPanel(props: {
   onTitleChanged: (title: string) => void
   /** 重试失败的 pipeline */
   onRetry?: () => void
+  intentConfirmResult?: IntentConfirmResult | null
+  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -175,6 +179,7 @@ export function ChatPanel(props: {
     <div
       class="flex flex-col overflow-hidden"
       style={{
+        position: "relative",
         background: props.isDragOver ? "var(--octo-brand-a3)" : "#fff",
         outline: props.isDragOver ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
       }}
@@ -346,6 +351,15 @@ export function ChatPanel(props: {
           <AttachmentBar attachments={props.attachments} onRemove={props.onRemoveAttachment} />
           <ChartInput {...props.inputProps} rows={3} />
         </div>
+
+        <Show when={props.intentConfirmResult && props.onConfirmIntent}>
+          <div class="ic-card-overlay">
+            <IntentConfirmCard
+              result={props.intentConfirmResult!}
+              onConfirm={props.onConfirmIntent!}
+            />
+          </div>
+        </Show>
       </Show>
     </div>
   )
