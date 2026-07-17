@@ -102,6 +102,8 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_UPLOAD_ENDPOINT": JSON.stringify(
           env.OCTO_UPLOAD_ENDPOINT ?? env.VITE_OCTO_UPLOAD_ENDPOINT ?? "",
         ),
+        // jk-j60099994-replace-with-60062650-electron-vite-config-2-start
+        // jk-j60099994-replace-with-60062650-electron-vite-config-2-end
       },
       build: {
         rollupOptions: {
