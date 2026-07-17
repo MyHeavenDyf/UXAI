@@ -66,7 +66,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             z-index: 10000;
           }
           .dialog-archive-success {
-            background: var(--octo-surface-default);
+            background: #ffffff;
             border-radius: 12px;
             width: 400px;
             max-width: 90vw;

@@ -244,7 +244,7 @@ export function buildArchivePath(data: {
 const getArchiveBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
 
 const getArchiveAuthHeaders = () => ({
-  "uiplustoken": localStorage.getItem("uiplusToken") || ""
+  "Content-Type": "application/json"
 })
 
 export interface CreateDeliverableResult {
@@ -253,14 +253,14 @@ export interface CreateDeliverableResult {
 }
 
 export async function createDeliverable(teamId: number, fileName: string): Promise<CreateDeliverableResult> {
-  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentSErver/designAget/createDeliverable`, {
+  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentServer/designAgent/createDeliverable`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       ...getArchiveAuthHeaders()
     },
     body: JSON.stringify({
       teamId,
+      typeId: 41,
       fileName: fileName.replace(/\.html?$/i, "")
     })
   })
@@ -282,7 +282,7 @@ export async function createDeliverable(teamId: number, fileName: string): Promi
 
 export async function uploadCover(deliverableId: number, file: Blob): Promise<void> {
   const formData = new FormData()
-  formData.append("file", file, "screenshot.jpg")
+  formData.append("uploadFile", file, "screenshot.jpg")
   formData.append("deliverableId", String(deliverableId))
   
   const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/workflow/deliverable/uploadCover`, {
@@ -301,9 +301,9 @@ export async function uploadVersion(uniqueId: string, file: Blob): Promise<void>
   formData.append("file", file, "archive.zip")
   formData.append("uniqueId", uniqueId)
   
-  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentSErver/designAget/uploadVersion`, {
+  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentServer/designAgent/uploadVersion`, {
     method: "POST",
-    headers: getArchiveAuthHeaders(),
+    headers: {"Content-Type": "multipart/form-data"},
     body: formData
   })
   

@@ -268,7 +268,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const fetchMyTeam = async (): Promise<Array<{ teamId: string; teamName: string }> | null> => {
     if (!isLoggedIn()) return null
     try {
-      const res = await fetch(`${getBaseUrl()}/design/sketch.root/workspaceteamgetMyTeam`, {
+      const res = await fetch(`${getBaseUrl()}/design/sketch.root/workspace/team/getMyTeam`, {
         headers: getAuthHeaders()
       })
       const data = await res.json()
@@ -761,7 +761,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                   <div class="archive-step-title">项目</div>
                   <div class="archive-step-content">
                     <ArchiveSearchDropdown
-                      items={myTeamList().map(t => ({ id: t.teamId, label: t.teamName }))}
+                      items={myTeamList()?.map(t => ({ id: t.teamId, label: t.teamName }))}
                       selectedId={selectedTeamId()}
                       selectedLabel={selectedTeamName() || undefined}
                       onSelect={(id, item) => handleTeamSelect(id as string, item)}
