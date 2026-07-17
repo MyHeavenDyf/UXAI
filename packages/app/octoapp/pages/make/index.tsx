@@ -1747,6 +1747,9 @@ if (dsId) {
     // URL 类型：跳过文件推断和加载
     const isUrl = card.filePath?.match(/^https?:\/\//i)
     
+    // 标记：内容是否从文件加载（用于跳过不必要的持久化）
+    let contentLoadedFromFile = false
+    
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
     if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
@@ -1791,6 +1794,7 @@ if (dsId) {
             const data = await response.json()
             if (data.content && typeof data.content === "string") {
               card = { ...card, content: data.content }
+              contentLoadedFromFile = true
               console.log("[MakePage] Loaded from file:", card.filePath)
             }
           }
@@ -1808,7 +1812,8 @@ if (dsId) {
     
     if (tab) {
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
-      if (shouldPersist && !isUrl && tab.content) {
+      // 跳过从文件加载的内容（已存在于文件中，无需重复持久化）
+      if (shouldPersist && !isUrl && tab.content && !contentLoadedFromFile) {
         await persistTabChanges(tab, {
           sessionId: params.id!,
           projectDir: projectDir(),

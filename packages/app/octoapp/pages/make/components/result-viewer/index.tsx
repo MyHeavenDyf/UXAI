@@ -66,7 +66,7 @@ export function ResultViewer(props: {
   activeId: string | null
   onActivate: (id: string) => void
   onClose: (id: string) => void
-  onContentChange?: (id: string, content: string) => void
+  onContentChange?: (id: string, content: string) => Promise<void>
   sessionId?: string
   onOpenArtifact?: (card: OutputCard) => void
   viewMode: "tabs" | "files"
@@ -137,7 +137,7 @@ export function ResultViewer(props: {
     setRefreshKey((prev) => prev + 1)
   }
 
-const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
+const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
     const tab = props.tabs.find(t => t.id === tabId)
     if (!tab || overrides.length === 0) return
 
@@ -168,7 +168,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
       ? "```html\n" + cleanHtml + "\n```"
       : cleanHtml
 
-    props.onContentChange?.(tabId, finalContent)
+    await props.onContentChange?.(tabId, finalContent)
   }
 
   const handleOpenArtifactFile = (file: ArtifactFile) => {
@@ -336,7 +336,7 @@ commenting={commenting()}
                           inspectPanel={true}
                           onInspectTarget={setInspectTarget}
                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                          onContentChange={(content) => props.onContentChange?.(tabId, content)}
+                          onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
                           refreshKey={refreshKey()}
                           filePath={tab.filePath}
                           commentFilePath={tab.commentFilePath}
@@ -371,7 +371,7 @@ commenting={commenting()}
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
                         onAdjust={() => props.onAdjustPlan?.()}
-                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
+                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
                       />
                     </Match>
                     <Match when={tabType === "local-file"}>
