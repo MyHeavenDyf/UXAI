@@ -52,6 +52,10 @@ import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
 // DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。仅 DEV 分支调用,生产构建该引用为死代码,整模块摇树掉。
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
+// 生产构建把 console 对象参数序列化成 JSON 再落盘(insight-debug.log 转发只拿到字符串,
+// 否则全是 "[object Object]");dev 不装,保留 DevTools 对象可展开。见模块头注释。
+import { installConsoleObjectSerializer } from "@/pages/insight/lib/console-serialize"
+if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { ResponsiveSidebarLayout } from "@/components/responsive-sidebar-layout"
@@ -62,6 +66,9 @@ import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
+
+// jk-j60099994-replace-with-60062650-octo-1-start
+// jk-j60099994-replace-with-60062650-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
@@ -460,9 +467,13 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
                 <DialogProvider>
                   {/* jk-j60099994-replace-with-octo-2-start */}
                   {/* jk-j60099994-replace-with-octo-2-end */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-end */}
                   <MarkedProvider>
                     <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
                   </MarkedProvider>
+                  {/* jk-j60099994-replace-with-60062650-octo-3-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-3-end */}
                   {/* jk-j60099994-replace-with-octo-3-start */}
                   {/* jk-j60099994-replace-with-octo-3-end */}
                 </DialogProvider>

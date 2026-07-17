@@ -97,7 +97,7 @@ export function HtmlRenderer(props: {
   inspectPanel?: boolean
   onInspectTarget?: (target: InspectTarget | null) => void
   onSaveOverrides?: (overrides: Array<{ elementId: string; prop: string; value: string }>) => void
-  onContentChange?: (content: string) => void
+  onContentChange?: (content: string) => Promise<void>
   refreshKey?: number
   filePath?: string
   sessionId?: string
@@ -156,8 +156,7 @@ export function HtmlRenderer(props: {
     if (historyIndex > 0) {
       historyIndex--
       const state = historyStack[historyIndex]
-      props.onContentChange?.(wrapHtmlContent(state.html, props.content))
-      props.onRefreshNeeded?.()
+      void props.onContentChange?.(wrapHtmlContent(state.html, props.content))
       return true
     }
     return false
@@ -168,8 +167,7 @@ export function HtmlRenderer(props: {
     if (historyIndex < historyStack.length - 1) {
       historyIndex++
       const state = historyStack[historyIndex]
-      props.onContentChange?.(wrapHtmlContent(state.html, props.content))
-      props.onRefreshNeeded?.()
+      void props.onContentChange?.(wrapHtmlContent(state.html, props.content))
       return true
     }
     return false
@@ -265,7 +263,8 @@ createEffect(() => {
     
     if (result.ok) {
       const cleanSource = cleanBridgeContent(result.source)
-      props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+      await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+      props.onRefreshNeeded?.()
       if (hasChanges) {
         pushHistory(cleanSource, description)
       }
@@ -459,6 +458,7 @@ createEffect(() => {
   createEffect(on(() => props.mode, async (mode) => {
     // Electron 环境不需要自动保存（local:// 直接读取文件）
     if (isElectronDesktop()) return
+    if (!props.content?.trim()) return
     if (mode === "preview" && shouldUseServeUrl() && props.onSaveFile) {
       try {
         await props.onSaveFile(props.content)
@@ -866,8 +866,8 @@ return (
                   }
                 }}
                 onStyleChange={(id, styles, label) => {
-                  // Store to pending (waiting for Save button)
-                  const mergedStyles = { ...editDraft().styles, ...styles }
+                  const baseStyles = manualEditPendingStyle?.styles ?? editDraft().styles
+                  const mergedStyles = { ...baseStyles, ...styles }
                   manualEditPendingStyle = { id, styles: mergedStyles, label }
                   
                   // Send preview to iframe
@@ -884,7 +884,8 @@ onApplyPatch={async (patch: ManualEditPatch, label: string) => {
               if (result.ok) {
                 const cleanSource = cleanBridgeContent(result.source)
                 const updatedContent = wrapHtmlContent(cleanSource, props.content)
-                props.onContentChange?.(updatedContent)
+                await props.onContentChange?.(updatedContent)
+                props.onRefreshNeeded?.()
                 pushHistory(cleanSource, label)
                 if (patch.kind === 'remove-element') {
                   setEditTarget(null)

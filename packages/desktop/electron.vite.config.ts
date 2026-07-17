@@ -102,6 +102,8 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_UPLOAD_ENDPOINT": JSON.stringify(
           env.OCTO_UPLOAD_ENDPOINT ?? env.VITE_OCTO_UPLOAD_ENDPOINT ?? "",
         ),
+        // jk-j60099994-replace-with-60062650-electron-vite-config-2-start
+        // jk-j60099994-replace-with-60062650-electron-vite-config-2-end
       },
       build: {
         rollupOptions: {
@@ -158,6 +160,8 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.VITE_OCTO_MODELS_API_URL": JSON.stringify(env.VITE_OCTO_MODELS_API_URL ?? ""),
         // jk-j60099994-replace-with-electron-vite-config-2-start
         // jk-j60099994-replace-with-electron-vite-config-2-end
+        // jk-j60099994-replace-with-60062650-electron-vite-config-1-start
+        // jk-j60099994-replace-with-60062650-electron-vite-config-1-end
       },
       build: {
         sourcemap: true,
