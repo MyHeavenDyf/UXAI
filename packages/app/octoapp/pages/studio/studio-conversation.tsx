@@ -224,9 +224,11 @@ export function StudioResultCanvas(props: {
   )
   const showImage = createMemo(() => {
     if (fileManagerLoading()) return undefined
-    if (props.showFileManager) return props.image ?? ({} as StudioImage)
     return props.image
   })
+  const shouldShowCanvas = createMemo(() =>
+    !!showImage() || (props.showFileManager === true && !fileManagerLoading()),
+  )
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
@@ -262,7 +264,7 @@ export function StudioResultCanvas(props: {
 
   return (
     <>
-      <Show when={showImage() || props.showFileManager} fallback={
+      <Show when={shouldShowCanvas()} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
           <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
             <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
@@ -280,7 +282,7 @@ export function StudioResultCanvas(props: {
           </Show>
         </div>
       }>
-        {(image) => {
+        {(() => {
           function tabLabelFor(tabImage: StudioImage, index: number): string {
             const stored = props.tabLabels?.[tabImage.id]
             if (stored) return stored
@@ -419,15 +421,19 @@ export function StudioResultCanvas(props: {
                 </Show>
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
-                  <Show
-                    when={isVideoMedia(image())}
-                    fallback={<StudioMediaPreview image={image()} class={`studio-canvas-image ${getImageOrientation(image())}`} onClick={() => setFullscreenImage(image())} />}
-                  >
-                    <StudioVideoPlayer
-                      src={image().remoteUrl ?? image().url}
-                      class={`studio-canvas-image ${getImageOrientation(image())}`}
-                      mount={props.videoPlayerMount}
-                    />
+                  <Show when={showImage()}>
+                    {(img) => (
+                      <Show
+                        when={isVideoMedia(img())}
+                        fallback={<StudioMediaPreview image={img()} class={`studio-canvas-image ${getImageOrientation(img())}`} onClick={() => setFullscreenImage(img())} />}
+                      >
+                        <StudioVideoPlayer
+                          src={img().remoteUrl ?? img().url}
+                          class={`studio-canvas-image ${getImageOrientation(img())}`}
+                          mount={props.videoPlayerMount}
+                        />
+                      </Show>
+                    )}
                   </Show>
                 </div>
                 <div ref={setFloatingActionsRef} class="studio-canvas-floating-actions">
@@ -523,8 +529,7 @@ export function StudioResultCanvas(props: {
             </div>
           </>
           )
-        }
-        }
+        })()}
       </Show>
       {fullscreenImage() && (
         <Portal mount={props.fullscreenMount?.() || document.body}>
