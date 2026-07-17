@@ -32,6 +32,7 @@ import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
   referenceImageLimit,
+  styleModelId,
   styleModelLabel,
   styleModelRequiresSeedreamPermission,
 } from "./studio/data"
@@ -90,6 +91,7 @@ import {
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session-thumbnail"
+import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
@@ -1106,6 +1108,7 @@ export default function StudioPage() {
     return isActionBusy() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
+  const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
   createEffect(() => {
     if (videoQualityLocked()) setVideoQualityMode("pro")
@@ -1117,7 +1120,7 @@ export default function StudioPage() {
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
-        ? prompt().trim().length > 0 || hasVideoFrames()
+        ? !hasInvalidVideoFrames() && (prompt().trim().length > 0 || hasVideoFrames())
         : prompt().trim().length > 0
     ),
   )
@@ -1430,9 +1433,16 @@ export default function StudioPage() {
     })
   }
 
+  function resolveStudioImageFetchUrl(url: string) {
+    if (url.startsWith("data:image/") || /^https?:\/\//i.test(url)) return url
+    const artifact = getArtifactRelativePath(url)
+    if (!artifact) return url
+    return getArtifactServeUrl(globalSDK.url, projectDir(), artifact.sessionId, artifact.relativePath)
+  }
+
   async function resolveImageUrlDataUrl(url: string) {
     if (url.startsWith("data:image/")) return url
-    const response = await fetch(url)
+    const response = await fetch(resolveStudioImageFetchUrl(url))
     if (!response.ok) throw new Error(`Unable to load selected image. status=${response.status}`)
     const blob = await response.blob()
     if (!blob.type.startsWith("image/")) throw new Error(`Selected media is not an image. content-type=${blob.type || "unknown"}`)
@@ -2050,7 +2060,6 @@ export default function StudioPage() {
     const restoredFirstFrame =
       stringValue(extra, "firstFrame") ??
       referenceImages[0] ??
-      referenceImages[1] ??
       dataUrlFromBase64(stringValue(args, "image"))
     return {
       first: restoredFirstFrame,
@@ -2100,7 +2109,7 @@ export default function StudioPage() {
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
         extra: { ...(extra ?? {}), skipPromptRefine: true },
-        styleModel: stringValue(input, "styleModel"),
+        styleModel: styleModelId(stringValue(input, "styleModel")),
         aspectRatio: nextAspectRatio,
         count: nextCount,
         width: result.width,
@@ -2135,7 +2144,7 @@ export default function StudioPage() {
     return {
       capability: result.capability,
       prompt: stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
-      styleModel: stringValue(input, "styleModel") ?? result.styleModel ?? result.model,
+      styleModel: styleModelId(stringValue(input, "styleModel") ?? result.styleModel ?? result.model),
       aspectRatio: nextAspectRatio,
       count: nextCount,
       width: result.width,
@@ -2157,6 +2166,7 @@ export default function StudioPage() {
     }
     if (
       draft.capability === "image.generate" &&
+      draft.styleModel &&
       styleModelRequiresSeedreamPermission(draft.styleModel) &&
       !canUseSeedream()
     ) {
@@ -2635,7 +2645,8 @@ export default function StudioPage() {
             first: videoFrames.first?.dataUrl,
             last: videoFrames.last?.dataUrl,
           }
-    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first || nextVideoFrames.last)
+    const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
+    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
     const text = (overrides?.prompt ?? prompt()).trim() || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
@@ -2649,13 +2660,13 @@ export default function StudioPage() {
               ? "根据首尾帧生成自然连贯的视频"
             : ""
     )
-    if (!text || isActionBusy()) return
+    if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
     const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
     const videoReferenceImages = [
-      nextVideoFrames.first ?? nextVideoFrames.last,
+      nextVideoFrames.first,
       nextVideoFrames.first ? nextVideoFrames.last : undefined,
     ].filter((item): item is string => Boolean(item))
     const referenceImages = overrides?.referenceImages ?? (
@@ -2694,7 +2705,7 @@ export default function StudioPage() {
           videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
           duration: nextVideoDuration,
           mode: nextVideoQualityMode,
-          firstFrame: nextVideoFrames.first ?? nextVideoFrames.last,
+          firstFrame: nextVideoFrames.first,
           lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
         }
         : {}),
