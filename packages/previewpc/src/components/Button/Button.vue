@@ -103,8 +103,8 @@ function resolveIconColorForType(): string {
     case "success":  return "var(--icon-success)"
     case "warning":  return "var(--icon-warning)"
     case "danger":   return "var(--icon-error)"
-    case "default":  return "var(--icon-default)"
-    case "info":     return "var(--icon-default)"
+    case "default":  return "var(--color-icon-primary)"
+    case "info":     return "var(--color-icon-primary)"
     default:         return "currentColor"
   }
 }
@@ -133,7 +133,7 @@ const resolvedIcon = computed(() => {
       ? { iconSize: resolveIconSize(),
          type: base.props.type,
           iconColor: [colorValue],
-          hoverColor: onlyIcon.value ? [isDark.value ? 'var(--primary-200)' : 'var(--primary-400)'] : undefined,
+          hoverColor: onlyIcon.value ? [isDark.value ? 'var(--brand-20)' : 'var(--brand-40)'] : undefined,
         }
       : { size: resolveIconSize(), color: colorValue, "stroke-width": 1 },
   }

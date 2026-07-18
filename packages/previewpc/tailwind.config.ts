@@ -83,8 +83,8 @@ export default {
       "borderColor": {
         'base': 'var(--border, #C9C9C9)',
         'divider': 'var(--divider, #F3F3F3)',
-        'selected': 'var(--primary-500, #0067D1)',
-        'error': 'var(--error-500, #E02128)',
+        'selected': 'var(--brand-50, #0067D1)',
+        'error': 'var(--red-50, #E02128)',
       },
       "borderRadius": {
         'none': '0px',
@@ -99,8 +99,8 @@ export default {
         'overlay': '8px'
       },
       "outlineColor": {
-        'brand': 'var(--primary-500, #0067D1)',
-        'error': 'var(--error-500, #E02128)'
+        'brand': 'var(--brand-50, #0067D1)',
+        'error': 'var(--red-50, #E02128)'
       },
       "outlineWidth": {
         'focus': '1px',

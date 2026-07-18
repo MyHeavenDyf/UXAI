@@ -182,112 +182,100 @@
      语义化色彩 Token (暗色模式映射)
      ========================================================================== */
   /* Text */
-  --text-default: var(--neutral-0);
-  --text-secondary: var(--neutral-200);
-  --text-placeholder: var(--neutral-400);
-  --text-disabled: var(--neutral-400);
-  --text-inverse: var(--neutral-900);
-  --text-primary: var(--primary-300);
-  --text-success: var(--success-300);
-  --text-warning: var(--warning-300);
-  --text-alert: var(--alert-300);
-  --text-error: var(--error-300);
+  --text-default: var(--gray-0);
+  --text-secondary: var(--gray-20);
+  --text-placeholder: var(--gray-40);
+  --text-disabled: var(--gray-40);
+  --text-inverse: var(--gray-90);
+  --text-primary: var(--brand-30);
+  --text-success: var(--mint-30);
+  --text-warning: var(--yellow-30);
+  --text-alert: var(--orange-30);
+  --text-error: var(--red-30);
 
   /* Text Interaction States */
-  --text-primary-hover: var(--primary-0);
-  --text-primary-active: var(--primary-300);
-  --text-success-hover: var(--success-200);
-  --text-success-active: var(--success-300);
-  --text-warning-hover: var(--warning-200);
-  --text-warning-active: var(--warning-300);
-  --text-alert-hover: var(--alert-200);
-  --text-alert-active: var(--alert-300);
-  --text-error-hover: var(--error-200);
-  --text-error-active: var(--error-300);
+  --text-primary-hover: var(--gray-0);
+  --text-primary-active: var(--brand-30);
+  --text-success-hover: var(--mint-20);
+  --text-success-active: var(--mint-30);
+  --text-warning-hover: var(--yellow-20);
+  --text-warning-active: var(--yellow-30);
+  --text-alert-hover: var(--orange-20);
+  --text-alert-active: var(--orange-30);
+  --text-error-hover: var(--red-20);
+  --text-error-active: var(--red-30);
 
   /* Background - Base */
-  --surface-background: var(--neutral-950);
-  --surface-default: var(--neutral-900);
-  --surface-secondary: var(--neutral-800);
+  --surface-background: var(--gray-100);
+  --surface-default: var(--gray-90);
+  --surface-secondary: var(--gray-80);
   --surface-transparent: transparent;
-  --surface-disabled: var(--neutral-700);
+  --surface-disabled: var(--gray-70);
   --surface-mask: rgba(0, 0, 0, 0.6);
 
   /* Background - Solid */
-  --surface-primary: var(--primary-300);
-  --surface-success: var(--success-300);
-  --surface-warning: var(--warning-300);
-  --surface-alert: var(--alert-300);
-  --surface-error: var(--error-300);
+  --surface-primary: var(--brand-30);
+  --surface-success: var(--mint-30);
+  --surface-warning: var(--yellow-30);
+  --surface-alert: var(--orange-30);
+  --surface-error: var(--red-30);
 
   /* Background - Solid Interaction States */
-  --surface-primary-hover: var(--primary-200);
-  --surface-primary-active: var(--primary-400);
-  --surface-success-hover: var(--success-200);
-  --surface-success-active: var(--success-400);
-  --surface-warning-hover: var(--warning-200);
-  --surface-warning-active: var(--warning-400);
-  --surface-alert-hover: var(--alert-200);
-  --surface-alert-active: var(--alert-400);
-  --surface-error-hover: var(--error-200);
-  --surface-error-active: var(--error-400);
+  --surface-primary-hover: var(--brand-20);
+  --surface-primary-active: var(--brand-40);
+  --surface-success-hover: var(--mint-20);
+  --surface-success-active: var(--mint-40);
+  --surface-warning-hover: var(--yellow-20);
+  --surface-warning-active: var(--yellow-40);
+  --surface-alert-hover: var(--orange-20);
+  --surface-alert-active: var(--orange-40);
+  --surface-error-hover: var(--red-20);
+  --surface-error-active: var(--red-40);
 
   /* Background - Subtle */
-  --surface-primary-subtle: var(--primary-900);
-  --surface-success-subtle: var(--success-900);
-  --surface-warning-subtle: var(--warning-900);
-  --surface-alert-subtle: var(--alert-900);
-  --surface-error-subtle: var(--error-900);
+  --surface-primary-subtle: var(--brand-90);
+  --surface-success-subtle: var(--mint-90);
+  --surface-warning-subtle: var(--yellow-90);
+  --surface-alert-subtle: var(--orange-90);
+  --surface-error-subtle: var(--red-90);
 
   /* Background - Subtle Interaction States */
-  --surface-primary-subtle-hover: var(--primary-800);
-  --surface-primary-subtle-active: var(--primary-700);
-  --surface-success-subtle-hover: var(--success-800);
-  --surface-success-subtle-active: var(--success-700);
-  --surface-warning-subtle-hover: var(--warning-800);
-  --surface-warning-subtle-active: var(--warning-700);
-  --surface-alert-subtle-hover: var(--alert-800);
-  --surface-alert-subtle-active: var(--alert-700);
-  --surface-error-subtle-hover: var(--error-800);
-  --surface-error-subtle-active: var(--error-700);
+  --surface-primary-subtle-hover: var(--brand-80);
+  --surface-primary-subtle-active: var(--brand-70);
+  --surface-success-subtle-hover: var(--mint-80);
+  --surface-success-subtle-active: var(--mint-70);
+  --surface-warning-subtle-hover: var(--yellow-80);
+  --surface-warning-subtle-active: var(--yellow-70);
+  --surface-alert-subtle-hover: var(--orange-80);
+  --surface-alert-subtle-active: var(--orange-70);
+  --surface-error-subtle-hover: var(--red-80);
+  --surface-error-subtle-active: var(--red-70);
 
   /* Border */
-  --border: var(--neutral-500);
-  --border-light: rgb(from var(--neutral-50) r g b / 0.15);
-  --border-primary: var(--primary-300);
-  --border-success: var(--success-200);
-  --border-warning: var(--warning-200);
-  --border-alert: var(--alert-200);
-  --border-error: var(--error-200);
+  --border: var(--gray-50);
+  --border-light: rgb(from var(--gray-5) r g b / 0.15);
+  --border-primary: var(--brand-30);
+  --border-success: var(--mint-20);
+  --border-warning: var(--yellow-20);
+  --border-alert: var(--orange-20);
+  --border-error: var(--red-20);
 
   /* Icon */
-  --icon-default: var(--neutral-600);
-  --icon-secondary: var(--neutral-500);
-  --icon-placeholder: var(--neutral-300);
-  --icon-disabled: var(--neutral-300);
-  --icon-inverse: var(--neutral-900);
-  --icon-primary: var(--primary-300);
-  --icon-success: var(--success-300);
-  --icon-warning: var(--warning-300);
-  --icon-critical: var(--alert-300);
-  --icon-alert: var(--alert-300);
-  --icon-error: var(--error-300);
+  --icon-primary: var(--brand-30);
+  --icon-success: var(--mint-30);
+  --icon-warning: var(--yellow-30);
+  --icon-critical: var(--orange-30);
+  --icon-alert: var(--orange-30);
+  --icon-error: var(--red-30);
 
-  /* Charts */
-  --chart-1: #5CA2E9;
-  --chart-2: #8FE5C2;
-  --chart-3: #9B85FB;
-  --chart-4: #5DD8E5;
-  --chart-5: #FCCE92;
-  --chart-6: #8ABEF3;
 
   /* Gradients */
   --gradient-dark: linear-gradient(135deg,
-      var(--primary-400) 0%,
-      var(--primary-600) 100%);
+      var(--brand-40) 0%,
+      var(--brand-60) 100%);
   --gradient-light: linear-gradient(180deg,
-      var(--primary-800) 0%,
-      var(--neutral-900) 100%);
+      var(--brand-80) 0%,
+      var(--gray-90) 100%);
 
   /* Shadow (暗色模式下阴影更强) */
    --shadow-none: none;
@@ -305,107 +293,107 @@
   /* ==========================================================================
      Tailwind Design Token Mappings (暗色模式)
      ========================================================================== */
-  --primary: var(--primary-500);
-  --on-primary: var(--neutral-0);
-  --primary-container: rgb(from var(--primary-500) r g b / 15%);
-  --on-primary-container: var(--neutral-0);
-  --primary-fixed: var(--primary-500);
-  --primary-fixed-dim: var(--primary-600);
-  --on-primary-fixed: var(--neutral-0);
-  --on-primary-fixed-variant: var(--neutral-50);
+  --primary: var(--brand-50);
+  --on-primary: var(--gray-0);
+  --primary-container: rgb(from var(--brand-50) r g b / 15%);
+  --on-primary-container: var(--gray-0);
+  --primary-fixed: var(--brand-50);
+  --primary-fixed-dim: var(--brand-60);
+  --on-primary-fixed: var(--gray-0);
+  --on-primary-fixed-variant: var(--gray-5);
 
-  --surface: var(--neutral-950);
-  --surface-dim: var(--neutral-950);
-  --surface-bright: var(--neutral-900);
-  --on-surface: var(--neutral-0);
-  --surface-variant: rgb(from var(--neutral-50) r g b / 15%);  
-  --on-surface-variant: var(--neutral-200);
+  --surface: var(--gray-100);
+  --surface-dim: var(--gray-100);
+  --surface-bright: var(--gray-90);
+  --on-surface: var(--gray-0);
+  --surface-variant: rgb(from var(--gray-5) r g b / 15%);  
+  --on-surface-variant: var(--gray-20);
   
-  --surface-container-lowest: var(--neutral-950);
-  --surface-container-low: var(--neutral-800); 
-  --surface-container: var(--neutral-800); 
-  --surface-container-high: var(--neutral-700); 
-  --surface-container-highest: var(--neutral-900); 
+  --surface-container-lowest: var(--gray-100);
+  --surface-container-low: var(--gray-80); 
+  --surface-container: var(--gray-80); 
+  --surface-container-high: var(--gray-70); 
+  --surface-container-highest: var(--gray-90); 
 
-  --inverse-surface: var(--neutral-0);
-  --inverse-on-surface: var(--neutral-900);
-  --inverse-on-surface-variant: var(--neutral-600);
-  --inverse-primary: var(--primary-600);
+  --inverse-surface: var(--gray-0);
+  --inverse-on-surface: var(--gray-90);
+  --inverse-on-surface-variant: var(--gray-60);
+  --inverse-primary: var(--brand-60);
 
-  --error: var(--error-400);
-  --on-error: var(--neutral-0);
-  --error-container: rgb(from var(--error-400) r g b / 15%);
-  --on-error-container: var(--neutral-0);
+  --error: var(--red-40);
+  --on-error: var(--gray-0);
+  --error-container: rgb(from var(--red-40) r g b / 15%);
+  --on-error-container: var(--gray-0);
 
-  --success: var(--success-600);
-  --on-success: var(--neutral-0);
-  --success-container: rgb(from var(--success-400) r g b / 15%);
-  --on-success-container: var(--neutral-0);
+  --success: var(--mint-60);
+  --on-success: var(--gray-0);
+  --success-container: rgb(from var(--mint-40) r g b / 15%);
+  --on-success-container: var(--gray-0);
 
-  --warning: var(--warning-400);
-  --on-warning: var(--neutral-0);
-  --warning-container: rgb(from var(--warning-400) r g b / 15%);
-  --on-warning-container: var(--neutral-0);
+  --warning: var(--yellow-40);
+  --on-warning: var(--gray-0);
+  --warning-container: rgb(from var(--yellow-40) r g b / 15%);
+  --on-warning-container: var(--gray-0);
 
-  --info: var(--primary-500);
-  --on-info: var(--neutral-0);
-  --info-container: rgb(from var(--primary-500) r g b / 15%);
-  --on-info-container: var(--neutral-0);
+  --info: var(--brand-50);
+  --on-info: var(--gray-0);
+  --info-container: rgb(from var(--brand-50) r g b / 15%);
+  --on-info-container: var(--gray-0);
 
-  --critical: var(--alert-500);
-  --on-critical: var(--neutral-0);
-  --critical-container: rgb(from var(--alert-500) r g b / 15%);
-  --on-critical-container: var(--neutral-0);
+  --critical: var(--orange-50);
+  --on-critical: var(--gray-0);
+  --critical-container: rgb(from var(--orange-50) r g b / 15%);
+  --on-critical-container: var(--gray-0);
 
-  --divider: rgb(from var(--neutral-50) r g b / 15%);
+  --divider: rgb(from var(--gray-5) r g b / 15%);
   /* ==========================================================================
       Element Plus 变量覆盖 (映射到设计系统)
      ========================================================================== */
   /* 主色基准色 */
-  --el-color-primary: var(--primary-500);
-  --el-color-success: var(--success-600);
-  --el-color-warning: var(--warning-400);
-  --el-color-danger: var(--error-400);
-  --el-color-error: var(--error-400);
+  --el-color-primary: var(--brand-50);
+  --el-color-success: var(--mint-60);
+  --el-color-warning: var(--yellow-40);
+  --el-color-danger: var(--red-40);
+  --el-color-error: var(--red-40);
 
-  --el-color-info: var(--neutral-300);
+  --el-color-info: var(--gray-30);
   /*tag todo*/
-  --el-color-white: var(--neutral-0);
+  --el-color-white: var(--gray-0);
 
 
   /* 衍生浅色 (由设计系统色阶平替映射)  待定，动态计算 或者 base 补全 */
-  --el-color-primary-light-1: var(--primary-400);
+  --el-color-primary-light-1: var(--brand-40);
   /* 10% */
 
   /* 介于300-400之间，自动计算或略微插值 */
-  --el-color-info-light-3: var(--neutral-300);
-  --el-color-info-light-5: var(--neutral-200);
-  --el-color-info-light-8: var(--neutral-100);
-  --el-color-info-light-9: var(--neutral-50);
+  --el-color-info-light-3: var(--gray-30);
+  --el-color-info-light-5: var(--gray-20);
+  --el-color-info-light-8: var(--gray-10);
+  --el-color-info-light-9: var(--gray-5);
 
-  --el-color-primary-light-3: var(--primary-300);
-  --el-color-primary-light-5: var(--primary-200);
-  --el-color-primary-light-8: var(--primary-100);
+  --el-color-primary-light-3: var(--brand-30);
+  --el-color-primary-light-5: var(--brand-20);
+  --el-color-primary-light-8: var(--brand-10);
   --el-color-primary-light-9: rgba(0, 103, 209, 0.4);
 
-  --el-color-success-light-3: var(--success-300);
-  --el-color-success-light-5: var(--success-200);
-  --el-color-success-light-8: var(--success-100);
-  --el-color-success-light-9: var(--success-50);
+  --el-color-success-light-3: var(--mint-30);
+  --el-color-success-light-5: var(--mint-20);
+  --el-color-success-light-8: var(--mint-10);
+  --el-color-success-light-9: var(--mint-5);
 
-  --el-color-warning-light-3: var(--warning-300);
-  --el-color-warning-light-5: var(--warning-200);
-  --el-color-warning-light-8: var(--warning-100);
-  --el-color-warning-light-9: var(--warning-50);
+  --el-color-warning-light-3: var(--yellow-30);
+  --el-color-warning-light-5: var(--yellow-20);
+  --el-color-warning-light-8: var(--yellow-10);
+  --el-color-warning-light-9: var(--yellow-5);
 
-  --el-color-danger-light-3: var(--error-300);
-  --el-color-danger-light-5: var(--error-200);
-  --el-color-danger-light-8: var(--error-100);
-  --el-color-danger-light-9: var(--error-50);
+  --el-color-danger-light-3: var(--red-30);
+  --el-color-danger-light-5: var(--red-20);
+  --el-color-danger-light-8: var(--red-10);
+  --el-color-danger-light-9: var(--red-5);
 
   /* 衍生深色 (与黑色混合加深，用于 Active 按压状态)  待定  */
   /* 文字颜色阶梯 */
-  --el-color-primary-dark-2: var(--primary-400);
+  --el-color-primary-dark-2: var(--brand-40);
   /* 主要文字 */
   --el-text-color-primary: var(--text-default);
   /* 常规正文 */
@@ -445,7 +433,7 @@
   --el-fill-color-lighter: var(--surface-primary);
   --el-fill-color-extra-light: var(--surface-primary);
   --el-fill-color-dark: var(--surface-disabled);
-  --el-fill-color-darker: var(--primary-200);
+  --el-fill-color-darker: var(--brand-20);
   --el-fill-color-blank: var(--surface-default);
 
   /* 边框颜色阶梯 */
@@ -456,10 +444,10 @@
   /* 更浅边框 */
   --el-border-color-lighter: var(--border-light);
   /* 最浅边框 */
-  --el-border-color-extra-light: var(--neutral-0);
-  --el-border-color-dark: var(--neutral-300);
-  --el-border-color-darker: var(--neutral-400);
-  --el-border-color-hover: var(--neutral-50);
+  --el-border-color-extra-light: var(--gray-0);
+  --el-border-color-dark: var(--gray-30);
+  --el-border-color-darker: var(--gray-40);
+  --el-border-color-hover: var(--gray-5);
 
   /* 边框样式 */
   --el-border-width: 1px;
@@ -500,7 +488,7 @@
 .el-input {
   --el-input-text-color: var(--el-text-color-primary);
   --el-input-hover-border-color: var(--el-border-color-hover);
-  --el-input-focus-border-color: var(--primary-400);
+  --el-input-focus-border-color: var(--brand-40);
   --el-input-bg-color: transparent;
   --el-input-height: 32px;
 }
@@ -509,7 +497,7 @@
 }
 
 .el-popper {
-  --el-popper-bg-color-light: var(--neutral-700);
+  --el-popper-bg-color-light: var(--gray-70);
   --el-popper-bg-color-dark: var(--el-text-color-primary);
   &[data-popper-placement="top-start"],
   &[data-popper-placement="top"],
@@ -599,7 +587,7 @@
   &.is-selected {
     color: var(--text-primary-hover);
     font-weight: var(--el-font-weight-primary);
-    background-color: rgb(from var(--primary-500) r g b / 0.4);
+    background-color: rgb(from var(--brand-50) r g b / 0.4);
   }
 }
 

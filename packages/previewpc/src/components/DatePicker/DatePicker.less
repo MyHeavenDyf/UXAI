@@ -6,8 +6,8 @@
   --el-datepicker-text-color: var(--el-text-color-primary);
   --el-datepicker-off-text-color: var(--el-text-color-disabled);
   --el-datepicker-header-text-color: var(--el-text-color-primary);
-  --el-datepicker-inrange-bg-color: var(--primary-50);
-  --el-datepicker-inrange-hover-bg-color: var(--primary-50);
+  --el-datepicker-inrange-bg-color: var(--brand-5);
+  --el-datepicker-inrange-hover-bg-color: var(--brand-5);
   --el-datepicker-hover-text-color: var(--el-text-color-primary);
   color: var(--el-text-color-primary);
 }
@@ -24,13 +24,13 @@
   }
 
   td.available:hover .el-date-table-cell .el-date-table-cell__text {
-    background-color: var(--primary-100);
+    background-color: var(--brand-10);
     border-radius: var(--el-border-radius-base);
   }
 
   td.start-date .el-date-table-cell,
   td.end-date .el-date-table-cell {
-    background-color: var(--primary-500);
+    background-color: var(--brand-50);
     .el-date-table-cell__text{
       background-color: transparent;
     }
@@ -59,7 +59,7 @@
   }
 
   td:hover .el-date-table-cell__text {
-    background-color: var(--primary-100);
+    background-color: var(--brand-10);
   }
 }
 
@@ -70,16 +70,16 @@
 .theme-dark {
 
   .el-picker-panel {
-    --el-datepicker-icon-color: var(--neutral-100);
+    --el-datepicker-icon-color: var(--gray-10);
     --el-datepicker-hover-text-color: var(--text-default);
-    --el-datepicker-inrange-bg-color: rgb(from var(--primary-500) r g b / 0.4);
-    --el-datepicker-inrange-hover-bg-color: rgb(from var(--primary-500) r g b / 0.6);
+    --el-datepicker-inrange-bg-color: rgb(from var(--brand-50) r g b / 0.4);
+    --el-datepicker-inrange-hover-bg-color: rgb(from var(--brand-50) r g b / 0.6);
   }
 
   .el-date-table {
     td.available:hover {
       .el-date-table-cell .el-date-table-cell__text {
-        background-color: rgb(from var(--neutral-50) r g b / 0.2);
+        background-color: rgb(from var(--gray-5) r g b / 0.2);
       }
     }
   }
@@ -88,7 +88,7 @@
   .el-month-table {
 
     td:hover .el-date-table-cell__text {
-      background-color: rgb(from var(--neutral-50) r g b / 0.2);
+      background-color: rgb(from var(--gray-5) r g b / 0.2);
     }
   }
 }

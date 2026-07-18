@@ -93,15 +93,15 @@ const color = computed(() => {
     case "error":
       return "var(--icon-error)"
     case "default":
-      return "var(--icon-default)"
+      return "var(--color-icon-primary)"
     case "normal":
       return "var(--icon-normal)"
     case "neutral":
-      return "var(--icon-default)"
+      return "var(--color-icon-primary)"
     case "info":
-      return "var(--icon-default)"
+      return "var(--color-icon-primary)"
     case "inverse":
-      return "var(--icon-inverse)"
+      return "var(--color-icon-inverse)"
     default:
       return newColor || "currentColor"
   }

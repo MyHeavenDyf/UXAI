@@ -22,11 +22,11 @@ const SEMANTIC_COLOR_MAP: Record<string, string> = {
   warning: "var(--icon-warning)",
   critical: "var(--icon-critical)",
   error: "var(--icon-error)",
-  default: "var(--icon-default)",
+  default: "var(--color-icon-primary)",
   normal: "var(--icon-normal)",
-  neutral: "var(--icon-default)",
-  info: "var(--icon-default)",
-  inverse: "var(--icon-inverse)",
+  neutral: "var(--color-icon-primary)",
+  info: "var(--color-icon-primary)",
+  inverse: "var(--color-icon-inverse)",
 }
 
 /** getLucideIconComponentRef 支持的覆盖选项 */
