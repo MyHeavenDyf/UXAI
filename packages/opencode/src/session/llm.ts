@@ -157,6 +157,16 @@ const live: Layer.Layer<
               ),
               ...input.messages,
             ]
+      const requestMessages = (() => {
+        if (input.model.providerID !== "w3") return messages
+
+        const currentTurn = messages.findLastIndex((message) => message.role === "user")
+        if (currentTurn === -1) return messages
+        return [
+          ...messages.slice(0, currentTurn).filter((message) => message.role === "system"),
+          ...messages.slice(currentTurn),
+        ]
+      })()
 
       const params = yield* plugin.trigger(
         "chat.params",
@@ -386,7 +396,7 @@ const live: Layer.Layer<
           ...headers,
         },
         maxRetries: input.retries ?? 0,
-        messages,
+        messages: requestMessages,
         model: wrapLanguageModel({
           model: language,
           middleware: [

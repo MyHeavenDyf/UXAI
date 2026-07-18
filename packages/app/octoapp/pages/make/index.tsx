@@ -364,49 +364,94 @@ const sessionMessagesLoaded = createMemo(() => {
     const handleAnnotation = async (e: Event) => {
       const detail = (e as CustomEvent<AnnotationEventDetail>).detail
       
-      if (detail.file) {
-        const file = detail.file
-        const id = crypto.randomUUID()
-        const previewUrl = URL.createObjectURL(file)
-        filesById.set(id, file)
-        
-        setAttachments(prev => [...prev, {
-          id,
-          filename: file.name,
-          mime: 'image/png',
-          size: file.size,
-          status: 'uploading',
-          source: 'external',
-          previewUrl
-        }])
-        
-        uploadFile(file)
-          .then(result => {
-            setAttachments(prev => prev.map(a => 
-              a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-            ))
-          })
-          .catch(err => {
-            const message = err instanceof UploadError ? err.message : '上传失败'
-            setAttachments(prev => prev.map(a =>
-              a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-            ))
-          })
+      let contextMessage = ""
+      if (detail.tabContext?.title) {
+        contextMessage = `[当前页面: ${detail.tabContext.title}]`
+        if (detail.tabContext.filePath) {
+          contextMessage += `\n[文件路径: ${detail.tabContext.filePath}]`
+        }
+        contextMessage += "\n\n"
       }
-      
-      const messageText = detail.note || ""
+      const messageText = contextMessage + (detail.note || "")
       
       if (detail.action === 'send' && !sending()) {
         const sessionId = params.id
         const modelKey = activeModelKey()
         if (sessionId && modelKey) {
-          await new Promise(resolve => setTimeout(resolve, 100))
-          const att = attachments().find(a => a.id === filesById.keys().next().value)
-          if (att?.status === 'done' || attachments().length === 0) {
-            await sendMessage(sessionId, messageText, modelKey)
-            setAttachments([])
-            setPrompt("")
+          if (detail.file) {
+            const file = detail.file
+            const id = crypto.randomUUID()
+            const previewUrl = URL.createObjectURL(file)
+            filesById.set(id, file)
+
+            setAttachments(prev => [...prev, {
+              id,
+              filename: file.name,
+              mime: 'image/png',
+              size: file.size,
+              status: 'uploading',
+              source: 'external',
+              previewUrl
+            }])
+
+            try {
+              const result = await uploadFile(file)
+              setAttachments(prev => prev.map(a =>
+                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+              ))
+              await sendMessage(sessionId, messageText, modelKey)
+              setAttachments([])
+              setPrompt("")
+            } catch (err) {
+              const message = err instanceof UploadError ? err.message : '上传失败'
+              setAttachments(prev => prev.map(a =>
+                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+              ))
+              setPrompt(messageText)
+            }
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            const att = attachments().find(a => a.id === filesById.keys().next().value)
+            if (att?.status === 'done' || attachments().length === 0) {
+              await sendMessage(sessionId, messageText, modelKey)
+              setAttachments([])
+              setPrompt("")
+            }
           }
+        }
+      } else if (detail.action === 'queue') {
+        if (detail.file) {
+          const file = detail.file
+          const id = crypto.randomUUID()
+          const previewUrl = URL.createObjectURL(file)
+          filesById.set(id, file)
+          
+          setAttachments(prev => [...prev, {
+            id,
+            filename: file.name,
+            mime: 'image/png',
+            size: file.size,
+            status: 'uploading',
+            source: 'external',
+            previewUrl
+          }])
+          
+          uploadFile(file)
+            .then(result => {
+              setAttachments(prev => prev.map(a => 
+                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+              ))
+            })
+            .catch(err => {
+              const message = err instanceof UploadError ? err.message : '上传失败'
+              setAttachments(prev => prev.map(a =>
+                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+              ))
+            })
+        }
+        
+        if (messageText) {
+          setPrompt(prev => prev ? prev + "\n" + messageText : messageText)
         }
       }
       

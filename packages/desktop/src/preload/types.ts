@@ -81,7 +81,8 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
-  showItemInFolder: (path: string) => void
+  /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
+  showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp: (
     url: string,

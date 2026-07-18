@@ -77,25 +77,29 @@ export function StudioComposer(props: {
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
+  const resizeInput = () => {
+    if (!inputRef) return
+    inputRef.style.height = "auto"
+    inputRef.style.height = `${Math.min(inputRef.scrollHeight, 180)}px`
+  }
   const [lastValidCustomLabel, setLastValidCustomLabel] = createSignal("")
   const isJimengModel = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
-  // 弹框打开时锁定 toolbar 显示值，关闭后才同步
-  const [committedRatio, setCommittedRatio] = createSignal(props.aspectRatio)
+  // 弹框打开时锁定 toolbar 自定义尺寸显示值，比例和张数实时同步
   const [committedCustomW, setCommittedCustomW] = createSignal(props.customWidth)
   const [committedCustomH, setCommittedCustomH] = createSignal(props.customHeight)
   const [committedIsCustom, setCommittedIsCustom] = createSignal(props.isCustom)
   const settingsOpen = createMemo(() => props.openMenu === "settings")
   createEffect(() => {
     if (!settingsOpen()) {
-      // 弹框关闭，同步最新值到 toolbar
-      setCommittedRatio(props.aspectRatio)
+      // 弹框关闭，同步最新自定义尺寸到 toolbar
       setCommittedCustomW(props.customWidth)
       setCommittedCustomH(props.customHeight)
       setCommittedIsCustom(props.isCustom)
     }
   })
   const imageSettingsLabel = createMemo(() => {
-    const aspectRatio = settingsOpen() ? committedRatio() : props.aspectRatio
+    // 比例和张数实时同步（点击即生效），自定义尺寸在弹框打开时锁定避免打字过程中闪烁
+    const aspectRatio = props.aspectRatio
     const customW = settingsOpen() ? committedCustomW() : props.customWidth
     const customH = settingsOpen() ? committedCustomH() : props.customHeight
     const isCustomState = settingsOpen() ? committedIsCustom() : props.isCustom
@@ -225,6 +229,7 @@ export function StudioComposer(props: {
   onMount(() => {
     requestAnimationFrame(() => {
       checkToolbarOverflow()
+      resizeInput()
     })
     const observer = new ResizeObserver(() => checkToolbarOverflow())
     if (toolbarItemsRef) observer.observe(toolbarItemsRef)
@@ -232,6 +237,8 @@ export function StudioComposer(props: {
   })
 
   createEffect(() => {
+    props.prompt
+    queueMicrotask(resizeInput)
     props.styleModel
     props.customWidth
     props.customHeight
@@ -439,7 +446,10 @@ export function StudioComposer(props: {
             <textarea
               ref={inputRef}
               value={props.prompt}
-              onInput={(event) => props.onPrompt(event.currentTarget.value)}
+              onInput={(event) => {
+                props.onPrompt(event.currentTarget.value)
+                resizeInput()
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && isImeComposing(event)) return
                 props.onKeyDown(event)
@@ -508,7 +518,7 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse" style="display:none">
+	                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
                   <IconTool
                     label="图文反推"
                     class="studio-composer-icon-reverse"
@@ -583,7 +593,6 @@ export function StudioComposer(props: {
                     <button
                       type="button"
                       class="studio-composer-toolbar-more-item"
-                      style="display:none"
                       onClick={() => props.onReversePrompt?.()}
                     >
                       <span class="studio-composer-toolbar-more-item-icon studio-composer-icon-reverse-icon" />
@@ -1063,15 +1072,25 @@ function ImageSettings(props: {
   function handleWidthInput(e: { currentTarget: HTMLInputElement }) {
     e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
+    const wasCustom = isCustom()
     setWidth(val)
     tryMatchRatio(val, height())
+    // 从预设值切换到自定义时，清空另一个输入框的值
+    if (!wasCustom && isCustom()) {
+      setHeight(0)
+    }
   }
 
   function handleHeightInput(e: { currentTarget: HTMLInputElement }) {
     e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
+    const wasCustom = isCustom()
     setHeight(val)
     tryMatchRatio(width(), val)
+    // 从预设值切换到自定义时，清空另一个输入框的值
+    if (!wasCustom && isCustom()) {
+      setWidth(0)
+    }
   }
 
   function handleSizeBlur(field: "w" | "h") {

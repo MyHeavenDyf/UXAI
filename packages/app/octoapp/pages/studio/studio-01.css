@@ -522,7 +522,9 @@
 .studio-composer-input {
   width: 100%;
   min-height: 64px;
+  max-height: 180px;
   resize: none;
+  overflow-y: auto;
   border: 0;
   outline: none;
   padding-top: 0;
