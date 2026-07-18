@@ -5,6 +5,7 @@ import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } fro
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
   modelsApiListForProviders,
@@ -36,6 +37,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   init: () => {
     const providers = useProviders()
     const globalSDK = useGlobalSDK()
+    const globalSync = useGlobalSync()
     const loadApiModels = async () => {
       const models = await fetchModelsApi()
       await globalSDK.client.provider.list()
@@ -73,11 +75,23 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       }),
     )
 
-    const available = createMemo(() =>
-      modelsApiSource() === "local"
-        ? modelsLocalListForProviders(providers.connected())
-        : modelsApiListForProviders(apiModels(), providers.all()),
+    const customProviders = createMemo(() =>
+      providers.all().filter((provider) => {
+        const config = globalSync.data.config.provider?.[provider.id]
+        return config?.npm === "@ai-sdk/openai-compatible" && !!config.models && Object.keys(config.models).length > 0
+      }),
     )
+
+    const available = createMemo(() => {
+      if (modelsApiSource() === "local") return modelsLocalListForProviders(providers.connected())
+      return uniqueBy(
+        [
+          ...modelsApiListForProviders(apiModels(), providers.connected()),
+          ...modelsLocalListForProviders(customProviders()),
+        ],
+        (model) => modelKey({ providerID: model.provider.id, modelID: model.id }),
+      )
+    })
 
     const release = createMemo(
       () =>

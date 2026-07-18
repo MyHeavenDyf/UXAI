@@ -263,16 +263,18 @@ export function modelsLocalListForProviders<TProvider extends ProviderLike & { m
 
 export function modelsApiListForProviders<TProvider extends ProviderLike>(api: ApiModels | undefined, providers: TProvider[]) {
   if (!api) return []
-  const providerMap = new Map(providers.map((provider) => [provider.id, provider] as const))
+  const apiProviders = new Map(
+    Object.entries(api).flatMap(([key, provider]) => {
+      if (!isRecord(provider)) {
+        return []
+      }
+      return [[typeof provider.id === "string" && provider.id ? provider.id : key, provider as ApiProvider] as const]
+    }),
+  )
 
-  const result = Object.entries(api).flatMap(([key, value]) => {
-    if (!isRecord(value)) return []
-    const apiProvider = value as ApiProvider
-    const providerID = typeof apiProvider.id === "string" && apiProvider.id ? apiProvider.id : key
-    const provider = providerMap.get(providerID) ?? {
-      id: providerID,
-      name: typeof apiProvider.name === "string" && apiProvider.name ? apiProvider.name : providerID,
-    }
+  const result = providers.flatMap((provider) => {
+    const apiProvider = apiProviders.get(provider.id)
+    if (!apiProvider) return []
 
     return Object.entries(isApiModels(apiProvider.models) ? apiProvider.models : {}).flatMap(([modelKey, model]) => {
       if (!isRecord(model)) {
@@ -309,7 +311,7 @@ export function modelsApiListForProviders<TProvider extends ProviderLike>(api: A
           release_date: typeof item.release_date === "string" ? item.release_date : "",
           variants: item.variants,
           provider,
-        } satisfies Model & { provider: ProviderLike },
+        } satisfies Model & { provider: TProvider },
       ]
     })
   })
