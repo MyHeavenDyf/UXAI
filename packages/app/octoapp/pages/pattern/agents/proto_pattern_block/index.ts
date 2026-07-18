@@ -46,33 +46,37 @@ export default async function proto_pattern_block(input: ProtoPatternBlockInput)
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
     throw new Error("----- Pattern Block did not return valid JSON -----")
   }
-  const returnValue = await resolveMatches(matchJson, patterns, theme)
+  const returnValue = resolveMatches(matchJson, patterns, theme)
   logAgentParsed(result.childSessionId, returnValue)
   return returnValue
 }
 
 function buildHumanMessage(userInput: string, patterns: PatternEntry[]): string {
-  const catalog = patterns.map(p => ({
-    name: p.name,
-    intent: (p as any).intent,
-    function: (p as any).function,
-    layout: (p as any).layout,
-    elements: p.elements,
-  }))
-  return `请判断用户模块描述是否匹配以下某些模块级 Pattern。
+  // 按分类分组
+  const categorized: Record<string, Array<{ name: string; description: string; structure: string }>> = {}
+  for (const p of patterns) {
+    const cat = p.category ?? "其他"
+    if (!categorized[cat]) categorized[cat] = []
+    categorized[cat].push({
+      name: p.name,
+      description: p.description ?? "",
+      structure: p.structure ?? "",
+    })
+  }
+  return `请根据用户对整个页面的描述，判断页面中可能需要用到哪些模块模板。
 
-[用户模块描述:] ==================================
+[用户页面描述:] ==================================
 ${userInput}
 
-[可用 Pattern 目录:] ==================================
-${JSON.stringify(catalog, null, 2)}`
+[可用模块模板目录（按分类）:] ==================================
+${JSON.stringify(categorized, null, 2)}`
 }
 
-async function resolveMatches(
+function resolveMatches(
   matchJson: any,
   patterns: PatternEntry[],
-  theme: string,
-): Promise<{ matches: PatternMatchItem[]; current_step: string }> {
+  _theme: string,
+): { matches: PatternMatchItem[]; current_step: string } {
   const items = (matchJson?.matches ?? []) as Array<{ name: string; score: number }>
   const matches: PatternMatchItem[] = []
   for (const item of items) {

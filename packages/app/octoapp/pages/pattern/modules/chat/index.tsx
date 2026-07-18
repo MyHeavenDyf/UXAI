@@ -20,6 +20,7 @@ import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "./intent-confirm-card"
 import type { IntentConfirmResult } from "../../agents/proto-intent-confirm"
+import type { PatternMatchItem } from "../../utils/pattern-resource"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto-introduction"
 import { ChartInput, type ChartInputProps } from "./chart-input"
@@ -110,7 +111,14 @@ export function ChatPanel(props: {
   /** 重试失败的 pipeline */
   onRetry?: () => void
   intentConfirmResult?: IntentConfirmResult | null
-  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string) => void
+  /** block 模板匹配结果列表（用户选完维度后匹配出来的候选模板） */
+  blockMatches?: PatternMatchItem[]
+  /** 是否正在匹配 block 模板（loading 状态） */
+  blockMatching?: boolean
+  /** 用户点「匹配pattern」时触发，传入维度确认后的 enrichedInput */
+  onMatchPattern?: (enrichedInput: string) => void
+  /** 用户点「下一步」确认时触发，传入维度答案 + enrichedInput + 选中的 block 列表 */
+  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -356,6 +364,9 @@ export function ChatPanel(props: {
           <div class="ic-card-overlay">
             <IntentConfirmCard
               result={props.intentConfirmResult!}
+              blockMatches={props.blockMatches ?? []}
+              blockMatching={props.blockMatching ?? false}
+              onMatchPattern={props.onMatchPattern!}
               onConfirm={props.onConfirmIntent!}
             />
           </div>

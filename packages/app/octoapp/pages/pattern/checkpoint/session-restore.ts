@@ -29,7 +29,7 @@ export async function restoreSession(
         return { type: "pipeline_error", checkpoint: ckpt }
       case "planner_create":
         return { type: "planner_create", checkpoint: ckpt }
-      case "pattern_page":
+      case "block_matching":
       case "intent_create":
       case "modules_create":
         return { type: "pipeline_error", checkpoint: ckpt }
