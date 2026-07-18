@@ -302,10 +302,10 @@ export function TitleBar(props: TitleBarProps) {
           <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
 
           {/* 按钮：分享 */}
-          <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
+          {/* <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
             <IconActionShare size={16} />
             <span>分享</span>
-          </button>
+          </button> */}
 
           {/* 按钮 6：下载 */}
           <button class="pattern-action-btn" title="下载" onClick={() => props.onDownload?.()}>

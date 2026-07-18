@@ -73,7 +73,7 @@ export default {
       },
       "boxShadow": {
         'sm': 'var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08))',
-        'md': 'var(--shadow-md, 0 4px 12px 0px rgba(0, 0, 0, 0.16))',
+        'md': 'var(--shadow-base, 0 4px 12px 0px rgba(0, 0, 0, 0.16))',
         'lg': 'var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16))',
         'xl': 'var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16))',
         'card': 'var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08))',
@@ -83,8 +83,8 @@ export default {
       "borderColor": {
         'base': 'var(--border, #C9C9C9)',
         'divider': 'var(--divider, #F3F3F3)',
-        'selected': 'var(--primary-500, #0067D1)',
-        'error': 'var(--error-500, #E02128)',
+        'selected': 'var(--brand-50, #0067D1)',
+        'error': 'var(--red-50, #E02128)',
       },
       "borderRadius": {
         'none': '0px',
@@ -99,8 +99,8 @@ export default {
         'overlay': '8px'
       },
       "outlineColor": {
-        'brand': 'var(--primary-500, #0067D1)',
-        'error': 'var(--error-500, #E02128)'
+        'brand': 'var(--brand-50, #0067D1)',
+        'error': 'var(--red-50, #E02128)'
       },
       "outlineWidth": {
         'focus': '1px',

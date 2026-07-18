@@ -68,8 +68,8 @@
 
         /* borderColor / outlineColor → --color-* */
         --color-base: var(--border, #C9C9C9);
-        --color-selected: var(--primary-500, #0067D1);
-        --color-brand: var(--primary-500, #0067D1);
+        --color-selected: var(--brand-50, #0067D1);
+        --color-brand: var(--brand-50, #0067D1);
 
         /* ── spacing → --spacing-* ── */
         --spacing-inline: 0.5rem;
@@ -80,8 +80,9 @@
         --spacing-page: 2rem;
 
         /* ── boxShadow → --shadow-* ── */
-        --shadow-sm: var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08));
-        --shadow-md: var(--shadow-md, 0 4px 12px 0px rgba(0, 0, 0, 0.16));
+        --shadow-sm: var(--shadow-sm, 0px 1px 6px 0 rgba(0, 0, 0, 0.08));
+        --shadow-base: var(--shadow-base, 0 4px 12px 0px rgba(0, 0, 0, 0.16));
+        --shadow-md: var(--shadow-md,0 8px 24px rgba(0, 0, 0, 0.08));
         --shadow-lg: var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16));
         --shadow-xl: var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16));
         --shadow-card: var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08));
@@ -90,10 +91,11 @@
 
         /* ── borderRadius → --radius-* ── */
         --radius-none: 0px;
-        --radius-sm: 2px;
-        --radius-md: 4px;
-        --radius-lg: 6px;
-        --radius-xl: 8px;
+        --radius-xs: 2px;
+        --radius-base: 4px;
+        --radius-md: 6px;
+        --radius-lg: 8px;
+        --radius-xl: 12px;
         --radius-full: 9999px;
         --radius-badge: 4px;
         --radius-action: 4px;
