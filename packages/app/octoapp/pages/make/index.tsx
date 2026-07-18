@@ -2206,8 +2206,27 @@ if (dsId) {
                        setPrompt(starter.prompt)
                      }}
                    />
-                  <div
-                    class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+
+                   {/* Pending skill tag */}
+                   <Show when={pendingSkill()}>
+                     {(skill) => (
+                       <div class="flex items-center gap-2 px-4 pt-3">
+                         <div class="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-sm">
+                           <span class="text-blue-700">{skill().name}</span>
+                           <button
+                             type="button"
+                             onClick={removePendingSkill}
+                             class="text-blue-500 hover:text-blue-700"
+                           >
+                             ×
+                           </button>
+                         </div>
+                       </div>
+                     )}
+                   </Show>
+
+                   <div
+                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
                       border: "1px solid transparent",
                       background: `
