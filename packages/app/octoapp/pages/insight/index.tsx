@@ -661,9 +661,12 @@ function InsightContent() {
   // SPEC-INS-014 §10:文件管理面板里点文件 → 复用 tabStore.openTab 的 (filePath,type) 去重逻辑
   // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
   function openFileFromManager(file: InsightFileEntry) {
+    // extToOutputType 已将 png/jpg/gif/svg 等映射到 "image"(走 ImageRenderer),
+    // psd/ai/sketch/fig 等不可浏览器渲染的归 "file"(走 FileFallback),其余分流到 file/code。
     const type = extToOutputType(file.name)
     // fileName / mimeType 必须带上:FileFallback 的类型图标按这两者派生(fileTypeIconUrl),
     // 缺失会让 xlsx/docx 等一律落到「其他」兜底图标(title 只用于标签页文案,不参与图标)。
+    const mime = mimeForName(file.name)
     tabStore.openTab({
       id: crypto.randomUUID(),
       title: file.name,
@@ -671,7 +674,7 @@ function InsightContent() {
       source: "path",
       filePath: file.path,
       fileName: file.name,
-      mimeType: mimeForName(file.name),
+      mimeType: mime,
       createdAt: new Date(),
     })
     focusResultTabs()
