@@ -678,8 +678,8 @@ function InsightContent() {
   }
 
   // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
-  /** 添加至会话区:作为已就绪(path 已落盘)附件加入输入区,发送时进 [附件] 清单。 */
-  function addInsightFileToSession(file: InsightFile) {
+  /** 添加至会话区:作为已就绪附件加入输入区。图片走 ③ S3 上传(拿 url),非图片带 path 进 [附件] 清单。 */
+  async function addInsightFileToSession(file: InsightFile) {
     if (attachments().some((a) => a.path === file.path)) {
       showToast({ title: "已添加", description: file.name })
       return
@@ -688,15 +688,41 @@ function InsightContent() {
       showToast({ title: "附件数量已达上限", description: `最多 ${MAX_ATTACHMENTS} 个附件` })
       return
     }
+    const id = crypto.randomUUID()
+    // 图片必须走 ③ vision FilePart{url:S3}:发送时 imageFiles 过滤要求 url,而文件管理里的图片只有本地 path。
+    // 先读盘 → 构造 File → 复用输入框选图那条 doImageUpload 链路(含 uploading 态 / 失败重试 / S3 上传拿 url)。
+    // 不这么做,图片会同时漏出 imageFiles(无 url)和 localFiles(isImageFile 被排除)两个分流 → 静默丢失。
+    if (file.kind === "image") {
+      const api = getDesktopApi()
+      const buffer = typeof api?.readFileBuffer === "function" ? await api.readFileBuffer(file.path) : null
+      if (!buffer) {
+        console.warn("[octo:upload] add-to-session read image failed", { path: file.path })
+        showToast({ title: "添加失败", description: "无法读取图片文件，请重试", variant: "error" })
+        return
+      }
+      const imgFile = new File([buffer], file.name, { type: file.mime || "image/png" })
+      filesById.set(id, imgFile) // 重试用(retryUpload 从 filesById 取原 File 重传)
+      setAttachments((prev) => [...prev, {
+        id,
+        filename: file.name,
+        mime: file.mime || "image/png",
+        size: file.size,
+        status: "uploading",
+        path: file.path, // 供去重(a.path === file.path)与删文件后按路径清附件;imageFiles 分流只认 url
+        // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
+        previewUrl: pathToLocalUrl(file.path),
+      }])
+      void doImageUpload(id, imgFile) // 成功 → done + url;失败 → error + 可重试
+      return
+    }
+    // 非图片(已落盘):直接作为已就绪附件进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
     setAttachments((prev) => [...prev, {
-      id: crypto.randomUUID(),
+      id,
       filename: file.name,
       mime: file.mime || "application/octet-stream",
       size: file.size,
       status: "done",
       path: file.path,
-      // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
-      previewUrl: file.kind === "image" ? pathToLocalUrl(file.path) : undefined,
     }])
     showToast({ title: "已添加附件", description: file.name, variant: "success", duration: 2000 })
   }
