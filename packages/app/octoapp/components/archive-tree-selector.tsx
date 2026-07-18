@@ -303,7 +303,7 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
             "archive-tree-node-selected": props.selectedId === node.id,
             "archive-tree-node-disabled": !canSelect
           }}
-          style={{ "padding-left": `${depth * 16 + 8}px` }}
+          style={{ "padding-left": `${depth * 16 + 12}px` }}
           onClick={() => canSelect && handleSelect(node)}
         >
           <Show when={node.hasChildren}>
@@ -315,9 +315,24 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
                 toggleExpand(node.id)
               }}
             >
-              <span style={{ transform: isExpanded(node.id) ? "rotate(90deg)" : "none", display: "inline-block" }}>
-                ▶
-              </span>
+              <svg
+                viewBox="0 0 20 20"
+                width="12"
+                height="12"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+                style={{
+                  transform: isExpanded(node.id) ? "none" : "rotate(-90deg)",
+                  transition: "transform 0.15s",
+                }}
+              >
+                <path
+                  d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z"
+                  fill="currentColor"
+                  fill-opacity="0.6"
+                />
+              </svg>
             </button>
           </Show>
           <Show when={!node.hasChildren}>
@@ -381,7 +396,9 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
       >
         <span class="archive-tree-trigger-text">{displayText()}</span>
         <span class="archive-tree-trigger-icon" style={{ transform: open() ? "rotate(180deg)" : "none" }}>
-          ▼
+          <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/>
+          </svg>
         </span>
       </button>
 
@@ -418,16 +435,20 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
         }
         .archive-tree-trigger {
           width: 100%;
-          padding: 8px 12px;
-          border: 1px solid var(--octo-border-default);
-          border-radius: 6px;
-          background: var(--octo-surface-default);
+          height: 32px;
+          padding: 0 12px;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 8px;
+          background: var(--octo-surface-page, #ffffff);
           cursor: pointer;
           display: flex;
           justify-content: space-between;
           align-items: center;
           gap: 8px;
           font-size: 14px;
+          line-height: 22px;
+          color: rgba(0, 0, 0, 0.9);
+          box-sizing: border-box;
         }
         .archive-tree-trigger:hover {
           border-color: var(--octo-border-focus);
@@ -435,37 +456,45 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
         .archive-tree-trigger-text {
           flex: 1;
           text-align: left;
-          color: var(--octo-text-primary);
+          color: rgba(0, 0, 0, 0.9);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
         .archive-tree-trigger-icon {
-          font-size: 10px;
-          color: var(--octo-text-secondary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #000;
+          flex-shrink: 0;
           transition: transform 0.15s;
         }
         .archive-tree-popup {
-          background: #ffffff;
-          border: 1px solid var(--octo-border-default);
-          border-radius: 8px;
-          box-shadow: var(--octo-shadow-lg);
+          background: var(--surface-raised-stronger-non-alpha, #ececec);
+          border: none;
+          border-radius: 6px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+          padding: 8px;
           overflow: hidden;
         }
         .archive-tree-search {
-          padding: 8px;
-          border-bottom: 1px solid var(--octo-border-subtle);
+          padding: 0 0 4px 0;
+          margin-bottom: 4px;
         }
         .archive-tree-search input {
           width: 100%;
-          padding: 6px 10px;
-          border: 1px solid var(--octo-border-default);
-          border-radius: 4px;
-          font-size: 13px;
+          padding: 4px 8px;
+          border: none;
+          border-radius: 6px;
+          font-size: 12px;
+          line-height: 18px;
           outline: none;
+          background: var(--octo-surface-selected, #ffffff);
+          color: var(--octo-text-primary, rgba(0, 0, 0, 0.9));
+          box-sizing: border-box;
         }
         .archive-tree-search input:focus {
-          border-color: var(--octo-border-focus);
+          background: var(--octo-surface-selected, #ffffff);
         }
         .archive-tree-list {
           overflow-y: auto;
@@ -474,22 +503,31 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
           display: flex;
           align-items: center;
           gap: 4px;
-          padding: 8px;
+          height: 36px;
+          padding: 0 12px;
           cursor: pointer;
-          border-bottom: 1px solid var(--octo-border-subtle);
+          border-radius: 6px;
+          font-size: 14px;
+          line-height: 22px;
+          color: #191919;
+          margin-bottom: 1px;
           transition: background 0.1s;
+          box-sizing: border-box;
         }
         .archive-tree-node:last-child {
-          border-bottom: none;
+          margin-bottom: 0;
         }
         .archive-tree-node:hover {
-          background: var(--octo-surface-hover);
+          background: rgba(0, 0, 0, 0.1);
         }
         .archive-tree-node-selected {
-          background: rgba(37, 99, 235, 0.1);
+          background: rgba(0, 0, 0, 0.05);
         }
         .archive-tree-node-selected:hover {
-          background: rgba(37, 99, 235, 0.15);
+          background: rgba(0, 0, 0, 0.1);
+        }
+        .archive-tree-node:active:not(.archive-tree-node-disabled) {
+          background: rgba(0, 0, 0, 0.15);
         }
         .archive-tree-node-disabled {
           cursor: not-allowed;
@@ -507,19 +545,28 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
           border: none;
           background: transparent;
           cursor: pointer;
-          font-size: 10px;
-          color: var(--octo-text-secondary);
+          color: #000;
+          flex-shrink: 0;
+          padding: 0;
+        }
+        .archive-tree-expand-btn svg {
+          display: block;
         }
         .archive-tree-expand-placeholder {
           width: 20px;
+          flex-shrink: 0;
         }
         .archive-tree-node-name {
-          font-size: 13px;
-          color: var(--octo-text-primary);
+          font-size: 14px;
+          line-height: 22px;
+          color: #191919;
           flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .archive-tree-empty {
-          padding: 16px;
+          padding: 16px 12px;
           text-align: center;
           color: var(--octo-text-secondary);
           font-size: 13px;

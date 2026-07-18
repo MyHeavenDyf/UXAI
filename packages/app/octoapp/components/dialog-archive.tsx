@@ -683,8 +683,15 @@ export function ArchiveDialog(props: Props): JSX.Element {
           <div class="archive-dialog" onClick={(e) => e.stopPropagation()}>
             <div class="archive-dialog-header">
               <h3>归档</h3>
-              <button type="button" class="archive-close-btn" onClick={handleClose}>
-                ✕
+              <button type="button" class="archive-close-btn" onClick={handleClose} aria-label="关闭">
+                <svg viewBox="0 0 12.1436 12.144" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none">
+                  <path
+                    d="M0.855774 0.148499C0.657776 -0.0494995 0.346497 -0.0494995 0.148499 0.148499C-0.0494995 0.346497 -0.0494995 0.657593 0.148499 0.855591L5.36481 6.07202L0.148499 11.2884C-0.0494995 11.4864 -0.0494995 11.7975 0.148499 11.9955C0.346497 12.1935 0.657776 12.1935 0.855774 11.9955L6.07208 6.77911L11.2879 11.9952C11.4859 12.1932 11.7972 12.1932 11.9952 11.9952C12.1932 11.7972 12.1932 11.4861 11.9952 11.2881L6.77911 6.07196L11.9952 0.855896C12.1929 0.657898 12.1929 0.346802 11.9952 0.148804C11.7972 -0.0491943 11.4859 -0.0491943 11.2879 0.148804L6.07208 5.36487L0.855774 0.148499Z"
+                    fill="rgb(0,0,0)"
+                    fill-opacity="0.9"
+                    fill-rule="evenodd"
+                  />
+                </svg>
               </button>
             </div>
 
@@ -692,15 +699,14 @@ export function ArchiveDialog(props: Props): JSX.Element {
               <div class="archive-step">
                 <div class="archive-step-title">空间</div>
                 <div class="archive-step-content">
-                  <select
-                    value={spaceType()}
-                    onChange={(e) => handleSpaceTypeChange(e.currentTarget.value as SpaceType)}
-                    class="archive-select"
-                  >
-                    <For each={SPACE_OPTIONS}>
-                      {opt => <option value={opt.value}>{opt.label}</option>}
-                    </For>
-                  </select>
+                  <ArchiveSearchDropdown
+                    items={SPACE_OPTIONS.map(opt => ({ id: opt.value, label: opt.label }))}
+                    selectedId={spaceType()}
+                    selectedLabel={SPACE_OPTIONS.find(opt => opt.value === spaceType())?.label}
+                    onSelect={(id) => handleSpaceTypeChange(id as SpaceType)}
+                    triggerPlaceholder="请选择空间"
+                    maxHeight="250px"
+                  />
                 </div>
               </div>
 
@@ -889,7 +895,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
             max-height: 85vh;
             display: flex;
             flex-direction: column;
-            box-shadow: var(--octo-shadow-lg);
+            box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
+            padding: 20px 24px;
+            box-sizing: border-box;
             animation: dialog-slide-in 0.2s ease-out;
           }
           @keyframes dialog-slide-in {
@@ -906,57 +914,61 @@ export function ArchiveDialog(props: Props): JSX.Element {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--octo-border-default);
+            margin-bottom: 16px;
           }
           .archive-dialog-header h3 {
             margin: 0;
             font-size: 16px;
-            font-weight: 600;
-            color: var(--octo-text-primary);
+            line-height: 24px;
+            font-weight: bold;
+            color: rgba(0, 0, 0, 0.9);
           }
           .archive-close-btn {
-            width: 28px;
-            height: 28px;
+            width: 16px;
+            height: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
             border: none;
             background: transparent;
             cursor: pointer;
-            color: var(--octo-text-secondary);
-            font-size: 16px;
+            color: rgba(0, 0, 0, 0.9);
+            padding: 0;
             border-radius: 4px;
           }
           .archive-close-btn:hover {
             background: var(--octo-surface-hover);
           }
           .archive-dialog-body {
-            padding: 20px;
             overflow-y: auto;
             flex: 1;
+            padding: 0;
           }
           .archive-step {
-            margin-bottom: 20px;
+            margin-bottom: 16px;
           }
           .archive-step:last-child {
             margin-bottom: 0;
           }
           .archive-step-title {
-            font-size: 13px;
+            font-size: 14px;
+            line-height: 22px;
             font-weight: 500;
-            color: var(--octo-text-secondary);
-            margin-bottom: 8px;
+            color: rgba(0, 0, 0, 0.6);
+            margin-bottom: 4px;
           }
           .archive-select {
             width: 100%;
-            padding: 8px 12px;
-            border: 1px solid var(--octo-border-default);
-            border-radius: 6px;
+            height: 32px;
+            padding: 0 12px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
             font-size: 14px;
-            background: var(--octo-surface-default);
-            color: var(--octo-text-primary);
+            line-height: 22px;
+            background: var(--octo-surface-page, #ffffff);
+            color: rgba(0, 0, 0, 0.9);
             cursor: pointer;
+            box-sizing: border-box;
           }
           .archive-prototype-list {
             display: flex;
@@ -964,28 +976,39 @@ export function ArchiveDialog(props: Props): JSX.Element {
             gap: 8px;
             max-height: 400px;
             overflow-y: auto;
-            padding: 4px;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(243, 243, 243, 1);
+            box-sizing: border-box;
           }
           .archive-prototype-item {
             display: flex;
             flex-direction: row;
             align-items: center;
-            gap: 12px;
-            padding: 12px;
-            border: 1px solid var(--octo-border-default);
-            border-radius: 6px;
-            background: var(--octo-surface-default);
+            gap: 8px;
+            height: 40px;
+            padding: 0 12px;
+            border-radius: 8px;
+            box-sizing: border-box;
+            transition: background 0.1s;
+          }
+          .archive-prototype-item:hover {
+            background: rgba(0, 0, 0, 0.05);
+          }
+          .archive-prototype-item-selected {
+            background: rgba(10, 89, 247, 0.08);
           }
           .archive-prototype-cover {
-            width: 80px;
-            height: 45px;
+            width: 28px;
+            height: 28px;
             flex-shrink: 0;
-            background: var(--octo-surface-subtle);
             border-radius: 4px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
             overflow: hidden;
             display: flex;
             align-items: center;
             justify-content: center;
+            box-sizing: border-box;
           }
           .archive-prototype-cover img {
             width: 100%;
@@ -994,8 +1017,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
           }
           .archive-prototype-name {
             flex: 1;
-            font-size: 13px;
-            color: var(--octo-text-primary);
+            font-size: 14px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
             text-align: left;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -1008,24 +1032,31 @@ export function ArchiveDialog(props: Props): JSX.Element {
             font-size: 13px;
           }
           .archive-dialog-footer {
-            padding: 16px 20px;
-            border-top: 1px solid var(--octo-border-default);
+            padding: 0;
+            margin-top: 16px;
             display: flex;
             justify-content: flex-end;
           }
           .archive-confirm-btn {
-            padding: 8px 12px;
+            width: 88px;
+            height: 32px;
+            padding: 0;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 999px;
+            font-size: 14px;
+            line-height: 22px;
             cursor: pointer;
-            background: var(--octo-accent, #2563eb);
+            background: #0a59f7;
             color: #ffffff;
             font-weight: 500;
             transition: all 0.15s ease;
+            box-sizing: border-box;
           }
           .archive-confirm-btn:hover:not(:disabled) {
-            background: var(--octo-accent-hover, #1d4ed8);
+            background: #0950de;
+          }
+          .archive-confirm-btn:active:not(:disabled) {
+            background: #0a55eb;
           }
           .archive-confirm-btn-disabled {
             opacity: 0.5;
