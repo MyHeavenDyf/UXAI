@@ -6,6 +6,7 @@ import { useLanguage } from "@/context/language"
 import { ProjectInfoDialogContent } from "./project-info-dialog-content"
 import { createStore } from "solid-js/store"
 import { createEffect, createMemo, createSignal, Show } from "solid-js"
+import { Portal } from "solid-js/web"
 import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
@@ -126,10 +127,11 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   const hasDirectory = createMemo(() => directory().length > 0)
 
   return (
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0, 0, 0, 0.5)" }}
-    >
+    <Portal>
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: "rgba(0, 0, 0, 0.5)" }}
+      >
       <div
         class="flex flex-col items-center"
         style={{
@@ -206,5 +208,6 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         </button>
       </div>
     </div>
+    </Portal>
   )
 }
