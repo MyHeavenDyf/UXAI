@@ -689,9 +689,12 @@ function InsightContent() {
   // SPEC-INS-014 §10:文件管理面板里点文件 → 复用 tabStore.openTab 的 (filePath,type) 去重逻辑
   // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
   function openFileFromManager(file: InsightFileEntry) {
+    // extToOutputType 已将 png/jpg/gif/svg 等映射到 "image"(走 ImageRenderer),
+    // psd/ai/sketch/fig 等不可浏览器渲染的归 "file"(走 FileFallback),其余分流到 file/code。
     const type = extToOutputType(file.name)
     // fileName / mimeType 必须带上:FileFallback 的类型图标按这两者派生(fileTypeIconUrl),
     // 缺失会让 xlsx/docx 等一律落到「其他」兜底图标(title 只用于标签页文案,不参与图标)。
+    const mime = mimeForName(file.name)
     tabStore.openTab({
       id: crypto.randomUUID(),
       title: file.name,
@@ -699,7 +702,7 @@ function InsightContent() {
       source: "path",
       filePath: file.path,
       fileName: file.name,
-      mimeType: mimeForName(file.name),
+      mimeType: mime,
       createdAt: new Date(),
     })
     focusResultTabs()
@@ -984,15 +987,9 @@ function InsightContent() {
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
-    // [输出目录]:synthetic 提示模型把"生成/导出文档"的 write 产物落到 insight/<sessionId>/outputs/,
-    // 使其出现在文件管理"生成文件"段(模型无此提示时只回文本,文件管理表格看不到)。
-    {
-      const baseDir = projectDir()
-      if (baseDir) {
-        const outputsDir = `${baseDir.replace(/\\/g, "/")}/insight/${sessionId}/outputs/`
-        parts.push({ type: "text", text: `[输出目录] 生成/导出文档时,用 write 工具写入此目录:${outputsDir}`, synthetic: true })
-      }
-    }
+    // 落点重定向:write 产物进 insight/<sessionId>/outputs/ 由服务端插件 octo-outputs-redirect 确定性完成
+    // (相对路径 → 会话 outputs/,只对 octo_insight 会话生效)。此前这里每轮注入 `[输出目录] 绝对路径`
+    // synthetic 指令纠偏,弱模型会把它当当前任务复述(空问候"你好"也触发、把路径暴露给用户),故删除。
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
     // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
     // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。

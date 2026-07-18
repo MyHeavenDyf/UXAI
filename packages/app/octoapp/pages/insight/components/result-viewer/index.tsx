@@ -8,6 +8,7 @@ import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
+import { ImageRenderer } from "./image-renderer"
 import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { extractTableMarkdown } from "../../utils/markdown-table"
@@ -106,7 +107,7 @@ export function ResultViewer(props: {
                   onEdit={() => setEditingId(tab().id)}
                 />
                 <div class="flex-1 overflow-hidden">
-                  <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
+                  <TabBody tab={tab()} onCacheContent={props.onCacheContent} refreshKey={props.refreshKey} />
                 </div>
               </div>
             </div>
@@ -138,9 +139,16 @@ export function ResultViewer(props: {
 function TabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
+  refreshKey?: number
 }): JSX.Element {
   return (
     <Switch fallback={<TabContent tab={props.tab} />}>
+      {/* image 模式(filePath:local:// 协议读盘渲染 / uri:直接加载):
+           不走 PathTabBody 的 sdk.client.file.read(那是文本读法,会把二进制当 UTF-8 解,内容损坏)。
+           也不走 UriTabBody 的 fetch+text(同样损坏二进制)。 */}
+      <Match when={props.tab.type === "image" && (props.tab.filePath || props.tab.uri)}>
+        <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} />
+      </Match>
       {/* path 模式(路径 C,write 文本产物):走 SDK file.read 读盘取最新内容,不复用快照。
           见 output-renderers.md §2.6.3。file 类型(表格/office/二进制)不读盘,直接 fallback 到
           TabContent → FileFallback(本地 openPath / showItemInFolder)。 */}

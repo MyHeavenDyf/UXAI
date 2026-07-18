@@ -24,6 +24,10 @@ const RENDER_EXT: Record<string, OutputCardType> = {
   // 故一律出 json 卡(shiki 高亮 + 复制);真正要 markmap 预览的思维导图产物走路径 A
   // (MCP resource_link + business_type:"mindmap" 显式声明),不靠路径 C 嗅探。见 output-renderers.md §2.6.1。
   json: "json",
+  // 图片扩展名 → image 卡(走 ImageRenderer,local:// 协议读盘渲染 / uri 直接加载),
+  // 不走 file 卡(FileFallback 三按钮)。与 Design 页签同款行为。
+  png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", bmp: "image",
+  tiff: "image", tif: "image", ico: "image", svg: "image", heic: "image", heif: "image", avif: "image",
 }
 
 // 走 file 卡(本地应用打开)的扩展名。判据:**office/系统能打开但我们应用内渲染无价值或无法渲染**。
@@ -33,8 +37,8 @@ const FILE_EXT = new Set([
   "csv", "tsv", "xls", "xlsx", "xlsm", "xlsb", "ods",
   // 文档 / 演示
   "doc", "docx", "ppt", "pptx", "odt", "odp", "rtf", "pdf", "pages", "numbers", "key", "epub",
-  // 图片
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "ico", "svg", "heic", "heif", "avif", "psd", "ai", "sketch", "fig",
+  // 图片(仅 psd/ai/sketch/fig 等无法浏览器内渲染的归 file;png/jpg/gif/svg 等已进 RENDER_EXT → image 卡)
+  "psd", "ai", "sketch", "fig",
   // 音视频
   "mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v", "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus",
   // 压缩 / 镜像 / 安装包
