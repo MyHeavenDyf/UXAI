@@ -145,10 +145,19 @@ export function InsightTurn(props: {
   })
 
   // 图片附件(③):从本 turn 的图片 FilePart(type=file + mime=image/*) 取 url 渲染缩略图。
+  // 按 url 去重:同一张图的 optimistic FilePart(本地 part id)与 server 回传 FilePart(server part id)
+  // 因 id 不同无法在 sync 层互相替换,会并存于同一 messageID 的 part 数组;两者 url 相同(同一 S3 对象),
+  // 按 url 去重即只显示一张(用户真的粘两张不同图时 url 不同,不会被误合并)。
   const inputImages = createMemo((): Array<{ filename: string; url: string }> => {
-    return turnParts()
-      .filter((p) => p.type === "file" && typeof p.mime === "string" && p.mime.startsWith("image/") && typeof p.url === "string")
-      .map((p) => ({ filename: p.filename ?? "image", url: p.url! }))
+    const seen = new Set<string>()
+    const out: Array<{ filename: string; url: string }> = []
+    for (const p of turnParts()) {
+      if (p.type !== "file" || typeof p.mime !== "string" || !p.mime.startsWith("image/") || typeof p.url !== "string") continue
+      if (seen.has(p.url)) continue
+      seen.add(p.url)
+      out.push({ filename: p.filename ?? "image", url: p.url })
+    }
+    return out
   })
 
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
