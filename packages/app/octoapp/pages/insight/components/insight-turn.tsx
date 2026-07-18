@@ -16,7 +16,7 @@ import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 
-export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
+export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code" | "image"
 
 export type OutputCard = {
   id: string
