@@ -720,28 +720,44 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => document.removeEventListener("mousedown", handler))
   })
 
-  // ── Skills Config (from skills.json) ──
-  type SkillsConfigEntry = { description?: string; import?: boolean; type?: string }
-  type SkillsConfig = Record<string, SkillsConfigEntry>
+  // ── Skills Config (from skill_config.json) ──
+  type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+  type PanelSkill = {
+    label: string
+    description?: string
+    path?: string
+    enable?: boolean
+    id?: number
+  }
+  type SkillConfig = {
+    skill?: Record<string, SkillConfigEntry>
+    agent?: Record<string, string[]>
+    panel?: {
+      octo_insight?: PanelSkill[]
+      octo_make?: PanelSkill[]
+      octo_studio?: PanelSkill[]
+      common?: PanelSkill[]
+    }
+  }
 
-  const [skillsConfig, setSkillsConfig] = createSignal<SkillsConfig>({})
+  const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
   const [skillsMenuState, setSkillsMenuState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [skillsMenuIndex, setSkillsMenuIndex] = createSignal(0)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
 
-  async function loadSkillsConfig() {
+  async function loadSkillConfig() {
     if (skillsLoading()) return
     setSkillsLoading(true)
 
     try {
-      const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
-      const config = await api?.getSkillsConfig?.()
+      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillConfig> } }).api
+      const config = await api?.getSkillConfig?.()
       if (config) {
-        setSkillsConfig(config)
+        setSkillConfig(config)
       }
     } catch (err) {
-      console.error("[MakePage] Failed to load skills config:", err)
+      console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
     }
@@ -820,23 +836,18 @@ const sessionMessagesLoaded = createMemo(() => {
     )
   })
 
-  // Filter active skills (import !== false + type match)
+  // Get active skills from panel.octo_make array
   const activeSkills = createMemo(() => {
-    const config = skillsConfig()
-    const list: Array<{ name: string; description: string }> = []
+    const config = skillConfig()
+    const panelSkills = config.panel?.octo_make ?? []
 
-    for (const [name, entry] of Object.entries(config)) {
-      if (entry.import === false) continue
-      if (!entry.type) continue
-      if (entry.type !== "common" && entry.type !== "octo_make") continue
-
-      list.push({
-        name,
-        description: entry.description ?? "",
-      })
-    }
-
-    return list.sort((a, b) => a.name.localeCompare(b.name))
+    return panelSkills
+      .filter(skill => skill.enable !== false)
+      .map(skill => ({
+        name: skill.label,
+        description: skill.description ?? "",
+        path: skill.path ?? `skill/${skill.label}/SKILL.md`
+      }))
   })
 
   // Filter skills by search query
@@ -1473,7 +1484,7 @@ if (dsId) {
       setSlashState(null)
       setMentionState(null)
 
-      loadSkillsConfig()
+      loadSkillConfig()
       return
     }
 
@@ -1514,7 +1525,7 @@ if (dsId) {
     if (cmd.trigger === "skills") {
       setSkillsMenuState({ query: "", cursor: replaced.length })
       setSkillsMenuIndex(0)
-      loadSkillsConfig()
+      loadSkillConfig()
     }
 
     // Focus textarea and position cursor at end
@@ -1524,42 +1535,44 @@ if (dsId) {
     })
   }
 
-  /** Pick a skill from skills menu and insert into prompt */
+  /** Pick a skill from skills menu and send directly */
   async function pickSkillFromMenu(skill: { name: string; description: string }) {
     const state = skillsMenuState()
     if (!state) return
 
-    const ta = textareaRef
+    const sessionId = params.id
+    if (!sessionId) return
 
+    // Show loading indicator
     setSkillToolCalls(prev => [...prev, {
       name: "skill",
       status: "running",
       input: { name: skill.name }
     }])
 
-    const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
-    const result = await api?.getSkillContent?.(skill.name)
-
-    if (!result?.success) {
-      console.error("[MakePage] Failed to load skill:", result?.error)
-      setSkillToolCalls(prev => prev.filter(c => c.input?.name !== skill.name))
-      return
-    }
-
-    setSkillToolCalls(prev => prev.map(c => 
-      c.input?.name === skill.name 
-        ? { ...c, status: "done", output: result.content }
-        : c
-    ))
-
-    const before = prompt()
-    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
     setSkillsMenuState(null)
+    setPrompt("")
 
-    requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(ta.value.length, ta.value.length)
-    })
+    try {
+      const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
+      const result = await api?.getSkillContent?.(skill.name)
+
+      if (!result?.success) {
+        console.error("[MakePage] Failed to load skill:", result?.error)
+        setSkillToolCalls([])
+        return
+      }
+
+      // Build skill message and send directly
+      const skillMessage = `<skill_content name="${skill.name}">\n${result.content}\n</skill_content>`
+      await sendMessage(sessionId, skillMessage)
+
+      // Clear loading state after sending
+      setSkillToolCalls([])
+    } catch (err) {
+      console.error("[MakePage] Failed to send skill:", err)
+      setSkillToolCalls([])
+    }
   }
 
   /** Pick a Design Files file and add as attachment */

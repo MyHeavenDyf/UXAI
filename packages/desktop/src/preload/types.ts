@@ -32,6 +32,11 @@ export type SkillConfigEntry = { description?: string; import?: boolean; type?: 
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
+export type SkillConfig = {
+  skill?: Record<string, SkillConfigEntry>
+  agent?: Record<string, string[]>
+}
+
 export type SkillContentResponse =
   | { success: true; name: string; content: string; baseDir: string; files: string }
   | { success: false; error: string }
@@ -116,6 +121,7 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
+  getSkillConfig: () => Promise<SkillConfig>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   ensureSkillConfig: () => Promise<void>
