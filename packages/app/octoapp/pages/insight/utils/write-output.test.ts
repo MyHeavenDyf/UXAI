@@ -23,15 +23,23 @@ describe("extToOutputType", () => {
     expect(extToOutputType("a/b/README")).toBe("code")
     expect(extToOutputType("x.unknownext")).toBe("code")
   })
-  test("office/表格/图片/媒体/压缩/二进制 → file(拉本地应用)", () => {
-    for (const f of ["rows.csv", "book.xlsx", "old.xls", "report.docx", "slides.pptx", "doc.pdf", "p.pages", "s.numbers", "img.png", "pic.heic", "v.mp4", "a.mp3", "pack.zip", "disk.dmg", "bin.exe", "lib.so"]) {
+  test("office/表格/媒体/压缩/二进制 → file(拉本地应用)", () => {
+    for (const f of ["rows.csv", "book.xlsx", "old.xls", "report.docx", "slides.pptx", "doc.pdf", "p.pages", "s.numbers", "v.mp4", "a.mp3", "pack.zip", "disk.dmg", "bin.exe", "lib.so"]) {
+      expect(extToOutputType(f)).toBe("file")
+    }
+  })
+  test("可浏览器内渲染的图片 → image(png/jpg/heic 等,走 ImageRenderer);无法渲染的设计源文件 → file", () => {
+    for (const f of ["img.png", "pic.heic", "a.jpg", "b.webp", "c.svg", "d.gif"]) {
+      expect(extToOutputType(f)).toBe("image")
+    }
+    for (const f of ["src.psd", "art.ai", "design.sketch", "board.fig"]) {
       expect(extToOutputType(f)).toBe("file")
     }
   })
   test("大小写不敏感", () => {
     expect(extToOutputType("REPORT.MD")).toBe("markdown")
     expect(extToOutputType("Page.HTML")).toBe("html")
-    expect(extToOutputType("IMG.PNG")).toBe("file")
+    expect(extToOutputType("IMG.PNG")).toBe("image")
   })
 })
 
@@ -78,6 +86,11 @@ function writePart(filePath: string, status = "completed", tool = "write") {
   return { type: "tool", tool, state: { status, input: { filePath } } }
 }
 
+// 服务端重定向后的真实形态:input.filePath = 模型产出的裸名,metadata.filepath = 实际写盘绝对路径。
+function writePartRedirected(inputName: string, metaFilepath: string, tool = "write") {
+  return { type: "tool", tool, state: { status: "completed", input: { filePath: inputName }, metadata: { filepath: metaFilepath } } }
+}
+
 describe("findWriteCards", () => {
   test("所有写入文件都出卡,按内容分流(md/html→渲染, py/cpp→code, csv/xlsx→file)", () => {
     const cards = findWriteCards([
@@ -121,5 +134,29 @@ describe("findWriteCards", () => {
   test("防御读 path / file_path 兜底字段", () => {
     const byPath = { type: "tool", tool: "write", state: { status: "completed", input: { path: "/p/a.json" } } }
     expect(findWriteCards([byPath])).toEqual([{ filePath: "/p/a.json", type: "json" }])
+  })
+
+  // ── 服务端重定向回归(方向 2):卡片路径必须取 metadata.filepath(真实落点),不取 input 的裸名 ──
+  test("重定向场景:input 是裸文件名、metadata.filepath 是绝对落点 → 卡片用绝对落点", () => {
+    const cards = findWriteCards([writePartRedirected("报告.md", "/proj/insight/ses_1/outputs/报告.md")])
+    expect(cards).toEqual([{ filePath: "/proj/insight/ses_1/outputs/报告.md", type: "markdown" }])
+  })
+  test("metadata.filepath 优先于 input.filePath(两者都在且不同时)", () => {
+    const cards = findWriteCards([writePartRedirected("裸名.html", "/abs/outputs/裸名.html")])
+    expect(cards[0]?.filePath).toBe("/abs/outputs/裸名.html")
+  })
+  test("edit 同样取 metadata.filepath", () => {
+    const cards = findWriteCards([writePartRedirected("a.cpp", "/abs/outputs/a.cpp", "edit")])
+    expect(cards).toEqual([{ filePath: "/abs/outputs/a.cpp", type: "code" }])
+  })
+  test("无 metadata 时兜底 input(旧数据 / 异常态,向后兼容)", () => {
+    expect(findWriteCards([writePart("/p/legacy.md")])).toEqual([{ filePath: "/p/legacy.md", type: "markdown" }])
+  })
+  test("按 metadata.filepath 去重(同一真实落点多次写只留最后一次)", () => {
+    const cards = findWriteCards([
+      writePartRedirected("a.md", "/abs/outputs/a.md"),
+      writePartRedirected("a.md", "/abs/outputs/a.md"),
+    ])
+    expect(cards).toEqual([{ filePath: "/abs/outputs/a.md", type: "markdown" }])
   })
 })
