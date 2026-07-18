@@ -56,6 +56,21 @@ export function InsightSessionList(): JSX.Element {
   // 用户选了项目目录后 insight 仍查 home dir 而看不到自己历史对话的 directory 飘移 bug。
   const projectDir = useProjectDir()
 
+  // 抗抖 dir 解析(照搬旧 _shell/sidebar.tsx 的成熟写法)。projectDir() 依赖的
+  // server.projects.last() 在 bootstrap 完成后响应式链会断,裸依赖它的 resource 若在
+  // bootstrap 窗口内挂载并拉到空,之后不会自动重跑。/insight 靠 session 事件触发 refetch
+  // 兜底而掩盖了;/skills 复用本组件后独立空闲、无事件,就会卡在「暂无对话」。
+  // 两个 effect:① 直接读(有值即锁);② 用可靠的 globalSync.data.ready 做触发,bootstrap
+  // 落定时补读一次 projectDir()。resource 与 limit 重置都改吃 resolvedDir()。
+  const [resolvedDir, setResolvedDir] = createSignal<string>()
+  createEffect(() => { const d = projectDir(); if (d) setResolvedDir(d) })
+  createEffect(() => {
+    if (!globalSync.data.ready) {
+      const d = projectDir()
+      if (d) setResolvedDir(d)
+    }
+  })
+
   // ── 服务端分页(SPEC-INS-013)────────────────────────────────────────────
   // 走 insight 专用端点 /insight/sessions:服务端**先按 agent=octo_insight 过滤再分页**,
   // 修「会话超 100 条后最早 insight 对话看不到」(根因:旧共享 session.list「先 limit 100 再前端
@@ -64,10 +79,10 @@ export function InsightSessionList(): JSX.Element {
   const FIRST_PAGE = 100
   const PAGE_STEP = 100
   const [limit, setLimit] = createSignal(FIRST_PAGE)
-  createEffect(on(projectDir, () => setLimit(FIRST_PAGE), { defer: true }))
+  createEffect(on(resolvedDir, () => setLimit(FIRST_PAGE), { defer: true }))
 
   const [sessions, { refetch }] = createResource(
-    () => ({ dir: projectDir(), limit: limit() }),
+    () => ({ dir: resolvedDir() ?? "", limit: limit() }),
     async ({ dir, limit: lim }, info): Promise<{ items: Session[]; total: number }> => {
       if (!dir) return { items: [], total: 0 }
       try {
