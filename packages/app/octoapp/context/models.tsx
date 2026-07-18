@@ -73,11 +73,26 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       }),
     )
 
-    const available = createMemo(() =>
-      modelsApiSource() === "local"
-        ? modelsLocalListForProviders(providers.connected())
-        : modelsApiListForProviders(apiModels(), providers.connected()),
-    )
+    const available = createMemo(() => {
+      if (modelsApiSource() === "local") return modelsLocalListForProviders(providers.connected())
+      const api = apiModels()
+      if (!api) return []
+      const remoteProviderIDs = new Set(
+        Object.entries(api).map(([key, provider]) =>
+          typeof provider?.id === "string" && provider.id ? provider.id : key,
+        ),
+      )
+      const connected = providers.connected()
+      return uniqueBy(
+        [
+          ...modelsApiListForProviders(api, connected),
+          ...modelsLocalListForProviders(
+            connected.filter((provider) => provider.source === "config" && !remoteProviderIDs.has(provider.id)),
+          ),
+        ],
+        (model) => modelKey({ providerID: model.provider.id, modelID: model.id }),
+      )
+    })
 
     const release = createMemo(
       () =>

@@ -750,6 +750,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [skillsMenuState, setSkillsMenuState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [skillsMenuIndex, setSkillsMenuIndex] = createSignal(0)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
+  const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
   async function loadSkillConfig() {
     if (skillsLoading()) return
@@ -867,6 +868,21 @@ const sessionMessagesLoaded = createMemo(() => {
       skill.name.toLowerCase().includes(lowerQuery) ||
       skill.description.toLowerCase().includes(lowerQuery)
     )
+  })
+
+  // Skills menu ESC close (global listener, works regardless of focus)
+  createEffect(() => {
+    if (!skillsMenuState()) return
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setSkillsMenuState(null)
+      }
+    }
+
+    window.addEventListener("keydown", handler)
+    onCleanup(() => window.removeEventListener("keydown", handler))
   })
 
   const DS_KEY_PREFIX = "octo:make:design-system:"
@@ -1322,10 +1338,22 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending() || !activeModelKey()) return
+    if (sending() || !activeModelKey()) return
     // 在异步操作前捕获 model key，避免后续被其他 effect 修改
     const capturedModelKey = activeModelKey()
     if (!capturedModelKey) return
+    
+    // 捕获待发送技能
+    const skill = pendingSkill()
+    setPendingSkill(null)
+    
+    // 构建消息：技能内容 + 用户文本
+    const messageText = skill
+      ? `<skill_content name="${skill.name}">\n${skill.content}\n</skill_content>\n\n${text}`
+      : text
+    
+    if (!messageText.trim()) return
+    
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
@@ -1345,7 +1373,16 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, text, capturedModelKey)
+      await sendMessage(sid, messageText, capturedModelKey)
+      
+      // 发送成功后追踪技能使用
+      if (skill) {
+        tracker.interaction({ 
+          module: "design", 
+          name: "skill-used", 
+          extend: JSON.stringify({ skillName: skill.name }) 
+        })
+      }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
@@ -1546,72 +1583,47 @@ if (dsId) {
     })
   }
 
-  /** Pick a skill from skills menu and send directly */
+  /** Pick a skill from skills menu and add to pending */
   async function pickSkillFromMenu(skill: { name: string; description: string }) {
     const state = skillsMenuState()
     if (!state) return
 
-    // Show loading indicator
-    setSkillToolCalls(prev => [...prev, {
-      name: "skill",
-      status: "running",
-      input: { name: skill.name }
-    }])
-
+    // Clear previous pending skill
+    setPendingSkill(null)
     setSkillsMenuState(null)
-    setPrompt("")
+
+    // Clear /skills text from prompt
+    const before = prompt()
+    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
 
     try {
-      // Get or create session
-      let sessionId = params.id
-      if (!sessionId) {
-        const dir = sdk.directory
-        if (!dir) {
-          console.error("[MakePage] No directory for skill")
-          setSkillToolCalls([])
-          return
-        }
-        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
-        const session = result.data as Session | undefined
-        if (!session) {
-          console.error("[MakePage] Failed to create session for skill")
-          setSkillToolCalls([])
-          return
-        }
-        const dsId = selectedDesignSystem()
-        if (dsId) {
-          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
-        }
-        navigate(`/make/${session.id}`)
-        sessionId = session.id
-      }
-
+      // Load skill content
       const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
       const result = await api?.getSkillContent?.(skill.name)
 
       if (!result?.success) {
         console.error("[MakePage] Failed to load skill:", result?.error)
-        setSkillToolCalls([])
         return
       }
 
-      const modelKey = activeModelKey()
-      if (!modelKey) {
-        console.error("[MakePage] No model selected for skill")
-        setSkillToolCalls([])
-        return
-      }
+      // Store pending skill
+      setPendingSkill({
+        name: skill.name,
+        content: result.content
+      })
 
-      // Build skill message and send directly
-      const skillMessage = `<skill_content name="${skill.name}">\n${result.content}\n</skill_content>`
-      await sendMessage(sessionId, skillMessage, modelKey)
-
-      // Clear loading state after sending
-      setSkillToolCalls([])
+      // Focus textarea
+      requestAnimationFrame(() => {
+        textareaRef.focus()
+      })
     } catch (err) {
-      console.error("[MakePage] Failed to send skill:", err)
-      setSkillToolCalls([])
+      console.error("[MakePage] Failed to load skill:", err)
     }
+  }
+
+  /** Remove pending skill */
+  function removePendingSkill() {
+    setPendingSkill(null)
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -2514,6 +2526,24 @@ if (dsId) {
                     setPrompt(starter.prompt)
                   }}
                 />
+
+                {/* Pending skill tag */}
+                <Show when={pendingSkill()}>
+                  {(skill) => (
+                    <div class="flex items-center gap-2 px-4 pt-3">
+                      <div class="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-sm">
+                        <span class="text-blue-700">{skill().name}</span>
+                        <button
+                          type="button"
+                          onClick={removePendingSkill}
+                          class="text-blue-500 hover:text-blue-700"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Show>
 
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group"

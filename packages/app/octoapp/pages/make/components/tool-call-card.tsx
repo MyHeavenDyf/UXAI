@@ -45,7 +45,7 @@ function StatusBadge(props: { status: ToolCallStatus }): JSX.Element {
       case "done":
         return { bg: "rgba(34,197,94,0.1)", color: "#22c55e", label: "完成", pulse: false }
       case "error":
-        return { bg: "rgba(239,68,68,0.1)", color: "#ef4444", label: "错误", pulse: false }
+        return { bg: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.6)", label: "错误", pulse: false }
     }
   })
   return (
