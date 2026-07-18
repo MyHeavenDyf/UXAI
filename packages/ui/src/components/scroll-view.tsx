@@ -41,6 +41,7 @@ export function ScrollView(props: ScrollViewProps) {
       "onTouchEnd",
       "onTouchCancel",
       "onPointerDown",
+      "onMouseUp",
       "onClick",
       "onKeyDown",
     ],
@@ -205,6 +206,7 @@ export function ScrollView(props: ScrollViewProps) {
         onTouchEnd={events.onTouchEnd as any}
         onTouchCancel={events.onTouchCancel as any}
         onPointerDown={events.onPointerDown as any}
+        onMouseUp={events.onMouseUp as any}
         onClick={events.onClick as any}
         tabIndex={0}
         role="region"
