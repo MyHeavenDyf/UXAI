@@ -612,7 +612,33 @@ function InsightContent() {
   // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
   // 进入会话就有内容可看,不必等第一个产物 tab 打开)。无会话时聊天居中铺满。
   const [panelCollapsed, setPanelCollapsed] = createSignal(false)
-  const panelVisible = createMemo(() => !!params.id && !panelCollapsed())
+
+  const [responsivePanelCollapsed, setResponsivePanelCollapsed] = createSignal(false)
+  const [responsiveSidebarHidden, setResponsiveSidebarHidden] = createSignal(false)
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = createSignal(false)
+
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 999px)")
+    const update = () => setResponsivePanelCollapsed(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 767px)")
+    const update = () => {
+      setResponsiveSidebarHidden(mql.matches)
+      if (!mql.matches) setSidebarOverlayOpen(false)
+    }
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  createEffect(on(() => params.id, () => setSidebarOverlayOpen(false)))
+
+  const panelVisible = createMemo(() => !!params.id && !panelCollapsed() && !responsivePanelCollapsed())
 
   // 动画三态:
   //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
@@ -1870,7 +1896,15 @@ function InsightContent() {
             与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
-        <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        <Show when={!responsiveSidebarHidden()}>
+          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        </Show>
+        <Show when={responsiveSidebarHidden() && sidebarOverlayOpen()}>
+          <div class="absolute inset-0 z-20" style={{ background: "var(--octo-surface-mask, rgba(0,0,0,0.3))" }} onClick={() => setSidebarOverlayOpen(false)} />
+          <div class="absolute left-0 top-0 bottom-0 z-30">
+            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+          </div>
+        </Show>
 
         {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
         <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
@@ -1893,6 +1927,17 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+            <Show when={responsiveSidebarHidden() && !(params.id && userMessages().length > 0)}>
+              <button
+                type="button"
+                onClick={() => setSidebarOverlayOpen((v) => !v)}
+                title="侧栏"
+                class="absolute top-3 left-3 z-10 flex items-center justify-center size-8 rounded-md transition-colors"
+                style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
+              >
+                <Icon name="menu" class="size-5" />
+              </button>
+            </Show>
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
@@ -2035,8 +2080,19 @@ function InsightContent() {
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
+                sidebarToggle={responsiveSidebarHidden() ? (
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOverlayOpen((v) => !v)}
+                    title="侧栏"
+                    class="flex items-center justify-center size-6 rounded-md transition-colors"
+                    style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
+                  >
+                    <Icon name="menu" class="size-4" />
+                  </button>
+                ) : undefined}
                 panelBadge={
-                  !!params.id && panelCollapsed() && !panelAnimating()
+                  !!params.id && panelCollapsed() && !responsivePanelCollapsed() && !panelAnimating()
                     ? (
                       <button
                         type="button"
