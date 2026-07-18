@@ -392,7 +392,7 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
-              <div style={{ display: (props.showFileManager && !props.fileManagerDetailView) ? undefined : "none" }}>
+              <Show when={props.showFileManager && !props.fileManagerDetailView}>
                 <StudioFileManager
                   studioCenterWidth={props.studioCenterWidth}
                   showStudioCenter={props.showStudioCenter}
@@ -402,7 +402,7 @@ export function StudioResultCanvas(props: {
                   onSelectMedia={props.onFileManagerSelectMedia}
                   sessionID={props.sessionID}
                 />
-              </div>
+              </Show>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
                 <div style="display:flex;flex-direction:column;flex:1;min-height:0;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
