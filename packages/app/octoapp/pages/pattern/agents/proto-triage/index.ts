@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from "../run-child-session";
 import { logAgentParsed } from "../../utils/debug-log"
+import { TRIAGE_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_triage"
 
@@ -51,7 +52,7 @@ export interface TriageResult {
   modify: TriageModifyItem[]
   reply: string
   reason: string
-  image_description: string | null
+  attachment_description: string | null
 }
 
 export default async function proto_triage(ctx: TriageInputContext): Promise<TriageResult> {
@@ -83,6 +84,7 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
     directory: sdk.directory,
     parentSessionID: rootSession,
     fileParts,
+    schema: TRIAGE_FORMAT.schema,
   })
   console.log("----- 分诊Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 triage json
@@ -107,7 +109,7 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
     })),
     reply: (triageJson.reply as string) ?? "",
     reason: (triageJson.reason as string) ?? "",
-    image_description: normalizeImageDesc(triageJson.image_description),
+    attachment_description: normalizeAttachmentDesc(triageJson.attachment_description),
   }
   if (returnValue.routing === "chat") {
     const sessionId = triageRes.childSessionId
@@ -140,7 +142,7 @@ function buildHumanMessage(userInput:string, lastPlanner: any, lastModules: any)
   ].join("\n")
 }
 
-function normalizeImageDesc(v: unknown): string | null {
+function normalizeAttachmentDesc(v: unknown): string | null {
   if (v === null || v === undefined) return null
   if (typeof v !== "string") return null
   const t = v.trim()

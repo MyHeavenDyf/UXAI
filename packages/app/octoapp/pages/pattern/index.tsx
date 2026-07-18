@@ -179,7 +179,6 @@ function PatternContent() {
               setSelectedDesignSystem(savedTheme ?? "ICT3.1")
 
               const result = await restoreSession(dir, id)
-              debugger
               if (params.id !== id) return
 
               switch (result.type) {
@@ -188,7 +187,6 @@ function PatternContent() {
                   return
                 }
                 case "intent_confirm": {
-                  debugger
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
                   sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
@@ -708,6 +706,8 @@ function PatternContent() {
           : undefined,
       }
 
+      setAttachments([])
+
       // 开启本次调试日志
       logStartSession(sid, text)
       // 流程执行完毕后的回调
@@ -774,8 +774,8 @@ function PatternContent() {
         if (triage.routing === "chat") {
           return
         }
-        if (triage.image_description) {
-          intentCtx.userInput = `[图片描述]: ${triage.image_description}\n[用户需求]: ${text}`
+        if (triage.attachment_description) {
+          intentCtx.userInput = `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${text}`
         }
 
         // 首次创建页面：异步获取标题（不阻塞 pipeline）

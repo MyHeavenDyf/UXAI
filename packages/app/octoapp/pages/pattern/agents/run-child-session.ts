@@ -1,8 +1,9 @@
-import type { Session, OutputFormat } from "@opencode-ai/sdk/v2/client"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createRoot, createEffect } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getResultFromMessages, extractJson } from '../utils/json-parser'
 import { logAgentCall } from "../utils/debug-log"
+import { validateSchema } from "../utils/schema-validator"
 
 export type RunChildSessionInput = {
   sync?: any
@@ -16,7 +17,7 @@ export type RunChildSessionInput = {
   extra?: Record<string, unknown>
   modelKey: { providerID: string; modelID: string } | undefined
   onSessionCreated?: (childSessionID: string) => void
-  format?: OutputFormat
+  schema?: Record<string, unknown>
   fileParts?: { type: "file"; mime: string; filename: string; url: string }[]
 }
 
@@ -33,12 +34,11 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     prompt: promptText, // 用户输入提示词
     onSessionCreated, // 创建该 Session 时的回调
     aborted, // 是否需要立即停止，暂未用，全部停止另外写了一个方法
-    format, // 结构化输出格式，如 { type: "json_schema", schema: {...} }
+    schema, // JSON Schema 校验模型输出
     fileParts, // 文件附件
   } = input
 
   try {
-    debugger
     let childSession: Session | undefined
     if (isRoot) {
       // root session 已经在外面创建好了，直接获取
@@ -66,7 +66,6 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     await client.session.promptAsync({
       extra,
       agent,
-      format,
       model: modelKey,
       sessionID: childSession.id,
       parts: [{ type: "text", text: promptText }, ...(fileParts ?? [])],
@@ -78,6 +77,7 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     if (!result) throw new Error(`[${agent}] 模型未返回有效内容`)
     const sessionId = isRoot ? parentSessionID : childSession.id
     const cleaned = extractJson(result)
+    if (schema && cleaned) validateSchema(cleaned, schema, agent)
     logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
 
     // 检查 assistant message 是否携带错误

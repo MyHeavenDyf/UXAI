@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
+import { MODULE_CREATE_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_module_create";
 
@@ -75,6 +76,7 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     sync,
     onSessionCreated,
     extra: input.extra,
+    schema: MODULE_CREATE_FORMAT.schema,
   })
   console.log("----- 模块渲染Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 a2ui json

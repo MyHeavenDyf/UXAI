@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
+import { INTENT_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_intent"
 
@@ -40,7 +41,8 @@ export default async function proto_intent(input: ProtoIntentInput) {
     client: sdk.client,
     prompt: humanMessage,
     directory: sdk.directory,
-    parentSessionID: rootSession
+    parentSessionID: rootSession,
+    schema: INTENT_FORMAT.schema,
   })
   console.log("----- 意图扩展Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 json 数据

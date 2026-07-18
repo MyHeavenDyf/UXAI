@@ -2,6 +2,7 @@ import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import { mergeJson, type PatchOp, type PatchSource } from "../../utils/patch-json"
+import { MODIFY_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_modify";
 
@@ -70,6 +71,7 @@ export default async function proto_modify(ctx: ModuleModifyContext): Promise<Mo
     directory: sdk.directory,
     parentSessionID: rootSession,
     extra: ctx.extra,
+    schema: MODIFY_FORMAT.schema,
   })
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   logAgentParsed(modifyRes.childSessionId, { output: modifyRes.text })

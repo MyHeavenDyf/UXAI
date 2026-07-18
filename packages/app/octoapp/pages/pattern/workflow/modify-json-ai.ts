@@ -37,8 +37,8 @@ export default async function modify_json_ai(
   if (triage.routing === "chat") return { routing: "chat" as const, reply: triage.reply }
   if (triage.routing !== "modify") return {}
 
-  const enrichedInput = triage.image_description
-    ? `[图片描述]: ${triage.image_description}\n[用户需求]: ${inputCtx.userInput}`
+  const enrichedInput = triage.attachment_description
+    ? `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${inputCtx.userInput}`
     : inputCtx.userInput
 
   const state = await loadCurrentPatternState(historyDir, inputCtx.rootSession)

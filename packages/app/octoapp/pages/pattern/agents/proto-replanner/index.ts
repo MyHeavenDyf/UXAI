@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
+import { REPLANNER_FORMAT } from './schema'
 
 const AGENT_NAME = "proto_replanner"
 
@@ -40,6 +41,7 @@ export default async function proto_replanner(input: ProtoReplannerInput): Promi
     prompt: humanMessage,
     sync,
     onSessionCreated,
+    schema: REPLANNER_FORMAT.schema,
   })
 
   console.log("----- 重新生成plannerAgent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----')

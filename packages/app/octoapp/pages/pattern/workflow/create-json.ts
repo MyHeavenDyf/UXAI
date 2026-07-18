@@ -120,7 +120,6 @@ export async function create_modules_json(
 ) {
   const sid = inputCtx.rootSession
   const slots = planner.slots as Array<any>
-  debugger
   let moduleCheckpoints: Record<string, ModuleCheckpoint> = {}
   let checkpoint: Checkpoint | null = null
   if (inputCtx.checkpointDir) {

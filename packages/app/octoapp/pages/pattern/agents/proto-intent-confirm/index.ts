@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
+import { INTENT_CONFIRM_FORMAT } from './schema'
 
 const AGENT_NAME = "proto_intent_confirm"
 
@@ -38,6 +39,7 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: INTENT_CONFIRM_FORMAT.schema,
   })
   const json = extractJson(result.text)
   if (!json) {
