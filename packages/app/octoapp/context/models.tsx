@@ -5,7 +5,6 @@ import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } fro
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { useGlobalSync } from "@/context/global-sync"
 import {
   fetchModelsApi,
   modelsApiListForProviders,
@@ -37,7 +36,6 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   init: () => {
     const providers = useProviders()
     const globalSDK = useGlobalSDK()
-    const globalSync = useGlobalSync()
     const loadApiModels = async () => {
       const models = await fetchModelsApi()
       await globalSDK.client.provider.list()
@@ -75,19 +73,22 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       }),
     )
 
-    const customProviders = createMemo(() =>
-      providers.all().filter((provider) => {
-        const config = globalSync.data.config.provider?.[provider.id]
-        return config?.npm === "@ai-sdk/openai-compatible" && !!config.models && Object.keys(config.models).length > 0
-      }),
-    )
-
     const available = createMemo(() => {
       if (modelsApiSource() === "local") return modelsLocalListForProviders(providers.connected())
+      const api = apiModels()
+      if (!api) return []
+      const remoteProviderIDs = new Set(
+        Object.entries(api).map(([key, provider]) =>
+          typeof provider?.id === "string" && provider.id ? provider.id : key,
+        ),
+      )
+      const connected = providers.connected()
       return uniqueBy(
         [
-          ...modelsApiListForProviders(apiModels(), providers.connected()),
-          ...modelsLocalListForProviders(customProviders()),
+          ...modelsApiListForProviders(api, connected),
+          ...modelsLocalListForProviders(
+            connected.filter((provider) => provider.source === "config" && !remoteProviderIDs.has(provider.id)),
+          ),
         ],
         (model) => modelKey({ providerID: model.provider.id, modelID: model.id }),
       )
