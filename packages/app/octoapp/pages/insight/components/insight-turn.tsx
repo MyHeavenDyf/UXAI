@@ -10,8 +10,8 @@ import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
-import { findWriteCards, basename } from "../utils/write-output"
-import { readTaskInfo, type TaskCardEntry } from "../utils/task-detect"
+import { findWriteCards } from "../utils/write-output"
+import { readTaskInfo, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
@@ -35,6 +35,11 @@ export type OutputCard = {
 // eager 落地去重(SPEC-INS-014 v4):记已触发落盘的 uri 卡 id,避免同一卡在 memo 反复重算 / 多 turn 实例
 // 重挂时重复发 IPC(主进程本身按 card.id 幂等,这层只是省无谓 IPC)。card.id 全局唯一(含 messageID)。
 const eagerMaterializedCardIds = new Set<string>()
+
+// write 工具产物不再出卡(路径 C 退役,见 output-renderers.md §2.6):文件已在磁盘,由独立扫盘的
+// 文件管理面板呈现/预览。此 set 只用于「write 完成 → 通知文件管理刷新」的去重(按 messageID:filePath),
+// 避免 memo 重算 / 多 turn 实例重挂时重复发刷新。
+const refreshedWritePaths = new Set<string>()
 
 // 路径 B 嗅探规则:table / mindmap / json / html 互相独立,允许同时命中
 // (典型:内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape → 出双卡)
@@ -180,23 +185,28 @@ export function InsightTurn(props: {
     //   - 其他(key_findings / search_reports / run_*_analysis 等)→ 按 mimeType 路由
     // 详见 output-renderers.md §1 视图切换 / §2.5.2 + mcp-contract.md §business_type
     //
-    // get_task_result 重复查询 turn 优先换回该任务「首次确定的产物链接」:
-    // 用户每次「查询任务 X 进度」都会重调 get_task_result,server 可能每次返回一批新 URI(i,j…);
-    // 若直接用本 turn 原始 links,会让最新查询回答下方挂出"又重新生成"的新文件。改为按 task_id
-    // 取最初那批(x,y),保证每次查询回答下方挂的都是同一批原始产物。非任务结果(无 task_id)走原 links。
-    const taskId = parts.reduce<string | undefined>((acc, part) => acc ?? readTaskInfo(part)?.taskId, undefined)
-    const canonical = taskId ? props.resolveTaskLinks?.(taskId) : undefined
+    // get_task_result 重复查询:优先换回该任务「首次确定的产物链接」——用户每次「查询任务 X 进度」
+    // 都会重调 get_task_result,server 可能每次返回一批新 URI;按 task_id 取最初那批,保证每次查询
+    // 回答下方挂的都是同一批原始产物,而非"又重新生成"的新文件。
+    //
+    // ⚠️ 只在本 turn 真正观测到该任务 completed 时才回填(问题2修复):readTaskInfo 对「处理中」的
+    // get_task_result 也会返回 taskId,若不 gate,最终产物卡会被回填到每一次「处理中」查询回答下方
+    // (跨 turn 聚合的 resolveTaskLinks 一旦任务完成就恒返回那批产物)。gate 在 completed 上 →
+    // 产物卡只出现在真正查到结果的那一次 turn。非任务结果(无 completed task)走本 turn 原始 links。
+    const completedTask = parts.reduce<TaskInfo | undefined>((acc, part) => {
+      if (acc) return acc
+      const info = readTaskInfo(part)
+      return info?.status === "completed" ? info : undefined
+    }, undefined)
+    const canonical = completedTask ? props.resolveTaskLinks?.(completedTask.taskId) : undefined
     const links = canonical && canonical.length > 0 ? canonical : findResourceLinks(parts)
-    // ── 路径 C:write 工具产物(强契约,零嗅探,见 output-renderers.md §2.6)──
-    // 与路径 A 并列追加(来源不重叠:A 来自 MCP resource_link,C 来自本地 write tool part)。
-    // 内容在本地磁盘,出卡阶段只带 filePath,点开时由 PathTabBody 走 SDK file.read 读盘。
-    const writes = findWriteCards(parts)
-    if (links.length > 0 || writes.length > 0) {
-      console.log("[octo:card] resource_links + writes (no task)", {
+    // 路径 C(write 工具产物出卡)已退役:write 产物都在本地磁盘,由独立扫盘的「文件管理」面板
+    // 呈现与预览,无需在对话流再塞一张冗余卡;脚本执行产生的真交付物(docx/xlsx 等)同样去文件管理里找。
+    // 「write 完成 → 文件管理刷新」由下方独立 effect 处理(与出卡解耦)。详见 output-renderers.md §2.6。
+    if (links.length > 0) {
+      console.log("[octo:card] resource_links (no task)", {
         linkCount: links.length,
-        writeCount: writes.length,
         links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri, business_type: l.business_type })),
-        writes: writes.map((w) => ({ filePath: w.filePath, type: w.type })),
         msgID: props.messageID,
       })
       const linkCards: OutputCard[] = links.map((link, idx) => ({
@@ -210,19 +220,7 @@ export function InsightTurn(props: {
         description: link.description,
         createdAt: msgDate,
       }))
-      const writeCards: OutputCard[] = writes.map((w, idx) => {
-        const name = basename(w.filePath)
-        return {
-          id: `card-${props.messageID}-write-${idx}`,
-          title: name,
-          type: w.type,
-          source: "path" as const,
-          filePath: w.filePath,
-          fileName: name,   // 供入口卡图标按扩展名命中 + 下载默认文件名
-          createdAt: msgDate,
-        }
-      })
-      return [...linkCards, ...writeCards]
+      return linkCards
     }
 
     // ── 路径 B:自由文本嗅探(规则收紧版,spec §2.1)──
@@ -318,16 +316,28 @@ export function InsightTurn(props: {
     const dir = eagerProjectDir()
     for (const card of outputCards()) {
       if (eagerMaterializedCardIds.has(card.id)) continue
-      if (card.source === "path") {
-        eagerMaterializedCardIds.add(card.id)
-        props.onFilesRefresh?.()
-        continue
-      }
+      // 路径 C 退役后 outputCards 不再有 path 源卡;这里只落地路径 A 的 uri 产物(inline 卡不落)。
       if (card.source !== "uri" || !card.uri) continue
       if (!dir || !props.sessionID) continue
       eagerMaterializedCardIds.add(card.id)
       void materializeUriCardToOutputs(card, dir, props.sessionID).then(() => props.onFilesRefresh?.())
     }
+  })
+
+  // write 工具产物不出卡(路径 C 退役),但仍需在写入完成后通知文件管理刷新——否则新文件要用户
+  // 手点刷新才出现。findWriteCards 复用作「本 turn 有哪些 write 产物」的探针,按 messageID:filePath
+  // 去重只发一次。turnAssistantParts 先读以稳定 SolidJS 依赖追踪;生成中不扫,turn 落定后再刷。
+  createEffect(() => {
+    const parts = turnAssistantParts()
+    if (showGenerating()) return
+    let fresh = false
+    for (const w of findWriteCards(parts)) {
+      const key = `${props.messageID}:${w.filePath}`
+      if (refreshedWritePaths.has(key)) continue
+      refreshedWritePaths.add(key)
+      fresh = true
+    }
+    if (fresh) props.onFilesRefresh?.()
   })
 
   return (
