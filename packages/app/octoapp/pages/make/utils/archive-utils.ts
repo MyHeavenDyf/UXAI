@@ -14,6 +14,9 @@ export interface FileComment {
   attachments?: CommentAttachment[]
   createdAt: number
   updatedAt: number
+  commenterName?: string
+  commenterAccount?: string
+  commenterAvatar?: string
 }
 
 export interface CommentAttachment {
@@ -31,6 +34,8 @@ export interface ArchiveComment {
   selector: string
   time: number
   attachments: Array<{ fileName: string; id: string }>
+  account: string
+  userName: string
 }
 
 export interface CreateArchiveZipOptions {
@@ -49,6 +54,8 @@ export function transformCommentsForArchive(comments: FileComment[]): ArchiveCom
     note: c.note,
     selector: c.selector,
     time: c.updatedAt,
+    account: c.commenterAccount || "",
+    userName: c.commenterName || "",
     attachments: (c.attachments || []).map(a => {
       const ext = a.filename.match(/\.[^.]*$/)?.[0] || ""
       return {
