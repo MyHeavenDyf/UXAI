@@ -41,6 +41,8 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
 
   const lastSelection = server.projects.lastSelection()
 
+  const shouldAutoSelect = !lastSelection?.domain && !lastSelection?.productLine && !lastSelection?.product && !lastSelection?.version
+
   const [selections, setSelections] = createStore({
     domain: lastSelection?.domain,
     productLine: lastSelection?.productLine,
@@ -124,6 +126,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   }
 
   const hasDirectory = createMemo(() => directory().length > 0)
+  const canConfirm = createMemo(() => hasDirectory() && !!selections.product && !!selections.version)
 
   return (
     <div
@@ -151,6 +154,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
             productLine={selections.productLine}
             product={selections.product}
             version={selections.version}
+            shouldAutoSelect={shouldAutoSelect}
             onSelectionChange={(data) => {
               setSelections("domain", data.domain)
               setSelections("productLine", data.productLine)
@@ -194,11 +198,11 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={!hasDirectory()}
+          disabled={!canConfirm()}
           class="w-full h-[40px] rounded-md text-[14px] font-medium text-white"
           style={{
-            background: hasDirectory() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
-            cursor: hasDirectory() ? "pointer" : "not-allowed",
+            background: canConfirm() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
+            cursor: canConfirm() ? "pointer" : "not-allowed",
             color: "#fff",
           }}
         >
