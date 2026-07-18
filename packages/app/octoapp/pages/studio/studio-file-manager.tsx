@@ -53,7 +53,19 @@ const SOURCE_TO_CAPABILITY: Record<string, string> = {
 }
 
 function getRatioCategory(item: FileManagerMedia): string | null {
-  // 优先用 aspectRatio 字段，避免编辑后的微小像素偏差导致误判
+  // 自定义尺寸直接用实际宽高判断，避免 aspectRatio 仍是默认值导致误判
+  if (item.isCustom) {
+    const w = item.width
+    const h = item.height
+    if (w && h) {
+      const maxDim = Math.max(w, h)
+      if (Math.abs(w - h) / maxDim <= 0.01) return "正方形"
+      if (w > h) return "横版"
+      if (h > w) return "竖版"
+    }
+    return null
+  }
+  // 非自定义优先用 aspectRatio 字段，避免编辑后的微小像素偏差导致误判
   const ratio = item.aspectRatio
   if (ratio) {
     if (ratio === "1:1") return "正方形"
@@ -63,7 +75,6 @@ function getRatioCategory(item: FileManagerMedia): string | null {
   const w = item.width
   const h = item.height
   if (w && h) {
-    // 容差 1%：宽高差在 1% 以内视为正方形
     const maxDim = Math.max(w, h)
     if (Math.abs(w - h) / maxDim <= 0.01) return "正方形"
     if (w > h) return "横版"
@@ -111,6 +122,7 @@ type FileManagerMedia = {
   width?: number
   height?: number
   aspectRatio?: string
+  isCustom?: boolean
   capability?: string
   duration?: string
   createdAt: number
@@ -161,6 +173,7 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
         width: image.width ?? turn.result?.width,
         height: image.height ?? turn.result?.height,
         aspectRatio: turn.result?.aspectRatio,
+        isCustom: turn.result?.isCustom,
         capability: turn.result?.capability ?? turn.editCapability,
         duration: turn.result?.duration,
         createdAt: turn.createdAt,
