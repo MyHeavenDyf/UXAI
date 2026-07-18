@@ -2,7 +2,7 @@ import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount,
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
-import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoQualityMode } from "./studio-shared"
+import { STUDIO_VIDEO_ASPECT_RATIOS, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
@@ -12,7 +12,7 @@ const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?la
 export function StudioIntro(): JSX.Element {
   return (
     <div class="studio-intro">
-      <img src={IconHost} width={80} height={80} alt="" style={{ "flex-shrink": "0" }} />
+      <img src={IconHost} width={166} height={166} alt="" style={{ "flex-shrink": "0" }} />
       <div class="studio-intro-copy">
         <div class="studio-intro-title">Octo Studio</div>
         <div class="studio-intro-subtitle">一键创意落地，让视觉生产力触手可及</div>
@@ -77,58 +77,14 @@ export function StudioComposer(props: {
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
-  const resizeInput = () => {
-    if (!inputRef) return
-    inputRef.style.height = "auto"
-    inputRef.style.height = `${Math.min(inputRef.scrollHeight, 180)}px`
-  }
-  const [lastValidCustomLabel, setLastValidCustomLabel] = createSignal("")
-  const isJimengModel = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
-  // 弹框打开时锁定 toolbar 自定义尺寸显示值，比例和张数实时同步
-  const [committedCustomW, setCommittedCustomW] = createSignal(props.customWidth)
-  const [committedCustomH, setCommittedCustomH] = createSignal(props.customHeight)
-  const [committedIsCustom, setCommittedIsCustom] = createSignal(props.isCustom)
-  const settingsOpen = createMemo(() => props.openMenu === "settings")
-  createEffect(() => {
-    if (!settingsOpen()) {
-      // 弹框关闭，同步最新自定义尺寸到 toolbar
-      setCommittedCustomW(props.customWidth)
-      setCommittedCustomH(props.customHeight)
-      setCommittedIsCustom(props.isCustom)
-    }
-  })
   const imageSettingsLabel = createMemo(() => {
-    // 比例和张数实时同步（点击即生效），自定义尺寸在弹框打开时锁定避免打字过程中闪烁
-    const aspectRatio = props.aspectRatio
-    const customW = settingsOpen() ? committedCustomW() : props.customWidth
-    const customH = settingsOpen() ? committedCustomH() : props.customHeight
-    const isCustomState = settingsOpen() ? committedIsCustom() : props.isCustom
-    const isCustom = isCustomState && customW > 0 && customH > 0
-    let ratio: string
-    if (isCustom) {
-      const label = `${customW}×${customH}`
-      if (isJimengModel()) {
-        const area = customW * customH
-        const areaMin = 2560 * 1440
-        const areaMax = Math.round(3072 * 3072 * 1.1025)
-        const areaOk = area >= areaMin && area <= areaMax
-        const ratioVal = customW / customH
-        const ratioOk = ratioVal >= 1 / 16 && ratioVal <= 16
-        if (areaOk && ratioOk) {
-          setLastValidCustomLabel(label)
-        }
-        ratio = (areaOk && ratioOk) ? label : (lastValidCustomLabel() || aspectRatio)
-      } else {
-        setLastValidCustomLabel(label)
-        ratio = label
-      }
-    } else {
-      ratio = aspectRatio
-    }
-    const isCustomValid = isCustom && ratio !== aspectRatio
+    const isCustom = props.isCustom && props.customWidth > 0 && props.customHeight > 0
+    const ratio = isCustom
+      ? `${props.customWidth}×${props.customHeight}`
+      : props.aspectRatio
     const iconStyle = () => {
-      if (isCustomValid) return { "--icon-w": "12px", "--icon-h": "12px" }
-      const item = aspectRatio
+      if (isCustom) return { "--icon-w": "12px", "--icon-h": "12px" }
+      const item = props.aspectRatio
       switch (item) {
         case "1:1": return { "--icon-w": "10.5px", "--icon-h": "10.5px" }
         case "2:3": return { "--icon-w": "9.32px", "--icon-h": "12.82px" }
@@ -142,7 +98,7 @@ export function StudioComposer(props: {
     }
     return (
       <>
-        <Show when={!isCustomValid}>
+        <Show when={!isCustom}>
           <span
             class="studio-composer-icon-tool-ratio-icon"
             style={iconStyle()}
@@ -216,38 +172,16 @@ export function StudioComposer(props: {
       overflow.push(key)
       if (visibleWidth + moreBtnWidth <= containerWidth) break
     }
-    if (overflow.filter(k => (itemWidthCache.get(k) ?? 0) > 0).length <= 1) {
-      if (toolbarOverflow().length > 0) setToolbarOverflow([])
-      return
-    }
-    const current = toolbarOverflow()
-    if (overflow.length !== current.length || !overflow.every((k, i) => k === current[i])) {
-      setToolbarOverflow(overflow)
-    }
+    setToolbarOverflow(overflow)
   }
 
   onMount(() => {
     requestAnimationFrame(() => {
       checkToolbarOverflow()
-      resizeInput()
     })
     const observer = new ResizeObserver(() => checkToolbarOverflow())
     if (toolbarItemsRef) observer.observe(toolbarItemsRef)
     onCleanup(() => observer.disconnect())
-  })
-
-  createEffect(() => {
-    props.prompt
-    queueMicrotask(resizeInput)
-    props.styleModel
-    props.customWidth
-    props.customHeight
-    props.isCustom
-    props.aspectRatio
-    props.count
-    props.capability
-    toolbarOverflow()
-    requestAnimationFrame(() => checkToolbarOverflow())
   })
 
   // Close more menu on outside click
@@ -446,10 +380,7 @@ export function StudioComposer(props: {
             <textarea
               ref={inputRef}
               value={props.prompt}
-              onInput={(event) => {
-                props.onPrompt(event.currentTarget.value)
-                resizeInput()
-              }}
+              onInput={(event) => props.onPrompt(event.currentTarget.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && isImeComposing(event)) return
                 props.onKeyDown(event)
@@ -518,7 +449,7 @@ export function StudioComposer(props: {
                 </div>
               </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
-	                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
+                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse" style="display:none">
                   <IconTool
                     label="图文反推"
                     class="studio-composer-icon-reverse"
@@ -593,6 +524,7 @@ export function StudioComposer(props: {
                     <button
                       type="button"
                       class="studio-composer-toolbar-more-item"
+                      style="display:none"
                       onClick={() => props.onReversePrompt?.()}
                     >
                       <span class="studio-composer-toolbar-more-item-icon studio-composer-icon-reverse-icon" />
@@ -862,6 +794,44 @@ function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (v
   )
 }
 
+function getModelResolutionKey(styleModel: string): string {
+  if (styleModel === "hdesign") return "hdesign"
+  if (styleModel === "seedream-5-lite") return "2k"
+  if (styleModel.includes("2k")) return "2k"
+  if (styleModel.includes("3k")) return "3k"
+  if (styleModel.includes("4k")) return "4k"
+  return "default"
+}
+
+// 精确维度映射 [width, height]，未列出的比例按 1:1 基准等比计算
+const STUDIO_SIZE_MAP: Record<string, Record<string, [number, number]>> = {
+  hdesign: { "1:1": [1280, 1280] },
+  "2k":    { "1:1": [2048, 2048], "2:3": [1664, 2496], "3:4": [1728, 2304], "9:16": [1600, 2848] },
+  "3k":    { "1:1": [3072, 3072], "2:3": [2496, 3744], "3:4": [2592, 3456], "9:16": [2304, 4096] },
+  "4k":    { "1:1": [4096, 4096], "2:3": [3328, 4992], "3:4": [3520, 4704], "9:16": [3040, 5504] },
+  default: { "1:1": [1024, 1024], "2:3": [800,  1200], "3:4": [768,  1024], "9:16": [720,  1280] },
+}
+
+function getDefaultDimensions(styleModel: string, aspectRatio: string): { width: number; height: number } {
+  const key = getModelResolutionKey(styleModel)
+  const map = STUDIO_SIZE_MAP[key] ?? STUDIO_SIZE_MAP.default
+  // 优先精确匹配，其次用 default 映射，最后等比回退
+  const exact = map[aspectRatio] ?? STUDIO_SIZE_MAP.default[aspectRatio]
+  if (exact) return { width: exact[0], height: exact[1] }
+  // 逆向比例：宽高互换
+  const [w, h] = aspectRatio.split(":").map(Number)
+  if (w && h && w !== h) {
+    const inverse = `${h}:${w}`
+    const inv = map[inverse] ?? STUDIO_SIZE_MAP.default[inverse]
+    if (inv) return { width: inv[1], height: inv[0] }
+  }
+  // 回退：按 1:1 基准等比计算
+  const base = (map["1:1"] ?? STUDIO_SIZE_MAP.default["1:1"])[0]
+  if (!w || !h || w === h) return { width: base, height: base }
+  if (w > h) return { width: Math.round(base * w / h), height: base }
+  return { width: base, height: Math.round(base * h / w) }
+}
+
 function ImageSettings(props: {
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
@@ -877,35 +847,12 @@ function ImageSettings(props: {
 }): JSX.Element {
   const isCustom = () => props.isCustom
   const setIsCustom = (v: boolean) => props.onIsCustom(v)
-  const defaultDims = () => getDefaultDimensions(props.styleModel, props.aspectRatio)!
+  const defaultDims = () => getDefaultDimensions(props.styleModel, props.aspectRatio)
   const [width, setWidth] = createSignal(isCustom() ? props.customWidth : defaultDims().width)
   const [height, setHeight] = createSignal(isCustom() ? props.customHeight : defaultDims().height)
-  // 关闭弹框时将当前宽高同步到父组件，确保 toolbar text 更新
-  onCleanup(() => {
-    if (!isCustom()) return
-    const w = width(), h = height()
-    if (w <= 0 || h <= 0) return
-    if (isJimeng()) {
-      const rW = jimengDimRange(w)
-      const wValid = rW.min <= rW.max
-      const rH = jimengDimRange(h)
-      const hValid = rH.min <= rH.max
-      if (!wValid || !hValid) { props.onIsCustom(false); return }
-      const area = w * h
-      const areaOk = area >= JIMENG_AREA_MIN && area <= JIMENG_AREA_MAX
-      const ratioVal = w / h
-      const ratioOk = ratioVal >= 1 / 16 && ratioVal <= 16
-      if (!areaOk || !ratioOk) { props.onIsCustom(false); return }
-    } else {
-      const { min, max } = props.styleModel === "qwen" ? { min: 250, max: 1664 } : { min: 250, max: 2500 }
-      if (w < min || w > max || h < min || h > max) { props.onIsCustom(false); return }
-    }
-    props.onCustomWidth(w)
-    props.onCustomHeight(h)
-  })
   createEffect(() => {
     if (isCustom()) return
-    const dims = getDefaultDimensions(props.styleModel, props.aspectRatio)!
+    const dims = getDefaultDimensions(props.styleModel, props.aspectRatio)
     setWidth(dims.width)
     setHeight(dims.height)
   })
@@ -913,7 +860,7 @@ function ImageSettings(props: {
   function tryMatchRatio(w: number, h: number) {
     if (!w || !h) return
     for (const r of STUDIO_ASPECT_RATIOS) {
-      const dims = getDefaultDimensions(props.styleModel, r)!
+      const dims = getDefaultDimensions(props.styleModel, r)
       if (dims.width === w && dims.height === h) {
         setIsCustom(false)
         props.onIsCustom(false)
@@ -928,64 +875,9 @@ function ImageSettings(props: {
   const isJimeng = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
   const JIMENG_AREA_MIN = 2560 * 1440
   const JIMENG_AREA_MAX = Math.round(3072 * 3072 * 1.1025)
-
-  function computeJimengDimMin(): number {
-    for (let w = Math.ceil(Math.sqrt(JIMENG_AREA_MIN / 16)); ; w++) {
-      if (Math.ceil(JIMENG_AREA_MIN / w) <= Math.floor(w * 16)) return w
-    }
-  }
-
-  function computeJimengDimMax(): number {
-    for (let w = Math.floor(Math.sqrt(JIMENG_AREA_MAX * 16)); ; w--) {
-      if (Math.ceil(w / 16) <= Math.floor(JIMENG_AREA_MAX / w)) return w
-    }
-  }
-
-  const JIMENG_DIM_MIN = computeJimengDimMin()
-  const JIMENG_DIM_MAX = computeJimengDimMax()
-
-  function jimengDimRange(dim: number): { min: number; max: number } {
-    const minByArea = Math.ceil(JIMENG_AREA_MIN / dim)
-    const maxByArea = Math.floor(JIMENG_AREA_MAX / dim)
-    const minByRatio = Math.ceil(dim / 16)
-    const maxByRatio = Math.floor(dim * 16)
-    return {
-      min: Math.max(minByArea, minByRatio),
-      max: Math.min(maxByArea, maxByRatio),
-    }
-  }
-
   const sizeWarnText = () => {
     if (props.styleModel === "qwen") return "请输入有效数值250px ~ 1664px"
-    if (isJimeng()) {
-      const w = debouncedW(), h = debouncedH()
-      // 只输入一个：仅超出绝对范围时提示
-      if (w > 0 && h === 0) {
-        if (w < JIMENG_DIM_MIN || w > JIMENG_DIM_MAX) {
-          return `请输入有效数值${JIMENG_DIM_MIN}px ~ ${JIMENG_DIM_MAX}px`
-        }
-        return ""
-      }
-      if (h > 0 && w === 0) {
-        if (h < JIMENG_DIM_MIN || h > JIMENG_DIM_MAX) {
-          return `请输入有效数值${JIMENG_DIM_MIN}px ~ ${JIMENG_DIM_MAX}px`
-        }
-        return ""
-      }
-      // 都输入了，检查是否不匹配
-      if (w > 0 && h > 0) {
-        const r = jimengDimRange(w)
-        if (h < r.min || h > r.max) {
-          return "支持宽高乘积在 [2560×1440, 3072×3072×1.1025]，宽高比 1:16 ~ 16:1"
-        }
-        const r2 = jimengDimRange(h)
-        if (w < r2.min || w > r2.max) {
-          return "支持宽高乘积在 [2560×1440, 3072×3072×1.1025]，宽高比 1:16 ~ 16:1"
-        }
-        return ""
-      }
-      return ""
-    }
+    if (isJimeng()) return `宽高乘积范围 ${JIMENG_AREA_MIN.toLocaleString()} ~ ${JIMENG_AREA_MAX.toLocaleString()}，宽高比 1:16 ~ 16:1`
     return "请输入有效数值250px ~ 2500px"
   }
 
@@ -1013,93 +905,51 @@ function ImageSettings(props: {
     if (!isCustom()) return false
     const w = debouncedW()
     const h = debouncedH()
+    if (w === 0 || h === 0) return false
     if (isJimeng()) {
-      // 只输入一个：仅当超出绝对范围时提示
-      if (w > 0 && h === 0) return w < JIMENG_DIM_MIN || w > JIMENG_DIM_MAX
-      if (h > 0 && w === 0) return h < JIMENG_DIM_MIN || h > JIMENG_DIM_MAX
-      if (w === 0 && h === 0) return false
       const area = w * h
       if (area < JIMENG_AREA_MIN || area > JIMENG_AREA_MAX) return true
       const ratio = w / h
       if (ratio < 1 / 16 || ratio > 16) return true
       return false
     }
-    // 非即梦模型：第一框不合法就提示，第二框空了也提示
-    if (w === 0 && h === 0) return false
     const { min, max } = sizeLimit()
-    if ((w > 0 && (w < min || w > max)) || (h > 0 && (h < min || h > max))) return true
+    if (w < min || w > max || h < min || h > max) return true
     return false
   })
 
   function handleWidthInput(e: { currentTarget: HTMLInputElement }) {
     e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
-    const wasCustom = isCustom()
     setWidth(val)
+    if (isCustom()) props.onCustomWidth(val)
     tryMatchRatio(val, height())
-    // 从预设值切换到自定义时，清空另一个输入框的值
-    if (!wasCustom && isCustom()) {
-      setHeight(0)
-    }
   }
 
   function handleHeightInput(e: { currentTarget: HTMLInputElement }) {
     e.currentTarget.value = e.currentTarget.value.replace(/[^0-9]/g, "").replace(/^0+/, "")
     const val = parseInt(e.currentTarget.value) || 0
-    const wasCustom = isCustom()
     setHeight(val)
+    if (isCustom()) props.onCustomHeight(val)
     tryMatchRatio(width(), val)
-    // 从预设值切换到自定义时，清空另一个输入框的值
-    if (!wasCustom && isCustom()) {
-      setWidth(0)
-    }
   }
 
   function handleSizeBlur(field: "w" | "h") {
     if (isJimeng()) {
-      const w = width(), h = height()
-      if (w === 0 || h === 0) return
-      const rW = jimengDimRange(w)
-      const rH = jimengDimRange(h)
-      const wValid = rW.min <= rW.max
-      const hValid = rH.min <= rH.max
-
-      if (wValid && !hValid) {
-        const clampedH = h < rW.min ? rW.min : rW.max
-        setHeight(clampedH)
-      } else if (!wValid && hValid) {
-        const clampedW = w < rH.min ? rH.min : rH.max
-        setWidth(clampedW)
-      } else if (wValid && hValid) {
-        if (field === "w") {
-          if (w < rH.min || w > rH.max) {
-            const clampedW = w < rH.min ? rH.min : rH.max
-            setWidth(clampedW)
-          }
-        } else {
-          if (h < rW.min || h > rW.max) {
-            const clampedH = h < rW.min ? rW.min : rW.max
-            setHeight(clampedH)
-          }
-        }
-      }
+      clampJimengSize(field)
       return
     }
     const { min, max } = sizeLimit()
-    const w = width(), h = height()
-    if (w === 0 || h === 0) return
-    const wValid = w >= min && w <= max
-    const hValid = h >= min && h <= max
-    if (wValid && !hValid) {
-      const clampedH = h < min ? min : max
-      setHeight(clampedH)
-    } else if (!wValid && hValid) {
-      const clampedW = w < min ? min : max
-      setWidth(clampedW)
-    } else if (!wValid && !hValid) {
-      // 都不合法，不处理
+    const val = field === "w" ? width() : height()
+    if (val === 0) return
+    if (val < min) {
+      if (field === "w") { setWidth(min); props.onCustomWidth(min) }
+      else { setHeight(min); props.onCustomHeight(min) }
     }
-    // 都合法，不处理
+    else if (val > max) {
+      if (field === "w") { setWidth(max); props.onCustomWidth(max) }
+      else { setHeight(max); props.onCustomHeight(max) }
+    }
   }
 
   function clampJimengSize(field: "w" | "h") {
@@ -1299,7 +1149,7 @@ function VideoSettings(props: {
               classList={{ active: item === props.count }}
               aria-pressed={item === props.count}
             >
-              {item}条
+              {item}个
             </button>
           )}
         </For>

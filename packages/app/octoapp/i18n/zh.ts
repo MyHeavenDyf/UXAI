@@ -988,8 +988,4 @@ export const dict = {
   "designFiles.timePrevious7Days": "前7天",
   "designFiles.timePrevious30Days": "前30天",
   "designFiles.timeOlder": "更早",
-
-  "mcp.toast.reconnecting.title": "MCP 断开，正在重连...",
-  "mcp.toast.reconnected.title": "MCP 已重连成功",
-  "mcp.toast.reconnectFailed.title": "MCP 重连失败",
 } satisfies Partial<Record<Keys, string>>

@@ -4,7 +4,6 @@
 // 与存储目录无关,insight 文件同样是 projectDir 下的绝对路径),故此处只封 list/upload/upload-folder。
 
 import { directoryHeader } from "@/utils/headers"
-import { getDesktopApi } from "../lib/electron-api"
 
 export type InsightFileCategory = "uploads" | "outputs"
 
@@ -266,8 +265,7 @@ export function pathToLocalUrl(filePath: string): string {
 
 /** 是否桌面端(electron):有 window.api 即是。预览面板据此决定 HTML 走 local:// 还是 data URL。 */
 export function isElectronDesktop(): boolean {
-  // typeof window 的守卫要留在前面短路:getDesktopApi() 直接读 window,SSR 下会 ReferenceError。
-  return typeof window !== "undefined" && getDesktopApi() !== undefined
+  return typeof window !== "undefined" && typeof (window as any).api !== "undefined"
 }
 
 export function formatFileSize(bytes: number): string {

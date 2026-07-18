@@ -57,7 +57,6 @@
 .studio-composer-icon-tool--has-text {
   width: auto;
   min-width: 32px;
-  max-width: 160px;
   padding: 0 12px;
   font-size: 12px;
   gap: 4px;
@@ -71,8 +70,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  overflow: hidden;
 }
 
 .studio-composer-icon-tool-ratio-icon {
@@ -893,11 +890,6 @@
 
 .studio-video-settings-ratios {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.studio-video-settings-ratios .studio-image-settings-ratio {
-  width: 100%;
 }
 
 .studio-video-settings-duration,

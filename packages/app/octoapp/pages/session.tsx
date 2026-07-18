@@ -1511,13 +1511,6 @@ export default function Page() {
     )
   }
 
-  // 响应式 busy：显式追踪 session busy 状态，用于 busy→idle 监听
-  const isBusy = createMemo(() => {
-    const id = params.id
-    if (!id) return false
-    return busy(id)
-  })
-
   const queuedFollowups = createMemo(() => {
     const id = params.id
     if (!id) return emptyFollowups
@@ -1569,7 +1562,7 @@ export default function Page() {
   const queueEnabled = createMemo(() => {
     const id = params.id
     if (!id) return false
-    return busy(id) && !composer.blocked() && !isChildSession()
+    return settings.general.followup() === "queue" && busy(id) && !composer.blocked() && !isChildSession()
   })
 
   const followupText = (item: FollowupDraft) => {
@@ -1630,12 +1623,6 @@ export default function Page() {
     const id = params.id
     if (!id) return
     setFollowup("edit", id, undefined)
-  }
-
-  const removeQueued = (index: number) => {
-    const sessionID = params.id
-    if (!sessionID) return
-    setFollowup("items", sessionID, (items) => (items ?? []).filter((_, i) => i !== index))
   }
 
   const halt = (sessionID: string) =>
@@ -1729,11 +1716,10 @@ export default function Page() {
 
   const actions = { revert }
 
-  // flush 队首：检查所有条件后发送下一条
-  const flushQueueHead = () => {
+  createEffect(() => {
     const sessionID = params.id
     if (!sessionID) return
-    if (isBusy()) return
+
     const item = queuedFollowups()[0]
     if (!item) return
     if (followupBusy(sessionID)) return
@@ -1741,19 +1727,10 @@ export default function Page() {
     if (followup.paused[sessionID]) return
     if (isChildSession()) return
     if (composer.blocked()) return
+    if (busy(sessionID)) return
+
     void sendFollowup(sessionID, item.id)
-  }
-
-  // busy → idle 那一刻自动 flush 队首（与 insight 一致）
-  createEffect(on(isBusy, (busy, prev) => {
-    if (!prev || busy) return
-    flushQueueHead()
-  }, { defer: true }))
-
-  // 切回某 session 时,若它已 idle 且仍有排队,补一次 flush
-  createEffect(on(() => params.id, () => {
-    flushQueueHead()
-  }, { defer: true }))
+  })
 
   createResizeObserver(
     () => promptDock,
@@ -1972,15 +1949,11 @@ export default function Page() {
                         onAbort: () => {
                           const id = params.id
                           if (!id) return
-                          // 清空整个队列，避免 abort 完成后 idle 触发器自动 flush
-                          setFollowup("items", id, [])
-                          setFollowup("failed", id, undefined)
                           setFollowup("paused", id, true)
                         },
-                        onRemove: removeQueued,
-                        onSend: (id) => {
-                          void sendFollowup(params.id!, id, { manual: true })
-                        },
+                    onSend: (id) => {
+                      void sendFollowup(params.id!, id, { manual: true })
+                    },
                         onEdit: editFollowup,
                         onEditLoaded: clearFollowupEdit,
                       }

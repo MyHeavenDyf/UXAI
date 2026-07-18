@@ -1,6 +1,5 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioInputImage } from "./types"
-import { getDefaultDimensions } from "./studio-shared"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -477,8 +476,8 @@ function buildResult(input: {
             url: item.url,
             thumbnailUrl: item.url,
             remoteUrl: item.url,
-            width: numberField(output, "width") ?? numberField(recordField(output, "response"), "width") ?? width ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.width,
-            height: numberField(output, "height") ?? numberField(recordField(output, "response"), "height") ?? height ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.height,
+            width: numberField(output, "width"),
+            height: numberField(output, "height"),
           })),
           progress: numberField(output, "progress") ?? 100,
           order: numberField(output, "order"),

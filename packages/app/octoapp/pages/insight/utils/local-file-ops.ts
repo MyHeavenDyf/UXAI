@@ -4,14 +4,6 @@
 import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../lib/electron-api"
 
-// shell.openPath 只回一个 OS 层的错误串,区分不了「文件已被移走」和「没有关联应用」——
-// 不靠串内容做模糊判断,文案按调用场景选:
-// - 磁盘上的既有文件(path 源)两种原因都可能,如实并列;
-// - 刚下载落地的临时副本文件必然存在,只可能是没有关联应用。
-export const OPEN_FAILED_HINT = "文件可能已被移动或删除,也可能是系统未关联可打开该类型的应用"
-export const NO_APP_HINT = "系统未关联可打开该类型的应用,请安装对应应用或设置默认打开方式"
-export const REVEAL_NOT_FOUND_HINT = "文件可能已被移动、重命名或删除,请刷新后重试"
-
 export async function openFileLocally(filePath: string): Promise<void> {
   const api = getDesktopApi()
   if (typeof api?.openPath !== "function") {
@@ -22,33 +14,21 @@ export async function openFileLocally(filePath: string): Promise<void> {
   try {
     const r = (await api.openPath(filePath)) as unknown as string | undefined
     if (typeof r === "string" && r.length > 0) {
-      console.error("[octo:path] open-failed", { filePath, reason: r })
-      showToast({ title: "无法打开文件", description: OPEN_FAILED_HINT, variant: "error" })
+      showToast({ title: "唤起本地应用失败", description: "请安装对应应用或在系统设置中关联打开方式", variant: "error" })
     }
   } catch (err) {
-    console.error("[octo:path] open-failed", { filePath, err })
     showToast({ title: "无法打开文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
   }
 }
 
-// 文件不存在时主进程回 { ok: false },不 throw —— 详见 packages/desktop/src/main/ipc.ts 的 show-item-in-folder。
-export async function revealFileInFolder(filePath: string): Promise<void> {
+export function revealFileInFolder(filePath: string): void {
   const api = getDesktopApi()
   if (typeof api?.showItemInFolder !== "function") {
     showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
     return
   }
   console.log("[octo:path] reveal-local", { filePath })
-  try {
-    const r = await api.showItemInFolder(filePath)
-    if (r && r.ok === false) {
-      console.error("[octo:path] reveal-failed", { filePath, reason: r.reason })
-      showToast({ title: "无法定位文件", description: REVEAL_NOT_FOUND_HINT, variant: "error" })
-    }
-  } catch (err) {
-    console.error("[octo:path] reveal-failed", { filePath, err })
-    showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
-  }
+  api.showItemInFolder(filePath)
 }
 
 // SPEC-INS-014 §10.1:文件管理面板的"上传"——脱离对话框也能往 insight/<sessionId>/uploads/ 塞文件。

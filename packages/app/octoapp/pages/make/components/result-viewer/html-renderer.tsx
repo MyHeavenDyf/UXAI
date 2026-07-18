@@ -97,7 +97,7 @@ export function HtmlRenderer(props: {
   inspectPanel?: boolean
   onInspectTarget?: (target: InspectTarget | null) => void
   onSaveOverrides?: (overrides: Array<{ elementId: string; prop: string; value: string }>) => void
-  onContentChange?: (content: string) => Promise<void>
+  onContentChange?: (content: string) => void
   refreshKey?: number
   filePath?: string
   sessionId?: string
@@ -105,7 +105,6 @@ export function HtmlRenderer(props: {
   sdkDirectory?: string
   onSaveFile?: (content: string) => Promise<void>
   onRefreshNeeded?: () => void
-  tabTitle?: string
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
@@ -157,7 +156,8 @@ export function HtmlRenderer(props: {
     if (historyIndex > 0) {
       historyIndex--
       const state = historyStack[historyIndex]
-      void props.onContentChange?.(wrapHtmlContent(state.html, props.content))
+      props.onContentChange?.(wrapHtmlContent(state.html, props.content))
+      props.onRefreshNeeded?.()
       return true
     }
     return false
@@ -168,7 +168,8 @@ export function HtmlRenderer(props: {
     if (historyIndex < historyStack.length - 1) {
       historyIndex++
       const state = historyStack[historyIndex]
-      void props.onContentChange?.(wrapHtmlContent(state.html, props.content))
+      props.onContentChange?.(wrapHtmlContent(state.html, props.content))
+      props.onRefreshNeeded?.()
       return true
     }
     return false
@@ -264,8 +265,7 @@ createEffect(() => {
     
     if (result.ok) {
       const cleanSource = cleanBridgeContent(result.source)
-      await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
-      props.onRefreshNeeded?.()
+      props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
       if (hasChanges) {
         pushHistory(cleanSource, description)
       }
@@ -459,7 +459,6 @@ createEffect(() => {
   createEffect(on(() => props.mode, async (mode) => {
     // Electron 环境不需要自动保存（local:// 直接读取文件）
     if (isElectronDesktop()) return
-    if (!props.content?.trim()) return
     if (mode === "preview" && shouldUseServeUrl() && props.onSaveFile) {
       try {
         await props.onSaveFile(props.content)
@@ -740,7 +739,6 @@ return (
           active={props.drawing ?? false}
           onActiveChange={props.onDrawActiveChange}
           sendDisabled={false}
-          tabContext={props.tabTitle ? { title: props.tabTitle, filePath: props.filePath } : undefined}
         >
           {isResponsive() ? (
             <div
@@ -886,8 +884,7 @@ onApplyPatch={async (patch: ManualEditPatch, label: string) => {
               if (result.ok) {
                 const cleanSource = cleanBridgeContent(result.source)
                 const updatedContent = wrapHtmlContent(cleanSource, props.content)
-                await props.onContentChange?.(updatedContent)
-                props.onRefreshNeeded?.()
+                props.onContentChange?.(updatedContent)
                 pushHistory(cleanSource, label)
                 if (patch.kind === 'remove-element') {
                   setEditTarget(null)

@@ -32,11 +32,6 @@ export type SkillConfigEntry = { description?: string; import?: boolean; type?: 
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
-export type SkillConfig = {
-  skill?: Record<string, SkillConfigEntry>
-  agent?: Record<string, string[]>
-}
-
 export type SkillContentResponse =
   | { success: true; name: string; content: string; baseDir: string; files: string }
   | { success: false; error: string }
@@ -86,8 +81,7 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
-  /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
-  showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
+  showItemInFolder: (path: string) => void
   downloadResource: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp: (
     url: string,
@@ -121,7 +115,6 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
-  getSkillConfig: () => Promise<SkillConfig>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   ensureSkillConfig: () => Promise<void>

@@ -900,10 +900,10 @@ export const layer = Layer.effect(
 
     const toolsForAgent = Effect.fn("MCP.toolsForAgent")(
       function* (agentMcp: string[] | undefined, customServerNames: string[]) {
+        // 只对当前 agent 相关的 remote server 做 preflight 健康检查，
+        // 避免每次 tools() 都检查所有 remote server 导致频繁握手压垮服务器。
         const preflightBridge = yield* EffectBridge.make()
-        // 阻塞等待 agent 相关 MCP 就绪
-        // 只检查和重连 agent.mcp 配置的服务器，其他时刻不主动重连
-        yield* Reconnect.waitForAgentMcpReady(reconnectCtx, preflightBridge, agentMcp, customServerNames)
+        yield* Reconnect.verifyAndReconnectForAgent(preflightBridge, reconnectCtx, agentMcp, customServerNames)
         // preflight 可能触发重连导致 s.clients 变化，tools() 内部会重新拿 state
         const allTools = yield* tools(true)
         const allToolCount = Object.keys(allTools).length

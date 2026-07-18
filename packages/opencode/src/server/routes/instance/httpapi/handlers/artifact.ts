@@ -90,42 +90,10 @@ function crc32(data: Uint8Array): number {
   return (crc ^ 0xFFFFFFFF) >>> 0
 }
 
-// UTF-8 语言编码标记(general purpose bit 11):文件名按 UTF-8 编码时必须置位,
-// 否则 Windows 资源管理器会按本地代码页(如 GBK)解读,中文名变乱码。
-const ZIP_FLAG_UTF8 = 0x0800
-
-// 选中文件按 basename 入包,重名会导致解压时互相覆盖(选 14 个只解出 8 个)。
-// 对重名条目补 " (n)" 后缀去重,与操作系统重名策略一致。
-function dedupeZipNames(
-  entries: Array<{ filename: string; content: Uint8Array }>,
-): Array<{ filename: string; content: Uint8Array }> {
-  const used = new Set<string>()
-  return entries.map((entry) => {
-    let name = entry.filename
-    if (used.has(name)) {
-      const dot = name.lastIndexOf(".")
-      const base = dot > 0 ? name.slice(0, dot) : name
-      const ext = dot > 0 ? name.slice(dot) : ""
-      let n = 1
-      do {
-        name = `${base} (${n})${ext}`
-        n++
-      } while (used.has(name))
-    }
-    used.add(name)
-    return { filename: name, content: entry.content }
-  })
-}
-
-function createZipArchive(rawEntries: Array<{ filename: string; content: Uint8Array }>): Uint8Array {
-  const entries = dedupeZipNames(rawEntries)
+function createZipArchive(entries: Array<{ filename: string; content: Uint8Array }>): Uint8Array {
   const localFileHeaders: Array<Uint8Array> = []
   const centralDirectory: Array<Uint8Array> = []
   let offset = 0
-
-  // 用固定的合法 DOS 日期时间(2020-01-01 00:00:00),避免 0 值被判为非法日期。
-  const dosDate = ((2020 - 1980) << 9) | (1 << 5) | 1
-  const dosTime = 0
 
   for (const entry of entries) {
     const filenameBytes = new TextEncoder().encode(entry.filename)
@@ -138,10 +106,10 @@ function createZipArchive(rawEntries: Array<{ filename: string; content: Uint8Ar
     const view = new DataView(localHeader.buffer)
     view.setUint32(0, 0x04034b50, true)
     view.setUint16(4, 20, true)
-    view.setUint16(6, ZIP_FLAG_UTF8, true)
+    view.setUint16(6, 0, true)
     view.setUint16(8, 0, true)
-    view.setUint16(10, dosTime, true)
-    view.setUint16(12, dosDate, true)
+    view.setUint16(10, 0, true)
+    view.setUint16(12, 0, true)
     view.setUint32(14, crc, true)
     view.setUint32(18, compressedSize, true)
     view.setUint32(22, uncompressedSize, true)
@@ -157,10 +125,10 @@ function createZipArchive(rawEntries: Array<{ filename: string; content: Uint8Ar
     cview.setUint32(0, 0x02014b50, true)
     cview.setUint16(4, 20, true)
     cview.setUint16(6, 20, true)
-    cview.setUint16(8, ZIP_FLAG_UTF8, true)
+    cview.setUint16(8, 0, true)
     cview.setUint16(10, 0, true)
-    cview.setUint16(12, dosTime, true)
-    cview.setUint16(14, dosDate, true)
+    cview.setUint16(12, 0, true)
+    cview.setUint16(14, 0, true)
     cview.setUint32(16, crc, true)
     cview.setUint32(20, compressedSize, true)
     cview.setUint32(24, uncompressedSize, true)

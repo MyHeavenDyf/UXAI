@@ -164,22 +164,12 @@ export function InsightSessionList(): JSX.Element {
     setRenamingId(sessionId)
   }
 
-  // session.update / session.delete 必须走**带 directory 的 client**:裸 globalSDK.client 不带
-  // x-opencode-directory,请求落到 server 默认目录实例,回来的 session.updated/deleted SSE 也就
-  // 挂在那个目录名下 → globalSync 找不到本目录的 child store,对话区顶部(读 sync.session.get)
-  // 的标题不会跟着变,只有刷新才同步。本列表自己看着"生效"是因为它靠事件触发 refetch 重拉 DB,
-  // 与事件的 directory 无关,掩盖了这个 bug。与 chat / pattern 侧栏的 createClient 用法对齐。
-  function clientFor(sessionId: string) {
-    const directory = sessionList.find((s) => s.id === sessionId)?.directory ?? projectDir()
-    return directory ? globalSDK.createClient({ directory }) : globalSDK.client
-  }
-
   async function handleRenameConfirm(sessionId: string) {
     const next = renameDraft().trim()
     setRenamingId(null)
     if (!next) return
     try {
-      await clientFor(sessionId).session.update({ sessionID: sessionId, title: next })
+      await globalSDK.client.session.update({ sessionID: sessionId, title: next })
       tracker.interaction({ module: "insight", name: "session-rename", extend: JSON.stringify({ entry: "menu" }) })
     } catch (err) {
       console.error("[insight:session-list] rename failed", err)
@@ -188,7 +178,7 @@ export function InsightSessionList(): JSX.Element {
 
   async function handleDelete(sessionId: string) {
     try {
-      await clientFor(sessionId).session.delete({ sessionID: sessionId })
+      await globalSDK.client.session.delete({ sessionID: sessionId })
       tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
       if (layout.lastSessionPerTab.cowork()?.id === sessionId) layout.lastSessionPerTab.clearCowork()
       if (activeSessionId() === sessionId) navigate("/insight")

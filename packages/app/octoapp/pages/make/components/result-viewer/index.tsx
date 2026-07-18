@@ -66,7 +66,7 @@ export function ResultViewer(props: {
   activeId: string | null
   onActivate: (id: string) => void
   onClose: (id: string) => void
-  onContentChange?: (id: string, content: string) => Promise<void>
+  onContentChange?: (id: string, content: string) => void
   sessionId?: string
   onOpenArtifact?: (card: OutputCard) => void
   viewMode: "tabs" | "files"
@@ -133,7 +133,7 @@ export function ResultViewer(props: {
     setRefreshKey((prev) => prev + 1)
   }
 
-const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
+const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
     const tab = props.tabs.find(t => t.id === tabId)
     if (!tab || overrides.length === 0) return
 
@@ -164,7 +164,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
       ? "```html\n" + cleanHtml + "\n```"
       : cleanHtml
 
-    await props.onContentChange?.(tabId, finalContent)
+    props.onContentChange?.(tabId, finalContent)
   }
 
   const handleOpenArtifactFile = (file: ArtifactFile) => {
@@ -315,7 +315,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                         inspectPanel={true}
                         onInspectTarget={setInspectTarget}
                         onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
                         refreshKey={refreshKey()}
                         filePath={tab.filePath}
                         sessionId={tab.sessionId ?? props.sessionId}
@@ -327,7 +327,6 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                           await saveArtifactContent(tab.filePath, html)
                         }}
                         onRefreshNeeded={handleRefresh}
-                        tabTitle={tab.title}
                       />
                     </Match>
                     <Match when={tabType === "deck"}>
@@ -350,7 +349,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
                         onAdjust={() => props.onAdjustPlan?.()}
-                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
                       />
                     </Match>
                     <Match when={tabType === "local-file"}>
