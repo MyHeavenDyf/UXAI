@@ -1,16 +1,33 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, useAttrs } from 'vue'
 import {  ElCheckbox } from 'element-plus'
 import type { CheckboxNode } from '../types'
 import type { A2UIComponentProps } from '../../renderer'
 import { useA2UIComponent } from '../../renderer/render/hooks'
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
 
 const props = defineProps<A2UIComponentProps<CheckboxNode>>()
 const { node, surfaceId } = props
 
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+const elCheckboxRef = ref<InstanceType<typeof ElCheckbox>>()
+
+onMounted(() => {
+  const wrapper = (elCheckboxRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
@@ -37,6 +54,7 @@ function handleChange(value: any) {
 
 <template>
   <ElCheckbox
+    ref="elCheckboxRef"
     :id="id" 
     v-model="checked" 
     :disabled="disabled"

@@ -1,15 +1,32 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, useAttrs } from 'vue'
 import { ElCheckboxGroup, ElCheckbox } from 'element-plus'
 import type { CheckboxGroupNode } from '../types'
 import type { A2UIComponentProps } from '../../renderer'
 import { useA2UIComponent } from '../../renderer/render/hooks'
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
 
 const props = defineProps<A2UIComponentProps<CheckboxGroupNode>>()
 const { node, surfaceId } = props
 
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+const elCheckboxGroupRef = ref<InstanceType<typeof ElCheckboxGroup>>()
+
+onMounted(() => {
+  const wrapper = (elCheckboxGroupRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
@@ -45,6 +62,7 @@ function handleChange(value: any[]) {
 
 <template>
   <ElCheckboxGroup 
+    ref="elCheckboxGroupRef"
     :id="id" 
     v-model="checked" 
     :class="className"

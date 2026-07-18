@@ -1,1 +1,1546 @@
-window.__A2UI_DATA__ = {"rootId":"shellRoot","elements":[{"id":"shellRoot","component":"div","props":{"className":"flex h-screen bg-surface-container-lowest"},"children":["shellLeftNavContainer","shellRightMainArea"]},{"id":"shellLeftNavContainer","component":"div","props":{"className":"w-[15.5rem] flex-shrink-0 bg-surface-container-highest shadow-sm flex flex-col h-full"},"children":["lNavBrandRow","lNavInfraRow","lNavMenuContainer","lNavBottomRow"]},{"id":"shellRightMainArea","component":"div","props":{"className":"flex flex-col flex-1 min-w-0"},"children":["shellTopNavBarContainer","shellContentArea"]},{"id":"shellTopNavBarContainer","component":"div","props":{"className":"h-[3rem] bg-surface-container-highest shadow-sm flex items-center justify-end px-gutter"},"children":["tNavSearchBtn","tNavNotificationBadge","tNavHelpBtn","tNavDocBtn","tNavUserDropdown"]},{"id":"shellContentArea","component":"div","props":{"className":"flex-1 p-page overflow-auto flex flex-col gap-section"},"children":["shellBreadcrumbNavContainer","shellDeviceOverviewCardContainer","shellSystemDetailSectionContainer","kpiMetricsRowContainer","bottomRowContainer"]},{"id":"shellBreadcrumbNavContainer","component":"div","props":{"className":"flex items-center"},"children":["bcNavBackIcon","bcNavDeviceName","bcNavDropdownIcon"]},{"id":"shellDeviceOverviewCardContainer","component":"div","props":{"className":"bg-surface-container-highest rounded-xl shadow-card"},"children":["ovCardInner"]},{"id":"shellSystemDetailSectionContainer","component":"div","props":{"className":"bg-surface-container-highest rounded-xl shadow-card"},"children":["sysDtFirstLevelTabs"]},{"id":"lNavBrandRow","component":"div","props":{"className":"flex items-center justify-between px-4 py-3 border-b border-divider"},"children":["lNavBrandLeft","lNavBrandCollapseBtn"]},{"id":"lNavBrandLeft","component":"div","props":{"className":"flex items-center gap-2"},"children":["lNavBrandIcon","lNavBrandText"]},{"id":"lNavBrandIcon","component":"Icon","props":{"name":"hard-drive","shape":"outline","color":"primary","className":"w-6 h-6"}},{"id":"lNavBrandText","component":"span","props":{"className":"text-lg font-bold text-on-surface","value":"DME"}},{"id":"lNavBrandCollapseBtn","component":"Icon","props":{"name":"chevron-left","shape":"outline","className":"w-5 h-5 text-on-surface-variant cursor-pointer"}},{"id":"lNavInfraRow","component":"div","props":{"className":"flex items-center gap-3 px-4 py-2 border-b border-divider"},"children":["lNavInfraIcon","lNavInfraText"]},{"id":"lNavInfraIcon","component":"Icon","props":{"name":"database","shape":"square","color":"primary","className":"w-7 h-7"}},{"id":"lNavInfraText","component":"span","props":{"className":"text-base font-medium text-on-surface","value":"基础设施"}},{"id":"lNavMenuContainer","component":"div","props":{"className":"flex-1 overflow-y-auto"},"children":["lNavMenu"]},{"id":"lNavMenu","component":"Menu","props":{"mode":"vertical","selectedKeys":{"path":"/selectedKeys"},"openKeys":{"path":"/openKeys"},"items":[{"title":"存储","key":"lNavGroupStorage","children":[{"title":"存储设备","key":"lNavStorageDevices","icon":"hard-drive"},{"title":"命名空间","key":"lNavNamespaces","icon":"folder"},{"title":"文件系统","key":"lNavFileSystems","icon":"file"},{"title":"Dtree","key":"lNavDtree","icon":"tree-pine"},{"title":"共享","key":"lNavShares","icon":"share-2"}]},{"title":"机柜","key":"lNavGroupCabinet","children":[]}],"className":"border-none bg-transparent"}},{"id":"lNavBottomRow","component":"div","props":{"className":"flex items-center px-4 py-3 border-t border-divider"},"children":["lNavBottomCollapseIcon"]},{"id":"lNavBottomCollapseIcon","component":"Icon","props":{"name":"panel-left-close","shape":"outline","className":"w-5 h-5 text-on-surface-variant cursor-pointer"}},{"id":"tNavSearchBtn","component":"Button","props":{"icon":"search","shape":"circle","className":"mr-inline"}},{"id":"tNavNotificationBadge","component":"Badge","props":{"count":{"path":"/notificationBadgeCount"},"overflowCount":99,"className":"mr-inline"},"children":["tNavNotificationBtn"]},{"id":"tNavNotificationBtn","component":"Button","props":{"icon":"bell","shape":"circle"}},{"id":"tNavHelpBtn","component":"Button","props":{"icon":"circle-help","shape":"circle","className":"mr-inline"}},{"id":"tNavDocBtn","component":"Button","props":{"icon":"file-text","shape":"circle","className":"mr-inline"}},{"id":"tNavUserDropdown","component":"Dropdown","props":{"trigger":["click"],"placement":"bottomRight","menu":{"path":"/dropdownMenuItems"}},"children":["tNavUserAvatar"]},{"id":"tNavUserAvatar","component":"img","props":{"src":{"path":"/userAvatar"},"title":{"path":"/userName"},"className":"w-8 h-8 rounded-full object-cover cursor-pointer"}},{"id":"bcNavBackIcon","component":"Icon","props":{"name":{"path":"/backIcon"},"color":"default","shape":"outline","className":"w-5 h-5 cursor-pointer text-on-surface-variant hover:text-primary transition-colors"}},{"id":"bcNavDeviceName","component":"span","props":{"value":{"path":"/deviceName"},"className":"text-lg font-bold text-on-surface mx-inline"}},{"id":"bcNavDropdownIcon","component":"Icon","props":{"name":{"path":"/dropdownIcon"},"color":"default","shape":"outline","className":"w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary transition-colors"}},{"id":"ovCardInner","component":"div","props":{"className":"flex items-stretch w-full"},"children":["ovCardLeftSpacer","ovCardContent","ovCardActions"]},{"id":"ovCardLeftSpacer","component":"div","props":{"className":"w-[100px] shrink-0"}},{"id":"ovCardContent","component":"div","props":{"className":"flex-1 flex flex-col justify-center gap-stack py-gutter"},"children":["ovCardTitleRow","ovCardStatusTag","ovCardAttributesRow"]},{"id":"ovCardTitleRow","component":"div","props":{"className":"flex items-center gap-inline"},"children":["ovCardTitleText","ovCardIpText"]},{"id":"ovCardTitleText","component":"span","props":{"className":"text-xl font-bold text-on-surface","value":{"path":"/deviceName"}}},{"id":"ovCardIpText","component":"span","props":{"className":"text-md text-on-surface-variant","value":"(100.122.13.24)"}},{"id":"ovCardStatusTag","component":"Tag","props":{"value":{"path":"/statusText"},"color":"success"}},{"id":"ovCardAttributesRow","component":"div","props":{"className":"flex gap-gutter"},"children":{"path":"/attributes","componentId":"ovCardAttrBlock"}},{"id":"ovCardAttrBlock","component":"div","props":{"className":"flex-1 flex flex-col gap-1"},"children":["ovCardAttrLabel","ovCardAttrValue"]},{"id":"ovCardAttrLabel","component":"span","props":{"className":"text-sm text-on-surface-variant","value":{"path":"fieldName"}}},{"id":"ovCardAttrValue","component":"span","props":{"className":"text-md font-medium leading-normal text-on-info-container bg-[#1919194d]","value":{"path":"value"}}},{"id":"ovCardActions","component":"div","props":{"className":"ml-auto flex items-center gap-3 px-inset shrink-0"},"children":["ovCardEditBtn","ovCardSyncBtn","ovCardExportBtn","ovCardMoreDropdown"]},{"id":"ovCardEditBtn","component":"Button","props":{"value":"修改","icon":"pencil","iconPlacement":"start","color":"primary"}},{"id":"ovCardSyncBtn","component":"Button","props":{"value":"同步","icon":"refresh-cw","iconPlacement":"start"}},{"id":"ovCardExportBtn","component":"Button","props":{"value":"导出数据","icon":"download","iconPlacement":"start"}},{"id":"ovCardMoreDropdown","component":"Dropdown","props":{"placement":"bottomRight","trigger":["click"],"menu":[{"label":"查看详情","key":"detail","icon":"eye"},{"label":"编辑配置","key":"edit","icon":"settings"},{"label":"删除设备","key":"delete","icon":"trash-2"}]},"children":["ovCardMoreBtn"]},{"id":"ovCardMoreBtn","component":"Button","props":{"value":"更多","icon":"more-horizontal","iconPlacement":"end"}},{"id":"sysDtFirstLevelTabs","component":"Tabs","props":{"activeKey":{"path":"/firstLevelActiveKey"},"types":"line","className":"border-b border-divider"},"children":["sysDtTabOverview","sysDtTabFileService","sysDtTabHardware","sysDtTabSystem","sysDtTabConfig"]},{"id":"sysDtTabOverview","component":"TabItem","props":{"key":"overview","label":"概览","content":{"componentId":"sysDtOverviewContent"}}},{"id":"sysDtTabFileService","component":"TabItem","props":{"key":"fileService","label":"文件服务","content":{"componentId":"sysDtFileServiceContent"}}},{"id":"sysDtTabHardware","component":"TabItem","props":{"key":"hardware","label":"硬件","content":{"componentId":"sysDtHardwareContent"}}},{"id":"sysDtTabSystem","component":"TabItem","props":{"key":"system","label":"系统","content":{"componentId":"sysDtSystemContent"}}},{"id":"sysDtTabConfig","component":"TabItem","props":{"key":"config","label":"配置","content":{"componentId":"sysDtConfigContent"}}},{"id":"sysDtOverviewContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"概览面板内容区域"}},{"id":"sysDtFileServiceContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"文件服务面板内容区域"}},{"id":"sysDtHardwareContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"硬件面板内容区域"}},{"id":"sysDtSystemContent","component":"div","props":{"className":"p-4 flex flex-col gap-4"},"children":["sysDtSecondLevelTabs","sysDtTenantContent"]},{"id":"sysDtConfigContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"配置面板内容区域"}},{"id":"sysDtSecondLevelTabs","component":"Tabs","props":{"activeKey":{"path":"/secondLevelActiveKey"},"types":"line"},"children":["sysDtSecondTabZone","sysDtSecondTabStoragePool","sysDtSecondTabTenant","sysDtSecondTabAuthUser","sysDtSecondTabDataTurbo"]},{"id":"sysDtSecondTabZone","component":"TabItem","props":{"key":"zone","label":"Zone","content":{"componentId":"sysDtZoneContent"}}},{"id":"sysDtSecondTabStoragePool","component":"TabItem","props":{"key":"storagePool","label":"存储池","content":{"componentId":"sysDtStoragePoolContent"}}},{"id":"sysDtSecondTabTenant","component":"TabItem","props":{"key":"tenant","label":"租户","content":{"componentId":"sysDtTenantContent"}}},{"id":"sysDtSecondTabAuthUser","component":"TabItem","props":{"key":"authUser","label":"认证用户","content":{"componentId":"sysDtAuthUserContent"}}},{"id":"sysDtSecondTabDataTurbo","component":"TabItem","props":{"key":"dataTurboAdmin","label":"DataTurbo管理员","content":{"componentId":"sysDtDataTurboContent"}}},{"id":"sysDtZoneContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"Zone配置管理面板"}},{"id":"sysDtStoragePoolContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"存储池管理面板"}},{"id":"sysDtAuthUserContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"认证用户管理面板"}},{"id":"sysDtDataTurboContent","component":"div","props":{"className":"p-6 flex items-center justify-center text-on-surface-variant","value":"DataTurbo管理员设置面板"}},{"id":"sysDtTableOperationBar","component":"div","props":{"className":"flex items-center justify-between"},"children":["sysDtOpLeftGroup","sysDtOpRightGroup"]},{"id":"sysDtOpLeftGroup","component":"div","props":{"className":"flex items-center gap-2"},"children":["sysDtDeleteButton","sysDtCreateButton"]},{"id":"sysDtDeleteButton","component":"Button","props":{"value":"删除","icon":"trash-2","iconPlacement":"start","color":"danger"}},{"id":"sysDtCreateButton","component":"Button","props":{"value":"创建","icon":"plus","iconPlacement":"start","color":"primary"}},{"id":"sysDtOpRightGroup","component":"div","props":{"className":"flex items-center"},"children":["sysDtRefreshIcon"]},{"id":"sysDtRefreshIcon","component":"Icon","props":{"name":"refresh-cw","className":"w-5 h-5 text-on-surface-variant cursor-pointer"}},{"id":"sysDtTenantTable","component":"Table","props":{"rowKey":"id","dataSource":{"path":"/tenantList"},"rowSelection":{"type":"checkbox","selectedRowKeys":{"path":"/selectedRowKeys"}},"columns":[{"title":"名称","dataIndex":"name","sort":true},{"title":"ID","dataIndex":"id","sort":true},{"title":"所属集群","dataIndex":"cluster"},{"title":"文件系统数量","dataIndex":"fsCount","sort":true},{"title":"文件系统总容量","dataIndex":"fsTotalCapacity","sort":true},{"title":"NAS容量配额利用率","dataIndex":"nasUtilization"},{"title":"NAS容量配额告警","dataIndex":"quotaAlert"},{"title":"NAS容量配额告警阈值","dataIndex":"quotaThreshold","sort":true},{"title":"操作","dataIndex":"actions","fixed":"end","width":60}],"className":"mb-4"},"children":{"path":"/tenantList","componentId":"sysDtTenantRow"}},{"id":"sysDtTenantRow","component":"TableRow","children":["sysDtNameCell","sysDtIdCell","sysDtClusterCell","sysDtFsCountCell","sysDtFsTotalCapacityCell","sysDtNasUtilizationCell","sysDtQuotaAlertCell","sysDtQuotaThresholdCell","sysDtActionsCell"],"props":{}},{"id":"sysDtNameCell","component":"span","props":{"value":{"path":"name"},"className":"text-md text-on-surface"}},{"id":"sysDtIdCell","component":"span","props":{"value":{"path":"id"},"className":"text-md text-on-surface"}},{"id":"sysDtClusterCell","component":"div","props":{"className":"flex items-center gap-3"},"children":["sysDtClusterNodeBlock","sysDtClusterTag"]},{"id":"sysDtClusterNodeBlock","component":"div","props":{"className":"flex flex-col leading-tight"},"children":["sysDtClusterNodeName","sysDtClusterNodeIp"]},{"id":"sysDtClusterNodeName","component":"span","props":{"value":{"path":"cluster/nodeName"},"className":"text-md text-on-surface"}},{"id":"sysDtClusterNodeIp","component":"span","props":{"value":{"path":"cluster/nodeIp"},"className":"text-sm text-on-surface-variant"}},{"id":"sysDtClusterTag","component":"Tag","props":{"value":{"path":"cluster/tag"},"color":"processing","variant":"filled","size":"small"}},{"id":"sysDtFsCountCell","component":"span","props":{"value":{"path":"fsCount"},"className":"text-md text-on-surface"}},{"id":"sysDtFsTotalCapacityCell","component":"span","props":{"value":{"path":"fsTotalCapacity"},"className":"text-md text-on-surface"}},{"id":"sysDtNasUtilizationCell","component":"div","props":{"className":"flex flex-col gap-1 min-w-[140px]"},"children":["sysDtUtilPercentRow","sysDtUtilProgress","sysDtUtilUsedTotal"]},{"id":"sysDtUtilPercentRow","component":"div","props":{"className":"flex items-center gap-0"},"children":["sysDtUtilPercentVal","sysDtUtilPercentSym"]},{"id":"sysDtUtilPercentVal","component":"span","props":{"value":{"path":"nasUtilization/percent"},"className":"text-sm font-medium text-on-surface"}},{"id":"sysDtUtilPercentSym","component":"span","props":{"value":"%","className":"text-sm font-medium text-on-surface"}},{"id":"sysDtUtilProgress","component":"Progress","props":{"percent":{"path":"nasUtilization/progressValue"},"size":"small","showInfo":false}},{"id":"sysDtUtilUsedTotal","component":"div","props":{"className":"flex items-center gap-0 text-xs text-on-surface-variant"},"children":["sysDtUtilUsedNum","sysDtUtilSep","sysDtUtilTotalNum","sysDtUtilUnit"]},{"id":"sysDtUtilUsedNum","component":"span","props":{"value":{"path":"nasUtilization/used"}}},{"id":"sysDtUtilSep","component":"span","props":{"value":"/"}},{"id":"sysDtUtilTotalNum","component":"span","props":{"value":{"path":"nasUtilization/total"}}},{"id":"sysDtUtilUnit","component":"span","props":{"value":{"path":"nasUtilization/unit"}}},{"id":"sysDtQuotaAlertCell","component":"span","props":{"value":{"path":"quotaAlert"},"className":"text-md text-on-surface"}},{"id":"sysDtQuotaThresholdCell","component":"span","props":{"value":{"path":"quotaThreshold"},"className":"text-md text-on-surface"}},{"id":"sysDtActionsCell","component":"div","props":{"className":"flex items-center justify-center"},"children":["sysDtActionsDropdown"]},{"id":"sysDtActionsDropdown","component":"Dropdown","props":{"trigger":["click"],"placement":"bottomRight","menu":[{"label":"编辑","key":"edit","icon":"pencil"},{"label":"删除","key":"delete","icon":"trash-2"},{"label":"查看详情","key":"detail","icon":"eye"}]},"children":["sysDtActionsIcon"]},{"id":"sysDtActionsIcon","component":"Icon","props":{"name":"more-horizontal","className":"w-5 h-5 text-on-surface-variant cursor-pointer"}},{"id":"kpiMetricsRowContainer","component":"div","props":{"className":"grid grid-cols-4 gap-section"},"children":["kpiCapacityCard","kpiUsedCard","kpiIopsCard","kpiThruCard"]},{"id":"kpiCapacityCard","component":"div","props":{"className":"bg-surface-container-highest rounded-xl shadow-card"},"children":["kpiCapInner"]},{"id":"kpiCapInner","component":"div","props":{"className":"p-inset flex flex-col gap-stack"},"children":["kpiCapHeader","kpiCapValue","kpiCapFooter"]},{"id":"kpiCapHeader","component":"div","props":{"className":"flex items-center gap-inline"},"children":["kpiCapIcon","kpiCapLabel"]},{"id":"kpiCapIcon","component":"Icon","props":{"name":"hard-drive","shape":"square","color":"primary","className":"w-8 h-8"}},{"id":"kpiCapLabel","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"总容量"}},{"id":"kpiCapValue","component":"span","props":{"className":"text-3xl font-bold text-on-surface","value":{"path":"/kpiMetrics/totalCapacity"}}},{"id":"kpiCapFooter","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"10个租户 · 100个文件系统"}},{"id":"kpiUsedCard","component":"div","props":{"className":"bg-surface-container-highest rounded-xl shadow-card"},"children":["kpiUsedInner"]},{"id":"kpiUsedInner","component":"div","props":{"className":"p-inset flex flex-col gap-stack"},"children":["kpiUsedHeader","kpiUsedValueRow","kpiUsedProgress","kpiUsedFooter"]},{"id":"kpiUsedHeader","component":"div","props":{"className":"flex items-center gap-inline"},"children":["kpiUsedIcon","kpiUsedLabel"]},{"id":"kpiUsedIcon","component":"Icon","props":{"name":"database","shape":"square","color":"success","className":"w-8 h-8"}},{"id":"kpiUsedLabel","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"已用容量"}},{"id":"kpiUsedValueRow","component":"div","props":{"className":"flex items-baseline gap-1"},"children":["kpiUsedValue","kpiUsedPercent"]},{"id":"kpiUsedValue","component":"span","props":{"className":"text-3xl font-bold text-on-surface","value":{"path":"/kpiMetrics/usedCapacity"}}},{"id":"kpiUsedPercent","component":"span","props":{"className":"text-md text-on-surface-variant","value":{"path":"/kpiMetrics/usedPercentDisplay"}}},{"id":"kpiUsedProgress","component":"Progress","props":{"percent":{"path":"/kpiMetrics/usedPercent"},"size":"small","showInfo":false}},{"id":"kpiUsedFooter","component":"span","props":{"className":"text-sm text-on-surface-variant","value":{"path":"/kpiMetrics/remainCapacity"}}},{"id":"kpiIopsCard","component":"div","props":{"className":"bg-black rounded-xl shadow-card"},"children":["kpiIopsInner"]},{"id":"kpiIopsInner","component":"div","props":{"className":"p-inset flex flex-col gap-stack"},"children":["kpiIopsHeader","kpiIopsValue","kpiIopsFooter"]},{"id":"kpiIopsHeader","component":"div","props":{"className":"flex items-center gap-inline"},"children":["kpiIopsIcon","kpiIopsLabel"]},{"id":"kpiIopsIcon","component":"Icon","props":{"name":"activity","shape":"square","color":"primary","className":"w-8 h-8"}},{"id":"kpiIopsLabel","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"IOPS"}},{"id":"kpiIopsValue","component":"span","props":{"className":"text-3xl font-bold text-on-surface","value":{"path":"/kpiMetrics/iops"}}},{"id":"kpiIopsFooter","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"读 8,230 / 写 4,350"}},{"id":"kpiThruCard","component":"div","props":{"className":"bg-surface-container-highest rounded-xl shadow-card"},"children":["kpiThruInner"]},{"id":"kpiThruInner","component":"div","props":{"className":"p-inset flex flex-col gap-stack"},"children":["kpiThruHeader","kpiThruValue","kpiThruFooter"]},{"id":"kpiThruHeader","component":"div","props":{"className":"flex items-center gap-inline"},"children":["kpiThruIcon","kpiThruLabel"]},{"id":"kpiThruIcon","component":"Icon","props":{"name":"gauge","shape":"square","color":"warning","className":"w-8 h-8"}},{"id":"kpiThruLabel","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"吞吐量"}},{"id":"kpiThruValue","component":"span","props":{"className":"text-3xl font-bold text-on-surface","value":{"path":"/kpiMetrics/throughput"}}},{"id":"kpiThruFooter","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"读 1.6 GB/s / 写 0.8 GB/s"}},{"id":"bottomRowContainer","component":"div","props":{"className":"grid grid-cols-2 gap-section"},"children":["alertCardContainer","opLogCardContainer"]},{"id":"alertCardContainer","component":"div","props":{"className":"bg-surface-container-highest rounded-xl shadow-card"},"children":["alertCardInner"]},{"id":"alertCardInner","component":"div","props":{"className":"flex flex-col"},"children":["alertCardTitleRow","alertListContainer"]},{"id":"alertCardTitleRow","component":"div","props":{"className":"flex items-center justify-between px-inset py-gutter border-b border-divider"},"children":["alertCardTitleLeft","alertCardViewAllBtn"]},{"id":"alertCardTitleLeft","component":"div","props":{"className":"flex items-center gap-inline"},"children":["alertCardTitleIcon","alertCardTitleText"]},{"id":"alertCardTitleIcon","component":"Icon","props":{"name":"alert-triangle","shape":"outline","color":"warning","className":"w-5 h-5"}},{"id":"alertCardTitleText","component":"span","props":{"className":"text-lg font-bold text-on-surface","value":"告警信息"}},{"id":"alertCardViewAllBtn","component":"Button","props":{"value":"查看全部","types":"link"}},{"id":"alertListContainer","component":"div","props":{"className":"flex flex-col divide-y divide-divider"},"children":{"path":"/alertList","componentId":"alertItemTemplate"}},{"id":"alertItemTemplate","component":"div","props":{"className":"flex items-start gap-inline px-inset py-gutter"},"children":["alertItemIcon","alertItemContent"]},{"id":"alertItemIcon","component":"Icon","props":{"name":{"path":"iconName"},"shape":"outline","color":{"path":"iconColor"},"className":"w-5 h-5 mt-0.5 shrink-0"}},{"id":"alertItemContent","component":"div","props":{"className":"flex flex-col gap-1 flex-1 min-w-0"},"children":["alertItemTitle","alertItemMeta"]},{"id":"alertItemTitle","component":"span","props":{"className":"text-md text-on-surface","value":{"path":"title"}}},{"id":"alertItemMeta","component":"div","props":{"className":"flex items-center gap-inline"},"children":["alertItemTime","alertItemSep","alertItemDevice"]},{"id":"alertItemTime","component":"span","props":{"className":"text-sm leading-[1.6] text-on-surface-variant","value":{"path":"time"}}},{"id":"alertItemSep","component":"span","props":{"className":"text-sm text-on-surface-variant","value":"·"}},{"id":"alertItemDevice","component":"span","props":{"className":"text-sm text-on-surface-variant","value":{"path":"device"}}},{"id":"opLogCardContainer","component":"div","props":{"className":"bg-on-info shadow-card px-[12px] rounded-overlay"},"children":["opLogCardInner"]},{"id":"opLogCardInner","component":"div","props":{"className":"flex flex-col"},"children":["opLogCardTitleRow","opLogTable"]},{"id":"opLogCardTitleRow","component":"div","props":{"className":"flex items-center justify-between px-inset py-gutter border-b border-divider"},"children":["opLogCardTitleLeft","opLogCardViewAllBtn"]},{"id":"opLogCardTitleLeft","component":"div","props":{"className":"flex items-center gap-inline"},"children":["opLogCardTitleIcon","opLogCardTitleText"]},{"id":"opLogCardTitleIcon","component":"Icon","props":{"name":"clipboard-list","shape":"outline","color":"default","className":"w-5 h-5"}},{"id":"opLogCardTitleText","component":"span","props":{"className":"text-lg font-bold text-on-surface","value":"最近操作"}},{"id":"opLogCardViewAllBtn","component":"Button","props":{"value":"查看全部","types":"link"}},{"id":"opLogTable","component":"Table","props":{"rowKey":"id","dataSource":{"path":"/operationLogList"},"columns":[{"title":"操作人","dataIndex":"operator"},{"title":"操作类型","dataIndex":"action"},{"title":"操作对象","dataIndex":"target"},{"title":"时间","dataIndex":"time"},{"title":"状态","dataIndex":"status"}],"pagination":false},"children":{"path":"/operationLogList","componentId":"opLogRow"}},{"id":"opLogRow","component":"TableRow","children":["opLogOperatorCell","opLogActionCell","opLogTargetCell","opLogTimeCell","opLogStatusCell"],"props":{}},{"id":"opLogOperatorCell","component":"span","props":{"className":"text-md leading-normal text-on-info-container","value":{"path":"operator"}}},{"id":"opLogActionCell","component":"span","props":{"className":"text-md leading-normal text-on-info-container","value":{"path":"action"}}},{"id":"opLogTargetCell","component":"span","props":{"className":"text-md text-on-surface","value":{"path":"target"}}},{"id":"opLogTimeCell","component":"span","props":{"className":"text-md text-on-surface-variant","value":{"path":"time"}}},{"id":"opLogStatusCell","component":"Tag","props":{"value":{"path":"status"},"color":{"path":"statusColor"},"size":"small"}}],"state":{"selectedKeys":["lNavStorageDevices"],"openKeys":["lNavGroupStorage"],"notificationBadgeCount":5,"userAvatar":"https://randomuser.me/api/portraits/men/42.jpg","userName":"Admin","dropdownMenuItems":[{"key":"profile","label":"个人设置"},{"key":"logout","label":"退出登录"}],"backIcon":"arrow-left","deviceName":"A800_01","dropdownIcon":"chevron-down","deviceIp":"100.122.13.24","statusText":"正常","attributes":[{"fieldName":"序列号","value":"2102350CDS10DM000001"},{"fieldName":"型号","value":"OceanStor A800"},{"fieldName":"版本","value":"1.0.0"},{"fieldName":"厂商","value":"Huawei"}],"firstLevelActiveKey":"system","secondLevelActiveKey":"tenant","selectedRowKeys":["001"],"tenantList":[{"name":"vStore001","id":"001","cluster":{"nodeName":"Node_005","nodeIp":"10.12.13.11","tag":"HyperScale"},"fsCount":32,"fsTotalCapacity":"12.000GB","nasUtilization":{"percent":20,"progressValue":20,"used":"2.400","total":"12.000","unit":"GB"},"quotaAlert":"已启用","quotaThreshold":"80%"},{"name":"vStore002","id":"002","cluster":{"nodeName":"Node_003","nodeIp":"10.12.13.12","tag":"HyperScale"},"fsCount":45,"fsTotalCapacity":"24.000GB","nasUtilization":{"percent":45.5,"progressValue":45.5,"used":"10.920","total":"24.000","unit":"GB"},"quotaAlert":"已启用","quotaThreshold":"85%"},{"name":"vStore003","id":"003","cluster":{"nodeName":"Node_001","nodeIp":"10.12.13.13","tag":"HyperScale"},"fsCount":12,"fsTotalCapacity":"6.000GB","nasUtilization":{"percent":78.2,"progressValue":78.2,"used":"4.692","total":"6.000","unit":"GB"},"quotaAlert":"已启用","quotaThreshold":"80%"},{"name":"vStore004","id":"004","cluster":{"nodeName":"Node_002","nodeIp":"10.12.13.14","tag":"HyperScale"},"fsCount":28,"fsTotalCapacity":"48.000GB","nasUtilization":{"percent":33.33,"progressValue":33.33,"used":"16.000","total":"48.000","unit":"GB"},"quotaAlert":"已禁用","quotaThreshold":"90%"},{"name":"vStore005","id":"005","cluster":{"nodeName":"Node_004","nodeIp":"10.12.13.15","tag":"HyperScale"},"fsCount":8,"fsTotalCapacity":"2.000GB","nasUtilization":{"percent":95,"progressValue":95,"used":"1.900","total":"2.000","unit":"GB"},"quotaAlert":"已启用","quotaThreshold":"80%"},{"name":"vStore006","id":"006","cluster":{"nodeName":"Node_006","nodeIp":"10.12.13.16","tag":"HyperScale"},"fsCount":15,"fsTotalCapacity":"10.000GB","nasUtilization":{"percent":62.1,"progressValue":62.1,"used":"6.210","total":"10.000","unit":"GB"},"quotaAlert":"已启用","quotaThreshold":"85%"},{"name":"vStore007","id":"007","cluster":{"nodeName":"Node_007","nodeIp":"10.12.13.17","tag":"HyperScale"},"fsCount":52,"fsTotalCapacity":"100.000GB","nasUtilization":{"percent":12.8,"progressValue":12.8,"used":"12.800","total":"100.000","unit":"GB"},"quotaAlert":"已禁用","quotaThreshold":"70%"},{"name":"vStore008","id":"008","cluster":{"nodeName":"Node_008","nodeIp":"10.12.13.18","tag":"HyperScale"},"fsCount":20,"fsTotalCapacity":"8.000GB","nasUtilization":{"percent":55,"progressValue":55,"used":"4.400","total":"8.000","unit":"GB"},"quotaAlert":"已启用","quotaThreshold":"80%"},{"name":"vStore009","id":"009","cluster":{"nodeName":"Node_009","nodeIp":"10.12.13.19","tag":"HyperScale"},"fsCount":40,"fsTotalCapacity":"30.000GB","nasUtilization":{"percent":90,"progressValue":90,"used":"27.000","total":"30.000","unit":"GB"},"quotaAlert":"已启用","quotaThreshold":"90%"},{"name":"vStore010","id":"010","cluster":{"nodeName":"Node_010","nodeIp":"10.12.13.20","tag":"HyperScale"},"fsCount":5,"fsTotalCapacity":"1.000GB","nasUtilization":{"percent":10,"progressValue":10,"used":"0.100","total":"1.000","unit":"GB"},"quotaAlert":"已禁用","quotaThreshold":"75%"}],"kpiMetrics":{"totalCapacity":"240.000 GB","usedCapacity":"96.612 GB","usedPercent":40.3,"usedPercentDisplay":"40.3%","remainCapacity":"剩余 143.388 GB","iops":"12,580","readIops":"8,230","writeIops":"4,350","throughput":"2.4 GB/s","readThroughput":"1.6 GB/s","writeThroughput":"0.8 GB/s"},"alertList":[{"id":"a1","iconName":"alert-circle","iconColor":"error","title":"vStore005 NAS容量配额利用率超过阈值（95%）","time":"10:322","device":"A800_01"},{"id":"a2","iconName":"alert-triangle","iconColor":"warning","title":"vStore009 NAS容量配额利用率接近阈值（90%）","time":"09:18","device":"A800_01"},{"id":"a3","iconName":"alert-triangle","iconColor":"warning","title":"Node_003 磁盘读写延迟升高","time":"08:45","device":"A800_01"},{"id":"a4","iconName":"info","iconColor":"primary","title":"系统自动同步完成","time":"07:00","device":"A800_01"}],"operationLogList":[{"id":"op1","operator":"Admin3","action":"创建租户","target":"vStore011","time":"2026-07-08 10:45","status":"成功","statusColor":"success"},{"id":"op2","operator":"Admin","action":"修改配置231","target":"vStore005","time":"2026-07-08 10:30","status":"成功","statusColor":"success"},{"id":"op3","operator":"Admin","action":"同步数据","target":"A800_01","time":"2026-07-08 09:15","status":"成功","statusColor":"success"},{"id":"op4","operator":"Admin","action":"导出报表","target":"vStore001","time":"2026-07-08 08:50","status":"成功","statusColor":"success"},{"id":"op5","operator":"System","action":"自动备份","target":"A800_01","time":"2026-07-08 03:00","status":"成功","statusColor":"success"}]}};
+window.__A2UI_DATA__ = {
+    "state": {
+        "ghPlatformName": "iMaster NCE-FabricInsight",
+        "ghLeftNav": [
+            {
+                "label": "健康看板",
+                "icon": "activity",
+                "link": "/health"
+            },
+            {
+                "label": "大屏",
+                "icon": "monitor",
+                "link": "/dashboard"
+            }
+        ],
+        "ghRightNav": [
+            {
+                "label": "策略中心",
+                "icon": "shield-check",
+                "link": "/policy"
+            }
+        ],
+        "ghSystemActions": [
+            {
+                "icon": "search",
+                "tooltip": "搜索"
+            },
+            {
+                "icon": "bell",
+                "tooltip": "通知"
+            },
+            {
+                "icon": "settings",
+                "tooltip": "设置"
+            },
+            {
+                "icon": "help-circle",
+                "tooltip": "帮助"
+            }
+        ],
+        "ghUserInfo": {
+            "userName": "Admin",
+            "avatarImage": "https://randomuser.me/api/portraits/men/32.jpg"
+        },
+        "lrlCardTitle": "链路结果",
+        "lrlSearchCategory": "请选择",
+        "lrlSearchValue": "",
+        "lrlSelectedRowKeys": [
+            1
+        ],
+        "lrlTableData": [
+            {
+                "id": 1,
+                "peerCrc": "未检测",
+                "localAlarm": "光模块IIC故障",
+                "peerAlarm": "无",
+                "temp": "41.40°C",
+                "voltage": "3.35V",
+                "txPowerLocal": "Lane1:-1dBm...",
+                "rxPowerLocal": "Lane0:2.43dBm...",
+                "currentLocal": "Lane0:87.23mA...",
+                "snrLocal": "Lane0:1dB...",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-0.95dBm..."
+            },
+            {
+                "id": 2,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "38.50°C",
+                "voltage": "3.32V",
+                "txPowerLocal": "Lane1:-1.2dBm",
+                "rxPowerLocal": "Lane0:2.10dBm",
+                "currentLocal": "Lane0:82.15mA",
+                "snrLocal": "Lane0:2dB",
+                "berLocal": "1e-12",
+                "txPowerPeer": "Lane0:-1.05dBm"
+            },
+            {
+                "id": 3,
+                "peerCrc": "12",
+                "localAlarm": "接收功率低",
+                "peerAlarm": "无",
+                "temp": "45.10°C",
+                "voltage": "3.30V",
+                "txPowerLocal": "Lane1:-0.8dBm",
+                "rxPowerLocal": "Lane0:-5.43dBm",
+                "currentLocal": "Lane0:90.12mA",
+                "snrLocal": "Lane0:0.5dB",
+                "berLocal": "1e-5",
+                "txPowerPeer": "Lane0:-0.85dBm"
+            },
+            {
+                "id": 4,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "40.20°C",
+                "voltage": "3.34V",
+                "txPowerLocal": "Lane1:-1.1dBm",
+                "rxPowerLocal": "Lane0:2.30dBm",
+                "currentLocal": "Lane0:85.40mA",
+                "snrLocal": "Lane0:1.5dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-0.90dBm"
+            },
+            {
+                "id": 5,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "39.80°C",
+                "voltage": "3.33V",
+                "txPowerLocal": "Lane1:-1.0dBm",
+                "rxPowerLocal": "Lane0:2.25dBm",
+                "currentLocal": "Lane0:84.20mA",
+                "snrLocal": "Lane0:1.2dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-0.98dBm"
+            },
+            {
+                "id": 6,
+                "peerCrc": "5",
+                "localAlarm": "无",
+                "peerAlarm": "发送功率高",
+                "temp": "42.60°C",
+                "voltage": "3.36V",
+                "txPowerLocal": "Lane1:1.5dBm",
+                "rxPowerLocal": "Lane0:2.50dBm",
+                "currentLocal": "Lane0:88.10mA",
+                "snrLocal": "Lane0:1.1dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:2.10dBm"
+            },
+            {
+                "id": 7,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "41.00°C",
+                "voltage": "3.35V",
+                "txPowerLocal": "Lane1:-1.0dBm",
+                "rxPowerLocal": "Lane0:2.40dBm",
+                "currentLocal": "Lane0:86.50mA",
+                "snrLocal": "Lane0:1.0dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-0.92dBm"
+            },
+            {
+                "id": 8,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "37.90°C",
+                "voltage": "3.31V",
+                "txPowerLocal": "Lane1:-1.3dBm",
+                "rxPowerLocal": "Lane0:2.05dBm",
+                "currentLocal": "Lane1:81.40mA",
+                "snrLocal": "Lane0:2.1dB",
+                "berLocal": "1e-13",
+                "txPowerPeer": "Lane0:-1.10dBm"
+            },
+            {
+                "id": 9,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "40.50°C",
+                "voltage": "3.34V",
+                "txPowerLocal": "Lane1:-1.1dBm",
+                "rxPowerLocal": "Lane0:2.35dBm",
+                "currentLocal": "Lane0:85.90mA",
+                "snrLocal": "Lane0:1.4dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-0.94dBm"
+            },
+            {
+                "id": 10,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "39.20°C",
+                "voltage": "3.33V",
+                "txPowerLocal": "Lane1:-1.2dBm",
+                "rxPowerLocal": "Lane0:2.15dBm",
+                "currentLocal": "Lane0:83.10mA",
+                "snrLocal": "Lane0:1.8dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-1.02dBm"
+            },
+            {
+                "id": 11,
+                "peerCrc": "2",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "43.00°C",
+                "voltage": "3.37V",
+                "txPowerLocal": "Lane1:-0.9dBm",
+                "rxPowerLocal": "Lane0:2.60dBm",
+                "currentLocal": "Lane0:89.50mA",
+                "snrLocal": "Lane0:0.9dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-0.80dBm"
+            },
+            {
+                "id": 12,
+                "peerCrc": "0",
+                "localAlarm": "无",
+                "peerAlarm": "无",
+                "temp": "41.20°C",
+                "voltage": "3.35V",
+                "txPowerLocal": "Lane1:-1.0dBm",
+                "rxPowerLocal": "Lane0:2.42dBm",
+                "currentLocal": "Lane0:87.00mA",
+                "snrLocal": "Lane0:1.1dB",
+                "berLocal": "NA",
+                "txPowerPeer": "Lane0:-0.93dBm"
+            }
+        ],
+        "mddDrawerTitle": "指标详情",
+        "mddTimeRange": "2025/05/15 00:54:12 - 2025/05/15 14:54:12",
+        "mddActiveTab": "local",
+        "mddTabs": [
+            {
+                "key": "local",
+                "label": "本端"
+            },
+            {
+                "key": "peer",
+                "label": "对端"
+            }
+        ],
+        "mddBaseInfo": {
+            "deviceName": "POD7-spine1",
+            "devicePort": "25GE1/0/4",
+            "aggregationMethod": "平均值"
+        },
+        "mddAggregationOptions": [
+            {
+                "label": "平均值",
+                "value": "平均值"
+            },
+            {
+                "label": "最大值",
+                "value": "最大值"
+            },
+            {
+                "label": "最小值",
+                "value": "最小值"
+            }
+        ],
+        "mddMetrics": [
+            {
+                "chartTitle": "接收功率",
+                "unit": "dBm",
+                "kpis": [
+                    {
+                        "label": "最大值",
+                        "value": "-1.74 dBm"
+                    },
+                    {
+                        "label": "最小值",
+                        "value": "-1.74 dBm"
+                    },
+                    {
+                        "label": "平均值",
+                        "value": "-1.74 dBm"
+                    }
+                ],
+                "chartData": [
+                    {
+                        "timestamp": "00:54",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    },
+                    {
+                        "timestamp": "01:49",
+                        "lane0": 86.9,
+                        "lane1": 84.8,
+                        "lane2": 86.1,
+                        "lane3": 84.6
+                    },
+                    {
+                        "timestamp": "02:43",
+                        "lane0": 87.1,
+                        "lane1": 85.0,
+                        "lane2": 86.3,
+                        "lane3": 84.8
+                    },
+                    {
+                        "timestamp": "03:38",
+                        "lane0": 86.7,
+                        "lane1": 84.6,
+                        "lane2": 85.9,
+                        "lane3": 84.4
+                    },
+                    {
+                        "timestamp": "04:32",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    },
+                    {
+                        "timestamp": "05:27",
+                        "lane0": 87.5,
+                        "lane1": 85.4,
+                        "lane2": 86.7,
+                        "lane3": 85.2
+                    },
+                    {
+                        "timestamp": "06:22",
+                        "lane0": 86.8,
+                        "lane1": 84.7,
+                        "lane2": 86.0,
+                        "lane3": 84.5
+                    },
+                    {
+                        "timestamp": "07:17",
+                        "lane0": 87.0,
+                        "lane1": 84.9,
+                        "lane2": 86.2,
+                        "lane3": 84.7
+                    },
+                    {
+                        "timestamp": "08:12",
+                        "lane0": 86.6,
+                        "lane1": 84.5,
+                        "lane2": 85.8,
+                        "lane3": 84.3
+                    },
+                    {
+                        "timestamp": "09:07",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    }
+                ]
+            },
+            {
+                "chartTitle": "发送功率",
+                "unit": "dBm",
+                "kpis": [
+                    {
+                        "label": "最大值",
+                        "value": "2.43 dBm"
+                    },
+                    {
+                        "label": "最小值",
+                        "value": "2.40 dBm"
+                    },
+                    {
+                        "label": "平均值",
+                        "value": "2.42 dBm"
+                    }
+                ],
+                "chartData": [
+                    {
+                        "timestamp": "00:54",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    },
+                    {
+                        "timestamp": "01:49",
+                        "lane0": 86.9,
+                        "lane1": 84.8,
+                        "lane2": 86.1,
+                        "lane3": 84.6
+                    },
+                    {
+                        "timestamp": "02:43",
+                        "lane0": 87.1,
+                        "lane1": 85.0,
+                        "lane2": 86.3,
+                        "lane3": 84.8
+                    },
+                    {
+                        "timestamp": "03:38",
+                        "lane0": 86.7,
+                        "lane1": 84.6,
+                        "lane2": 85.9,
+                        "lane3": 84.4
+                    },
+                    {
+                        "timestamp": "04:32",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    },
+                    {
+                        "timestamp": "05:27",
+                        "lane0": 87.5,
+                        "lane1": 85.4,
+                        "lane2": 86.7,
+                        "lane3": 85.2
+                    },
+                    {
+                        "timestamp": "06:22",
+                        "lane0": 86.8,
+                        "lane1": 84.7,
+                        "lane2": 86.0,
+                        "lane3": 84.5
+                    },
+                    {
+                        "timestamp": "07:17",
+                        "lane0": 87.0,
+                        "lane1": 84.9,
+                        "lane2": 86.2,
+                        "lane3": 84.7
+                    },
+                    {
+                        "timestamp": "08:12",
+                        "lane0": 86.6,
+                        "lane1": 84.5,
+                        "lane2": 85.8,
+                        "lane3": 84.3
+                    },
+                    {
+                        "timestamp": "09:07",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    }
+                ]
+            },
+            {
+                "chartTitle": "电流",
+                "unit": "mA",
+                "kpis": [
+                    {
+                        "label": "最大值",
+                        "value": "87.23 mA"
+                    },
+                    {
+                        "label": "最小值",
+                        "value": "86.50 mA"
+                    },
+                    {
+                        "label": "平均值",
+                        "value": "86.85 mA"
+                    }
+                ],
+                "chartData": [
+                    {
+                        "timestamp": "00:54",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    },
+                    {
+                        "timestamp": "01:49",
+                        "lane0": 86.9,
+                        "lane1": 84.8,
+                        "lane2": 86.1,
+                        "lane3": 84.6
+                    },
+                    {
+                        "timestamp": "02:43",
+                        "lane0": 87.1,
+                        "lane1": 85.0,
+                        "lane2": 86.3,
+                        "lane3": 84.8
+                    },
+                    {
+                        "timestamp": "03:38",
+                        "lane0": 86.7,
+                        "lane1": 84.6,
+                        "lane2": 85.9,
+                        "lane3": 84.4
+                    },
+                    {
+                        "timestamp": "04:32",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    },
+                    {
+                        "timestamp": "05:27",
+                        "lane0": 87.5,
+                        "lane1": 85.4,
+                        "lane2": 86.7,
+                        "lane3": 85.2
+                    },
+                    {
+                        "timestamp": "06:22",
+                        "lane0": 86.8,
+                        "lane1": 84.7,
+                        "lane2": 86.0,
+                        "lane3": 84.5
+                    },
+                    {
+                        "timestamp": "07:17",
+                        "lane0": 87.0,
+                        "lane1": 84.9,
+                        "lane2": 86.2,
+                        "lane3": 84.7
+                    },
+                    {
+                        "timestamp": "08:12",
+                        "lane0": 86.6,
+                        "lane1": 84.5,
+                        "lane2": 85.8,
+                        "lane3": 84.3
+                    },
+                    {
+                        "timestamp": "09:07",
+                        "lane0": 87.23,
+                        "lane1": 85.1,
+                        "lane2": 86.4,
+                        "lane3": 84.9
+                    }
+                ]
+            }
+        ]
+    },
+    "rootId": "rootContainer",
+    "elements": [
+        {
+            "id": "rootContainer",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col h-screen w-full bg-surface-container-lowest overflow-hidden"
+            },
+            "children": [
+                "shellHeader",
+                "shellMain"
+            ]
+        },
+        {
+            "id": "shellHeader",
+            "component": "header",
+            "props": {
+                "className": "h-12 w-full bg-surface-container-highest shadow-sm z-20 flex items-center justify-between px-gutter"
+            },
+            "children": [
+                "ghLeftSection",
+                "ghRightSection"
+            ]
+        },
+        {
+            "id": "shellMain",
+            "component": "main",
+            "props": {
+                "className": "flex flex-1 relative overflow-hidden"
+            },
+            "children": [
+                "shellContentScroll",
+                "shellDrawerOverlay"
+            ]
+        },
+        {
+            "id": "shellContentScroll",
+            "component": "section",
+            "props": {
+                "className": "flex-1 overflow-auto p-page bg-surface-container-lowest"
+            },
+            "children": [
+                "lrlMainContainer"
+            ]
+        },
+        {
+            "id": "shellDrawerOverlay",
+            "component": "aside",
+            "props": {
+                "className": "absolute right-0 top-0 h-full w-[480px] bg-surface-container-highest shadow-lg z-10 border-l border-divider flex flex-col"
+            },
+            "children": [
+                "mddHeader",
+                "mddTabsContainer",
+                "mddScrollContent"
+            ]
+        },
+        {
+            "id": "ghLeftSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-4 h-full"
+            },
+            "children": [
+                "ghCollapseBtn",
+                "ghBrandContainer",
+                "ghLeftNavLinks"
+            ]
+        },
+        {
+            "id": "ghCollapseBtn",
+            "component": "Button",
+            "props": {
+                "icon": "menu",
+                "types": "link",
+                "className": "text-on-surface"
+            }
+        },
+        {
+            "id": "ghBrandContainer",
+            "component": "div",
+            "props": {
+                "className": "flex items-center mr-4"
+            },
+            "children": [
+                "ghPlatformTitle"
+            ]
+        },
+        {
+            "id": "ghPlatformTitle",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/ghPlatformName"
+                },
+                "className": "text-lg font-bold text-primary"
+            }
+        },
+        {
+            "id": "ghLeftNavLinks",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-2"
+            },
+            "children": {
+                "path": "/ghLeftNav",
+                "componentId": "ghLeftNavItem"
+            }
+        },
+        {
+            "id": "ghLeftNavItem",
+            "component": "Button",
+            "props": {
+                "value": {
+                    "path": "label"
+                },
+                "icon": {
+                    "path": "icon"
+                },
+                "types": "link",
+                "className": "text-on-surface-variant hover:text-primary"
+            }
+        },
+        {
+            "id": "ghRightSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-4 h-full"
+            },
+            "children": [
+                "ghRightNavLinks",
+                "ghActionIcons",
+                "ghUserContainer"
+            ]
+        },
+        {
+            "id": "ghRightNavLinks",
+            "component": "div",
+            "props": {
+                "className": "flex items-center border-r border-divider pr-4"
+            },
+            "children": {
+                "path": "/ghRightNav",
+                "componentId": "ghRightNavItem"
+            }
+        },
+        {
+            "id": "ghRightNavItem",
+            "component": "Button",
+            "props": {
+                "value": {
+                    "path": "label"
+                },
+                "icon": {
+                    "path": "icon"
+                },
+                "types": "link",
+                "className": "text-on-surface-variant hover:text-primary"
+            }
+        },
+        {
+            "id": "ghActionIcons",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-1"
+            },
+            "children": {
+                "path": "/ghSystemActions",
+                "componentId": "ghActionIconBtn"
+            }
+        },
+        {
+            "id": "ghActionIconBtn",
+            "component": "Button",
+            "props": {
+                "icon": {
+                    "path": "icon"
+                },
+                "types": "link",
+                "className": "text-on-surface-variant hover:bg-surface-variant rounded-full"
+            }
+        },
+        {
+            "id": "ghUserContainer",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-2 pl-2 cursor-pointer"
+            },
+            "children": [
+                "ghUserAvatar",
+                "ghUserName"
+            ]
+        },
+        {
+            "id": "ghUserAvatar",
+            "component": "img",
+            "props": {
+                "src": {
+                    "path": "/ghUserInfo/avatarImage"
+                },
+                "className": "w-8 h-8 rounded-full border border-divider"
+            }
+        },
+        {
+            "id": "ghUserName",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/ghUserInfo/userName"
+                },
+                "className": "text-md font-medium text-on-surface"
+            }
+        },
+        {
+            "id": "lrlMainContainer",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-section bg-surface-container-highest rounded-container shadow-card p-inset"
+            },
+            "children": [
+                "lrlHeaderArea",
+                "lrlSearchArea",
+                "lrlTableArea"
+            ]
+        },
+        {
+            "id": "lrlHeaderArea",
+            "component": "div",
+            "props": {
+                "className": "flex items-center justify-between"
+            },
+            "children": [
+                "lrlTitle"
+            ]
+        },
+        {
+            "id": "lrlTitle",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/lrlCardTitle"
+                },
+                "className": "text-lg font-bold text-on-surface"
+            }
+        },
+        {
+            "id": "lrlSearchArea",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "lrlSearchSelect",
+                "lrlSearchInput"
+            ]
+        },
+        {
+            "id": "lrlSearchSelect",
+            "component": "Select",
+            "props": {
+                "value": {
+                    "path": "/lrlSearchCategory"
+                },
+                "placeholder": "请选择",
+                "options": [
+                    {
+                        "label": "全部",
+                        "value": "all"
+                    },
+                    {
+                        "label": "本端告警",
+                        "value": "local"
+                    },
+                    {
+                        "label": "对端告警",
+                        "value": "peer"
+                    }
+                ],
+                "className": "w-40"
+            }
+        },
+        {
+            "id": "lrlSearchInput",
+            "component": "Input",
+            "props": {
+                "value": {
+                    "path": "/lrlSearchValue"
+                },
+                "placeholder": "请输入搜索内容",
+                "prefix": "search",
+                "className": "w-64"
+            }
+        },
+        {
+            "id": "lrlTableArea",
+            "component": "Table",
+            "props": {
+                "rowKey": "id",
+                "dataSource": {
+                    "path": "/lrlTableData"
+                },
+                "rowSelection": {
+                    "type": "checkbox",
+                    "selectedRowKeys": {
+                        "path": "/lrlSelectedRowKeys"
+                    }
+                },
+                "columns": [
+                    {
+                        "title": "对端端口crc(近一天)",
+                        "dataIndex": "peerCrc"
+                    },
+                    {
+                        "title": "本端光模块告警(近一天)",
+                        "dataIndex": "localAlarm",
+                        "minWidth": 160
+                    },
+                    {
+                        "title": "对端告警(近一天)",
+                        "dataIndex": "peerAlarm",
+                        "minWidth": 140
+                    },
+                    {
+                        "title": "温度",
+                        "dataIndex": "temp"
+                    },
+                    {
+                        "title": "电压",
+                        "dataIndex": "voltage"
+                    },
+                    {
+                        "title": "发送功率(本端)",
+                        "dataIndex": "txPowerLocal",
+                        "minWidth": 140
+                    },
+                    {
+                        "title": "接收功率(本端)",
+                        "dataIndex": "rxPowerLocal",
+                        "minWidth": 140
+                    },
+                    {
+                        "title": "电流(本端)",
+                        "dataIndex": "currentLocal",
+                        "minWidth": 140
+                    },
+                    {
+                        "title": "信噪比(本端)",
+                        "dataIndex": "snrLocal"
+                    },
+                    {
+                        "title": "误码率(本端)",
+                        "dataIndex": "berLocal"
+                    },
+                    {
+                        "title": "发送功率(对端)",
+                        "dataIndex": "txPowerPeer",
+                        "minWidth": 140
+                    },
+                    {
+                        "title": "操作",
+                        "dataIndex": "actions",
+                        "fixed": "end",
+                        "width": 100
+                    }
+                ],
+                "className": "mb-stack"
+            },
+            "children": {
+                "path": "/lrlTableData",
+                "componentId": "lrlTableRow"
+            }
+        },
+        {
+            "id": "lrlTableRow",
+            "component": "TableRow",
+            "children": [
+                "lrlCellPeerCrc",
+                "lrlCellLocalAlarm",
+                "lrlCellPeerAlarm",
+                "lrlCellTemp",
+                "lrlCellVoltage",
+                "lrlCellTxLocal",
+                "lrlCellRxLocal",
+                "lrlCellCurrentLocal",
+                "lrlCellSnrLocal",
+                "lrlCellBerLocal",
+                "lrlCellTxPeer",
+                "lrlCellActions"
+            ]
+        },
+        {
+            "id": "lrlCellPeerCrc",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "peerCrc"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellLocalAlarm",
+            "component": "Tag",
+            "props": {
+                "value": {
+                    "path": "localAlarm"
+                },
+                "color": "error",
+                "variant": "outlined"
+            }
+        },
+        {
+            "id": "lrlCellPeerAlarm",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "peerAlarm"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellTemp",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "temp"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellVoltage",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "voltage"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellTxLocal",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "txPowerLocal"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellRxLocal",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "rxPowerLocal"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellCurrentLocal",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "currentLocal"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellSnrLocal",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "snrLocal"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellBerLocal",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "berLocal"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellTxPeer",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "txPowerPeer"
+                },
+                "className": "text-md text-on-surface"
+            }
+        },
+        {
+            "id": "lrlCellActions",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "lrlActionChart",
+                "lrlActionSettings"
+            ]
+        },
+        {
+            "id": "lrlActionChart",
+            "component": "Button",
+            "props": {
+                "icon": "line-chart",
+                "types": "link",
+                "size": "small"
+            }
+        },
+        {
+            "id": "lrlActionSettings",
+            "component": "Button",
+            "props": {
+                "icon": "settings",
+                "types": "link",
+                "size": "small"
+            }
+        },
+        {
+            "id": "mddHeader",
+            "component": "div",
+            "props": {
+                "className": "flex items-center justify-between p-inset border-b border-divider"
+            },
+            "children": [
+                "mddHeaderTitle",
+                "mddHeaderRight"
+            ]
+        },
+        {
+            "id": "mddHeaderTitle",
+            "component": "span",
+            "props": {
+                "className": "text-lg font-bold text-on-surface",
+                "value": {
+                    "path": "/mddDrawerTitle"
+                }
+            }
+        },
+        {
+            "id": "mddHeaderRight",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "mddTimeRangeText",
+                "mddCloseBtn"
+            ]
+        },
+        {
+            "id": "mddTimeRangeText",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": {
+                    "path": "/mddTimeRange"
+                }
+            }
+        },
+        {
+            "id": "mddCloseBtn",
+            "component": "Icon",
+            "props": {
+                "name": "x",
+                "className": "w-5 h-5 cursor-pointer text-on-surface-variant hover:text-on-surface"
+            }
+        },
+        {
+            "id": "mddTabsContainer",
+            "component": "div",
+            "props": {
+                "className": "px-inset pt-stack"
+            },
+            "children": [
+                "mddTabs"
+            ]
+        },
+        {
+            "id": "mddTabs",
+            "component": "Tabs",
+            "props": {
+                "activeKey": {
+                    "path": "/mddActiveTab"
+                },
+                "className": "w-full"
+            },
+            "children": {
+                "path": "/mddTabs",
+                "componentId": "mddTabItem"
+            }
+        },
+        {
+            "id": "mddTabItem",
+            "component": "TabItem",
+            "props": {
+                "key": {
+                    "path": "key"
+                },
+                "label": {
+                    "path": "label"
+                }
+            }
+        },
+        {
+            "id": "mddScrollContent",
+            "component": "div",
+            "props": {
+                "className": "flex-1 overflow-y-auto p-inset flex flex-col gap-section"
+            },
+            "children": [
+                "mddBaseInfoCard",
+                "mddTimeAxisPlaceholder",
+                "mddChartsLoop"
+            ]
+        },
+        {
+            "id": "mddBaseInfoCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-variant p-gutter rounded-container flex flex-col gap-stack"
+            },
+            "children": [
+                "mddBaseInfoRow1",
+                "mddBaseInfoRow2"
+            ]
+        },
+        {
+            "id": "mddBaseInfoRow1",
+            "component": "div",
+            "props": {
+                "className": "flex justify-between"
+            },
+            "children": [
+                "mddDeviceNameGroup",
+                "mddDevicePortGroup"
+            ]
+        },
+        {
+            "id": "mddDeviceNameGroup",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col"
+            },
+            "children": [
+                "mddDeviceNameLabel",
+                "mddDeviceNameValue"
+            ]
+        },
+        {
+            "id": "mddDeviceNameLabel",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "设备名称"
+            }
+        },
+        {
+            "id": "mddDeviceNameValue",
+            "component": "span",
+            "props": {
+                "className": "text-md font-medium text-on-surface",
+                "value": {
+                    "path": "/mddBaseInfo/deviceName"
+                }
+            }
+        },
+        {
+            "id": "mddDevicePortGroup",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col items-end"
+            },
+            "children": [
+                "mddDevicePortLabel",
+                "mddDevicePortValue"
+            ]
+        },
+        {
+            "id": "mddDevicePortLabel",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "设备端口"
+            }
+        },
+        {
+            "id": "mddDevicePortValue",
+            "component": "span",
+            "props": {
+                "className": "text-md font-medium text-on-surface",
+                "value": {
+                    "path": "/mddBaseInfo/devicePort"
+                }
+            }
+        },
+        {
+            "id": "mddBaseInfoRow2",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "mddAggregationLabel",
+                "mddAggregationSelect"
+            ]
+        },
+        {
+            "id": "mddAggregationLabel",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "聚合方式"
+            }
+        },
+        {
+            "id": "mddAggregationSelect",
+            "component": "Select",
+            "props": {
+                "value": {
+                    "path": "/mddBaseInfo/aggregationMethod"
+                },
+                "options": {
+                    "path": "/mddAggregationOptions"
+                },
+                "size": "small",
+                "className": "w-32"
+            }
+        },
+        {
+            "id": "mddTimeAxisPlaceholder",
+            "component": "div",
+            "props": {
+                "className": "h-10 flex items-center justify-between px-inline border-t border-b border-divider relative"
+            },
+            "children": [
+                "mddTimeTick0",
+                "mddTimeTick1",
+                "mddTimeTick2",
+                "mddTimeTick3",
+                "mddTimeTick4"
+            ]
+        },
+        {
+            "id": "mddTimeTick0",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col items-center relative"
+            },
+            "children": [
+                "mddTickLineTop0",
+                "mddTime0",
+                "mddTickLineBottom0"
+            ]
+        },
+        {
+            "id": "mddTickLineTop0",
+            "component": "div",
+            "props": {
+                "className": "absolute -top-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTime0",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "00:54"
+            }
+        },
+        {
+            "id": "mddTickLineBottom0",
+            "component": "div",
+            "props": {
+                "className": "absolute -bottom-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTimeTick1",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col items-center relative"
+            },
+            "children": [
+                "mddTickLineTop1",
+                "mddTime1",
+                "mddTickLineBottom1"
+            ]
+        },
+        {
+            "id": "mddTickLineTop1",
+            "component": "div",
+            "props": {
+                "className": "absolute -top-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTime1",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "01:49"
+            }
+        },
+        {
+            "id": "mddTickLineBottom1",
+            "component": "div",
+            "props": {
+                "className": "absolute -bottom-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTimeTick2",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col items-center relative"
+            },
+            "children": [
+                "mddTickLineTop2",
+                "mddTime2",
+                "mddTickLineBottom2"
+            ]
+        },
+        {
+            "id": "mddTickLineTop2",
+            "component": "div",
+            "props": {
+                "className": "absolute -top-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTime2",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "02:43"
+            }
+        },
+        {
+            "id": "mddTickLineBottom2",
+            "component": "div",
+            "props": {
+                "className": "absolute -bottom-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTimeTick3",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col items-center relative"
+            },
+            "children": [
+                "mddTickLineTop3",
+                "mddTime3",
+                "mddTickLineBottom3"
+            ]
+        },
+        {
+            "id": "mddTickLineTop3",
+            "component": "div",
+            "props": {
+                "className": "absolute -top-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTime3",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "03:38"
+            }
+        },
+        {
+            "id": "mddTickLineBottom3",
+            "component": "div",
+            "props": {
+                "className": "absolute -bottom-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTimeTick4",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col items-center relative"
+            },
+            "children": [
+                "mddTickLineTop4",
+                "mddTime4",
+                "mddTickLineBottom4"
+            ]
+        },
+        {
+            "id": "mddTickLineTop4",
+            "component": "div",
+            "props": {
+                "className": "absolute -top-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddTime4",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": "04:32"
+            }
+        },
+        {
+            "id": "mddTickLineBottom4",
+            "component": "div",
+            "props": {
+                "className": "absolute -bottom-1 w-px h-1 bg-base"
+            }
+        },
+        {
+            "id": "mddChartsLoop",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-section"
+            },
+            "children": {
+                "path": "/mddMetrics",
+                "componentId": "mddChartModule"
+            }
+        },
+        {
+            "id": "mddChartModule",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-stack"
+            },
+            "children": [
+                "mddChartTitle",
+                "mddKpiRow",
+                "mddLineChart"
+            ]
+        },
+        {
+            "id": "mddChartTitle",
+            "component": "span",
+            "props": {
+                "className": "text-md font-bold text-on-surface",
+                "value": {
+                    "path": "chartTitle"
+                }
+            }
+        },
+        {
+            "id": "mddKpiRow",
+            "component": "div",
+            "props": {
+                "className": "flex gap-gutter"
+            },
+            "children": {
+                "path": "kpis",
+                "componentId": "mddKpiItem"
+            }
+        },
+        {
+            "id": "mddKpiItem",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col"
+            },
+            "children": [
+                "mddKpiLabel",
+                "mddKpiValue"
+            ]
+        },
+        {
+            "id": "mddKpiLabel",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-on-surface-variant",
+                "value": {
+                    "path": "label"
+                }
+            }
+        },
+        {
+            "id": "mddKpiValue",
+            "component": "span",
+            "props": {
+                "className": "text-md font-semibold text-primary",
+                "value": {
+                    "path": "value"
+                }
+            }
+        },
+        {
+            "id": "mddLineChart",
+            "component": "LineChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "chartData"
+                    },
+                    "xAxis": {
+                        "data": "timestamp"
+                    },
+                    "yAxisTitle": {
+                        "path": "unit"
+                    },
+                    "smooth": true
+                },
+                "className": "h-48 w-full"
+            }
+        }
+    ]
+};

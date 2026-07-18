@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, useAttrs } from "vue"
 import { ElRadioGroup, ElRadio, ElRadioButton } from "element-plus"
 import type { RadioGroupNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -16,10 +16,28 @@ const typeEnum = {
   button: "button",
 }
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
 const props = defineProps<A2UIComponentProps<RadioGroupNode>>()
 const { node, surfaceId } = props
 const { properties } = props.node
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+const elRadioGroupRef = ref<InstanceType<typeof ElRadioGroup>>()
+
+onMounted(() => {
+  const wrapper = (elRadioGroupRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => {
@@ -66,6 +84,7 @@ function handleChange(value: any) {
 
 <template>
   <ElRadioGroup
+    ref="elRadioGroupRef"
     :id="id"
     :class="className"
     :size="size as any"
