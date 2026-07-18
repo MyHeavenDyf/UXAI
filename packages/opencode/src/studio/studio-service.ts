@@ -50,6 +50,11 @@ type StudioPromptRefineResult = {
   fallback?: boolean
   raw?: unknown
 }
+type StudioPromptRefineModelCandidate = {
+  providerID: ProviderID
+  modelID: ModelID
+  source: "session" | "connected" | "default"
+}
 
 type StudioGenerationPromptInput = StudioGenerationRequest & {
   refinedPrompt?: string
@@ -290,7 +295,13 @@ function shouldRefineWithLLM(input: StudioGenerationRequest) {
 }
 
 function shouldPassthroughReferenceImagePrompt(input: StudioGenerationRequest) {
-  return input.capability === "image.generate" && (input.referenceImages?.length ?? 0) > 0
+  if (input.capability === "image.generate") return (input.referenceImages?.length ?? 0) > 0
+  if (input.capability !== "video.generate") return false
+  return Boolean(
+    input.extra?.firstFrame ||
+      input.extra?.lastFrame ||
+      (input.referenceImages?.length ?? 0) > 0,
+  )
 }
 
 function shouldPassthroughEditorPrompt(input: StudioGenerationRequest) {
@@ -339,6 +350,70 @@ function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioG
     fallback: true,
   }
 }
+
+function isStudioPromptConnectedProvider(provider: Provider.Info) {
+  return provider.id === "w3" ||
+    Boolean(provider.key) ||
+    provider.source === "env" ||
+    provider.source === "api" ||
+    Boolean((provider.options as Record<string, unknown>)?.apiKey)
+}
+
+function firstStudioPromptConnectedModel(providers: Record<string, Provider.Info>) {
+  const defaults = Provider.defaultModelIDs(providers)
+  for (const provider of Object.values(providers).filter(isStudioPromptConnectedProvider)) {
+    const configured = defaults[provider.id]
+    if (configured && provider.models[configured]) {
+      return {
+        providerID: ProviderID.make(provider.id),
+        modelID: provider.models[configured].id,
+      }
+    }
+
+    const model = Object.values(provider.models).sort((left, right) => left.id.localeCompare(right.id))[0]
+    if (!model) continue
+    return {
+      providerID: ProviderID.make(provider.id),
+      modelID: model.id,
+    }
+  }
+}
+
+function sessionPromptRefineModel(session: typeof SessionTable.$inferSelect): StudioPromptRefineModelCandidate | undefined {
+  if (!session.model) return
+  return {
+    providerID: ProviderID.make(session.model.providerID),
+    modelID: ModelID.make(session.model.id),
+    source: "session",
+  }
+}
+
+const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel")(function* (
+  provider: Provider.Interface,
+  session: typeof SessionTable.$inferSelect,
+) {
+  const sessionModel = sessionPromptRefineModel(session)
+  if (sessionModel) {
+    const resolved = yield* provider.getModel(sessionModel.providerID, sessionModel.modelID).pipe(Effect.option)
+    if (resolved._tag === "Some") return sessionModel
+  }
+
+  const connectedModel = firstStudioPromptConnectedModel(yield* provider.list())
+  if (connectedModel) {
+    const resolved = yield* provider.getModel(connectedModel.providerID, connectedModel.modelID).pipe(Effect.option)
+    if (resolved._tag === "Some") {
+      return {
+        ...connectedModel,
+        source: "connected",
+      }
+    }
+  }
+
+  return {
+    ...(yield* provider.defaultModel()),
+    source: "default",
+  }
+})
 
 function imageUrls(result: unknown) {
   if (!result || typeof result !== "object") return []
@@ -512,17 +587,15 @@ async function refineStudioPrompt(
   const previous = lastSuccessfulGeneration(sessionID)
   if (!shouldRefineWithLLM(input)) return promptRefineFallback(input, previous)
   try {
-    const model = session.model
-      ? { providerID: ProviderID.make(session.model.providerID), modelID: ModelID.make(session.model.id) }
-      : undefined
     const result = await studioPromptProviderRuntime.runPromise((provider) =>
       Effect.gen(function* () {
-        const selected = model ?? (yield* provider.defaultModel())
+        const selected = yield* selectStudioPromptRefineModel(provider, session)
         const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
         const providerInfo = yield* provider.getProvider(selected.providerID)
         const language = yield* provider.getLanguage(resolved)
         console.log("[studio.service] prompt refine model", {
           sessionID: session.id,
+          selectionSource: selected.source,
           selectedProviderID: selected.providerID,
           selectedModelID: selected.modelID,
           resolvedProviderID: resolved.providerID,
