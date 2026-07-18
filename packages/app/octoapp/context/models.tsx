@@ -73,17 +73,10 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       }),
     )
 
-    const modelProviders = createMemo(() => {
-      const connected = new Set(providers.connected().map((provider) => provider.id))
-      return providers
-        .all()
-        .filter((provider) => connected.has(provider.id) || provider.source === "config" || provider.source === "custom")
-    })
-
     const available = createMemo(() =>
       modelsApiSource() === "local"
         ? modelsLocalListForProviders(providers.connected())
-        : modelsApiListForProviders(apiModels(), modelProviders()),
+        : modelsApiListForProviders(apiModels(), providers.all()),
     )
 
     const release = createMemo(
