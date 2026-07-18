@@ -159,7 +159,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             border-radius: 6px;
             font-size: 14px;
             cursor: pointer;
-            background: var(--octo-surface-default);
+            background: var(--octo-surface-page, #ffffff);
             color: var(--octo-text-primary);
           }
           .btn-secondary:hover {
