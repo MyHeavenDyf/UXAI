@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import type { Component } from "vue"
 import { ElTree } from "element-plus"
 import type { TreeNodeNode } from "../types"
@@ -129,6 +129,22 @@ getIconComponentRef("chevron-right").then((r) => {
 })
 
 const treeRef = ref<InstanceType<typeof ElTree>>()
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+onMounted(() => {
+  const wrapper = (treeRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 watch(defaultSelectedKeys, (keys) => {
   if (keys.length > 0) {

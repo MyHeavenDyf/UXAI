@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, onMounted, ref, useAttrs } from "vue"
 import { ElBreadcrumb, ElBreadcrumbItem } from "element-plus"
 import type { BreadcrumbNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -7,10 +7,28 @@ import { useA2UIComponent } from "../../renderer/render/hooks"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import "./Breadcrumb.less"
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
 const props = defineProps<A2UIComponentProps<BreadcrumbNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue } = useA2UIComponent(node, surfaceId)
+
+const elBreadcrumbRef = ref<InstanceType<typeof ElBreadcrumb>>()
+
+onMounted(() => {
+  const wrapper = (elBreadcrumbRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
@@ -39,7 +57,7 @@ const items = computed(() => {
 })
 </script>
 <template>
-  <ElBreadcrumb :id="id" :class="className" :separator="separator">
+  <ElBreadcrumb ref="elBreadcrumbRef" :id="id" :class="className" :separator="separator">
     <ElBreadcrumbItem v-for="(item, index) in items" :key="index">
       <template v-if="typeof item.content === 'string'">
         {{ item.content }}

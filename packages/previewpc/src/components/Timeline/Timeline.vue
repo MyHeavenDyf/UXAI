@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, ref, useAttrs, watch } from "vue"
 import type { Component } from "vue"
 import { ElTimeline, ElTimelineItem } from "element-plus"
 import type { TimelineNode } from "../types"
@@ -22,6 +22,27 @@ const placementEnum = {
 const props = defineProps<A2UIComponentProps<TimelineNode>>()
 const { properties } = props.node
 const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elTimelineRef = ref<InstanceType<typeof ElTimeline>>()
+
+watch(
+  () => (elTimelineRef.value as any)?.$el,
+  (el) => {
+    if (el instanceof HTMLElement) {
+      if (attrs['id'] != null)
+        el.setAttribute('id', String(attrs['id']))
+      if (attrs['dom-picker-component'] != null)
+        el.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+      if (attrs['data-element-props'] != null)
+        el.setAttribute('data-element-props', String(attrs['data-element-props']))
+    }
+  },
+  { flush: 'post', immediate: true },
+)
 
 const id = computed(() => props.node.id)
 const className = computed(() => properties.className)
@@ -100,6 +121,7 @@ watch(
 
 <template>
   <ElTimeline
+    ref="elTimelineRef"
     :id="id"
     :class="className"
     :mode="mode as any"

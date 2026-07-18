@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import { ElSegmented } from "element-plus"
 import type { SegmentedNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -17,6 +17,24 @@ const props = defineProps<A2UIComponentProps<SegmentedNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elSegmentedRef = ref<any>()
+
+onMounted(() => {
+  const wrapper = (elSegmentedRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
@@ -87,6 +105,7 @@ const handleChange = (val: string | number) => {
 
 <template>
   <ElSegmented
+    ref="elSegmentedRef"
     :id="id"
     :class="className"
     v-model="currentValue"

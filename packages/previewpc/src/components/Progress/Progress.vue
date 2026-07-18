@@ -3,8 +3,13 @@ import { ElProgress } from "element-plus"
 import type { ProgressNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { computed } from "vue"
+import { computed, onMounted, ref, useAttrs } from "vue"
 import "./Progress.less"
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
 const statusEnum = {
   success: "success",
   exception: "exception",
@@ -15,6 +20,20 @@ const props = defineProps<A2UIComponentProps<ProgressNode>>()
 const { node, surfaceId } = props
 const { properties } = props.node
 const { resolveValue } = useA2UIComponent(node, surfaceId)
+
+const elProgressRef = ref<InstanceType<typeof ElProgress>>()
+
+onMounted(() => {
+  const wrapper = (elProgressRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
@@ -44,6 +63,7 @@ const strokeWidth = computed(() => {
 
 <template>
   <ElProgress
+    ref="elProgressRef"
     :id="id"
     :class="className"
     :percentage="value"

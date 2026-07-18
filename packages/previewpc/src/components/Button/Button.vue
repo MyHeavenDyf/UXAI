@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onMounted, ref, useAttrs } from "vue"
 import { ElButton } from "element-plus"
 import type { ButtonNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -47,6 +47,24 @@ const props = defineProps<A2UIComponentProps<ButtonNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue, sendAction } = useA2UIComponent(node, surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elButtonRef = ref<InstanceType<typeof ElButton>>()
+
+onMounted(() => {
+  const wrapper = (elButtonRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
@@ -140,6 +158,7 @@ const handleClick = () => {
 
 <template>
   <ElButton
+    ref="elButtonRef"
     :id="id"
     :class="[className, { 'icon-only-circle': onlyIcon }]" 
     :round="shape.round"

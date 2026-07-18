@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onMounted, ref, useAttrs } from "vue"
 import {
   ElCollapse,
   ElCollapseItem,
@@ -25,6 +25,24 @@ const props = defineProps<A2UIComponentProps<CollapseNode>>()
 const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
 
 const { properties } = props.node
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elCollapseRef = ref<InstanceType<typeof ElCollapse>>()
+
+onMounted(() => {
+  const wrapper = (elCollapseRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => props.node.id)
 const className = computed(() => properties.className)
@@ -71,6 +89,7 @@ const items = computed(() => {
 
 <template>
   <ElCollapse
+    ref="elCollapseRef"
     :id="id"
     :class="className"
     :expand-icon-position="expandIconPlacement"
