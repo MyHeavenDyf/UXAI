@@ -1595,9 +1595,16 @@ if (dsId) {
         return
       }
 
+      const modelKey = activeModelKey()
+      if (!modelKey) {
+        console.error("[MakePage] No model selected for skill")
+        setSkillToolCalls([])
+        return
+      }
+
       // Build skill message and send directly
       const skillMessage = `<skill_content name="${skill.name}">\n${result.content}\n</skill_content>`
-      await sendMessage(sessionId, skillMessage)
+      await sendMessage(sessionId, skillMessage, modelKey)
 
       // Clear loading state after sending
       setSkillToolCalls([])
