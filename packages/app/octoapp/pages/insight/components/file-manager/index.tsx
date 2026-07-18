@@ -47,6 +47,8 @@ import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
+import { ALLOWED_EXT, getExt } from "../../lib/upload"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
 import { PreviewPane } from "./preview-pane"
@@ -745,7 +747,7 @@ function FileRow(props: {
             as="button"
             type="button"
             onClick={(e) => e.stopPropagation()}
-            class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[var(--octo-surface-hover)]"
+            class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[var(--octo-surface-hover)] outline-none"
             classList={{ "bg-[var(--octo-surface-hover)]": menuOpen() }}
             style={{ color: "var(--octo-text-secondary)" }}
           >
@@ -758,7 +760,12 @@ function FileRow(props: {
             >
               {/* 五项操作(对齐 Design):添加至会话区 / 在标签页中打开 / 打开所在文件夹 / 下载 / 删除 */}
               <Show when={props.onAddToSession && !props.file.isFolder}>
-                <MenuItem label="添加至会话区" onClick={() => { props.onAddToSession!(props.file); setMenuOpen(false) }} />
+                <MenuItem
+                  label="添加至会话区"
+                  disabled={!ALLOWED_EXT.includes(getExt(props.file.name) as (typeof ALLOWED_EXT)[number])}
+                  disabledHint="当前会话不支持上传该文件格式"
+                  onClick={() => { props.onAddToSession!(props.file); setMenuOpen(false) }}
+                />
                 <MenuDivider />
               </Show>
               <Show when={!props.file.isFolder}>
@@ -780,17 +787,30 @@ function FileRow(props: {
   )
 }
 
-function MenuItem(props: { label: string; onClick: () => void; danger?: boolean }): JSX.Element {
-  return (
+function MenuItem(props: { label: string; onClick: () => void; danger?: boolean; disabled?: boolean; disabledHint?: string }): JSX.Element {
+  const inner = (
     <button
       type="button"
-      onClick={props.onClick}
-      class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] hover:bg-[var(--octo-surface-hover)] transition-colors"
-      style={{ color: props.danger ? "var(--octo-danger, #dc2626)" : "var(--octo-text-primary)", "margin-bottom": props.danger ? "4px" : undefined }}
+      onClick={props.disabled ? undefined : props.onClick}
+      disabled={props.disabled}
+      class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] transition-colors outline-none"
+      classList={{
+        "hover:bg-[var(--octo-surface-hover)]": !props.disabled,
+        "cursor-not-allowed": props.disabled,
+      }}
+      style={{ color: props.danger ? "var(--octo-danger, #dc2626)" : props.disabled ? "var(--octo-text-tertiary, #9ca3af)" : "var(--octo-text-primary)", "margin-bottom": props.danger ? "4px" : undefined }}
     >
       {props.label}
     </button>
   )
+  if (props.disabled && props.disabledHint) {
+    return (
+      <Tooltip placement="left" value={props.disabledHint} contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}>
+        {inner}
+      </Tooltip>
+    )
+  }
+  return inner
 }
 
 function MenuDivider(): JSX.Element {
