@@ -131,7 +131,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   return (
     <div
       class="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0, 0, 0, 0.5)" }}
+      style={{ background: "rgba(0, 0, 0, 0.5)", "z-index": "9999" }}
     >
       <div
         class="flex flex-col items-center"
