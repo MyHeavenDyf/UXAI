@@ -54,7 +54,7 @@ export default async function proto_modify(ctx: ModuleModifyContext): Promise<Mo
     modelKey,
     rootSession,
     userInput,
-    onSessionCreated 
+    onSessionCreated,
   } = ctx
   // 组装输入提示词
   const humanMessage = buildHumanMessage(ctx.input)

@@ -89,7 +89,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             accept="*/*"
             onChange={props.onFileChange}
           />
-          {/* <button
+          <button
             type="button"
             onClick={() => { if (!props.maxAttachments) fileInputRef.click() }}
             disabled={props.maxAttachments}
@@ -97,7 +97,7 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             title={props.maxAttachments ? "最多 5 个文件" : "添加附件"}
           >
             <Icon name="plus" class="size-5" />
-          </button> */}
+          </button>
           <ModelSelectorPopover
             model={props.model}
             triggerAs="button"

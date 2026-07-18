@@ -26,6 +26,7 @@ type ProtoIntentConfirmInput = {
 
 export default async function proto_intent_confirm(input: ProtoIntentConfirmInput): Promise<IntentConfirmResult> {
   const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated } = input
+
   const humanMessage = buildHumanMessage(userInput)
 
   const result = await runChildSession({

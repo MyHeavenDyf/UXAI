@@ -1,5 +1,5 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
@@ -39,6 +39,7 @@ import { PatternMatchPage } from "./modules/preview/pattern-match-page"
 import type { PatternMatchItem } from "./utils/pattern-resource"
 import { readPatternFile, readPatternAssets, readPatternPreview, saveUploadImage, replacePatternAssetPaths } from "./utils/pattern-resource"
 import proto_pattern_block from "./agents/proto_pattern_block"
+import proto_triage from "./agents/proto-triage"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
@@ -701,6 +702,9 @@ function PatternContent() {
           setChildSessionIDs((prev) => [...prev, childID])
         },
         refreshPreview: () => previewApi.refresh(),
+        fileParts: attachments().length > 0
+          ? attachments().map(a => ({ type: "file" as const, mime: a.mime, filename: a.filename, url: a.dataUrl }))
+          : undefined,
       }
 
       // 开启本次调试日志
@@ -750,10 +754,29 @@ function PatternContent() {
         const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
         if (params.id !== sid) return
         if (sid) sessionMap.set(setIsModifying, sid!, false)
-        if ((modifyResult as any)?.reply) {
-          showToast({ title: (modifyResult as any).reply })
-        }
       }else{
+        // 新会话先做分诊，判断是否为闲聊
+        if (!sendingSids().has(sid!)) return
+        const triageCtx = {
+          sdk: intentCtx.sdk,
+          sync: intentCtx.sync,
+          modelKey: intentCtx.modelKey,
+          rootSession: intentCtx.rootSession,
+          userInput: intentCtx.userInput,
+          lastIntent: null,
+          lastPlanner: null,
+          lastModules: [],
+          fileParts: intentCtx.fileParts,
+          onSessionCreated: intentCtx.onSessionCreated,
+        }
+        const triage = await proto_triage(triageCtx as any)
+        if (triage.routing === "chat") {
+          return
+        }
+        if (triage.image_description) {
+          intentCtx.userInput = `[图片描述]: ${triage.image_description}\n[用户需求]: ${text}`
+        }
+
         // 首次创建页面：异步获取标题（不阻塞 pipeline）
         void autoRenameSession({
           sync: sync,
@@ -773,14 +796,14 @@ function PatternContent() {
         const confirmResult = await create_intent_confirm(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
         if (Object.keys(confirmResult.options).length > 0) {
-          if (sid) sessionMap.set(setUserInput, sid!, text)
+          if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
           if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
           startPause(sid!)
           const confirmDir = patternHistoryDir()
           if (confirmDir) {
             await saveCheckpoint(confirmDir, sid!, {
               stage: "intent_confirm",
-              userInput: text,
+              userInput: intentCtx.userInput,
               designSystem: ds,
               rootSessionId: sid!,
               createdAt: Date.now(),

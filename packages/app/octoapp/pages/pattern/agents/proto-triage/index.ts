@@ -23,6 +23,10 @@ export type TriageInputContext = {
   lastModules: any,
   // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
+  // 是否在根 session 上运行（默认 true）
+  isRoot?: boolean
+  // 文件附件
+  fileParts?: { type: "file"; mime: string; filename: string; url: string }[]
 }
 
 export interface TriageModifyItem {
@@ -47,6 +51,7 @@ export interface TriageResult {
   modify: TriageModifyItem[]
   reply: string
   reason: string
+  image_description: string | null
 }
 
 export default async function proto_triage(ctx: TriageInputContext): Promise<TriageResult> {
@@ -59,6 +64,8 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
     lastIntent,
     lastPlanner,
     lastModules,
+    isRoot = true,
+    fileParts,
     onSessionCreated } = ctx
   // 组装输入提示词
   const humanMessage = buildHumanMessage(userInput, lastPlanner, lastModules)
@@ -68,13 +75,14 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
   const triageRes = await runChildSession({
     sync,
     modelKey,
-    isRoot: true,
+    isRoot,
     onSessionCreated,
     agent: AGENT_NAME,
     client: sdk.client,
     prompt: humanMessage,
     directory: sdk.directory,
-    parentSessionID: rootSession
+    parentSessionID: rootSession,
+    fileParts,
   })
   console.log("----- 分诊Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 triage json
@@ -99,8 +107,25 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
     })),
     reply: (triageJson.reply as string) ?? "",
     reason: (triageJson.reason as string) ?? "",
+    image_description: normalizeImageDesc(triageJson.image_description),
   }
-  logAgentParsed(triageRes.childSessionId, returnValue)
+  if (returnValue.routing === "chat") {
+    const sessionId = triageRes.childSessionId
+    const messages = (sync?.data?.message?.[sessionId] ?? []) as Array<Record<string, unknown>>
+    const lastAssistant = messages.findLast((m) => m.role === "assistant")
+    if (lastAssistant) {
+      const parts = (sync?.data?.part?.[lastAssistant.id as string] ?? []) as Array<Record<string, unknown>>
+      const textPart = parts.find((p) => p.type === "text")
+      if (textPart) {
+        await sdk.client.part.update({
+          sessionID: sessionId,
+          messageID: lastAssistant.id as string,
+          partID: textPart.id as string,
+          part: { ...textPart, text: returnValue.reply },
+        }).catch(() => {})
+      }
+    }
+  }
   return returnValue
 }
 
@@ -113,4 +138,12 @@ function buildHumanMessage(userInput:string, lastPlanner: any, lastModules: any)
     `[当前的每个独立模块结构]: ${JSON.stringify(lastModules)}`,
     ``,
   ].join("\n")
+}
+
+function normalizeImageDesc(v: unknown): string | null {
+  if (v === null || v === undefined) return null
+  if (typeof v !== "string") return null
+  const t = v.trim()
+  if (!t || t === "null" || t === "无" || t === "无图片" || t === "无图像" || t === "N/A") return null
+  return t
 }
