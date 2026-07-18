@@ -89,7 +89,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
             <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
           </svg>
-          <span>新建</span>
+          <span>新建对话</span>
         </button>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0 6px" }} />
       </div>
