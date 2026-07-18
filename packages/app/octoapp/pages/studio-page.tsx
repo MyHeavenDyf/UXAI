@@ -1929,7 +1929,13 @@ export default function StudioPage() {
       setAspectRatio("16:9")
     }
     if (value !== "video.generate") clearVideoFrames()
-    if (value !== "image.generate") setAssets([])
+    if (value !== "image.generate") {
+      setAssets([])
+      // 切换到非图片生成模式时清空自定义尺寸，避免带入视频/编辑模式
+      setIsCustomStore(false)
+      setCustomWidth(0)
+      setCustomHeight(0)
+    }
     if (workspaceModeForCapability(value)) {
       createEditorEntry(value)
       return
