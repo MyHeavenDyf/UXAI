@@ -704,13 +704,13 @@ export function registerIpcHandlers(deps: Deps) {
         return { success: false, error: "同名 skill 已存在" }
       }
 
+      cpSync(sourcePath, destDir, { recursive: true })
+
       // Update skills.json with type: "common"
       const skillMdPath = join(destDir, "SKILL.md")
       if (!existsSync(skillMdPath)) {
         return { success: false, error: "所选文件夹中未找到 SKILL.md" }
       }
-
-      cpSync(sourcePath, destDir, { recursive: true })
       
       const config = existsSync(skillConfigPath)
         ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))?.skill
