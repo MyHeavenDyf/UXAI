@@ -37,7 +37,7 @@ function errorDescription(err: unknown): string {
   return "请稍后重试"
 }
 
-export function ConversationHeader(props: { panelBadge?: JSX.Element; sidebarToggle?: JSX.Element } = {}) {
+export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelToggle?: JSX.Element } = {}) {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sync = useSync()
@@ -202,7 +202,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element; sidebarTog
             </Show>
           </div>
 
-          {props.panelBadge}
+          {props.panelToggle}
 
           <DropdownMenu
             gutter={4}
