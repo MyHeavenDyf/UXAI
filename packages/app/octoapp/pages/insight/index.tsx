@@ -26,6 +26,7 @@ import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
 import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { LocalProvider, useLocal } from "@/context/local"
@@ -51,12 +52,14 @@ import {
   type McpSelection,
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
+import { NewSessionView } from "@/components/session"
 import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { encodeFilePath } from "../../context/file/path"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
@@ -1881,29 +1884,9 @@ function InsightContent() {
                   }
                 >
                 <div class="size-full flex flex-col items-center justify-center px-8 py-10 overflow-y-auto">
-                  <IllustrationInsightEmpty width={166} height={166} />
-                  <div
-                    style={{
-                      "margin-top": "12px",
-                      "font-size": "36px",
-                      "font-weight": "600",
-                      "line-height": "1.2",
-                      color: "var(--octo-text-strong)",
-                    }}
-                  >
-                    Octo Insight
-                  </div>
-                  <div
-                    style={{
-                      "margin-top": "8px",
-                      "font-size": "16px",
-                      color: "var(--octo-text-secondary)",
-                    }}
-                  >
-                    AI辅助用户洞察研究
-                  </div>
+                  <NewSessionView worktree="" title="Octo Insight" subtitle="AI辅助用户洞察研究" />
 
-                  <div style={{ "margin-top": "80px", width: "100%", "max-width": "800px" }}>
+                  <div style={{ width: "100%", "max-width": "800px" }}>
                     <div
                       class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
@@ -1937,7 +1920,7 @@ function InsightContent() {
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
                         placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                        class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
+                        class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
                         style={{
                           color: "var(--octo-text-primary)",
                           "font-family": "var(--octo-font)",
@@ -1947,7 +1930,7 @@ function InsightContent() {
                         }}
                       />
 
-                      <div class="flex items-center gap-2 px-2.5 pb-2.5 relative z-10">
+                      <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -2004,16 +1987,21 @@ function InsightContent() {
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit("button")}
                           disabled={sendDisabled()}
                           title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
-                          class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
+                          class="flex-shrink-0 ml-auto"
                           style={{
-                            opacity: sendDisabled() ? 0.4 : 1,
-                            filter: sendDisabled() ? "grayscale(0.5)" : "none",
+                            "width": "32px",
+                            "height": "32px",
+                            "border-radius": "50%",
+                            "background-image": stopping() ? "url(/pauseIcon.svg)" : "url(/IconSend-blue.svg)",
+                            "background-size": "48.4px auto",
+                            "background-position": "-8px -3.5px",
+                            "background-repeat": "no-repeat",
+                            "background-color": "transparent",
+                            "border": "none",
+                            "opacity": sendDisabled() ? "0.6" : "1",
+                            "cursor": sendDisabled() ? "not-allowed" : "pointer",
                           }}
-                        >
-                          <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
-                            <IconStopBlue width={40} height={40} />
-                          </Show>
-                        </button>
+                        />
                       </div>
                     </div>
                   </div>
@@ -2048,38 +2036,48 @@ function InsightContent() {
               />
 
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
-              <div
-                class="flex-1 overflow-y-auto min-h-0"
-                ref={(el) => {
-                  scrollContainerEl = el
-                  autoScroll.scrollRef(el)
-                }}
-                onScroll={autoScroll.handleScroll}
-                onMouseUp={autoScroll.handleInteraction}
-              >
-                <div
-                  ref={autoScroll.contentRef}
-                  class="py-3 flex flex-col gap-0 w-full mx-auto"
-                  style={{ "max-width": "800px" }}
+              <div class="relative flex-1 min-h-0">
+                <ScrollView
+                  class="h-full"
+                  style={{ background: "var(--octo-surface-page)", padding: "0 12px" }}
+                  viewportRef={(el) => {
+                    scrollContainerEl = el
+                    autoScroll.scrollRef(el)
+                  }}
+                  onScroll={autoScroll.handleScroll}
+                  onMouseUp={autoScroll.handleInteraction}
                 >
-                  <For each={userMessageIDs()}>
-                    {(msgID) => (
-                      <InsightTurn
-                        sessionID={params.id!}
-                        messageID={msgID}
-                        status={sessionStatus()}
-                        active={isBusy()}
-                        onOpenResult={handleOpenResult}
-                        taskCards={taskCardsByAnchor().get(msgID) ?? []}
-                        onTaskRefresh={handleTaskRefresh}
-                        onTaskStop={handleTaskStop}
-                        onTaskOpenResult={handleTaskOpenResult}
-                        resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
-                      />
-                    )}
-                  </For>
-                </div>
+                  <div
+                    ref={autoScroll.contentRef}
+                    class="py-3 flex flex-col gap-0 w-full mx-auto"
+                    style={{ "max-width": "800px" }}
+                  >
+                    <For each={userMessageIDs()}>
+                      {(msgID) => (
+                        <InsightTurn
+                          sessionID={params.id!}
+                          messageID={msgID}
+                          status={sessionStatus()}
+                          active={isBusy()}
+                          onOpenResult={handleOpenResult}
+                          taskCards={taskCardsByAnchor().get(msgID) ?? []}
+                          onTaskRefresh={handleTaskRefresh}
+                          onTaskStop={handleTaskStop}
+                          onTaskOpenResult={handleTaskOpenResult}
+                          resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
+                          onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        />
+                      )}
+                    </For>
+                  </div>
+                </ScrollView>
+                <div
+                  class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+                  style={{
+                    height: "24px",
+                    background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+                  }}
+                />
               </div>
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
@@ -2147,7 +2145,7 @@ function InsightContent() {
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
                     placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                    class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
@@ -2157,7 +2155,7 @@ function InsightContent() {
                     }}
                   />
 
-                  <div class="flex items-center gap-2 px-2.5 pb-2.5 relative z-10">
+                  <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
                     <input
                       ref={fileInputRef!}
                       type="file"
@@ -2214,16 +2212,21 @@ function InsightContent() {
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                       disabled={sendDisabled()}
                       title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
-                      class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
+                      class="flex-shrink-0 ml-auto"
                       style={{
-                        opacity: sendDisabled() ? 0.4 : 1,
-                        filter: sendDisabled() ? "grayscale(0.5)" : "none",
+                        "width": "32px",
+                        "height": "32px",
+                        "border-radius": "50%",
+                        "background-image": stopping() ? "url(/pauseIcon.svg)" : "url(/IconSend-blue.svg)",
+                        "background-size": "48.4px auto",
+                        "background-position": "-8px -3.5px",
+                        "background-repeat": "no-repeat",
+                        "background-color": "transparent",
+                        "border": "none",
+                        "opacity": sendDisabled() ? "0.6" : "1",
+                        "cursor": sendDisabled() ? "not-allowed" : "pointer",
                       }}
-                    >
-                      <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
-                        <IconStopBlue width={40} height={40} />
-                      </Show>
-                    </button>
+                    />
                   </div>
                 </div>
               </div>

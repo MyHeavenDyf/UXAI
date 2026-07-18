@@ -376,13 +376,14 @@ const sessionMessagesLoaded = createMemo(() => {
       
       if (detail.action === 'send' && !sending()) {
         const sessionId = params.id
-        if (sessionId) {
+        const modelKey = activeModelKey()
+        if (sessionId && modelKey) {
           if (detail.file) {
             const file = detail.file
             const id = crypto.randomUUID()
             const previewUrl = URL.createObjectURL(file)
             filesById.set(id, file)
-            
+
             setAttachments(prev => [...prev, {
               id,
               filename: file.name,
@@ -392,13 +393,13 @@ const sessionMessagesLoaded = createMemo(() => {
               source: 'external',
               previewUrl
             }])
-            
+
             try {
               const result = await uploadFile(file)
-              setAttachments(prev => prev.map(a => 
+              setAttachments(prev => prev.map(a =>
                 a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
               ))
-              await sendMessage(sessionId, messageText)
+              await sendMessage(sessionId, messageText, modelKey)
               setAttachments([])
               setPrompt("")
             } catch (err) {
@@ -409,9 +410,13 @@ const sessionMessagesLoaded = createMemo(() => {
               setPrompt(messageText)
             }
           } else {
-            await sendMessage(sessionId, messageText)
-            setAttachments([])
-            setPrompt("")
+            await new Promise(resolve => setTimeout(resolve, 100))
+            const att = attachments().find(a => a.id === filesById.keys().next().value)
+            if (att?.status === 'done' || attachments().length === 0) {
+              await sendMessage(sessionId, messageText, modelKey)
+              setAttachments([])
+              setPrompt("")
+            }
           }
         }
       } else if (detail.action === 'queue') {
@@ -992,11 +997,12 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点击 [确认开始生成] → 自动发送隐藏指令 */
   function handleConfirmPlan(identifier?: string) {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (planButtonDisabled()) return   // 防重复
     setOptimisticConfirmed(true)
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
-    sendMessage(sid, cmd).catch((err) => {
+    sendMessage(sid, cmd, modelKey).catch((err) => {
       console.error("[MakePage] confirm plan failed", err)
       // 发送失败时回滚乐观锁,允许重试
       setOptimisticConfirmed(false)
@@ -1027,10 +1033,11 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点 [进入] → 发送 [enter-plan],agent 据此输出设计方案 artifact */
   function handleEnterPlan() {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
-    sendMessage(sid, "[enter-plan]").catch((err) => {
+    sendMessage(sid, "[enter-plan]", modelKey).catch((err) => {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
     })
@@ -1039,10 +1046,11 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
   function handleSkipPlan() {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
-    sendMessage(sid, "[skip-plan]").catch((err) => {
+    sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
       console.error("[MakePage] skip plan failed", err)
       setOptimisticIntentResolved(false)
     })
@@ -1129,7 +1137,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }) {
     try {
       const done = attachments().filter(a => a.status === "done")
       
@@ -1304,6 +1312,9 @@ const sessionMessagesLoaded = createMemo(() => {
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
+    // 在异步操作前捕获 model key，避免后续被其他 effect 修改
+    const capturedModelKey = activeModelKey()
+    if (!capturedModelKey) return
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
@@ -1323,7 +1334,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, text)
+      await sendMessage(sid, text, capturedModelKey)
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
@@ -2372,8 +2383,9 @@ if (dsId) {
              </Show>
            }>
               {/* 消息列表 */}
+              <div class="relative flex-1 min-h-0">
               <ScrollView
-                class="flex-1 min-h-0"
+                class="h-full"
                 style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
@@ -2407,6 +2419,14 @@ if (dsId) {
                   </For>
                 </div>
               </ScrollView>
+              <div
+                class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+                style={{
+                  height: "24px",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+                }}
+              />
+              </div>
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
