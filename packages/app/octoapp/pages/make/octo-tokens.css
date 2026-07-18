@@ -183,6 +183,26 @@
   flex-shrink: 0;
 }
 
+/* ── Tab scroller (thin scrollbar, matches ScrollView thumb) ── */
+.octo-tab-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-weak-base) transparent;
+}
+.octo-tab-scroller::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.octo-tab-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.octo-tab-scroller::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.octo-tab-scroller::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
+}
+
 /* ── Action bar ─────────────────────────── */
 
 .octo-action-bar {
