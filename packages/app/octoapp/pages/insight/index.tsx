@@ -627,7 +627,9 @@ function InsightContent() {
 
   const observePageArea = (el: HTMLDivElement) => {
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setContainerWidth(e.contentRect.width)
+      // 忽略 0 宽:切到别的模块时本页被隐藏(display:none)会量到 0,
+      // 不能让它污染 containerWidth → 保留最后已知宽,切回来不闪。
+      for (const e of entries) if (e.contentRect.width > 0) setContainerWidth(e.contentRect.width)
     })
     ro.observe(el)
     onCleanup(() => ro.disconnect())
@@ -666,36 +668,10 @@ function InsightContent() {
   const toggleSidebarDrawer = () => { setPanelOverlayOpen(false); setSidebarOverlayOpen((v) => !v) }
   const togglePanelDrawer = () => { setSidebarOverlayOpen(false); setPanelOverlayOpen((v) => !v) }
 
-  // 动画三态:
-  //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
-  //   panelExpanded  —— 驱动聊天列宽度的目标态(滑入时延一帧置真,从 100% 过渡到 chatWidth)
-  //   panelAnimating —— 仅切换期间为真;开启 width transition。拖拽分隔线不触发本 effect,
-  //                     故 transition 关闭,分隔线跟手不滞后。
-  const PANEL_ANIM_MS = 280
-  const [panelMounted, setPanelMounted] = createSignal(false)
-  const [panelExpanded, setPanelExpanded] = createSignal(false)
-  const [panelAnimating, setPanelAnimating] = createSignal(false)
-  let panelExitTimer: ReturnType<typeof setTimeout> | undefined
-  let panelAnimEndTimer: ReturnType<typeof setTimeout> | undefined
-
-  // v2(SPEC-INS-014 §10)不再 defer:panelVisible 现在只依赖 params.id,已有会话时挂载
-  // 组件那一刻就是 true(不像旧版靠"tabs 从空到非空"制造一次真实变化)——defer:true 会吃掉
-  // 这个"首次就是 true"的初始值,导致 panelMounted 永远不被置真、面板整个不渲染。
-  createEffect(on(panelVisible, (show) => {
-    if (panelExitTimer) { clearTimeout(panelExitTimer); panelExitTimer = undefined }
-    setPanelAnimating(true)
-    if (show) {
-      setPanelMounted(true)
-      // 双 rAF:确保面板先以 width:0(聊天 100%)落地一帧,再过渡到展开宽,首次也有滑入
-      requestAnimationFrame(() => requestAnimationFrame(() => setPanelExpanded(true)))
-    } else {
-      setPanelExpanded(false)
-      panelExitTimer = setTimeout(() => setPanelMounted(false), PANEL_ANIM_MS)
-    }
-    // 动画窗口结束后关掉 animating,使后续拖拽无 transition
-    if (panelAnimEndTimer) clearTimeout(panelAnimEndTimer)
-    panelAnimEndTimer = setTimeout(() => setPanelAnimating(false), PANEL_ANIM_MS + 30)
-  }))
+  // 面板挂载/聊天宽度直接跟 panelVisible(无过渡动画)。
+  // 旧版的 panelMounted/panelExpanded/panelAnimating + 双 rAF 动画状态机已移除:
+  // 它与响应式 containerWidth 会在"切走→切回/快速改宽"时竞态(漏取消的 rAF 把 expanded
+  // 拉回 true 却已卸载面板 → 右侧灰底)。鲁棒性优先,去掉动画,状态无从 desync。
 
   /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
   function revealPanel() {
@@ -1902,8 +1878,8 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
-  // ResultViewer 渲染在两处复用:常态 inline(收起按钮=手动收起)与窄屏浮层(收起按钮=关浮层)。
-  // 二者按宽度互斥挂载(浮层仅在 responsivePanelCollapsed 时可开,此时 inline 的 panelMounted 恒为 false)。
+  // ResultViewer 渲染在两处复用:常态 inline(收起按钮=手动收起)与窄屏抽屉(收起按钮=关抽屉)。
+  // 二者按宽度互斥挂载(抽屉仅在 responsivePanelCollapsed 时可开,此时 inline 的 panelVisible 恒为 false)。
   const renderResultViewer = (onCollapse: () => void) => (
     <ResultViewer
       tabs={tabStore.tabs()}
@@ -1962,16 +1938,15 @@ function InsightContent() {
         <div ref={observePageArea} class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板 ────
-             展开态:宽度 = effectiveChatWidth(用户拖拽宽,被容器宽钳制;窄屏先挤聊天、面板守 480)。
-             收起态:撑满 100%,内容居中 reading-width。任务面板 flex:1 跟随重排(SPEC-INS-009 §3)。
-             panelAnimating 仅切换期间为真 → 拖拽分隔线时无 transition,跟手不滞后。 */}
+             面板可见时:宽度 = effectiveChatWidth(用户拖拽宽,被容器宽钳制;窄屏先挤聊天、面板守 480)。
+             面板不可见(收起/无会话)时:撑满 100%,内容居中 reading-width。任务面板 flex:1 跟随重排。
+             无 width 过渡动画(直接跟 panelVisible),分隔线拖拽跟手。 */}
         <div
           class="flex flex-col overflow-hidden relative"
           style={{
-            width: panelExpanded() ? `${effectiveChatWidth()}px` : "100%",
+            width: panelVisible() ? `${effectiveChatWidth()}px` : "100%",
             flex: "0 0 auto",
             "min-width": "0",
-            transition: panelAnimating() ? `width ${PANEL_ANIM_MS}ms ease` : "none",
             background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
@@ -2358,10 +2333,9 @@ function InsightContent() {
         </div>
 
         {/* ── 任务面板:有产物且未收起时挂载;收起动画播完才卸载(SPEC-INS-009) ── */}
-        <Show when={panelMounted()}>
-          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）—— 仅在动画结束的展开稳态显示,避免滑动中错位
+        <Show when={panelVisible()}>
+          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）
               top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
-          <Show when={panelExpanded() && !panelAnimating()}>
           <div
             class="absolute flex items-center justify-center group"
             style={{ top: "20px", bottom: "20px", left: `${effectiveChatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
@@ -2385,9 +2359,8 @@ function InsightContent() {
               />
             </div> */}
           </div>
-          </Show>
 
-          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排,收起时被挤到 0 并裁切) */}
+          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排) */}
           {renderResultViewer(() => setPanelCollapsed(true))}
         </Show>
 
