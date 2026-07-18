@@ -965,7 +965,6 @@ export default function StudioPage() {
       setDeletedImageIds(new Set<string>())
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
-      setFileManagerDetailView(false)
       setShowFileManager(false)
       setStudioViewPref("mode", "canvas")
       setMode("preview")
@@ -3751,7 +3750,14 @@ if (!headerTitle.pendingRename) return
               showFileManagerTab={true}
               onFileManagerClick={() => {
                 if (fileManagerDetailView()) {
-                  backFromFileManagerDetail()
+                  if (showFileManager()) {
+                    // 当前在详情页 → 返回网格视图
+                    backFromFileManagerDetail()
+                  } else {
+                    // 从 canvas 切回来 → 恢复之前的详情视图
+                    setShowFileManager(true)
+                    setStudioViewPref("mode", "file-manager")
+                  }
                 } else if (canvasTabImages().length === 0) {
                   // 无图片 tab，保持在文件管理，不切换
                 } else {
