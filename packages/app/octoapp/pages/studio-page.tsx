@@ -241,6 +241,9 @@ export default function StudioPage() {
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [showFileManager, setShowFileManager] = createSignal(true)
   const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
+  // 记录文件管理详情页当前查看的 resultId / imageId，从 canvas 切回时恢复
+  let fileManagerDetailResultId: string | undefined
+  let fileManagerDetailImageId: string | undefined
   const [fileManagerGenPending, setFileManagerGenPending] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
@@ -937,6 +940,8 @@ export default function StudioPage() {
   }
 
   function selectFileManagerMedia(input: { resultID: string; imageID: string }) {
+    fileManagerDetailResultId = input.resultID
+    fileManagerDetailImageId = input.imageID
     batch(() => {
       setShowStudioCanvas(true)
       setShowFileManager(true)
@@ -3754,7 +3759,11 @@ if (!headerTitle.pendingRename) return
                     // 当前在详情页 → 返回网格视图
                     backFromFileManagerDetail()
                   } else {
-                    // 从 canvas 切回来 → 恢复之前的详情视图
+                    // 从 canvas 切回来 → 恢复之前的详情视图及选中项
+                    if (fileManagerDetailResultId && fileManagerDetailImageId) {
+                      setSelectedResultId(fileManagerDetailResultId)
+                      setSelectedImageId(fileManagerDetailImageId)
+                    }
                     setShowFileManager(true)
                     setStudioViewPref("mode", "file-manager")
                   }
