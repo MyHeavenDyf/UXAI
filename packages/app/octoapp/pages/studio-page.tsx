@@ -225,6 +225,10 @@ export default function StudioPage() {
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
   const processedAutoAddResults = new Set<string>()
+  const [studioViewPref, setStudioViewPref] = persisted(
+    Persist.global("studio.view.preference"),
+    createStore({ mode: "file-manager" as "canvas" | "file-manager" }),
+  )
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [showFileManager, setShowFileManager] = createSignal(true)
@@ -328,10 +332,6 @@ export default function StudioPage() {
     createStore({ width: 468 }),
   )
   const [studioCenterWidth, setStudioCenterWidth] = createSignal(studioCenterStore.width)
-  const [studioViewPref, setStudioViewPref] = persisted(
-    Persist.global("studio.view.preference"),
-    createStore({ mode: "file-manager" as "canvas" | "file-manager" }),
-  )
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
     sessionID: () => params.id,
     globalSDK,
@@ -812,6 +812,17 @@ export default function StudioPage() {
     const r2 = filtered.length === r.images.length ? r : { ...r, images: filtered }
     return r2.images.length > 0 ? r2 : undefined
   })
+  // Keep showFileManager in sync with the persisted preference.
+  // Falls back to file manager when the current session has no generated images.
+  createEffect(() => {
+    const hasImages = (canvasResult()?.images.length ?? 0) > 0
+    if (!hasImages) {
+      setShowFileManager(true)
+      return
+    }
+    setShowFileManager(studioViewPref.mode !== "canvas")
+  })
+
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     // isBusy 最优先，确保正在生成时显示 loading，而非被旧 result 的缓存图片掩盖
     if (isBusy()) return "running"
@@ -1094,7 +1105,17 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
-        const prefFileManager = studioViewPref.mode === "file-manager"
+        // 无图片数据时直接显示文件管理，避免展示空 canvas / 生成中 loading
+        const hasImages = (() => {
+          const turns = buildStudioTurns({
+            messages: id ? dataStore.message[id] ?? [] : [],
+            parts: dataStore.part,
+            currentSessionID: id,
+          })
+          const latest = [...turns].reverse().find((t) => (t.result?.images.length ?? 0) > 0)
+          return (latest?.result?.images.length ?? 0) > 0
+        })()
+        const prefFileManager = !hasImages || studioViewPref.mode !== "canvas"
         setShowStudioCanvas(true)
         setShowFileManager(prefFileManager)
         setFileManagerDetailView(false)
@@ -3765,6 +3786,7 @@ if (!headerTitle.pendingRename) return
                           batch(() => {
                             setShowStudioCanvas(true)
                             setShowFileManager(false)
+                            setStudioViewPref("mode", "canvas")
                             if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
                               // 已有 tab → 只切选中
                               setSelectedImageId(id)
