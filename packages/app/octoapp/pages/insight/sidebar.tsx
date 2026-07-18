@@ -1,6 +1,7 @@
 import { createSignal, Show, type JSX } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { InsightSessionList } from "./components/session-list"
+import { Icon } from "@opencode-ai/ui/icon"
 
 /**
  * InsightSidebar —— insight 自带的左侧会话栏(SPEC-INS-010 §11:废弃 _shell 后侧栏归 insight)
@@ -102,7 +103,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
             class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
             <span class="flex items-center gap-[12px] min-w-0">
-              <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+              <Icon name="tab-cowork" size="normal" style={{ color: "rgba(10,89,247,1)" }} />
               <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                 Octo Insight
               </span>
