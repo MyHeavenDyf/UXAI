@@ -70,24 +70,27 @@ export function StudioResultCard(props: StudioResultCardProps) {
     if (!props.turn.createdAt) return ""
     return new Date(props.turn.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
   }
+  const is1x1 = () => {
+    const img = props.turn.result?.images?.[0]
+    if (img?.width && img?.height) return img.width === img.height
+    return props.turn.result?.aspectRatio === "1:1"
+  }
   const isPortrait = () => {
     const img = props.turn.result?.images?.[0]
-    if (!img) return false
-    if (img.width && img.height) return img.height > img.width
+    if (img?.width && img?.height) return img.height > img.width
     return PORTRAIT_RATIOS.includes(props.turn.result?.aspectRatio ?? "1:1")
   }
   const isLandscape = () => {
     const img = props.turn.result?.images?.[0]
-    if (!img) return false
-    if (img.width && img.height) return img.width > img.height
+    if (img?.width && img?.height) return img.width > img.height
     return LANDSCAPE_RATIOS.includes(props.turn.result?.aspectRatio ?? "1:1")
   }
   const isSinglePortrait = () => isPortrait() && (props.turn.result?.images.length ?? 0) === 1
   const isSingleLandscape = () => isLandscape() && (props.turn.result?.images.length ?? 0) === 1
   const isMultiPortrait = () => isPortrait() && (props.turn.result?.images.length ?? 0) > 1
   const isMultiLandscape = () => isLandscape() && (props.turn.result?.images.length ?? 0) > 1
-  const isSingle1x1 = () => props.turn.result?.aspectRatio === "1:1" && (props.turn.result?.images.length ?? 0) === 1
-  const isMulti1x1 = () => props.turn.result?.aspectRatio === "1:1" && (props.turn.result?.images.length ?? 0) > 1
+  const isSingle1x1 = () => is1x1() && (props.turn.result?.images.length ?? 0) === 1
+  const isMulti1x1 = () => is1x1() && (props.turn.result?.images.length ?? 0) > 1
   const statusLabel = () => {
     if (status() === "queued") {
       if (props.turn.result?.order != null && props.turn.result.order > 0) return "排队中"

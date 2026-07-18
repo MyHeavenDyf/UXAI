@@ -62,6 +62,7 @@ import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basi
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
   createBlobUrlFromDataUrl,
@@ -140,7 +141,14 @@ export default function StudioPage() {
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
-  onCleanup(() => { toaster.clear() })
+  onCleanup(() => {
+    toaster.clear()
+    // 离开 studio 页面时清除所有 session 的筛选状态
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(STUDIO_FILTER_STATE_KEY_PREFIX)) localStorage.removeItem(key)
+    }
+  })
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -957,7 +965,6 @@ export default function StudioPage() {
       setDeletedImageIds(new Set<string>())
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
-      setFileManagerDetailView(false)
       setShowFileManager(false)
       setStudioViewPref("mode", "canvas")
       setMode("preview")
@@ -1921,7 +1928,13 @@ export default function StudioPage() {
       setAspectRatio("16:9")
     }
     if (value !== "video.generate") clearVideoFrames()
-    if (value !== "image.generate") setAssets([])
+    if (value !== "image.generate") {
+      setAssets([])
+      // 切换到非图片生成模式时清空自定义尺寸，避免带入视频/编辑模式
+      setIsCustomStore(false)
+      setCustomWidth(0)
+      setCustomHeight(0)
+    }
     if (workspaceModeForCapability(value)) {
       createEditorEntry(value)
       return
@@ -3737,7 +3750,14 @@ if (!headerTitle.pendingRename) return
               showFileManagerTab={true}
               onFileManagerClick={() => {
                 if (fileManagerDetailView()) {
-                  backFromFileManagerDetail()
+                  if (showFileManager()) {
+                    // 当前在详情页 → 返回网格视图
+                    backFromFileManagerDetail()
+                  } else {
+                    // 从 canvas 切回来 → 恢复之前的详情视图
+                    setShowFileManager(true)
+                    setStudioViewPref("mode", "file-manager")
+                  }
                 } else if (canvasTabImages().length === 0) {
                   // 无图片 tab，保持在文件管理，不切换
                 } else {
@@ -3759,7 +3779,7 @@ if (!headerTitle.pendingRename) return
               }}
               studioCenterWidth={studioCenterWidth()}
               showStudioCenter={showStudioCenter()}
-              hideFileManagerFilter={studioLeftOverlayOpen()}
+              hideFileManagerFilter={studioLeftOverlayOpen() || fileManagerDetailView()}
               turns={displayTurns()}
               canGenerateVideo={canGenerateVideo()}
               sessionID={params.id}
