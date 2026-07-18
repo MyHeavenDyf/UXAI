@@ -1540,9 +1540,6 @@ if (dsId) {
     const state = skillsMenuState()
     if (!state) return
 
-    const sessionId = params.id
-    if (!sessionId) return
-
     // Show loading indicator
     setSkillToolCalls(prev => [...prev, {
       name: "skill",
@@ -1554,6 +1551,30 @@ if (dsId) {
     setPrompt("")
 
     try {
+      // Get or create session
+      let sessionId = params.id
+      if (!sessionId) {
+        const dir = sdk.directory
+        if (!dir) {
+          console.error("[MakePage] No directory for skill")
+          setSkillToolCalls([])
+          return
+        }
+        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+        const session = result.data as Session | undefined
+        if (!session) {
+          console.error("[MakePage] Failed to create session for skill")
+          setSkillToolCalls([])
+          return
+        }
+        const dsId = selectedDesignSystem()
+        if (dsId) {
+          localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
+        }
+        navigate(`/make/${session.id}`)
+        sessionId = session.id
+      }
+
       const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
       const result = await api?.getSkillContent?.(skill.name)
 
