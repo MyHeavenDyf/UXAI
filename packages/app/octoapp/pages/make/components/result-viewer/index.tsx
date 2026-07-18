@@ -242,17 +242,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                   palette={palette()}
                   onPaletteChange={setPalette}
                   inspecting={inspecting()}
-                  onInspectToggle={htmlMode() === "edit" ? undefined : () => {
-                    const nextInspecting = !inspecting()
-                    setInspecting(nextInspecting)
-                    tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
-                    if (nextInspecting && editing()) {
-                      setEditing(false)
-                    }
-                    if (nextInspecting && drawing()) {
-                      setDrawing(false)
-                    }
-                  }}
+                  onInspectToggle={undefined}
                   editing={editing()}
                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
                     const nextEditing = !editing()
