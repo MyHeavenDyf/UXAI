@@ -19,6 +19,30 @@ const SIZE_OPTIONS = [
   { label: "4K", desc: "(长边≥4000)" },
 ]
 
+export const STUDIO_FILTER_STATE_KEY_PREFIX = "octo:studio:file-manager:filter-state:v2:"
+
+type PersistedFilterSnapshot = { source: string[]; ratio: string[]; size: string[] }
+
+function readFilterState(sessionID: string): { activeTab: FileFilterTab; tabs: Record<string, PersistedFilterSnapshot> } | null {
+  try {
+    const raw = localStorage.getItem(STUDIO_FILTER_STATE_KEY_PREFIX + sessionID)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    const obj = parsed as Record<string, unknown>
+    if (typeof obj.activeTab !== "string" || !obj.tabs || typeof obj.tabs !== "object") return null
+    return { activeTab: obj.activeTab as FileFilterTab, tabs: obj.tabs as Record<string, PersistedFilterSnapshot> }
+  } catch {
+    return null
+  }
+}
+
+function writeFilterState(sessionID: string, state: { activeTab: FileFilterTab; tabs: Record<string, PersistedFilterSnapshot> }) {
+  try {
+    localStorage.setItem(STUDIO_FILTER_STATE_KEY_PREFIX + sessionID, JSON.stringify(state))
+  } catch { /* noop */ }
+}
+
 const SOURCE_TO_CAPABILITY: Record<string, string> = {
   "图片生成": "image.generate",
   "视频生成": "video.generate",
@@ -197,16 +221,64 @@ export function StudioFileManager(props: {
   const [confirmedRatio, setConfirmedRatio] = createSignal<Set<string>>(new Set<string>())
   const [confirmedSize, setConfirmedSize] = createSignal<Set<string>>(new Set<string>())
 
-  // 每个 tab 保留独立的筛选记录（同一 session 内有效）
+  // 每个 tab 保留独立的筛选记录（同一 session 内有效，且持久化到 localStorage）
   type SavedFilterSnapshot = { source: Set<string>; ratio: Set<string>; size: Set<string> }
   const savedTabFilters = new Map<FileFilterTab, SavedFilterSnapshot>()
   let lastSessionID: string | undefined
 
+  // 初始化：从 localStorage 恢复当前 session 的筛选状态
+  {
+    const sid = props.sessionID
+    if (sid) {
+      lastSessionID = sid
+      const saved = readFilterState(sid)
+      if (saved) {
+        setActiveFilter(saved.activeTab)
+        for (const [tabKey, snap] of Object.entries(saved.tabs)) {
+          savedTabFilters.set(tabKey as FileFilterTab, {
+            source: new Set<string>(snap.source),
+            ratio: new Set<string>(snap.ratio),
+            size: new Set<string>(snap.size),
+          })
+        }
+        const active = savedTabFilters.get(saved.activeTab)
+        if (active) {
+          batch(() => {
+            setConfirmedSource(new Set(active.source))
+            setConfirmedRatio(new Set(active.ratio))
+            setConfirmedSize(new Set(active.size))
+            for (const v of active.source) sourceFilter.toggle(v)
+            for (const v of active.ratio) ratioFilter.toggle(v)
+            for (const v of active.size) sizeFilter.toggle(v)
+          })
+        }
+      }
+    }
+  }
+
+  function persistCurrentState() {
+    const sid = props.sessionID
+    if (!sid) return
+    const tabs: Record<string, PersistedFilterSnapshot> = {}
+    for (const [tabKey, snap] of savedTabFilters) {
+      tabs[tabKey] = {
+        source: Array.from(snap.source),
+        ratio: Array.from(snap.ratio),
+        size: Array.from(snap.size),
+      }
+    }
+    writeFilterState(sid, { activeTab: activeFilter(), tabs })
+  }
+
   createEffect(() => {
     const sid = props.sessionID
     if (sid !== lastSessionID) {
+      // 清理旧 session 的持久化筛选记录
+      if (lastSessionID) {
+        try { localStorage.removeItem(STUDIO_FILTER_STATE_KEY_PREFIX + lastSessionID) } catch { /* noop */ }
+      }
       lastSessionID = sid
-      // 切换 session → 清空所有 tab 的筛选记录
+      // 切换 session → 清空所有 tab 的筛选记录（新 session 从头开始）
       savedTabFilters.clear()
       setActiveFilter("all")
       batch(() => {
@@ -251,6 +323,7 @@ export function StudioFileManager(props: {
     saveCurrentTabFilters()
     setActiveFilter(tab)
     loadTabFilters(tab)
+    persistCurrentState()
   }
 
   function syncLiveFromConfirmed() {
@@ -274,6 +347,7 @@ export function StudioFileManager(props: {
       setConfirmedSize(size)
     })
     savedTabFilters.set(activeFilter(), { source, ratio, size })
+    persistCurrentState()
     setShowFilter(false)
   }
 

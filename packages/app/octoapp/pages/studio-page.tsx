@@ -62,6 +62,7 @@ import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basi
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
   createBlobUrlFromDataUrl,
@@ -140,7 +141,14 @@ export default function StudioPage() {
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
-  onCleanup(() => { toaster.clear() })
+  onCleanup(() => {
+    toaster.clear()
+    // 离开 studio 页面时清除所有 session 的筛选状态
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(STUDIO_FILTER_STATE_KEY_PREFIX)) localStorage.removeItem(key)
+    }
+  })
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -3759,7 +3767,7 @@ if (!headerTitle.pendingRename) return
               }}
               studioCenterWidth={studioCenterWidth()}
               showStudioCenter={showStudioCenter()}
-              hideFileManagerFilter={studioLeftOverlayOpen()}
+              hideFileManagerFilter={studioLeftOverlayOpen() || fileManagerDetailView()}
               turns={displayTurns()}
               canGenerateVideo={canGenerateVideo()}
               sessionID={params.id}
