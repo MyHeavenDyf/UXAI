@@ -29,18 +29,22 @@ const SOURCE_TO_CAPABILITY: Record<string, string> = {
 }
 
 function getRatioCategory(item: FileManagerMedia): string | null {
+  // 优先用 aspectRatio 字段，避免编辑后的微小像素偏差导致误判
+  const ratio = item.aspectRatio
+  if (ratio) {
+    if (ratio === "1:1") return "正方形"
+    if (["16:9", "3:2", "4:3"].includes(ratio)) return "横版"
+    if (["2:3", "3:4", "9:16"].includes(ratio)) return "竖版"
+  }
   const w = item.width
   const h = item.height
   if (w && h) {
+    // 容差 1%：宽高差在 1% 以内视为正方形
+    const maxDim = Math.max(w, h)
+    if (Math.abs(w - h) / maxDim <= 0.01) return "正方形"
     if (w > h) return "横版"
     if (h > w) return "竖版"
-    return "正方形"
   }
-  const ratio = item.aspectRatio
-  if (!ratio) return null
-  if (ratio === "1:1") return "正方形"
-  if (["16:9", "3:2", "4:3"].includes(ratio)) return "横版"
-  if (["2:3", "3:4", "9:16"].includes(ratio)) return "竖版"
   return null
 }
 
@@ -260,7 +264,7 @@ export function StudioFileManager(props: {
     })
   }
 
-  function handleConfirm() {
+  function applyAndCloseFilter() {
     const source = new Set<string>(sourceFilter.state())
     const ratio = new Set<string>(ratioFilter.state())
     const size = new Set<string>(sizeFilter.state())
@@ -271,6 +275,10 @@ export function StudioFileManager(props: {
     })
     savedTabFilters.set(activeFilter(), { source, ratio, size })
     setShowFilter(false)
+  }
+
+  function handleConfirm() {
+    applyAndCloseFilter()
   }
 
   // Extract media directly from turns prop (same reactive signal as center column)
@@ -344,11 +352,7 @@ export function StudioFileManager(props: {
       sourceFilter.reset()
       ratioFilter.reset()
       sizeFilter.reset()
-      setConfirmedSource(new Set<string>())
-      setConfirmedRatio(new Set<string>())
-      setConfirmedSize(new Set<string>())
     })
-    setShowFilter(false)
   }
 
   function updateOverlayStyle() {
@@ -396,7 +400,7 @@ export function StudioFileManager(props: {
       class="studio-file-manager"
     >
       <div class="studio-file-manager-header">
-        <Show when={props.canGenerateVideo} fallback={<span />}>
+        <Show when={props.canGenerateVideo && !globalEmpty()} fallback={<span />}>
           <div class="studio-file-manager-tabs">
             <For each={FILE_FILTER_TABS}>
               {(tab) => (
@@ -498,11 +502,11 @@ export function StudioFileManager(props: {
       </ScrollView>
       <Show when={showFilter()}>
         <Portal>
-          <div class="studio-filter-overlay" style={overlayStyle()} onClick={() => setShowFilter(false)}>
+          <div class="studio-filter-overlay" style={overlayStyle()} onClick={applyAndCloseFilter}>
             <div class="studio-filter-dialog" onClick={(e) => e.stopPropagation()}>
               <div class="studio-filter-dialog-header">
                 <span class="studio-filter-dialog-title">筛选</span>
-                <button type="button" class="studio-filter-dialog-close" onClick={() => setShowFilter(false)}>
+                <button type="button" class="studio-filter-dialog-close" onClick={applyAndCloseFilter}>
                   <svg width="12.14" height="12.14" viewBox="0 0 12.14 12.14" fill="none">
                     <path d="M1 1L11.14 11.14" stroke="currentColor" stroke-width="1" stroke-linecap="round" />
                     <path d="M11.14 1L1 11.14" stroke="currentColor" stroke-width="1" stroke-linecap="round" />
