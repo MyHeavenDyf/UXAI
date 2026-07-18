@@ -798,7 +798,7 @@ function MenuItem(props: { label: string; onClick: () => void; danger?: boolean;
         "hover:bg-[var(--octo-surface-hover)]": !props.disabled,
         "cursor-not-allowed": props.disabled,
       }}
-      style={{ color: props.danger ? "var(--octo-danger, #dc2626)" : props.disabled ? "var(--octo-text-tertiary, #9ca3af)" : "var(--octo-text-primary)", "margin-bottom": props.danger ? "4px" : undefined }}
+      style={{ color: props.danger ? "var(--octo-danger, #dc2626)" : props.disabled ? "var(--octo-text-disabled, #BFBFBF)" : "var(--octo-text-primary)", "margin-bottom": props.danger ? "4px" : undefined }}
     >
       {props.label}
     </button>
