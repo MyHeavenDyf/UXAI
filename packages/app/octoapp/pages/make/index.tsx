@@ -1597,9 +1597,7 @@ if (dsId) {
 
       // Build skill message and send directly
       const skillMessage = `<skill_content name="${skill.name}">\n${result.content}\n</skill_content>`
-      const modelKey = activeModelKey()
-      if (!modelKey) return
-      await sendMessage(sessionId, skillMessage, modelKey)
+      await sendMessage(sessionId, skillMessage)
 
       // Clear loading state after sending
       setSkillToolCalls([])
