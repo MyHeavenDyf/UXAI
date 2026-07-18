@@ -2,7 +2,7 @@ import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount,
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
-import { STUDIO_VIDEO_ASPECT_RATIOS, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoQualityMode } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
@@ -862,44 +862,6 @@ function StyleMenu(props: { value: string; canUseSeedream: boolean; onSelect: (v
   )
 }
 
-function getModelResolutionKey(styleModel: string): string {
-  if (styleModel === "hdesign") return "hdesign"
-  if (styleModel === "seedream-5-lite") return "2k"
-  if (styleModel.includes("2k")) return "2k"
-  if (styleModel.includes("3k")) return "3k"
-  if (styleModel.includes("4k")) return "4k"
-  return "default"
-}
-
-// 精确维度映射 [width, height]，未列出的比例按 1:1 基准等比计算
-const STUDIO_SIZE_MAP: Record<string, Record<string, [number, number]>> = {
-  hdesign: { "1:1": [1280, 1280] },
-  "2k":    { "1:1": [2048, 2048], "2:3": [1664, 2496], "3:4": [1728, 2304], "9:16": [1600, 2848] },
-  "3k":    { "1:1": [3072, 3072], "2:3": [2496, 3744], "3:4": [2592, 3456], "9:16": [2304, 4096] },
-  "4k":    { "1:1": [4096, 4096], "2:3": [3328, 4992], "3:4": [3520, 4704], "9:16": [3040, 5504] },
-  default: { "1:1": [1024, 1024], "2:3": [800,  1200], "3:4": [768,  1024], "9:16": [720,  1280] },
-}
-
-function getDefaultDimensions(styleModel: string, aspectRatio: string): { width: number; height: number } {
-  const key = getModelResolutionKey(styleModel)
-  const map = STUDIO_SIZE_MAP[key] ?? STUDIO_SIZE_MAP.default
-  // 优先精确匹配，其次用 default 映射，最后等比回退
-  const exact = map[aspectRatio] ?? STUDIO_SIZE_MAP.default[aspectRatio]
-  if (exact) return { width: exact[0], height: exact[1] }
-  // 逆向比例：宽高互换
-  const [w, h] = aspectRatio.split(":").map(Number)
-  if (w && h && w !== h) {
-    const inverse = `${h}:${w}`
-    const inv = map[inverse] ?? STUDIO_SIZE_MAP.default[inverse]
-    if (inv) return { width: inv[1], height: inv[0] }
-  }
-  // 回退：按 1:1 基准等比计算
-  const base = (map["1:1"] ?? STUDIO_SIZE_MAP.default["1:1"])[0]
-  if (!w || !h || w === h) return { width: base, height: base }
-  if (w > h) return { width: Math.round(base * w / h), height: base }
-  return { width: base, height: Math.round(base * h / w) }
-}
-
 function ImageSettings(props: {
   aspectRatio: StudioAspectRatio
   count: 1 | 2 | 3 | 4
@@ -915,7 +877,7 @@ function ImageSettings(props: {
 }): JSX.Element {
   const isCustom = () => props.isCustom
   const setIsCustom = (v: boolean) => props.onIsCustom(v)
-  const defaultDims = () => getDefaultDimensions(props.styleModel, props.aspectRatio)
+  const defaultDims = () => getDefaultDimensions(props.styleModel, props.aspectRatio)!
   const [width, setWidth] = createSignal(isCustom() ? props.customWidth : defaultDims().width)
   const [height, setHeight] = createSignal(isCustom() ? props.customHeight : defaultDims().height)
   // 关闭弹框时将当前宽高同步到父组件，确保 toolbar text 更新
@@ -943,7 +905,7 @@ function ImageSettings(props: {
   })
   createEffect(() => {
     if (isCustom()) return
-    const dims = getDefaultDimensions(props.styleModel, props.aspectRatio)
+    const dims = getDefaultDimensions(props.styleModel, props.aspectRatio)!
     setWidth(dims.width)
     setHeight(dims.height)
   })
@@ -951,7 +913,7 @@ function ImageSettings(props: {
   function tryMatchRatio(w: number, h: number) {
     if (!w || !h) return
     for (const r of STUDIO_ASPECT_RATIOS) {
-      const dims = getDefaultDimensions(props.styleModel, r)
+      const dims = getDefaultDimensions(props.styleModel, r)!
       if (dims.width === w && dims.height === h) {
         setIsCustom(false)
         props.onIsCustom(false)
