@@ -42,6 +42,7 @@ import {
   type SortKey,
 } from "../../utils/insight-file-store"
 import { revealFileInFolder } from "../../utils/local-file-ops"
+import { getDesktopApi } from "../../lib/electron-api"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
@@ -286,11 +287,11 @@ function FileManagerInner(props: {
       const blob = content.encoding === "base64"
         ? await fetch(`data:${content.mimeType};base64,${content.content}`).then((r) => r.blob())
         : new Blob([content.content], { type: content.mimeType })
-      const api = (window as any).api
+      const api = getDesktopApi()
       if (api?.saveFilePicker) {
         const filePath = await api.saveFilePicker({ defaultPath: file.name })
         if (!filePath) return
-        await api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        await api.writeFileBuffer!(filePath, await blob.arrayBuffer())
         showToast({ title: "下载完成", description: file.name, variant: "success", duration: 2000 })
         tracker.interaction({ module: "insight", name: "files-download-file" })
         return
@@ -391,7 +392,7 @@ function FileManagerInner(props: {
     tracker.interaction({ module: "insight", name: "files-add-to-session" })
   }
   function handleOpenInExplorer(file: InsightFile) {
-    revealFileInFolder(file.path)
+    void revealFileInFolder(file.path)
     tracker.interaction({ module: "insight", name: "files-open-in-explorer" })
   }
 

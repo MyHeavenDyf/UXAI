@@ -186,7 +186,10 @@ export function createMainWindow() {
   })
 
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const { responseHeaders = {} } = details
+    const responseHeaders = details.responseHeaders ?? {}
+    if (details.webContentsId === win.webContents.id && shouldInjectWebRequestAuth(details.resourceType)) {
+      void writeLocalStorageAuth(win, responseAuth(responseHeaders)).then(undefined, () => {})
+    }
     upsertKeyValue(responseHeaders, "Access-Control-Allow-Origin", ["*"])
     upsertKeyValue(responseHeaders, "Access-Control-Allow-Headers", ["*"])
     callback({ responseHeaders })
@@ -467,6 +470,55 @@ function isLocalStorageAuth(value: unknown): value is { uiplusToken?: string | n
     (typeof auth.uiplusToken === "string" || auth.uiplusToken === null || auth.uiplusToken === undefined) &&
     (typeof auth.uiplusCookie === "string" || auth.uiplusCookie === null || auth.uiplusCookie === undefined)
   )
+}
+
+function responseAuth(headers: Record<string, string | string[]>) {
+  return {
+    uiplusToken: firstHeaderValue(headers, "uiplusToken")?.trim() || null,
+    uiplusCookie: cookieHeaderValue(headers, "set-cookie"),
+  }
+}
+
+async function writeLocalStorageAuth(win: BrowserWindow, auth: { uiplusToken: string | null; uiplusCookie: string | null }) {
+  if (!auth.uiplusToken && !auth.uiplusCookie) return
+  await win.webContents.executeJavaScript(
+    `{
+      ${auth.uiplusToken ? `localStorage.setItem("uiplusToken", ${JSON.stringify(auth.uiplusToken)});` : ""}
+      ${auth.uiplusCookie ? `localStorage.setItem("uiplusCookie", ${JSON.stringify(auth.uiplusCookie)});` : ""}
+    }`,
+    true,
+  )
+}
+
+function firstHeaderValue(headers: Record<string, string | string[]>, name: string) {
+  return headerValues(headers, name)[0] ?? null
+}
+
+function cookieHeaderValue(headers: Record<string, string | string[]>, name: string) {
+  return headerValues(headers, name)
+    .flatMap((item) => item.split(/,(?=\s*[^;,\s]+=)/))
+    .map((item) => item.split(";")[0]?.trim())
+    .filter((item) => item)
+    .join("; ")
+}
+
+function headerValues(headers: Record<string, string | string[]>, name: string) {
+  const key = Object.keys(headers).find((item) => item.toLowerCase() === name.toLowerCase())
+  if (!key) return []
+  return (Array.isArray(headers[key]) ? headers[key] : [headers[key]])
+    .flatMap((item) => expandHeaderValue(item))
+}
+
+function expandHeaderValue(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return [value]
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!Array.isArray(parsed)) return [value]
+    return parsed.filter((item): item is string => typeof item === "string")
+  } catch {
+    return [value]
+  }
 }
 
 function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: any) {

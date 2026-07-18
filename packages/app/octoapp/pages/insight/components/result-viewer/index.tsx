@@ -15,6 +15,7 @@ import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
 import { ensureLocalMarkdownFile } from "../../utils/local-resource"
+import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
@@ -444,7 +445,7 @@ function PathErrorFallback(props: {
 // spec: docs/specs/ui/output-renderers.md §6.A,决策: ADR-009。
 //
 // 返回桌面壳缺失的 API 方法名列表(便于 toast 给用户精确报错 + 知会开发团队补壳)。
-// SOT: packages/app/src/pages/insight/lib/electron-api.ts;handoff 同步清单见 docs/intranet-handoff.md §1.6。
+// SOT: ../../lib/electron-api.ts 的 DesktopApi;handoff 同步清单见 octo-agent 文档仓 docs/intranet-handoff.md §4。
 type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder"
 function missingDesktopApi(required: ApiKey[]): string[] {
   const api = getDesktopApi()
@@ -484,21 +485,9 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     if (openBusy()) return
     tracker.interaction({ module: "insight", name: "file-open-in-app", extend: JSON.stringify({ fileType: trackFileType() }) })
     if (isPath()) {
-      const missing = missingDesktopApi(["openPath"])
-      if (missing.length > 0) { notifyMissingApi(missing); return }
-      const api = getDesktopApi()!
       setOpenBusy(true)
-      const filePath = props.tab.filePath!
-      console.log("[octo:path] open-local", { filePath })
       try {
-        const openResult = (await api.openPath!(filePath)) as unknown as string | undefined
-        if (typeof openResult === "string" && openResult.length > 0) {
-          console.error("[octo:path] open-failed", { filePath, reason: openResult })
-          showToast({ title: "唤起本地应用失败", description: "请安装对应应用或在系统设置中关联打开方式", variant: "error" })
-        }
-      } catch (err) {
-        console.error("[octo:path] open-failed", { filePath, err })
-        showToast({ title: "无法打开文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+        await openFileLocally(props.tab.filePath!)
       } finally {
         setOpenBusy(false)
       }
@@ -530,11 +519,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       const openResult = (await api.openPath!(localPath)) as unknown as string | undefined
       if (typeof openResult === "string" && openResult.length > 0) {
         console.error("[octo:office] open-failed", { localPath, reason: openResult })
-        showToast({
-          title: "唤起本地应用失败",
-          description: "请安装 Excel / WPS 或在系统设置中关联打开方式",
-          variant: "error",
-        })
+        showToast({ title: "无法打开文件", description: NO_APP_HINT, variant: "error" })
       }
     } catch (err) {
       console.error("[octo:office] open-failed", { uri: props.tab.uri, err })
@@ -589,17 +574,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     if (revealBusy()) return
     tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: trackFileType() }) })
     if (isPath()) {
-      const missing = missingDesktopApi(["showItemInFolder"])
-      if (missing.length > 0) { notifyMissingApi(missing); return }
-      const api = getDesktopApi()!
-      const filePath = props.tab.filePath!
-      console.log("[octo:path] reveal-local", { filePath })
-      try {
-        api.showItemInFolder!(filePath)
-      } catch (err) {
-        console.error("[octo:path] reveal-failed", { filePath, err })
-        showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
-      }
+      await revealFileInFolder(props.tab.filePath!)
       return
     }
     if (!props.tab.uri) return
@@ -616,7 +591,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       // 幂等键传 uri(资源身份),不传 tab.id —— 见 utils/local-resource.ts 文件头。
       const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.uri, fname, projectDir() || undefined, params.id)
       console.log("[octo:office] reveal-show", { localPath })
-      api.showItemInFolder!(localPath)
+      await revealFileInFolder(localPath)
     } catch (err) {
       console.error("[octo:office] reveal-failed", { uri: props.tab.uri, err })
       showToast({
