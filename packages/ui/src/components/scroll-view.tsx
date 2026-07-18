@@ -230,7 +230,7 @@ export function ScrollView(props: ScrollViewProps) {
           style={{
             height: `${thumbHeight()}px`,
             transform: `translateY(${thumbTop()}px)`,
-            "z-index": 12, // ensure it displays over content
+            "z-index": 100, // ensure it displays over content
           }}
         />
       </Show>
