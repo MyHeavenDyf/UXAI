@@ -609,7 +609,38 @@ function InsightContent() {
   // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
   // 进入会话就有内容可看,不必等第一个产物 tab 打开)。无会话时聊天居中铺满。
   const [panelCollapsed, setPanelCollapsed] = createSignal(false)
-  const panelVisible = createMemo(() => !!params.id && !panelCollapsed())
+
+  // ── 响应式布局：视窗缩小时依次隐藏右侧面板(文件管理)→左侧边栏 ──
+  // < 1000px:自动收起右侧面板(文件管理/ResultViewer),保证对话区可读
+  // < 768px:隐藏左侧边栏,对话区占满全宽;同时提供浮层唤回按钮
+  const [responsivePanelCollapsed, setResponsivePanelCollapsed] = createSignal(false)
+  const [responsiveSidebarHidden, setResponsiveSidebarHidden] = createSignal(false)
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = createSignal(false)
+
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 999px)")
+    const update = () => setResponsivePanelCollapsed(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 767px)")
+    const update = () => {
+      setResponsiveSidebarHidden(mql.matches)
+      if (!mql.matches) setSidebarOverlayOpen(false)
+    }
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // 导航时自动关闭侧栏浮层(切会话/新建/删除都会触发 params.id 变化)
+  createEffect(on(() => params.id, () => setSidebarOverlayOpen(false)))
+
+  // panelVisible:综合用户手动收起 + 响应式强制收起
+  const panelVisible = createMemo(() => !!params.id && !panelCollapsed() && !responsivePanelCollapsed())
 
   // 动画三态:
   //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
@@ -1838,13 +1869,22 @@ function InsightContent() {
       // 与点击拦截配套,堵住 cmd/中键经 <a href> 绕行的口
       onSessionHref={(sessionID: string) => (isChildSession(sessionID) ? "" : `/insight/${sessionID}`)}
     >
-      <div class="size-full flex overflow-hidden relative">
+       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
         {/* top 槽注入 UXAI 自家的项目/产品切换器(走 ProjectInfo → DialogProjectOnboarding,
             与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
-        <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        {/* 响应式:视窗<768px时侧栏常驻隐藏,可通过汉堡按钮唤出浮层 */}
+        <Show when={!responsiveSidebarHidden()}>
+          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        </Show>
+        <Show when={responsiveSidebarHidden() && sidebarOverlayOpen()}>
+          <div class="absolute inset-0 z-20" style={{ background: "rgba(0,0,0,0.3)" }} onClick={() => setSidebarOverlayOpen(false)} />
+          <div class="absolute left-0 top-0 bottom-0 z-30">
+            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+          </div>
+        </Show>
 
         {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
         <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
@@ -2024,8 +2064,19 @@ function InsightContent() {
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
+                sidebarToggle={responsiveSidebarHidden() ? (
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOverlayOpen((v) => !v)}
+                    title="侧栏"
+                    class="flex items-center justify-center size-6 rounded-md transition-colors hover:bg-black/5 active:bg-black/10"
+                    style={{ color: "rgba(0,0,0,0.6)" }}
+                  >
+                    <Icon name="menu" class="size-4" />
+                  </button>
+                ) : undefined}
                 panelBadge={
-                  !!params.id && panelCollapsed() && !panelAnimating()
+                  !!params.id && panelCollapsed() && !responsivePanelCollapsed() && !panelAnimating()
                     ? (
                       <button
                         type="button"
