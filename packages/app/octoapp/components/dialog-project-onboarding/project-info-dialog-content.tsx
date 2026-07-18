@@ -69,7 +69,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
       const versions = await fetchVersions(firstAvailable.id)
       if (!versions?.length) return
       setStore("version", versions[0])
-    })
+    }).catch(() => {})
   })
 
   createEffect(() => {
