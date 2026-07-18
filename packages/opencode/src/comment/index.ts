@@ -37,6 +37,9 @@ const FileComment = Schema.Struct({
   attachments: Schema.optional(Schema.Array(CommentAttachment)),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
+  commenterAccount: Schema.optional(Schema.String),
+  commenterName: Schema.optional(Schema.String),
+  commenterAvatar: Schema.optional(Schema.String),
 })
 
 export type CommentAttachment = Schema.Schema.Type<typeof CommentAttachment>

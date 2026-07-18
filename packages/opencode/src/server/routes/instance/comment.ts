@@ -35,6 +35,9 @@ const FileCommentSchema = z.object({
   attachments: z.array(CommentAttachmentSchema).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  commenterAccount: z.string().optional(),
+  commenterName: z.string().optional(),
+  commenterAvatar: z.string().optional(),
 })
 
 export const CommentRoutes = lazy(() =>

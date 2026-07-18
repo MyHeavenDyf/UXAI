@@ -34,6 +34,9 @@ const FileCommentSchema = Schema.Struct({
   attachments: Schema.optional(Schema.Array(CommentAttachmentSchema)),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
+  commenterAccount: Schema.optional(Schema.String),
+  commenterName: Schema.optional(Schema.String),
+  commenterAvatar: Schema.optional(Schema.String),
 })
 
 const CommentLoadQuery = Schema.Struct({
