@@ -628,8 +628,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       }
     }),
     w3: Effect.fnUntraced(function* (input: Info) {
-      input.name = "W3"
-
       const snapshot = yield* Effect.tryPromise({
         try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
         catch: () => undefined,
@@ -637,6 +635,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
 
       const w3Provider = snapshot?.["w3"]
       if (w3Provider) {
+        input.name = w3Provider.name
         const models: Record<string, Model> = {}
         for (const [key, model] of Object.entries(w3Provider.models)) {
           models[key] = fromModelsDevModel(w3Provider, model)
