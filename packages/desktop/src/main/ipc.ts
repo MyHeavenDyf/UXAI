@@ -9,6 +9,7 @@ import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
+import log from "electron-log/main.js"
 
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-start
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-end
@@ -103,9 +104,21 @@ function isInsightSessionWorktreePath(resolved: string): boolean {
   return i !== -1 && i + 2 < segs.length && (segs[i + 2] === "uploads" || segs[i + 2] === "outputs")
 }
 
-// 产物落地幂等(spec §2/§4.2):同一张卡(namespace=tab.id)首次 materialize 后记下其
+// 网络错误可读化:fetch 把真实原因(DNS / TLS / 代理 / 连接被拒)藏在 error.cause 链里,
+// IPC 序列化只保留顶层 message("fetch failed")——展开整条 cause 链拼进 message,
+// 让渲染端错误提示与 main.log 都能看到可定位的原因,而不是四个字母查到死。
+function describeNetworkError(err: unknown): string {
+  const parts: string[] = []
+  for (let cur: unknown = err; cur instanceof Error; cur = cur.cause) parts.push(cur.message)
+  return parts.length > 0 ? parts.join(" ← ") : String(err)
+}
+
+// 产物落地幂等(spec §2/§4.2):同一个资源(namespace=资源 URI)首次 materialize 后记下其
 // outputs 本地路径,本会话内稳定 —— 后续预览/编辑/打开都命中这份(含用户改动),绝不 re-fetch。
 // 用主进程内存表替代旧的 `.octo/downloads/<id>/` 目录分桶,使 outputs 扁平、显性。
+// namespace 必须是资源身份(URI)而非卡片身份(tab.id/card.id):同一份产物会被多张卡引用
+// (任务卡 vs「查询结果」turn 的路径 A 卡),按卡片 id 记会让同一 URI 各落一份、第二份撞名成
+// `xxx (2)`,且每查询一次多一份。调用方约定见 app 侧 utils/local-resource.ts 文件头。
 // 跨重启该表清空 → 同名产物会按 §3.3 加后缀新建(少见边界,spec 接受)。
 const materializedByNamespace = new Map<string, string>()
 
@@ -274,13 +287,36 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
-  ipcMain.on("show-item-in-folder", (_event: IpcMainEvent, path: string) => {
-    shell.showItemInFolder(path)
-  })
+  // shell.showItemInFolder 返回 void,路径不存在时静默 no-op —— 用户从磁盘改名/移走文件后
+  // 点「打开所在文件夹」会毫无反应。故这里先探路径再定位,把结果回传给渲染端。
+  // 约定为「返回结果对象、永不 throw」(与 open-path 透传 shell.openPath 错误串同源):
+  // 老调用方不 await 也拿不到 rejected promise,不会退化成 unhandled rejection。
+  ipcMain.handle(
+    "show-item-in-folder",
+    async (_event: IpcMainInvokeEvent, path: string): Promise<{ ok: boolean; reason?: "not-found" }> => {
+      try {
+        await lstat(path)
+      } catch {
+        log.warn("[octo:path] show-item-in-folder target missing", { path })
+        return { ok: false, reason: "not-found" }
+      }
+      shell.showItemInFolder(path)
+      return { ok: true }
+    },
+  )
 
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    // net.fetch 走 Chromium 网络栈(系统代理/PAC、系统证书),与渲染端/浏览器行为一致;
+    // Node/undici fetch 只认启动时的环境变量代理,内网"浏览器可达、直连不通"的机器上必挂。
+    const res = await net.fetch(url).catch((err: unknown) => {
+      const reason = describeNetworkError(err)
+      log.error("[octo:worktree] download-resource failed", { url, reason })
+      throw new Error(`下载失败: ${reason} (${url})`)
+    })
+    if (!res.ok) {
+      log.error("[octo:worktree] download-resource failed", { url, status: res.status, statusText: res.statusText })
+      throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    }
     const buf = Buffer.from(await res.arrayBuffer())
     await mkdir(dirname(destPath), { recursive: true })
     await writeFile(destPath, buf)
@@ -364,8 +400,23 @@ export function registerIpcHandlers(deps: Deps) {
           : join(app.getPath("temp"), "octo")
       await ensureWorktreeDir(dir)
       const destPath = collisionFreePath(dir, safeName)
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      // net.fetch 走 Chromium 网络栈,理由同 download-resource;失败落 main.log(electron-log),
+      // 裸 console.log 进不了 main.log,内网远程排障只有这份文件可看。
+      const res = await net.fetch(url).catch((err: unknown) => {
+        const reason = describeNetworkError(err)
+        log.error("[octo:worktree] result-materialize-failed", { url, filename: safeName, sessionId, reason })
+        throw new Error(`下载失败: ${reason} (${url})`)
+      })
+      if (!res.ok) {
+        log.error("[octo:worktree] result-materialize-failed", {
+          url,
+          filename: safeName,
+          sessionId,
+          status: res.status,
+          statusText: res.statusText,
+        })
+        throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      }
       const buf = Buffer.from(await res.arrayBuffer())
       await writeFile(destPath, buf)
       materializedByNamespace.set(namespace, destPath)
@@ -653,13 +704,13 @@ export function registerIpcHandlers(deps: Deps) {
         return { success: false, error: "同名 skill 已存在" }
       }
 
+      cpSync(sourcePath, destDir, { recursive: true })
+
       // Update skills.json with type: "common"
       const skillMdPath = join(destDir, "SKILL.md")
       if (!existsSync(skillMdPath)) {
         return { success: false, error: "所选文件夹中未找到 SKILL.md" }
       }
-
-      cpSync(sourcePath, destDir, { recursive: true })
       
       const config = existsSync(skillConfigPath)
         ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))?.skill

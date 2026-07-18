@@ -168,7 +168,6 @@ export function StudioMediaPreview(props: { image: StudioImage; class?: string; 
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}
-        poster={props.image.thumbnailUrl}
         class={props.class}
         controls={props.controls}
         muted={!props.controls}
@@ -214,16 +213,22 @@ export function StudioResultCanvas(props: {
   turns?: StudioTurnData[]
   canGenerateVideo?: boolean
   sessionID?: string
+  fileManagerGenPending?: boolean
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
   const isVideoResult = createMemo(() => props.result?.capability === "video.generate" || isVideoMedia(props.image))
   // 文件管理详情页生成中时隐藏图片和 canvas stage，展示 loading fallback
   const fileManagerLoading = createMemo(() =>
-    props.fileManagerDetailView &&
-    (props.status === "queued" || props.status === "running" || props.status === "submitting"),
+    props.fileManagerDetailView && props.fileManagerGenPending,
   )
-  const showImage = createMemo(() => fileManagerLoading() ? undefined : props.image)
+  const showImage = createMemo(() => {
+    if (fileManagerLoading()) return undefined
+    return props.image
+  })
+  const shouldShowCanvas = createMemo(() =>
+    !!showImage() || (props.showFileManager === true && !fileManagerLoading()),
+  )
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
@@ -259,7 +264,7 @@ export function StudioResultCanvas(props: {
 
   return (
     <>
-      <Show when={showImage()} fallback={
+      <Show when={shouldShowCanvas()} fallback={
         <div class="h-full flex flex-col items-center justify-center text-center">
           <Show when={props.status === "queued" || props.status === "running" || props.status === "submitting"} fallback={
             <Show when={(props.status === "failed" || props.status === "create_failed") && props.result?.error} fallback={<StudioEmptyState />}>
@@ -277,7 +282,7 @@ export function StudioResultCanvas(props: {
           </Show>
         </div>
       }>
-        {(image) => {
+        {(() => {
           function tabLabelFor(tabImage: StudioImage, index: number): string {
             const stored = props.tabLabels?.[tabImage.id]
             if (stored) return stored
@@ -305,11 +310,13 @@ export function StudioResultCanvas(props: {
                   </svg>
                   <span class="studio-canvas-label-text">文件管理</span>
                 </span>
-                <span class="studio-canvas-tab-divider" />
+                <Show when={(props.tabImages && props.tabImages.length > 0) || (!props.showFileManager && props.onSelectImage && props.result?.images && props.result.images.length > 0)}>
+                  <span class="studio-canvas-tab-divider" />
+                </Show>
               </Show>
-              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
+              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager && props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
-                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : [props.result!.images[0]]
+                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager ? [props.result!.images[0]] : [])
                   const [isTabTruncated, setIsTabTruncated] = createSignal(false)
                   let tabLabelRef!: HTMLSpanElement
                   let tabResizeObserver: ResizeObserver | undefined
@@ -397,29 +404,36 @@ export function StudioResultCanvas(props: {
                 />
               </Show>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
-              <div ref={setCanvasStageRef} class="studio-canvas-stage">
+                <div style="display:flex;flex-direction:column;flex:1;min-height:0;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
-                  <button
-                    type="button"
-                    class="studio-file-manager-back-btn"
-                    onClick={() => props.onFileManagerBack?.()}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "margin-right": "4px", "flex-shrink": "0" }}>
-                      <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                    <span>返回</span>
-                  </button>
+                  <div class="studio-file-manager-back-bar">
+                    <button
+                      type="button"
+                      class="studio-file-manager-back-btn"
+                      onClick={() => props.onFileManagerBack?.()}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ "flex-shrink": "0" }}>
+                        <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                      <span>返回</span>
+                    </button>
+                  </div>
                 </Show>
+              <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
-                  <Show
-                    when={isVideoMedia(image())}
-                    fallback={<StudioMediaPreview image={image()} class={`studio-canvas-image ${getImageOrientation(image())}`} onClick={() => setFullscreenImage(image())} />}
-                  >
-                    <StudioVideoPlayer
-                      src={image().remoteUrl ?? image().url}
-                      class={`studio-canvas-image ${getImageOrientation(image())}`}
-                      mount={props.videoPlayerMount}
-                    />
+                  <Show when={showImage()}>
+                    {(img) => (
+                      <Show
+                        when={isVideoMedia(img())}
+                        fallback={<StudioMediaPreview image={img()} class={`studio-canvas-image ${getImageOrientation(img())}`} onClick={() => setFullscreenImage(img())} />}
+                      >
+                        <StudioVideoPlayer
+                          src={img().remoteUrl ?? img().url}
+                          class={`studio-canvas-image ${getImageOrientation(img())}`}
+                          mount={props.videoPlayerMount}
+                        />
+                      </Show>
+                    )}
                   </Show>
                 </div>
                 <div ref={setFloatingActionsRef} class="studio-canvas-floating-actions">
@@ -509,13 +523,13 @@ export function StudioResultCanvas(props: {
                   </button>
                 </div>
               </div>
+              </div>
               {props.children}
               </Show>
             </div>
           </>
           )
-        }
-        }
+        })()}
       </Show>
       {fullscreenImage() && (
         <Portal mount={props.fullscreenMount?.() || document.body}>
@@ -651,7 +665,7 @@ export function StudioDetails(props: {
           <InfoRow label="时长" value={props.result.duration ? `${props.result.duration}秒` : "-"} />
         </Show>
         <Show when={!isVideoResult() && !isEditResult()}>
-          <InfoRow label="分辨率" value={props.image?.width && props.image.height ? `${props.image.width} x ${props.image.height}` : "-"} />
+          <InfoRow label="分辨率" value={props.image?.width && props.image?.height ? `${props.image.width} x ${props.image.height}` : "-"} />
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />
