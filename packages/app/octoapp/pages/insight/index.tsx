@@ -618,7 +618,7 @@ function InsightContent() {
   const [sidebarOverlayOpen, setSidebarOverlayOpen] = createSignal(false)
 
   createEffect(() => {
-    const mql = window.matchMedia("(max-width: 999px)")
+    const mql = window.matchMedia("(max-width: 1580px)")
     const update = () => setResponsivePanelCollapsed(mql.matches)
     update()
     mql.addEventListener("change", update)
