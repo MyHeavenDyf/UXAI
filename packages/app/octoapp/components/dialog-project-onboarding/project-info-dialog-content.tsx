@@ -5,13 +5,14 @@ import { createEffect, createResource, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
-import { fetchVersions, topVersion, cancelTopVersion } from "@/network/pipelineRequest"
+import { fetchDomains, fetchProductLines, fetchProducts, fetchVersions, topVersion, cancelTopVersion } from "@/network/pipelineRequest"
 interface ProjectInfoDialogContentProps {
   domain?: Domain
   productLine?: ProductLine
   product?: Product
   version?: Version
   disabled?: boolean
+  shouldAutoSelect?: boolean
   onSelectionChange?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
 
@@ -25,6 +26,8 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
 
   const [versionPopoverOpen, setVersionPopoverOpen] = createSignal(false)
   const [versionFetchProductId, setVersionFetchProductId] = createSignal<number | undefined>(undefined)
+  const [versionAutoSelected, setVersionAutoSelected] = createSignal(!props.shouldAutoSelect)
+  const [autoSelectDone, setAutoSelectDone] = createSignal(false)
   let pinActionActive = false
   let versionCloseGuard = false
 
@@ -42,6 +45,37 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     const current = store.version
     if (!current) return
     if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
+  })
+
+  createEffect(() => {
+    if (!props.shouldAutoSelect) return
+    if (autoSelectDone()) return
+    setAutoSelectDone(true)
+    fetchDomains().then(async domains => {
+      if (!domains?.length) return
+      const firstDomain = domains[0]
+      setStore("domain", firstDomain)
+      const productLines = await fetchProductLines(firstDomain.id)
+      if (!productLines?.length) return
+      const firstProductLine = productLines[0]
+      setStore("productLine", firstProductLine)
+      const products = await fetchProducts(firstProductLine.id)
+      if (!products?.length) return
+      const firstAvailable = products.find(p => !(p.isSecret && !p.isProductMember))
+      if (!firstAvailable) return
+      setStore("product", firstAvailable)
+      setVersionAutoSelected(true)
+      setVersionFetchProductId(firstAvailable.id)
+      const versions = await fetchVersions(firstAvailable.id)
+      if (!versions?.length) return
+      setStore("version", versions[0])
+    })
+  })
+
+  createEffect(() => {
+    if (versionAutoSelected()) return
+    if (!store.product) return
+    setVersionFetchProductId(store.product.id)
   })
 
   createEffect(() => {

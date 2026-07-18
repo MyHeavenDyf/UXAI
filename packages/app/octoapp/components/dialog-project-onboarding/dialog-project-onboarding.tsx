@@ -41,6 +41,8 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
 
   const lastSelection = server.projects.lastSelection()
 
+  const shouldAutoSelect = !lastSelection?.domain && !lastSelection?.productLine && !lastSelection?.product && !lastSelection?.version
+
   const [selections, setSelections] = createStore({
     domain: lastSelection?.domain,
     productLine: lastSelection?.productLine,
@@ -124,6 +126,7 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   }
 
   const hasDirectory = createMemo(() => directory().length > 0)
+  const canConfirm = createMemo(() => hasDirectory() && !!selections.product && !!selections.version)
 
   return (
     <div
@@ -144,13 +147,14 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         <Splash class="w-[80px] h-[80px]" />
         <img src="/octo-agent.png" alt="Octo Agent" style={{ width: "212px", height: "42px", "margin-top": "20px" }} />
         <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "24px", "letter-spacing": "2px", "text-align": "center", color: "rgba(110, 115, 122, 1)", "margin-top": "4px" }}>您的全能设计与调研专家</div>
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%", color: "rgba(0,0,0,0.3)" }}>选择项目&版本</div>
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%" }}>选择项目&版本</div>
         <div style={{ width: "100%", height: "40px", "margin-top": "4px" }}>
           <ProjectInfoDialogContent
             domain={selections.domain}
             productLine={selections.productLine}
             product={selections.product}
             version={selections.version}
+            shouldAutoSelect={shouldAutoSelect}
             onSelectionChange={(data) => {
               setSelections("domain", data.domain)
               setSelections("productLine", data.productLine)
@@ -194,11 +198,11 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={!hasDirectory()}
+          disabled={!canConfirm()}
           class="w-full h-[40px] rounded-md text-[14px] font-medium text-white"
           style={{
-            background: hasDirectory() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
-            cursor: hasDirectory() ? "pointer" : "not-allowed",
+            background: canConfirm() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
+            cursor: canConfirm() ? "pointer" : "not-allowed",
             color: "#fff",
           }}
         >
