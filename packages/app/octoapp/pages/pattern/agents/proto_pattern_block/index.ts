@@ -6,6 +6,7 @@ import {
   type PatternEntry,
   type PatternMatchItem,
 } from '../../utils/pattern-resource'
+import { PATTERN_BLOCK_FORMAT } from './schema'
 
 const AGENT_NAME = "proto_pattern_block"
 
@@ -39,6 +40,7 @@ export default async function proto_pattern_block(input: ProtoPatternBlockInput)
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: PATTERN_BLOCK_FORMAT.schema,
   })
 
   const matchJson = extractJson(result.text)

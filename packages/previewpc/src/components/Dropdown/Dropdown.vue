@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import type { Component } from "vue"
 import { ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus"
 import type { DropdownNode } from "../types"
@@ -26,6 +26,24 @@ const placementEnum = {
 const props = defineProps<A2UIComponentProps<DropdownNode>>()
 const { properties } = props.node
 const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elDropdownRef = ref<InstanceType<typeof ElDropdown>>()
+
+onMounted(() => {
+  const wrapper = (elDropdownRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => props.node.id)
 const className = computed(() => properties.className)
@@ -74,6 +92,7 @@ watch(
 
 <template>
   <ElDropdown
+    ref="elDropdownRef"
     :id="id"
     :class="className"
     :placement="placement"

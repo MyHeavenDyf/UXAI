@@ -1,5 +1,5 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
@@ -34,6 +34,8 @@ import { exportZip } from "./utils/preview-handler/zip"
 import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify-json-quick'
 import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleCodeToHtml as codeToHtmlHandler, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
+import proto_triage from "./agents/proto-triage"
+import proto_replanner from "./agents/proto-replanner"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { PatternMatchItem } from "./utils/pattern-resource"
 import { readPatternFile } from "./utils/pattern-resource"
@@ -673,7 +675,12 @@ function PatternContent() {
           setChildSessionIDs((prev) => [...prev, childID])
         },
         refreshPreview: () => previewApi.refresh(),
+        fileParts: attachments().length > 0
+          ? attachments().map(a => ({ type: "file" as const, mime: a.mime, filename: a.filename, url: a.dataUrl }))
+          : undefined,
       }
+
+      setAttachments([])
 
       // 开启本次调试日志
       logStartSession(sid, text)
@@ -722,10 +729,29 @@ function PatternContent() {
         const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
         if (params.id !== sid) return
         if (sid) sessionMap.set(setIsModifying, sid!, false)
-        if ((modifyResult as any)?.reply) {
-          showToast({ title: (modifyResult as any).reply })
-        }
       }else{
+        // 新会话先做分诊，判断是否为闲聊
+        if (!sendingSids().has(sid!)) return
+        const triageCtx = {
+          sdk: intentCtx.sdk,
+          sync: intentCtx.sync,
+          modelKey: intentCtx.modelKey,
+          rootSession: intentCtx.rootSession,
+          userInput: intentCtx.userInput,
+          lastIntent: null,
+          lastPlanner: null,
+          lastModules: [],
+          fileParts: intentCtx.fileParts,
+          onSessionCreated: intentCtx.onSessionCreated,
+        }
+        const triage = await proto_triage(triageCtx as any)
+        if (triage.routing === "chat") {
+          return
+        }
+        if (triage.attachment_description) {
+          intentCtx.userInput = `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${text}`
+        }
+
         // 首次创建页面：异步获取标题（不阻塞 pipeline）
         void autoRenameSession({
           sync: sync,
@@ -745,7 +771,7 @@ function PatternContent() {
         const confirmResult = await create_intent_confirm(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
         if (Object.keys(confirmResult.options).length > 0) {
-          if (sid) sessionMap.set(setUserInput, sid!, text)
+          if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
           if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
           startPause(sid!)
           return
@@ -1046,7 +1072,41 @@ function PatternContent() {
     const sid = params.id
     if (!sid) return
     tracker.interaction({ module: "prototype", name: "download-result" })
-    await download({ planner: lastPlanner()[sid] ?? null, mergedA2UI: pendingPreviewData()[sid] ?? null })
+    const mk = activeModelKey()
+    if (!mk) {
+      showToast({ title: "请先选择模型" })
+      return
+    }
+    const mergedA2UI = pendingPreviewData()[sid] as Record<string, unknown> | null
+    if (!mergedA2UI) {
+      showToast({ title: "暂无可下载的内容" })
+      return
+    }
+
+    // 独立流程：重新生成 planner 后下载，不影响主流程数据
+    let planner: Record<string, unknown> | null = null
+    let replannerSessionId: string | undefined
+    try {
+      const result = await proto_replanner({
+        sdk,
+        sync,
+        modelKey: mk,
+        rootSession: sid,
+        finalA2UIJson: mergedA2UI,
+        onSessionCreated: (childID: string) => { replannerSessionId = childID },
+      })
+      planner = result as unknown as Record<string, unknown>
+    } catch (err) {
+      console.error("[PatternPage] proto_replanner failed", err)
+      if (err instanceof Error && err.message === "aborted") return
+      const error = classifyAIError(err)
+      showToast({ title: error.title || "重新生成失败" })
+      return
+    } finally {
+      if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
+    }
+
+    await download({ planner, mergedA2UI })
   }
 
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP

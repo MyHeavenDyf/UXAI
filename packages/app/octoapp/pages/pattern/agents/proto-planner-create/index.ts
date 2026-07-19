@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
+import { PLANNER_CREATE_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_planner_create"
 
@@ -47,6 +48,7 @@ export default async function proto_planner_create(input: ProtoPlannerCreateInpu
     prompt: humanMessage,
     sync,
     onSessionCreated,
+    schema: PLANNER_CREATE_FORMAT.schema,
   })
   console.log("----- 布局规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 planner json

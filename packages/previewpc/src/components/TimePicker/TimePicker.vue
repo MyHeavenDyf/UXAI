@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue"
+import { onMounted, ref, watch, computed, useAttrs } from "vue"
 import { ElTimePicker } from "element-plus"
 import type { TimePickerNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -15,6 +15,24 @@ const props = defineProps<A2UIComponentProps<TimePickerNode>>()
 const { node, surfaceId } = props
 const { properties } = props.node
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elTimePickerRef = ref<InstanceType<typeof ElTimePicker>>()
+
+onMounted(() => {
+  const wrapper = (elTimePickerRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id as string)
 const className = computed(() => node.properties.className)
@@ -58,6 +76,7 @@ function handleDateChange(val: any) {
 
 <template>
   <ElTimePicker
+    ref="elTimePickerRef"
     :id="range ? [id+'-1', id+'-2'] : id"
     :class="className"
     v-model="inputValue"

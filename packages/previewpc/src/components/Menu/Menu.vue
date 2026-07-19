@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineComponent, h, ref, watch } from "vue"
+import { computed, defineComponent, h, onMounted, ref, useAttrs, watch } from "vue"
 import type { Component } from "vue"
 import { ElMenu, ElMenuItem, ElSubMenu } from "element-plus"
 import type { MenuNode } from "../types"
@@ -19,6 +19,24 @@ const props = defineProps<A2UIComponentProps<MenuNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue } = useA2UIComponent(node, surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elMenuRef = ref<InstanceType<typeof ElMenu>>()
+
+onMounted(() => {
+  const wrapper = (elMenuRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
@@ -139,6 +157,7 @@ const MenuItemNode = defineComponent({
 
 <template>
   <ElMenu
+    ref="elMenuRef"
     :id="id"
     :class="className"
     :mode="mode as any"

@@ -23,6 +23,7 @@ import _PROMPT_PROTO_PATTERN_BLOCK from "./prompt/proto_pattern_block.txt"
 import _PROMPT_PROTO_INTENT_CONFIRM from "./prompt/proto_intent_confirm.txt"
 import _PROMPT_PROTO_WFRAMES from "./prompt/proto_wireframes.txt"
 import _PROMPT_PROTO_MODIFY from "./prompt/proto_modify.txt"
+import _PROMPT_PROTO_REPLANNER from "./prompt/proto_replanner.txt"
 
 const data = {
   COMPONENTS_CATALOG,
@@ -58,3 +59,4 @@ export const PROMPT_PROTO_PATTERN_BLOCK = formatPrompt(_PROMPT_PROTO_PATTERN_BLO
 export const PROMPT_PROTO_INTENT_CONFIRM = formatPrompt(_PROMPT_PROTO_INTENT_CONFIRM)
 export const PROMPT_PROTO_WFRAMES = formatPrompt(_PROMPT_PROTO_WFRAMES)
 export const PROMPT_PROTO_MODIFY = formatPrompt(_PROMPT_PROTO_MODIFY)
+export const PROMPT_PROTO_REPLANNER = formatPrompt(_PROMPT_PROTO_REPLANNER)

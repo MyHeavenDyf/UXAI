@@ -682,7 +682,10 @@ export function PropertyEditorPopup(props: {
     for (const k of allKeys) {
       const raw = (parsed[k] ?? '').toString()
       const opts = getEnumOptions(k)
-      const def = ENUM_DEFAULTS[`${props.componentType}.${k}`] ?? (opts.some(o => o.value === 'default') ? 'default' : '')
+      let def = ENUM_DEFAULTS[`${props.componentType}.${k}`]
+      if (!def && opts.some(o => o.value === 'default')) def = 'default'
+      if (!def && k === 'size' && opts.some(o => o.value === 'medium')) def = 'medium'
+      if (!def) def = opts[0]?.value ?? ''
       setEditProps(k, raw || def)
     }
   }

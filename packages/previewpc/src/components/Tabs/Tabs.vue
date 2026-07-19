@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import type { Component } from "vue"
 import { ElTabs, ElTabPane } from "element-plus"
 import type { TabsNode } from "../types"
@@ -32,6 +32,24 @@ const props = defineProps<A2UIComponentProps<TabsNode>>()
 const { properties } = props.node
 
 const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elTabsRef = ref<InstanceType<typeof ElTabs>>()
+
+onMounted(() => {
+  const wrapper = (elTabsRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => props.node.id)
 
@@ -111,7 +129,7 @@ watch(
 </script>
 
 <template>
-  <ElTabs :id="id" :class="className" :editable="editable" :type="type === 'card' ? 'card' : ''" :tab-position="position as any"
+  <ElTabs ref="elTabsRef" :id="id" :class="className" :editable="editable" :type="type === 'card' ? 'card' : ''" :tab-position="position as any"
     v-model="activeKey">
     <ElTabPane v-for="(item) in items" :key="item.name" :label="item.label" :disabled="item.disabled" :name="item.name">
       <template #label v-if="item.icon && resolvedTabIcons[item.name]">

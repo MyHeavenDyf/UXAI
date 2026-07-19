@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import { ElTag } from "element-plus"
 
 import { getIconComponentRef } from "../Icon/IconBase"
@@ -106,6 +106,24 @@ const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue } = useA2UIComponent(node, surfaceId)
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elTagRef = ref<InstanceType<typeof ElTag>>()
+
+onMounted(() => {
+  const wrapper = (elTagRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
+
 const id = computed(() => props.node.id)
 const className = computed(() => properties.className)
 
@@ -176,7 +194,7 @@ watch(
 </script>
 
 <template>
-  <ElTag 
+  <ElTag ref="elTagRef" 
   v-show="label !== ''" 
   :id="id" 
   :class="[className, (type ==='default' || type==='processing') ? `el-tag--${type}`:'']" 

@@ -3,7 +3,7 @@
   --el-table-header-text-color: var(--el-text-color-regular);
   --el-table-row-hover-bg-color: var(--surface-primary-subtle-hover);
   --el-table-header-bg-color: #f3f3f3;
-  --table-expand-row-container-bg: rgb(from var(--neutral-50) r g b / 0.5);
+  --table-expand-row-container-bg: rgb(from var(--gray-5) r g b / 0.5);
 }
 
 .el-table thead th {
@@ -22,7 +22,7 @@
         top: -1px;
         width: 1px;
         height: 1em;
-        background-color: var(--neutral-200);
+        background-color: var(--gray-20);
       }
       
     }
@@ -75,7 +75,7 @@
 .el-table .el-table__row {
   &:has(.el-table__expand-icon.el-table__expand-icon--expanded),
   &:has(.el-table-column--selection>.cell>.el-checkbox.is-checked) {
-    background-color: var(--primary-50);
+    background-color: var(--brand-5);
   }
 }
 
@@ -94,7 +94,7 @@
   .btn-prev.is-active,
   .btn-next.is-active,
   .el-pager li.is-active {
-    background-color: var(--primary-50);
+    background-color: var(--brand-5);
     color: var(--text-primary);
     font-weight: var(--el-font-weight-primary);
   }
@@ -148,7 +148,7 @@
 
 .theme-dark {
   .el-table {
-    --table-expand-row-container-bg: var(--neutral-700);
+    --table-expand-row-container-bg: var(--gray-70);
     --el-table-row-hover-bg-color: #0f3863;
     --el-table-header-bg-color: #2e2e2e;
   }
@@ -156,7 +156,7 @@
   .el-pagination__sizes,
   .el-pagination__total,
   .el-pagination__jump {
-    color: var(--neutral-0)
+    color: var(--gray-0)
   }
 
   .el-pagination.is-background {
@@ -165,18 +165,18 @@
     .btn-next.is-active,
     .el-pager li.is-active {
       background-color: rgba(0, 103, 209, 0.4);
-      color: var(--neutral-0);
+      color: var(--gray-0);
     }
 
     .btn-prev,
     .btn-next,
     .el-pager li {
       background-color: transparent;
-      color: var(--neutral-0);
+      color: var(--gray-0);
 
       &:hover {
         color: var(--el-text-color-primary);
-        background-color: rgb(from var(--neutral-50) r g b / 0.2);
+        background-color: rgb(from var(--gray-5) r g b / 0.2);
       }
     }
 

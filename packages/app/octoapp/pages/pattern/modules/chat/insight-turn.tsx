@@ -197,6 +197,22 @@ export function InsightTurn(props: {
     || userText().startsWith("[用户修改请求]:")
   )
 
+  // 用户输入卡片展示的精简文本：从完整 prompt 中提取用户实际输入部分
+  const userInputDisplay = createMemo(() => {
+    const text = userText()
+    // 首次输入: "[用户的需求:] ===...\n{用户输入}\n\n请分析..."
+    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) {
+      const m = text.match(/\] *=+\s*([\s\S]*?)\s*\n+请分析用户需求/)
+      return m?.[1]?.trim() ?? text
+    }
+    // 修改/分诊: "[用户修改请求]: {用户输入}\n\n[当前..." 或 "[用户修改请求]: ===\n{用户输入}\n\n[JSON..."
+    if (text.startsWith("[用户修改请求]:")) {
+      const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n+\[/)
+      return m?.[1]?.trim() ?? text
+    }
+    return text
+  })
+
   // 提取 reasoning 内容（包括 DeepSeek 的 <think> 标签）
   const reasoningTexts = createMemo(() => {
     const parts = assistantParts()
@@ -473,7 +489,7 @@ export function InsightTurn(props: {
   return (
     <div class="flex flex-col insight-turn-root">
       <Show when={showUserInput()}>
-        <UserInputCard text={userText()} />
+        <UserInputCard text={userInputDisplay()} />
       </Show>
 
       {/* 自定义标签卡片 */}

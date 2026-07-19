@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { onMounted, ref, computed, useAttrs } from 'vue'
 import { ElDatePicker } from 'element-plus'
 import type { DatePickerNode } from '../types'
 import type { A2UIComponentProps } from '../../renderer'
@@ -30,6 +30,24 @@ const props = defineProps<A2UIComponentProps<DatePickerNode>>()
 const { node, surfaceId } = props
 const { properties } = props.node
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elDatePickerRef = ref<InstanceType<typeof ElDatePicker>>()
+
+onMounted(() => {
+  const wrapper = (elDatePickerRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const className = computed(() => node.properties.className)
 
@@ -80,7 +98,8 @@ function handleDateChange(val: any) {
 </script>
 
 <template>
-  <ElDatePicker 
+  <ElDatePicker
+    ref="elDatePickerRef"
     :id="id as any"
     :class="className"
     v-model="inputValue" 

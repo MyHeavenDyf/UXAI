@@ -13,6 +13,7 @@ type ProtoModifyJsonInput = {
   extra?: Record<string, unknown>
   onSessionCreated?: (childSessionID: string) => void
   refreshPreview?: () => void
+  fileParts?: { type: "file"; mime: string; filename: string; url: string }[]
 }
 
 type LastDataInput = {
@@ -33,7 +34,12 @@ export default async function modify_json_ai(
   const triage = await proto_triage({ ...inputCtx, ...lastData })
   void saveDebugSnapshot(historyDir, inputCtx.rootSession, "modify_triage")
 
+  if (triage.routing === "chat") return { routing: "chat" as const, reply: triage.reply }
   if (triage.routing !== "modify") return {}
+
+  const enrichedInput = triage.attachment_description
+    ? `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${inputCtx.userInput}`
+    : inputCtx.userInput
 
   const state = await loadCurrentPatternState(historyDir, inputCtx.rootSession)
   const currentPage: Record<string, unknown> = (state?.mergedA2UI as Record<string, unknown> | undefined)
@@ -61,7 +67,7 @@ export default async function modify_json_ai(
     onSessionCreated: inputCtx.onSessionCreated,
     input: {
       ui_json_str: currentPage,
-      audit_feedback: inputCtx.userInput,
+      audit_feedback: enrichedInput,
       triage_ops: triageOps,
       idPrefix: "",
       sectionId: "",
