@@ -1,16 +1,4 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>element-ts</title>
-    <!--
-      @tailwindcss/browser 运行时主题配置
-      此 @theme 块与 tailwind.config.ts 中的自定义 token 一一对应。
-      修改 tailwind.config.ts 时务必同步更新此处。
-    -->
-    <style type="text/tailwindcss">/* @tailwindcss/browser 运行时主题配置 */
+/* @tailwindcss/browser 运行时主题配置 */
 @theme {
   /* ── colors → --color-* ── */
   --color-primary: var(--primary, #0067D1);
@@ -432,11 +420,3 @@
   --color-hui-tag-text-info: var(--color-tag-text-info);
   --color-hui-tag-bg-info: var(--color-tag-bg-info);
 }
-    </style>
-    <script defer src="./assets/index-CP1n8zKz.js"></script>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script src="./data.js"></script>
-  </body>
-</html>
