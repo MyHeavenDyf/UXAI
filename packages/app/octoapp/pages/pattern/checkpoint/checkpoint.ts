@@ -56,22 +56,31 @@ export type ModuleCheckpoint = {
 }
 
 export type Checkpoint = {
+  /** 当前 pipeline 阶段 */
   stage: CheckpointStage
+
+  /** 用户原始输入 */
   userInput: string
+
+  /** 设计系统主题（如 ICT3.1） */
   designSystem: string
+
+  /** root session ID */
   rootSessionId: string
+  
+  /** checkpoint 创建时间 */
   createdAt: number
 
-  // intent_confirm 阶段
+  /** 缺失维度选项（为空 = agent 报错） */
   options?: Record<string, unknown>
-
-  // Stage 1 中间结果（逐步填充）
-  patternPageResult?: { matches: PatternMatchItem[] }
+  /** 匹配到的 block 模板列表 */
+  blockMatches?: PatternMatchItem[]
+  /** 用户选中的 block 外层信息，传给 intent 和 planner */
+  patterns?: any[]
+  /** 意图扩展结果 */
   intentResult?: { intent_description: Record<string, unknown> }
-
-  // planner_create 阶段（Stage 1 完成）
+  /** 布局规划结果 */
   planner?: Record<string, unknown>
-
-  // modules_create 阶段（Stage 2）
+  /** 各模块生成状态（用于只重跑失败模块） */
   modules?: ModuleCheckpoint[]
 }

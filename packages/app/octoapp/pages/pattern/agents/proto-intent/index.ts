@@ -3,7 +3,6 @@ import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
 
 const AGENT_NAME = "proto_intent"
-
 type ProtoIntentInput = {
   // 公共sdk
   sdk: any
@@ -21,14 +20,16 @@ type ProtoIntentInput = {
   intentAuditPass?: boolean
   // 上一轮的意图输出
   pageDescription?: string
+  // 额外补充信息，透传到工具 ctx.extra 的数据
+  extra?: Record<string, unknown>
   // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
 }
 
 export default async function proto_intent(input: ProtoIntentInput) {
   const { sdk, sync, modelKey, rootSession, userInput, auditFeedback, intentAuditPass, pageDescription, onSessionCreated } = input
-  // 组装输入提示词
-  const humanMessage = buildHumanMessage(userInput, auditFeedback, intentAuditPass, pageDescription)
+  const patterns = input.extra?.patterns as any[] | undefined
+  const humanMessage = buildHumanMessage(userInput, auditFeedback, intentAuditPass, pageDescription, patterns)
   console.log("----- 意图扩展Agent开始执行 ----- ");
   const startTime = Date.now();
   // 执行 Agent
@@ -51,15 +52,13 @@ export default async function proto_intent(input: ProtoIntentInput) {
   }
   const returnValue = {
     "intent_description": intentJson,
-    "intent_page": simplifyData(intentJson),
     "current_step": "intent_expansion"
   }
   logAgentParsed(intentResult.childSessionId, returnValue)
   return returnValue
 }
 
-// 组装意图扩展的输入文本
-function buildHumanMessage(userInput: string, auditFeedback: string | undefined, intentAuditPass: boolean | undefined, pageDescription: string | undefined){
+function buildHumanMessage(userInput: string, auditFeedback: string | undefined, intentAuditPass: boolean | undefined, pageDescription: string | undefined, patterns?: any[]){
   let humanMessage: string;
   if(auditFeedback && !intentAuditPass){
     humanMessage = `你上一次生成的蓝图未通过审核校验，请务必参考以下反馈进行迭代修复：
@@ -74,57 +73,17 @@ function buildHumanMessage(userInput: string, auditFeedback: string | undefined,
     
     请根据评审意见结论修正界面蓝图。`;
   }else{
+    let patternSection = "";
+    if (patterns && patterns.length > 0) {
+      patternSection = `
+
+    [已有的模块模板:] ==================================
+    ${JSON.stringify(patterns, null, 2)}`;
+    }
     humanMessage = `[用户的需求:] ==================================
-    ${userInput}
+    ${userInput}${patternSection}
 
     请开始意图扩展。`;
   }
   return humanMessage;
-}
-
-// 将复杂的 intent_description 数据转换为精简版 intent_page
-export function simplifyData(complexData: any) {
-    // 防御性处理：防止传入 null 或 undefined 导致报错
-    const data = complexData ?? {};
-
-    // 1. 提取并重命名基础字段（设置默认值为空字符串）
-    const pageDescription = data.intentAnalysis ?? "";
-    const layoutDescription = data.layoutDescription ?? "";
-    
-    // 2. 将 sectionDetailList 转为对象（Map），方便按 id 快速查找
-    // 对应 Python 的字典推导式
-    const sectionDetailList = data.sectionDetailList ?? [];
-    const detailMap = sectionDetailList.reduce((map: any, detail: any) => {
-        if (detail?.id) {
-            map[detail.id] = detail;
-        }
-        return map;
-    }, {});
-    
-    // 3. 重新整理 sections
-    const sections = data.sections ?? [];
-    const newSections = sections.map((section: any) => {
-        const sectionId = section?.id;
-        const sectionName = section?.name;
-        
-        // 获取对应的详情信息
-        const detail = detailMap[sectionId] ?? {};
-        const intent = detail.intent ?? "";
-        const functionField = detail.function ?? ""; // 注意：js中function是关键字，变量名改用 functionField 避免混淆风险（对象key不受影响）
-        
-        // 构建新的 section 对象
-        return {
-            id: sectionId,
-            name: sectionName,
-            intent: intent,
-            function: functionField
-        };
-    });
-        
-    // 4. 构建并返回最终的简单数据结构
-    return {
-        pageDescription,
-        layoutDescription,
-        sections: newSections
-    };
 }

@@ -177,6 +177,13 @@
   border-radius: 999px;
   font-size: 13px;
   cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+.ic-card-next-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .ic-card-submit-btn {
@@ -216,6 +223,13 @@
 
 @keyframes ic-card-spin {
   to { transform: rotate(360deg); }
+}
+
+.ic-card-error {
+  text-align: center;
+  padding: 20px;
+  font-size: 13px;
+  color: #ef4444;
 }
 
 .ic-card-empty {

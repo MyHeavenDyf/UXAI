@@ -10,6 +10,8 @@ export function IntentConfirmCard(props: {
   result: IntentConfirmResult
   blockMatches: PatternMatchItem[]
   blockMatching: boolean
+  blockMatchError?: boolean
+  initialStep?: "dimensions" | "blocks"
   onMatchPattern: (enrichedInput: string) => void
   onConfirm: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) => void
 }): JSX.Element {
@@ -18,7 +20,7 @@ export function IntentConfirmCard(props: {
   // 是否有维度需要确认（无维度时跳过第一步直接进 block 选择）
   const hasDimensions = dimensionEntries.length > 0
   // 当前卡片步骤：dimensions = 维度确认，blocks = 模板选择
-  const [step, setStep] = createSignal<"dimensions" | "blocks">(hasDimensions ? "dimensions" : "blocks")
+  const [step, setStep] = createSignal<"dimensions" | "blocks">(props.initialStep ?? (hasDimensions ? "dimensions" : "blocks"))
   // 维度确认步骤中当前激活的 tab 索引
   const [activeTab, setActiveTab] = createSignal(0)
   // 用户在每个维度下的选择（选中项 + 补充说明）
@@ -171,9 +173,12 @@ export function IntentConfirmCard(props: {
               <span>正在匹配模块模板...</span>
             </div>
           }>
-            <Show when={props.blockMatches.length > 0} fallback={
-              <div class="ic-card-empty">未匹配到合适的模块模板</div>
+            <Show when={!props.blockMatchError} fallback={
+              <div class="ic-card-error">匹配出错，请重试</div>
             }>
+              <Show when={props.blockMatches.length > 0} fallback={
+                <div class="ic-card-empty">未匹配到合适的模块模板</div>
+              }>
               <For each={Object.entries(
                 props.blockMatches.reduce((acc, m) => {
                   const cat = m.pattern.category ?? "其他"
@@ -220,12 +225,16 @@ export function IntentConfirmCard(props: {
                 )}
               </For>
             </Show>
+            </Show>
           </Show>
         </div>
 
         <div class="ic-card-foot">
           <button class="ic-card-next-btn" onClick={() => setStep("dimensions")} disabled={props.blockMatching}>
             上一步
+          </button>
+          <button class="ic-card-next-btn" onClick={() => handleMatchPattern()} disabled={props.blockMatching}>
+            重试
           </button>
           <Show when={!props.blockMatching}>
             <button class="ic-card-submit-btn" onClick={handleConfirm}>
