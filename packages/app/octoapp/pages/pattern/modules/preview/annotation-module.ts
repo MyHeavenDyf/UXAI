@@ -186,12 +186,10 @@ export function useAnnotations(deps: {
     if (!deps.dir() || !deps.sessionId() || !iframeReady()) return
     const doc = deps.pendingData() as A2UIDocument | null
     const seq = ++loadSeq
-    console.log("[preview] loadAnnotations", { sessionId: deps.sessionId() })
     loadAnnotations(deps.dir()!, deps.sessionId()!).then((data) => {
       if (seq !== loadSeq) return
       // 若当前有文档数据，过滤掉 selector 已失效的批注
       const filtered = doc?.elements ? data.filter((a) => selectorExists(a.selector, doc)) : data
-      console.log("[preview] loadAnnotations result", filtered.length, "of", data.length, "loaded")
       setAnnotations(filtered.map((a) => ({ ...a, pos: null })))
     })
   })

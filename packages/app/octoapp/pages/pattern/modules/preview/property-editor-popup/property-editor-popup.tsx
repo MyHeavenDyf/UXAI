@@ -60,6 +60,19 @@ export function PropertyEditorPopup(props: {
   const [editVAlign, setEditVAlign] = createSignal('')
   const [editTextColor, setEditTextColor] = createSignal('')
   const [editBgColor, setEditBgColor] = createSignal('')
+  const [textColorToken, setTextColorToken] = createSignal<string | null>(null)
+  const [bgColorToken, setBgColorToken] = createSignal<string | null>(null)
+
+  function matchTokenHex(hex: string, tokens: typeof TEXT_COLOR_TOKENS): string | null {
+    if (!hex) return null
+    const lower = hex.toLowerCase()
+    for (const t of tokens) {
+      const tokenAlpha = parseFloat(t.opacity) || 100
+      const tokenHex = tokenAlpha >= 100 ? t.color.toLowerCase() : (t.color + Math.round(tokenAlpha * 2.55).toString(16).padStart(2, '0')).toLowerCase()
+      if (tokenHex === lower) return t.name
+    }
+    return null
+  }
 
   const [editPt, setEditPt] = createSignal(0)
   const [editPr, setEditPr] = createSignal(0)
@@ -469,11 +482,19 @@ export function PropertyEditorPopup(props: {
 
     if (v.color) {
       const c = String(v.color)
-      if (c.startsWith('#') || c.startsWith('rgb')) setEditTextColor(toHex(c))
+      if (c.startsWith('#') || c.startsWith('rgb')) {
+        const hex = toHex(c)
+        setEditTextColor(hex)
+        setTextColorToken(matchTokenHex(hex, TEXT_COLOR_TOKENS))
+      }
     }
     if (v.backgroundColor) {
       const c = String(v.backgroundColor)
-      if (c.startsWith('#') || c.startsWith('rgb')) setEditBgColor(toHex(c))
+      if (c.startsWith('#') || c.startsWith('rgb')) {
+        const hex = toHex(c)
+        setEditBgColor(hex)
+        setBgColorToken(matchTokenHex(hex, BG_COLOR_TOKENS))
+      }
     }
     if (v.backgroundImage) {
       const m = String(v.backgroundImage).match(/url\(['"]?([^'"()]+)['"]?\)/)
@@ -612,9 +633,27 @@ export function PropertyEditorPopup(props: {
     setEditVAlign(clsInfo.vAlign)
 
     const tcMatch = rawCls.match(/\btext-\[#([a-fA-F0-9]{3,8})\]/)
-    setEditTextColor(tcMatch ? '#' + tcMatch[1] : '')
+    const tcTokenMatch = rawCls.match(/\btext-(hui-\S+)\b/)
+    if (tcTokenMatch) {
+      const token = TEXT_COLOR_TOKENS.find(t => t.name === tcTokenMatch[1])
+      if (token) setEditTextColor(token.color)
+      setTextColorToken(tcTokenMatch[1])
+    } else {
+      const hex = tcMatch ? '#' + tcMatch[1] : ''
+      setEditTextColor(hex)
+      setTextColorToken(matchTokenHex(hex, TEXT_COLOR_TOKENS))
+    }
     const bgcMatch = rawCls.match(/\bbg-\[#([a-fA-F0-9]{3,8})\]/)
-    setEditBgColor(bgcMatch ? '#' + bgcMatch[1] : toHex((parsed.backgroundColor || parsed.background || '').toString()))
+    const bgcTokenMatch = rawCls.match(/\bbg-(hui-\S+)\b/)
+    if (bgcTokenMatch) {
+      const token = BG_COLOR_TOKENS.find(t => t.name === bgcTokenMatch[1])
+      if (token) setEditBgColor(token.color)
+      setBgColorToken(bgcTokenMatch[1])
+    } else {
+      const hex = bgcMatch ? '#' + bgcMatch[1] : toHex((parsed.backgroundColor || parsed.background || '').toString())
+      setEditBgColor(hex)
+      setBgColorToken(matchTokenHex(hex, BG_COLOR_TOKENS))
+    }
 
     const bgUrlMatch = rawCls.match(/\bbg-\[url\(\/history\/([^)]+)\)\]/)
     const bgUrl = bgUrlMatch ? '/history/' + bgUrlMatch[1] : (parsed.backgroundImage || '').toString()
@@ -698,7 +737,8 @@ export function PropertyEditorPopup(props: {
     setEditFontSize(14); setFoundFontSize(false)
     setEditFontWeight(400); setFoundFontWeight(false)
     setEditAlign(''); setEditFontFamily(''); setEditLineHeight(''); setEditLetterSpacing(0)
-    setEditVAlign(''); setEditTextColor(''); setEditBgColor('')
+    setEditVAlign('');     setEditTextColor(''); setEditBgColor('')
+    setTextColorToken(null); setBgColorToken(null)
     setEditPt(0); setFoundPt(false); setEditPr(0); setFoundPr(false)
     setEditPb(0); setFoundPb(false); setEditPl(0); setFoundPl(false)
     setEditMt(0); setFoundMt(false); setEditMr(0); setFoundMr(false)
@@ -749,6 +789,24 @@ export function PropertyEditorPopup(props: {
       const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
       const api = desktopApi?.tailwindToCss
       if (api) {
+        const tokenNames = new Set(TEXT_COLOR_TOKENS.map(t => t.name))
+        const hasHuiToken = rawCls.split(/\s+/).some(c => {
+          const stripped = c.startsWith('!') ? c.slice(1) : c
+          const m = stripped.match(/^(text|bg)-(hui-\S+)$/)
+          return m && tokenNames.has(m[2])
+        })
+        if (hasHuiToken) {
+          console.log("[PropertyEditor] skip tailwindToCss: has hui token")
+          applyParseClassFallback(rawCls, parsed)
+          baseCssVars = buildCssObject()
+          if (!editBgColor()) {
+            const f = fills.find(x => x.visible)
+            if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
+          }
+          setDragOffset({ x: 0, y: 0 })
+          initialEffectsJson = JSON.stringify(effects)
+          ready = true
+        } else {
         const baseCls = cleanCls.split(/\s+/).filter((c: string) => c.includes('[') || !c.includes(':')).join(' ')
         logAgentCall('tailwindToCss', props.elementId, rawCls, null)
         api(baseCls).then(cssVars => {
@@ -765,12 +823,13 @@ export function PropertyEditorPopup(props: {
           }
           if (!editBgColor()) {
             const f = fills.find(x => x.visible)
-            if (f) setEditBgColor(toHex(f.color))
+            if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
           }
-          setDragOffset({ x: 0, y: 0 })
-          initialEffectsJson = JSON.stringify(effects)
-          ready = true
-        })
+        setDragOffset({ x: 0, y: 0 })
+        initialEffectsJson = JSON.stringify(effects)
+        ready = true
+      })
+      }
       } else {
         console.log("[PropertyEditor] fallback: no tailwindToCss api, using parseClass")
         applyParseClassFallback(rawCls, parsed)
@@ -1070,6 +1129,11 @@ export function PropertyEditorPopup(props: {
       const api = desktopApi?.cssToTailwind
       if (api) {
         const currentCss = buildCssObject()
+        if (textColorToken()) delete (currentCss as Record<string, string>)['color']
+        if (bgColorToken()) {
+          delete (currentCss as Record<string, string>)['background-color']
+          delete (currentCss as Record<string, string>)['background']
+        }
         const keepParts = parsedClasses.filter(c => !isTailwindToken(c))
         const newTailwind = await api(currentCss)
         console.log("[PropertyEditor] full cssToTailwind:", newTailwind)
@@ -1080,6 +1144,8 @@ export function PropertyEditorPopup(props: {
           c.startsWith('flex-') && !['flex-col', 'flex-row'].includes(c) && !newTailwindSet.has(c)
         ).join(' ')
         className = ((keepParts.join(' ') + ' ' + normalizedTailwind).trim() + ' ' + extraFlex).trim()
+        if (textColorToken()) className = (className + ` text-${textColorToken()}`).trim()
+        if (bgColorToken()) className = (className + ` bg-${bgColorToken()}`).trim()
         const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
         const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
@@ -1105,11 +1171,17 @@ export function PropertyEditorPopup(props: {
         }
         console.log("[PropertyEditor] buildClassName output (no api):", className)
         logAgentCall('buildClassName', props.elementId, props.currentClass || '', className)
-        if (editTextColor()) {
+        if (textColorToken()) {
+          className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
+          className += ` text-${textColorToken()}`
+        } else if (editTextColor()) {
           className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
           className += ` text-[${editTextColor()}]`
         }
-        if (editBgColor()) {
+        if (bgColorToken()) {
+          className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
+          className += ` bg-${bgColorToken()}`
+        } else if (editBgColor()) {
           className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
           className += ` bg-[${editBgColor()}]`
         }
@@ -1129,7 +1201,8 @@ export function PropertyEditorPopup(props: {
         if (key === 'className') continue
         const val = (editProps as Record<string, string>)[key]
         const isEnum = getEnumOptions(key).length > 0
-        if (isEnum || val) componentProps[key] = val
+        const hasRaw = (rawProps as Record<string, string>)[key] !== undefined
+        if (isEnum || val || hasRaw) componentProps[key] = val
       }
     }
 
@@ -1559,7 +1632,7 @@ export function PropertyEditorPopup(props: {
 
             <Show when={isTextElement()}>
             <div class="pt-2 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <ColorPicker value={editBgColor()} onChange={setEditBgColor} label="背景色" tokens={BG_COLOR_TOKENS} placeholder="无" />
+               <ColorPicker value={editBgColor()} onChange={setEditBgColor} onTokenChange={setBgColorToken} label="背景色" tokens={BG_COLOR_TOKENS} placeholder="无" />
             </div>
 
             <div class="flex items-center gap-2 pb-2 -mx-4 px-4">
@@ -1609,7 +1682,7 @@ export function PropertyEditorPopup(props: {
                 <DragInput value={editFontSize} setValue={setEditFontSize} setFound={() => { }} found={() => true} placeholder="字号" icon={"S"} />
               </div>
 
-              <ColorPicker value={editTextColor()} onChange={setEditTextColor} label="文字色" tokens={TEXT_COLOR_TOKENS} />
+              <ColorPicker value={editTextColor()} onChange={setEditTextColor} onTokenChange={setTextColorToken} label="文字色" tokens={TEXT_COLOR_TOKENS} />
 
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">

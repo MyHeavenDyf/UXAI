@@ -129,7 +129,6 @@ export function PreviewPage(props: {
       console.log("[preview] sendToPreview skipped: no iframe")
       return
     }
-    console.log("[preview] sendToPreview posting A2UI_UPDATE")
     previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
     if (editing()) sendDragMode(true, data)
   }
@@ -366,7 +365,6 @@ export function PreviewPage(props: {
 
     if (e.data?.type === "DOM_PICKER_QUICK_FIX") {
       const { id, domPickerComponent, domPickerClass, elementProps, tagName, rect } = e.data
-      console.log("[preview] DOM_PICKER_QUICK_FIX:", { id, domPickerComponent, domPickerClass, elementProps, tagName })
       if (anno.annotationPopup.show && !annotating()) {
         anno.handleAnnotationClose()
         if (!editing()) return
@@ -411,7 +409,6 @@ export function PreviewPage(props: {
     if (e.data?.type === "A2UI_READY") {
       anno.setIframeReady(true)
       if (props.pendingData) {
-        console.log("[preview] A2UI_READY, re-sending pendingData")
         sendToPreview(props.pendingData)
       }
       if (editing()) {
