@@ -12,28 +12,16 @@ const schema = {
           id: { type: "string" },
           name: { type: "string" },
           description: { type: "string" },
-        },
-        required: ["id", "name"],
-      },
-    },
-    sectionDetailList: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          name: { type: "string" },
-          intent: { type: "string" },
-          function: { type: "string" },
           layout: { type: "string" },
           elements: { type: "string" },
           data: { type: "object" },
+          patternPath: { type: "string" },
         },
-        required: ["id", "name"],
+        required: ["id", "name", "description", "layout", "elements"],
       },
     },
   },
-  required: ["userInput", "intentAnalysis", "layoutDescription", "sections", "sectionDetailList"],
+  required: ["userInput", "intentAnalysis", "layoutDescription", "sections"],
 }
 
 export const INTENT_FORMAT = {
