@@ -9,6 +9,7 @@ import { loadCurrentPatternState, type PatternSessionState } from "../utils/vers
 
 export type RestoreResult =
   | { type: "intent_confirm"; checkpoint: Checkpoint }
+  | { type: "block_matching"; checkpoint: Checkpoint }
   | { type: "planner_create"; checkpoint: Checkpoint }
   | { type: "pipeline_error"; checkpoint: Checkpoint }
   | { type: "completed"; state: PatternSessionState }
@@ -22,10 +23,18 @@ export async function restoreSession(
   if (ckpt) {
     switch (ckpt.stage) {
       case "intent_confirm":
-        return { type: "intent_confirm", checkpoint: ckpt }
+        // options 有值说明显示卡片正在让用户选，归为 intent_confirm
+        // options 为空说明反问SKILL还没跑完或报错了，归为 pipeline_error
+        if (ckpt.options && Object.keys(ckpt.options).length > 0) {
+          return { type: "intent_confirm", checkpoint: ckpt }
+        }
+        return { type: "pipeline_error", checkpoint: ckpt }
+      case "block_matching":
+        // block 匹配成功（有结果）→ 恢复卡片, 显示选项让用户选 pattern
+        // block 匹配报错（无结果）→ 恢复卡片，显示报错信息让用户重试
+        return { type: "block_matching", checkpoint: ckpt }
       case "planner_create":
         return { type: "planner_create", checkpoint: ckpt }
-      case "pattern_page":
       case "intent_create":
       case "modules_create":
         return { type: "pipeline_error", checkpoint: ckpt }

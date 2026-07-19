@@ -20,7 +20,7 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment-bar"
-import { create_intent_confirm, create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create-json'
+import { create_intent_confirm, create_block_match, create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create-json'
 import modify_json_ai from './workflow/modify-json-ai'
 import { appendPatternVersion, updatePatternVersion, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveCheckpoint, loadCheckpoint, clearCheckpoint } from "./checkpoint/checkpoint"
@@ -34,15 +34,12 @@ import { exportZip } from "./utils/preview-handler/zip"
 import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify-json-quick'
 import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleCodeToHtml as codeToHtmlHandler, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
-import { WireframeReview, type WireframeReviewResult } from "./modules/preview/wireframe-review"
-import { PatternMatchPage } from "./modules/preview/pattern-match-page"
-import type { PatternMatchItem } from "./utils/pattern-resource"
-import { readPatternFile, readPatternAssets, readPatternPreview, saveUploadImage, replacePatternAssetPaths } from "./utils/pattern-resource"
-import proto_pattern_block from "./agents/proto_pattern_block"
 import proto_triage from "./agents/proto-triage"
 import proto_replanner from "./agents/proto-replanner"
-import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/Intent-confirm-review"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
+import type { PatternMatchItem } from "./utils/pattern-resource"
+import { readPatternFile } from "./utils/pattern-resource"
+import { type IntentConfirmAnswers } from "./modules/chat/intent-confirm-card"
 import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
@@ -138,17 +135,14 @@ function PatternContent() {
         if (id) {
           layout.lastSessionPerTab.setPattern(id)
           sessionMap.set(setLastModules, id, [])
-          sessionMap.set(setPatternMatches, id, [])
           sessionMap.set(setVersions, id, [])
           sessionMap.set(setCurrentVersionId, id, null)
           sessionMap.set(setIsModifying, id, false)
-          sessionMap.set(setShowPatternMatch, id, false)
-          // 正在生成的 session 保留原有数据，切换回来后继续显示线框审查+loading
+          // 正在生成的 session 保留原有数据，切换回来后继续显示 loading
           if (!isGeneratingReview()[id]) {
             sessionMap.set(setLastIntent, id, null)
             sessionMap.set(setLastPlanner, id, null)
             sessionMap.set(setHasPreviewContent, id, false)
-            sessionMap.set(setIsPlanReview, id, false)
           }
 
           // 同步子 session 消息，全部加载完成后才标记 synced
@@ -173,6 +167,8 @@ function PatternContent() {
           if (dir) {
             void async function() {
               if (params.id !== id) return
+              // pipeline 正在运行时跳过 restore，内存状态已正确
+              if (sendingSids().has(id)) return
               // 读取该会话持久化的设计系统主题
               const savedTheme = await loadTheme(dir, id)
               if (params.id !== id) return
@@ -192,18 +188,22 @@ function PatternContent() {
                   sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
                   return
                 }
+                case "block_matching": {
+                  const ckpt = result.checkpoint
+                  sessionMap.set(setUserInput, id, ckpt.userInput)
+                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  sessionMap.set(setBlockMatches, id, ckpt.blockMatches ?? [])
+                  if (!ckpt.blockMatches || ckpt.blockMatches.length === 0) {
+                    sessionMap.set(setBlockMatchError, id, true)
+                  }
+                  setCardInitialStep("blocks")
+                  return
+                }
                 case "planner_create": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setLastPlanner, id, ckpt.planner ?? null)
                   sessionMap.set(setLastIntent, id, ckpt.intentResult?.intent_description ?? null)
-                  const matches = ckpt.patternPageResult?.matches ?? []
-                  sessionMap.set(setPatternMatches, id, matches)
                   sessionMap.set(setUserInput, id, ckpt.userInput)
-                  if (matches.length > 0) {
-                    sessionMap.set(setShowPatternMatch, id, true)
-                  } else {
-                    sessionMap.set(setIsPlanReview, id, true)
-                  }
                   return
                 }
                 case "completed": {
@@ -342,31 +342,32 @@ function PatternContent() {
   const [isModifying, setIsModifying] = sessionMap.createSessionMap<boolean>()
   // 用户原始输入（意图确认 / 线框审查阶段复用）
   const [userInput, setUserInput] = sessionMap.createSessionMap<string>()
-  // 是否处于线框审查阶段
-  const [isPlanReview, setIsPlanReview] = sessionMap.createSessionMap<boolean>()
   // 是否正在生成（意图确认后 → pattern匹配之间）
   const [isGenerating, setIsGenerating] = sessionMap.createSessionMap<boolean>()
   // 是否正在生成模块（线框审查确认后 → 预览之间）
   const [isGeneratingReview, setIsGeneratingReview] = sessionMap.createSessionMap<boolean>()
-  // 页面级 Pattern 匹配结果
-  const [patternMatches, setPatternMatches] = sessionMap.createSessionMap<PatternMatchItem[]>()
-  // 是否展示 Pattern 匹配结果页
-  const [showPatternMatch, setShowPatternMatch] = sessionMap.createSessionMap<boolean>()
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
   const [intentConfirm, setIntentConfirm] = sessionMap.createSessionMap<IntentConfirmResult | null>()
+  // block 匹配到的模板列表
+  const [blockMatches, setBlockMatches] = sessionMap.createSessionMap<PatternMatchItem[]>()
+  // 是否正在匹配 block 模板
+  const [blockMatching, setBlockMatching] = sessionMap.createSessionMap<boolean>()
+  // block 匹配是否出错
+  const [blockMatchError, setBlockMatchError] = sessionMap.createSessionMap<boolean>()
+  // 卡片初始步骤（恢复 block_matching 时直接跳到 blocks）
+  const [cardInitialStep, setCardInitialStep] = createSignal<"dimensions" | "blocks" | undefined>()
 
   const needsConfirm = createMemo(() => {
     const id = params.id
     if (!id) return false
     if (!!isGenerating()[id] || !!isGeneratingReview()[id]) return false
-    return intentConfirm()[id] != null || !!isPlanReview()[id] || !!showPatternMatch()[id]
+    return intentConfirm()[id] != null
   })
 
   const confirmText = createMemo<{ title: string; subtitle: string } | null>(() => {
     const id = params.id
     if (!id) return null
-    if (intentConfirm()[id]) return { title: "意图分析完成", subtitle: "请在右侧进一步确认需求" }
-    if (isPlanReview()[id] || showPatternMatch()[id]) return { title: "线框审查", subtitle: "请在右侧进一步确认需求" }
+    if (intentConfirm()[id]) return { title: "意图分析完成", subtitle: "请在下方确认需求" }
     return null
   })
 
@@ -501,20 +502,21 @@ function PatternContent() {
       showToast({ title: "无断点记录", description: "未找到可恢复的进度，请重新生成" })
       return
     }
-
     setSessionErrors(prev => { const n = { ...prev }; delete n[sid]; return n })
     await clearProtoError(dir, sid)
     setSendingSids(prev => new Set(prev).add(sid))
 
     const ds = ckpt.designSystem || "ICT3.1"
     const text = ckpt.userInput
+    const extra: Record<string, unknown> = { designSystem: ds }
+    if (ckpt.patterns) extra.patterns = ckpt.patterns
     const intentCtx: ProtoCreateJsonInput = {
       sdk,
       sync,
       modelKey: mk,
       rootSession: sid,
       userInput: text,
-      extra: { designSystem: ds } as Record<string, unknown>,
+      extra,
       checkpointDir: dir,
       onSessionCreated: (childID: string) => {
         if (params.id !== sid) return
@@ -538,11 +540,28 @@ function PatternContent() {
           sessionMap.set(setLastPlanner, sid, layoutPlanner)
           sessionMap.set(setLastModules, sid, modulesJson)
           sessionMap.set(setIsGeneratingReview, sid, false)
-          sessionMap.set(setIsPlanReview, sid, false)
           if (params.id === sid && pageJson) sendToPreview(pageJson)
         }
         await create_modules_json(intentCtx, planner, intent, onFinshed)
       } else {
+        if (ckpt.stage === "intent_confirm") {
+          // intent_confirm 报错，先重跑意图确认
+          const confirmResult = await create_intent_confirm(intentCtx)
+          if (Object.keys(confirmResult.options).length > 0) {
+            // 需要用户确认，在 CHAT 中显示确认卡片
+            sessionMap.set(setUserInput, sid, text)
+            sessionMap.set(setIntentConfirm, sid, confirmResult)
+            startPause(sid)
+            return
+          }
+          // 无需确认，弹出卡片走 block 选择
+          sessionMap.set(setUserInput, sid, text)
+          sessionMap.set(setIntentConfirm, sid, confirmResult)
+          startPause(sid)
+          void handleMatchPatternInCard("")
+          return
+        }
+
         // Stage 1 失败，从 planner 生成重试
         sessionMap.set(setIsGenerating, sid, true)
         const new_planner = await create_planner_json(intentCtx)
@@ -560,14 +579,22 @@ function PatternContent() {
         if (params.id !== sid) return
         sessionMap.set(setLastPlanner, sid, new_planner.planner.layout_planner)
         sessionMap.set(setLastIntent, sid, new_planner.intent.intent_description)
-        sessionMap.set(setPatternMatches, sid, new_planner.patternPageResult.matches)
         sessionMap.set(setUserInput, sid, text)
-        if (new_planner.patternPageResult.matches?.length > 0) {
-          sessionMap.set(setShowPatternMatch, sid, true)
-        } else {
-          sessionMap.set(setIsPlanReview, sid, true)
+
+        // 直接进入 modules_create
+        sessionMap.set(setIsGeneratingReview, sid, true)
+        const retryOnFinished = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
+          if (dir) {
+            await updatePatternVersion(dir, sid, { lastModules: modulesJson, mergedA2UI: pageJson })
+            clearDebugLog()
+          }
+          sessionMap.set(setLastIntent, sid, pageIntent)
+          sessionMap.set(setLastPlanner, sid, layoutPlanner)
+          sessionMap.set(setLastModules, sid, modulesJson)
+          sessionMap.set(setIsGeneratingReview, sid, false)
+          if (params.id === sid && pageJson) sendToPreview(pageJson)
         }
-        startPause(sid)
+        await create_modules_json(intentCtx, new_planner.planner.layout_planner, new_planner.intent.intent_description, retryOnFinished)
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
@@ -597,60 +624,7 @@ function PatternContent() {
     sessionMap.set(setHasPreviewContent, sid, true)
   }
 
-  // 从 Pattern 匹配页进入线框审查
-  function handleEnterWireframe() {
-    const sid = params.id
-    if (!sid) return
-    sessionMap.set(setShowPatternMatch, sid, false)
-    sessionMap.set(setIsPlanReview, sid, true)
-  }
-
-  async function handleMatchPattern(sectionId: string, detail: { name: string; intent: string; function: string; elements: string; layout: string }) {
-    const sid = params.id
-    if (!sid) return []
-    const mk = activeModelKey()
-    if (!mk) return []
-    const ds = selectedDesignSystem()
-    const desc = `[名称]  ${detail.name}\n[意图] ${detail.intent}\n[功能] ${detail.function}\n[布局] ${detail.layout}\n[元素] ${detail.elements}`
-    const result = await proto_pattern_block({
-      sdk,
-      sync,
-      modelKey: mk,
-      rootSession: sid,
-      userInput: desc,
-      extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
-      onSessionCreated: (childID: string) => {
-        if (params.id !== sid) return
-        setChildSessionIDs((prev) => [...prev, childID])
-      },
-    })
-    console.log("[Pattern Block] 匹配结果:", result)
-    for (const match of result.matches) {
-      if (!match.pattern.preview) continue
-      match.previewUrl = await readPatternPreview("block", match.pattern.preview, ds)
-    }
-    return result.matches
-  }
-
-  async function handleApplyPattern(sectionId: string, match: PatternMatchItem) {
-    const sid = params.id
-    const ds = selectedDesignSystem()
-    const content = await readPatternFile("block", match.pattern.path, ds)
-    if (!content) return null
-    const patternJson = JSON.parse(content)
-
-    // 读取 assets 静态资源，上传到 uploads 并替换 JSON 中的路径
-    const folderName = match.pattern.path.split("/").slice(0, -1).pop() || ""
-    const assets = await readPatternAssets("block", folderName, ds)
-    const replacements: Record<string, string> = {}
-    for (const a of assets) {
-      if (!sid) break
-      const url = await saveUploadImage(a.buffer, sid)
-      if (url) replacements[a.filename] = url
-    }
-    return replacePatternAssetPaths(patternJson, replacements)
-  }
-
+  // 用户提交输入
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
@@ -800,65 +774,15 @@ function PatternContent() {
           if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
           if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
           startPause(sid!)
-          const confirmDir = patternHistoryDir()
-          if (confirmDir) {
-            await saveCheckpoint(confirmDir, sid!, {
-              stage: "intent_confirm",
-              userInput: intentCtx.userInput,
-              designSystem: ds,
-              rootSessionId: sid!,
-              createdAt: Date.now(),
-              options: confirmResult.options,
-            })
-          }
           return
         }
 
-
-        if (!sendingSids().has(sid!)) return
-        const new_planner = await create_planner_json(intentCtx)
-        void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
-        // 保存部分版本（intent + planner），模块生成完成后追加补全
-        const partialDir = patternHistoryDir()
-        if (partialDir) {
-          const vid = await appendPatternVersion(partialDir, sid!, {
-            lastIntent: new_planner.intent.intent_description,
-            lastPlanner: new_planner.planner.layout_planner,
-            lastModules: [],
-          }, text.slice(0, 80))
-          if (params.id === sid) {
-            sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }], [])
-            sessionMap.set(setCurrentVersionId, sid!, vid)
-          }
-        }
-        // 持久化线框审查检查点
-        const userDir = patternHistoryDir()
-        if (userDir) {
-          await saveCheckpoint(userDir, sid, {
-            stage: "planner_create",
-            userInput: text,
-            designSystem: ds,
-            rootSessionId: sid,
-            createdAt: Date.now(),
-            patternPageResult: { matches: new_planner.patternPageResult.matches },
-            intentResult: { intent_description: new_planner.intent.intent_description },
-            planner: new_planner.planner.layout_planner,
-          })
-        }
-
-        // 展示 Pattern 匹配结果页
-        if (params.id !== sid) return
-        sessionMap.set(setLastPlanner, sid!, new_planner.planner.layout_planner)
-        sessionMap.set(setLastIntent, sid!, new_planner.intent.intent_description)
-        const matches = new_planner.patternPageResult.matches
-        sessionMap.set(setPatternMatches, sid!, matches)
+        // 无维度需确认，直接弹出卡片走 block 选择
         if (sid) sessionMap.set(setUserInput, sid!, text)
-        if (matches?.length > 0) {
-          sessionMap.set(setShowPatternMatch, sid!, true)
-        } else {
-          sessionMap.set(setIsPlanReview, sid!, true)
-        }
+        if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
         startPause(sid!)
+        void handleMatchPatternInCard("")
+        return
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
@@ -874,167 +798,102 @@ function PatternContent() {
     }
   }
 
-  // 用户点击「选择当前模板」时，加载 pattern 文件内容、拷贝静态资源并触发渲染
-  async function handleSelectTemplate(match: PatternMatchItem) {
-    const sid = params.id
-    if (!sid) return
-    const ds = selectedDesignSystem()
-    const content = await readPatternFile("page", match.pattern.path, ds)
-    if (!content) return
-    const { lastIntent, lastPlanner, lastModules, mergedA2UI } = JSON.parse(content)
-    // 从 path 提取文件夹名: "./ChainThoughtPage/data.json" → "ChainThoughtPage"
-    const folderName = match.pattern.path.split("/").slice(0, -1).pop() || ""
-    const assets = await readPatternAssets("page", folderName, ds)
-    const replacements: Record<string, string> = {}
-    for (const a of assets) {
-      const url = await saveUploadImage(a.buffer, sid)
-      if (url) replacements[a.filename] = url
-    }
-
-    // 替换 lastModules 和 mergedA2UI 中的资源路径
-    const patchedModules = replacePatternAssetPaths(lastModules, replacements)
-    const patchedA2UI = replacePatternAssetPaths(mergedA2UI, replacements)
-
-    sessionMap.set(setShowPatternMatch, sid, false)
-
-    const dir = patternHistoryDir()
-    if (dir) {
-      await clearCheckpoint(dir, sid)
-      await updatePatternVersion(dir, sid, {
-        lastModules: patchedModules,
-        mergedA2UI: patchedA2UI,
-      })
-      void saveDebugSnapshot(dir, sid, "template", {
-        lastIntent,
-        lastPlanner,
-        lastModules: patchedModules,
-        mergedA2UI: patchedA2UI,
-        summary: (userInput()[sid] ?? "").slice(0, 80),
-      })
-      clearDebugLog()
-    }
-
-    if (params.id !== sid) return
-    sendToPreview(patchedA2UI)
-    sessionMap.set(setLastIntent, sid, lastIntent)
-    sessionMap.set(setLastPlanner, sid, lastPlanner)
-    sessionMap.set(setLastModules, sid, patchedModules)
-  }
-
-  // 线框审查确认后，继续执行阶段 2：模块生成
-  async function handleConfirmReview(result: WireframeReviewResult) {
-    const sid = params.id
-    if (!sid) return
-    const mk = activeModelKey()
-    if (!mk) return
-
-    const planner = lastPlanner()[sid]
-    if (!planner) return
-
-    const text = userInput()[sid] ?? ""
-    // 把设计师编辑后的意图合并回 lastIntent
-    sessionMap.set(setLastIntent, sid, result.intentDescription)
-
-    // 更新 checkpoint：写入编辑后的 intent，stage 推进到 modules_create
-    const ckptDir = patternHistoryDir()
-    if (ckptDir) {
-      const ckpt = await loadCheckpoint(ckptDir, sid)
-      if (ckpt) {
-        ckpt.intentResult = { intent_description: result.intentDescription }
-        ckpt.stage = "modules_create"
-        await saveCheckpoint(ckptDir, sid, ckpt)
-      }
-    }
-
-    tracker.interaction({ module: "prototype", name: "confirm-review" })
-
-    endPause(sid)
-    sessionMap.set(setIsGeneratingReview, sid, true)
-
-    const ds = selectedDesignSystem()
-    const intentCtx: ProtoCreateJsonInput = {
-      sdk,
-      sync,
-      modelKey: mk,
-      rootSession: sid,
-      userInput: text,
-      extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
-      checkpointDir: patternHistoryDir() ?? undefined,
-      onSessionCreated: (childID: string) => {
-        if (params.id !== sid) return
-        setChildSessionIDs((prev) => [...prev, childID])
-      },
-    }
-
-    let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
-        // 历史保存始终执行（与当前查看的 session 无关）
-          const dir = patternHistoryDir()
-          if (dir) {
-            await updatePatternVersion(dir, sid, {
-                lastModules: modulesJson,
-                mergedA2UI: pageJson as unknown as Record<string, unknown>,
-            })
-            void saveDebugSnapshot(dir, sid, "modules", {
-              lastIntent: pageIntent,
-              lastPlanner: layoutPlanner,
-              lastModules: modulesJson,
-              mergedA2UI: pageJson as unknown as Record<string, unknown>,
-              summary: text.slice(0, 80),
-            })
-            clearDebugLog()
-          }
-        // 内存数据更新（始终写入该 session 的 slot，与当前视图 session 无关）
-        sessionMap.set(setLastIntent, sid, pageIntent)
-        sessionMap.set(setLastPlanner, sid, layoutPlanner)
-        sessionMap.set(setLastModules, sid, modulesJson)
-        // 切换到预览页
-        sessionMap.set(setIsGeneratingReview, sid, false)
-        sessionMap.set(setIsPlanReview, sid, false)
-        // 仅当前仍在该 session 时才推送到 iframe
-        if (params.id === sid && pageJson) sendToPreview(pageJson)
-    }
-    
-    try {
-      await create_modules_json(intentCtx, planner, result.intentDescription, onFinshed)
-    } catch (err: unknown) {
-      if (err instanceof Error && err.message === "aborted") return
-      sessionMap.set(setIsGeneratingReview, sid, false)
-      await handleWorkflowError(err, sid, "handleConfirmReview")
-      sessionMap.set(setIsPlanReview, sid, true)
-    } finally {
-      sessionMap.set(setIsGeneratingReview, sid, false)
-      sessionMap.set(setUserInput, sid, "")
-    }
-  }
-
-  // 意图确认后，带着用户的补充继续执行pattern匹配和线框生成
-  async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string) {
+  // 卡片第一步：点「匹配pattern」触发 block 匹配
+  async function handleMatchPatternInCard(enrichedInput: string) {
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
     if (!mk) return
     const text = userInput()[sid] ?? ""
     const enrichedText = text + enrichedInput
+    const ds = selectedDesignSystem()
+    sessionMap.set(setBlockMatching, sid, true)
+    sessionMap.set(setBlockMatchError, sid, false)
+    sessionMap.set(setBlockMatches, sid, [])
+    try {
+      const result = await create_block_match({
+        sdk,
+        sync,
+        modelKey: mk,
+        rootSession: sid,
+        userInput: enrichedText,
+        extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
+        checkpointDir: patternHistoryDir() ?? undefined,
+        onSessionCreated: (childID: string) => {
+          if (params.id !== sid) return
+          setChildSessionIDs((prev) => [...prev, childID])
+        },
+      })
+      sessionMap.set(setBlockMatches, sid, result.matches)
+    } catch (err) {
+      console.error("[Pattern Block] 匹配失败:", err)
+      sessionMap.set(setBlockMatchError, sid, true)
+    } finally {
+      sessionMap.set(setBlockMatching, sid, false)
+    }
+  }
+
+  // 卡片第二步：点「确认并继续生成」→ proto_intent → planner_create → modules_create
+  async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) {
+    const sid = params.id
+    if (!sid) return
+    const mk = activeModelKey()
+    if (!mk) return
+    const text = userInput()[sid] ?? ""
+    const enrichedText = text + enrichedInput
+    sessionMap.set(setIntentConfirm, sid, null)
     setSendingSids((prev) => new Set(prev).add(sid))
     endPause(sid)
     sessionMap.set(setIsGenerating, sid, true)
     try {
+      const ds = selectedDesignSystem()
+
+      // 读取每个选中 pattern 的外层信息 + 核心描述
+      const patterns: Array<{
+        name: string
+        category: string
+        description: string
+        structure: string
+        patternPath: string
+        rootContainer: { id: string; component: string; className: string }
+      }> = []
+      for (const block of selectedBlocks) {
+        const content = await readPatternFile("block", block.pattern.path, ds)
+        if (!content) continue
+        const json = JSON.parse(content)
+        const rootEl = json.elements?.[0]
+        if (!rootEl) continue
+        patterns.push({
+          name: block.pattern.name,
+          category: block.pattern.category ?? "",
+          description: block.pattern.description ?? "",
+          structure: block.pattern.structure ?? "",
+          patternPath: block.pattern.path,
+          rootContainer: {
+            id: json.rootId ?? rootEl.id ?? "",
+            component: rootEl.component ?? "",
+            className: rootEl.props?.className ?? "",
+          },
+        })
+      }
+
       const intentCtx: ProtoCreateJsonInput = {
         sdk,
         sync,
         modelKey: mk,
         rootSession: sid,
         userInput: enrichedText,
-        extra: { designSystem: selectedDesignSystem() },
+        extra: { designSystem: ds, patterns } as Record<string, unknown>,
         checkpointDir: patternHistoryDir() ?? undefined,
         onSessionCreated: (childID: string) => {
           setChildSessionIDs((prev) => [...prev, childID])
         },
       }
       if (!sendingSids().has(sid)) return
+
+      // proto_intent → planner_create（去掉 pattern_page 和线框审查）
       const new_planner = await create_planner_json(intentCtx)
       void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
-      // 保存部分版本（intent + planner），模块生成完成后追加补全
       const partialDir = patternHistoryDir()
       if (partialDir) {
         const vid = await appendPatternVersion(partialDir, sid!, {
@@ -1042,41 +901,36 @@ function PatternContent() {
           lastPlanner: new_planner.planner.layout_planner,
           lastModules: [],
         }, enrichedText.slice(0, 80))
-        if (params.id === sid) {
-          sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: enrichedText.slice(0, 80) }], [])
-          sessionMap.set(setCurrentVersionId, sid!, vid)
-        }
+        sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: enrichedText.slice(0, 80) }], [])
+        sessionMap.set(setCurrentVersionId, sid!, vid)
       }
-      const userDir = patternHistoryDir()
-      if (userDir) {
-        await saveCheckpoint(userDir, sid, {
-          stage: "planner_create",
-          userInput: enrichedText,
-          designSystem: selectedDesignSystem(),
-          rootSessionId: sid,
-          createdAt: Date.now(),
-          patternPageResult: { matches: new_planner.patternPageResult.matches },
-          intentResult: { intent_description: new_planner.intent.intent_description },
-          planner: new_planner.planner.layout_planner,
-        })
-      }
-      sessionMap.set(setIntentConfirm, sid!, null)
+
       sessionMap.set(setLastPlanner, sid!, new_planner.planner.layout_planner)
       sessionMap.set(setLastIntent, sid!, new_planner.intent.intent_description)
-      const matches = new_planner.patternPageResult.matches
-      sessionMap.set(setPatternMatches, sid!, matches)
       sessionMap.set(setUserInput, sid!, enrichedText)
-      if (matches?.length > 0) {
-        sessionMap.set(setShowPatternMatch, sid!, true)
-      } else {
-        sessionMap.set(setIsPlanReview, sid!, true)
+
+      // 直接进入 modules_create，不暂停审查
+      sessionMap.set(setIsGeneratingReview, sid, true)
+      const onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
+        const dir = patternHistoryDir()
+        if (dir) {
+          await updatePatternVersion(dir, sid, { lastModules: modulesJson, mergedA2UI: pageJson })
+          void saveDebugSnapshot(dir, sid, "modules", { lastIntent: pageIntent, lastPlanner: layoutPlanner, lastModules: modulesJson, mergedA2UI: pageJson, summary: enrichedText.slice(0, 80) })
+          clearDebugLog()
+        }
+        sessionMap.set(setLastIntent, sid, pageIntent)
+        sessionMap.set(setLastPlanner, sid, layoutPlanner)
+        sessionMap.set(setLastModules, sid, modulesJson)
+        sessionMap.set(setIsGeneratingReview, sid, false)
+        if (params.id === sid && pageJson) sendToPreview(pageJson)
       }
-      startPause(sid)
+      await create_modules_json(intentCtx, new_planner.planner.layout_planner, new_planner.intent.intent_description, onFinshed)
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleConfirmIntent")
     } finally {
       sessionMap.set(setIsGenerating, sid, false)
+      sessionMap.set(setIsGeneratingReview, sid, false)
       setSendingSids((prev) => {
         if (!prev.has(sid)) return prev
         const next = new Set(prev)
@@ -1111,8 +965,6 @@ function PatternContent() {
     sessionMap.set(setIsGeneratingReview, sid, false)
     sessionMap.set(setIsModifying, sid, false)
     sessionMap.set(setIntentConfirm, sid, null)
-    sessionMap.set(setIsPlanReview, sid, false)
-    sessionMap.set(setShowPatternMatch, sid, false)
     // 取消时保留已累计的 pauseMs（扣除暂停时间），只停止实时暂停
     endPause(sid)
     setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
@@ -1289,7 +1141,7 @@ function PatternContent() {
 
   const inputDisabled = () => {
     const sid = params.id
-    return (sid ? sending() || isBusy() : false) || !activeModelKey() || (sid ? (!!isPlanReview()[sid] || !!showPatternMatch()[sid] || intentConfirm()[sid] != null) : false)
+    return (sid ? sending() || isBusy() : false) || !activeModelKey() || (sid ? intentConfirm()[sid] != null : false)
   }
 
   const chartInputProps = () => ({
@@ -1358,6 +1210,13 @@ function PatternContent() {
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
             onRetry={handleRetry}
+            intentConfirmResult={intentConfirm()[params.id!] ?? null}
+            blockMatches={blockMatches()[params.id!] ?? []}
+            blockMatching={blockMatching()[params.id!] ?? false}
+            blockMatchError={blockMatchError()[params.id!] ?? false}
+            initialStep={cardInitialStep()}
+            onMatchPattern={handleMatchPatternInCard}
+            onConfirmIntent={handleConfirmIntent}
           />
         </Show>
 
@@ -1369,77 +1228,31 @@ function PatternContent() {
         <Show when={hasContent()}>
           <div style={{ position: "relative", overflow: "hidden" }}>
             <Show when={intentConfirm()[params.id!] ?? null} fallback={
-              <Show when={!!showPatternMatch()[params.id!]} fallback={
-                <Show when={!!isPlanReview()[params.id!]} fallback={
-                  <Show when={!!isGeneratingReview()[params.id!]} fallback={
-                    <Show when={!!hasPreviewContent()[params.id!]} fallback={<PatternPreviewEmpty />}>
-                      <PreviewPage
-                        api={previewApi}
-                        pendingData={pendingPreviewData()[params.id!] ?? null}
-                        sessionId={params.id}
-                        dir={sdk.directory}
-                        onModifyElement={handleModifyElement}
-                        onPickerSubmit={handlePickerSubmit}
-                        onDownload={handleDownload}
-                        onShare={handleShare}
-                        onReorder={handleReorder}
-                        onLivePreview={handleLivePreview}
-                        onPixsoPreview={handlePixsoPreview}
-                        onCodeToHtml={handleCodeToHtml}
-                        versions={versions()[params.id!] ?? []}
-                        currentVersionId={currentVersionId()[params.id!] ?? null}
-                        onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
-                      />
-                    </Show>
-                  }>
-                    <Show when={(lastPlanner()[params.id!] ?? null) && (lastIntent()[params.id!] ?? null)} fallback={<PatternGenerating />}>
-                      <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                        <WireframeReview
-                          planner={lastPlanner()[params.id!]!}
-                          intentDescription={lastIntent()[params.id!]!}
-                          userInput={userInput()[params.id!] ?? ""}
-                          onConfirm={handleConfirmReview}
-                        />
-                        <PatternGenerating />
-                      </div>
-                    </Show>
-                  </Show>
-                }>
-                  <Show when={(lastPlanner()[params.id!] ?? null) && (lastIntent()[params.id!] ?? null)} fallback={<PatternPreviewEmpty />}>
-                    <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                      <WireframeReview
-                        planner={lastPlanner()[params.id!]!}
-                        intentDescription={lastIntent()[params.id!]!}
-                        userInput={userInput()[params.id!] ?? ""}
-                        onConfirm={handleConfirmReview}
-                        onMatchPattern={handleMatchPattern}
-                        onApplyPattern={handleApplyPattern}
-                      />
-                      <Show when={!!isGeneratingReview()[params.id!]}>
-                        <PatternGenerating />
-                      </Show>
-                    </div>
-                  </Show>
+              <Show when={!!isGeneratingReview()[params.id!]} fallback={
+                <Show when={!!hasPreviewContent()[params.id!]} fallback={<PatternPreviewEmpty />}>
+                  <PreviewPage
+                    api={previewApi}
+                    pendingData={pendingPreviewData()[params.id!] ?? null}
+                    sessionId={params.id}
+                    dir={sdk.directory}
+                    onModifyElement={handleModifyElement}
+                    onPickerSubmit={handlePickerSubmit}
+                    onDownload={handleDownload}
+                    onShare={handleShare}
+                    onReorder={handleReorder}
+                    onLivePreview={handleLivePreview}
+                    onPixsoPreview={handlePixsoPreview}
+                    onCodeToHtml={handleCodeToHtml}
+                    versions={versions()[params.id!] ?? []}
+                    currentVersionId={currentVersionId()[params.id!] ?? null}
+                    onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+                  />
                 </Show>
               }>
-                <PatternMatchPage
-                  planner={lastPlanner()[params.id!] ?? {}}
-                  intentDescription={lastIntent()[params.id!] ?? {}}
-                  patternMatches={patternMatches()[params.id!] ?? []}
-                  onEnterWireframe={handleEnterWireframe}
-                  onSelectTemplate={handleSelectTemplate}
-                />
+                <PatternGenerating />
               </Show>
             }>
-              <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                <IntentConfirmReview
-                  result={intentConfirm()[params.id!]!}
-                  onConfirm={handleConfirmIntent}
-                />
-                <Show when={!!isGenerating()[params.id!]}>
-                  <PatternGenerating />
-                </Show>
-              </div>
+              <PatternPreviewEmpty />
             </Show>
             <Show when={!!isModifying()[params.id!]}>
               <div class="change-content">
